@@ -85,6 +85,8 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
+      <HeroBanner />
+
       {/* The nav already shows the page name in its highlighted state,
           so a redundant h1 just eats vertical space above the fold.
           Keep only the WindowPicker right-aligned. */}
@@ -281,4 +283,58 @@ function Stat({
 
 function EmptyState({ kind }: { kind: string }) {
   return <p className="text-sm text-neutral-500">No {kind}.</p>;
+}
+
+// HeroBanner is the marketing-style top frame for the Overview — a
+// tagline pill, two-line headline, short product description, and a
+// CTA into the live view. Matches the visual structure of Caffeine's
+// home hero so the two self-hosted apps feel like a family. The
+// decorative lightning glyph floats in the right third of the banner
+// and is purely ornamental.
+function HeroBanner() {
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 px-6 py-8 sm:px-8 sm:py-10">
+      {/* Decorative lightning bolt — emerald, heavily faded. Sits
+          absolutely in the right half and is cropped on narrow
+          viewports so it never competes with the headline. */}
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="pointer-events-none absolute -right-4 top-1/2 hidden h-48 w-48 -translate-y-1/2 text-emerald-500/10 md:block"
+        fill="currentColor"
+      >
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+      </svg>
+      <div className="relative max-w-2xl">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs text-emerald-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          Your Rivian, your data
+        </span>
+        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
+          <span className="block text-neutral-100">Drive more.</span>
+          <span className="block text-emerald-300">Know it better.</span>
+        </h1>
+        <p className="mt-3 max-w-xl text-sm text-neutral-400 sm:text-base">
+          Live telemetry from your Rivian, a full history of drives and
+          charges with charts, and session-level cost tracking for home
+          and public charging. Runs on your network — nothing leaves
+          the box.
+        </p>
+        <div className="mt-5 flex items-center gap-3">
+          <Link
+            to="/live"
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow hover:bg-emerald-500"
+          >
+            Live view →
+          </Link>
+          <Link
+            to="/drives"
+            className="text-sm text-neutral-400 hover:text-neutral-200"
+          >
+            Browse history
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
 }
