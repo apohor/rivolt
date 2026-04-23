@@ -20,7 +20,7 @@ import {
   type WindowKey,
 } from "../lib/analytics";
 import { WindowPicker } from "../components/WindowPicker";
-import { LivePanel } from "../components/LivePanel";
+import { LiveSummary } from "../components/LiveSummary";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -74,7 +74,7 @@ export default function HomePage() {
         actions={<WindowPicker value={win} onChange={setWin} />}
       />
 
-      <LivePanel />
+      <LiveSummary />
 
       {isLoading ? (
         <Spinner />
