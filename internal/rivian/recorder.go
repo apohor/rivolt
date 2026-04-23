@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -398,6 +399,31 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		Lat:            c.lat,
 		Lon:            c.lon,
 		Source:         "live",
+	}
+	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
+	// (they're the real billed amount); otherwise use the operator's
+	// configured home $/kWh rate. Persisting means future rate
+	// changes don't retroactively rewrite history.
+	if liveSess != nil && liveSess.CurrentPrice != "" {
+		if cost, err := strconv.ParseFloat(liveSess.CurrentPrice, 64); err == nil && cost > 0 {
+			row.Cost = cost
+			row.Currency = liveSess.CurrentCurrency
+			if energy > 0 {
+				row.PricePerKWh = cost / energy
+			}
+		}
+	}
+	if row.Cost == 0 && energy > 0 {
+		m.mu.RLock()
+		lookup := m.priceLookup
+		m.mu.RUnlock()
+		if lookup != nil {
+			if rate, cur := lookup(); rate > 0 {
+				row.PricePerKWh = rate
+				row.Currency = cur
+				row.Cost = rate * energy
+			}
+		}
 	}
 	if err := m.chargesStore.Upsert(ctx, row); err != nil {
 		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())

@@ -204,6 +204,18 @@ func runServer() {
 	// on restart.
 	if stateMonitor != nil {
 		stateMonitor.SetStores(samplesStore, drivesStore, chargesStore)
+		// Snapshot the home $/kWh rate at charge-close time so rate
+		// edits don't retroactively rewrite billed history. Pulls
+		// from the same settings store the UI writes to.
+		if settingsStore != nil {
+			stateMonitor.SetPriceLookup(func() (float64, string) {
+				cfg, err := settings.GetChargingConfig(ctx, settingsStore)
+				if err != nil {
+					return 0, ""
+				}
+				return cfg.HomePricePerKWh, cfg.HomeCurrency
+			})
+		}
 		stateMonitor.Start(ctx)
 
 		// Prime per-vehicle metadata (model/trim/pack/image) in the
