@@ -271,7 +271,8 @@ func handleChargingFieldProbe(c rivian.Client) http.HandlerFunc {
 		}
 		field := chi.URLParam(r, "field")
 		vid := r.URL.Query().Get("vehicleID")
-		data, err := lc.ChargingFieldProbe(r.Context(), field, vid)
+		sel := r.URL.Query().Get("sel")
+		data, err := lc.ChargingFieldProbeWithSelection(r.Context(), field, vid, sel)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return

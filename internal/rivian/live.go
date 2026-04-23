@@ -729,12 +729,18 @@ func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, e
 }
 
 // ChargingFieldProbe fires a deliberately malformed query for the
-// named top-level field against the charging endpoint. Rivian's
-// server responds with argument/subfield validation errors that
-// reveal the required input types and selection-set shape. We use
-// this to reverse-engineer renamed fields when introspection is
-// disabled.
+// named top-level field against the charging endpoint.
 func (c *LiveClient) ChargingFieldProbe(ctx context.Context, field, vehicleID string) (map[string]any, error) {
+	selection := ""
+	return c.ChargingFieldProbeWithSelection(ctx, field, vehicleID, selection)
+}
+
+// ChargingFieldProbeWithSelection probes a top-level field and
+// supplies a selection set so the server's validator proceeds to
+// verify subfields. When selection is empty we emit an empty
+// selection { __typename } and rely on arg-validation errors
+// instead.
+func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field, vehicleID, selection string) (map[string]any, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
@@ -743,18 +749,15 @@ func (c *LiveClient) ChargingFieldProbe(ctx context.Context, field, vehicleID st
 	if field == "" {
 		return nil, errors.New("field required")
 	}
-	// Empty selection + no arguments forces the server to emit
-	// "Field X requires args Y" or "Field X must have a selection of
-	// subfields" depending on which check fails first.
-	q := fmt.Sprintf(`query Probe { %s }`, field)
+	sel := selection
+	if sel == "" {
+		sel = "__typename"
+	}
+	q := fmt.Sprintf(`query Probe { %s { %s } }`, field, sel)
 	vars := map[string]any{}
 	if vehicleID != "" {
-		// Try a couple of likely arg names in one shot — server
-		// will reject at most one but the error message lists the
-		// real arg list.
-		q = fmt.Sprintf(`query Probe($vehicleId: ID!, $vid: String!) { %s(vehicleId: $vehicleId) }`, field)
+		q = fmt.Sprintf(`query Probe($vehicleId: ID!) { %s(vehicleId: $vehicleId) { %s } }`, field, sel)
 		vars["vehicleId"] = vehicleID
-		vars["vid"] = vehicleID
 	}
 	// Use a raw POST so we surface the error body instead of
 	// failing out in doGraphQLAt's HTTP 400 handler.
