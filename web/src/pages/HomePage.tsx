@@ -97,9 +97,17 @@ export default function HomePage() {
             <Stat
               label="Efficiency"
               value={
-                ds.milesPerPct > 0 ? `${ds.milesPerPct.toFixed(2)} mi/%` : "—"
+                cs.energyKWh > 0 && ds.miles > 0
+                  ? `${(ds.miles / cs.energyKWh).toFixed(2)} mi/kWh`
+                  : ds.milesPerPct > 0
+                    ? `${ds.milesPerPct.toFixed(2)} mi/%`
+                    : "—"
               }
-              hint={`top speed ${num(ds.maxSpeedMph, 0, "mph")}`}
+              hint={
+                cs.energyKWh > 0 && ds.miles > 0
+                  ? `${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
+                  : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
+              }
             />
           </div>
 
