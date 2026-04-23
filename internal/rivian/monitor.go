@@ -301,8 +301,11 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 // merged into m.lastSession so /api/live-session/:id returns the
 // subscription's data preferentially.
 func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID string) {
-	// Check charging state every 15s. Cheap — just reads the cache.
-	t := time.NewTicker(15 * time.Second)
+	// Check charging state every 5s. Cheap — just reads the cache.
+	// The previous 15s interval added noticeable lag between plugging
+	// in and the WS opening; 5s is still cheap and matches how often
+	// vehicleState pushes arrive while charging.
+	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 
 	var (
@@ -325,13 +328,15 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 		if st == nil {
 			return false
 		}
-		cs := strings.ToLower(strings.TrimSpace(st.ChargerState))
-		// Keep the subscription open through the whole session
-		// including the tail-end "charging_complete" state so we
-		// see the final energy/range totals pushed out.
-		return cs == "charging_active" ||
-			cs == "charging_connecting" ||
-			cs == "charging_complete"
+		// Reuse the recorder's charging-state predicate so we open the
+		// subscription for every state the rest of the app considers
+		// "the car is charging" — charging_ready, waiting_on_charger,
+		// charging_active, charging_connecting, etc. The previous
+		// explicit list missed charging_ready, which is the state a
+		// just-plugged home AC session spends its first few seconds in
+		// before transitioning to charging_active. That meant on a
+		// fresh plug-in the subscription never opened at all.
+		return isChargingCS(st.ChargerState)
 	}
 
 	for {
@@ -344,8 +349,15 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 				subCtx, cancel := context.WithCancel(ctx)
 				subCancel = cancel
 				subActive = true
+				m.mu.RLock()
+				st := m.cache[vehicleID]
+				m.mu.RUnlock()
+				csLog := ""
+				if st != nil {
+					csLog = st.ChargerState
+				}
 				m.logger.Info("rivian charging-session ws starting",
-					"vehicle", vehicleID)
+					"vehicle", vehicleID, "charger_state", csLog)
 				go func() {
 					firstLogged := false
 					err := m.client.SubscribeChargingSession(subCtx, vehicleID, func(sess *LiveSession) {
