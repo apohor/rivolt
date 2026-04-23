@@ -177,6 +177,19 @@ export default function DriveDetailPage() {
           <Endpoint label="Start" lat={drive.StartLat} lon={drive.StartLon} />
           <Endpoint label="End" lat={drive.EndLat} lon={drive.EndLon} />
         </div>
+        {hasEndpointPair(drive) ? (
+          <div className="mt-4 border-t border-neutral-800 pt-3">
+            <a
+              href={googleRouteURL(drive)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
+            >
+              Open route in Google Maps
+              <span aria-hidden>↗</span>
+            </a>
+          </div>
+        ) : null}
       </Card>
 
       {samples.isError ? (
@@ -194,6 +207,32 @@ function xTimeFmt(x: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// Google Maps directions URL with driving mode, origin, and destination.
+// We omit waypoints — we have hundreds of samples per drive and the URL
+// has a 10-waypoint cap anyway. Google routes between endpoints fine;
+// this is "navigate me home" UX, not a polyline replayer.
+function googleRouteURL(d: {
+  StartLat: number;
+  StartLon: number;
+  EndLat: number;
+  EndLon: number;
+}): string {
+  const origin = `${d.StartLat},${d.StartLon}`;
+  const dest = `${d.EndLat},${d.EndLon}`;
+  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
+}
+
+function hasEndpointPair(d: {
+  StartLat: number;
+  StartLon: number;
+  EndLat: number;
+  EndLon: number;
+}): boolean {
+  const ok = (lat: number, lon: number) =>
+    Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0);
+  return ok(d.StartLat, d.StartLon) && ok(d.EndLat, d.EndLon);
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
