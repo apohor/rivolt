@@ -648,47 +648,67 @@ function DrivingDetail({
   );
 }
 
-// pickImageForState chooses which configurator angle best illustrates
-// the current vehicle state. Rivian tags each render with a short
-// `placement` string; observed values across R1T and R1S are:
+// pickImageForState chooses which configurator angle best
+// illustrates the current vehicle state. Rivian's real placement
+// strings look like `side-exterior-3qfront-driver`,
+// `side-exterior-3qrear-driver`, `side-exterior-driver`,
+// `front-exterior`, `rear-exterior`, `interior-cabin-driver`,
+// `overhead-exterior`, etc. — NOT the short single-word tags we
+// used earlier. Match by substring tokens so we actually hit
+// something instead of silently falling through to images[0].
 //
-//   front          - head-on front
-//   rear           - head-on rear
-//   side           - side profile
-//   side-rear      - 3/4 rear
-//   side-charging  - side view with charge port open (ours)
-//   in-use         - driving / motion shot
-//   overhead       - top-down
+// State → preferred order:
 //
-// We map state → preferred placement, pick the first image whose
-// placement matches, and fall back to the first image if nothing
-// lines up. Returns "" when there are no images.
+//   charging      → 3qfront (full vehicle, plugged look) → side
+//   driving       → side profile → 3qfront
+//   frunk open    → front
+//   liftgate/tonneau → rear → 3qrear
+//   doors open    → side
+//   default       → 3qfront (marketing hero), then side, 3qrear, front, rear
+//
+// Interior / overhead / side-charging are deliberately NOT in any
+// preferred list — they look truncated at card size. They only
+// appear as last-resort fallbacks.
 function pickImageForState(
   images: readonly { url: string; placement?: string }[] | undefined,
   state: VehicleState | undefined,
 ): string {
   if (!images || images.length === 0) return "";
 
-  // Build a priority list of placements for the current state.
+  // Tokens to try in order. Each entry matches any placement that
+  // contains the substring *and* is an exterior shot (skips
+  // `interior-cabin-*`). First match wins.
   const wants: string[] = [];
   if (state) {
     const cs = (state.charger_state || "").toLowerCase();
     const charging = cs.startsWith("charging_") || cs === "waiting_on_charger";
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
 
-    if (charging) wants.push("side", "side-rear", "side-charging");
-    if (!state.frunk_closed) wants.push("front");
-    if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "side-rear");
-    if (driving) wants.push("in-use", "side");
-    if (!state.doors_closed) wants.push("side");
+    if (charging) wants.push("3qfront", "side-exterior", "3qrear");
+    else if (driving) wants.push("side-exterior", "3qfront");
+    if (!state.frunk_closed) wants.push("front-exterior", "3qfront");
+    if (!state.liftgate_closed || !state.tonneau_closed) {
+      wants.push("rear-exterior", "3qrear");
+    }
+    if (!state.doors_closed) wants.push("side-exterior");
   }
-  // Universal fallback order: marketing hero first.
-  wants.push("side", "side-rear", "front", "rear", "in-use", "side-charging", "overhead");
+  // Universal fallback chain: marketing hero first, then progressively
+  // wider angles, then anything exterior, then anything at all.
+  wants.push("3qfront", "side-exterior", "3qrear", "front-exterior", "rear-exterior");
 
   for (const want of wants) {
-    const hit = images.find((img) => (img.placement || "").toLowerCase() === want);
+    const hit = images.find((img) => {
+      const p = (img.placement || "").toLowerCase();
+      return p.includes(want) && !p.includes("interior");
+    });
     if (hit) return hit.url;
   }
+  // Last resort: any exterior shot.
+  const anyExt = images.find((img) =>
+    (img.placement || "").toLowerCase().includes("exterior") &&
+    !(img.placement || "").toLowerCase().includes("interior"),
+  );
+  if (anyExt) return anyExt.url;
   return images[0].url;
 }
 
