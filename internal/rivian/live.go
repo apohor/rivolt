@@ -63,6 +63,12 @@ type LiveClient struct {
 	framesMu     sync.Mutex
 	recentFrames []ChargingFrame
 	maxFrames    int
+
+	// Shared WS connection multiplexer. Nil until the first
+	// Subscribe* call, torn down when the last subscriber leaves
+	// (or the connection dies). Guarded by muxMu.
+	muxMu sync.Mutex
+	mux   *wsMux
 }
 
 // ChargingFrame captures one raw ChargingSession push or lifecycle
