@@ -1,0 +1,18 @@
+.git
+.gitignore
+node_modules
+web/node_modules
+web/dist
+bin
+dist
+data
+*.db
+.DS_Store
+.vscode
+.idea
+README.md
+Makefile
+docker-compose*.yml
+
+# Dev-only tools — never shipped in the production image.
+cmd/mockmachine

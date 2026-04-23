@@ -1,0 +1,37 @@
+# Production-like single container. Builds web + go, serves on :8080.
+#
+# Usage:
+#   docker compose up --build
+#   open http://localhost:8080
+services:
+  caffeine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: caffeine:local
+    container_name: caffeine
+    ports:
+      - "8080:8080"
+    environment:
+      ADDR: ":8080"
+      # Override via shell env if needed:
+      #   MACHINE_URL=http://192.168.1.42 docker compose up
+      MACHINE_URL: "${MACHINE_URL:-http://192.168.1.178}"
+      DATA_DIR: "/data"
+      SYNC_INTERVAL: "${SYNC_INTERVAL:-15m}"
+      # Optional AI shot analysis (M2.1). Pick ONE provider by setting its
+      # API key in your shell env. If multiple are set, openai wins unless
+      # AI_PROVIDER selects otherwise.
+      AI_PROVIDER: "${AI_PROVIDER:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
+    volumes:
+      - caffeine-data:/data
+    restart: unless-stopped
+
+volumes:
+  caffeine-data:

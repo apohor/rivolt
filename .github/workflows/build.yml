@@ -1,0 +1,123 @@
+# Build, test, and publish the caffeine container image.
+#
+# Two jobs:
+#   1. test    — go vet/test + web typecheck/build. Runs on every push + PR.
+#   2. publish — multi-arch image push to GHCR. Only runs on vX.Y.Z tags or
+#                manual workflow_dispatch. Pushes to main only run tests.
+#
+# Triggers:
+#   - Push to main        → test only
+#   - Push of vX.Y.Z tag  → test, then publish 'vX.Y.Z', 'X.Y', 'latest'
+#   - Pull request        → test only
+#   - workflow_dispatch   → test + publish (manual re-releases)
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Build the web bundle first — internal/web/web.go uses
+      # //go:embed all:dist which fails to compile if the directory
+      # is empty (it's gitignored, so fresh checkouts have nothing).
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check web
+        working-directory: web
+        run: npx tsc --noEmit
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+  publish:
+    name: publish
+    needs: test
+    # Publish only on version tags or explicit manual dispatch. Pushes to
+    # main run tests but don't produce an image — nothing consumes the
+    # main/main-<sha> tags, and every merge re-publishing :latest-shaped
+    # artifacts just burns CI minutes.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to ghcr.io
+      id-token: write   # reserved for future cosign signing
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}  # e.g. apohor/caffeine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # No QEMU needed: the Dockerfile runs web/go stages on $BUILDPLATFORM
+      # and cross-compiles Go to linux/arm64 via GOOS/GOARCH. The runtime
+      # stage is COPY-only, so arm64 images are produced without emulation.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags & labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

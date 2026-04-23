@@ -1,0 +1,68 @@
+# Synology Container Manager — caffeine project
+#
+# How to use (DSM 7.2+):
+#   1. Container Manager → Project → Create
+#        Project name:  caffeine
+#        Path:          /volume1/docker/caffeine
+#        Source:        Create docker-compose.yml  (paste this file)
+#   2. Adjust CAFFEINE_MACHINE_URL below to your Meticulous machine's IP.
+#   3. Optional: change the host port 8080 via CAFFEINE_ADDR if it's already
+#      taken on the NAS (DSM occupies a lot of low ports).
+#   4. Build → Run.  Open  http://<nas-ip>:8080
+#   5. Settings page → pick AI provider + paste key (persists in the named
+#      volume under /volume1/@docker/volumes/caffeine_caffeine-data/_data).
+#
+# A named volume (not a bind mount) is used on purpose: DSM applies its own
+# ACLs under /volume1/docker that block the image's nonroot uid (65532) from
+# writing caffeine.db. Docker-managed volumes sidestep that entirely — no
+# chown needed.
+#
+# Updating: Container Manager → Project → Action → Build (pulls :latest and
+# recreates). Or pin to a specific tag (e.g. v0.6.0) for reproducibility.
+
+services:
+  caffeine:
+    image: ghcr.io/apohor/caffeine:latest
+    container_name: caffeine
+    restart: always
+    # Host networking lets the container reach the Meticulous machine on the
+    # LAN without any docker bridge shenanigans, and publishes the listen
+    # port (default :8080) directly on the NAS. Drop this and use bridge +
+    # `ports:` if you need isolation.
+    network_mode: host
+
+    environment:
+      # Meticulous espresso machine on the LAN. REQUIRED.
+      MACHINE_URL: "http://192.168.1.178"
+      # SQLite DB + cached assets inside the container. Matches the volume.
+      DATA_DIR: "/data"
+      # Timezone for preheat schedules. The scheduler matches stored HH:MM
+      # against the container's local time, so "07:10" with TZ=UTC fires at
+      # 07:10 UTC (= 02:10 US/Eastern). Set this to your own zone so the
+      # times you type in the UI are the times the machine actually preheats.
+      TZ: "America/Chicago"
+      # Optional overrides — all have sensible defaults in the binary:
+      # ADDR: ":8080"             # host listen address
+      # SYNC_INTERVAL: "15m"      # how often to pull shot history
+      # AI_PROVIDER: ""           # openai | anthropic | gemini
+                                  # (empty = auto from whichever key is
+                                  #  set on the Settings page)
+
+    # 'ports:' is intentionally omitted — with network_mode: host the port
+    # mapping is ignored and the binary listens on the ADDR port directly
+    # on the host.
+
+    volumes:
+      - caffeine-data:/data
+
+    # No healthcheck: the image is distroless (no shell, no curl) and the
+    # binary doesn't expose a self-probe flag. If you want one, put a
+    # reverse proxy in front that probes /api/health.
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caffeine-data:
+    # Lives under /volume1/@docker/volumes/caffeine_caffeine-data/_data on
+    # DSM. Back up by copying that directory while the container is stopped.

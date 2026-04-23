@@ -1,0 +1,41 @@
+# Dev stack: Go server on :8080 and Vite dev server on :5173 with hot reload.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   open http://localhost:5173       # UI with HMR (proxies /api to :8080)
+#   open http://localhost:8080/api/health
+services:
+  api:
+    image: golang:1.25-alpine
+    working_dir: /src
+    volumes:
+      - ./:/src
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    command: sh -c "go run ./cmd/caffeine"
+    ports:
+      - "8080:8080"
+    environment:
+      ADDR: ":8080"
+      MACHINE_URL: "http://host.docker.internal:8081"
+      # Periodic reconcile only — live shot recorder captures new shots
+      # instantly over the WebSocket, so this just catches anything missed
+      # while the server was offline. Keep it quiet in dev.
+      SYNC_INTERVAL: "15m"
+
+  web:
+    image: node:22-alpine
+    working_dir: /web
+    volumes:
+      - ./web:/web
+      - web-node-modules:/web/node_modules
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  go-mod-cache:
+  go-build-cache:
+  web-node-modules:

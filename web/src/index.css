@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  /* Respect iOS notch / Dynamic Island / home indicator when installed
+     to the home screen as a PWA. `viewport-fit=cover` in index.html
+     activates the env() values below; on non-notched devices they
+     evaluate to 0 and this is a no-op. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* The sticky app header extends behind the status bar in standalone
+   mode (black-translucent); pad its inner container so content clears
+   the notch without the backdrop-blur layer shrinking. */
+.app-safe-top {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-md border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm text-neutral-100 shadow-sm placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600;
+  }
+}
+
+/* Hide native number-input spinners. They're ugly in dark mode and the
+   profile editor has dozens of numeric fields — the up/down arrows add
+   visual noise without helping (users type values directly). */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Range sliders in the profile editor. Thin track, emerald thumb, dark
+   surround so they read as "adjustable" without dominating the row. */
+.caffeine-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 1.5rem;
+  cursor: pointer;
+}
+.caffeine-range:focus {
+  outline: none;
+}
+.caffeine-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: theme("colors.neutral.800");
+  border-radius: 9999px;
+}
+.caffeine-range::-moz-range-track {
+  height: 4px;
+  background: theme("colors.neutral.800");
+  border-radius: 9999px;
+}
+.caffeine-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: theme("colors.emerald.500");
+  border: 2px solid theme("colors.neutral.950");
+  margin-top: -5px;
+  box-shadow: 0 0 0 1px theme("colors.emerald.700");
+}
+.caffeine-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: theme("colors.emerald.500");
+  border: 2px solid theme("colors.neutral.950");
+  box-shadow: 0 0 0 1px theme("colors.emerald.700");
+}
+.caffeine-range:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px theme("colors.emerald.500");
+}
+.caffeine-range:focus::-moz-range-thumb {
+  box-shadow: 0 0 0 2px theme("colors.emerald.500");
+}
+
+/* ---- uPlot legend polish ----------------------------------------------- */
+/* Replace the default tiny dot/square marker with a wider line-bar swatch
+   that reads like a proper chart legend key. uPlot sets the swatch color
+   inline as `border-color: <stroke>`, so we collapse the marker into a
+   single bottom border to inherit the stroke color for free. */
+.caffeine-uplot .u-legend {
+  color: theme("colors.neutral.300");
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+}
+.caffeine-uplot .u-legend .u-series {
+  padding: 0 0.6rem;
+}
+.caffeine-uplot .u-legend .u-marker {
+  display: inline-block;
+  vertical-align: middle;
+  width: 1.25rem;
+  height: 0;
+  margin-right: 0.45rem;
+  border-style: solid !important;
+  border-width: 0 0 3px 0 !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* Cursor read-out: show the value at the cursor position next to each
+   series label. Tabular-nums keeps the digits from jiggling as values
+   change. Hidden until the cursor enters the chart, courtesy of uPlot. */
+.caffeine-uplot .u-legend .u-value {
+  display: inline-block;
+  margin-left: 0.35rem;
+  min-width: 2.5rem;
+  font-variant-numeric: tabular-nums;
+  color: theme("colors.neutral.100");
+}
+.caffeine-uplot .u-legend th {
+  font-weight: 500;
+  cursor: pointer;
+}
+.caffeine-uplot .u-legend .u-off th,
+.caffeine-uplot .u-legend .u-off .u-marker {
+  opacity: 0.35;
+}
+
+/* ---- uPlot cursor polish ----------------------------------------------- */
+/* The per-series ring dots at the hovered X (configured in ShotChart.tsx)
+   are the sole hover affordance. uPlot's default CSS draws a dashed
+   grey crosshair (border-right on .u-cursor-x, border-bottom on
+   .u-cursor-y) which is redundant with the dots, so hide both. */
+.caffeine-uplot .u-cursor-x,
+.caffeine-uplot .u-cursor-y {
+  display: none !important;
+}
+/* Drag-to-zoom selection rectangle: make the filled region visible
+   instead of a near-invisible haze. */
+.caffeine-uplot .u-select {
+  background: rgba(56, 189, 248, 0.14) !important;
+  border: 1px solid rgba(56, 189, 248, 0.55) !important;
+}
