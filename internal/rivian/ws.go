@@ -166,21 +166,52 @@ var errWSUnauthenticated = errors.New("rivian: websocket unauthenticated")
 // cycle. Returns nil when ctx is cancelled, or a non-nil error on any
 // terminal failure that should trigger a reconnect.
 func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok string, cb StateCallback) error {
-	// Dial with the subprotocol Rivian's AppSync-derived gateway
-	// expects. They reject anything else.
+	return c.runGenericSubscription(ctx, userTok, subParams{
+		operationName: "VehicleState",
+		query:         qVehicleStateSubscription,
+		vehicleID:     vehicleID,
+	}, func(raw json.RawMessage) error {
+		var payload wsNextPayload
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			// Single bad frame — keep the stream alive.
+			return nil
+		}
+		if len(payload.Errors) > 0 {
+			msgs := make([]string, 0, len(payload.Errors))
+			for _, e := range payload.Errors {
+				msgs = append(msgs, e.Message)
+			}
+			return fmt.Errorf("ws subscription error: %s", strings.Join(msgs, "; "))
+		}
+		cb(stateFromVehicleStateData(vehicleID, payload.Data))
+		return nil
+	})
+}
+
+// subParams is the per-subscription config passed into the generic
+// runner. operationName matches what Rivian's gateway logs; query is
+// the GraphQL document string; vehicleID goes into the variables.
+type subParams struct {
+	operationName string
+	query         string
+	vehicleID     string
+}
+
+// runGenericSubscription is the shared connect → init → subscribe →
+// receive loop used by both the vehicleState and chargingSession
+// subscriptions. The caller supplies a handler that decodes the
+// "next" frame payload; returning a non-nil error from the handler
+// tears down the subscription (caller reconnects with backoff).
+func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string, params subParams, onNext func(json.RawMessage) error) error {
 	conn, _, err := websocket.Dial(ctx, wsEndpoint, &websocket.DialOptions{
 		Subprotocols: []string{"graphql-transport-ws"},
 	})
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}
-	// Inbound frames can be large on initial handshake (full state
-	// dump). The default 32 KiB read limit trips on real accounts.
 	conn.SetReadLimit(1 << 20)
 	defer conn.Close(websocket.StatusNormalClosure, "bye") //nolint:errcheck
 
-	// connection_init. Rivian wants the apollo client metadata in the
-	// payload along with u-sess; the server replies with connection_ack.
 	initFrame := map[string]any{
 		"type": "connection_init",
 		"payload": map[string]any{
@@ -194,7 +225,6 @@ func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok str
 		return fmt.Errorf("ws init: %w", err)
 	}
 
-	// Wait for the ack. Anything else here is fatal.
 	ackCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	for {
@@ -205,20 +235,17 @@ func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok str
 		if frame.Type == "connection_ack" {
 			break
 		}
-		// "ka" (keepalive) is fine; anything else pre-ack is not.
 		if frame.Type == "ka" || frame.Type == "pong" {
 			continue
 		}
 		return fmt.Errorf("ws unexpected pre-ack frame: %s", frame.Type)
 	}
 
-	// Subscribe. The id is our correlation token — every "next" frame
-	// the server pushes will reference it.
 	subID := uuid.NewString()
 	subPayload, _ := json.Marshal(map[string]any{
-		"operationName": "VehicleState",
-		"query":         qVehicleStateSubscription,
-		"variables":     map[string]any{"vehicleID": vehicleID},
+		"operationName": params.operationName,
+		"query":         params.query,
+		"variables":     map[string]any{"vehicleID": params.vehicleID},
 	})
 	subFrame := map[string]any{
 		"id":      subID,
@@ -229,8 +256,6 @@ func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok str
 		return fmt.Errorf("ws subscribe: %w", err)
 	}
 
-	// Receive loop. One timeout per read; the gateway pushes a keepalive
-	// every ~30s so a 60s deadline is comfortable.
 	for {
 		readCtx, readCancel := context.WithTimeout(ctx, 90*time.Second)
 		frame, err := wsReadFrame(readCtx, conn)
@@ -246,32 +271,16 @@ func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok str
 			if frame.ID != subID {
 				continue
 			}
-			var payload wsNextPayload
-			if err := json.Unmarshal(frame.Payload, &payload); err != nil {
-				// Single bad frame — keep the stream alive.
-				continue
+			if err := onNext(frame.Payload); err != nil {
+				return err
 			}
-			if len(payload.Errors) > 0 {
-				msgs := make([]string, 0, len(payload.Errors))
-				for _, e := range payload.Errors {
-					msgs = append(msgs, e.Message)
-				}
-				return fmt.Errorf("ws subscription error: %s", strings.Join(msgs, "; "))
-			}
-			st := stateFromVehicleStateData(vehicleID, payload.Data)
-			cb(st)
 		case "error":
 			return fmt.Errorf("ws server error: %s", string(frame.Payload))
 		case "complete":
-			// Server closed the subscription. Reconnect.
 			return errors.New("ws subscription completed by server")
 		case "ka", "pong", "ping":
-			// Keepalive. Rivian sends "ka" periodically; HA-rivian
-			// ignores it and so do we.
 			continue
 		case "connection_error":
-			// Typically means the u-sess is expired. Bubble up as
-			// fatal so the caller re-logs in.
 			if strings.Contains(string(frame.Payload), "Unauthenticated") {
 				return errWSUnauthenticated
 			}
