@@ -5,6 +5,7 @@ import { Card } from "./ui";
 import { num, pct } from "../lib/format";
 
 const kmToMi = (km: number) => km * 0.6213711922;
+const cToF = (c: number) => c * 1.8 + 32;
 
 // LiveSummary is the compact variant of <LivePanel/> meant to live on
 // the Overview. Always rendered so the user sees the Rivian connection
@@ -113,29 +114,91 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
   const s = state.data;
 
   return (
-    <li className="flex items-center justify-between gap-3 text-sm">
-      <Link
-        to="/live"
-        className="truncate font-medium text-neutral-200 hover:text-emerald-300"
-      >
-        {name}
-      </Link>
-      <div className="flex items-center gap-3 tabular-nums text-neutral-400">
-        {s ? (
-          <>
-            <span>{pct(s.battery_level_pct, 0)}</span>
-            <span className="text-neutral-600">·</span>
-            <span>{num(kmToMi(s.distance_to_empty), 0, "mi")}</span>
-            <StatusDot state={s} />
-          </>
-        ) : state.isError ? (
-          <span className="text-rose-400 text-xs">error</span>
-        ) : (
-          <span className="text-neutral-500 text-xs">loading…</span>
-        )}
+    <li className="space-y-2">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <Link
+          to="/live"
+          className="truncate font-medium text-neutral-200 hover:text-emerald-300"
+        >
+          {name}
+        </Link>
+        <div className="flex items-center gap-3 tabular-nums text-neutral-400">
+          {s ? (
+            <>
+              <span>{pct(s.battery_level_pct, 0)}</span>
+              <span className="text-neutral-600">·</span>
+              <span>{num(kmToMi(s.distance_to_empty), 0, "mi")}</span>
+              <StatusDot state={s} />
+            </>
+          ) : state.isError ? (
+            <span className="text-rose-400 text-xs">error</span>
+          ) : (
+            <span className="text-neutral-500 text-xs">loading…</span>
+          )}
+        </div>
       </div>
+      {s ? (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4 md:grid-cols-6">
+          <Stat label="Odo" value={num(kmToMi(s.odometer_km), 0, "mi")} />
+          <Stat label="Limit" value={pct(s.charge_target_pct, 0)} />
+          <Stat label="Cabin" value={num(cToF(s.cabin_temp_c), 0, "°F")} />
+          <Stat label="Gear" value={s.gear || "—"} />
+          <Stat label="Power" value={formatPowerShort(s.power_state)} />
+          <Stat
+            label="Plug"
+            value={
+              s.charger_power_kw > 0
+                ? num(s.charger_power_kw, 1, "kW")
+                : formatPlugShort(s.charger_status)
+            }
+          />
+        </div>
+      ) : null}
     </li>
   );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+        {label}
+      </div>
+      <div className="tabular-nums text-sm text-neutral-300">{value}</div>
+    </div>
+  );
+}
+
+function formatPowerShort(s: string): string {
+  switch (s) {
+    case "sleep":
+      return "asleep";
+    case "go":
+      return "go";
+    case "ready":
+      return "ready";
+    case "standby":
+      return "standby";
+    case "":
+      return "—";
+    default:
+      return s.replace(/_/g, " ");
+  }
+}
+
+function formatPlugShort(s: string): string {
+  switch (s) {
+    case "chrgr_sts_not_connected":
+      return "unplugged";
+    case "chrgr_sts_connected_charging":
+      return "charging";
+    case "chrgr_sts_connected_no_power":
+      return "plugged";
+    case "":
+      return "—";
+    default:
+      return s.replace(/^chrgr_sts_/, "").replace(/_/g, " ");
+  }
 }
 
 function StatusDot({ state }: { state: VehicleState }) {
