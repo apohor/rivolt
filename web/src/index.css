@@ -27,6 +27,24 @@ body {
   padding-top: max(env(safe-area-inset-top), 0px);
 }
 
+/* Dark-theme Leaflet: we use default OSM tiles (no API key) but
+   invert+hue-rotate them so they sit naturally next to our emerald
+   accents instead of glaring white. Markers and our polyline are
+   drawn outside the tile pane so they stay their true colors. */
+.leaflet-container {
+  background: #0a0a0a;
+}
+.rivolt-tiles {
+  filter: hue-rotate(180deg) invert(1) brightness(0.9) contrast(0.95) saturate(0.6);
+}
+.leaflet-control-attribution {
+  background: rgba(10, 10, 10, 0.7) !important;
+  color: #a3a3a3 !important;
+}
+.leaflet-control-attribution a {
+  color: #10b981 !important;
+}
+
 @layer components {
   .input {
     @apply block w-full rounded-md border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm text-neutral-100 shadow-sm placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600;
