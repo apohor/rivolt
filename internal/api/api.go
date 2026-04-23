@@ -153,6 +153,9 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc 
 					if vs[i].ImageURL == "" {
 						vs[i].ImageURL = info.ImageURL
 					}
+					if len(vs[i].Images) == 0 {
+						vs[i].Images = info.Images
+					}
 					if vs[i].PackKWh == 0 {
 						vs[i].PackKWh = info.PackKWh
 					}
