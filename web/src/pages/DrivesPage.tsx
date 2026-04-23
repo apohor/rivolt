@@ -23,6 +23,7 @@ export default function DrivesPage() {
     () => filterByWindow(q.data ?? [], win),
     [q.data, win],
   );
+  const totals = useMemo(() => summarize(rows), [rows]);
 
   return (
     <div className="space-y-4">
@@ -45,7 +46,10 @@ export default function DrivesPage() {
             No drives in this window.
           </p>
         ) : (
-          <DriveTable drives={rows} />
+          <div className="space-y-3">
+            <SummaryStrip totals={totals} />
+            <DriveTable drives={rows} />
+          </div>
         )}
       </Card>
     </div>
@@ -92,6 +96,76 @@ function DriveTable({ drives }: { drives: Drive[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// DriveTotals collapses the window-filtered rows into a topline.
+// Avg speed weights by duration — a 10-minute city crawl shouldn't
+// drag the number down as much as an hour of highway cruising. Max
+// is just the max observed across the window.
+type DriveTotals = {
+  count: number;
+  durationSec: number;
+  distanceMi: number;
+  avgSpeedMph: number;
+  maxSpeedMph: number;
+};
+
+function summarize(rows: Drive[]): DriveTotals {
+  const t: DriveTotals = {
+    count: rows.length,
+    durationSec: 0,
+    distanceMi: 0,
+    avgSpeedMph: 0,
+    maxSpeedMph: 0,
+  };
+  let weightedSpeed = 0;
+  for (const r of rows) {
+    const dur = durationSeconds(r.StartedAt, r.EndedAt);
+    t.durationSec += dur;
+    t.distanceMi += r.DistanceMi || 0;
+    if (r.MaxSpeedMph > t.maxSpeedMph) t.maxSpeedMph = r.MaxSpeedMph;
+    weightedSpeed += (r.AvgSpeedMph || 0) * dur;
+  }
+  if (t.durationSec > 0) t.avgSpeedMph = weightedSpeed / t.durationSec;
+  return t;
+}
+
+function SummaryStrip({ totals }: { totals: DriveTotals }) {
+  return (
+    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <Stat label="Drives" value={String(totals.count)} />
+      <Stat label="Duration" value={formatDuration(totals.durationSec)} />
+      <Stat label="Distance" value={num(totals.distanceMi, 1, "mi")} />
+      <Stat
+        label="Avg / Max"
+        value={`${num(totals.avgSpeedMph, 0)} / ${num(totals.maxSpeedMph, 0)} mph`}
+      />
+    </dl>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2">
+      <dt className="text-[11px] uppercase tracking-wide text-neutral-500">
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-lg font-semibold tabular-nums text-neutral-100">
+        {value}
+      </dd>
+      {hint ? (
+        <div className="mt-0.5 text-[11px] text-neutral-500">{hint}</div>
+      ) : null}
     </div>
   );
 }
