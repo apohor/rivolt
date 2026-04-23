@@ -328,35 +328,48 @@ func (c *LiveClient) authHeaders() map[string]string {
 
 // ----- Data queries --------------------------------------------------
 
-const qUser = `query user {
-  user {
-    userId
-    email { email }
+// qUser is the getUserInfo query from the Rivian mobile app. The root
+// field is currentUser; an earlier version of this code tried `user`
+// and hit GRAPHQL_VALIDATION_FAILED on every deployment. We only
+// select the fields Rivolt actually needs — the real mobile-app
+// query pulls 200+ lines of configuration + phone enrolment that the
+// UI doesn't render.
+const qUser = `query getUserInfo {
+  currentUser {
+    __typename
+    id
     firstName
     lastName
-    vehicles { id vin __typename }
+    email
+    vehicles {
+      __typename
+      id
+      name
+      vin
+      vehicle { __typename model }
+    }
   }
 }`
 
 type userData struct {
-	User struct {
-		UserID    string `json:"userId"`
+	CurrentUser struct {
+		ID        string `json:"id"`
 		FirstName string `json:"firstName"`
 		LastName  string `json:"lastName"`
-		Email     struct {
-			Email string `json:"email"`
-		} `json:"email"`
-		Vehicles []struct {
-			ID  string `json:"id"`
-			VIN string `json:"vin"`
+		Email     string `json:"email"`
+		Vehicles  []struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			VIN     string `json:"vin"`
+			Vehicle struct {
+				Model string `json:"model"`
+			} `json:"vehicle"`
 		} `json:"vehicles"`
-	} `json:"user"`
+	} `json:"currentUser"`
 }
 
 // Vehicles lists the vehicles on the authenticated Rivian account.
-// Currently returns id + vin; richer metadata (model, year, name) is a
-// follow-up — the CurrentUserForLogin query returns model info but the
-// response tree is very heavy and most of it we don't use.
+// Returns id, vin, user-assigned name (may be empty), and model.
 func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -364,16 +377,21 @@ func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 		return nil, errors.New("rivian: not authenticated; call Login first")
 	}
 	data, err := doGraphQL[userData](ctx, c, graphQLRequest{
-		OperationName: "user",
+		OperationName: "getUserInfo",
 		Query:         qUser,
 		Variables:     struct{}{},
 	}, c.authHeaders())
 	if err != nil {
-		return nil, fmt.Errorf("user: %w", err)
+		return nil, fmt.Errorf("getUserInfo: %w", err)
 	}
-	out := make([]Vehicle, 0, len(data.User.Vehicles))
-	for _, v := range data.User.Vehicles {
-		out = append(out, Vehicle{ID: v.ID, VIN: v.VIN})
+	out := make([]Vehicle, 0, len(data.CurrentUser.Vehicles))
+	for _, v := range data.CurrentUser.Vehicles {
+		out = append(out, Vehicle{
+			ID:    v.ID,
+			VIN:   v.VIN,
+			Name:  v.Name,
+			Model: v.Vehicle.Model,
+		})
 	}
 	return out, nil
 }

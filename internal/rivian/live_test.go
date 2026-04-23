@@ -113,17 +113,27 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 		})
-	case "user":
+	case "getUserInfo":
 		writeJSON(w, map[string]any{
 			"data": map[string]any{
-				"user": map[string]any{
-					"userId":    "user-1",
+				"currentUser": map[string]any{
+					"id":        "user-1",
 					"firstName": "Anton",
 					"lastName":  "P",
-					"email":     map[string]any{"email": "anton@example.com"},
+					"email":     "anton@example.com",
 					"vehicles": []any{
-						map[string]any{"id": "veh-a", "vin": "7FC000000000000A1"},
-						map[string]any{"id": "veh-b", "vin": "7FC000000000000B2"},
+						map[string]any{
+							"id":      "veh-a",
+							"name":    "R1T",
+							"vin":     "7FC000000000000A1",
+							"vehicle": map[string]any{"model": "R1T"},
+						},
+						map[string]any{
+							"id":      "veh-b",
+							"name":    "",
+							"vin":     "7FC000000000000B2",
+							"vehicle": map[string]any{"model": "R1S"},
+						},
 					},
 				},
 			},
