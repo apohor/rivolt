@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { backend, type Vehicle, type VehicleState } from "../lib/api";
+import { backend, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatTemperature, usePreferences } from "../lib/preferences";
@@ -68,12 +68,26 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
     >
       <div className="text-[11px] text-neutral-500">
         {vehicle.model}
+        {vehicle.trim_name ? ` · ${vehicle.trim_name}` : ""}
+        {vehicle.model_year ? ` · ${vehicle.model_year}` : ""}
+        {vehicle.pack_kwh ? ` · ${vehicle.pack_kwh} kWh pack` : ""}
         {vehicle.vin ? ` · VIN ${vehicle.vin.slice(-6)}` : ""}
       </div>
+      {vehicle.image_url ? (
+        <div className="mt-3 flex justify-center">
+          <img
+            src={vehicle.image_url}
+            alt={name}
+            loading="lazy"
+            className="max-h-48 w-full max-w-sm rounded-md object-contain"
+          />
+        </div>
+      ) : null}
       {state.isError ? (
         <p className="mt-3 text-xs text-red-400">{String(state.error)}</p>
       ) : s ? (
         <div className="mt-4 space-y-4">
+          {isCharging(s) ? <ChargingDetail vehicleID={vehicle.id} state={s} /> : null}
           <Section title="Energy">
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />
             <Field label="Range" value={num(kmToMi(s.distance_to_empty), 0, "mi")} />
@@ -213,6 +227,150 @@ function StatusPill({ state }: { state: VehicleState }) {
       {label}
     </span>
   );
+}
+
+// isCharging is true whenever the primary VehicleState feed says the
+// session is active. We include the "charging_ready"/"connected"
+// transitional states so the detail panel renders even before the
+// session reports non-zero power.
+function isCharging(s: VehicleState): boolean {
+  if (s.charger_power_kw > 0) return true;
+  const cs = s.charger_state || "";
+  return (
+    cs === "charging_active" ||
+    cs === "charging_ready" ||
+    cs === "charging_complete"
+  );
+}
+
+// ChargingDetail renders Rivian's live charging session data —
+// power, rate, range added, energy delivered, ETA, price. Polls
+// /api/live-session every 10 s while visible. Hidden when the
+// session is inactive or hasn't started reporting yet.
+function ChargingDetail({
+  vehicleID,
+  state,
+}: {
+  vehicleID: string;
+  state: VehicleState;
+}) {
+  const sess = useQuery<LiveSession>({
+    queryKey: ["rivian", "live-session", vehicleID],
+    queryFn: () => backend.liveSession(vehicleID),
+    refetchInterval: 10_000,
+    retry: 1,
+  });
+  const ls = sess.data;
+  // Prefer live-session power when available, fall back to state.
+  const powerKw = ls && ls.power_kw > 0 ? ls.power_kw : state.charger_power_kw;
+  const ratePerHour =
+    ls && ls.kilometers_charged_per_hour > 0
+      ? kmToMi(ls.kilometers_charged_per_hour)
+      : 0;
+  const rangeAdded = ls ? kmToMi(ls.range_added_km) : 0;
+  const energyKwh = ls ? ls.total_charged_energy_kwh : 0;
+  const elapsed = ls ? ls.time_elapsed_seconds : 0;
+  const remaining = ls ? ls.time_remaining_seconds : 0;
+  const price = ls && ls.current_price ? ls.current_price : "";
+  const currency = ls ? ls.current_currency : "";
+  const targetPct = state.charge_target_pct;
+  const soc = ls && ls.soc_pct > 0 ? ls.soc_pct : state.battery_level_pct;
+  const toTarget = Math.max(0, targetPct - soc);
+
+  return (
+    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-emerald-300">
+          Charging session
+        </div>
+        <div className="text-[11px] text-neutral-500">
+          {sess.isLoading
+            ? "…"
+            : ls && ls.is_rivian_charger
+              ? "Rivian charger"
+              : ls && ls.active
+                ? "Home / AC"
+                : "idle"}
+        </div>
+      </div>
+      {/* Top row: big readout of the current power + SoC progress */}
+      <div className="mb-3 flex items-baseline gap-4">
+        <div className="tabular-nums text-3xl font-semibold text-emerald-200">
+          {powerKw > 0 ? powerKw.toFixed(1) : "0.0"}
+          <span className="ml-1 text-sm font-normal text-emerald-400/70">kW</span>
+        </div>
+        <div className="flex-1">
+          <div className="mb-0.5 flex justify-between text-[11px] text-neutral-400">
+            <span>{pct(soc, 0)}</span>
+            <span>→ {pct(targetPct, 0)}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+            <div
+              className="h-full bg-emerald-400"
+              style={{ width: `${Math.min(100, Math.max(0, soc))}%` }}
+            />
+          </div>
+          {toTarget > 0 ? (
+            <div className="mt-0.5 text-[11px] text-neutral-500">
+              {pct(toTarget, 0)} to target
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">
+        <Field
+          label="Rate"
+          value={ratePerHour > 0 ? num(ratePerHour, 0, "mi/h") : "—"}
+        />
+        <Field
+          label="Range added"
+          value={rangeAdded > 0 ? num(rangeAdded, 0, "mi") : "—"}
+        />
+        <Field
+          label="Energy"
+          value={energyKwh > 0 ? num(energyKwh, 2, "kWh") : "—"}
+        />
+        <Field
+          label="Elapsed"
+          value={elapsed > 0 ? formatDuration(elapsed) : "—"}
+        />
+        <Field
+          label="Remaining"
+          value={remaining > 0 ? formatDuration(remaining) : "—"}
+        />
+        <Field label="State" value={formatChargerState(state.charger_state)} />
+        <Field
+          label="Price"
+          value={price ? formatPrice(price, currency) : ls?.is_free_session ? "free" : "—"}
+        />
+      </div>
+      {sess.isError ? (
+        <p className="mt-2 text-[11px] text-red-400/70">
+          Live-session fetch failed: {String(sess.error)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "—";
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+
+function formatPrice(price: string, currency: string): string {
+  // Rivian returns the price as a stringified number (e.g. "2.85"). Pass
+  // it through verbatim and tack on the currency code if non-empty. The
+  // feed sometimes returns "0" for free/home sessions — leave that as-is
+  // so it's obvious the charger isn't billing.
+  if (!price) return "—";
+  if (!currency) return price;
+  return `${price} ${currency}`;
 }
 
 function LockIcon({ className = "" }: { className?: string }) {
