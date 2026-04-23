@@ -326,11 +326,22 @@ function ChargingDetail({
             <span>{pct(soc, 0)}</span>
             <span>→ {pct(targetPct, 0)}</span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+          <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
             <div
               className="h-full bg-emerald-400"
               style={{ width: `${Math.min(100, Math.max(0, soc))}%` }}
             />
+            {/* Target SoC marker — only rendered when a charge target
+                is reported and we're not already past it. Positioned
+                absolutely so it can't shift the bar's layout. */}
+            {targetPct > 0 && targetPct < 100 && soc < targetPct ? (
+              <div
+                className="absolute top-[-2px] h-[10px] w-px bg-emerald-200/80"
+                style={{ left: `${targetPct}%` }}
+                aria-hidden="true"
+                title={`Target ${pct(targetPct, 0)}`}
+              />
+            ) : null}
           </div>
           {toTarget > 0 ? (
             <div className="mt-0.5 text-[11px] text-neutral-500">
