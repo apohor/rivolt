@@ -85,6 +85,7 @@ func New(d Deps) http.Handler {
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
+		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -249,6 +250,28 @@ func handleChargingSchemaProbe(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		data, err := lc.ChargingSchemaProbe(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, data)
+	}
+}
+
+// handleChargingFieldProbe fires a deliberately wrong query for the
+// named charging-endpoint field and returns Rivian's validation
+// error, which lists the required args and subfields. ?vehicleID=...
+// opts into passing a vehicleId argument.
+func handleChargingFieldProbe(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		field := chi.URLParam(r, "field")
+		vid := r.URL.Query().Get("vehicleID")
+		data, err := lc.ChargingFieldProbe(r.Context(), field, vid)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
