@@ -18,7 +18,7 @@ export default function LivePage() {
     <div className="space-y-6">
       <PageHeader
         title="Live"
-        subtitle="Current vehicle state, refreshed every 30 s"
+        subtitle="Streaming vehicle state from Rivian"
       />
       {status.isLoading ? (
         <Spinner />
