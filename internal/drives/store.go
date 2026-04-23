@@ -39,20 +39,20 @@ CREATE INDEX IF NOT EXISTS drives_vehicle_id ON drives(vehicle_id);
 
 // Drive is a single drive session.
 type Drive struct {
-	ID              string
-	VehicleID       string
-	StartedAt       time.Time
-	EndedAt         time.Time
-	StartSoCPct     float64
-	EndSoCPct       float64
-	StartOdometerMi float64
-	EndOdometerMi   float64
-	DistanceMi      float64
+	ID                 string
+	VehicleID          string
+	StartedAt          time.Time
+	EndedAt            time.Time
+	StartSoCPct        float64
+	EndSoCPct          float64
+	StartOdometerMi    float64
+	EndOdometerMi      float64
+	DistanceMi         float64
 	StartLat, StartLon float64
 	EndLat, EndLon     float64
-	MaxSpeedMph     float64
-	AvgSpeedMph     float64
-	Source          string // "live" | "electrafi_import"
+	MaxSpeedMph        float64
+	AvgSpeedMph        float64
+	Source             string // "live" | "electrafi_import"
 }
 
 // Store wraps access to the drives table.
@@ -116,4 +116,40 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM drives`).Scan(&n)
 	return n, err
+}
+
+// ListRecent returns the most recent N drives, newest first. Used by
+// the /api/drives endpoint for dashboard rendering.
+func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, vehicle_id, started_at, ended_at,
+		       start_soc_pct, end_soc_pct,
+		       start_odometer_mi, end_odometer_mi, distance_mi,
+		       start_lat, start_lon, end_lat, end_lon,
+		       max_speed_mph, avg_speed_mph, source
+		FROM drives ORDER BY started_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Drive
+	for rows.Next() {
+		var d Drive
+		var startUnix, endUnix int64
+		if err := rows.Scan(&d.ID, &d.VehicleID, &startUnix, &endUnix,
+			&d.StartSoCPct, &d.EndSoCPct,
+			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
+			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
+			&d.MaxSpeedMph, &d.AvgSpeedMph, &d.Source,
+		); err != nil {
+			return nil, err
+		}
+		d.StartedAt = time.Unix(startUnix, 0).UTC()
+		d.EndedAt = time.Unix(endUnix, 0).UTC()
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }

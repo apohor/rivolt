@@ -24,6 +24,7 @@ import (
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/web"
 )
@@ -124,6 +125,19 @@ func runServer() {
 
 	var rivianClient rivian.Client = rivian.NewStub()
 
+	drivesStore, err := drives.OpenStore(dbPath)
+	if err != nil {
+		logger.Warn("drives store unavailable", "err", err.Error())
+	}
+	chargesStore, err := charges.OpenStore(dbPath)
+	if err != nil {
+		logger.Warn("charges store unavailable", "err", err.Error())
+	}
+	samplesStore, err := samples.OpenStore(dbPath)
+	if err != nil {
+		logger.Warn("samples store unavailable", "err", err.Error())
+	}
+
 	webFS := web.Assets()
 	if webFS == nil {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
@@ -134,6 +148,9 @@ func runServer() {
 		PushService: pushSvc,
 		PushStore:   pushStore,
 		SettingsMgr: settingsMgr,
+		Drives:      drivesStore,
+		Charges:     chargesStore,
+		Samples:     samplesStore,
 		WebFS:       webFS,
 		Version:     version,
 	})
@@ -169,6 +186,15 @@ func runServer() {
 	}
 	if settingsStore != nil {
 		_ = settingsStore.Close()
+	}
+	if drivesStore != nil {
+		_ = drivesStore.Close()
+	}
+	if chargesStore != nil {
+		_ = chargesStore.Close()
+	}
+	if samplesStore != nil {
+		_ = samplesStore.Close()
 	}
 }
 
@@ -234,23 +260,30 @@ func runImportElectraFi(args []string) {
 		os.Exit(1)
 	}
 	defer cs.Close()
+	ss, err := samples.OpenStore(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open samples: %v\n", err)
+		os.Exit(1)
+	}
+	defer ss.Close()
 
-	imp := &electrafi.Importer{Drives: ds, Charges: cs, VehicleID: *vehicleID}
+	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID}
 	ctx := context.Background()
-	var totalRows, totalDrives, totalCharges, totalSkipped int
+	var totalRows, totalSamples, totalDrives, totalCharges, totalSkipped int
 	for _, f := range files {
 		res, err := imp.Import(ctx, f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "import %s: %v\n", f, err)
 			os.Exit(1)
 		}
-		fmt.Printf("%s: rows=%d drives=%d charges=%d skipped=%d\n",
-			f, res.Rows, res.Drives, res.Charges, res.SkippedRows)
+		fmt.Printf("%s: rows=%d samples=%d drives=%d charges=%d skipped=%d\n",
+			f, res.Rows, res.Samples, res.Drives, res.Charges, res.SkippedRows)
 		totalRows += res.Rows
+		totalSamples += res.Samples
 		totalDrives += res.Drives
 		totalCharges += res.Charges
 		totalSkipped += res.SkippedRows
 	}
-	fmt.Printf("total: rows=%d drives=%d charges=%d skipped=%d\n",
-		totalRows, totalDrives, totalCharges, totalSkipped)
+	fmt.Printf("total: rows=%d samples=%d drives=%d charges=%d skipped=%d\n",
+		totalRows, totalSamples, totalDrives, totalCharges, totalSkipped)
 }

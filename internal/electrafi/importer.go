@@ -6,10 +6,10 @@
 // specific columns empty; the importer uses only the subset reliably
 // populated by the Rivian integration:
 //
-//   Date, battery_level, battery_range, odometer, latitude, longitude,
-//   speed, shift_state, charging_state, charger_power, charge_rate,
-//   charge_energy_added, charge_miles_added_rated, charge_limit_soc,
-//   driveNumber, chargeNumber
+//	Date, battery_level, battery_range, odometer, latitude, longitude,
+//	speed, shift_state, charging_state, charger_power, charge_rate,
+//	charge_energy_added, charge_miles_added_rated, charge_limit_soc,
+//	driveNumber, chargeNumber
 //
 // Drives and charges are derived by grouping rows by driveNumber and
 // chargeNumber. Row-level noise (empty cells, header) is tolerated.
@@ -31,21 +31,30 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/samples"
 )
+
+// sampleBatchSize is the number of raw samples we buffer before writing
+// to SQLite. Single large transactions are dramatically faster than
+// per-row inserts for 20k-row CSVs.
+const sampleBatchSize = 2000
 
 // Result summarizes what an import produced.
 type Result struct {
-	File       string
-	Rows       int
-	Drives     int
-	Charges    int
+	File        string
+	Rows        int
+	Samples     int
+	Drives      int
+	Charges     int
 	SkippedRows int
 }
 
-// Importer runs against a pair of stores.
+// Importer runs against the three stores. Samples is optional — when
+// nil, only derived sessions are written.
 type Importer struct {
 	Drives  *drives.Store
 	Charges *charges.Store
+	Samples *samples.Store
 	// VehicleID is the stable identifier assigned to every imported
 	// session. The CSVs omit VIN so we synthesize one from the file
 	// content if the operator didn't pass --vehicle-id.
@@ -82,11 +91,25 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 	}
 
 	var (
-		rows    int
-		skipped int
+		rows         int
+		skipped      int
+		sampleCount  int
+		sampleBuf    []samples.Sample
 		driveGroups  = map[string][]snapshot{}
 		chargeGroups = map[string][]snapshot{}
 	)
+	flushSamples := func() error {
+		if i.Samples == nil || len(sampleBuf) == 0 {
+			sampleBuf = sampleBuf[:0]
+			return nil
+		}
+		if err := i.Samples.InsertBatch(ctx, sampleBuf); err != nil {
+			return err
+		}
+		sampleCount += len(sampleBuf)
+		sampleBuf = sampleBuf[:0]
+		return nil
+	}
 
 	for {
 		row, err := r.Read()
@@ -107,6 +130,33 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 			continue
 		}
 
+		if i.Samples != nil {
+			sampleBuf = append(sampleBuf, samples.Sample{
+				VehicleID:       vehicleID,
+				At:              s.at,
+				BatteryLevelPct: s.batteryLevel,
+				RangeMi:         s.batteryRangeMi,
+				OdometerMi:      s.odometerMi,
+				Lat:             s.lat,
+				Lon:             s.lon,
+				SpeedMph:        s.speedMph,
+				ShiftState:      s.shift,
+				ChargingState:   s.chargingState,
+				ChargerPowerKW:  s.chargerPowerKW,
+				ChargeLimitPct:  s.chargeLimitPct,
+				InsideTempC:     s.insideTempC,
+				OutsideTempC:    s.outsideTempC,
+				DriveNumber:     s.driveNumber,
+				ChargeNumber:    s.chargeNumber,
+				Source:          "electrafi_import",
+			})
+			if len(sampleBuf) >= sampleBatchSize {
+				if err := flushSamples(); err != nil {
+					return Result{}, fmt.Errorf("flush samples: %w", err)
+				}
+			}
+		}
+
 		// A row is attributed to a drive iff shift_state is non-P and
 		// driveNumber is non-zero. Likewise for charging.
 		if s.driveNumber > 0 && s.shift != "P" && s.shift != "" {
@@ -117,6 +167,9 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 			key := groupKey(vehicleID, "c", s.chargeNumber)
 			chargeGroups[key] = append(chargeGroups[key], s)
 		}
+	}
+	if err := flushSamples(); err != nil {
+		return Result{}, fmt.Errorf("flush samples: %w", err)
 	}
 
 	// Persist.
@@ -138,6 +191,7 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 	return Result{
 		File:        path,
 		Rows:        rows,
+		Samples:     sampleCount,
 		Drives:      len(driveGroups),
 		Charges:     len(chargeGroups),
 		SkippedRows: skipped,
@@ -146,20 +200,23 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 
 // snapshot is the minimal projection of a polling row we need.
 type snapshot struct {
-	at             time.Time
-	batteryLevel   float64
-	batteryRangeMi float64
-	odometerMi     float64
-	lat, lon       float64
-	speedMph       float64
-	shift          string
-	chargingState  string
-	chargerPowerKW float64
-	chargeRateMiH  float64
-	chargeEnergyKWh float64
+	at               time.Time
+	batteryLevel     float64
+	batteryRangeMi   float64
+	odometerMi       float64
+	lat, lon         float64
+	speedMph         float64
+	shift            string
+	chargingState    string
+	chargerPowerKW   float64
+	chargeRateMiH    float64
+	chargeEnergyKWh  float64
 	chargeMilesAdded float64
-	driveNumber    int64
-	chargeNumber   int64
+	chargeLimitPct   float64
+	insideTempC      float64
+	outsideTempC     float64
+	driveNumber      int64
+	chargeNumber     int64
 }
 
 func parseRow(row []string, idx map[string]int) (snapshot, bool) {
@@ -188,6 +245,9 @@ func parseRow(row []string, idx map[string]int) (snapshot, bool) {
 		chargeRateMiH:    atof(get("charge_rate")),
 		chargeEnergyKWh:  atof(get("charge_energy_added")),
 		chargeMilesAdded: atof(get("charge_miles_added_rated")),
+		chargeLimitPct:   atof(get("charge_limit_soc")),
+		insideTempC:      atof(get("inside_temp")),
+		outsideTempC:     atof(get("outside_temp")),
 		driveNumber:      atoi(get("driveNumber")),
 		chargeNumber:     atoi(get("chargeNumber")),
 	}
