@@ -411,12 +411,10 @@ const qVehicleState = `query GetVehicleState($vehicleID: String!) {
     vehicleMileage { value }
     gearStatus { value }
     chargerState { value }
-    chargerPower { value }
-    chargerDerateStatus { value }
-    chargeTarget { value }
+    chargerStatus { value }
+    batteryLimit { value }
     cabinClimateInteriorTemperature { value }
-    cabinClimateExteriorTemperature { value }
-    closureFrontLeftLocked { value }
+    doorFrontLeftLocked { value }
   }
 }`
 
@@ -438,11 +436,10 @@ type vehicleStateData struct {
 		VehicleMileage                  vsValue[float64] `json:"vehicleMileage"`
 		GearStatus                      vsValue[string]  `json:"gearStatus"`
 		ChargerState                    vsValue[string]  `json:"chargerState"`
-		ChargerPower                    vsValue[float64] `json:"chargerPower"`
-		ChargeTarget                    vsValue[float64] `json:"chargeTarget"`
+		ChargerStatus                   vsValue[string]  `json:"chargerStatus"`
+		BatteryLimit                    vsValue[float64] `json:"batteryLimit"`
 		CabinClimateInteriorTemperature vsValue[float64] `json:"cabinClimateInteriorTemperature"`
-		CabinClimateExteriorTemperature vsValue[float64] `json:"cabinClimateExteriorTemperature"`
-		ClosureFrontLeftLocked          vsValue[string]  `json:"closureFrontLeftLocked"`
+		DoorFrontLeftLocked             vsValue[string]  `json:"doorFrontLeftLocked"`
 	} `json:"vehicleState"`
 }
 
@@ -478,13 +475,17 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		OdometerKm:      vs.VehicleMileage.Value,
 		Gear:            vs.GearStatus.Value,
 		ChargerState:    vs.ChargerState.Value,
-		ChargerPowerKW:  vs.ChargerPower.Value,
-		ChargeTargetPct: vs.ChargeTarget.Value,
+		// ChargerPowerKW: the GetVehicleState schema no longer
+		// exposes a live-power field. Kilowatts are available via
+		// getLiveSessionData (chrg/user/graphql) — wire that in a
+		// follow-up when we render a live charging panel.
+		ChargerPowerKW:  0,
+		ChargeTargetPct: vs.BatteryLimit.Value,
 		Latitude:        vs.GNSSLocation.Latitude,
 		Longitude:       vs.GNSSLocation.Longitude,
-		Locked:          strings.EqualFold(vs.ClosureFrontLeftLocked.Value, "locked"),
+		Locked:          strings.EqualFold(vs.DoorFrontLeftLocked.Value, "locked"),
 		CabinTempC:      vs.CabinClimateInteriorTemperature.Value,
-		OutsideTempC:    vs.CabinClimateExteriorTemperature.Value,
+		OutsideTempC:    0,
 	}, nil
 }
 
