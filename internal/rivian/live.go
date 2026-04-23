@@ -111,13 +111,21 @@ type graphQLResponse[T any] struct {
 // attach a-sess / u-sess / csrf-token depending on which stage of auth
 // they're in.
 func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, extraHeaders map[string]string) (T, error) {
+	return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)
+}
+
+// doGraphQLAt is the same as doGraphQL but targets an arbitrary URL.
+// Used for the charging endpoint (`/api/gql/chrg/user/graphql`) which
+// hosts `getLiveSessionData` and `getRegisteredWallboxes` — separate
+// from the main gateway but sharing the same auth headers.
+func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (T, error) {
 	var zero T
 	body, err := json.Marshal(req)
 	if err != nil {
 		return zero, fmt.Errorf("marshal %s: %w", req.OperationName, err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return zero, fmt.Errorf("build request: %w", err)
 	}
@@ -544,6 +552,145 @@ func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string
 		return nil, err
 	}
 	return data, nil
+}
+
+// DefaultChargingEndpoint is Rivian's separate GraphQL endpoint for
+// charging-session data. Gated on the same auth tokens as the main
+// gateway but served under /chrg/user/graphql. Hosts
+// getLiveSessionData and getRegisteredWallboxes.
+const DefaultChargingEndpoint = "https://rivian.com/api/gql/chrg/user/graphql"
+
+const qLiveSession = `query getLiveSessionData($vehicleId: ID!) {
+  getLiveSessionData(vehicleId: $vehicleId) {
+    __typename
+    chargerId
+    currentCurrency
+    currentPrice
+    isFreeSession
+    isRivianCharger
+    locationId
+    startTime
+    timeElapsed
+    current { __typename value updatedAt }
+    currentMiles { __typename value updatedAt }
+    kilometersChargedPerHour { __typename value updatedAt }
+    power { __typename value updatedAt }
+    rangeAddedThisSession { __typename value updatedAt }
+    soc { __typename value updatedAt }
+    timeRemaining { __typename value updatedAt }
+    totalChargedEnergy { __typename value updatedAt }
+    vehicleChargerState { __typename value updatedAt }
+  }
+}`
+
+// valueRecord matches the __typename/value/updatedAt envelope Rivian
+// wraps most live-session scalars in. T handles both FloatValueRecord
+// (value is float64) and StringValueRecord (string).
+type valueRecord[T any] struct {
+	Value     T      `json:"value"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type liveSessionData struct {
+	GetLiveSessionData struct {
+		ChargerId                *string              `json:"chargerId"`
+		CurrentCurrency          *string              `json:"currentCurrency"`
+		CurrentPrice             *string              `json:"currentPrice"`
+		IsFreeSession            *bool                `json:"isFreeSession"`
+		IsRivianCharger          *bool                `json:"isRivianCharger"`
+		LocationId               *string              `json:"locationId"`
+		StartTime                *string              `json:"startTime"`
+		TimeElapsed              *string              `json:"timeElapsed"`
+		Current                  valueRecord[float64] `json:"current"`
+		CurrentMiles             valueRecord[float64] `json:"currentMiles"`
+		KilometersChargedPerHour valueRecord[float64] `json:"kilometersChargedPerHour"`
+		Power                    valueRecord[float64] `json:"power"`
+		RangeAddedThisSession    valueRecord[float64] `json:"rangeAddedThisSession"`
+		Soc                      valueRecord[float64] `json:"soc"`
+		TimeRemaining            valueRecord[string]  `json:"timeRemaining"`
+		TotalChargedEnergy       valueRecord[float64] `json:"totalChargedEnergy"`
+		VehicleChargerState      valueRecord[string]  `json:"vehicleChargerState"`
+	} `json:"getLiveSessionData"`
+}
+
+// LiveSession returns the in-progress charging session for vehicleID,
+// or a zero/inactive LiveSession when no session exists. The server
+// still returns a 200 with most fields nulled when nothing is
+// plugged in; we treat that as inactive.
+func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSession, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, errors.New("rivian: not authenticated; call Login first")
+	}
+	if vehicleID == "" {
+		return nil, errors.New("rivian: vehicleID is required")
+	}
+	data, err := doGraphQLAt[liveSessionData](ctx, c, DefaultChargingEndpoint, graphQLRequest{
+		OperationName: "getLiveSessionData",
+		Query:         qLiveSession,
+		Variables:     map[string]any{"vehicleId": vehicleID},
+	}, c.authHeaders())
+	if err != nil {
+		return nil, fmt.Errorf("getLiveSessionData: %w", err)
+	}
+	d := data.GetLiveSessionData
+	// vehicleChargerState drives the "active" flag. Rivian reports
+	// "charging_active" while energy is flowing and other values
+	// ("charging_complete", "charging_ready") at session boundaries —
+	// home-assistant-rivian treats charging_active + charging_connecting
+	// as "on". Anything else (empty, complete, disconnected) → inactive.
+	cs := strings.ToLower(strings.TrimSpace(d.VehicleChargerState.Value))
+	active := cs == "charging_active" || cs == "charging_connecting"
+
+	out := &LiveSession{
+		At:                       time.Now().UTC(),
+		VehicleID:                vehicleID,
+		Active:                   active,
+		VehicleChargerState:      d.VehicleChargerState.Value,
+		PowerKW:                  d.Power.Value,
+		KilometersChargedPerHour: d.KilometersChargedPerHour.Value,
+		RangeAddedKm:             d.RangeAddedThisSession.Value,
+		TotalChargedEnergyKWh:    d.TotalChargedEnergy.Value,
+		SoCPct:                   d.Soc.Value,
+	}
+	if d.StartTime != nil {
+		out.StartTime = *d.StartTime
+	}
+	if d.TimeElapsed != nil {
+		// TimeElapsed is a stringified seconds count in both
+		// upstream clients. Not worth decoding for the UI today;
+		// we pass it through and parse at the API layer if needed.
+		if n, convErr := parseSecondsString(*d.TimeElapsed); convErr == nil {
+			out.TimeElapsedSeconds = n
+		}
+	}
+	if n, convErr := parseSecondsString(d.TimeRemaining.Value); convErr == nil {
+		out.TimeRemainingSeconds = n
+	}
+	if d.CurrentPrice != nil {
+		out.CurrentPrice = *d.CurrentPrice
+	}
+	if d.CurrentCurrency != nil {
+		out.CurrentCurrency = *d.CurrentCurrency
+	}
+	if d.IsFreeSession != nil {
+		out.IsFreeSession = *d.IsFreeSession
+	}
+	if d.IsRivianCharger != nil {
+		out.IsRivianCharger = *d.IsRivianCharger
+	}
+	return out, nil
+}
+
+func parseSecondsString(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	var n int64
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
 }
 
 // State returns the current snapshot for a vehicle. Units are what the

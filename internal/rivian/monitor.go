@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -117,6 +118,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	defer cancelRefresh()
 	go m.periodicRefresh(refreshCtx, vehicleID, 2*time.Minute)
+	go m.chargingSessionPoller(refreshCtx, vehicleID, 30*time.Second)
 
 	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
 		m.mu.Lock()
@@ -169,6 +171,55 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string, in
 				// (which include WS deltas) win over REST where both
 				// are populated, REST fills in the zeros.
 				m.cache[vehicleID] = mergeState(st, m.cache[vehicleID])
+			}
+			m.mu.Unlock()
+		}
+	}
+}
+
+// chargingSessionPoller hits Rivian's chrg/user/graphql endpoint at
+// interval to pull real-time charging metrics (kW, SoC, minutes
+// remaining, range added). Only runs when the cached state reports
+// an active charging session — we don't spam the endpoint when
+// the car is parked offline.
+//
+// The result's PowerKW is merged into State.ChargerPowerKW so the
+// existing /api/state endpoint can render it without a second round
+// trip. Also cached separately for /api/live-session/:id callers.
+func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID string, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.mu.RLock()
+			st := m.cache[vehicleID]
+			m.mu.RUnlock()
+			if st == nil {
+				continue
+			}
+			cs := strings.ToLower(strings.TrimSpace(st.ChargerState))
+			if cs != "charging_active" && cs != "charging_connecting" {
+				continue
+			}
+			sess, err := m.client.LiveSession(ctx, vehicleID)
+			if err != nil {
+				if ctx.Err() == nil {
+					m.logger.Debug("rivian live-session poll failed", "vehicle", vehicleID, "err", err.Error())
+				}
+				continue
+			}
+			if sess == nil || !sess.Active {
+				continue
+			}
+			m.mu.Lock()
+			if cur := m.cache[vehicleID]; cur != nil && sess.PowerKW > 0 {
+				cp := *cur
+				cp.ChargerPowerKW = sess.PowerKW
+				m.cache[vehicleID] = &cp
+				m.stamp[vehicleID] = time.Now()
 			}
 			m.mu.Unlock()
 		}
