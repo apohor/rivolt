@@ -356,14 +356,21 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 							sess.IsRivianCharger = prev.IsRivianCharger
 						}
 						m.lastSession[vehicleID] = sess
-						// Also feed ChargerPowerKW into the cached
-						// state so /api/state reflects subscription
-						// pushes between REST polls.
-						var merged *State
+						// Feed the latest power into the cached
+						// state so /api/state and the open-charge
+						// row reflect subscription pushes. Even when
+						// powerKW momentarily reports 0 mid-session
+						// we still want to trigger a recorder pass
+						// so the open live-charge row gets its
+						// running energy / range totals refreshed
+						// from lastSession on each push.
 						prev := m.cache[vehicleID]
-						if prev != nil && sess.PowerKW > 0 {
+						var merged *State
+						if prev != nil {
 							cp := *prev
-							cp.ChargerPowerKW = sess.PowerKW
+							if sess.PowerKW > 0 {
+								cp.ChargerPowerKW = sess.PowerKW
+							}
 							merged = &cp
 							m.cache[vehicleID] = merged
 							m.stamp[vehicleID] = time.Now()

@@ -342,12 +342,12 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	}
 
 	// Prefer real metrics from Rivian's live session feed when we
-	// have them (DC fast charging at Rivian Adventure Network sites
-	// or public CCS stations that report back). The chargingSession
-	// poller stashes the latest non-inactive response keyed by
-	// vehicleID. Home AC sessions don't populate any of these —
-	// Rivian's chrg/user/graphql returns active:false and zero
-	// everything for those.
+	// have them. As of v0.3.6 this map is populated by BOTH the REST
+	// chargingSessionPoller (Rivian chargers / select DC fast) and
+	// the WebSocket ChargingSession subscription (every session type
+	// including home AC / L1 / L2), so for an active charge we
+	// generally have pushed totals within seconds of the session
+	// starting.
 	m.mu.RLock()
 	liveSess := m.lastSession[vehicleID]
 	m.mu.RUnlock()
