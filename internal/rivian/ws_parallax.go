@@ -41,13 +41,16 @@ const qParallaxMessagesSubscription = `subscription ParallaxMessages($vehicleId:
   }
 }`
 
-// parallaxNext is the "next" frame envelope.
+// parallaxNext is the "next" frame envelope. Timestamp is typed as
+// json.RawMessage because the server sends it as a JSON number
+// (e.g. 1776985190047) in production, even though some schemas
+// advertise it as a string. Either shape is accepted.
 type parallaxNext struct {
 	Data struct {
 		ParallaxMessages struct {
-			Payload   string `json:"payload"`
-			Timestamp string `json:"timestamp"`
-			RVM       string `json:"rvm"`
+			Payload   string          `json:"payload"`
+			Timestamp json.RawMessage `json:"timestamp"`
+			RVM       string          `json:"rvm"`
 		} `json:"parallaxMessages"`
 	} `json:"data"`
 	Errors []graphQLError `json:"errors,omitempty"`
@@ -136,6 +139,8 @@ func (c *LiveClient) runParallaxChargingSubscription(ctx context.Context, vehicl
 		c.RecordChargingFrame(vehicleID, raw)
 		var payload parallaxNext
 		if err := json.Unmarshal(raw, &payload); err != nil {
+			slog.Default().Warn("rivian parallax frame unmarshal failed",
+				"vehicle", vehicleID, "err", err.Error())
 			return nil
 		}
 		if len(payload.Errors) > 0 {
