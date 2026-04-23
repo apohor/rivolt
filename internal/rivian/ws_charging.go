@@ -101,7 +101,13 @@ func (c *LiveClient) SubscribeChargingSession(ctx context.Context, vehicleID str
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		c.RecordChargingEvent(vehicleID, "open", "")
 		err := c.runChargingSubscription(ctx, vehicleID, userTok, cb)
+		if err != nil {
+			c.RecordChargingEvent(vehicleID, "error", err.Error())
+		} else {
+			c.RecordChargingEvent(vehicleID, "close", "")
+		}
 		if err == nil {
 			return ctx.Err()
 		}
