@@ -126,15 +126,28 @@ func runServer() {
 	}
 
 	var rivianClient rivian.Client
-	var rivianLive *rivian.LiveClient
+	var rivianAccount rivian.Account
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "mock":
 		mc := rivian.NewMock()
-		// Pre-login the mock so Vehicles/State work immediately; the
-		// real client requires explicit Login via Settings.
-		_ = mc.Login(ctx, rivian.Credentials{})
+		// The mock now speaks the same Account surface as live —
+		// start logged-out so the UI shows the sign-in panel.
+		// Any email+password authenticates; "mfa" in the email
+		// triggers the MFA flow; "fail" rejects.
+		if settingsStore != nil {
+			if sess, err := settings.LoadRivianSession(ctx, settingsStore); err != nil {
+				logger.Warn("restore rivian session", "err", err.Error())
+			} else if sess.UserSessionToken != "" {
+				mc.Restore(sess)
+				logger.Info("rivian client: mock (restored session)", "email", sess.Email)
+			} else {
+				logger.Info("rivian client: mock (awaiting Settings login)")
+			}
+		} else {
+			logger.Info("rivian client: mock (no settings store; login state will not persist)")
+		}
 		rivianClient = mc
-		logger.Info("rivian client: mock (fixture data)")
+		rivianAccount = mc
 	case "stub":
 		rivianClient = rivian.NewStub()
 		logger.Info("rivian client: stub (no network)")
@@ -156,7 +169,7 @@ func runServer() {
 		} else {
 			logger.Info("rivian client: live (no settings store; login state will not persist)")
 		}
-		rivianLive = lc
+		rivianAccount = lc
 		rivianClient = lc
 	}
 
@@ -180,7 +193,7 @@ func runServer() {
 
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
-		RivianLive:    rivianLive,
+		RivianAccount: rivianAccount,
 		SettingsStore: settingsStore,
 		PushService:   pushSvc,
 		PushStore:     pushStore,

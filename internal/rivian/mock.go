@@ -2,6 +2,8 @@ package rivian
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -12,15 +14,34 @@ import (
 //
 // The defaults model a stationary Rivian R1T at ~72% SoC. Callers can
 // swap the state out via SetState before serving requests.
+//
+// MockClient also implements Account — the same sign-in/MFA/logout
+// surface LiveClient exposes — so the UI flow under RIVIAN_CLIENT=mock
+// is identical to production. Any email + password combo succeeds,
+// except:
+//
+//   - email containing "mfa" triggers an MFA challenge that any
+//     non-empty OTP clears; this exercises the two-leg flow locally.
+//   - email containing "fail" or "bad" rejects the password so the
+//     error state is reachable without tripping real Rivian.
+//
+// Snapshots round-trip through JSON so settings.SaveRivianSession can
+// persist them; on restart Restore brings the mock back to its
+// authenticated state, matching the live client's behaviour.
 type MockClient struct {
-	mu             sync.Mutex
-	loggedIn       bool
-	vehicles       []Vehicle
-	states         map[string]State
-	LoginReturnErr error // if non-nil, Login returns this error
+	mu              sync.Mutex
+	email           string    // non-empty when authenticated
+	pendingOTPEmail string    // non-empty during MFA challenge
+	authenticatedAt time.Time // last successful login, for Snapshot
+	vehicles        []Vehicle
+	states          map[string]State
+	LoginReturnErr  error // if non-nil, Login returns this error
 }
 
-// NewMock returns a MockClient primed with one fake vehicle.
+// NewMock returns a MockClient primed with one fake vehicle. The
+// client starts logged-out so the Settings UI shows the sign-in panel
+// — call Login with any email+password (or Restore a Session) to
+// unlock Vehicles/State.
 func NewMock() *MockClient {
 	id := "mock-vehicle-1"
 	return &MockClient{
@@ -72,15 +93,40 @@ func (c *MockClient) SetState(vehicleID string, s State) {
 	c.states[vehicleID] = s
 }
 
-// Login accepts any credentials. Returns LoginReturnErr if set so
-// tests can exercise failure paths without patching transport.
-func (c *MockClient) Login(_ context.Context, _ Credentials) error {
+// Login drives the two-leg auth dance. Returns LoginReturnErr if set
+// so tests can exercise failure paths without patching transport.
+func (c *MockClient) Login(_ context.Context, cr Credentials) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.LoginReturnErr != nil {
 		return c.LoginReturnErr
 	}
-	c.loggedIn = true
+	// Second leg: OTP. Only valid while a challenge is pending.
+	if cr.OTP != "" {
+		if c.pendingOTPEmail == "" {
+			return errors.New("mock: no MFA challenge in flight")
+		}
+		c.email = c.pendingOTPEmail
+		c.pendingOTPEmail = ""
+		c.authenticatedAt = time.Now().UTC()
+		return nil
+	}
+	// First leg: email + password.
+	email := strings.TrimSpace(cr.Email)
+	if email == "" || cr.Password == "" {
+		return errors.New("mock: email and password required")
+	}
+	lowered := strings.ToLower(email)
+	if strings.Contains(lowered, "fail") || strings.Contains(lowered, "bad") {
+		return errors.New("mock: invalid credentials")
+	}
+	if strings.Contains(lowered, "mfa") {
+		c.pendingOTPEmail = email
+		return ErrMFARequired
+	}
+	c.email = email
+	c.pendingOTPEmail = ""
+	c.authenticatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -89,7 +135,7 @@ func (c *MockClient) Login(_ context.Context, _ Credentials) error {
 func (c *MockClient) Vehicles(_ context.Context) ([]Vehicle, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.loggedIn {
+	if c.email == "" {
 		return nil, ErrNotAuthenticated
 	}
 	out := make([]Vehicle, len(c.vehicles))
@@ -102,7 +148,7 @@ func (c *MockClient) Vehicles(_ context.Context) ([]Vehicle, error) {
 func (c *MockClient) State(_ context.Context, vehicleID string) (*State, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.loggedIn {
+	if c.email == "" {
 		return nil, ErrNotAuthenticated
 	}
 	s, ok := c.states[vehicleID]
@@ -111,6 +157,69 @@ func (c *MockClient) State(_ context.Context, vehicleID string) (*State, error) 
 	}
 	s.At = time.Now().UTC()
 	return &s, nil
+}
+
+// Authenticated reports whether the mock client has completed a
+// successful Login (or been Restored from a persisted session).
+func (c *MockClient) Authenticated() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.email != ""
+}
+
+// MFAPending reports whether Login returned ErrMFARequired and the
+// client is waiting for an OTP submission.
+func (c *MockClient) MFAPending() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pendingOTPEmail != ""
+}
+
+// Email returns the email the current session is authenticated as.
+func (c *MockClient) Email() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.email
+}
+
+// Logout clears every authenticated-session field.
+func (c *MockClient) Logout() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.email = ""
+	c.pendingOTPEmail = ""
+	c.authenticatedAt = time.Time{}
+}
+
+// Snapshot returns a serialisable copy of the current session so
+// settings.SaveRivianSession can round-trip it through JSON. The
+// mock uses UserSessionToken purely as the "we are logged in"
+// sentinel — the contents are not real tokens.
+func (c *MockClient) Snapshot() Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.email == "" {
+		return Session{}
+	}
+	return Session{
+		Email:            c.email,
+		UserSessionToken: "mock-session",
+		AuthenticatedAt:  c.authenticatedAt,
+	}
+}
+
+// Restore hydrates the mock from a prior Snapshot.
+func (c *MockClient) Restore(s Session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if s.UserSessionToken == "" {
+		c.email = ""
+		c.authenticatedAt = time.Time{}
+		return
+	}
+	c.email = s.Email
+	c.authenticatedAt = s.AuthenticatedAt
+	c.pendingOTPEmail = ""
 }
 
 // Compile-time assertion: MockClient satisfies Client.
