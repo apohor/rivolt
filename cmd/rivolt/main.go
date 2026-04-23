@@ -186,6 +186,26 @@ func runServer() {
 		logger.Warn("samples store unavailable", "err", err.Error())
 	}
 
+	// One-time migration: v0.1.7 and earlier keyed ElectraFi charge/drive
+	// rows by the CSV's chargeNumber/driveNumber counters, which reset
+	// per export — re-importing an overlapping date range produced
+	// duplicates. v0.1.8 switched to timestamp-based IDs; this pass
+	// collapses any historical dupes by (vehicle_id, started_at).
+	if drivesStore != nil {
+		if n, err := drivesStore.Dedupe(ctx); err != nil {
+			logger.Warn("drives dedupe failed", "err", err.Error())
+		} else if n > 0 {
+			logger.Info("drives dedupe", "removed", n)
+		}
+	}
+	if chargesStore != nil {
+		if n, err := chargesStore.Dedupe(ctx); err != nil {
+			logger.Warn("charges dedupe failed", "err", err.Error())
+		} else if n > 0 {
+			logger.Info("charges dedupe", "removed", n)
+		}
+	}
+
 	webFS := web.Assets()
 	if webFS == nil {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")

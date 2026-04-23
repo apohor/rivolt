@@ -199,16 +199,23 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		return Result{}, fmt.Errorf("flush samples: %w", err)
 	}
 
-	// Persist.
-	for id, snaps := range driveGroups {
+	// Persist. IDs are derived from each group's earliest-snapshot
+	// timestamp, NOT from ElectraFi's driveNumber/chargeNumber — those
+	// counters reset per export, so two CSVs covering overlapping date
+	// ranges would otherwise produce duplicate rows for the same
+	// physical session. A timestamp-keyed ID makes re-imports a clean
+	// upsert.
+	for _, snaps := range driveGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
+		id := stableID(vehicleID, "d", snaps[0].at)
 		d := deriveDrive(id, vehicleID, snaps)
 		if err := i.Drives.Upsert(ctx, d); err != nil {
 			return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
 		}
 	}
-	for id, snaps := range chargeGroups {
+	for _, snaps := range chargeGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
+		id := stableID(vehicleID, "c", snaps[0].at)
 		c := deriveCharge(id, vehicleID, snaps, i.pack())
 		if err := i.Charges.Upsert(ctx, c); err != nil {
 			return Result{}, fmt.Errorf("upsert charge %s: %w", id, err)
@@ -438,6 +445,16 @@ func atoi(s string) int64 {
 
 func groupKey(vehicleID, kind string, n int64) string {
 	return fmt.Sprintf("electrafi_%s_%s_%d", vehicleID, kind, n)
+}
+
+// stableID builds a deterministic row ID from the session's start
+// timestamp. Two CSVs covering overlapping date ranges will produce
+// the same ID for the same physical session so the upsert collapses
+// them instead of creating a duplicate. Seconds precision is enough —
+// ElectraFi's poll cadence (~60 s) makes first-row collisions the
+// common case even when the exports don't start on the same row.
+func stableID(vehicleID, kind string, t time.Time) string {
+	return fmt.Sprintf("electrafi_%s_%s_%d", vehicleID, kind, t.UTC().Unix())
 }
 
 // isChargingState returns true for any state that ElectraFi emits while

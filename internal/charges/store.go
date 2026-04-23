@@ -145,3 +145,81 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 	}
 	return out, rows.Err()
 }
+
+// Dedupe collapses rows sharing (vehicle_id, started_at). For each
+// duplicate group it first promotes the best known values into the
+// canonical row (the one with the most data), then deletes the
+// rest. Called after we switched from chargeNumber-keyed IDs to
+// timestamp-keyed IDs — historical imports produced two rows for any
+// session that was re-exported, and this stitches them back to one.
+//
+// Returns the number of rows deleted.
+func (s *Store) Dedupe(ctx context.Context) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Merge: within each duplicate group, the canonical row is the one
+	// with the largest energy_added_kwh (tiebreak max_power_kw, then
+	// ended_at, then id). For every other row in the group we take the
+	// MAX of each numeric field so no detail is lost when we drop them.
+	if _, err := tx.ExecContext(ctx, `
+		WITH ranked AS (
+			SELECT id, vehicle_id, started_at,
+			       ROW_NUMBER() OVER (
+			         PARTITION BY vehicle_id, started_at
+			         ORDER BY energy_added_kwh DESC,
+			                  max_power_kw DESC,
+			                  ended_at DESC,
+			                  id ASC
+			       ) AS rn
+			FROM charges
+		),
+		keepers AS (SELECT id, vehicle_id, started_at FROM ranked WHERE rn = 1),
+		merges AS (
+			SELECT k.id AS keep_id,
+			       MAX(c.energy_added_kwh) AS energy_added_kwh,
+			       MAX(c.miles_added)      AS miles_added,
+			       MAX(c.max_power_kw)     AS max_power_kw,
+			       MAX(c.avg_power_kw)     AS avg_power_kw,
+			       MAX(c.ended_at)         AS ended_at
+			FROM keepers k
+			JOIN charges c
+			  ON c.vehicle_id = k.vehicle_id
+			 AND c.started_at = k.started_at
+			GROUP BY k.id
+		)
+		UPDATE charges SET
+			energy_added_kwh = (SELECT energy_added_kwh FROM merges WHERE merges.keep_id = charges.id),
+			miles_added      = (SELECT miles_added      FROM merges WHERE merges.keep_id = charges.id),
+			max_power_kw     = (SELECT max_power_kw     FROM merges WHERE merges.keep_id = charges.id),
+			avg_power_kw     = (SELECT avg_power_kw     FROM merges WHERE merges.keep_id = charges.id),
+			ended_at         = (SELECT ended_at         FROM merges WHERE merges.keep_id = charges.id)
+		WHERE id IN (SELECT keep_id FROM merges)
+	`); err != nil {
+		return 0, fmt.Errorf("merge duplicates: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM charges WHERE id IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (
+					PARTITION BY vehicle_id, started_at
+					ORDER BY energy_added_kwh DESC,
+					         max_power_kw DESC,
+					         ended_at DESC,
+					         id ASC
+				) AS rn FROM charges
+			) WHERE rn > 1
+		)`)
+	if err != nil {
+		return 0, fmt.Errorf("delete duplicates: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
