@@ -12,6 +12,7 @@ import {
   num,
   pct,
 } from "../lib/format";
+import { smoothGaussianTime } from "../lib/smooth";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -123,14 +124,20 @@ export default function DriveDetailPage() {
     );
   }
 
-  const speedPts = driveSamples.map((p) => ({
+  const speedPtsRaw = driveSamples.map((p) => ({
     x: new Date(p.At).getTime(),
     y: p.SpeedMph || 0,
   }));
-  const socPts = driveSamples.map((p) => ({
+  const socPtsRaw = driveSamples.map((p) => ({
     x: new Date(p.At).getTime(),
     y: p.BatteryLevelPct || 0,
   }));
+  // Gaussian-weighted moving average over a *time* window. ElectraFi
+  // samples are irregularly spaced (5–60s apart); a time-based kernel
+  // handles that correctly and preserves peaks (max speed, braking
+  // events) better than a flat MA.
+  const speedPts = smoothGaussianTime(speedPtsRaw, 20_000);
+  const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 
   return (
