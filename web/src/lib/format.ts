@@ -43,3 +43,36 @@ export function pct(v: number, digits = 0): string {
   if (!Number.isFinite(v) || v === 0) return "—";
   return `${v.toFixed(digits)}%`;
 }
+
+// Humanise the raw chargingState value stored on Charge.FinalState.
+// Raw values come straight from ElectraFi / Tesla API, e.g.
+// "Complete", "Charging", "Disconnected", "Stopped", "NoPower",
+// "Starting", "charging_station_err". "Charging" as a *final* state
+// means the session was still charging at the last sample we saw —
+// the CSV ended mid-session.
+export function formatChargeState(s: string): string {
+  if (!s) return "—";
+  switch (s) {
+    case "Complete":
+      return "Complete";
+    case "Charging":
+      return "In progress";
+    case "Disconnected":
+      return "Disconnected";
+    case "Stopped":
+      return "Stopped";
+    case "Starting":
+      return "Starting";
+    case "NoPower":
+      return "No power";
+    case "charging_station_err":
+      return "Interrupted";
+    default:
+      // Fallback: turn snake_case into Sentence case.
+      return s
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^./, (c) => c.toUpperCase());
+  }
+}
