@@ -108,3 +108,38 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM charges`).Scan(&n)
 	return n, err
 }
+
+// ListRecent returns the most recent N charges, newest first.
+func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, vehicle_id, started_at, ended_at,
+		       start_soc_pct, end_soc_pct,
+		       energy_added_kwh, miles_added,
+		       max_power_kw, avg_power_kw, final_state,
+		       lat, lon, source
+		FROM charges ORDER BY started_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Charge
+	for rows.Next() {
+		var c Charge
+		var startUnix, endUnix int64
+		if err := rows.Scan(&c.ID, &c.VehicleID, &startUnix, &endUnix,
+			&c.StartSoCPct, &c.EndSoCPct,
+			&c.EnergyAddedKWh, &c.MilesAdded,
+			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
+			&c.Lat, &c.Lon, &c.Source,
+		); err != nil {
+			return nil, err
+		}
+		c.StartedAt = time.Unix(startUnix, 0).UTC()
+		c.EndedAt = time.Unix(endUnix, 0).UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
