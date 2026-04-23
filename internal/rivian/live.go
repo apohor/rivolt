@@ -560,8 +560,8 @@ func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string
 // getLiveSessionData and getRegisteredWallboxes.
 const DefaultChargingEndpoint = "https://rivian.com/api/gql/chrg/user/graphql"
 
-const qLiveSession = `query getLiveSessionData($vehicleId: ID!) {
-  getLiveSessionData(vehicleId: $vehicleId) {
+const qLiveSession = `query getLiveSessionHistory($vehicleId: ID!) {
+  getLiveSessionHistory(vehicleId: $vehicleId) {
     __typename
     chargerId
     currentCurrency
@@ -592,7 +592,7 @@ type valueRecord[T any] struct {
 }
 
 type liveSessionData struct {
-	GetLiveSessionData struct {
+	GetLiveSessionHistory struct {
 		ChargerId                *string              `json:"chargerId"`
 		CurrentCurrency          *string              `json:"currentCurrency"`
 		CurrentPrice             *string              `json:"currentPrice"`
@@ -610,7 +610,7 @@ type liveSessionData struct {
 		TimeRemaining            valueRecord[string]  `json:"timeRemaining"`
 		TotalChargedEnergy       valueRecord[float64] `json:"totalChargedEnergy"`
 		VehicleChargerState      valueRecord[string]  `json:"vehicleChargerState"`
-	} `json:"getLiveSessionData"`
+	} `json:"getLiveSessionHistory"`
 }
 
 // LiveSession returns the in-progress charging session for vehicleID,
@@ -627,14 +627,14 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 		return nil, errors.New("rivian: vehicleID is required")
 	}
 	data, err := doGraphQLAt[liveSessionData](ctx, c, DefaultChargingEndpoint, graphQLRequest{
-		OperationName: "getLiveSessionData",
+		OperationName: "getLiveSessionHistory",
 		Query:         qLiveSession,
 		Variables:     map[string]any{"vehicleId": vehicleID},
 	}, c.authHeaders())
 	if err != nil {
-		return nil, fmt.Errorf("getLiveSessionData: %w", err)
+		return nil, fmt.Errorf("getLiveSessionHistory: %w", err)
 	}
-	d := data.GetLiveSessionData
+	d := data.GetLiveSessionHistory
 	// vehicleChargerState drives the "active" flag. Rivian reports
 	// "charging_active" while energy is flowing and other values
 	// ("charging_complete", "charging_ready") at session boundaries —
