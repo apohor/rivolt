@@ -56,18 +56,18 @@ type parallaxNext struct {
 // chargingLiveData is the decoded ChargingSessionLiveData protobuf
 // message. Field numbers match src/rivian/proto/charging.py.
 type chargingLiveData struct {
-	TotalKWh             float64 // 1
-	PackKWh              float64 // 2
-	ThermalKWh           float64 // 3
-	OutletsKWh           float64 // 4
-	SystemKWh            float64 // 5
-	SessionDurationMins  int64   // 6
-	TimeRemainingMins    int64   // 7
-	RangeAddedKms        int64   // 8
-	CurrentPowerKW       float64 // 9
-	CurrentRangePerHour  int64   // 10
+	TotalKWh            float64 // 1
+	PackKWh             float64 // 2
+	ThermalKWh          float64 // 3
+	OutletsKWh          float64 // 4
+	SystemKWh           float64 // 5
+	SessionDurationMins int64   // 6
+	TimeRemainingMins   int64   // 7
+	RangeAddedKms       int64   // 8
+	CurrentPowerKW      float64 // 9
+	CurrentRangePerHour int64   // 10
 	// 11: SessionCost (nested message) — skipped; price comes from REST.
-	IsFreeSession bool // 12
+	IsFreeSession bool  // 12
 	ChargingState int64 // 13: 0=idle, 1=charging, 2=complete
 }
 
@@ -172,8 +172,8 @@ func (c *LiveClient) runParallaxChargingSubscription(ctx context.Context, vehicl
 			framesLogged++
 		}
 		sess := &LiveSession{
-			At:                       time.Now().UTC(),
-			VehicleID:                vehicleID,
+			At:        time.Now().UTC(),
+			VehicleID: vehicleID,
 			// A frame with real power > 0 or an elapsed session
 			// duration means the car is actively charging. The
 			// charging_state enum values aren't publicly
