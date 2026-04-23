@@ -61,6 +61,26 @@ export type Health = { ok: boolean; version: string; time: string };
 
 export type Vehicle = { id: string; vin: string; name: string; model: string };
 
+// VehicleState matches internal/rivian.State. Units are SI at the wire:
+// battery in percent, distance in km, temps in C. The UI converts as
+// needed for display.
+export type VehicleState = {
+  at: string;
+  vehicle_id: string;
+  battery_level_pct: number;
+  distance_to_empty: number;
+  odometer_km: number;
+  gear: string;
+  charger_state: string;
+  charger_power_kw: number;
+  charge_target_pct: number;
+  latitude: number;
+  longitude: number;
+  locked: boolean;
+  cabin_temp_c: number;
+  outside_temp_c: number;
+};
+
 export type Drive = {
   ID: string;
   VehicleID: string;
@@ -120,6 +140,8 @@ export type Sample = {
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
+  vehicleState: (vehicleID: string) =>
+    api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),
   charges: (limit = 50) => api.get<Charge[]>(`/api/charges?limit=${limit}`),
   // `allDrives` / `allCharges` pull enough history to drive the
