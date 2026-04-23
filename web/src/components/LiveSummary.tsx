@@ -146,7 +146,7 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
           <Stat label="Gear" value={s.gear || "—"} />
           <Stat label="Power" value={formatPowerShort(s.power_state)} />
           <Stat
-            label="Plug"
+            label={s.charger_power_kw > 0 ? "Charging" : "Plug"}
             value={
               s.charger_power_kw > 0
                 ? num(s.charger_power_kw, 1, "kW")

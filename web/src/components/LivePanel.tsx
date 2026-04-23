@@ -80,11 +80,15 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
       </div>
       {heroUrl ? (
         <div className="mt-3 flex justify-center">
+          {/* The configurator PNGs have enormous horizontal margins
+              baked in. max-h-32 (was 48) + narrower max-w keeps the
+              car recognizable without burning a quarter of the
+              viewport on whitespace. */}
           <img
             src={heroUrl}
             alt={name}
             loading="lazy"
-            className="max-h-48 w-full max-w-sm rounded-md object-contain"
+            className="max-h-32 w-full max-w-xs rounded-md object-contain"
           />
         </div>
       ) : null}
@@ -387,17 +391,16 @@ function ChargingDetail({
           />
         </div>
       ) : (
-        <div className="text-[11px] leading-relaxed text-neutral-400">
-          <div className="mb-1">
-            <span className="font-medium text-neutral-300">
-              State:&nbsp;{formatChargerState(state.charger_state)}
-            </span>
-            {" · "}waiting for telemetry…
-          </div>
-          Rivolt subscribes to Rivian's <code className="text-neutral-300">ChargingSession</code>{" "}
-          push stream for live power, energy, rate, and time. It can take a
-          few seconds after the session starts for the first frame to
-          arrive.
+        // Compact fallback when the first telemetry frame hasn't
+        // arrived yet. The long explainer we used to show here is
+        // gone in favor of a single-line state readout — once
+        // Parallax is connected the first frame lands in a few
+        // seconds, so verbose copy adds noise more often than help.
+        <div className="text-[11px] text-neutral-400">
+          <span className="font-medium text-neutral-300">
+            {formatChargerState(state.charger_state)}
+          </span>
+          {" · "}waiting for first frame…
         </div>
       )}
       {sess.isError ? (
