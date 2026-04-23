@@ -268,21 +268,11 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 			if sess == nil || !sess.Active {
 				continue
 			}
-			m.mu.Lock()
-			var merged *State
-			prev := m.cache[vehicleID]
-			m.lastSession[vehicleID] = sess
-			if cur := prev; cur != nil && sess.PowerKW > 0 {
-				cp := *cur
-				cp.ChargerPowerKW = sess.PowerKW
-				merged = &cp
-				m.cache[vehicleID] = merged
-				m.stamp[vehicleID] = time.Now()
-			}
-			m.mu.Unlock()
-			if merged != nil {
-				m.record(ctx, vehicleID, prev, merged)
-			}
+			// Route through applyLiveSession so REST-reported zeros
+			// for home-AC fields can't clobber non-zero values from
+			// the WS Parallax / ChargingSession subscribers. Same
+			// merge semantics the WS path uses.
+			m.applyLiveSession(ctx, vehicleID, sess)
 		}
 	}
 }
@@ -426,8 +416,12 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, sess *LiveSession) {
 	m.mu.Lock()
 	if prev := m.lastSession[vehicleID]; prev != nil {
-		// Preserve REST-only fields the subscriptions don't select.
-		sess.IsRivianCharger = prev.IsRivianCharger
+		// Preserve IsRivianCharger once any source has reported it.
+		// Only the REST poller selects this field; WS subscribers
+		// leave it false, so we keep prev's true value across pushes.
+		if prev.IsRivianCharger {
+			sess.IsRivianCharger = true
+		}
 		// Field-level fallback: if this push reports zero for a
 		// field the prior snapshot populated, keep the prior value.
 		// Lets the Parallax + ChargingSession streams complement
