@@ -79,6 +79,7 @@ export type VehicleState = {
   locked: boolean;
   cabin_temp_c: number;
   outside_temp_c: number;
+  power_state: string;
 };
 
 export type Drive = {

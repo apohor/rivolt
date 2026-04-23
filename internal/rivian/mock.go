@@ -67,6 +67,7 @@ func NewMock() *MockClient {
 				Locked:          true,
 				CabinTempC:      21,
 				OutsideTempC:    18,
+				PowerState:      "sleep",
 			},
 		},
 	}

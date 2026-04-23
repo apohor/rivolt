@@ -414,7 +414,17 @@ const qVehicleState = `query GetVehicleState($vehicleID: String!) {
     chargerStatus { value }
     batteryLimit { value }
     cabinClimateInteriorTemperature { value }
+    powerState { value }
     doorFrontLeftLocked { value }
+    doorFrontRightLocked { value }
+    doorRearLeftLocked { value }
+    doorRearRightLocked { value }
+    closureFrunkLocked { value }
+    closureLiftgateLocked { value }
+    closureTonneauLocked { value }
+    closureTailgateLocked { value }
+    closureSideBinLeftLocked { value }
+    closureSideBinRightLocked { value }
   }
 }`
 
@@ -439,7 +449,21 @@ type vehicleStateData struct {
 		ChargerStatus                   vsValue[string]  `json:"chargerStatus"`
 		BatteryLimit                    vsValue[float64] `json:"batteryLimit"`
 		CabinClimateInteriorTemperature vsValue[float64] `json:"cabinClimateInteriorTemperature"`
-		DoorFrontLeftLocked             vsValue[string]  `json:"doorFrontLeftLocked"`
+		PowerState                      vsValue[string]  `json:"powerState"`
+		// Per home-assistant-rivian LOCK_STATE_ENTITIES: the car is
+		// considered locked only when none of these 10 fields report
+		// "unlocked". R1T/R1S report different subsets; missing fields
+		// come back empty and are ignored.
+		DoorFrontLeftLocked       vsValue[string] `json:"doorFrontLeftLocked"`
+		DoorFrontRightLocked      vsValue[string] `json:"doorFrontRightLocked"`
+		DoorRearLeftLocked        vsValue[string] `json:"doorRearLeftLocked"`
+		DoorRearRightLocked       vsValue[string] `json:"doorRearRightLocked"`
+		ClosureFrunkLocked        vsValue[string] `json:"closureFrunkLocked"`
+		ClosureLiftgateLocked     vsValue[string] `json:"closureLiftgateLocked"`
+		ClosureTonneauLocked      vsValue[string] `json:"closureTonneauLocked"`
+		ClosureTailgateLocked     vsValue[string] `json:"closureTailgateLocked"`
+		ClosureSideBinLeftLocked  vsValue[string] `json:"closureSideBinLeftLocked"`
+		ClosureSideBinRightLocked vsValue[string] `json:"closureSideBinRightLocked"`
 	} `json:"vehicleState"`
 }
 
@@ -483,10 +507,37 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		ChargeTargetPct: vs.BatteryLimit.Value,
 		Latitude:        vs.GNSSLocation.Latitude,
 		Longitude:       vs.GNSSLocation.Longitude,
-		Locked:          strings.EqualFold(vs.DoorFrontLeftLocked.Value, "locked"),
-		CabinTempC:      vs.CabinClimateInteriorTemperature.Value,
-		OutsideTempC:    0,
+		Locked: aggregateLocked(
+			vs.DoorFrontLeftLocked.Value,
+			vs.DoorFrontRightLocked.Value,
+			vs.DoorRearLeftLocked.Value,
+			vs.DoorRearRightLocked.Value,
+			vs.ClosureFrunkLocked.Value,
+			vs.ClosureLiftgateLocked.Value,
+			vs.ClosureTonneauLocked.Value,
+			vs.ClosureTailgateLocked.Value,
+			vs.ClosureSideBinLeftLocked.Value,
+			vs.ClosureSideBinRightLocked.Value,
+		),
+		CabinTempC:   vs.CabinClimateInteriorTemperature.Value,
+		OutsideTempC: 0,
+		PowerState:   strings.ToLower(strings.TrimSpace(vs.PowerState.Value)),
 	}, nil
+}
+
+// aggregateLocked follows home-assistant-rivian's LOCK_STATE_ENTITIES
+// convention: the car is locked iff none of the per-door/closure
+// values equals "unlocked" (case-insensitive). Empty values — which
+// the gateway emits for closures a given trim doesn't have — are
+// ignored, and an all-empty response is treated as unknown→locked so
+// we don't falsely claim the car is wide open.
+func aggregateLocked(vs ...string) bool {
+	for _, v := range vs {
+		if strings.EqualFold(strings.TrimSpace(v), "unlocked") {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeGear maps Rivian's gearStatus values ("park", "drive",
