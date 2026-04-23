@@ -26,21 +26,21 @@ import (
 // Deps is the bag of dependencies the API router needs. Keep this
 // small; avoid accumulating a "dependency soup" pattern.
 type Deps struct {
-	Rivian      rivian.Client
+	Rivian rivian.Client
 	// RivianLive is the concrete *LiveClient that backs Rivian when
 	// the live client is active. Auth/login endpoints need the
 	// concrete type to drive the Login/Logout/Snapshot flow; nil when
 	// the stub or mock client is in use.
-	RivianLive     *rivian.LiveClient
-	SettingsStore  *settings.Store
-	PushService *push.Service
-	PushStore   *push.Store
-	SettingsMgr *settings.Manager
-	Drives      *drives.Store
-	Charges     *charges.Store
-	Samples     *samples.Store
-	WebFS       fs.FS
-	Version     string
+	RivianLive    *rivian.LiveClient
+	SettingsStore *settings.Store
+	PushService   *push.Service
+	PushStore     *push.Store
+	SettingsMgr   *settings.Manager
+	Drives        *drives.Store
+	Charges       *charges.Store
+	Samples       *samples.Store
+	WebFS         fs.FS
+	Version       string
 }
 
 // New builds the root mux with all routes mounted.
