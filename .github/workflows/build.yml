@@ -1,4 +1,4 @@
-# Build, test, and publish the caffeine container image.
+# Build, test, and publish the rivolt container image.
 #
 # Two jobs:
 #   1. test    — go vet/test + web typecheck/build. Runs on every push + PR.
@@ -81,7 +81,7 @@ jobs:
       id-token: write   # reserved for future cosign signing
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}  # e.g. apohor/caffeine
+      IMAGE_NAME: ${{ github.repository }}  # e.g. apohor/rivolt
     steps:
       - name: Checkout
         uses: actions/checkout@v6
