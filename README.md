@@ -2,7 +2,7 @@
 
 > A quiet rivolt against closed apps. Self-hosted Rivian companion with AI, home-energy integration, and an overland logbook.
 
-**Rivolt** is an open-source, self-hosted companion for Rivian vehicles. It runs on your own hardware, keeps your credentials on your LAN, and gives you deeper insight into your drives, charging, efficiency, and routes than the official app — without ever selling your data.
+**Rivolt** is an open-source, self-hosted companion for Rivian vehicles. It runs on your own hardware, keeps your credentials on your LAN, and gives you deeper insight into your drives, charging, efficiency, and routes than the official app.
 
 ---
 
@@ -19,19 +19,25 @@ Rivolt is built to address all four.
 
 ## What Rivolt does
 
+Core (free, open-source, self-hosted):
+
 - **Live vehicle dashboard** — SoC, range, charge state, last drive, last charge
 - **Drive analytics** — route maps, efficiency breakdowns, cost-per-mile using your actual electricity rate
 - **Charging analytics** — curves, temperature impact, session cost, BMS effects
-- **AI coach** (BYO OpenAI / Anthropic / Gemini key) — plain-language weekly summaries, trip planning, "why did my efficiency drop" explanations grounded in *your* data
+- **AI coach (bring your own key)** — plain-language weekly summaries, trip planning, "why did my efficiency drop" explanations grounded in *your* data, using your own OpenAI / Anthropic / Gemini key
+- **Installable PWA** — works on any browser; service-worker offline; web push for plug-in reminders, update alerts, departure prep
+
+Planned add-ons (not in the initial release):
+
 - **Home energy integration** — Enphase Envoy, Tesla Powerwall, SolarEdge, Span panel adapters; schedule charges to solar peak or TOU off-peak
 - **Overland mode** — GPX traces, offline topo tiles, photo attachments per waypoint, trail logbook export
 - **Household fleet** — multi-vehicle aware, "best vehicle for this trip" recommendation, shared charger queue planning
-- **Installable PWA** — works on any browser; service-worker offline; web push for plug-in reminders, update alerts, departure prep
+- **Managed hosting** — optional hosted instance for users who prefer not to self-host
 
 ## Data sovereignty
 
-- Credentials stored locally in SQLite, never transmitted outside your LAN
-- BYO AI key (OpenAI / Anthropic / Gemini) — your data never touches Rivolt servers because there aren't any
+- Credentials stored locally in SQLite, never transmitted outside your LAN on self-hosted deployments
+- BYO AI key (OpenAI / Anthropic / Gemini) — calls go directly from your server to the provider you chose
 - Full export any time
 - Disconnect your Rivian account in one click
 - Read-only against the Rivian API
@@ -51,7 +57,7 @@ Same DNA as [Caffeine](https://github.com/apohor/caffeine):
 
 ## License
 
-MIT for the core. Premium plugins (home-energy, overland, fleet) will be dual-licensed; details in [`docs/LICENSING.md`](docs/LICENSING.md) once finalized.
+The core is MIT-licensed. Some future add-ons may ship under a separate commercial license; licensing details will be published alongside each add-on.
 
 ## Legal
 
