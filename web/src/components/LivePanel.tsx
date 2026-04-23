@@ -57,13 +57,14 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const s = state.data;
 
   // Gallery state. Rivian returns multiple configurator angles per
-  // vehicle (3/4 front, side, rear, interior, wheel detail). We pick
-  // an "auto" image that reflects what the car is doing — charging
-  // shows a side shot (where the charge port lives), driving shows
-  // the 3/4 front, frunk open shows the front, liftgate/tonneau shows
-  // the rear, and so on. Clicking a thumbnail overrides the auto
-  // pick; the "Auto" button resets.
-  const gallery = vehicle.images ?? [];
+  // vehicle (front, rear, side, side-rear, side-charging, in-use,
+  // overhead) plus dark/light × large/small duplicates of each. We
+  // dedupe to one image per placement (preferring the dark-theme
+  // large render to match the UI), then auto-pick based on live
+  // state — charging shows the side-charging render with the port
+  // open, driving shows the in-use render, frunk open shows front,
+  // liftgate/tonneau open shows rear, etc.
+  const gallery = uniqueGalleryImages(vehicle.images ?? []);
   const [manualPick, setManualPick] = useState<string | null>(null);
   const autoUrl = pickImageForState(gallery, s) || vehicle.image_url || "";
   const heroUrl = manualPick || autoUrl;
@@ -442,75 +443,80 @@ function ChargingDetail({
 }
 
 // pickImageForState chooses which configurator angle best illustrates
-// the current vehicle state. Rivian tags each render with a
-// `placement` string like `side-exterior-3qfront-driver` or
-// `rear-exterior`. We score every image against the live state —
-// charging picks a side view (where the charge port lives), frunk
-// open picks a front angle, liftgate / tonneau open picks a rear
-// angle, driving picks a 3/4 front, and everything else falls back
-// to the marketing 3/4 front. Returns "" when there are no images.
+// the current vehicle state. Rivian tags each render with a short
+// `placement` string; observed values across R1T and R1S are:
+//
+//   front          - head-on front
+//   rear           - head-on rear
+//   side           - side profile
+//   side-rear      - 3/4 rear
+//   side-charging  - side view with charge port open (ours)
+//   in-use         - driving / motion shot
+//   overhead       - top-down
+//
+// We map state → preferred placement, pick the first image whose
+// placement matches, and fall back to the first image if nothing
+// lines up. Returns "" when there are no images.
 function pickImageForState(
   images: readonly { url: string; placement?: string }[] | undefined,
   state: VehicleState | undefined,
 ): string {
   if (!images || images.length === 0) return "";
 
-  // Decide which angle we want based on state.
-  type Want = "front" | "rear" | "side" | "3qfront" | "3qrear" | "interior";
-  const wants: Want[] = [];
+  // Build a priority list of placements for the current state.
+  const wants: string[] = [];
   if (state) {
     const cs = (state.charger_state || "").toLowerCase();
-    const charging =
-      cs === "charging_active" ||
-      cs === "charging_connecting" ||
-      cs === "charging_ready" ||
-      cs === "charging_complete";
+    const charging = cs.startsWith("charging_") || cs === "waiting_on_charger";
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
 
-    if (!state.frunk_closed) wants.push("front", "3qfront");
-    if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "3qrear");
-    if (charging) wants.push("side", "3qfront");
-    if (driving) wants.push("3qfront", "front");
+    if (charging) wants.push("side-charging", "side");
+    if (!state.frunk_closed) wants.push("front");
+    if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "side-rear");
+    if (driving) wants.push("in-use", "side");
     if (!state.doors_closed) wants.push("side");
   }
-  // Universal fallback: the classic marketing 3/4 front.
-  wants.push("3qfront", "side", "front", "3qrear", "rear", "interior");
+  // Universal fallback order: marketing hero first.
+  wants.push("side", "side-rear", "front", "rear", "in-use", "side-charging", "overhead");
 
-  // Score each image; higher-priority wants give bigger bumps. Driver-
-  // side beats passenger-side on ties.
-  let bestURL = images[0].url;
-  let bestScore = -1;
+  for (const want of wants) {
+    const hit = images.find((img) => (img.placement || "").toLowerCase() === want);
+    if (hit) return hit.url;
+  }
+  return images[0].url;
+}
+
+// uniqueGalleryImages collapses Rivian's design/size duplicates down
+// to one image per placement. Rivian returns 2-4 copies of every
+// angle (dark + light backgrounds, large + small sizes); we match the
+// dark-theme app, so prefer `design: "dark"` and `size: "large"` when
+// both exist. The returned order keeps Rivian's original ordering
+// for the first occurrence of each placement.
+function uniqueGalleryImages(
+  images: readonly { url: string; placement?: string; design?: string; size?: string }[] | undefined,
+): { url: string; placement?: string; design?: string; size?: string }[] {
+  if (!images || images.length === 0) return [];
+  const best = new Map<string, { url: string; placement?: string; design?: string; size?: string; score: number }>();
   for (const img of images) {
-    const p = (img.placement || "").toLowerCase();
-    let score = 0;
-    for (let i = 0; i < wants.length; i++) {
-      const w = wants[i];
-      const weight = wants.length - i; // earlier want = bigger weight
-      const match =
-        (w === "3qfront" && (p.includes("3qfront") || p.includes("3q-front"))) ||
-        (w === "3qrear" && (p.includes("3qrear") || p.includes("3q-rear"))) ||
-        (w === "side" && p.includes("side") && p.includes("exterior")) ||
-        (w === "front" &&
-          p.includes("front") &&
-          p.includes("exterior") &&
-          !p.includes("3q")) ||
-        (w === "rear" &&
-          p.includes("rear") &&
-          p.includes("exterior") &&
-          !p.includes("3q")) ||
-        (w === "interior" && p.includes("interior"));
-      if (match) {
-        score += weight;
-        break;
-      }
-    }
-    if (p.includes("driver")) score += 0.5;
-    if (score > bestScore) {
-      bestScore = score;
-      bestURL = img.url;
+    const key = (img.placement || img.url).toLowerCase();
+    const score =
+      (img.design === "dark" ? 2 : 0) + (img.size === "large" ? 1 : 0);
+    const prev = best.get(key);
+    if (!prev || score > prev.score) {
+      best.set(key, { ...img, score });
     }
   }
-  return bestURL;
+  // Preserve first-seen order.
+  const seen = new Set<string>();
+  const out: { url: string; placement?: string; design?: string; size?: string }[] = [];
+  for (const img of images) {
+    const key = (img.placement || img.url).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const pick = best.get(key);
+    if (pick) out.push(pick);
+  }
+  return out;
 }
 
 function formatDuration(totalSeconds: number): string {
