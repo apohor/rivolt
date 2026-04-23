@@ -45,18 +45,22 @@ export function pct(v: number, digits = 0): string {
 }
 
 // Humanise the raw chargingState value stored on Charge.FinalState.
-// Raw values come straight from ElectraFi / Tesla API, e.g.
-// "Complete", "Charging", "Disconnected", "Stopped", "NoPower",
-// "Starting", "charging_station_err". "Charging" as a *final* state
-// means the session was still charging at the last sample we saw —
-// the CSV ended mid-session.
+// Values come from ElectraFi / the Tesla API: "Complete",
+// "Disconnected", "Stopped", "Starting", "NoPower", "Charging",
+// "charging_station_err".
+//
+// "Charging" as a *final* state is not informative — it just means the
+// last snapshot ElectraFi wrote for this chargeNumber was still in the
+// Charging state (no terminal transition captured before the session
+// boundary). The session itself ended regardless (we have EndedAt), so
+// we collapse it to the em-dash.
 export function formatChargeState(s: string): string {
   if (!s) return "—";
   switch (s) {
     case "Complete":
       return "Complete";
     case "Charging":
-      return "In progress";
+      return "—";
     case "Disconnected":
       return "Disconnected";
     case "Stopped":
