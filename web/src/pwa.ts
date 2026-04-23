@@ -27,7 +27,7 @@ export function registerServiceWorker() {
       .register("/sw.js", { scope: "/" })
       .catch((err) => {
         // Swallow — SW is a progressive enhancement, not a hard dep.
-        console.warn("[caffeine] service worker registration failed:", err);
+        console.warn("[rivolt] service worker registration failed:", err);
       });
   });
 }

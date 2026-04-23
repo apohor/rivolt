@@ -4,44 +4,33 @@ import { backend } from "../lib/api";
 import Logo from "../components/Logo";
 
 const nav = [
-  { to: "/", label: "Home", end: true },
-  { to: "/live", label: "Live" },
-  { to: "/profiles", label: "Profiles" },
-  { to: "/history", label: "Shots" },
-  { to: "/beans", label: "Beans" },
+  { to: "/", label: "Overview", end: true },
+  { to: "/drives", label: "Drives" },
+  { to: "/charges", label: "Charges" },
   { to: "/settings", label: "Settings" },
 ];
 
+// StatusPill pings /api/health and shows a green dot when the backend is
+// reachable. Kept deliberately simple — no machine proxy, no degraded-vs-
+// unreachable distinction until we have a real upstream to probe.
 function StatusPill() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["machine-status"],
-    queryFn: () => backend.machineStatus(),
-    refetchInterval: 10_000,
+  const { data, isError } = useQuery({
+    queryKey: ["health"],
+    queryFn: () => backend.health(),
+    refetchInterval: 15_000,
   });
 
   let label = "checking…";
-  let tone = "bg-neutral-800 text-neutral-400";
-  let title = data?.machine_url;
-  if (!isLoading && data) {
-    if (data.reachable && !data.degraded) {
-      label = "machine online";
-      tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
-    } else if (data.reachable && data.degraded) {
-      // Probe just failed but the machine answered recently — typically a
-      // burst of wifi TX retries on the machine side. Don't alarm the user.
-      label = "machine spotty";
-      tone = "bg-amber-900/40 text-amber-300 border-amber-800";
-      title = `${data.machine_url} — probe retrying (${data.attempts ?? 0} attempts)`;
-    } else {
-      label = "machine unreachable";
-      tone = "bg-rose-900/40 text-rose-300 border-rose-800";
-    }
+  let tone = "bg-neutral-800 text-neutral-400 border-neutral-700";
+  if (data?.ok) {
+    label = "connected";
+    tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
+  } else if (isError) {
+    label = "offline";
+    tone = "bg-rose-900/40 text-rose-300 border-rose-800";
   }
   return (
-    <span
-      className={`rounded-full border border-neutral-800 px-3 py-1 text-xs ${tone}`}
-      title={title}
-    >
+    <span className={`rounded-full border px-3 py-1 text-xs ${tone}`} title={data?.version}>
       {label}
     </span>
   );
@@ -57,22 +46,12 @@ export default function AppLayout() {
             className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
           >
             <Logo size={22} className="text-emerald-400" />
-            <span>Caffeine</span>
+            <span>Rivolt</span>
           </NavLink>
-          {/* Status pill sits next to the logo on mobile (second slot on
-              the top row) so the scrollable nav can claim the whole
-              second row. On >=sm it collapses into the single-row
-              layout on the right. */}
           <div className="ml-auto sm:order-last sm:ml-0">
             <StatusPill />
           </div>
-          {/* Nav fills the second row on mobile (spread evenly so every
-              page is reachable without a horizontal scroll) and collapses
-              to the normal single-row layout from sm up. */}
-          <nav
-            className="order-last w-full sm:order-none sm:w-auto"
-            aria-label="Primary"
-          >
+          <nav className="order-last w-full sm:order-none sm:w-auto" aria-label="Primary">
             <ul className="flex items-center justify-between gap-0.5 sm:justify-start sm:gap-1">
               {nav.map((n) => (
                 <li key={n.to}>

@@ -1,6 +1,4 @@
-// Caffeine brand mark — espresso cup with rising steam.
-// Keep this in sync with web/public/favicon.svg.
-
+// Rivolt brand mark — lightning bolt in a square.
 type Props = {
   size?: number;
   className?: string;
@@ -16,42 +14,20 @@ export default function Logo({ size = 24, className = "" }: Props) {
       className={className}
       aria-hidden="true"
     >
-      <path
-        d="M22 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
+      <rect
+        x="4"
+        y="4"
+        width="56"
+        height="56"
+        rx="12"
         fill="none"
-        opacity="0.9"
-      />
-      <path
-        d="M32 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.55"
-      />
-      <path
-        d="M42 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        fill="none"
-        opacity="0.9"
-      />
-      <path
-        d="M14 34h30v8a10 10 0 0 1-10 10H24a10 10 0 0 1-10-10v-8z"
-        fill="currentColor"
-        opacity="0.9"
-      />
-      <path
-        d="M44 36h4a6 6 0 0 1 0 12h-4"
         stroke="currentColor"
         strokeWidth="3.5"
-        fill="none"
-        strokeLinecap="round"
         opacity="0.9"
+      />
+      <path
+        d="M36 10 L18 36 H30 L26 54 L46 26 H34 Z"
+        fill="currentColor"
       />
     </svg>
   );
