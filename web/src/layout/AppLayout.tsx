@@ -4,8 +4,8 @@ import { backend } from "../lib/api";
 import Logo from "../components/Logo";
 
 const nav = [
-  { to: "/live", label: "Live" },
   { to: "/", label: "Overview", end: true },
+  { to: "/live", label: "Live" },
   { to: "/drives", label: "Drives" },
   { to: "/charges", label: "Charges" },
   { to: "/settings", label: "Settings" },
