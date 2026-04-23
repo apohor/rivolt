@@ -15,6 +15,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
@@ -72,6 +73,11 @@ func New(d Deps) http.Handler {
 		r.Get("/drives", handleDrives(d.Drives))
 		r.Get("/charges", handleCharges(d.Charges))
 		r.Get("/samples", handleSamples(d.Samples))
+
+		// Accepts a multipart upload of an ElectraFi CSV export. Streams
+		// it through the importer so users don't have to drop into a
+		// terminal to load data.
+		r.Post("/import/electrafi", handleImportElectrafi(d))
 	})
 
 	// Everything else falls through to the embedded SPA.
@@ -176,5 +182,50 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 			out = []samples.Sample{}
 		}
 		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handleImportElectrafi accepts one or more CSV files in a multipart
+// upload under the field name "file" and streams each through the
+// ElectraFi importer. Returns per-file results as JSON. The upload is
+// rejected if any required store is unavailable; we don't want partial
+// imports that silently drop samples or charge sessions.
+//
+// A 1 GiB cap guards against accidental large uploads; ElectraFi
+// exports for a single month are typically 30-50 MiB.
+func handleImportElectrafi(d Deps) http.HandlerFunc {
+	const maxUpload = 1 << 30 // 1 GiB
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+			http.Error(w, "import unavailable: stores not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "parse upload: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		files := r.MultipartForm.File["file"]
+		if len(files) == 0 {
+			http.Error(w, "no files uploaded under field 'file'", http.StatusBadRequest)
+			return
+		}
+		imp := &electrafi.Importer{Drives: d.Drives, Charges: d.Charges, Samples: d.Samples}
+		results := make([]electrafi.Result, 0, len(files))
+		for _, fh := range files {
+			f, err := fh.Open()
+			if err != nil {
+				http.Error(w, fh.Filename+": open: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
+			f.Close()
+			if err != nil {
+				http.Error(w, fh.Filename+": import: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			results = append(results, res)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"files": results})
 	}
 }
