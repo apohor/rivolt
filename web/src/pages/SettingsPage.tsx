@@ -3,6 +3,11 @@ import { useRef, useState } from "react";
 import { backend, type ImportResult } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
+import {
+  setTemperatureUnit,
+  usePreferences,
+  type TemperatureUnit,
+} from "../lib/preferences";
 
 export default function SettingsPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
@@ -30,6 +35,10 @@ export default function SettingsPage() {
         <RivianAccountPanel />
       </Card>
 
+      <Card title="Display">
+        <DisplayPreferences />
+      </Card>
+
       <Card title="Import ElectraFi CSV">
         <ImportPanel />
       </Card>
@@ -41,6 +50,47 @@ export default function SettingsPage() {
           is already generated and persisted.
         </p>
       </Card>
+    </div>
+  );
+}
+
+// DisplayPreferences surfaces the client-side display toggles
+// (units, etc.) backed by localStorage via usePreferences().
+function DisplayPreferences() {
+  const { temperatureUnit } = usePreferences();
+  const options: { value: TemperatureUnit; label: string }[] = [
+    { value: "c", label: "Celsius (°C)" },
+    { value: "f", label: "Fahrenheit (°F)" },
+  ];
+  return (
+    <div className="space-y-3 text-sm">
+      <div>
+        <div className="text-neutral-400 mb-1">Temperature</div>
+        <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden">
+          {options.map((opt) => {
+            const active = opt.value === temperatureUnit;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setTemperatureUnit(opt.value)}
+                className={
+                  "px-3 py-1.5 text-xs transition-colors " +
+                  (active
+                    ? "bg-emerald-600/20 text-emerald-300"
+                    : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800")
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Backend always stores Celsius; this only affects how temperatures are
+          displayed.
+        </p>
+      </div>
     </div>
   );
 }

@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { backend, type Vehicle, type VehicleState } from "../lib/api";
 import { Card } from "./ui";
 import { num, pct } from "../lib/format";
+import { formatTemperature, usePreferences } from "../lib/preferences";
 
 const kmToMi = (km: number) => km * 0.6213711922;
-const cToF = (c: number) => c * 1.8 + 32;
 
 // LiveSummary is the compact variant of <LivePanel/> meant to live on
 // the Overview. Always rendered so the user sees the Rivian connection
@@ -109,6 +109,7 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
     refetchInterval: 60_000,
     retry: 1,
   });
+  const { temperatureUnit: tempUnit } = usePreferences();
 
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
@@ -141,7 +142,7 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4 md:grid-cols-6">
           <Stat label="Odo" value={num(kmToMi(s.odometer_km), 0, "mi")} />
           <Stat label="Limit" value={pct(s.charge_target_pct, 0)} />
-          <Stat label="Cabin" value={num(cToF(s.cabin_temp_c), 0, "°F")} />
+          <Stat label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
           <Stat label="Gear" value={s.gear || "—"} />
           <Stat label="Power" value={formatPowerShort(s.power_state)} />
           <Stat
