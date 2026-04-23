@@ -368,16 +368,12 @@ function ChargingDetail({
             <span className="font-medium text-neutral-300">
               State:&nbsp;{formatChargerState(state.charger_state)}
             </span>
-            {" · "}no detailed telemetry from Rivian for this session.
+            {" · "}waiting for telemetry…
           </div>
-          Rivian's live endpoint (<code className="text-neutral-300">getLiveSessionHistory</code>)
-          only populates power, rate, and energy for Rivian chargers and
-          some DC fast-charging. Home AC / L1 / L2 sessions come back
-          empty. Rivolt reconstructs energy and peak power from the SoC
-          delta and pack size (
-          {vehicle.pack_kwh ? `${vehicle.pack_kwh} kWh` : "pack size unknown"}
-          ) once the session closes — you'll see accurate numbers on
-          the closed row in <em>Charges</em>.
+          Rivolt subscribes to Rivian's <code className="text-neutral-300">ChargingSession</code>{" "}
+          push stream for live power, energy, rate, and time. It can take a
+          few seconds after the session starts for the first frame to
+          arrive.
         </div>
       )}
       {sess.isError ? (

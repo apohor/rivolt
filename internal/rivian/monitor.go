@@ -165,6 +165,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	defer cancelRefresh()
 	go m.periodicRefresh(refreshCtx, vehicleID, 2*time.Minute)
 	go m.chargingSessionPoller(refreshCtx, vehicleID, 30*time.Second)
+	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 
 	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
 		m.mu.Lock()
@@ -281,6 +282,104 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 			m.mu.Unlock()
 			if merged != nil {
 				m.record(ctx, vehicleID, prev, merged)
+			}
+		}
+	}
+}
+
+// chargingSessionSubscriber runs a WebSocket ChargingSession
+// subscription whenever the cached charger_state indicates an active
+// session (charging_active, charging_connecting, charging_complete).
+// Unlike the REST getLiveSessionHistory endpoint — which returns
+// active:false with zeroed payload for L1 / L2 / home AC — this
+// subscription pushes real telemetry (power, energy delivered, time
+// elapsed/remaining, range added) for every session type the vehicle
+// reports, matching what the Rivian mobile app shows.
+//
+// The subscription is started on charger_state transitions and torn
+// down via ctx cancellation when charging ends. Pushed frames are
+// merged into m.lastSession so /api/live-session/:id returns the
+// subscription's data preferentially.
+func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID string) {
+	// Check charging state every 15s. Cheap — just reads the cache.
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+
+	var (
+		subCancel context.CancelFunc
+		subActive bool
+	)
+	stop := func() {
+		if subCancel != nil {
+			subCancel()
+			subCancel = nil
+		}
+		subActive = false
+	}
+	defer stop()
+
+	isCharging := func() bool {
+		m.mu.RLock()
+		st := m.cache[vehicleID]
+		m.mu.RUnlock()
+		if st == nil {
+			return false
+		}
+		cs := strings.ToLower(strings.TrimSpace(st.ChargerState))
+		// Keep the subscription open through the whole session
+		// including the tail-end "charging_complete" state so we
+		// see the final energy/range totals pushed out.
+		return cs == "charging_active" ||
+			cs == "charging_connecting" ||
+			cs == "charging_complete"
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			want := isCharging()
+			if want && !subActive {
+				subCtx, cancel := context.WithCancel(ctx)
+				subCancel = cancel
+				subActive = true
+				go func() {
+					err := m.client.SubscribeChargingSession(subCtx, vehicleID, func(sess *LiveSession) {
+						if sess == nil {
+							return
+						}
+						m.mu.Lock()
+						// Preserve IsRivianCharger from the REST poller
+						// (the subscription doesn't select it).
+						if prev := m.lastSession[vehicleID]; prev != nil {
+							sess.IsRivianCharger = prev.IsRivianCharger
+						}
+						m.lastSession[vehicleID] = sess
+						// Also feed ChargerPowerKW into the cached
+						// state so /api/state reflects subscription
+						// pushes between REST polls.
+						var merged *State
+						prev := m.cache[vehicleID]
+						if prev != nil && sess.PowerKW > 0 {
+							cp := *prev
+							cp.ChargerPowerKW = sess.PowerKW
+							merged = &cp
+							m.cache[vehicleID] = merged
+							m.stamp[vehicleID] = time.Now()
+						}
+						m.mu.Unlock()
+						if merged != nil {
+							m.record(ctx, vehicleID, prev, merged)
+						}
+					})
+					if err != nil && subCtx.Err() == nil {
+						m.logger.Debug("rivian charging-session ws ended",
+							"vehicle", vehicleID, "err", err.Error())
+					}
+				}()
+			} else if !want && subActive {
+				stop()
 			}
 		}
 	}
