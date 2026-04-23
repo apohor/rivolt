@@ -82,6 +82,30 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 // server rejects the session token.
 func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
+
+	// Seed the cache from REST before the subscription starts
+	// streaming. Rivian's subscription pushes deltas, so if we don't
+	// establish a baseline the cache only ever contains whichever
+	// handful of fields happened to change since connect — the rest
+	// render as em-dashes in the UI. A REST GetVehicleState fills
+	// odometer, gear, lat/lon, charger_state, etc. so mergeState has
+	// something to overlay the deltas onto. Tire pressures (bar) and
+	// other subscription-only fields stay zero here and get filled
+	// in once the first push arrives.
+	if st, err := m.client.State(ctx, vehicleID); err == nil && st != nil {
+		m.mu.Lock()
+		if m.cache[vehicleID] == nil {
+			m.cache[vehicleID] = st
+			m.stamp[vehicleID] = time.Now()
+		} else {
+			// A push may have raced us here; fold REST under it.
+			m.cache[vehicleID] = mergeState(st, m.cache[vehicleID])
+		}
+		m.mu.Unlock()
+	} else if err != nil && ctx.Err() == nil {
+		m.logger.Warn("rivian rest seed failed", "vehicle", vehicleID, "err", err.Error())
+	}
+
 	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
 		m.mu.Lock()
 		// Rivian pushes deltas — each frame contains only the
