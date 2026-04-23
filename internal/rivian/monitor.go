@@ -344,10 +344,22 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 				subCtx, cancel := context.WithCancel(ctx)
 				subCancel = cancel
 				subActive = true
+				m.logger.Info("rivian charging-session ws starting",
+					"vehicle", vehicleID)
 				go func() {
+					firstLogged := false
 					err := m.client.SubscribeChargingSession(subCtx, vehicleID, func(sess *LiveSession) {
 						if sess == nil {
 							return
+						}
+						if !firstLogged {
+							m.logger.Info("rivian charging-session ws first frame",
+								"vehicle", vehicleID,
+								"power_kw", sess.PowerKW,
+								"energy_kwh", sess.TotalChargedEnergyKWh,
+								"elapsed_s", sess.TimeElapsedSeconds,
+								"charger_state", sess.VehicleChargerState)
+							firstLogged = true
 						}
 						m.mu.Lock()
 						// Preserve IsRivianCharger from the REST poller
@@ -381,11 +393,13 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 						}
 					})
 					if err != nil && subCtx.Err() == nil {
-						m.logger.Debug("rivian charging-session ws ended",
+						m.logger.Warn("rivian charging-session ws ended",
 							"vehicle", vehicleID, "err", err.Error())
 					}
 				}()
 			} else if !want && subActive {
+				m.logger.Info("rivian charging-session ws stopping",
+					"vehicle", vehicleID)
 				stop()
 			}
 		}
@@ -488,6 +502,18 @@ func (m *StateMonitor) Latest(vehicleID string) (*State, time.Time) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cache[vehicleID], m.stamp[vehicleID]
+}
+
+// LatestLiveSession returns the last charging-session snapshot
+// observed for the vehicle, whichever source got there first — the
+// WebSocket ChargingSession subscription or the REST
+// getLiveSessionHistory poller. Callers should treat the result as
+// read-only; it may be nil if no session has ever been seen for
+// this vehicle.
+func (m *StateMonitor) LatestLiveSession(vehicleID string) *LiveSession {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastSession[vehicleID]
 }
 
 // Prime stores a state from an out-of-band source (typically a REST
