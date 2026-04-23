@@ -47,6 +47,10 @@ type State struct {
 	Locked          bool      `json:"locked"`
 	CabinTempC      float64   `json:"cabin_temp_c"`
 	OutsideTempC    float64   `json:"outside_temp_c"`
+	// PowerState is the vehicle's high-level power mode reported by the
+	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
+	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
+	PowerState string `json:"power_state"`
 }
 
 // Client is the high-level API surface Rivolt uses against Rivian.

@@ -116,10 +116,31 @@ function StatusPill({ state }: { state: VehicleState }) {
       ? "bg-blue-500/15 text-blue-300"
       : "bg-neutral-700/40 text-neutral-300";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] ${tone}`}>
-      {state.locked ? "🔒 " : ""}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${tone}`}
+    >
+      {state.locked ? <LockIcon className="h-3 w-3" /> : null}
       {label}
     </span>
+  );
+}
+
+function LockIcon({ className = "" }: { className?: string }) {
+  // Lucide-style lock; currentColor so it inherits the pill's tone.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
   );
 }
 
