@@ -10,6 +10,56 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// Route raw GPS samples along actual roads using the public OSRM demo's
+// /route endpoint. Raw telemetry samples are typically 20–60s apart;
+// drawing straight lines between them "cuts corners" and makes the
+// trace look like it's in the middle of a field. /route returns a
+// turn-by-turn driving path between successive waypoints, which gives
+// us a road-following polyline.
+//
+// We use /route rather than /match because /match requires tightly-
+// spaced trace points with timestamps to behave well on sparse GPS
+// (our samples can be a minute apart). /route just connects the dots
+// with real road segments, which is visually what we want here.
+//
+// Notes:
+// - router.project-osrm.org's /route accepts up to 100 waypoints. We
+//   downsample if needed and include start/end pinned points so the
+//   path connects to the markers.
+// - Request is best-effort: on failure we keep the raw polyline.
+// - For production you'd host your own OSRM or use Mapbox Directions.
+async function snapToRoads(
+  points: Point[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  if (points.length < 2) return null;
+  const MAX = 90;
+  const step = Math.max(1, Math.ceil(points.length / MAX));
+  const sampled = points.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+  const coords = sampled.map((p) => `${p.lon},${p.lat}`).join(";");
+  const url =
+    `https://router.project-osrm.org/route/v1/driving/${coords}` +
+    `?geometries=geojson&overview=full`;
+  try {
+    const r = await fetch(url, { signal });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      routes?: { geometry: { coordinates: [number, number][] } }[];
+    };
+    const route = j.routes?.[0];
+    if (!route) return null;
+    const out: [number, number][] = route.geometry.coordinates.map(
+      ([lon, lat]) => [lat, lon],
+    );
+    return out.length > 1 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
 // an inline DOM marker so we don't need bundler asset plumbing.
 // Emerald for start, rose for end, amber for charge. A thin dark ring
@@ -98,14 +148,37 @@ export function DriveMap({
     if (start) latlngs.push([start.lat, start.lon]);
     for (const p of valid) latlngs.push([p.lat, p.lon]);
     if (end && !sameSpot) latlngs.push([end.lat, end.lon]);
+    let line: L.Polyline | null = null;
     if (latlngs.length > 1) {
-      const line = L.polyline(latlngs, {
+      line = L.polyline(latlngs, {
         color: "#10b981",
         weight: 3,
         opacity: 0.9,
       }).addTo(map);
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
     }
+
+    // Best-effort: replace the straight-line polyline with a road-snapped
+    // geometry from OSRM. If the request fails (rate limit, offline,
+    // non-drivable terrain) we keep the raw trace. The abort controller
+    // cancels the in-flight request if the component unmounts or props
+    // change before OSRM responds.
+    const ac = new AbortController();
+    const tracePoints: Point[] = [
+      ...(start ? [start] : []),
+      ...valid,
+      ...(end && !sameSpot ? [end] : []),
+    ];
+    snapToRoads(tracePoints, ac.signal).then((matched) => {
+      if (!matched || !mapRef.current) return;
+      if (line) line.remove();
+      const snapped = L.polyline(matched, {
+        color: "#10b981",
+        weight: 3,
+        opacity: 0.95,
+      }).addTo(map);
+      map.fitBounds(snapped.getBounds(), { padding: [20, 20] });
+    });
 
     if (lineStart) {
       L.marker([lineStart.lat, lineStart.lon], {
@@ -139,6 +212,7 @@ export function DriveMap({
     ro.observe(ref.current);
 
     return () => {
+      ac.abort();
       cancelAnimationFrame(rAF);
       ro.disconnect();
       map.remove();
