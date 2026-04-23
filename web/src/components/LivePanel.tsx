@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { backend, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
+import { backend, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatTemperature, usePreferences } from "../lib/preferences";
@@ -97,6 +97,9 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
       ) : s ? (
         <div className="mt-4 space-y-4">
           {isCharging(s) ? <ChargingDetail vehicle={vehicle} state={s} /> : null}
+          {!isCharging(s) && isDriving(s) ? (
+            <DrivingDetail vehicle={vehicle} state={s} />
+          ) : null}
           <Section title="Energy">
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />
             <Field label="Range" value={num(kmToMi(s.distance_to_empty), 0, "mi")} />
@@ -406,6 +409,104 @@ function ChargingDetail({
       {sess.isError ? (
         <p className="mt-2 text-[11px] text-red-400/70">
           Live-session fetch failed: {String(sess.error)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// isDriving is true when the car is in a forward / reverse / neutral
+// gear. The recorder uses the same predicate to open a drive
+// accumulator, so the panel's visibility stays in sync with whether
+// /api/live-drive has anything to return.
+function isDriving(s: VehicleState): boolean {
+  const g = (s.gear || "").toUpperCase();
+  return g === "D" || g === "R" || g === "N";
+}
+
+// DrivingDetail renders the in-flight drive snapshot — elapsed time,
+// distance, battery used, avg/max speed, efficiency. Polls
+// /api/live-drive every 5 s while visible. Hidden when the endpoint
+// replies 204 (no open drive on the backend yet — first telemetry
+// frame after gear transition hasn't landed).
+function DrivingDetail({
+  vehicle,
+  state,
+}: {
+  vehicle: Vehicle;
+  state: VehicleState;
+}) {
+  const q = useQuery<LiveDrive | undefined>({
+    queryKey: ["rivian", "live-drive", vehicle.id],
+    queryFn: () => backend.liveDrive(vehicle.id),
+    refetchInterval: 5_000,
+    retry: 1,
+  });
+  const d = q.data;
+  // Current speed comes straight from vehicleState — the session
+  // snapshot only carries aggregates (avg/max). Showing "now" next to
+  // "avg / max" gives an at-a-glance sense of pace.
+  const nowMph = kphToMph(state.speed_kph);
+  if (!d) {
+    return (
+      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-[11px] text-neutral-400">
+        <span className="font-medium text-blue-300">
+          {state.gear || "driving"}
+        </span>
+        {" · "}waiting for first frame…
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-blue-300">
+          Drive in progress
+        </div>
+        <div className="text-[11px] text-neutral-500">
+          #{d.number} · {state.gear || "—"}
+        </div>
+      </div>
+      <div className="mb-3 flex items-baseline gap-4">
+        <div className="tabular-nums text-2xl font-semibold text-blue-200">
+          {nowMph > 0 ? nowMph.toFixed(0) : "0"}
+          <span className="ml-1 text-sm font-normal text-blue-400/70">mph</span>
+        </div>
+        <div className="flex-1 text-[11px] text-neutral-400">
+          <div className="flex justify-between">
+            <span>{num(d.distance_mi, 1, "mi")}</span>
+            <span>{formatDuration(d.elapsed_sec)}</span>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">
+        <Field label="Distance" value={num(d.distance_mi, 1, "mi")} />
+        <Field label="Elapsed" value={formatDuration(d.elapsed_sec)} />
+        <Field
+          label="Battery used"
+          value={d.soc_used_pct > 0 ? pct(d.soc_used_pct, 1) : "—"}
+        />
+        <Field
+          label="Energy used"
+          value={d.energy_used_kwh > 0 ? num(d.energy_used_kwh, 2, "kWh") : "—"}
+        />
+        <Field
+          label="Efficiency"
+          value={d.mi_per_kwh > 0 ? `${d.mi_per_kwh.toFixed(2)} mi/kWh` : "—"}
+        />
+        <Field
+          label="Avg speed"
+          value={d.avg_speed_mph > 0 ? num(d.avg_speed_mph, 0, "mph") : "—"}
+        />
+        <Field
+          label="Max speed"
+          value={d.max_speed_mph > 0 ? num(d.max_speed_mph, 0, "mph") : "—"}
+        />
+        <Field label="SoC" value={`${pct(d.start_soc_pct, 0)} → ${pct(d.end_soc_pct, 0)}`} />
+      </div>
+      {q.isError ? (
+        <p className="mt-2 text-[11px] text-red-400/70">
+          Live-drive fetch failed: {String(q.error)}
         </p>
       ) : null}
     </div>
