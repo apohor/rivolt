@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { backend, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
@@ -56,18 +55,10 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
 
-  // Gallery state. Rivian returns multiple configurator angles per
-  // vehicle (front, rear, side, side-rear, side-charging, in-use,
-  // overhead) plus dark/light × large/small duplicates of each. We
-  // dedupe to one image per placement (preferring the dark-theme
-  // large render to match the UI), then auto-pick based on live
-  // state — charging shows the side-charging render with the port
-  // open, driving shows the in-use render, frunk open shows front,
-  // liftgate/tonneau open shows rear, etc.
-  const gallery = uniqueGalleryImages(vehicle.images ?? []);
-  const [manualPick, setManualPick] = useState<string | null>(null);
-  const autoUrl = pickImageForState(gallery, s) || vehicle.image_url || "";
-  const heroUrl = manualPick || autoUrl;
+  // Pick the configurator image that matches the current vehicle
+  // state — charging shows side-charging, driving shows in-use,
+  // frunk open shows front, liftgate/tonneau shows rear, etc.
+  const heroUrl = pickImageForState(vehicle.images, s) || vehicle.image_url || "";
 
   return (
     <Card
@@ -95,49 +86,6 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             loading="lazy"
             className="max-h-48 w-full max-w-sm rounded-md object-contain"
           />
-        </div>
-      ) : null}
-      {gallery.length > 1 ? (
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setManualPick(null)}
-            title="Auto (follow vehicle status)"
-            className={
-              "h-10 rounded border px-2 text-[10px] uppercase tracking-wide transition " +
-              (manualPick === null
-                ? "border-emerald-400/80 text-emerald-200 ring-1 ring-emerald-400/40"
-                : "border-neutral-700/60 text-neutral-400 hover:border-neutral-500")
-            }
-          >
-            auto
-          </button>
-          {gallery.map((img) => {
-            const selected = manualPick === img.url;
-            return (
-              <button
-                key={img.url}
-                type="button"
-                onClick={() => setManualPick(img.url)}
-                title={img.placement || ""}
-                className={
-                  "h-10 w-14 overflow-hidden rounded border transition " +
-                  (selected
-                    ? "border-emerald-400/80 ring-1 ring-emerald-400/40"
-                    : img.url === autoUrl && manualPick === null
-                      ? "border-emerald-400/40"
-                      : "border-neutral-700/60 hover:border-neutral-500")
-                }
-              >
-                <img
-                  src={img.url}
-                  alt={img.placement || name}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-              </button>
-            );
-          })}
         </div>
       ) : null}
       {state.isError ? (
@@ -484,39 +432,6 @@ function pickImageForState(
     if (hit) return hit.url;
   }
   return images[0].url;
-}
-
-// uniqueGalleryImages collapses Rivian's design/size duplicates down
-// to one image per placement. Rivian returns 2-4 copies of every
-// angle (dark + light backgrounds, large + small sizes); we match the
-// dark-theme app, so prefer `design: "dark"` and `size: "large"` when
-// both exist. The returned order keeps Rivian's original ordering
-// for the first occurrence of each placement.
-function uniqueGalleryImages(
-  images: readonly { url: string; placement?: string; design?: string; size?: string }[] | undefined,
-): { url: string; placement?: string; design?: string; size?: string }[] {
-  if (!images || images.length === 0) return [];
-  const best = new Map<string, { url: string; placement?: string; design?: string; size?: string; score: number }>();
-  for (const img of images) {
-    const key = (img.placement || img.url).toLowerCase();
-    const score =
-      (img.design === "dark" ? 2 : 0) + (img.size === "large" ? 1 : 0);
-    const prev = best.get(key);
-    if (!prev || score > prev.score) {
-      best.set(key, { ...img, score });
-    }
-  }
-  // Preserve first-seen order.
-  const seen = new Set<string>();
-  const out: { url: string; placement?: string; design?: string; size?: string }[] = [];
-  for (const img of images) {
-    const key = (img.placement || img.url).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const pick = best.get(key);
-    if (pick) out.push(pick);
-  }
-  return out;
 }
 
 function formatDuration(totalSeconds: number): string {
