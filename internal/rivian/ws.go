@@ -9,9 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/coder/websocket"
-	"github.com/google/uuid"
 )
 
 // wsEndpoint is the AppSync-style subscription gateway the mobile app
@@ -202,127 +199,48 @@ type subParams struct {
 	variables map[string]any
 }
 
-// runGenericSubscription is the shared connect → init → subscribe →
-// receive loop used by both the vehicleState and chargingSession
-// subscriptions. The caller supplies a handler that decodes the
-// "next" frame payload; returning a non-nil error from the handler
-// tears down the subscription (caller reconnects with backoff).
+// runGenericSubscription is the shared subscribe → dispatch loop
+// used by every WS subscription. It acquires the shared mux (dialling
+// a new connection if needed), registers a subscription, and pumps
+// incoming "next" payloads into onNext until the context is cancelled
+// or a terminal error arrives from the server / transport.
+//
+// Returning nil means ctx was cancelled (clean shutdown). A non-nil
+// error means the caller's outer retry loop should back off and
+// reconnect — which will trigger a fresh mux if this one died.
 func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string, params subParams, onNext func(json.RawMessage) error) error {
-	conn, _, err := websocket.Dial(ctx, wsEndpoint, &websocket.DialOptions{
-		Subprotocols: []string{"graphql-transport-ws"},
-	})
+	_ = userTok // userSessionToken is read inside acquireMux under lock.
+
+	mux, err := c.acquireMux(ctx)
 	if err != nil {
-		return fmt.Errorf("ws dial: %w", err)
+		return err
 	}
-	conn.SetReadLimit(1 << 20)
-	defer conn.Close(websocket.StatusNormalClosure, "bye") //nolint:errcheck
+	defer c.releaseMux(mux)
 
-	initFrame := map[string]any{
-		"type": "connection_init",
-		"payload": map[string]any{
-			"client-name":    c.clientName,
-			"client-version": apolloClientVersion,
-			"dc-cid":         "m-ios-" + uuid.NewString(),
-			"u-sess":         userTok,
-		},
-	}
-	if err := wsWriteJSON(ctx, conn, initFrame); err != nil {
-		return fmt.Errorf("ws init: %w", err)
-	}
-
-	ackCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	for {
-		frame, err := wsReadFrame(ackCtx, conn)
-		if err != nil {
-			return fmt.Errorf("ws await ack: %w", err)
-		}
-		if frame.Type == "connection_ack" {
-			break
-		}
-		if frame.Type == "ka" || frame.Type == "pong" {
-			continue
-		}
-		return fmt.Errorf("ws unexpected pre-ack frame: %s", frame.Type)
-	}
-
-	subID := uuid.NewString()
 	vars := params.variables
 	if vars == nil {
 		vars = map[string]any{"vehicleID": params.vehicleID}
 	}
-	subPayload, _ := json.Marshal(map[string]any{
-		"operationName": params.operationName,
-		"query":         params.query,
-		"variables":     vars,
-	})
-	subFrame := map[string]any{
-		"id":      subID,
-		"type":    "subscribe",
-		"payload": json.RawMessage(subPayload),
-	}
-	if err := wsWriteJSON(ctx, conn, subFrame); err != nil {
-		return fmt.Errorf("ws subscribe: %w", err)
-	}
-
-	for {
-		readCtx, readCancel := context.WithTimeout(ctx, 90*time.Second)
-		frame, err := wsReadFrame(readCtx, conn)
-		readCancel()
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("ws read: %w", err)
-		}
-		switch frame.Type {
-		case "next":
-			if frame.ID != subID {
-				continue
-			}
-			if err := onNext(frame.Payload); err != nil {
-				return err
-			}
-		case "error":
-			return fmt.Errorf("ws server error: %s", string(frame.Payload))
-		case "complete":
-			return errors.New("ws subscription completed by server")
-		case "ka", "pong", "ping":
-			continue
-		case "connection_error":
-			if strings.Contains(string(frame.Payload), "Unauthenticated") {
-				return errWSUnauthenticated
-			}
-			return fmt.Errorf("ws connection_error: %s", string(frame.Payload))
-		default:
-			// Unknown frame type — skip.
-		}
-	}
-}
-
-// wsWriteJSON serialises v as JSON and writes a single text frame.
-func wsWriteJSON(ctx context.Context, conn *websocket.Conn, v any) error {
-	data, err := json.Marshal(v)
+	sub, unsubscribe, err := mux.subscribe(ctx, params.operationName, params.query, vars)
 	if err != nil {
 		return err
 	}
-	return conn.Write(ctx, websocket.MessageText, data)
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case payload := <-sub.framesCh:
+			if err := onNext(payload); err != nil {
+				return err
+			}
+		case err := <-sub.errCh:
+			return err
+		}
+	}
 }
 
-// wsReadFrame reads one text/binary frame and decodes it into a
-// wsFrame envelope. Returns a fresh frame per call; callers should
-// not retain payloads across calls.
-func wsReadFrame(ctx context.Context, conn *websocket.Conn) (*wsFrame, error) {
-	_, data, err := conn.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var f wsFrame
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("decode frame: %w", err)
-	}
-	return &f, nil
-}
 
 // stateFromVehicleStateData is the subscription counterpart to the
 // inline construction in State(). Kept separate so the REST path can
