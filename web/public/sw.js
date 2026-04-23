@@ -1,8 +1,8 @@
-// Caffeine service worker.
+// Rivolt service worker.
 //
 // Goals (deliberately minimal):
 //   1. Offline app shell so the home-screen icon opens something
-//      useful even when the Caffeine server is unreachable (Mac asleep,
+//      useful even when the Rivolt server is unreachable (Mac asleep,
 //      bad Wi-Fi, off-LAN without VPN).
 //   2. Never cache /api/* — shot data and live streams must always be
 //      fresh. The SW explicitly does not intercept those requests.
@@ -16,7 +16,7 @@
 // already gives content-hashed filenames for /assets/*, so runtime
 // stale-while-revalidate is enough and keeps this file trivial.
 
-const CACHE_NAME = "caffeine-shell-v2";
+const CACHE_NAME = "rivolt-shell-v1";
 
 // Files that make up the app shell. Everything else (hashed JS/CSS) is
 // cached lazily on first fetch.
@@ -123,12 +123,12 @@ self.addEventListener("push", (event) => {
     try {
       data = event.data.json();
     } catch {
-      data = { title: "Caffeine", body: event.data.text() };
+      data = { title: "Rivolt", body: event.data.text() };
     }
   }
-  const title = data.title || "Caffeine";
+  const title = data.title || "Rivolt";
   const body = data.body || "";
-  const tag = data.tag || "caffeine";
+  const tag = data.tag || "rivolt";
   const url = data.url || "/";
 
   const opts = {
@@ -147,7 +147,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, opts));
 });
 
-// Tap behaviour: focus an already-open Caffeine window if we have one,
+// Tap behaviour: focus an already-open Rivolt window if we have one,
 // navigating it to the target url if different. Otherwise open a fresh
 // one. Matching on same-origin covers both the PWA (standalone) and the
 // regular tab cases.
