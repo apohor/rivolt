@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { backend, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
@@ -55,6 +56,14 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
 
+  // Gallery state. Rivian returns multiple configurator angles per
+  // vehicle (3/4 front, side, rear, interior, wheel detail). The
+  // default hero is pre-picked server-side; this lets the user click
+  // a thumbnail to swap the main image without leaving the page.
+  const gallery = vehicle.images ?? [];
+  const [activeImage, setActiveImage] = useState<string>(vehicle.image_url ?? "");
+  const heroUrl = activeImage || vehicle.image_url || "";
+
   return (
     <Card
       title={name}
@@ -73,14 +82,42 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         {vehicle.pack_kwh ? ` · ${vehicle.pack_kwh} kWh pack` : ""}
         {vehicle.vin ? ` · VIN ${vehicle.vin.slice(-6)}` : ""}
       </div>
-      {vehicle.image_url ? (
+      {heroUrl ? (
         <div className="mt-3 flex justify-center">
           <img
-            src={vehicle.image_url}
+            src={heroUrl}
             alt={name}
             loading="lazy"
             className="max-h-48 w-full max-w-sm rounded-md object-contain"
           />
+        </div>
+      ) : null}
+      {gallery.length > 1 ? (
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {gallery.map((img) => {
+            const selected = img.url === heroUrl;
+            return (
+              <button
+                key={img.url}
+                type="button"
+                onClick={() => setActiveImage(img.url)}
+                title={img.placement || ""}
+                className={
+                  "h-10 w-14 overflow-hidden rounded border transition " +
+                  (selected
+                    ? "border-emerald-400/80 ring-1 ring-emerald-400/40"
+                    : "border-neutral-700/60 hover:border-neutral-500")
+                }
+              >
+                <img
+                  src={img.url}
+                  alt={img.placement || name}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            );
+          })}
         </div>
       ) : null}
       {state.isError ? (

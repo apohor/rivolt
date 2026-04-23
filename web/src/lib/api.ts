@@ -59,6 +59,17 @@ export const api = {
 
 export type Health = { ok: boolean; version: string; time: string };
 
+export type VehicleImage = {
+  vehicle_id: string;
+  order_id?: string;
+  url: string;
+  extension?: string;
+  resolution?: string;
+  size?: string;
+  design?: string;
+  placement?: string;
+};
+
 export type Vehicle = {
   id: string;
   vin: string;
@@ -70,6 +81,7 @@ export type Vehicle = {
   trim_name?: string;
   pack_kwh?: number;
   image_url?: string;
+  images?: VehicleImage[];
 };
 
 // LiveSession mirrors internal/rivian.LiveSession — the snapshot
