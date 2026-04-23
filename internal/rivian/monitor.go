@@ -522,18 +522,20 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		return err
 	}
 	// Best-effort image fetch — don't fail the whole refresh if the
-	// image endpoint is down or returns 0 images.
-	imagesByVehicle := map[string]string{}
+	// image endpoint is down or returns 0 images. Rivian hands back
+	// a handful of configurator-rendered angles per vehicle; we keep
+	// all of them for the gallery and pick one hero for the header.
+	imagesByVehicle := map[string][]VehicleImage{}
+	heroByVehicle := map[string]string{}
 	if images, ierr := m.client.VehicleImages(ctx); ierr == nil {
 		for _, img := range images {
 			if img.VehicleID == "" || img.URL == "" {
 				continue
 			}
-			// First image wins; the API returns multiple (interior /
-			// exterior / variants) — we just want something to show.
-			if _, seen := imagesByVehicle[img.VehicleID]; !seen {
-				imagesByVehicle[img.VehicleID] = img.URL
-			}
+			imagesByVehicle[img.VehicleID] = append(imagesByVehicle[img.VehicleID], img)
+		}
+		for vid, list := range imagesByVehicle {
+			heroByVehicle[vid] = pickHeroImage(list)
 		}
 	} else {
 		m.logger.Warn("vehicle images fetch failed", "err", ierr)
@@ -542,12 +544,57 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 	defer m.mu.Unlock()
 	for i := range vehicles {
 		v := vehicles[i]
-		if url, ok := imagesByVehicle[v.ID]; ok {
+		if url, ok := heroByVehicle[v.ID]; ok {
 			v.ImageURL = url
+		}
+		if list, ok := imagesByVehicle[v.ID]; ok {
+			v.Images = list
 		}
 		m.vehicleInfo[v.ID] = &v
 	}
 	return nil
+}
+
+// pickHeroImage chooses the best image to use as the single
+// header / card illustration. Rivian's placement tags look like
+// `side-exterior-3qfront-driver`, `side-exterior-3qrear-driver`,
+// `front-exterior`, `interior-cabin-driver`, etc. A 3/4 front shot
+// from the driver side is the classic marketing hero, so we score
+// entries and pick the highest. Falls back to the first image when
+// no placement hints match.
+func pickHeroImage(list []VehicleImage) string {
+	if len(list) == 0 {
+		return ""
+	}
+	best, bestScore := list[0].URL, -1
+	for _, img := range list {
+		p := strings.ToLower(img.Placement)
+		score := 0
+		switch {
+		case strings.Contains(p, "3qfront"), strings.Contains(p, "3q-front"):
+			score = 10
+		case strings.Contains(p, "3qrear"), strings.Contains(p, "3q-rear"):
+			score = 7
+		case strings.Contains(p, "side") && strings.Contains(p, "exterior"):
+			score = 6
+		case strings.Contains(p, "front") && strings.Contains(p, "exterior"):
+			score = 5
+		case strings.Contains(p, "rear") && strings.Contains(p, "exterior"):
+			score = 4
+		case strings.Contains(p, "exterior"):
+			score = 3
+		case strings.Contains(p, "interior"):
+			score = 1
+		}
+		// Prefer driver-side over passenger-side when both are present.
+		if strings.Contains(p, "driver") {
+			score++
+		}
+		if score > bestScore {
+			best, bestScore = img.URL, score
+		}
+	}
+	return best
 }
 
 // VehicleInfo returns the cached per-vehicle metadata record, or nil

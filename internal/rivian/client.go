@@ -39,7 +39,17 @@ type Vehicle struct {
 	// ImageURL is a pre-rendered 3/4 view of the configured vehicle,
 	// populated lazily via GetVehicleImages. Empty string when not
 	// yet fetched or when the Rivian image service didn't return one.
+	// This is a convenience pick (hero image) — the full set of
+	// rendered angles (front, rear, side, interior, etc.) is in
+	// Images.
 	ImageURL string `json:"image_url,omitempty"`
+	// Images is the full set of configurator-rendered images Rivian
+	// returns for this vehicle — typically 6-8 angles including
+	// 3/4 front, side profile, rear, interior cabin, wheel detail,
+	// etc. Each entry carries a `placement` tag describing the
+	// camera angle so the UI can build a gallery or swap the hero
+	// image on hover.
+	Images []VehicleImage `json:"images,omitempty"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at
