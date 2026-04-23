@@ -195,6 +195,11 @@ type subParams struct {
 	operationName string
 	query         string
 	vehicleID     string
+	// variables overrides the default {vehicleID: ...} payload when
+	// set. Used for subscriptions that expect a different casing or
+	// additional args (e.g. ParallaxMessages wants "vehicleId" plus
+	// an "rvms" filter).
+	variables map[string]any
 }
 
 // runGenericSubscription is the shared connect → init → subscribe →
@@ -242,10 +247,14 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 	}
 
 	subID := uuid.NewString()
+	vars := params.variables
+	if vars == nil {
+		vars = map[string]any{"vehicleID": params.vehicleID}
+	}
 	subPayload, _ := json.Marshal(map[string]any{
 		"operationName": params.operationName,
 		"query":         params.query,
-		"variables":     map[string]any{"vehicleID": params.vehicleID},
+		"variables":     vars,
 	})
 	subFrame := map[string]any{
 		"id":      subID,

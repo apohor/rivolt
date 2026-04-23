@@ -373,39 +373,37 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 								"charger_state", sess.VehicleChargerState)
 							firstLogged = true
 						}
-						m.mu.Lock()
-						// Preserve IsRivianCharger from the REST poller
-						// (the subscription doesn't select it).
-						if prev := m.lastSession[vehicleID]; prev != nil {
-							sess.IsRivianCharger = prev.IsRivianCharger
-						}
-						m.lastSession[vehicleID] = sess
-						// Feed the latest power into the cached
-						// state so /api/state and the open-charge
-						// row reflect subscription pushes. Even when
-						// powerKW momentarily reports 0 mid-session
-						// we still want to trigger a recorder pass
-						// so the open live-charge row gets its
-						// running energy / range totals refreshed
-						// from lastSession on each push.
-						prev := m.cache[vehicleID]
-						var merged *State
-						if prev != nil {
-							cp := *prev
-							if sess.PowerKW > 0 {
-								cp.ChargerPowerKW = sess.PowerKW
-							}
-							merged = &cp
-							m.cache[vehicleID] = merged
-							m.stamp[vehicleID] = time.Now()
-						}
-						m.mu.Unlock()
-						if merged != nil {
-							m.record(ctx, vehicleID, prev, merged)
-						}
+						m.applyLiveSession(ctx, vehicleID, sess)
 					})
 					if err != nil && subCtx.Err() == nil {
 						m.logger.Warn("rivian charging-session ws ended",
+							"vehicle", vehicleID, "err", err.Error())
+					}
+				}()
+				// In parallel with the (Rivian-charger-only)
+				// ChargingSession stream, subscribe to the Parallax
+				// charge_session_breakdown RVM. That topic populates
+				// for every session type — home AC / L1 / L2 /
+				// third-party chargers — so it's what actually
+				// surfaces live power + energy for non-Rivian EVSEs.
+				go func() {
+					firstLogged := false
+					err := m.client.SubscribeParallaxCharging(subCtx, vehicleID, func(sess *LiveSession) {
+						if sess == nil {
+							return
+						}
+						if !firstLogged {
+							m.logger.Info("rivian parallax charge-breakdown first frame",
+								"vehicle", vehicleID,
+								"power_kw", sess.PowerKW,
+								"energy_kwh", sess.TotalChargedEnergyKWh,
+								"elapsed_s", sess.TimeElapsedSeconds)
+							firstLogged = true
+						}
+						m.applyLiveSession(ctx, vehicleID, sess)
+					})
+					if err != nil && subCtx.Err() == nil {
+						m.logger.Warn("rivian parallax ws ended",
 							"vehicle", vehicleID, "err", err.Error())
 					}
 				}()
@@ -415,6 +413,72 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 				stop()
 			}
 		}
+	}
+}
+
+// applyLiveSession merges a pushed LiveSession into m.lastSession
+// (preserving non-zero fields from the previous snapshot so
+// concurrent ChargingSession + Parallax subscribers don't clobber
+// each other), updates cache.ChargerPowerKW, and triggers a recorder
+// pass. Shared by both the ChargingSession and Parallax subscribers.
+func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, sess *LiveSession) {
+	m.mu.Lock()
+	if prev := m.lastSession[vehicleID]; prev != nil {
+		// Preserve REST-only fields the subscriptions don't select.
+		sess.IsRivianCharger = prev.IsRivianCharger
+		// Field-level fallback: if this push reports zero for a
+		// field the prior snapshot populated, keep the prior value.
+		// Lets the Parallax + ChargingSession streams complement
+		// each other without overwriting known values with zeros.
+		if sess.PowerKW == 0 {
+			sess.PowerKW = prev.PowerKW
+		}
+		if sess.TotalChargedEnergyKWh == 0 {
+			sess.TotalChargedEnergyKWh = prev.TotalChargedEnergyKWh
+		}
+		if sess.RangeAddedKm == 0 {
+			sess.RangeAddedKm = prev.RangeAddedKm
+		}
+		if sess.KilometersChargedPerHour == 0 {
+			sess.KilometersChargedPerHour = prev.KilometersChargedPerHour
+		}
+		if sess.TimeElapsedSeconds == 0 {
+			sess.TimeElapsedSeconds = prev.TimeElapsedSeconds
+		}
+		if sess.TimeRemainingSeconds == 0 {
+			sess.TimeRemainingSeconds = prev.TimeRemainingSeconds
+		}
+		if sess.SoCPct == 0 {
+			sess.SoCPct = prev.SoCPct
+		}
+		if sess.VehicleChargerState == "" {
+			sess.VehicleChargerState = prev.VehicleChargerState
+		}
+		if sess.StartTime == "" {
+			sess.StartTime = prev.StartTime
+		}
+		if sess.CurrentPrice == "" {
+			sess.CurrentPrice = prev.CurrentPrice
+		}
+		if sess.CurrentCurrency == "" {
+			sess.CurrentCurrency = prev.CurrentCurrency
+		}
+	}
+	m.lastSession[vehicleID] = sess
+	prev := m.cache[vehicleID]
+	var merged *State
+	if prev != nil {
+		cp := *prev
+		if sess.PowerKW > 0 {
+			cp.ChargerPowerKW = sess.PowerKW
+		}
+		merged = &cp
+		m.cache[vehicleID] = merged
+		m.stamp[vehicleID] = time.Now()
+	}
+	m.mu.Unlock()
+	if merged != nil {
+		m.record(ctx, vehicleID, prev, merged)
 	}
 }
 
