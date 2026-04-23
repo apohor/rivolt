@@ -40,8 +40,13 @@ type Deps struct {
 	Drives        *drives.Store
 	Charges       *charges.Store
 	Samples       *samples.Store
-	WebFS         fs.FS
-	Version       string
+	// StateMonitor, when set, backs /api/state/:id with a cached
+	// snapshot kept fresh by a websocket subscription. When nil the
+	// handler falls back to one-shot REST polls against Rivian's
+	// GetVehicleState query.
+	StateMonitor *rivian.StateMonitor
+	WebFS        fs.FS
+	Version      string
 }
 
 // New builds the root mux with all routes mounted.
@@ -76,7 +81,7 @@ func New(d Deps) http.Handler {
 		// client is configured (the stub returns ErrNotImplemented);
 		// other errors surface as 502 so the UI can show them.
 		r.Get("/vehicles", handleVehicles(d.Rivian))
-		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian))
+		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -139,7 +144,12 @@ func handleVehicles(c rivian.Client) http.HandlerFunc {
 
 // handleVehicleState returns a current snapshot for the given vehicle.
 // 404 if no live client is configured, 502 for upstream failures.
-func handleVehicleState(c rivian.Client) http.HandlerFunc {
+//
+// When a StateMonitor is wired, serves from its cache (populated by a
+// long-lived websocket subscription). On cache miss it falls back to
+// a one-shot REST fetch, primes the cache with the result, and kicks
+// off the subscription so subsequent calls are free.
+func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			http.Error(w, "no rivian client configured", http.StatusNotFound)
@@ -150,6 +160,13 @@ func handleVehicleState(c rivian.Client) http.HandlerFunc {
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
+		if mon != nil {
+			mon.EnsureSubscribed(id)
+			if st, _ := mon.Latest(id); st != nil {
+				writeJSON(w, http.StatusOK, st)
+				return
+			}
+		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, rivian.ErrNotImplemented) {
@@ -158,6 +175,9 @@ func handleVehicleState(c rivian.Client) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
+		}
+		if mon != nil {
+			mon.Prime(id, st)
 		}
 		writeJSON(w, http.StatusOK, st)
 	}
