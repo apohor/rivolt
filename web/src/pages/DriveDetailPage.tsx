@@ -257,6 +257,7 @@ function xTimeFmt(x: number): string {
   return new Date(x).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "UTC",
   });
 }
 

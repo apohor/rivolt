@@ -1,6 +1,13 @@
 // Shared formatters and small presentational helpers.
 
-// Format an RFC3339 string as a short local date-time.
+// Timestamps in this app come from the ElectraFi CSV export, which has
+// no timezone info — we store them as UTC by convention. Displaying in
+// the browser's local zone introduces a phantom offset ("07:21" in the
+// export shows up as "02:21 AM" for a Central-time user). Render in
+// UTC so the UI matches the source.
+const DISPLAY_TZ = "UTC";
+
+// Format an RFC3339 string as a short date-time in the display zone.
 export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
@@ -8,6 +15,7 @@ export function formatDateTime(iso: string): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: DISPLAY_TZ,
   });
 }
 
