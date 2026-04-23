@@ -52,6 +52,12 @@ type StateMonitor struct {
 	// rows with TotalChargedEnergyKWh / RangeAddedKm. Guarded by mu
 	// alongside the state cache.
 	lastSession map[string]*LiveSession
+
+	// Per-vehicle metadata (model/trim/pack/image), fetched once at
+	// startup via RefreshVehicleInfo. Consulted by the recorder to
+	// pick an accurate pack size for the SoC-delta energy fallback.
+	// Guarded by mu alongside the rest of the cache.
+	vehicleInfo map[string]*Vehicle
 }
 
 // NewStateMonitor wraps a live client. Pass a logger (usually from
@@ -69,6 +75,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		active:      make(map[string]context.CancelFunc),
 		sessions:    make(map[string]*liveSessions),
 		lastSession: make(map[string]*LiveSession),
+		vehicleInfo: make(map[string]*Vehicle),
 	}
 }
 
@@ -395,3 +402,85 @@ func (m *StateMonitor) Prime(vehicleID string, st *State) {
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// RefreshVehicleInfo pulls the vehicles list + configurator images
+// from Rivian's gateway and caches a per-vehicle metadata record
+// including model, trim, inferred pack kWh, and a 3/4 image URL.
+// Called once at startup (best-effort); errors are returned to the
+// caller so they can log but shouldn't be fatal. Missing images are
+// not an error — PackKWh still gets populated from the vehicles
+// query.
+func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
+	vehicles, err := m.client.Vehicles(ctx)
+	if err != nil {
+		return err
+	}
+	// Best-effort image fetch — don't fail the whole refresh if the
+	// image endpoint is down or returns 0 images.
+	imagesByVehicle := map[string]string{}
+	if images, ierr := m.client.VehicleImages(ctx); ierr == nil {
+		for _, img := range images {
+			if img.VehicleID == "" || img.URL == "" {
+				continue
+			}
+			// First image wins; the API returns multiple (interior /
+			// exterior / variants) — we just want something to show.
+			if _, seen := imagesByVehicle[img.VehicleID]; !seen {
+				imagesByVehicle[img.VehicleID] = img.URL
+			}
+		}
+	} else {
+		m.logger.Warn("vehicle images fetch failed", "err", ierr)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range vehicles {
+		v := vehicles[i]
+		if url, ok := imagesByVehicle[v.ID]; ok {
+			v.ImageURL = url
+		}
+		m.vehicleInfo[v.ID] = &v
+	}
+	return nil
+}
+
+// VehicleInfo returns the cached per-vehicle metadata record, or nil
+// if RefreshVehicleInfo hasn't been called (or hasn't seen this
+// vehicle yet). The returned pointer is a copy; safe to read without
+// holding the lock.
+func (m *StateMonitor) VehicleInfo(vehicleID string) *Vehicle {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v, ok := m.vehicleInfo[vehicleID]
+	if !ok || v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
+// AllVehicleInfo returns a snapshot of every cached vehicle record.
+// Used by the HTTP /api/vehicles endpoint.
+func (m *StateMonitor) AllVehicleInfo() []Vehicle {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Vehicle, 0, len(m.vehicleInfo))
+	for _, v := range m.vehicleInfo {
+		if v == nil {
+			continue
+		}
+		out = append(out, *v)
+	}
+	return out
+}
+
+// PackKWhFor returns the best-known usable pack capacity for the
+// vehicle, falling back to DefaultPackKWh when no metadata is
+// cached. Used by the recorder's SoC-delta energy fallback.
+func (m *StateMonitor) PackKWhFor(vehicleID string) float64 {
+	v := m.VehicleInfo(vehicleID)
+	if v == nil || v.PackKWh <= 0 {
+		return DefaultPackKWh
+	}
+	return v.PackKWh
+}

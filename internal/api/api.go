@@ -80,7 +80,7 @@ func New(d Deps) http.Handler {
 		// Rivian live endpoints. /api/vehicles returns [] when no real
 		// client is configured (the stub returns ErrNotImplemented);
 		// other errors surface as 502 so the UI can show them.
-		r.Get("/vehicles", handleVehicles(d.Rivian))
+		r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
@@ -125,7 +125,7 @@ func handleHealth(version string) http.HandlerFunc {
 	}
 }
 
-func handleVehicles(c rivian.Client) http.HandlerFunc {
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
@@ -142,6 +142,22 @@ func handleVehicles(c rivian.Client) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
+		}
+		// Enrich each vehicle with cached monitor metadata (PackKWh +
+		// ImageURL), when available. The live Vehicles() call returns
+		// trim/year/pack already, but image URLs come from a separate
+		// Rivian endpoint cached only on the monitor.
+		if mon != nil {
+			for i := range vs {
+				if info := mon.VehicleInfo(vs[i].ID); info != nil {
+					if vs[i].ImageURL == "" {
+						vs[i].ImageURL = info.ImageURL
+					}
+					if vs[i].PackKWh == 0 {
+						vs[i].PackKWh = info.PackKWh
+					}
+				}
+			}
 		}
 		writeJSON(w, http.StatusOK, vs)
 	}
