@@ -128,7 +128,10 @@ func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, use
 		query:         qChargingSessionSubscription,
 		vehicleID:     vehicleID,
 	}, func(raw json.RawMessage) error {
-		// Log the first few frames per connection for schema debugging.
+		// Every frame gets dropped into the ring buffer for later
+		// inspection via the debug HTTP endpoint. First few also go
+		// to the structured log so they're visible without curling.
+		c.RecordChargingFrame(vehicleID, raw)
 		if framesLogged < 5 {
 			slog.Default().Info("rivian charging-session ws raw frame",
 				"vehicle", vehicleID,

@@ -87,6 +87,7 @@ func New(d Deps) http.Handler {
 		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
+		r.Get("/charging-frames", handleChargingFrames(d.Rivian))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -337,6 +338,20 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// handleChargingFrames returns the ring buffer of recent raw
+// ChargingSession WS frames. Filter with ?vehicleID=... for a
+// specific vehicle.
+func handleChargingFrames(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, lc.RecentChargingFrames(r.URL.Query().Get("vehicleID")))
+	}
 }
 
 func handleDrives(store *drives.Store) http.HandlerFunc {

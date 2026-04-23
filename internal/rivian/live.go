@@ -56,6 +56,53 @@ type LiveClient struct {
 	pendingOTPToken  string // populated when the server returns an MFA challenge
 	pendingOTPEmail  string
 	authenticatedAt  time.Time
+
+	// Ring buffer of recent raw ChargingSession WS frames for
+	// debugging. Populated by runChargingSubscription, read via
+	// RecentChargingFrames. Guarded by framesMu.
+	framesMu      sync.Mutex
+	recentFrames  []ChargingFrame
+	maxFrames     int
+}
+
+// ChargingFrame captures one raw ChargingSession push for diagnostic
+// inspection via the debug HTTP endpoint.
+type ChargingFrame struct {
+	At        time.Time `json:"at"`
+	VehicleID string    `json:"vehicle_id"`
+	Raw       string    `json:"raw"`
+}
+
+// RecordChargingFrame appends a raw frame to the ring buffer.
+func (c *LiveClient) RecordChargingFrame(vehicleID string, raw []byte) {
+	c.framesMu.Lock()
+	defer c.framesMu.Unlock()
+	if c.maxFrames == 0 {
+		c.maxFrames = 20
+	}
+	c.recentFrames = append(c.recentFrames, ChargingFrame{
+		At:        time.Now().UTC(),
+		VehicleID: vehicleID,
+		Raw:       string(raw),
+	})
+	if len(c.recentFrames) > c.maxFrames {
+		c.recentFrames = c.recentFrames[len(c.recentFrames)-c.maxFrames:]
+	}
+}
+
+// RecentChargingFrames returns a copy of the ring buffer, most recent
+// last. Filter by vehicleID if non-empty.
+func (c *LiveClient) RecentChargingFrames(vehicleID string) []ChargingFrame {
+	c.framesMu.Lock()
+	defer c.framesMu.Unlock()
+	out := make([]ChargingFrame, 0, len(c.recentFrames))
+	for _, f := range c.recentFrames {
+		if vehicleID != "" && f.VehicleID != vehicleID {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // NewLive returns a LiveClient with sane defaults. Pass a zero-value
