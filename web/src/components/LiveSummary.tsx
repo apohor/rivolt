@@ -7,32 +7,91 @@ import { num, pct } from "../lib/format";
 const kmToMi = (km: number) => km * 0.6213711922;
 
 // LiveSummary is the compact variant of <LivePanel/> meant to live on
-// the Overview. Shows one line per vehicle with status + battery +
-// range and links to the full /live page. Hidden when no vehicles are
-// connected (same rationale as LivePanel).
+// the Overview. Always rendered so the user sees the Rivian connection
+// state at a glance: hidden only when the live client is outright
+// disabled (RIVIAN_CLIENT=stub). States:
+//
+//   - not authenticated → prompt to sign in (linked to Settings)
+//   - authenticated, no vehicles → empty-state note
+//   - vehicles present → one line per vehicle + link to /live
 export function LiveSummary() {
+  const status = useQuery({
+    queryKey: ["rivian", "status"],
+    queryFn: () => backend.rivianStatus(),
+    staleTime: 30_000,
+    retry: 1,
+  });
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
     staleTime: 5 * 60_000,
+    // Only fetch vehicles when we know we're authenticated — otherwise
+    // the 502 from /api/vehicles just pollutes devtools.
+    enabled: !!status.data?.authenticated,
+    retry: 1,
   });
 
-  if (vehicles.isLoading || vehicles.isError) return null;
+  // Still loading the status for the first time: don't flash an empty
+  // card, the rest of the page will draw in a moment.
+  if (status.isLoading) return null;
+
+  // Stub mode — no account UI to offer, so stay out of the way.
+  if (status.isError || !status.data?.enabled) return null;
+
+  const header = (
+    <Link to="/live" className="text-xs text-emerald-400 hover:underline">
+      details →
+    </Link>
+  );
+
+  if (!status.data.authenticated) {
+    return (
+      <Card title="Live" actions={header}>
+        <p className="text-sm text-neutral-400">
+          Not connected to Rivian.{" "}
+          <Link to="/settings" className="text-emerald-400 hover:underline">
+            Sign in →
+          </Link>
+        </p>
+      </Card>
+    );
+  }
+
   const list = vehicles.data ?? [];
-  if (list.length === 0) return null;
+  if (vehicles.isLoading) {
+    return (
+      <Card title="Live" actions={header}>
+        <p className="text-sm text-neutral-500">loading…</p>
+      </Card>
+    );
+  }
+  if (vehicles.isError) {
+    return (
+      <Card title="Live" actions={header}>
+        <p className="text-sm text-rose-400">
+          Rivian API error. Try{" "}
+          <Link to="/settings" className="text-emerald-400 hover:underline">
+            re-signing in
+          </Link>
+          .
+        </p>
+      </Card>
+    );
+  }
+  if (list.length === 0) {
+    return (
+      <Card title="Live" actions={header}>
+        <p className="text-sm text-neutral-400">
+          Signed in as{" "}
+          <span className="text-neutral-200">{status.data.email || "—"}</span>,
+          but no vehicles on this account.
+        </p>
+      </Card>
+    );
+  }
 
   return (
-    <Card
-      title="Live"
-      actions={
-        <Link
-          to="/live"
-          className="text-xs text-emerald-400 hover:underline"
-        >
-          details →
-        </Link>
-      }
-    >
+    <Card title="Live" actions={header}>
       <ul className="space-y-1.5">
         {list.map((v) => (
           <LiveSummaryRow key={v.id} vehicle={v} />

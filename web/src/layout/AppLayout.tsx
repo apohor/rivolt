@@ -4,10 +4,10 @@ import { backend } from "../lib/api";
 import Logo from "../components/Logo";
 
 const nav = [
+  { to: "/live", label: "Live" },
   { to: "/", label: "Overview", end: true },
   { to: "/drives", label: "Drives" },
   { to: "/charges", label: "Charges" },
-  { to: "/live", label: "Live" },
   { to: "/settings", label: "Settings" },
 ];
 
