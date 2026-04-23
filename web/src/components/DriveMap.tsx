@@ -60,11 +60,15 @@ export function DriveMap({
     }).setView(center, 13);
     mapRef.current = map;
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap',
-      className: "rivolt-tiles",
-    }).addTo(map);
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      {
+        maxZoom: 20,
+        subdomains: "abcd",
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
+      },
+    ).addTo(map);
 
     if (valid.length > 1) {
       const latlngs = valid.map((p) => [p.lat, p.lon]) as [number, number][];
@@ -142,10 +146,15 @@ export function ChargeMap({
       zoomControl: true,
       preferCanvas: true,
     }).setView([lat, lon], 15);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap',
-    }).addTo(map);
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      {
+        maxZoom: 20,
+        subdomains: "abcd",
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
+      },
+    ).addTo(map);
     L.marker([lat, lon], { icon: circleIcon("#f59e0b") })
       .addTo(map)
       .bindTooltip("Charge location", { direction: "top" });

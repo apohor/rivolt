@@ -27,15 +27,10 @@ body {
   padding-top: max(env(safe-area-inset-top), 0px);
 }
 
-/* Dark-theme Leaflet: we use default OSM tiles (no API key) but
-   invert+hue-rotate them so they sit naturally next to our emerald
-   accents instead of glaring white. Markers and our polyline are
-   drawn outside the tile pane so they stay their true colors. */
+/* Leaflet theming. We ship Carto's dark_all tiles so we just need to
+   match the map background and tone down the attribution bar. */
 .leaflet-container {
   background: #0a0a0a;
-}
-.rivolt-tiles {
-  filter: hue-rotate(180deg) invert(1) brightness(0.9) contrast(0.95) saturate(0.6);
 }
 .leaflet-control-attribution {
   background: rgba(10, 10, 10, 0.7) !important;
