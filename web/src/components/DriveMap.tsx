@@ -11,14 +11,22 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
-// an inline SVG data URL so the default <Marker> works without bundler
-// asset plumbing. Emerald for start, rose for end.
-function circleIcon(color: string): L.DivIcon {
+// an inline DOM marker so the default <Marker> works without bundler
+// asset plumbing. The dot sits on a white ring so it stays visible
+// against both the emerald polyline and the dark basemap. Emerald for
+// start, rose for end. Label is rendered on the marker itself rather
+// than in a tooltip so it's visible without hover on touch devices.
+function labeledIcon(color: string, label: string): L.DivIcon {
+  const size = 22;
   return L.divIcon({
     className: "rivolt-map-marker",
-    html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:${color};border:2px solid #0a0a0a;box-shadow:0 0 0 2px ${color}33;"></span>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    html:
+      `<div style="position:relative;width:${size}px;height:${size}px;">` +
+      `<span style="position:absolute;inset:0;border-radius:9999px;background:${color};border:3px solid #ffffff;box-shadow:0 0 0 2px #0a0a0a,0 2px 6px rgba(0,0,0,0.6);"></span>` +
+      `<span style="position:absolute;left:50%;top:-22px;transform:translateX(-50%);font:600 10px/1 ui-sans-serif,system-ui;color:#f5f5f4;background:rgba(10,10,10,0.85);border:1px solid ${color};padding:2px 6px;border-radius:4px;letter-spacing:0.04em;white-space:nowrap;">${label}</span>` +
+      `</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -80,15 +88,17 @@ export function DriveMap({
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
     }
 
-    if (start && Number.isFinite(start.lat)) {
-      L.marker([start.lat, start.lon], { icon: circleIcon("#10b981") })
-        .addTo(map)
-        .bindTooltip("Start", { direction: "top" });
+    if (start && Number.isFinite(start.lat) && (start.lat !== 0 || start.lon !== 0)) {
+      L.marker([start.lat, start.lon], {
+        icon: labeledIcon("#10b981", "START"),
+        zIndexOffset: 1000,
+      }).addTo(map);
     }
     if (end && Number.isFinite(end.lat) && (end.lat !== 0 || end.lon !== 0)) {
-      L.marker([end.lat, end.lon], { icon: circleIcon("#f43f5e") })
-        .addTo(map)
-        .bindTooltip("End", { direction: "top" });
+      L.marker([end.lat, end.lon], {
+        icon: labeledIcon("#f43f5e", "END"),
+        zIndexOffset: 1000,
+      }).addTo(map);
     }
 
     // Leaflet reads the container size on init; if we mount inside a
@@ -155,9 +165,10 @@ export function ChargeMap({
           '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
       },
     ).addTo(map);
-    L.marker([lat, lon], { icon: circleIcon("#f59e0b") })
-      .addTo(map)
-      .bindTooltip("Charge location", { direction: "top" });
+    L.marker([lat, lon], {
+      icon: labeledIcon("#f59e0b", "CHARGE"),
+      zIndexOffset: 1000,
+    }).addTo(map);
     const invalidate = () => map.invalidateSize();
     const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
     const ro = new ResizeObserver(invalidate);
