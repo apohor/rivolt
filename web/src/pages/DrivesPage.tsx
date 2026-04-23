@@ -1,7 +1,10 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { backend, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { WindowPicker } from "../components/WindowPicker";
+import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
   durationSeconds,
   formatDateTime,
@@ -11,30 +14,38 @@ import {
 } from "../lib/format";
 
 export default function DrivesPage() {
+  const [win, setWin] = useState<WindowKey>("30d");
   const q = useQuery({
-    queryKey: ["drives", 100],
-    queryFn: () => backend.drives(100),
+    queryKey: ["drives", "all"],
+    queryFn: () => backend.allDrives(),
   });
+  const rows = useMemo(
+    () => filterByWindow(q.data ?? [], win),
+    [q.data, win],
+  );
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Drives"
         subtitle={
-          q.data ? `${q.data.length} most recent drive sessions` : undefined
+          q.data
+            ? `${rows.length} of ${q.data.length} drive sessions`
+            : undefined
         }
+        actions={<WindowPicker value={win} onChange={setWin} />}
       />
       <Card>
         {q.isLoading ? (
           <Spinner />
         ) : q.isError ? (
           <ErrorBox title="Failed to load drives" detail={String(q.error)} />
-        ) : !q.data || q.data.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="text-sm text-neutral-400">
-            No drives yet. Import an ElectraFi CSV with <code>rivolt import electrafi</code>.
+            No drives in this window.
           </p>
         ) : (
-          <DriveTable drives={q.data} />
+          <DriveTable drives={rows} />
         )}
       </Card>
     </div>

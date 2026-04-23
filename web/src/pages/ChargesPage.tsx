@@ -1,7 +1,10 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { WindowPicker } from "../components/WindowPicker";
+import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
   durationSeconds,
   formatDateTime,
@@ -11,28 +14,36 @@ import {
 } from "../lib/format";
 
 export default function ChargesPage() {
+  const [win, setWin] = useState<WindowKey>("30d");
   const q = useQuery({
-    queryKey: ["charges", 100],
-    queryFn: () => backend.charges(100),
+    queryKey: ["charges", "all"],
+    queryFn: () => backend.allCharges(),
   });
+  const rows = useMemo(
+    () => filterByWindow(q.data ?? [], win),
+    [q.data, win],
+  );
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Charges"
         subtitle={
-          q.data ? `${q.data.length} most recent charging sessions` : undefined
+          q.data
+            ? `${rows.length} of ${q.data.length} charging sessions`
+            : undefined
         }
+        actions={<WindowPicker value={win} onChange={setWin} />}
       />
       <Card>
         {q.isLoading ? (
           <Spinner />
         ) : q.isError ? (
           <ErrorBox title="Failed to load charges" detail={String(q.error)} />
-        ) : !q.data || q.data.length === 0 ? (
-          <p className="text-sm text-neutral-400">No charges yet.</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-neutral-400">No charges in this window.</p>
         ) : (
-          <ChargeTable charges={q.data} />
+          <ChargeTable charges={rows} />
         )}
       </Card>
     </div>
