@@ -156,12 +156,12 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 	return out, rows.Err()
 }
 
-// Dedupe collapses rows sharing (vehicle_id, started_at). For each
-// duplicate group the canonical row is the one with the greatest
-// distance_mi (tiebreak max_speed_mph, ended_at, id); we MAX the
-// numeric fields into it, then delete the rest. Runs at startup to
-// clean up historical imports that used driveNumber-based IDs before
-// we switched to timestamp-based IDs.
+// Dedupe collapses duplicate drive rows. Two passes, mirroring the
+// charges store: electrafi_import rows group by started_at alone
+// (early versions hashed the CSV filename into vehicle_id so re-imports
+// from differently-named exports produced different vehicle_ids for
+// the same physical drive), everything else groups by
+// (vehicle_id, started_at).
 //
 // Returns the number of rows deleted.
 func (s *Store) Dedupe(ctx context.Context) (int, error) {
@@ -171,6 +171,66 @@ func (s *Store) Dedupe(ctx context.Context) (int, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	total := 0
+
+	// Pass 1: electrafi_import rows, grouped by started_at alone.
+	{
+		if _, err := tx.ExecContext(ctx, `
+			WITH ranked AS (
+				SELECT id, started_at,
+				       ROW_NUMBER() OVER (
+				         PARTITION BY started_at
+				         ORDER BY distance_mi DESC,
+				                  max_speed_mph DESC,
+				                  ended_at DESC,
+				                  id ASC
+				       ) AS rn
+				FROM drives
+				WHERE source = 'electrafi_import'
+			),
+			keepers AS (SELECT id, started_at FROM ranked WHERE rn = 1),
+			merges AS (
+				SELECT k.id AS keep_id,
+				       MAX(d.distance_mi)   AS distance_mi,
+				       MAX(d.max_speed_mph) AS max_speed_mph,
+				       MAX(d.avg_speed_mph) AS avg_speed_mph,
+				       MAX(d.ended_at)      AS ended_at
+				FROM keepers k
+				JOIN drives d
+				  ON d.started_at = k.started_at
+				 AND d.source = 'electrafi_import'
+				GROUP BY k.id
+			)
+			UPDATE drives SET
+				distance_mi   = (SELECT distance_mi   FROM merges WHERE merges.keep_id = drives.id),
+				max_speed_mph = (SELECT max_speed_mph FROM merges WHERE merges.keep_id = drives.id),
+				avg_speed_mph = (SELECT avg_speed_mph FROM merges WHERE merges.keep_id = drives.id),
+				ended_at      = (SELECT ended_at      FROM merges WHERE merges.keep_id = drives.id)
+			WHERE id IN (SELECT keep_id FROM merges)
+		`); err != nil {
+			return 0, fmt.Errorf("electrafi merge: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, `
+			DELETE FROM drives WHERE id IN (
+				SELECT id FROM (
+					SELECT id, ROW_NUMBER() OVER (
+						PARTITION BY started_at
+						ORDER BY distance_mi DESC,
+						         max_speed_mph DESC,
+						         ended_at DESC,
+						         id ASC
+					) AS rn FROM drives
+					WHERE source = 'electrafi_import'
+				) WHERE rn > 1
+			)`)
+		if err != nil {
+			return 0, fmt.Errorf("electrafi delete: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		total += int(n)
+	}
+
+	// Pass 2: everything else, grouped by (vehicle_id, started_at).
 	if _, err := tx.ExecContext(ctx, `
 		WITH ranked AS (
 			SELECT id, vehicle_id, started_at,
@@ -182,48 +242,15 @@ func (s *Store) Dedupe(ctx context.Context) (int, error) {
 			                  id ASC
 			       ) AS rn
 			FROM drives
-		),
-		keepers AS (SELECT id, vehicle_id, started_at FROM ranked WHERE rn = 1),
-		merges AS (
-			SELECT k.id AS keep_id,
-			       MAX(d.distance_mi)   AS distance_mi,
-			       MAX(d.max_speed_mph) AS max_speed_mph,
-			       MAX(d.avg_speed_mph) AS avg_speed_mph,
-			       MAX(d.ended_at)      AS ended_at
-			FROM keepers k
-			JOIN drives d
-			  ON d.vehicle_id = k.vehicle_id
-			 AND d.started_at = k.started_at
-			GROUP BY k.id
+			WHERE source <> 'electrafi_import'
 		)
-		UPDATE drives SET
-			distance_mi   = (SELECT distance_mi   FROM merges WHERE merges.keep_id = drives.id),
-			max_speed_mph = (SELECT max_speed_mph FROM merges WHERE merges.keep_id = drives.id),
-			avg_speed_mph = (SELECT avg_speed_mph FROM merges WHERE merges.keep_id = drives.id),
-			ended_at      = (SELECT ended_at      FROM merges WHERE merges.keep_id = drives.id)
-		WHERE id IN (SELECT keep_id FROM merges)
+		DELETE FROM drives WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
 	`); err != nil {
-		return 0, fmt.Errorf("merge duplicates: %w", err)
+		return 0, fmt.Errorf("live delete: %w", err)
 	}
 
-	res, err := tx.ExecContext(ctx, `
-		DELETE FROM drives WHERE id IN (
-			SELECT id FROM (
-				SELECT id, ROW_NUMBER() OVER (
-					PARTITION BY vehicle_id, started_at
-					ORDER BY distance_mi DESC,
-					         max_speed_mph DESC,
-					         ended_at DESC,
-					         id ASC
-				) AS rn FROM drives
-			) WHERE rn > 1
-		)`)
-	if err != nil {
-		return 0, fmt.Errorf("delete duplicates: %w", err)
-	}
-	n, _ := res.RowsAffected()
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
-	return int(n), nil
+	return total, nil
 }
