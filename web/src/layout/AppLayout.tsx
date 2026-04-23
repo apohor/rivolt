@@ -11,27 +11,55 @@ const nav = [
   { to: "/settings", label: "Settings" },
 ];
 
-// StatusPill pings /api/health and shows a green dot when the backend is
-// reachable. Kept deliberately simple — no machine proxy, no degraded-vs-
-// unreachable distinction until we have a real upstream to probe.
+// StatusPill reflects the Rivian connection state, since that's what
+// the user actually cares about from the header. Five states:
+//   - backend unreachable   → red "offline"
+//   - backend ok, no live   → neutral "no rivian" (stub build)
+//   - backend ok, signed-out → neutral "not connected"
+//   - signed in, MFA pending → amber "mfa pending"
+//   - fully authenticated    → green "connected"
+// The backend's own health is implicit: if we can't even reach it we
+// go red; in every other case the backend is fine so we don't clutter
+// the header saying so.
 function StatusPill() {
-  const { data, isError } = useQuery({
+  const health = useQuery({
     queryKey: ["health"],
     queryFn: () => backend.health(),
     refetchInterval: 15_000,
   });
+  const rivian = useQuery({
+    queryKey: ["rivian", "status"],
+    queryFn: () => backend.rivianStatus(),
+    refetchInterval: 15_000,
+    enabled: !!health.data?.ok,
+  });
 
   let label = "checking…";
   let tone = "bg-neutral-800 text-neutral-400 border-neutral-700";
-  if (data?.ok) {
-    label = "backend ok";
-    tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
-  } else if (isError) {
-    label = "backend offline";
+  let title: string | undefined;
+
+  if (health.isError) {
+    label = "offline";
     tone = "bg-rose-900/40 text-rose-300 border-rose-800";
+  } else if (health.data?.ok) {
+    title = `Rivolt ${health.data.version}`;
+    if (!rivian.data) {
+      // Backend is up; rivian status still in flight — keep neutral.
+    } else if (!rivian.data.enabled) {
+      label = "no rivian";
+    } else if (rivian.data.mfa_pending) {
+      label = "mfa pending";
+      tone = "bg-amber-900/40 text-amber-300 border-amber-800";
+    } else if (rivian.data.authenticated) {
+      label = "connected";
+      tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
+      if (rivian.data.email) title = `${rivian.data.email} · ${title}`;
+    } else {
+      label = "not connected";
+    }
   }
   return (
-    <span className={`rounded-full border px-3 py-1 text-xs ${tone}`} title={data?.version}>
+    <span className={`rounded-full border px-3 py-1 text-xs ${tone}`} title={title}>
       {label}
     </span>
   );

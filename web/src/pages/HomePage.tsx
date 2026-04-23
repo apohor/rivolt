@@ -25,11 +25,6 @@ import { LiveSummary } from "../components/LiveSummary";
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
 
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => backend.health(),
-    refetchInterval: 30_000,
-  });
   const drives = useQuery({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
@@ -64,13 +59,6 @@ export default function HomePage() {
     <div className="space-y-6">
       <PageHeader
         title="Overview"
-        subtitle={
-          health.data
-            ? `Rivolt ${health.data.version}`
-            : health.isError
-              ? "Rivolt backend unreachable"
-              : "connecting…"
-        }
         actions={<WindowPicker value={win} onChange={setWin} />}
       />
 
