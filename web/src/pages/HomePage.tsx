@@ -92,6 +92,30 @@ export default function HomePage() {
         <WindowPicker value={win} onChange={setWin} />
       </div>
 
+      {/* Slim glanceable strip: current SoC + remaining range in a
+          single row. Always visible (even before the Live card
+          resolves) so the most important numbers never sit below
+          the fold. */}
+      {liveSoC > 0 || liveState.data ? (
+        <div className="flex items-baseline justify-between rounded-xl border border-neutral-800 bg-neutral-900/50 px-4 py-3">
+          <div className="flex items-baseline gap-4 tabular-nums">
+            <span className="text-3xl font-semibold text-emerald-300">
+              {pct(liveSoC, 0)}
+            </span>
+            <span className="text-xl text-neutral-300">
+              {num(
+                (liveState.data?.distance_to_empty ?? 0) * 0.6213711922,
+                0,
+                "mi",
+              )}
+            </span>
+          </div>
+          <span className="text-[11px] uppercase tracking-wide text-neutral-500">
+            battery · range
+          </span>
+        </div>
+      ) : null}
+
       <LiveSummary />
 
       {isLoading ? (

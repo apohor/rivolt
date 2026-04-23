@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { backend, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
+import { Link } from "react-router-dom";
+import { backend, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatTemperature, usePreferences } from "../lib/preferences";
@@ -78,28 +79,44 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         {vehicle.pack_kwh ? ` · ${vehicle.pack_kwh} kWh pack` : ""}
         {vehicle.vin ? ` · VIN ${vehicle.vin.slice(-6)}` : ""}
       </div>
-      {heroUrl ? (
-        <div className="mt-3 flex justify-center">
-          {/* The configurator PNGs have enormous horizontal margins
-              baked in. max-h-32 (was 48) + narrower max-w keeps the
-              car recognizable without burning a quarter of the
-              viewport on whitespace. */}
-          <img
-            src={heroUrl}
-            alt={name}
-            loading="lazy"
-            className="max-h-32 w-full max-w-xs rounded-md object-contain"
-          />
+      {/* Image + current-activity panel share a row on md+. The
+          image no longer floats alone in whitespace, and a
+          charging/driving/parked summary always sits beside it for
+          instant context. Stacks on mobile. */}
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        {heroUrl ? (
+          <div className="flex items-center justify-center">
+            {/* Configurator PNGs have huge horizontal margins baked
+                in; max-h-40 / max-w-sm keeps the car recognizable
+                without the left column dwarfing the status panel. */}
+            <img
+              src={heroUrl}
+              alt={name}
+              loading="lazy"
+              className="max-h-40 w-full max-w-sm rounded-md object-contain"
+            />
+          </div>
+        ) : (
+          <div />
+        )}
+        <div className="flex flex-col justify-center">
+          {state.isError ? (
+            <p className="text-xs text-red-400">{String(state.error)}</p>
+          ) : s ? (
+            isCharging(s) ? (
+              <ChargingDetail vehicle={vehicle} state={s} />
+            ) : isDriving(s) ? (
+              <DrivingDetail vehicle={vehicle} state={s} />
+            ) : (
+              <ParkedSummary vehicle={vehicle} state={s} />
+            )
+          ) : (
+            <div className="text-[11px] text-neutral-500">loading…</div>
+          )}
         </div>
-      ) : null}
-      {state.isError ? (
-        <p className="mt-3 text-xs text-red-400">{String(state.error)}</p>
-      ) : s ? (
+      </div>
+      {state.isError ? null : s ? (
         <div className="mt-4 space-y-4">
-          {isCharging(s) ? <ChargingDetail vehicle={vehicle} state={s} /> : null}
-          {!isCharging(s) && isDriving(s) ? (
-            <DrivingDetail vehicle={vehicle} state={s} />
-          ) : null}
           <Section title="Energy">
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />
             <Field label="Range" value={num(kmToMi(s.distance_to_empty), 0, "mi")} />
@@ -422,6 +439,124 @@ function ChargingDetail({
 function isDriving(s: VehicleState): boolean {
   const g = (s.gear || "").toUpperCase();
   return g === "D" || g === "R" || g === "N";
+}
+
+// ParkedSummary is the "nothing is happening right now" placeholder
+// that occupies the session slot when the car is neither charging
+// nor driving. Pulls the most recent drive + charge so the user
+// sees context at a glance instead of an empty half of the card.
+function ParkedSummary({
+  vehicle,
+  state,
+}: {
+  vehicle: Vehicle;
+  state: VehicleState;
+}) {
+  // Pull the full lists — they're already cached by /drives and
+  // /charges pages (same queryKey), so this is usually a free hit.
+  const drives = useQuery<Drive[]>({
+    queryKey: ["drives", "all"],
+    queryFn: () => backend.allDrives(),
+    staleTime: 60_000,
+  });
+  const charges = useQuery<Charge[]>({
+    queryKey: ["charges", "all"],
+    queryFn: () => backend.allCharges(),
+    staleTime: 60_000,
+  });
+  const lastDrive = drives.data?.[0];
+  const lastCharge = charges.data?.[0];
+  const plugged = isPlugged(state);
+
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-neutral-400">
+          {plugged ? "Parked · plugged in" : "Parked"}
+        </div>
+        <div className="text-[11px] text-neutral-500">
+          {formatChargerState(state.charger_state) || "idle"}
+        </div>
+      </div>
+      <div className="mb-3 flex items-baseline gap-4">
+        <div className="tabular-nums text-2xl font-semibold text-neutral-200">
+          {pct(state.battery_level_pct, 0)}
+        </div>
+        <div className="flex-1 text-[11px] text-neutral-400">
+          <div className="flex justify-between">
+            <span>{num(kmToMi(state.distance_to_empty), 0, "mi range")}</span>
+            <span>limit {pct(state.charge_target_pct, 0)}</span>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
+        <div>
+          <div className="mb-0.5 uppercase tracking-wide text-neutral-500">
+            Last drive
+          </div>
+          {lastDrive ? (
+            <Link
+              to={`/drives/${encodeURIComponent(lastDrive.ID)}`}
+              className="block hover:text-emerald-300"
+            >
+              <div className="tabular-nums text-neutral-200">
+                {num(lastDrive.DistanceMi, 1, "mi")}
+              </div>
+              <div className="text-neutral-500">
+                {timeAgo(lastDrive.EndedAt)}
+              </div>
+            </Link>
+          ) : (
+            <div className="text-neutral-500">—</div>
+          )}
+        </div>
+        <div>
+          <div className="mb-0.5 uppercase tracking-wide text-neutral-500">
+            Last charge
+          </div>
+          {lastCharge ? (
+            <div>
+              <div className="tabular-nums text-neutral-200">
+                {num(lastCharge.EnergyAddedKWh, 1, "kWh")}
+              </div>
+              <div className="text-neutral-500">
+                {pct(lastCharge.StartSoCPct, 0)}→{pct(lastCharge.EndSoCPct, 0)} ·{" "}
+                {timeAgo(lastCharge.EndedAt)}
+              </div>
+            </div>
+          ) : (
+            <div className="text-neutral-500">—</div>
+          )}
+        </div>
+      </div>
+      {/* Reference the vehicle so the param isn't unused — kept for
+          future plumbing (e.g. pack-size-aware efficiency stats). */}
+      <span className="hidden" data-vehicle={vehicle.id} />
+    </div>
+  );
+}
+
+// isPlugged reports whether the charge cable is physically connected
+// but not actively drawing power (so we're parked, not charging).
+function isPlugged(s: VehicleState): boolean {
+  const cs = (s.charger_state || "").toLowerCase();
+  return cs === "charging_ready" || cs === "charging_complete" || cs === "waiting_on_charger";
+}
+
+// timeAgo is a tiny relative-time formatter. Full localized dates
+// live in /drives and /charges; here we just want a glance at how
+// stale the last activity is.
+function timeAgo(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t) || t === 0) return "—";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
 }
 
 // DrivingDetail renders the in-flight drive snapshot — elapsed time,
