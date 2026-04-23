@@ -40,7 +40,35 @@ export default function HomePage() {
   const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
   const ds = useMemo(() => driveStats(winDrives), [winDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
-  const latestSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
+
+  // Prefer the live vehicle state for the headline SoC — the fallback
+  // to the last recorded session is misleading when the car has been
+  // driven / charged since the last row landed.
+  const rivianStatus = useQuery({
+    queryKey: ["rivian", "status"],
+    queryFn: () => backend.rivianStatus(),
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const vehicles = useQuery({
+    queryKey: ["rivian", "vehicles"],
+    queryFn: () => backend.vehicles(),
+    enabled: !!rivianStatus.data?.authenticated,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+  const firstVehicleID = vehicles.data?.[0]?.id;
+  const liveState = useQuery({
+    queryKey: ["rivian", "state", firstVehicleID ?? ""],
+    queryFn: () => backend.vehicleState(firstVehicleID as string),
+    enabled: !!firstVehicleID,
+    refetchInterval: 60_000,
+    retry: 1,
+  });
+  const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
+  const liveSoC = liveState.data?.battery_level_pct ?? 0;
+  const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
+  const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
   const barDays = win === "7d" ? 7 : win === "30d" ? 30 : 60;
   const dailyMiles = useMemo(
@@ -74,7 +102,7 @@ export default function HomePage() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Stat label="Battery (latest)" value={pct(latestSoC, 0)} />
+            <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
             <Stat
               label="Miles"
               value={num(ds.miles, 1, "mi")}
