@@ -79,13 +79,13 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         {vehicle.pack_kwh ? ` · ${vehicle.pack_kwh} kWh pack` : ""}
         {vehicle.vin ? ` · VIN ${vehicle.vin.slice(-6)}` : ""}
       </div>
-      {/* Image + current-activity panel share a row on md+. The
-          image no longer floats alone in whitespace, and a
-          charging/driving/parked summary always sits beside it for
-          instant context. Stacks on mobile. */}
-      <div className="mt-3 grid gap-4 md:grid-cols-2">
+      {/* Image + current-activity panel share a row on md+. Image
+          takes 1/3 (it's just a recognizable silhouette — no data
+          to scan), session panel takes 2/3 so cost/power/speed/etc.
+          get the space they need. Stacks on mobile. */}
+      <div className="mt-3 grid gap-4 md:grid-cols-3">
         {heroUrl ? (
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center md:col-span-1">
             {/* Configurator PNGs have huge horizontal margins baked
                 in; max-h-40 / max-w-sm keeps the car recognizable
                 without the left column dwarfing the status panel. */}
@@ -97,9 +97,9 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             />
           </div>
         ) : (
-          <div />
+          <div className="md:col-span-1" />
         )}
-        <div className="flex flex-col justify-center">
+        <div className="flex flex-col justify-center md:col-span-2">
           {state.isError ? (
             <p className="text-xs text-red-400">{String(state.error)}</p>
           ) : s ? (
