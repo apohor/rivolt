@@ -523,6 +523,29 @@ type vehicleStateData struct {
 	} `json:"vehicleState"`
 }
 
+// StateRaw returns the decoded vehicleState object from Rivian as
+// generic JSON for debugging. Used by /api/state/:id/debug to verify
+// which fields Rivian actually populates for a given vehicle.
+func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, errors.New("rivian: not authenticated; call Login first")
+	}
+	if vehicleID == "" {
+		return nil, errors.New("rivian: vehicleID is required")
+	}
+	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
+		OperationName: "GetVehicleState",
+		Query:         qVehicleState,
+		Variables:     map[string]any{"vehicleID": vehicleID},
+	}, c.authHeaders())
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // State returns the current snapshot for a vehicle. Units are what the
 // server gave us: battery in percent, distances in kilometers, temps
 // in Celsius. The odometer field is exposed as-is (kilometers); the
