@@ -92,6 +92,30 @@ type State struct {
 	TirePressureStatusRR string  `json:"tire_pressure_status_rr"`
 }
 
+// LiveSession is the snapshot of an in-progress charging session,
+// pulled from Rivian's `chrg/user/graphql` endpoint via
+// getLiveSessionData. All zero/empty when no session is active.
+// Units: power in kW, energy in kWh, rate in km/h, SoC in percent,
+// time fields in whole seconds.
+type LiveSession struct {
+	At                       time.Time `json:"at"`
+	VehicleID                string    `json:"vehicle_id"`
+	Active                   bool      `json:"active"`
+	VehicleChargerState      string    `json:"vehicle_charger_state"`
+	StartTime                string    `json:"start_time"`
+	TimeElapsedSeconds       int64     `json:"time_elapsed_seconds"`
+	TimeRemainingSeconds     int64     `json:"time_remaining_seconds"`
+	PowerKW                  float64   `json:"power_kw"`
+	KilometersChargedPerHour float64   `json:"kilometers_charged_per_hour"`
+	RangeAddedKm             float64   `json:"range_added_km"`
+	TotalChargedEnergyKWh    float64   `json:"total_charged_energy_kwh"`
+	SoCPct                   float64   `json:"soc_pct"`
+	CurrentPrice             string    `json:"current_price"`
+	CurrentCurrency          string    `json:"current_currency"`
+	IsFreeSession            bool      `json:"is_free_session"`
+	IsRivianCharger          bool      `json:"is_rivian_charger"`
+}
+
 // Client is the high-level API surface Rivolt uses against Rivian.
 // Concrete implementations live in live.go (real upstream) and
 // mock.go (offline fixture for tests and demos).

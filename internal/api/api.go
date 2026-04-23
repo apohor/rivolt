@@ -83,6 +83,7 @@ func New(d Deps) http.Handler {
 		r.Get("/vehicles", handleVehicles(d.Rivian))
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
+		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -205,6 +206,32 @@ func handleVehicleStateDebug(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, raw)
+	}
+}
+
+// handleLiveSession returns the current charging session snapshot
+// from Rivian's charging gateway. Returns an inactive payload when
+// no session is in progress (the Rivian upstream returns 200 with
+// most fields null in that case — we pass that through as
+// Active=false).
+func handleLiveSession(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		id := chi.URLParam(r, "vehicleID")
+		if id == "" {
+			http.Error(w, "vehicleID required", http.StatusBadRequest)
+			return
+		}
+		sess, err := lc.LiveSession(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, sess)
 	}
 }
 
