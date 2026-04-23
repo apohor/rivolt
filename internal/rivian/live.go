@@ -52,6 +52,7 @@ type LiveClient struct {
 	userSessionToken string // "u-sess" header
 	accessToken      string
 	refreshToken     string
+	email            string // owner's email, populated on successful Login
 	pendingOTPToken  string // populated when the server returns an MFA challenge
 	pendingOTPEmail  string
 	authenticatedAt  time.Time
@@ -270,6 +271,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.accessToken = data.LoginWithOTP.AccessToken
 		c.refreshToken = data.LoginWithOTP.RefreshToken
 		c.userSessionToken = data.LoginWithOTP.UserSessionToken
+		c.email = email
 		c.pendingOTPToken = ""
 		c.pendingOTPEmail = ""
 		c.authenticatedAt = time.Now()
@@ -302,6 +304,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.accessToken = data.Login.AccessToken
 		c.refreshToken = data.Login.RefreshToken
 		c.userSessionToken = data.Login.UserSessionToken
+		c.email = creds.Email
 		c.authenticatedAt = time.Now()
 		return nil
 	case "MobileMFALoginResponse":
@@ -480,3 +483,91 @@ func parseTimeOrNow(s string) time.Time {
 
 // Compile-time assertion: LiveClient satisfies Client.
 var _ Client = (*LiveClient)(nil)
+
+// Session is the persisted subset of LiveClient state — enough to
+// restore an authenticated session across restarts without asking the
+// user to log in again. MFA is stored for a single in-flight challenge
+// only (the token is short-lived server-side).
+type Session struct {
+	Email            string    `json:"email"`
+	CSRFToken        string    `json:"csrf_token"`
+	AppSessionToken  string    `json:"app_session_token"`
+	UserSessionToken string    `json:"user_session_token"`
+	AccessToken      string    `json:"access_token"`
+	RefreshToken     string    `json:"refresh_token"`
+	AuthenticatedAt  time.Time `json:"authenticated_at"`
+}
+
+// Snapshot returns a copy of the currently-authenticated session, or
+// the zero value if nothing is logged in. Safe to persist as JSON.
+func (c *LiveClient) Snapshot() Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return Session{
+		Email:            c.email,
+		CSRFToken:        c.csrfToken,
+		AppSessionToken:  c.appSessionToken,
+		UserSessionToken: c.userSessionToken,
+		AccessToken:      c.accessToken,
+		RefreshToken:     c.refreshToken,
+		AuthenticatedAt:  c.authenticatedAt,
+	}
+}
+
+// Restore hydrates the client from a prior Snapshot. No network I/O.
+// Intended to be called once at startup; subsequent calls overwrite
+// everything including any pending OTP state.
+func (c *LiveClient) Restore(s Session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.csrfToken = s.CSRFToken
+	c.appSessionToken = s.AppSessionToken
+	c.userSessionToken = s.UserSessionToken
+	c.accessToken = s.AccessToken
+	c.refreshToken = s.RefreshToken
+	c.authenticatedAt = s.AuthenticatedAt
+	c.email = s.Email
+	c.pendingOTPEmail = ""
+	c.pendingOTPToken = ""
+}
+
+// Authenticated reports whether the client currently has a valid
+// userSessionToken. Does not probe the server — only checks local
+// state. Use a short /user query to verify liveness.
+func (c *LiveClient) Authenticated() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.userSessionToken != ""
+}
+
+// Email returns the email the current session is authenticated as, or
+// "" if no session is active.
+func (c *LiveClient) Email() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.email
+}
+
+// MFAPending reports whether Login returned ErrMFARequired and the
+// client is waiting for an OTP submission. Allows the UI to restore a
+// half-completed login across page reloads.
+func (c *LiveClient) MFAPending() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pendingOTPToken != ""
+}
+
+// Logout clears every authenticated-session field but keeps the CSRF
+// token (it survives logout server-side and saves a round-trip on the
+// next login).
+func (c *LiveClient) Logout() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.userSessionToken = ""
+	c.accessToken = ""
+	c.refreshToken = ""
+	c.email = ""
+	c.pendingOTPToken = ""
+	c.pendingOTPEmail = ""
+	c.authenticatedAt = time.Time{}
+}

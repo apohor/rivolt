@@ -126,10 +126,8 @@ func runServer() {
 	}
 
 	var rivianClient rivian.Client
+	var rivianLive *rivian.LiveClient
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
-	case "live":
-		rivianClient = rivian.NewLive()
-		logger.Info("rivian client: live (real Rivian API)")
 	case "mock":
 		mc := rivian.NewMock()
 		// Pre-login the mock so Vehicles/State work immediately; the
@@ -137,8 +135,29 @@ func runServer() {
 		_ = mc.Login(ctx, rivian.Credentials{})
 		rivianClient = mc
 		logger.Info("rivian client: mock (fixture data)")
-	default:
+	case "stub":
 		rivianClient = rivian.NewStub()
+		logger.Info("rivian client: stub (no network)")
+	default:
+		// Live is the default. Auth happens later via Settings; the
+		// server comes up fine without credentials, and Vehicles/State
+		// just return a 'not authenticated' error until the user logs
+		// in.
+		lc := rivian.NewLive()
+		if settingsStore != nil {
+			if sess, err := settings.LoadRivianSession(ctx, settingsStore); err != nil {
+				logger.Warn("restore rivian session", "err", err.Error())
+			} else if sess.UserSessionToken != "" {
+				lc.Restore(sess)
+				logger.Info("rivian client: live (restored session)", "email", sess.Email)
+			} else {
+				logger.Info("rivian client: live (awaiting Settings login)")
+			}
+		} else {
+			logger.Info("rivian client: live (no settings store; login state will not persist)")
+		}
+		rivianLive = lc
+		rivianClient = lc
 	}
 
 	drivesStore, err := drives.OpenStore(dbPath)
@@ -160,15 +179,17 @@ func runServer() {
 	}
 
 	handler := api.New(api.Deps{
-		Rivian:      rivianClient,
-		PushService: pushSvc,
-		PushStore:   pushStore,
-		SettingsMgr: settingsMgr,
-		Drives:      drivesStore,
-		Charges:     chargesStore,
-		Samples:     samplesStore,
-		WebFS:       webFS,
-		Version:     version,
+		Rivian:        rivianClient,
+		RivianLive:    rivianLive,
+		SettingsStore: settingsStore,
+		PushService:   pushSvc,
+		PushStore:     pushStore,
+		SettingsMgr:   settingsMgr,
+		Drives:        drivesStore,
+		Charges:       chargesStore,
+		Samples:       samplesStore,
+		WebFS:         webFS,
+		Version:       version,
 	})
 
 	srv := &http.Server{

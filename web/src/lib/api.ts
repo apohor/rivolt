@@ -137,11 +137,31 @@ export type Sample = {
   Source: string;
 };
 
+export type RivianStatus = {
+  enabled: boolean;
+  authenticated: boolean;
+  mfa_pending: boolean;
+  email?: string;
+};
+
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
+  rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
+  rivianLogin: (email: string, password: string) =>
+    api.post<{ authenticated: boolean; mfa_pending?: boolean; email?: string }>(
+      "/api/settings/rivian/login",
+      { email, password },
+    ),
+  rivianMFA: (otp: string) =>
+    api.post<{ authenticated: boolean; email?: string }>(
+      "/api/settings/rivian/mfa",
+      { otp },
+    ),
+  rivianLogout: () =>
+    api.post<{ authenticated: boolean }>("/api/settings/rivian/logout"),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),
   charges: (limit = 50) => api.get<Charge[]>(`/api/charges?limit=${limit}`),
   // `allDrives` / `allCharges` pull enough history to drive the
