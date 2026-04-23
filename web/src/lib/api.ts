@@ -131,4 +131,31 @@ export const backend = {
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
     ),
+  // Multipart upload of one or more ElectraFi CSV files. Returns a per-
+  // file result summary (rows/samples/drives/charges ingested).
+  importElectrafi: async (files: File[]) => {
+    const fd = new FormData();
+    for (const f of files) fd.append("file", f, f.name);
+    const res = await fetch("/api/import/electrafi", { method: "POST", body: fd });
+    const text = await res.text();
+    let parsed: unknown = undefined;
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+    if (!res.ok) throw new ApiError(res.status, parsed);
+    return parsed as { files: ImportResult[] };
+  },
+};
+
+export type ImportResult = {
+  File: string;
+  Rows: number;
+  Samples: number;
+  Drives: number;
+  Charges: number;
+  SkippedRows: number;
 };

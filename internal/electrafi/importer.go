@@ -69,8 +69,18 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 		return Result{}, err
 	}
 	defer f.Close()
+	res, err := i.ImportReader(ctx, path, f)
+	res.File = path
+	return res, err
+}
 
-	r := csv.NewReader(f)
+// ImportReader is the same as Import but reads from an io.Reader rather
+// than a file path. Used by the HTTP upload endpoint to stream an
+// uploaded CSV without staging it to disk. `name` is used only as the
+// seed for the synthetic vehicle ID and for error messages; the caller
+// can pass the original upload filename or any stable label.
+func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader) (Result, error) {
+	r := csv.NewReader(src)
 	r.FieldsPerRecord = -1 // tolerate trailing-empty-column variance
 	header, err := r.Read()
 	if err != nil {
@@ -87,7 +97,7 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 
 	vehicleID := i.VehicleID
 	if vehicleID == "" {
-		vehicleID = deriveVehicleID(path)
+		vehicleID = deriveVehicleID(name)
 	}
 
 	var (
@@ -189,7 +199,7 @@ func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
 	}
 
 	return Result{
-		File:        path,
+		File:        name,
 		Rows:        rows,
 		Samples:     sampleCount,
 		Drives:      len(driveGroups),
