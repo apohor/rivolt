@@ -2,10 +2,10 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { backend, type ImportResult } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { RivianAccountPanel } from "../components/RivianAccountPanel";
 
 export default function SettingsPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
-  const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: () => backend.vehicles() });
 
   return (
     <div className="space-y-4">
@@ -26,33 +26,12 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card title="Import ElectraFi CSV">
-        <ImportPanel />
+      <Card title="Rivian account">
+        <RivianAccountPanel />
       </Card>
 
-      <Card title="Vehicles">
-        {vehicles.isLoading ? (
-          <Spinner />
-        ) : vehicles.isError ? (
-          <ErrorBox title="Failed to load vehicles" detail={String(vehicles.error)} />
-        ) : !vehicles.data || vehicles.data.length === 0 ? (
-          <div className="text-sm text-neutral-400">
-            <p>No vehicles connected yet.</p>
-            <p className="mt-1 text-xs text-neutral-500">
-              Rivian account linking is not yet implemented. In the meantime,
-              drop an ElectraFi CSV export into the Import panel above.
-            </p>
-          </div>
-        ) : (
-          <ul className="text-sm divide-y divide-neutral-800">
-            {vehicles.data.map((v) => (
-              <li key={v.id} className="py-2 flex justify-between">
-                <span className="text-neutral-200">{v.name || v.vin}</span>
-                <span className="text-neutral-500">{v.model}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Card title="Import ElectraFi CSV">
+        <ImportPanel />
       </Card>
 
       <Card title="Notifications">

@@ -27,6 +27,12 @@ import (
 // small; avoid accumulating a "dependency soup" pattern.
 type Deps struct {
 	Rivian      rivian.Client
+	// RivianLive is the concrete *LiveClient that backs Rivian when
+	// the live client is active. Auth/login endpoints need the
+	// concrete type to drive the Login/Logout/Snapshot flow; nil when
+	// the stub or mock client is in use.
+	RivianLive     *rivian.LiveClient
+	SettingsStore  *settings.Store
 	PushService *push.Service
 	PushStore   *push.Store
 	SettingsMgr *settings.Manager
@@ -70,6 +76,15 @@ func New(d Deps) http.Handler {
 		// other errors surface as 502 so the UI can show them.
 		r.Get("/vehicles", handleVehicles(d.Rivian))
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian))
+
+		// Rivian account management. Only wired when a live client is
+		// present; with the stub/mock these return 404.
+		r.Route("/settings/rivian", func(r chi.Router) {
+			r.Get("/", handleRivianStatus(d.RivianLive))
+			r.Post("/login", handleRivianLogin(d.RivianLive, d.SettingsStore))
+			r.Post("/mfa", handleRivianMFA(d.RivianLive, d.SettingsStore))
+			r.Post("/logout", handleRivianLogout(d.RivianLive, d.SettingsStore))
+		})
 
 		// Read-only session/telemetry endpoints. Populated by either the
 		// ElectraFi importer or the (future) live Rivian ingester.
