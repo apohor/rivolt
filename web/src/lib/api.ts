@@ -59,7 +59,40 @@ export const api = {
 
 export type Health = { ok: boolean; version: string; time: string };
 
-export type Vehicle = { id: string; vin: string; name: string; model: string };
+export type Vehicle = {
+  id: string;
+  vin: string;
+  name: string;
+  model: string;
+  model_year?: number;
+  make?: string;
+  trim_id?: string;
+  trim_name?: string;
+  pack_kwh?: number;
+  image_url?: string;
+};
+
+// LiveSession mirrors internal/rivian.LiveSession — the snapshot
+// pulled from Rivian's chrg/user/graphql endpoint during an active
+// charging session. All zero/empty when no session is active.
+export type LiveSession = {
+  at: string;
+  vehicle_id: string;
+  active: boolean;
+  vehicle_charger_state: string;
+  start_time: string;
+  time_elapsed_seconds: number;
+  time_remaining_seconds: number;
+  power_kw: number;
+  kilometers_charged_per_hour: number;
+  range_added_km: number;
+  total_charged_energy_kwh: number;
+  soc_pct: number;
+  current_price: string;
+  current_currency: string;
+  is_free_session: boolean;
+  is_rivian_charger: boolean;
+};
 
 // VehicleState matches internal/rivian.State. Units are SI at the wire:
 // battery in percent, distance in km, temps in C. The UI converts as
@@ -178,6 +211,8 @@ export const backend = {
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
+  liveSession: (vehicleID: string) =>
+    api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
   rivianLogin: (email: string, password: string) =>
     api.post<{ authenticated: boolean; mfa_pending?: boolean; email?: string }>(
