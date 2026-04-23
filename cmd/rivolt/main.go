@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +19,9 @@ import (
 	_ "time/tzdata"
 
 	"github.com/apohor/rivolt/internal/api"
+	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
@@ -28,6 +32,35 @@ import (
 var version = "dev"
 
 func main() {
+	// Subcommand dispatch. Keeping this stdlib-only to avoid dragging
+	// a dependency like cobra in for what is currently two commands.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "import":
+			runImport(os.Args[2:])
+			return
+		case "--help", "-h", "help":
+			printUsage()
+			return
+		}
+	}
+	runServer()
+}
+
+func printUsage() {
+	fmt.Fprintf(os.Stderr, `rivolt — self-hosted Rivian companion
+
+Usage:
+  rivolt                       Start the HTTP server (default)
+  rivolt import electrafi ...  Import TeslaFi/ElectraFi CSV dumps
+  rivolt --help                Show this help
+
+Environment:
+  ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+`)
+}
+
+func runServer() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
@@ -153,4 +186,71 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// runImport dispatches "rivolt import <kind> ..." subcommands.
+func runImport(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: rivolt import electrafi <file.csv> [<file.csv>...]")
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "electrafi":
+		runImportElectraFi(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown import source %q\n", args[0])
+		os.Exit(2)
+	}
+}
+
+// runImportElectraFi imports one or more TeslaFi/ElectraFi CSV dumps.
+func runImportElectraFi(args []string) {
+	fs := flag.NewFlagSet("import electrafi", flag.ExitOnError)
+	dataDir := fs.String("data-dir", envOr("DATA_DIR", "./data"), "directory holding rivolt.db")
+	vehicleID := fs.String("vehicle-id", envOr("RIVOLT_VEHICLE_ID", ""), "vehicle_id to attribute sessions to (default: derived from filename)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	files := fs.Args()
+	if len(files) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: rivolt import electrafi <file.csv> [<file.csv>...]")
+		os.Exit(2)
+	}
+	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "data dir: %v\n", err)
+		os.Exit(1)
+	}
+	dbPath := filepath.Join(*dataDir, "rivolt.db")
+
+	ds, err := drives.OpenStore(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open drives: %v\n", err)
+		os.Exit(1)
+	}
+	defer ds.Close()
+	cs, err := charges.OpenStore(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open charges: %v\n", err)
+		os.Exit(1)
+	}
+	defer cs.Close()
+
+	imp := &electrafi.Importer{Drives: ds, Charges: cs, VehicleID: *vehicleID}
+	ctx := context.Background()
+	var totalRows, totalDrives, totalCharges, totalSkipped int
+	for _, f := range files {
+		res, err := imp.Import(ctx, f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "import %s: %v\n", f, err)
+			os.Exit(1)
+		}
+		fmt.Printf("%s: rows=%d drives=%d charges=%d skipped=%d\n",
+			f, res.Rows, res.Drives, res.Charges, res.SkippedRows)
+		totalRows += res.Rows
+		totalDrives += res.Drives
+		totalCharges += res.Charges
+		totalSkipped += res.SkippedRows
+	}
+	fmt.Printf("total: rows=%d drives=%d charges=%d skipped=%d\n",
+		totalRows, totalDrives, totalCharges, totalSkipped)
 }

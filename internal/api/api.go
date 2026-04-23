@@ -20,12 +20,12 @@ import (
 // Deps is the bag of dependencies the API router needs. Keep this
 // small; avoid accumulating a "dependency soup" pattern.
 type Deps struct {
-	Rivian         rivian.Client
-	PushService    *push.Service
-	PushStore      *push.Store
-	SettingsMgr    *settings.Manager
-	WebFS          fs.FS
-	Version        string
+	Rivian      rivian.Client
+	PushService *push.Service
+	PushStore   *push.Store
+	SettingsMgr *settings.Manager
+	WebFS       fs.FS
+	Version     string
 }
 
 // New builds the root mux with all routes mounted.
