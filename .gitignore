@@ -1,0 +1,38 @@
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Build artifacts
+/rivolt
+/cmd/rivolt/rivolt
+
+# Embedded web bundle (generated)
+/internal/web/dist/
+
+# Web (Vite)
+/web/node_modules/
+/web/dist/
+/web/.vite/
+*.log
+
+# Data / runtime
+/data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# Local config
+.env
+.env.local
+_local_overrides.*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
