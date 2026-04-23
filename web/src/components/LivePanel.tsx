@@ -87,7 +87,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         <p className="mt-3 text-xs text-red-400">{String(state.error)}</p>
       ) : s ? (
         <div className="mt-4 space-y-4">
-          {isCharging(s) ? <ChargingDetail vehicleID={vehicle.id} state={s} /> : null}
+          {isCharging(s) ? <ChargingDetail vehicle={vehicle} state={s} /> : null}
           <Section title="Energy">
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />
             <Field label="Range" value={num(kmToMi(s.distance_to_empty), 0, "mi")} />
@@ -248,15 +248,15 @@ function isCharging(s: VehicleState): boolean {
 // /api/live-session every 10 s while visible. Hidden when the
 // session is inactive or hasn't started reporting yet.
 function ChargingDetail({
-  vehicleID,
+  vehicle,
   state,
 }: {
-  vehicleID: string;
+  vehicle: Vehicle;
   state: VehicleState;
 }) {
   const sess = useQuery<LiveSession>({
-    queryKey: ["rivian", "live-session", vehicleID],
-    queryFn: () => backend.liveSession(vehicleID),
+    queryKey: ["rivian", "live-session", vehicle.id],
+    queryFn: () => backend.liveSession(vehicle.id),
     refetchInterval: 10_000,
     retry: 1,
   });
@@ -277,6 +277,29 @@ function ChargingDetail({
   const soc = ls && ls.soc_pct > 0 ? ls.soc_pct : state.battery_level_pct;
   const toTarget = Math.max(0, targetPct - soc);
 
+  // Session kind derived from state first, then live-session. Home AC
+  // sessions come back with active=false + a zeroed payload from
+  // Rivian's chrg/user endpoint, so we can't rely on ls.active as
+  // "is there a session" — the plug/charger_state on the vehicle is
+  // authoritative.
+  const cs = state.charger_state || "";
+  const isActiveState = cs === "charging_active" || state.charger_power_kw > 0;
+  const kind = ls?.is_rivian_charger
+    ? "Rivian charger"
+    : isActiveState
+      ? "Home / AC"
+      : cs === "charging_ready"
+        ? "ready · plugged in"
+        : cs === "charging_complete"
+          ? "complete"
+          : "idle";
+
+  // True when Rivian's live feed gave us nothing useful — typical for
+  // home AC / L1 / L2 sessions. We still render the panel (user IS
+  // charging per vehicleState) but swap in an explanation block
+  // instead of a grid full of em-dashes.
+  const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
+
   return (
     <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -284,13 +307,7 @@ function ChargingDetail({
           Charging session
         </div>
         <div className="text-[11px] text-neutral-500">
-          {sess.isLoading
-            ? "…"
-            : ls && ls.is_rivian_charger
-              ? "Rivian charger"
-              : ls && ls.active
-                ? "Home / AC"
-                : "idle"}
+          {sess.isLoading ? "…" : kind}
         </div>
       </div>
       {/* Top row: big readout of the current power + SoC progress */}
@@ -317,33 +334,52 @@ function ChargingDetail({
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">
-        <Field
-          label="Rate"
-          value={ratePerHour > 0 ? num(ratePerHour, 0, "mi/h") : "—"}
-        />
-        <Field
-          label="Range added"
-          value={rangeAdded > 0 ? num(rangeAdded, 0, "mi") : "—"}
-        />
-        <Field
-          label="Energy"
-          value={energyKwh > 0 ? num(energyKwh, 2, "kWh") : "—"}
-        />
-        <Field
-          label="Elapsed"
-          value={elapsed > 0 ? formatDuration(elapsed) : "—"}
-        />
-        <Field
-          label="Remaining"
-          value={remaining > 0 ? formatDuration(remaining) : "—"}
-        />
-        <Field label="State" value={formatChargerState(state.charger_state)} />
-        <Field
-          label="Price"
-          value={price ? formatPrice(price, currency) : ls?.is_free_session ? "free" : "—"}
-        />
-      </div>
+      {haveLiveData ? (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">
+          <Field
+            label="Rate"
+            value={ratePerHour > 0 ? num(ratePerHour, 0, "mi/h") : "—"}
+          />
+          <Field
+            label="Range added"
+            value={rangeAdded > 0 ? num(rangeAdded, 0, "mi") : "—"}
+          />
+          <Field
+            label="Energy"
+            value={energyKwh > 0 ? num(energyKwh, 2, "kWh") : "—"}
+          />
+          <Field
+            label="Elapsed"
+            value={elapsed > 0 ? formatDuration(elapsed) : "—"}
+          />
+          <Field
+            label="Remaining"
+            value={remaining > 0 ? formatDuration(remaining) : "—"}
+          />
+          <Field label="State" value={formatChargerState(state.charger_state)} />
+          <Field
+            label="Price"
+            value={price ? formatPrice(price, currency) : ls?.is_free_session ? "free" : "—"}
+          />
+        </div>
+      ) : (
+        <div className="text-[11px] leading-relaxed text-neutral-400">
+          <div className="mb-1">
+            <span className="font-medium text-neutral-300">
+              State:&nbsp;{formatChargerState(state.charger_state)}
+            </span>
+            {" · "}no detailed telemetry from Rivian for this session.
+          </div>
+          Rivian's live endpoint (<code className="text-neutral-300">getLiveSessionHistory</code>)
+          only populates power, rate, and energy for Rivian chargers and
+          some DC fast-charging. Home AC / L1 / L2 sessions come back
+          empty. Rivolt reconstructs energy and peak power from the SoC
+          delta and pack size (
+          {vehicle.pack_kwh ? `${vehicle.pack_kwh} kWh` : "pack size unknown"}
+          ) once the session closes — you'll see accurate numbers on
+          the closed row in <em>Charges</em>.
+        </div>
+      )}
       {sess.isError ? (
         <p className="mt-2 text-[11px] text-red-400/70">
           Live-session fetch failed: {String(sess.error)}
