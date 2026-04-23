@@ -133,9 +133,10 @@ export const backend = {
     ),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
-  importElectrafi: async (files: File[]) => {
+  importElectrafi: async (files: File[], packKWh?: number) => {
     const fd = new FormData();
     for (const f of files) fd.append("file", f, f.name);
+    if (packKWh && packKWh > 0) fd.append("pack_kwh", String(packKWh));
     const res = await fetch("/api/import/electrafi", { method: "POST", body: fd });
     const text = await res.text();
     let parsed: unknown = undefined;

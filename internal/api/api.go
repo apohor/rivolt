@@ -211,6 +211,11 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			return
 		}
 		imp := &electrafi.Importer{Drives: d.Drives, Charges: d.Charges, Samples: d.Samples}
+		if v := r.FormValue("pack_kwh"); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				imp.PackKWh = f
+			}
+		}
 		results := make([]electrafi.Result, 0, len(files))
 		for _, fh := range files {
 			f, err := fh.Open()

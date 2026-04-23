@@ -74,9 +74,11 @@ function ImportPanel() {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [packKWh, setPackKWh] = useState<string>("141.5");
 
   const mut = useMutation({
-    mutationFn: (files: File[]) => backend.importElectrafi(files),
+    mutationFn: (files: File[]) =>
+      backend.importElectrafi(files, Number(packKWh) || undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["drives"] });
       qc.invalidateQueries({ queryKey: ["charges"] });
@@ -139,6 +141,22 @@ function ImportPanel() {
         <div className="mt-1 text-xs text-neutral-500">
           ElectraFi / TeslaFi exports. Multiple files OK.
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs text-neutral-400">
+        <label htmlFor="pack-kwh" className="whitespace-nowrap">
+          Pack capacity
+        </label>
+        <input
+          id="pack-kwh"
+          type="number"
+          step="0.1"
+          min="0"
+          value={packKWh}
+          onChange={(e) => setPackKWh(e.target.value)}
+          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+        />
+        <span>kWh · used to estimate energy when ElectraFi omits <code>charger_power</code> (late-Mar 2026 onward)</span>
       </div>
 
       {mut.isError && (

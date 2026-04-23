@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -205,6 +206,18 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
+// envFloat reads a float from an env var, or returns fallback if unset
+// or unparseable. Used for numeric tunables we want to expose via env
+// alongside a CLI flag.
+func envFloat(name string, fallback float64) float64 {
+	if v := os.Getenv(name); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
 func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
 		if v != "" {
@@ -234,6 +247,7 @@ func runImportElectraFi(args []string) {
 	fs := flag.NewFlagSet("import electrafi", flag.ExitOnError)
 	dataDir := fs.String("data-dir", envOr("DATA_DIR", "./data"), "directory holding rivolt.db")
 	vehicleID := fs.String("vehicle-id", envOr("RIVOLT_VEHICLE_ID", ""), "vehicle_id to attribute sessions to (default: derived from filename)")
+	packKWh := fs.Float64("pack-kwh", envFloat("RIVOLT_PACK_KWH", electrafi.DefaultPackKWh), "usable pack capacity in kWh; used to estimate energy when ElectraFi omits charger_power")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -267,7 +281,7 @@ func runImportElectraFi(args []string) {
 	}
 	defer ss.Close()
 
-	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID}
+	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID, PackKWh: *packKWh}
 	ctx := context.Background()
 	var totalRows, totalSamples, totalDrives, totalCharges, totalSkipped int
 	for _, f := range files {

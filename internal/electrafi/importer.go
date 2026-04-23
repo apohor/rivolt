@@ -59,6 +59,23 @@ type Importer struct {
 	// session. The CSVs omit VIN so we synthesize one from the file
 	// content if the operator didn't pass --vehicle-id.
 	VehicleID string
+	// PackKWh is the usable battery capacity, used to estimate
+	// charger_power and charge_energy_added when those columns are
+	// empty (ElectraFi stopped reporting them for some Rivian sessions
+	// starting ~late-March 2026). Zero means "use DefaultPackKWh".
+	PackKWh float64
+}
+
+// DefaultPackKWh is the usable capacity we assume when the operator
+// didn't pass a value. Matches the Rivian R1T/R1S Large pack (~141 kWh
+// usable); adjust via Importer.PackKWh for Standard / Max packs.
+const DefaultPackKWh = 141.5
+
+func (i *Importer) pack() float64 {
+	if i.PackKWh > 0 {
+		return i.PackKWh
+	}
+	return DefaultPackKWh
 }
 
 // Import reads path and upserts the derived drives & charges. Safe to
@@ -192,7 +209,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	}
 	for id, snaps := range chargeGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
-		c := deriveCharge(id, vehicleID, snaps)
+		c := deriveCharge(id, vehicleID, snaps, i.pack())
 		if err := i.Charges.Upsert(ctx, c); err != nil {
 			return Result{}, fmt.Errorf("upsert charge %s: %w", id, err)
 		}
@@ -308,7 +325,7 @@ func deriveDrive(id, vehicleID string, snaps []snapshot) drives.Drive {
 	}
 }
 
-func deriveCharge(id, vehicleID string, snaps []snapshot) charges.Charge {
+func deriveCharge(id, vehicleID string, snaps []snapshot, packKWh float64) charges.Charge {
 	if len(snaps) == 0 {
 		return charges.Charge{ID: id, VehicleID: vehicleID, Source: "electrafi_import"}
 	}
@@ -335,6 +352,32 @@ func deriveCharge(id, vehicleID string, snaps []snapshot) charges.Charge {
 	if powerN > 0 {
 		avgPower = powerSum / float64(powerN)
 	}
+
+	// Fallback: ElectraFi occasionally stops reporting charger_power /
+	// charge_energy_added (observed for every Rivian session after
+	// 2026-03-24 in our sample data). When both are zero, estimate from
+	// battery_level delta — it's the only signal we have left.
+	//
+	// We derive energy from (endSoC - startSoC)/100 * packKWh and power
+	// from energy / elapsed_hours. We deliberately do NOT use the max of
+	// instantaneous dSoC/dt — battery_level is quantised to ~0.01-0.1%
+	// and a single tick over a short interval produces a spurious peak.
+	// Sessions that hit this fallback are always AC home charging (DC
+	// fast-charge sessions kept their real charger_power in the sample
+	// data), so the average *is* the peak — the charger delivers a
+	// steady ~7.5 kW for hours.
+	if maxEnergy == 0 && maxPower == 0 && packKWh > 0 {
+		dSoC := last.batteryLevel - first.batteryLevel
+		if dSoC > 0 {
+			maxEnergy = dSoC / 100.0 * packKWh
+		}
+		totalHours := last.at.Sub(first.at).Hours()
+		if totalHours > 0 && maxEnergy > 0 {
+			avgPower = maxEnergy / totalHours
+			maxPower = avgPower
+		}
+	}
+
 	// ElectraFi's charge_energy_added and charge_miles_added_rated are
 	// running totals within the session, so the max across the session
 	// is the delivered amount.
