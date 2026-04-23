@@ -241,7 +241,6 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 	}
 }
 
-
 // stateFromVehicleStateData is the subscription counterpart to the
 // inline construction in State(). Kept separate so the REST path can
 // stay compact while the ws path handles the full field set including

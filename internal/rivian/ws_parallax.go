@@ -172,34 +172,40 @@ func (c *LiveClient) runParallaxChargingSubscription(ctx context.Context, vehicl
 			framesLogged++
 		}
 		sess := &LiveSession{
-			At:                    time.Now().UTC(),
-			VehicleID:             vehicleID,
-			Active:                ld.ChargingState == 1,
-			VehicleChargerState:   chargingStateName(ld.ChargingState),
-			TimeElapsedSeconds:    ld.SessionDurationMins * 60,
-			TimeRemainingSeconds:  ld.TimeRemainingMins * 60,
-			PowerKW:               ld.CurrentPowerKW,
+			At:                       time.Now().UTC(),
+			VehicleID:                vehicleID,
+			// A frame with real power > 0 or an elapsed session
+			// duration means the car is actively charging. The
+			// charging_state enum values aren't publicly
+			// documented — real traffic has emitted 3 during an
+			// active home-AC session, not the 1 the upstream
+			// python source suggested — so we don't gate Active
+			// on a specific enum value.
+			Active:                   ld.CurrentPowerKW > 0 || ld.SessionDurationMins > 0,
+			VehicleChargerState:      chargingStateName(ld.ChargingState),
+			TimeElapsedSeconds:       ld.SessionDurationMins * 60,
+			TimeRemainingSeconds:     ld.TimeRemainingMins * 60,
+			PowerKW:                  ld.CurrentPowerKW,
 			KilometersChargedPerHour: float64(ld.CurrentRangePerHour),
-			RangeAddedKm:          float64(ld.RangeAddedKms),
-			TotalChargedEnergyKWh: ld.TotalKWh,
-			IsFreeSession:         ld.IsFreeSession,
+			RangeAddedKm:             float64(ld.RangeAddedKms),
+			TotalChargedEnergyKWh:    ld.TotalKWh,
+			IsFreeSession:            ld.IsFreeSession,
 		}
 		cb(sess)
 		return nil
 	})
 }
 
-// chargingStateName maps the protobuf charging_state enum to the
-// vehicleChargerState strings used elsewhere in the app.
+// chargingStateName maps the protobuf charging_state enum to a
+// VehicleChargerState string. Exact enum values aren't publicly
+// documented; we just pass a "charging" string through when the
+// state is non-zero so downstream code can treat the session as
+// active.
 func chargingStateName(s int64) string {
-	switch s {
-	case 1:
-		return "charging_active"
-	case 2:
-		return "charging_complete"
-	default:
+	if s == 0 {
 		return ""
 	}
+	return "charging_active"
 }
 
 // decodeChargingLiveData parses a ChargingSessionLiveData protobuf
@@ -207,6 +213,12 @@ func chargingStateName(s int64) string {
 // SessionCost (field 11) and other complex/unknown fields are
 // skipped safely via the wire-type length. Hand-rolled to avoid a
 // protoc dependency for a single 13-field message.
+//
+// Wire types observed in real traffic:
+//   - fields 1-5, 9 = float32 (wire 5), NOT double despite what the
+//     upstream python schema suggests.
+//   - fields 6-8, 10, 12, 13 = varint (wire 0)
+//   - field 11 = embedded SessionCost message (wire 2)
 func decodeChargingLiveData(buf []byte) (*chargingLiveData, error) {
 	out := &chargingLiveData{}
 	for len(buf) > 0 {
@@ -238,28 +250,15 @@ func decodeChargingLiveData(buf []byte) (*chargingLiveData, error) {
 			case 13:
 				out.ChargingState = int64(v)
 			}
-		case 1: // 64-bit (double)
+		case 1: // 64-bit (double) — accepted for forward-compat
 			if len(buf) < 8 {
 				return nil, errors.New("parallax: short double")
 			}
 			bits := binary.LittleEndian.Uint64(buf[:8])
 			f := math.Float64frombits(bits)
 			buf = buf[8:]
-			switch fieldNum {
-			case 1:
-				out.TotalKWh = f
-			case 2:
-				out.PackKWh = f
-			case 3:
-				out.ThermalKWh = f
-			case 4:
-				out.OutletsKWh = f
-			case 5:
-				out.SystemKWh = f
-			case 9:
-				out.CurrentPowerKW = f
-			}
-		case 2: // length-delimited
+			out.setFloat(fieldNum, f)
+		case 2: // length-delimited (embedded message) — skip
 			length, n := binary.Uvarint(buf)
 			if n <= 0 {
 				return nil, errors.New("parallax: bad length")
@@ -268,15 +267,38 @@ func decodeChargingLiveData(buf []byte) (*chargingLiveData, error) {
 			if uint64(len(buf)) < length {
 				return nil, errors.New("parallax: short bytes")
 			}
-			buf = buf[length:] // skip
-		case 5: // 32-bit
+			buf = buf[length:]
+		case 5: // 32-bit (float) — actual wire type used in production
 			if len(buf) < 4 {
-				return nil, errors.New("parallax: short fixed32")
+				return nil, errors.New("parallax: short float")
 			}
+			bits := binary.LittleEndian.Uint32(buf[:4])
+			f := float64(math.Float32frombits(bits))
 			buf = buf[4:]
+			out.setFloat(fieldNum, f)
 		default:
 			return nil, fmt.Errorf("parallax: unsupported wire type %d", wireType)
 		}
 	}
 	return out, nil
+}
+
+// setFloat routes a decoded floating-point value to the right field
+// by number. Shared by the float32 and float64 wire-type branches
+// so either encoding Just Works.
+func (c *chargingLiveData) setFloat(fieldNum int, f float64) {
+	switch fieldNum {
+	case 1:
+		c.TotalKWh = f
+	case 2:
+		c.PackKWh = f
+	case 3:
+		c.ThermalKWh = f
+	case 4:
+		c.OutletsKWh = f
+	case 5:
+		c.SystemKWh = f
+	case 9:
+		c.CurrentPowerKW = f
+	}
 }
