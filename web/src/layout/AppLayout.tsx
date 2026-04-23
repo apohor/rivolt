@@ -24,10 +24,10 @@ function StatusPill() {
   let label = "checking…";
   let tone = "bg-neutral-800 text-neutral-400 border-neutral-700";
   if (data?.ok) {
-    label = "connected";
+    label = "backend ok";
     tone = "bg-emerald-900/40 text-emerald-300 border-emerald-800";
   } else if (isError) {
-    label = "offline";
+    label = "backend offline";
     tone = "bg-rose-900/40 text-rose-300 border-rose-800";
   }
   return (
