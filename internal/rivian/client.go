@@ -38,7 +38,7 @@ type State struct {
 	BatteryLevelPct float64   `json:"battery_level_pct"` // 0..100
 	DistanceToEmpty float64   `json:"distance_to_empty"` // kilometers
 	OdometerKm      float64   `json:"odometer_km"`
-	Gear            string    `json:"gear"`        // "P" | "R" | "N" | "D"
+	Gear            string    `json:"gear"`          // "P" | "R" | "N" | "D"
 	ChargerState    string    `json:"charger_state"` // "charging" | "charging_complete" | "disconnected" | ...
 	ChargerPowerKW  float64   `json:"charger_power_kw"`
 	ChargeTargetPct float64   `json:"charge_target_pct"` // 0..100

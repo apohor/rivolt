@@ -39,15 +39,15 @@ CREATE TABLE IF NOT EXISTS push_vapid (
 
 // Subscription is a stored browser push subscription.
 type Subscription struct {
-	Endpoint          string
-	P256dh            string
-	Auth              string
-	OnChargingDone    bool
-	OnPlugInReminder  bool
-	OnAnomaly         bool
-	UserAgent         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	Endpoint         string
+	P256dh           string
+	Auth             string
+	OnChargingDone   bool
+	OnPlugInReminder bool
+	OnAnomaly        bool
+	UserAgent        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Preferences captures the per-subscription event filters.
