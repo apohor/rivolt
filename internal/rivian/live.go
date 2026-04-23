@@ -430,10 +430,6 @@ const qVehicleState = `query GetVehicleState($vehicleID: String!) {
     otaAvailableVersion { value }
     otaStatus { value }
     otaInstallProgress { value }
-    tirePressureFrontLeft { value }
-    tirePressureFrontRight { value }
-    tirePressureRearLeft { value }
-    tirePressureRearRight { value }
     tirePressureStatusFrontLeft { value }
     tirePressureStatusFrontRight { value }
     tirePressureStatusRearLeft { value }
