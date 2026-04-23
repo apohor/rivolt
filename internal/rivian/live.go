@@ -46,15 +46,15 @@ type LiveClient struct {
 	endpoint   string
 	clientName string
 
-	mu                sync.Mutex
-	csrfToken         string
-	appSessionToken   string // "a-sess" header
-	userSessionToken  string // "u-sess" header
-	accessToken       string
-	refreshToken      string
-	pendingOTPToken   string // populated when the server returns an MFA challenge
-	pendingOTPEmail   string
-	authenticatedAt   time.Time
+	mu               sync.Mutex
+	csrfToken        string
+	appSessionToken  string // "a-sess" header
+	userSessionToken string // "u-sess" header
+	accessToken      string
+	refreshToken     string
+	pendingOTPToken  string // populated when the server returns an MFA challenge
+	pendingOTPEmail  string
+	authenticatedAt  time.Time
 }
 
 // NewLive returns a LiveClient with sane defaults. Pass a zero-value

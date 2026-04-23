@@ -17,13 +17,13 @@ import (
 // operationName so a single server handles the whole auth + query
 // flow.
 type stubGateway struct {
-	t                 *testing.T
-	srv               *httptest.Server
-	mfaRequired       bool
-	capturedReqs      []gatewayCall
-	failCSRF          bool
-	failLogin         bool
-	badUserTypename   bool
+	t               *testing.T
+	srv             *httptest.Server
+	mfaRequired     bool
+	capturedReqs    []gatewayCall
+	failCSRF        bool
+	failLogin       bool
+	badUserTypename bool
 }
 
 type gatewayCall struct {
