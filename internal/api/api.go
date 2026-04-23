@@ -84,7 +84,7 @@ func New(d Deps) http.Handler {
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
-		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian))
+		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
 
@@ -252,12 +252,14 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 	}
 }
 
-// handleLiveSession returns the current charging session snapshot
-// from Rivian's charging gateway. Returns an inactive payload when
-// no session is in progress (the Rivian upstream returns 200 with
-// most fields null in that case — we pass that through as
-// Active=false).
-func handleLiveSession(c rivian.Client) http.HandlerFunc {
+// handleLiveSession returns the current charging session snapshot.
+// Prefers the cached payload from the StateMonitor (populated by
+// both the WebSocket ChargingSession subscription and the REST
+// getLiveSessionHistory poller), falling back to a direct REST hit
+// if nothing has been cached yet. The monitor cache is what carries
+// home AC / L2 telemetry — REST alone returns active:false with a
+// zeroed payload for those sessions.
+func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		if !ok || lc == nil {
@@ -268,6 +270,12 @@ func handleLiveSession(c rivian.Client) http.HandlerFunc {
 		if id == "" {
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
+		}
+		if mon != nil {
+			if sess := mon.LatestLiveSession(id); sess != nil {
+				writeJSON(w, http.StatusOK, sess)
+				return
+			}
 		}
 		sess, err := lc.LiveSession(r.Context(), id)
 		if err != nil {
