@@ -7,6 +7,7 @@ import { WindowPicker } from "../components/WindowPicker";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
   durationSeconds,
+  formatChargeState,
   formatDateTime,
   formatDuration,
   num,
@@ -87,7 +88,7 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(c.MaxPowerKW, 1)}
               </td>
-              <td className="py-2 pr-4 text-neutral-500">{c.FinalState || "—"}</td>
+              <td className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
             </tr>
           ))}
         </tbody>

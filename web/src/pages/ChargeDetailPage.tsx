@@ -7,6 +7,7 @@ import { LineChart } from "../components/charts";
 import { ChargeMap } from "../components/DriveMap";
 import {
   durationSeconds,
+  formatChargeState,
   formatDateTime,
   formatDuration,
   num,
@@ -168,7 +169,7 @@ export default function ChargeDetailPage() {
 
       <Card title="Session">
         <dl className="grid grid-cols-2 gap-3 text-sm text-neutral-300">
-          <Row label="Final state" value={charge.FinalState || "—"} />
+          <Row label="Final state" value={formatChargeState(charge.FinalState)} />
           <Row
             label="Avg power"
             value={num(charge.AvgPowerKW, 1, "kW")}
