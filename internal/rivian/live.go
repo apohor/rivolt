@@ -60,31 +60,49 @@ type LiveClient struct {
 	// Ring buffer of recent raw ChargingSession WS frames for
 	// debugging. Populated by runChargingSubscription, read via
 	// RecentChargingFrames. Guarded by framesMu.
-	framesMu      sync.Mutex
-	recentFrames  []ChargingFrame
-	maxFrames     int
+	framesMu     sync.Mutex
+	recentFrames []ChargingFrame
+	maxFrames    int
 }
 
-// ChargingFrame captures one raw ChargingSession push for diagnostic
-// inspection via the debug HTTP endpoint.
+// ChargingFrame captures one raw ChargingSession push or lifecycle
+// event for diagnostic inspection via the debug HTTP endpoint.
+// Event is set for lifecycle markers ("open", "error", "close"); Raw
+// carries the JSON payload for push frames.
 type ChargingFrame struct {
 	At        time.Time `json:"at"`
 	VehicleID string    `json:"vehicle_id"`
-	Raw       string    `json:"raw"`
+	Event     string    `json:"event,omitempty"`
+	Raw       string    `json:"raw,omitempty"`
+	Err       string    `json:"err,omitempty"`
 }
 
 // RecordChargingFrame appends a raw frame to the ring buffer.
 func (c *LiveClient) RecordChargingFrame(vehicleID string, raw []byte) {
-	c.framesMu.Lock()
-	defer c.framesMu.Unlock()
-	if c.maxFrames == 0 {
-		c.maxFrames = 20
-	}
-	c.recentFrames = append(c.recentFrames, ChargingFrame{
+	c.appendFrame(ChargingFrame{
 		At:        time.Now().UTC(),
 		VehicleID: vehicleID,
 		Raw:       string(raw),
 	})
+}
+
+// RecordChargingEvent appends a lifecycle marker to the ring buffer.
+func (c *LiveClient) RecordChargingEvent(vehicleID, event, errMsg string) {
+	c.appendFrame(ChargingFrame{
+		At:        time.Now().UTC(),
+		VehicleID: vehicleID,
+		Event:     event,
+		Err:       errMsg,
+	})
+}
+
+func (c *LiveClient) appendFrame(f ChargingFrame) {
+	c.framesMu.Lock()
+	defer c.framesMu.Unlock()
+	if c.maxFrames == 0 {
+		c.maxFrames = 40
+	}
+	c.recentFrames = append(c.recentFrames, f)
 	if len(c.recentFrames) > c.maxFrames {
 		c.recentFrames = c.recentFrames[len(c.recentFrames)-c.maxFrames:]
 	}
