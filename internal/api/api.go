@@ -84,6 +84,7 @@ func New(d Deps) http.Handler {
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian))
+		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -232,6 +233,27 @@ func handleLiveSession(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, sess)
+	}
+}
+
+// handleChargingSchemaProbe introspects the chrg/user/graphql
+// endpoint and returns the list of query fields + their args. Used
+// when upstream renames a field (e.g. getLiveSessionData →
+// getSessionStatus) to discover the new shape without deploying a
+// blind guess.
+func handleChargingSchemaProbe(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		data, err := lc.ChargingSchemaProbe(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, data)
 	}
 }
 
