@@ -111,8 +111,10 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 // ListRecent returns the most recent N charges, newest first.
 func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 10000 {
+		limit = 10000
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, vehicle_id, started_at, ended_at,

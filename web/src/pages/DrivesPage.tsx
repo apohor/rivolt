@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { backend, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import {
@@ -41,6 +42,7 @@ export default function DrivesPage() {
 }
 
 function DriveTable({ drives }: { drives: Drive[] }) {
+  const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -55,7 +57,11 @@ function DriveTable({ drives }: { drives: Drive[] }) {
         </thead>
         <tbody className="divide-y divide-neutral-800">
           {drives.map((d) => (
-            <tr key={d.ID} className="hover:bg-neutral-900/40">
+            <tr
+              key={d.ID}
+              className="cursor-pointer hover:bg-neutral-900/60"
+              onClick={() => navigate(`/drives/${d.ID}`)}
+            >
               <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(d.StartedAt)}
               </td>

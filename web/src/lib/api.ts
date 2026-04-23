@@ -122,6 +122,11 @@ export const backend = {
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),
   charges: (limit = 50) => api.get<Charge[]>(`/api/charges?limit=${limit}`),
+  // `allDrives` / `allCharges` pull enough history to drive the
+  // overview analytics and detail-page lookups without paginating.
+  // The store queries cap out at a few hundred rows so this stays cheap.
+  allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
+  allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
   samples: (since: Date, limit = 1000) =>
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,

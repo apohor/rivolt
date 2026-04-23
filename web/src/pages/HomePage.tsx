@@ -1,7 +1,9 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { Card, PageHeader, Spinner, ErrorBox } from "../components/ui";
+import { BarChart, LineChart } from "../components/charts";
 import {
   durationSeconds,
   formatDateTime,
@@ -9,29 +11,53 @@ import {
   num,
   pct,
 } from "../lib/format";
+import {
+  WINDOW_OPTIONS,
+  chargeStats,
+  driveStats,
+  filterByWindow,
+  milesPerDay,
+  socTrend,
+  type WindowKey,
+} from "../lib/analytics";
 
 export default function HomePage() {
+  const [win, setWin] = useState<WindowKey>("30d");
+
   const health = useQuery({
     queryKey: ["health"],
     queryFn: () => backend.health(),
     refetchInterval: 30_000,
   });
   const drives = useQuery({
-    queryKey: ["drives", 10],
-    queryFn: () => backend.drives(10),
+    queryKey: ["drives", "all"],
+    queryFn: () => backend.allDrives(),
   });
   const charges = useQuery({
-    queryKey: ["charges", 10],
-    queryFn: () => backend.charges(10),
+    queryKey: ["charges", "all"],
+    queryFn: () => backend.allCharges(),
   });
 
-  // Headline stats from the most recent 10 drives/charges. A future
-  // "last N days" window is better, but this is a useful starting signal.
-  const recentDrives = drives.data ?? [];
-  const recentCharges = charges.data ?? [];
-  const totalMiles = recentDrives.reduce((a, d) => a + (d.DistanceMi || 0), 0);
-  const totalKWh = recentCharges.reduce((a, c) => a + (c.EnergyAddedKWh || 0), 0);
-  const latestSoC = recentDrives[0]?.EndSoCPct ?? recentCharges[0]?.EndSoCPct ?? 0;
+  const all = drives.data ?? [];
+  const allC = charges.data ?? [];
+  const winDrives = useMemo(() => filterByWindow(all, win), [all, win]);
+  const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
+  const ds = useMemo(() => driveStats(winDrives), [winDrives]);
+  const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
+  const latestSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
+
+  const barDays = win === "7d" ? 7 : win === "30d" ? 30 : 60;
+  const dailyMiles = useMemo(
+    () => milesPerDay(winDrives, barDays),
+    [winDrives, barDays],
+  );
+  const trend = useMemo(
+    () => socTrend(winDrives, winCharges),
+    [winDrives, winCharges],
+  );
+
+  const isLoading = drives.isLoading || charges.isLoading;
+  const isError = drives.isError || charges.isError;
 
   return (
     <div className="space-y-6">
@@ -44,92 +70,190 @@ export default function HomePage() {
               ? "Rivolt backend unreachable"
               : "connecting…"
         }
+        actions={<WindowPicker value={win} onChange={setWin} />}
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Battery (latest)" value={pct(latestSoC, 0)} />
-        <Stat label="Miles (last 10 drives)" value={num(totalMiles, 1, "mi")} />
-        <Stat label="Energy (last 10 charges)" value={num(totalKWh, 1, "kWh")} />
-        <Stat label="Sessions stored" value={`${recentDrives.length}d · ${recentCharges.length}c`} />
-      </div>
+      {isLoading ? (
+        <Spinner />
+      ) : isError ? (
+        <ErrorBox
+          title="Failed to load sessions"
+          detail={String(drives.error ?? charges.error)}
+        />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Stat label="Battery (latest)" value={pct(latestSoC, 0)} />
+            <Stat
+              label="Miles"
+              value={num(ds.miles, 1, "mi")}
+              hint={`${ds.count} drives · avg ${num(ds.avgTripMi, 1, "mi")}`}
+            />
+            <Stat
+              label="Energy added"
+              value={num(cs.energyKWh, 1, "kWh")}
+              hint={`${cs.count} charges · peak ${num(cs.maxPowerKW, 0, "kW")}`}
+            />
+            <Stat
+              label="Efficiency"
+              value={
+                ds.milesPerPct > 0 ? `${ds.milesPerPct.toFixed(2)} mi/%` : "—"
+              }
+              hint={`top speed ${num(ds.maxSpeedMph, 0, "mph")}`}
+            />
+          </div>
 
-      <Card
-        title="Recent drives"
-        actions={
-          <Link to="/drives" className="text-xs text-emerald-400 hover:underline">
-            all drives →
-          </Link>
-        }
-      >
-        {drives.isLoading ? (
-          <Spinner />
-        ) : drives.isError ? (
-          <ErrorBox title="Failed to load drives" detail={String(drives.error)} />
-        ) : recentDrives.length === 0 ? (
-          <EmptyState
-            kind="drives"
-            note="Import an ElectraFi CSV or connect a Rivian account to start populating data."
-          />
-        ) : (
-          <ul className="divide-y divide-neutral-800">
-            {recentDrives.slice(0, 5).map((d) => (
-              <li key={d.ID} className="py-2 flex items-center justify-between text-sm">
-                <span className="text-neutral-300">{formatDateTime(d.StartedAt)}</span>
-                <span className="text-neutral-400 tabular-nums">
-                  {num(d.DistanceMi, 1, "mi")} · {pct(d.StartSoCPct)}→{pct(d.EndSoCPct)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+          <Card title={`Miles per day · last ${barDays}`}>
+            <BarChart
+              data={dailyMiles}
+              height={140}
+              formatY={(v) => `${v.toFixed(0)}`}
+              formatX={(label) => label.slice(5)}
+            />
+          </Card>
 
-      <Card
-        title="Recent charges"
-        actions={
-          <Link to="/charges" className="text-xs text-emerald-400 hover:underline">
-            all charges →
-          </Link>
-        }
-      >
-        {charges.isLoading ? (
-          <Spinner />
-        ) : charges.isError ? (
-          <ErrorBox title="Failed to load charges" detail={String(charges.error)} />
-        ) : recentCharges.length === 0 ? (
-          <EmptyState kind="charges" />
-        ) : (
-          <ul className="divide-y divide-neutral-800">
-            {recentCharges.slice(0, 5).map((c) => (
-              <li key={c.ID} className="py-2 flex items-center justify-between text-sm">
-                <span className="text-neutral-300">{formatDateTime(c.StartedAt)}</span>
-                <span className="text-neutral-400 tabular-nums">
-                  {formatDuration(durationSeconds(c.StartedAt, c.EndedAt))} ·{" "}
-                  {pct(c.StartSoCPct)}→{pct(c.EndSoCPct)} · {num(c.EnergyAddedKWh, 1, "kWh")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+          <Card title="Battery (SoC) trend">
+            <LineChart
+              series={[
+                {
+                  points: trend,
+                  color: "#10b981",
+                  area: true,
+                  strokeWidth: 1.2,
+                },
+              ]}
+              height={160}
+              yDomain={[0, 100]}
+              formatY={(v) => `${v.toFixed(0)}%`}
+              formatX={(x) =>
+                new Date(x).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })
+              }
+            />
+          </Card>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card
+              title="Recent drives"
+              actions={
+                <Link to="/drives" className="text-xs text-emerald-400 hover:underline">
+                  all drives →
+                </Link>
+              }
+            >
+              {winDrives.length === 0 ? (
+                <EmptyState kind="drives in window" />
+              ) : (
+                <ul className="divide-y divide-neutral-800">
+                  {winDrives.slice(0, 6).map((d) => (
+                    <li key={d.ID}>
+                      <Link
+                        to={`/drives/${d.ID}`}
+                        className="-mx-1 flex items-center justify-between rounded px-1 py-2 text-sm hover:bg-neutral-800/40"
+                      >
+                        <span className="text-neutral-300">
+                          {formatDateTime(d.StartedAt)}
+                        </span>
+                        <span className="text-neutral-400 tabular-nums">
+                          {num(d.DistanceMi, 1, "mi")} ·{" "}
+                          {pct(d.StartSoCPct)}→{pct(d.EndSoCPct)}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card
+              title="Recent charges"
+              actions={
+                <Link to="/charges" className="text-xs text-emerald-400 hover:underline">
+                  all charges →
+                </Link>
+              }
+            >
+              {winCharges.length === 0 ? (
+                <EmptyState kind="charges in window" />
+              ) : (
+                <ul className="divide-y divide-neutral-800">
+                  {winCharges.slice(0, 6).map((c) => (
+                    <li key={c.ID}>
+                      <Link
+                        to={`/charges/${c.ID}`}
+                        className="-mx-1 flex items-center justify-between rounded px-1 py-2 text-sm hover:bg-neutral-800/40"
+                      >
+                        <span className="text-neutral-300">
+                          {formatDateTime(c.StartedAt)}
+                        </span>
+                        <span className="text-neutral-400 tabular-nums">
+                          {formatDuration(durationSeconds(c.StartedAt, c.EndedAt))} ·{" "}
+                          {pct(c.StartSoCPct)}→{pct(c.EndSoCPct)} ·{" "}
+                          {num(c.EnergyAddedKWh, 1, "kWh")}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function WindowPicker({
+  value,
+  onChange,
+}: {
+  value: WindowKey;
+  onChange: (v: WindowKey) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-xs">
+      {WINDOW_OPTIONS.map((opt) => (
+        <button
+          key={opt.key}
+          type="button"
+          onClick={() => onChange(opt.key)}
+          className={[
+            "rounded-md px-2.5 py-1 transition-colors",
+            value === opt.key
+              ? "bg-emerald-600 text-white"
+              : "text-neutral-400 hover:text-neutral-200",
+          ].join(" ")}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      {hint ? (
+        <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
+      ) : null}
     </div>
   );
 }
 
-function EmptyState({ kind, note }: { kind: string; note?: string }) {
-  return (
-    <div className="text-sm text-neutral-400">
-      <p>No {kind} yet.</p>
-      {note ? <p className="mt-1 text-xs text-neutral-500">{note}</p> : null}
-    </div>
-  );
+function EmptyState({ kind }: { kind: string }) {
+  return <p className="text-sm text-neutral-500">No {kind}.</p>;
 }
