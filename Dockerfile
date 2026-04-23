@@ -27,7 +27,7 @@ ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/caffeine ./cmd/caffeine
+    go build -trimpath -ldflags="-s -w" -o /out/rivolt ./cmd/rivolt
 # Pre-create a /data directory owned by distroless "nonroot" (uid 65532) so
 # the named volume mounts it with the right ownership on first run.
 RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
@@ -35,11 +35,11 @@ RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
 # ---- runtime -------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-COPY --from=build /out/caffeine /app/caffeine
+COPY --from=build /out/rivolt /app/rivolt
 COPY --from=build --chown=nonroot:nonroot /out/data /data
 USER nonroot:nonroot
 EXPOSE 8080
 # SQLite cache lives here; mount as a volume in compose.
-ENV CAFFEINE_DATA_DIR=/data
+ENV DATA_DIR=/data
 VOLUME ["/data"]
-ENTRYPOINT ["/app/caffeine"]
+ENTRYPOINT ["/app/rivolt"]

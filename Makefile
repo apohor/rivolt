@@ -1,6 +1,6 @@
-.PHONY: help dev dev-api dev-web dev-mock web build test fmt tidy docker docker-dev clean
+.PHONY: help dev dev-api dev-web web build test fmt tidy docker docker-dev clean
 
-BINARY ?= caffeine
+BINARY ?= rivolt
 PKG := ./...
 
 help:
@@ -10,21 +10,16 @@ dev: ## Run Go + Vite dev servers locally (two terminals recommended; this runs 
 	docker compose -f docker-compose.dev.yml up --build
 
 dev-api: ## Run just the Go server locally (no docker)
-	# Live recorder captures new shots instantly; periodic reconcile is
-	# just a safety net so 15m is plenty for local dev.
-	SYNC_INTERVAL=15m go run ./cmd/caffeine
+	go run ./cmd/rivolt
 
 dev-web: ## Run just the Vite dev server locally (no docker)
 	cd web && npm install && npm run dev
-
-dev-mock: ## Run the fake Meticulous machine on :8090 (point MACHINE_URL=http://localhost:8090 at it)
-	go run ./cmd/mockmachine -addr :8090 -simulate 60s -shots 8
 
 web: ## Build the web bundle into internal/web/dist
 	cd web && npm install && npm run build
 
 build: web ## Build the Go binary with embedded web assets
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/$(BINARY) ./cmd/caffeine
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/$(BINARY) ./cmd/rivolt
 
 test: ## Run Go tests
 	go test $(PKG)
