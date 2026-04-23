@@ -504,37 +504,37 @@ type vehicleStateData struct {
 			Longitude float64 `json:"longitude"`
 			TimeStamp string  `json:"timeStamp"`
 		} `json:"gnssLocation"`
-		GNSSSpeed                       vsValue[float64] `json:"gnssSpeed"`
-		GNSSBearing                     vsValue[float64] `json:"gnssBearing"`
-		GNSSAltitude                    vsValue[float64] `json:"gnssAltitude"`
-		BatteryLevel                    vsValue[float64] `json:"batteryLevel"`
-		DistanceToEmpty                 vsValue[float64] `json:"distanceToEmpty"`
-		VehicleMileage                  vsValue[float64] `json:"vehicleMileage"`
-		GearStatus                      vsValue[permissiveString]  `json:"gearStatus"`
-		DriveMode                       vsValue[permissiveString]  `json:"driveMode"`
-		ChargerState                    vsValue[permissiveString]  `json:"chargerState"`
-		ChargerStatus                   vsValue[permissiveString]  `json:"chargerStatus"`
-		BatteryLimit                    vsValue[float64] `json:"batteryLimit"`
-		ChargePortState                 vsValue[permissiveString]  `json:"chargePortState"`
-		RemoteChargingAvailable         vsValue[permissiveString]  `json:"remoteChargingAvailable"`
-		CabinClimateInteriorTemperature vsValue[float64] `json:"cabinClimateInteriorTemperature"`
-		CabinPreconditioningStatus      vsValue[permissiveString]  `json:"cabinPreconditioningStatus"`
-		PowerState                      vsValue[permissiveString]  `json:"powerState"`
-		AlarmSoundStatus                vsValue[permissiveString]  `json:"alarmSoundStatus"`
-		TwelveVoltBatteryHealth         vsValue[permissiveString]  `json:"twelveVoltBatteryHealth"`
-		WiperFluidState                 vsValue[permissiveString]  `json:"wiperFluidState"`
-		OtaCurrentVersion               vsValue[permissiveString]  `json:"otaCurrentVersion"`
-		OtaAvailableVersion             vsValue[permissiveString]  `json:"otaAvailableVersion"`
-		OtaStatus                       vsValue[permissiveString]  `json:"otaStatus"`
-		OtaInstallProgress              vsValue[float64] `json:"otaInstallProgress"`
-		TirePressureFrontLeft           vsValue[float64] `json:"tirePressureFrontLeft"`
-		TirePressureFrontRight          vsValue[float64] `json:"tirePressureFrontRight"`
-		TirePressureRearLeft            vsValue[float64] `json:"tirePressureRearLeft"`
-		TirePressureRearRight           vsValue[float64] `json:"tirePressureRearRight"`
-		TirePressureStatusFrontLeft     vsValue[permissiveString]  `json:"tirePressureStatusFrontLeft"`
-		TirePressureStatusFrontRight    vsValue[permissiveString]  `json:"tirePressureStatusFrontRight"`
-		TirePressureStatusRearLeft      vsValue[permissiveString]  `json:"tirePressureStatusRearLeft"`
-		TirePressureStatusRearRight     vsValue[permissiveString]  `json:"tirePressureStatusRearRight"`
+		GNSSSpeed                       vsValue[float64]          `json:"gnssSpeed"`
+		GNSSBearing                     vsValue[float64]          `json:"gnssBearing"`
+		GNSSAltitude                    vsValue[float64]          `json:"gnssAltitude"`
+		BatteryLevel                    vsValue[float64]          `json:"batteryLevel"`
+		DistanceToEmpty                 vsValue[float64]          `json:"distanceToEmpty"`
+		VehicleMileage                  vsValue[float64]          `json:"vehicleMileage"`
+		GearStatus                      vsValue[permissiveString] `json:"gearStatus"`
+		DriveMode                       vsValue[permissiveString] `json:"driveMode"`
+		ChargerState                    vsValue[permissiveString] `json:"chargerState"`
+		ChargerStatus                   vsValue[permissiveString] `json:"chargerStatus"`
+		BatteryLimit                    vsValue[float64]          `json:"batteryLimit"`
+		ChargePortState                 vsValue[permissiveString] `json:"chargePortState"`
+		RemoteChargingAvailable         vsValue[permissiveString] `json:"remoteChargingAvailable"`
+		CabinClimateInteriorTemperature vsValue[float64]          `json:"cabinClimateInteriorTemperature"`
+		CabinPreconditioningStatus      vsValue[permissiveString] `json:"cabinPreconditioningStatus"`
+		PowerState                      vsValue[permissiveString] `json:"powerState"`
+		AlarmSoundStatus                vsValue[permissiveString] `json:"alarmSoundStatus"`
+		TwelveVoltBatteryHealth         vsValue[permissiveString] `json:"twelveVoltBatteryHealth"`
+		WiperFluidState                 vsValue[permissiveString] `json:"wiperFluidState"`
+		OtaCurrentVersion               vsValue[permissiveString] `json:"otaCurrentVersion"`
+		OtaAvailableVersion             vsValue[permissiveString] `json:"otaAvailableVersion"`
+		OtaStatus                       vsValue[permissiveString] `json:"otaStatus"`
+		OtaInstallProgress              vsValue[float64]          `json:"otaInstallProgress"`
+		TirePressureFrontLeft           vsValue[float64]          `json:"tirePressureFrontLeft"`
+		TirePressureFrontRight          vsValue[float64]          `json:"tirePressureFrontRight"`
+		TirePressureRearLeft            vsValue[float64]          `json:"tirePressureRearLeft"`
+		TirePressureRearRight           vsValue[float64]          `json:"tirePressureRearRight"`
+		TirePressureStatusFrontLeft     vsValue[permissiveString] `json:"tirePressureStatusFrontLeft"`
+		TirePressureStatusFrontRight    vsValue[permissiveString] `json:"tirePressureStatusFrontRight"`
+		TirePressureStatusRearLeft      vsValue[permissiveString] `json:"tirePressureStatusRearLeft"`
+		TirePressureStatusRearRight     vsValue[permissiveString] `json:"tirePressureStatusRearRight"`
 		// Closures: "open" | "closed" | "".
 		DoorFrontLeftClosed   vsValue[permissiveString] `json:"doorFrontLeftClosed"`
 		DoorFrontRightClosed  vsValue[permissiveString] `json:"doorFrontRightClosed"`

@@ -6,6 +6,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/samples"
 )
 
 // StateMonitor maintains a websocket subscription per vehicle and
@@ -28,6 +32,20 @@ type StateMonitor struct {
 	active   map[string]context.CancelFunc
 	parent   context.Context //nolint:containedctx // outer ctx for spawned subscriptions
 	stopOnce sync.Once
+
+	// Live recording stores (all optional — nil stores disable that
+	// particular writer). Samples captures every merged state update
+	// as a row in vehicle_state. Drives and charges capture derived
+	// sessions on gear/chargerState transitions.
+	samplesStore *samples.Store
+	drivesStore  *drives.Store
+	chargesStore *charges.Store
+
+	// Per-vehicle in-flight session accumulators, keyed by vehicleID.
+	// Access guarded by sessMu. Separate from mu so recorder work
+	// doesn't serialize behind cache reads.
+	sessMu   sync.Mutex
+	sessions map[string]*liveSessions
 }
 
 // NewStateMonitor wraps a live client. Pass a logger (usually from
@@ -38,12 +56,22 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	return &StateMonitor{
-		client: client,
-		logger: logger,
-		cache:  make(map[string]*State),
-		stamp:  make(map[string]time.Time),
-		active: make(map[string]context.CancelFunc),
+		client:   client,
+		logger:   logger,
+		cache:    make(map[string]*State),
+		stamp:    make(map[string]time.Time),
+		active:   make(map[string]context.CancelFunc),
+		sessions: make(map[string]*liveSessions),
 	}
+}
+
+// SetStores wires the recording stores. All three are optional — pass
+// nil to disable that particular writer. Safe to call before Start;
+// racy if called after subscriptions are running.
+func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drives.Store, chargesStore *charges.Store) {
+	m.samplesStore = samplesStore
+	m.drivesStore = drivesStore
+	m.chargesStore = chargesStore
 }
 
 // Start binds the monitor to a parent context. All subscriptions
@@ -95,14 +123,18 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// in once the first push arrives.
 	if st, err := m.client.State(ctx, vehicleID); err == nil && st != nil {
 		m.mu.Lock()
-		if m.cache[vehicleID] == nil {
-			m.cache[vehicleID] = st
-			m.stamp[vehicleID] = time.Now()
+		var merged *State
+		prev := m.cache[vehicleID]
+		if prev == nil {
+			merged = st
 		} else {
 			// A push may have raced us here; fold REST under it.
-			m.cache[vehicleID] = mergeState(st, m.cache[vehicleID])
+			merged = mergeState(st, prev)
 		}
+		m.cache[vehicleID] = merged
+		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
+		m.record(ctx, vehicleID, prev, merged)
 	} else if err != nil && ctx.Err() == nil {
 		m.logger.Warn("rivian rest seed failed", "vehicle", vehicleID, "err", err.Error())
 	}
@@ -127,9 +159,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// from the push over whatever we had cached so static
 		// fields (odometer, gear, charge limit, tire pressures)
 		// don't disappear between frames.
-		m.cache[vehicleID] = mergeState(m.cache[vehicleID], st)
+		prev := m.cache[vehicleID]
+		merged := mergeState(prev, st)
+		m.cache[vehicleID] = merged
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
+		m.record(ctx, vehicleID, prev, merged)
 	})
 	m.mu.Lock()
 	delete(m.active, vehicleID)
@@ -163,16 +198,20 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string, in
 				continue
 			}
 			m.mu.Lock()
-			if m.cache[vehicleID] == nil {
-				m.cache[vehicleID] = st
-				m.stamp[vehicleID] = time.Now()
+			var merged *State
+			prev := m.cache[vehicleID]
+			if prev == nil {
+				merged = st
 			} else {
 				// mergeState(next=cached, prev=rest): cached values
 				// (which include WS deltas) win over REST where both
 				// are populated, REST fills in the zeros.
-				m.cache[vehicleID] = mergeState(st, m.cache[vehicleID])
+				merged = mergeState(st, prev)
 			}
+			m.cache[vehicleID] = merged
+			m.stamp[vehicleID] = time.Now()
 			m.mu.Unlock()
+			m.record(ctx, vehicleID, prev, merged)
 		}
 	}
 }
@@ -215,13 +254,19 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 				continue
 			}
 			m.mu.Lock()
-			if cur := m.cache[vehicleID]; cur != nil && sess.PowerKW > 0 {
+			var merged *State
+			prev := m.cache[vehicleID]
+			if cur := prev; cur != nil && sess.PowerKW > 0 {
 				cp := *cur
 				cp.ChargerPowerKW = sess.PowerKW
-				m.cache[vehicleID] = &cp
+				merged = &cp
+				m.cache[vehicleID] = merged
 				m.stamp[vehicleID] = time.Now()
 			}
 			m.mu.Unlock()
+			if merged != nil {
+				m.record(ctx, vehicleID, prev, merged)
+			}
 		}
 	}
 }
