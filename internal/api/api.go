@@ -82,6 +82,7 @@ func New(d Deps) http.Handler {
 		// other errors surface as 502 so the UI can show them.
 		r.Get("/vehicles", handleVehicles(d.Rivian))
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
+		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 
 		// Rivian account management. Only wired when a live client is
 		// present; with the stub/mock these return 404.
@@ -180,6 +181,30 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			mon.Prime(id, st)
 		}
 		writeJSON(w, http.StatusOK, st)
+	}
+}
+
+// handleVehicleStateDebug returns the raw decoded vehicleState object
+// from Rivian (as a JSON map) so we can see which fields upstream
+// populates versus leaves null. Only works with a live client.
+func handleVehicleStateDebug(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		id := chi.URLParam(r, "vehicleID")
+		if id == "" {
+			http.Error(w, "vehicleID required", http.StatusBadRequest)
+			return
+		}
+		raw, err := lc.StateRaw(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, raw)
 	}
 }
 
