@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { backend, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
+import { ChargeMap } from "../components/DriveMap";
 import {
   durationSeconds,
   formatDateTime,
@@ -173,6 +174,12 @@ export default function ChargeDetailPage() {
           <Row label="Source" value={charge.Source} />
         </dl>
       </Card>
+
+      {Number.isFinite(charge.Lat) && (charge.Lat !== 0 || charge.Lon !== 0) ? (
+        <Card title="Location">
+          <ChargeMap lat={charge.Lat} lon={charge.Lon} height={260} />
+        </Card>
+      ) : null}
 
       {samples.isError ? (
         <ErrorBox

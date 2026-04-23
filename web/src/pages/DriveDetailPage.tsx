@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { backend, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
+import { DriveMap } from "../components/DriveMap";
 import {
   durationSeconds,
   formatDateTime,
@@ -152,6 +153,21 @@ export default function DriveDetailPage() {
             ]}
             formatY={(v) => `${v.toFixed(0)}%`}
             formatX={xTimeFmt}
+          />
+        )}
+      </Card>
+
+      <Card title="Route">
+        {samples.isLoading ? (
+          <Spinner />
+        ) : driveSamples.length === 0 ? (
+          <NoSamples />
+        ) : (
+          <DriveMap
+            points={driveSamples.map((p) => ({ lat: p.Lat, lon: p.Lon }))}
+            start={{ lat: drive.StartLat, lon: drive.StartLon }}
+            end={{ lat: drive.EndLat, lon: drive.EndLon }}
+            height={360}
           />
         )}
       </Card>
