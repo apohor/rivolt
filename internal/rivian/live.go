@@ -396,25 +396,56 @@ func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	return out, nil
 }
 
-// GetVehicleState returns a narrow subset of the vast VehicleState
-// object — just the fields Rivolt actually uses today (location,
-// battery, range, gear, charging, cabin/outside temp). The real
-// response contains 80+ timestamped values; adding more is a matter of
-// expanding the GraphQL selection and the parse struct.
+// GetVehicleState returns a snapshot of the vehicle's state. The
+// upstream object has ~100 timestamped fields; we pull the subset
+// that's useful for a dashboard (location, battery, range, gear,
+// charging, climate, closures, tires, OTA, safety, power state).
+// Adding more is a matter of expanding the GraphQL selection and
+// the parse struct below; field names come straight from
+// home-assistant-rivian's entity map.
 const qVehicleState = `query GetVehicleState($vehicleID: String!) {
   vehicleState(id: $vehicleID) {
     __typename
     gnssLocation { latitude longitude timeStamp }
     gnssSpeed { value }
+    gnssBearing { value }
+    gnssAltitude { value }
     batteryLevel { value }
     distanceToEmpty { value }
     vehicleMileage { value }
     gearStatus { value }
+    driveMode { value }
     chargerState { value }
     chargerStatus { value }
     batteryLimit { value }
+    chargePortState { value }
+    remoteChargingAvailable { value }
     cabinClimateInteriorTemperature { value }
+    cabinPreconditioningStatus { value }
     powerState { value }
+    alarmSoundStatus { value }
+    twelveVoltBatteryHealth { value }
+    wiperFluidState { value }
+    otaCurrentVersion { value }
+    otaAvailableVersion { value }
+    otaStatus { value }
+    otaInstallProgress { value }
+    tirePressureFrontLeft { value }
+    tirePressureFrontRight { value }
+    tirePressureRearLeft { value }
+    tirePressureRearRight { value }
+    tirePressureStatusFrontLeft { value }
+    tirePressureStatusFrontRight { value }
+    tirePressureStatusRearLeft { value }
+    tirePressureStatusRearRight { value }
+    doorFrontLeftClosed { value }
+    doorFrontRightClosed { value }
+    doorRearLeftClosed { value }
+    doorRearRightClosed { value }
+    closureFrunkClosed { value }
+    closureLiftgateClosed { value }
+    closureTailgateClosed { value }
+    closureTonneauClosed { value }
     doorFrontLeftLocked { value }
     doorFrontRightLocked { value }
     doorRearLeftLocked { value }
@@ -441,19 +472,48 @@ type vehicleStateData struct {
 			TimeStamp string  `json:"timeStamp"`
 		} `json:"gnssLocation"`
 		GNSSSpeed                       vsValue[float64] `json:"gnssSpeed"`
+		GNSSBearing                     vsValue[float64] `json:"gnssBearing"`
+		GNSSAltitude                    vsValue[float64] `json:"gnssAltitude"`
 		BatteryLevel                    vsValue[float64] `json:"batteryLevel"`
 		DistanceToEmpty                 vsValue[float64] `json:"distanceToEmpty"`
 		VehicleMileage                  vsValue[float64] `json:"vehicleMileage"`
 		GearStatus                      vsValue[string]  `json:"gearStatus"`
+		DriveMode                       vsValue[string]  `json:"driveMode"`
 		ChargerState                    vsValue[string]  `json:"chargerState"`
 		ChargerStatus                   vsValue[string]  `json:"chargerStatus"`
 		BatteryLimit                    vsValue[float64] `json:"batteryLimit"`
+		ChargePortState                 vsValue[string]  `json:"chargePortState"`
+		RemoteChargingAvailable         vsValue[string]  `json:"remoteChargingAvailable"`
 		CabinClimateInteriorTemperature vsValue[float64] `json:"cabinClimateInteriorTemperature"`
+		CabinPreconditioningStatus      vsValue[string]  `json:"cabinPreconditioningStatus"`
 		PowerState                      vsValue[string]  `json:"powerState"`
-		// Per home-assistant-rivian LOCK_STATE_ENTITIES: the car is
-		// considered locked only when none of these 10 fields report
-		// "unlocked". R1T/R1S report different subsets; missing fields
-		// come back empty and are ignored.
+		AlarmSoundStatus                vsValue[string]  `json:"alarmSoundStatus"`
+		TwelveVoltBatteryHealth         vsValue[string]  `json:"twelveVoltBatteryHealth"`
+		WiperFluidState                 vsValue[string]  `json:"wiperFluidState"`
+		OtaCurrentVersion               vsValue[string]  `json:"otaCurrentVersion"`
+		OtaAvailableVersion             vsValue[string]  `json:"otaAvailableVersion"`
+		OtaStatus                       vsValue[string]  `json:"otaStatus"`
+		OtaInstallProgress              vsValue[float64] `json:"otaInstallProgress"`
+		TirePressureFrontLeft           vsValue[float64] `json:"tirePressureFrontLeft"`
+		TirePressureFrontRight          vsValue[float64] `json:"tirePressureFrontRight"`
+		TirePressureRearLeft            vsValue[float64] `json:"tirePressureRearLeft"`
+		TirePressureRearRight           vsValue[float64] `json:"tirePressureRearRight"`
+		TirePressureStatusFrontLeft     vsValue[string]  `json:"tirePressureStatusFrontLeft"`
+		TirePressureStatusFrontRight    vsValue[string]  `json:"tirePressureStatusFrontRight"`
+		TirePressureStatusRearLeft      vsValue[string]  `json:"tirePressureStatusRearLeft"`
+		TirePressureStatusRearRight     vsValue[string]  `json:"tirePressureStatusRearRight"`
+		// Closures: "open" | "closed" | "".
+		DoorFrontLeftClosed   vsValue[string] `json:"doorFrontLeftClosed"`
+		DoorFrontRightClosed  vsValue[string] `json:"doorFrontRightClosed"`
+		DoorRearLeftClosed    vsValue[string] `json:"doorRearLeftClosed"`
+		DoorRearRightClosed   vsValue[string] `json:"doorRearRightClosed"`
+		ClosureFrunkClosed    vsValue[string] `json:"closureFrunkClosed"`
+		ClosureLiftgateClosed vsValue[string] `json:"closureLiftgateClosed"`
+		ClosureTailgateClosed vsValue[string] `json:"closureTailgateClosed"`
+		ClosureTonneauClosed  vsValue[string] `json:"closureTonneauClosed"`
+		// Locks: "locked" | "unlocked" | "". Per home-assistant-rivian
+		// LOCK_STATE_ENTITIES, the car is locked iff none of these
+		// report "unlocked"; R1T/R1S return different subsets.
 		DoorFrontLeftLocked       vsValue[string] `json:"doorFrontLeftLocked"`
 		DoorFrontRightLocked      vsValue[string] `json:"doorFrontRightLocked"`
 		DoorRearLeftLocked        vsValue[string] `json:"doorRearLeftLocked"`
@@ -496,17 +556,27 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		VehicleID:       vehicleID,
 		BatteryLevelPct: vs.BatteryLevel.Value,
 		DistanceToEmpty: vs.DistanceToEmpty.Value,
-		OdometerKm:      vs.VehicleMileage.Value,
-		Gear:            normalizeGear(vs.GearStatus.Value),
-		ChargerState:    vs.ChargerState.Value,
+		// vehicleMileage is reported in METERS despite what the old
+		// comment above claimed — confirmed on a real account the
+		// field comes back as ~5.7e7 for a ~35k-mile vehicle.
+		OdometerKm:   vs.VehicleMileage.Value / 1000,
+		Gear:         normalizeGear(vs.GearStatus.Value),
+		DriveMode:    vs.DriveMode.Value,
+		ChargerState: vs.ChargerState.Value,
 		// ChargerPowerKW: the GetVehicleState schema no longer
 		// exposes a live-power field. Kilowatts are available via
 		// getLiveSessionData (chrg/user/graphql) — wire that in a
 		// follow-up when we render a live charging panel.
-		ChargerPowerKW:  0,
-		ChargeTargetPct: vs.BatteryLimit.Value,
-		Latitude:        vs.GNSSLocation.Latitude,
-		Longitude:       vs.GNSSLocation.Longitude,
+		ChargerPowerKW:          0,
+		ChargeTargetPct:         vs.BatteryLimit.Value,
+		ChargerStatus:           vs.ChargerStatus.Value,
+		ChargePortState:         vs.ChargePortState.Value,
+		RemoteChargingAvailable: vs.RemoteChargingAvailable.Value,
+		Latitude:                vs.GNSSLocation.Latitude,
+		Longitude:               vs.GNSSLocation.Longitude,
+		SpeedKph:                vs.GNSSSpeed.Value,
+		HeadingDeg:              vs.GNSSBearing.Value,
+		AltitudeM:               vs.GNSSAltitude.Value,
 		Locked: aggregateLocked(
 			vs.DoorFrontLeftLocked.Value,
 			vs.DoorFrontRightLocked.Value,
@@ -519,9 +589,35 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 			vs.ClosureSideBinLeftLocked.Value,
 			vs.ClosureSideBinRightLocked.Value,
 		),
-		CabinTempC:   vs.CabinClimateInteriorTemperature.Value,
-		OutsideTempC: 0,
-		PowerState:   strings.ToLower(strings.TrimSpace(vs.PowerState.Value)),
+		DoorsClosed: aggregateClosed(
+			vs.DoorFrontLeftClosed.Value,
+			vs.DoorFrontRightClosed.Value,
+			vs.DoorRearLeftClosed.Value,
+			vs.DoorRearRightClosed.Value,
+		),
+		FrunkClosed:                isClosed(vs.ClosureFrunkClosed.Value),
+		LiftgateClosed:             isClosed(vs.ClosureLiftgateClosed.Value),
+		TailgateClosed:             isClosed(vs.ClosureTailgateClosed.Value),
+		TonneauClosed:              isClosed(vs.ClosureTonneauClosed.Value),
+		CabinTempC:                 vs.CabinClimateInteriorTemperature.Value,
+		OutsideTempC:               0,
+		CabinPreconditioningStatus: vs.CabinPreconditioningStatus.Value,
+		PowerState:                 strings.ToLower(strings.TrimSpace(vs.PowerState.Value)),
+		AlarmSoundStatus:           vs.AlarmSoundStatus.Value,
+		TwelveVoltBatteryHealth:    vs.TwelveVoltBatteryHealth.Value,
+		WiperFluidState:            vs.WiperFluidState.Value,
+		OtaCurrentVersion:          vs.OtaCurrentVersion.Value,
+		OtaAvailableVersion:        vs.OtaAvailableVersion.Value,
+		OtaStatus:                  vs.OtaStatus.Value,
+		OtaInstallProgress:         vs.OtaInstallProgress.Value,
+		TirePressureFLBar:          vs.TirePressureFrontLeft.Value,
+		TirePressureFRBar:          vs.TirePressureFrontRight.Value,
+		TirePressureRLBar:          vs.TirePressureRearLeft.Value,
+		TirePressureRRBar:          vs.TirePressureRearRight.Value,
+		TirePressureStatusFL:       vs.TirePressureStatusFrontLeft.Value,
+		TirePressureStatusFR:       vs.TirePressureStatusFrontRight.Value,
+		TirePressureStatusRL:       vs.TirePressureStatusRearLeft.Value,
+		TirePressureStatusRR:       vs.TirePressureStatusRearRight.Value,
 	}, nil
 }
 
@@ -538,6 +634,24 @@ func aggregateLocked(vs ...string) bool {
 		}
 	}
 	return true
+}
+
+// aggregateClosed is the mirror for closure/door booleans: all are
+// closed iff none of the per-panel values equals "open".
+func aggregateClosed(vs ...string) bool {
+	for _, v := range vs {
+		if strings.EqualFold(strings.TrimSpace(v), "open") {
+			return false
+		}
+	}
+	return true
+}
+
+// isClosed handles a single closure field; empty string → closed
+// (the trim doesn't have that panel, so we can't meaningfully show
+// it as "open").
+func isClosed(v string) bool {
+	return !strings.EqualFold(strings.TrimSpace(v), "open")
 }
 
 // normalizeGear maps Rivian's gearStatus values ("park", "drive",

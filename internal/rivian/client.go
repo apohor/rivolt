@@ -39,18 +39,57 @@ type State struct {
 	DistanceToEmpty float64   `json:"distance_to_empty"` // kilometers
 	OdometerKm      float64   `json:"odometer_km"`
 	Gear            string    `json:"gear"`          // "P" | "R" | "N" | "D"
-	ChargerState    string    `json:"charger_state"` // "charging" | "charging_complete" | "disconnected" | ...
+	DriveMode       string    `json:"drive_mode"`    // "everyday" | "sport" | ...
+	ChargerState    string    `json:"charger_state"` // "charging_active" | "charger_disconnected" | ...
 	ChargerPowerKW  float64   `json:"charger_power_kw"`
 	ChargeTargetPct float64   `json:"charge_target_pct"` // 0..100
-	Latitude        float64   `json:"latitude"`
-	Longitude       float64   `json:"longitude"`
-	Locked          bool      `json:"locked"`
-	CabinTempC      float64   `json:"cabin_temp_c"`
-	OutsideTempC    float64   `json:"outside_temp_c"`
+	// ChargerStatus is the physical plug state ("chrgr_sts_connected_charging",
+	// "chrgr_sts_not_connected", ...) — different from ChargerState which is
+	// the session state.
+	ChargerStatus           string  `json:"charger_status"`
+	ChargePortState         string  `json:"charge_port_state"` // "open" | "closed" | ""
+	RemoteChargingAvailable string  `json:"remote_charging_available"`
+	Latitude                float64 `json:"latitude"`
+	Longitude               float64 `json:"longitude"`
+	SpeedKph                float64 `json:"speed_kph"`
+	HeadingDeg              float64 `json:"heading_deg"`
+	AltitudeM               float64 `json:"altitude_m"`
+	// Aggregate closures / locks.
+	Locked         bool `json:"locked"` // all LOCK_STATE_ENTITIES not unlocked
+	DoorsClosed    bool `json:"doors_closed"`
+	FrunkClosed    bool `json:"frunk_closed"`
+	LiftgateClosed bool `json:"liftgate_closed"`
+	TailgateClosed bool `json:"tailgate_closed"`
+	TonneauClosed  bool `json:"tonneau_closed"`
+	// Climate / power.
+	CabinTempC                 float64 `json:"cabin_temp_c"`
+	OutsideTempC               float64 `json:"outside_temp_c"`
+	CabinPreconditioningStatus string  `json:"cabin_preconditioning_status"`
 	// PowerState is the vehicle's high-level power mode reported by the
 	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
 	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
 	PowerState string `json:"power_state"`
+	// Safety / maintenance.
+	AlarmSoundStatus        string `json:"alarm_sound_status"`
+	TwelveVoltBatteryHealth string `json:"twelve_volt_battery_health"`
+	WiperFluidState         string `json:"wiper_fluid_state"`
+	// Software (OTA). Available version may equal current when nothing is
+	// pending. Install progress is 0..100.
+	OtaCurrentVersion   string  `json:"ota_current_version"`
+	OtaAvailableVersion string  `json:"ota_available_version"`
+	OtaStatus           string  `json:"ota_status"`
+	OtaInstallProgress  float64 `json:"ota_install_progress"`
+	// Tires. Pressures reported in bar (per home-assistant-rivian's
+	// native unit declaration). Status is a string like "Normal" /
+	// "Low" / "" (unknown).
+	TirePressureFLBar    float64 `json:"tire_pressure_fl_bar"`
+	TirePressureFRBar    float64 `json:"tire_pressure_fr_bar"`
+	TirePressureRLBar    float64 `json:"tire_pressure_rl_bar"`
+	TirePressureRRBar    float64 `json:"tire_pressure_rr_bar"`
+	TirePressureStatusFL string  `json:"tire_pressure_status_fl"`
+	TirePressureStatusFR string  `json:"tire_pressure_status_fr"`
+	TirePressureStatusRL string  `json:"tire_pressure_status_rl"`
+	TirePressureStatusRR string  `json:"tire_pressure_status_rr"`
 }
 
 // Client is the high-level API surface Rivolt uses against Rivian.
