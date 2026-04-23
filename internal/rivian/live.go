@@ -354,7 +354,16 @@ const qUser = `query getUserInfo {
       id
       name
       vin
-      vehicle { __typename model }
+      vehicle {
+        __typename
+        model
+        make
+        modelYear
+        mobileConfiguration {
+          __typename
+          trimOption { __typename optionId optionName }
+        }
+      }
     }
   }
 }`
@@ -370,7 +379,15 @@ type userData struct {
 			Name    string `json:"name"`
 			VIN     string `json:"vin"`
 			Vehicle struct {
-				Model string `json:"model"`
+				Model               string `json:"model"`
+				Make                string `json:"make"`
+				ModelYear           int    `json:"modelYear"`
+				MobileConfiguration struct {
+					TrimOption struct {
+						OptionID   string `json:"optionId"`
+						OptionName string `json:"optionName"`
+					} `json:"trimOption"`
+				} `json:"mobileConfiguration"`
 			} `json:"vehicle"`
 		} `json:"vehicles"`
 	} `json:"currentUser"`
@@ -394,12 +411,18 @@ func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	}
 	out := make([]Vehicle, 0, len(data.CurrentUser.Vehicles))
 	for _, v := range data.CurrentUser.Vehicles {
-		out = append(out, Vehicle{
-			ID:    v.ID,
-			VIN:   v.VIN,
-			Name:  v.Name,
-			Model: v.Vehicle.Model,
-		})
+		veh := Vehicle{
+			ID:        v.ID,
+			VIN:       v.VIN,
+			Name:      v.Name,
+			Model:     v.Vehicle.Model,
+			Make:      v.Vehicle.Make,
+			ModelYear: v.Vehicle.ModelYear,
+			TrimID:    v.Vehicle.MobileConfiguration.TrimOption.OptionID,
+			TrimName:  v.Vehicle.MobileConfiguration.TrimOption.OptionName,
+		}
+		veh.PackKWh = InferPackKWh(veh.Model, veh.TrimID, veh.ModelYear)
+		out = append(out, veh)
 	}
 	return out, nil
 }

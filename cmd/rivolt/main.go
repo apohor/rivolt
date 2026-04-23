@@ -205,6 +205,19 @@ func runServer() {
 	if stateMonitor != nil {
 		stateMonitor.SetStores(samplesStore, drivesStore, chargesStore)
 		stateMonitor.Start(ctx)
+
+		// Prime per-vehicle metadata (model/trim/pack/image) in the
+		// background. Best-effort — failure just means the SoC-delta
+		// fallback uses DefaultPackKWh (141.5) and the UI has no
+		// vehicle image to show. Don't block startup on Rivian's
+		// gateway being available.
+		go func() {
+			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			if err := stateMonitor.RefreshVehicleInfo(rctx); err != nil {
+				logger.Warn("vehicle info refresh failed", "err", err.Error())
+			}
+		}()
 	}
 
 	// One-time migration: v0.1.7 and earlier keyed ElectraFi charge/drive

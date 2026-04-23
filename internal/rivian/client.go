@@ -24,10 +24,22 @@ type Credentials struct {
 // Vehicle is a minimum-useful projection of a Rivian vehicle. More
 // fields will be added as we flesh out the client.
 type Vehicle struct {
-	ID    string `json:"id"`
-	VIN   string `json:"vin"`
-	Name  string `json:"name"`
-	Model string `json:"model"` // "R1T" | "R1S"
+	ID        string `json:"id"`
+	VIN       string `json:"vin"`
+	Name      string `json:"name"`
+	Model     string `json:"model"` // "R1T" | "R1S"
+	ModelYear int    `json:"model_year,omitempty"`
+	Make      string `json:"make,omitempty"`
+	TrimID    string `json:"trim_id,omitempty"`   // e.g. "PKG-ADV", "LRG-DM-PRFM"
+	TrimName  string `json:"trim_name,omitempty"` // e.g. "Adventure Package"
+	// PackKWh is the usable battery capacity inferred from model /
+	// trim. Used by the live recorder to estimate energy from SoC
+	// deltas when Rivian's live session feed doesn't report power.
+	PackKWh float64 `json:"pack_kwh,omitempty"`
+	// ImageURL is a pre-rendered 3/4 view of the configured vehicle,
+	// populated lazily via GetVehicleImages. Empty string when not
+	// yet fetched or when the Rivian image service didn't return one.
+	ImageURL string `json:"image_url,omitempty"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at

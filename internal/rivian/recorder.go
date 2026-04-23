@@ -16,16 +16,11 @@ import (
 const (
 	kmToMi  = 0.621371
 	kphToMi = 0.621371
-
-	// defaultPackKWh is the usable battery capacity used to estimate
-	// EnergyAddedKWh from a SoC delta when the live feed doesn't
-	// report charger power (observed for home AC charging — Rivian's
-	// chrg/user/graphql returns active:false for those, and the main
-	// GetVehicleState selection has no chargerPower field). Matches
-	// the Rivian R1T/R1S Large pack; adjust if we add per-vehicle pack
-	// metadata.
-	defaultPackKWh = 141.5
 )
+
+// Pack size for the SoC-delta energy fallback is looked up
+// per-vehicle via StateMonitor.PackKWhFor; see vehicle_info.go for
+// the model/trim → kWh table.
 
 // liveSessions tracks in-flight drive and charge session accumulators
 // for a single vehicle. Each transition from a "not driving" to a
@@ -355,7 +350,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	if energy == 0 && maxPower == 0 {
 		dSoC := c.endSoC - c.startSoC
 		if dSoC > 0 {
-			energy = dSoC / 100.0 * defaultPackKWh
+			energy = dSoC / 100.0 * m.PackKWhFor(vehicleID)
 			hours := c.endAt.Sub(c.startedAt).Hours()
 			if hours > 0 && energy > 0 {
 				avg = energy / hours
