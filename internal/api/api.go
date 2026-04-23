@@ -83,6 +83,7 @@ func New(d Deps) http.Handler {
 		r.Get("/vehicles", handleVehicles(d.Rivian))
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
+		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
 		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
@@ -208,6 +209,30 @@ func handleVehicleStateDebug(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, raw)
+	}
+}
+
+// handleVehicleStateFresh bypasses the monitor cache and returns the
+// typed State from a direct REST call. Used to diagnose cache-vs-parse
+// issues when /api/state shows zeros but /api/state/.../debug shows
+// populated upstream fields.
+func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c == nil {
+			http.Error(w, "no rivian client configured", http.StatusNotFound)
+			return
+		}
+		id := chi.URLParam(r, "vehicleID")
+		if id == "" {
+			http.Error(w, "vehicleID required", http.StatusBadRequest)
+			return
+		}
+		st, err := c.State(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
 	}
 }
 
