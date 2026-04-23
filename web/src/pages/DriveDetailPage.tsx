@@ -26,15 +26,20 @@ export default function DriveDetailPage() {
   );
 
   // Pull a bit of padding around the drive so chart doesn't start
-  // exactly at the first sample edge.
+  // exactly at the first sample edge, and — critically — so we catch
+  // the parked samples before and after the drive. The stored
+  // Drive.Start/EndLat (and the first/last in-drive GPS sample) can
+  // miss the true start/end by up to a mile because telemetry often
+  // drops the first 60–90 seconds of a trip: the first sample arrives
+  // with the car already at highway speed, far from home.
   const samples = useQuery({
     queryKey: ["samples", "drive", id],
     enabled: !!drive,
     queryFn: () => {
       const since = new Date(
-        new Date(drive!.StartedAt).getTime() - 60_000,
+        new Date(drive!.StartedAt).getTime() - 10 * 60_000,
       );
-      return backend.samples(since, 10_000);
+      return backend.samples(since, 20_000);
     },
   });
 
@@ -46,6 +51,52 @@ export default function DriveDetailPage() {
       const t = new Date(p.At).getTime();
       return t >= s && t <= e;
     });
+  }, [drive, samples.data]);
+
+  // Infer "home" endpoints from the last parked sample before the drive
+  // and the first parked sample after it. These are far more reliable
+  // than the drive's stored Start/EndLat, which come from whenever the
+  // first mid-drive telemetry packet happened to arrive.
+  const homeStart = useMemo(() => {
+    if (!drive || !samples.data) return undefined;
+    const ts = new Date(drive.StartedAt).getTime();
+    const windowStart = ts - 10 * 60_000;
+    const parked = samples.data
+      .filter((p) => {
+        const t = new Date(p.At).getTime();
+        return (
+          t >= windowStart &&
+          t < ts &&
+          p.ShiftState === "P" &&
+          (p.Lat !== 0 || p.Lon !== 0)
+        );
+      })
+      .sort(
+        (a, b) => new Date(a.At).getTime() - new Date(b.At).getTime(),
+      );
+    const last = parked[parked.length - 1];
+    return last ? { lat: last.Lat, lon: last.Lon } : undefined;
+  }, [drive, samples.data]);
+
+  const homeEnd = useMemo(() => {
+    if (!drive || !samples.data) return undefined;
+    const te = new Date(drive.EndedAt).getTime();
+    const windowEnd = te + 10 * 60_000;
+    const parked = samples.data
+      .filter((p) => {
+        const t = new Date(p.At).getTime();
+        return (
+          t > te &&
+          t <= windowEnd &&
+          p.ShiftState === "P" &&
+          (p.Lat !== 0 || p.Lon !== 0)
+        );
+      })
+      .sort(
+        (a, b) => new Date(a.At).getTime() - new Date(b.At).getTime(),
+      );
+    const first = parked[0];
+    return first ? { lat: first.Lat, lon: first.Lon } : undefined;
   }, [drive, samples.data]);
 
   if (drives.isLoading) {
@@ -165,8 +216,8 @@ export default function DriveDetailPage() {
         ) : (
           <DriveMap
             points={driveSamples.map((p) => ({ lat: p.Lat, lon: p.Lon }))}
-            start={{ lat: drive.StartLat, lon: drive.StartLon }}
-            end={{ lat: drive.EndLat, lon: drive.EndLon }}
+            start={homeStart ?? { lat: drive.StartLat, lon: drive.StartLon }}
+            end={homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon }}
             height={360}
           />
         )}
