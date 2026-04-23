@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
-import { Card, PageHeader, Spinner, ErrorBox } from "../components/ui";
+import { Card, Spinner, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
 import {
   durationSeconds,
@@ -85,10 +85,12 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Overview"
-        actions={<WindowPicker value={win} onChange={setWin} />}
-      />
+      {/* The nav already shows the page name in its highlighted state,
+          so a redundant h1 just eats vertical space above the fold.
+          Keep only the WindowPicker right-aligned. */}
+      <div className="flex justify-end">
+        <WindowPicker value={win} onChange={setWin} />
+      </div>
 
       <LiveSummary />
 
