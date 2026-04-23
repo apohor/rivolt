@@ -358,34 +358,16 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 				}
 				m.logger.Info("rivian charging-session ws starting",
 					"vehicle", vehicleID, "charger_state", csLog)
-				go func() {
-					firstLogged := false
-					err := m.client.SubscribeChargingSession(subCtx, vehicleID, func(sess *LiveSession) {
-						if sess == nil {
-							return
-						}
-						if !firstLogged {
-							m.logger.Info("rivian charging-session ws first frame",
-								"vehicle", vehicleID,
-								"power_kw", sess.PowerKW,
-								"energy_kwh", sess.TotalChargedEnergyKWh,
-								"elapsed_s", sess.TimeElapsedSeconds,
-								"charger_state", sess.VehicleChargerState)
-							firstLogged = true
-						}
-						m.applyLiveSession(ctx, vehicleID, sess)
-					})
-					if err != nil && subCtx.Err() == nil {
-						m.logger.Warn("rivian charging-session ws ended",
-							"vehicle", vehicleID, "err", err.Error())
-					}
-				}()
-				// In parallel with the (Rivian-charger-only)
-				// ChargingSession stream, subscribe to the Parallax
-				// charge_session_breakdown RVM. That topic populates
-				// for every session type — home AC / L1 / L2 /
-				// third-party chargers — so it's what actually
-				// surfaces live power + energy for non-Rivian EVSEs.
+				// Subscribe to the Parallax charge_session_breakdown
+				// RVM. That topic populates for every session type —
+				// home AC / L1 / L2 / Rivian Wall Charger / Adventure
+				// Network — so it's a strict superset of the older
+				// ChargingSession subscription (which returns nulls
+				// for non-Rivian EVSEs). We deliberately *don't*
+				// also open ChargingSession: Rivian's WS gateway
+				// rejects concurrent connections from the same
+				// session token, and this single subscription covers
+				// every case the other would.
 				go func() {
 					firstLogged := false
 					err := m.client.SubscribeParallaxCharging(subCtx, vehicleID, func(sess *LiveSession) {
