@@ -473,7 +473,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		BatteryLevelPct: vs.BatteryLevel.Value,
 		DistanceToEmpty: vs.DistanceToEmpty.Value,
 		OdometerKm:      vs.VehicleMileage.Value,
-		Gear:            vs.GearStatus.Value,
+		Gear:            normalizeGear(vs.GearStatus.Value),
 		ChargerState:    vs.ChargerState.Value,
 		// ChargerPowerKW: the GetVehicleState schema no longer
 		// exposes a live-power field. Kilowatts are available via
@@ -487,6 +487,24 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		CabinTempC:      vs.CabinClimateInteriorTemperature.Value,
 		OutsideTempC:    0,
 	}, nil
+}
+
+// normalizeGear maps Rivian's gearStatus values ("park", "drive",
+// "reverse", "neutral", and occasionally an empty string while the
+// car is asleep) to the single-letter contract exposed by State.Gear.
+func normalizeGear(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "park", "p":
+		return "P"
+	case "drive", "d":
+		return "D"
+	case "reverse", "r":
+		return "R"
+	case "neutral", "n":
+		return "N"
+	default:
+		return ""
+	}
 }
 
 func parseTimeOrNow(s string) time.Time {
