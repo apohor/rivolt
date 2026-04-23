@@ -16,11 +16,17 @@ import (
 // including home AC. Discovered from rivian-python-client's
 // subscribe_for_charging_session.
 //
-// Schema: chargingSession(vehicleId) { chartData {...} liveData {...} }
+// Schema: chargingSession(vehicleId: ID!) { chartData {...} liveData {...} }
 // Field names are flat scalars here (powerKW, not powerKW { value } —
 // this subscription is NOT wrapped in valueRecord envelopes, unlike
 // vehicleState).
-const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: String!) {
+//
+// The variable type is ID! — using String! is accepted by Apollo
+// but Rivian's resolver returns every field as null in that case.
+// v0.3.14 logged a raw first frame with `__typename` populated but
+// every scalar null; switching to ID! matches the REST equivalent
+// (getLiveSessionHistory uses $vehicleId: ID!).
+const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: ID!) {
   chargingSession(vehicleId: $vehicleID) {
     __typename
     liveData {
@@ -137,22 +143,24 @@ func (c *LiveClient) SubscribeChargingSession(ctx context.Context, vehicleID str
 }
 
 func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, userTok string, cb LiveSessionCallback) error {
-	firstFrameLogged := false
+	framesLogged := 0
 	return c.runGenericSubscription(ctx, userTok, subParams{
 		operationName: "ChargingSession",
 		query:         qChargingSessionSubscription,
 		vehicleID:     vehicleID,
 	}, func(raw json.RawMessage) error {
-		// Log the first raw frame per connection so we can verify the
-		// actual field shape Rivian pushes. Our query is a guess
-		// derived from community reverse-engineering — if liveData
-		// comes back empty / wrapped in valueRecord envelopes / etc
-		// this is the only way to find out what the real schema is.
-		if !firstFrameLogged {
-			slog.Default().Info("rivian charging-session ws raw first frame",
+		// Log the first few raw frames per connection so we can
+		// verify the actual field shape Rivian pushes. Our query
+		// came from community reverse-engineering; if frames arrive
+		// with fields nulled, this tells us whether they ever
+		// populate (and when). Capped at 5 frames to avoid flooding
+		// the log during a long session.
+		if framesLogged < 5 {
+			slog.Default().Info("rivian charging-session ws raw frame",
 				"vehicle", vehicleID,
+				"n", framesLogged,
 				"raw", string(raw))
-			firstFrameLogged = true
+			framesLogged++
 		}
 		var payload chargingSessionNext
 		if err := json.Unmarshal(raw, &payload); err != nil {
