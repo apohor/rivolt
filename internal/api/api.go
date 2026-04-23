@@ -85,6 +85,7 @@ func New(d Deps) http.Handler {
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
 		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
+		r.Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
 		r.Get("/charging-frames", handleChargingFrames(d.Rivian))
@@ -301,6 +302,32 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 			return
 		}
 		writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
+	}
+}
+
+// handleLiveDrive returns a snapshot of the in-flight drive session
+// for a vehicle, or 204 when none is active. Analogous to
+// handleLiveSession for charges. The monitor is the sole source of
+// truth — there's no REST fallback because Rivian exposes no drive
+// equivalent of getLiveSessionHistory, and the snapshot is derived
+// entirely from locally-observed telemetry frames.
+func handleLiveDrive(mon *rivian.StateMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "vehicleID")
+		if id == "" {
+			http.Error(w, "vehicleID required", http.StatusBadRequest)
+			return
+		}
+		if mon == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		drive := mon.ActiveDrive(id)
+		if drive == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(w, http.StatusOK, drive)
 	}
 }
 

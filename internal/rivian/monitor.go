@@ -626,6 +626,91 @@ func (m *StateMonitor) LatestLiveSession(vehicleID string) *LiveSession {
 	return m.lastSession[vehicleID]
 }
 
+// LiveDrive is the wire-friendly snapshot of an in-flight drive
+// session — the recorder's internal `liveDrive` accumulator
+// projected into the same style that /api/live-session returns for
+// charges. Returned by ActiveDrive; fields are flat so the frontend
+// can render without having to reach into recorder internals.
+type LiveDrive struct {
+	VehicleID       string    `json:"vehicle_id"`
+	Number          int64     `json:"number"`
+	StartedAt       time.Time `json:"started_at"`
+	EndedAt         time.Time `json:"ended_at"`
+	ElapsedSec      float64   `json:"elapsed_sec"`
+	StartSoCPct     float64   `json:"start_soc_pct"`
+	EndSoCPct       float64   `json:"end_soc_pct"`
+	SoCUsedPct      float64   `json:"soc_used_pct"`
+	StartOdometerMi float64   `json:"start_odometer_mi"`
+	EndOdometerMi   float64   `json:"end_odometer_mi"`
+	DistanceMi      float64   `json:"distance_mi"`
+	MaxSpeedMph     float64   `json:"max_speed_mph"`
+	AvgSpeedMph     float64   `json:"avg_speed_mph"`
+	EnergyUsedKWh   float64   `json:"energy_used_kwh"`
+	MiPerKWh        float64   `json:"mi_per_kwh"`
+	PackKWh         float64   `json:"pack_kwh"`
+}
+
+// ActiveDrive returns a snapshot of the in-flight drive session for
+// the given vehicle, or nil if no drive is currently open. The
+// snapshot is derived from the recorder's accumulator under sessMu
+// so callers see a consistent view even while telemetry frames are
+// being folded in on another goroutine. Energy and efficiency are
+// computed from the SoC delta × per-vehicle pack size — the same
+// fallback the charge recorder uses for home-AC sessions.
+func (m *StateMonitor) ActiveDrive(vehicleID string) *LiveDrive {
+	m.sessMu.Lock()
+	sess := m.sessions[vehicleID]
+	if sess == nil || sess.drive == nil {
+		m.sessMu.Unlock()
+		return nil
+	}
+	d := *sess.drive // shallow copy so we can release the lock before math
+	m.sessMu.Unlock()
+
+	pack := m.PackKWhFor(vehicleID)
+	elapsed := d.endAt.Sub(d.startedAt).Seconds()
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	distance := d.endOdoMi - d.startOdoMi
+	if distance < 0 {
+		distance = 0
+	}
+	socUsed := d.startSoC - d.endSoC
+	if socUsed < 0 {
+		socUsed = 0
+	}
+	avg := 0.0
+	if d.speedN > 0 {
+		avg = d.sumSpeed / float64(d.speedN)
+	}
+	var energy, mipk float64
+	if pack > 0 && socUsed > 0 {
+		energy = socUsed / 100.0 * pack
+		if distance > 0 {
+			mipk = distance / energy
+		}
+	}
+	return &LiveDrive{
+		VehicleID:       vehicleID,
+		Number:          d.number,
+		StartedAt:       d.startedAt,
+		EndedAt:         d.endAt,
+		ElapsedSec:      elapsed,
+		StartSoCPct:     d.startSoC,
+		EndSoCPct:       d.endSoC,
+		SoCUsedPct:      socUsed,
+		StartOdometerMi: d.startOdoMi,
+		EndOdometerMi:   d.endOdoMi,
+		DistanceMi:      distance,
+		MaxSpeedMph:     d.maxSpeed,
+		AvgSpeedMph:     avg,
+		EnergyUsedKWh:   energy,
+		MiPerKWh:        mipk,
+		PackKWh:         pack,
+	}
+}
+
 // Prime stores a state from an out-of-band source (typically a REST
 // fallback on first request) so subsequent Latest() calls return it
 // immediately while the subscription is still spinning up.

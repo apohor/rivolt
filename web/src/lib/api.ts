@@ -210,6 +210,29 @@ export type ChargingSettings = {
   home_currency: string;
 };
 
+// LiveDrive is the in-flight drive snapshot returned by
+// /api/live-drive/:vehicleID while the car is in gear. Mirrors
+// internal/rivian.LiveDrive — fields are flat and already in mph /
+// miles / kWh so the UI renders without unit conversion.
+export type LiveDrive = {
+  vehicle_id: string;
+  number: number;
+  started_at: string;
+  ended_at: string;
+  elapsed_sec: number;
+  start_soc_pct: number;
+  end_soc_pct: number;
+  soc_used_pct: number;
+  start_odometer_mi: number;
+  end_odometer_mi: number;
+  distance_mi: number;
+  max_speed_mph: number;
+  avg_speed_mph: number;
+  energy_used_kwh: number;
+  mi_per_kwh: number;
+  pack_kwh: number;
+};
+
 export type Sample = {
   VehicleID: string;
   At: string;
@@ -244,6 +267,13 @@ export const backend = {
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
+  // liveDrive returns undefined when the server replies 204 — no
+  // drive session is currently open for the vehicle. Callers should
+  // treat undefined the same as "not driving".
+  liveDrive: (vehicleID: string) =>
+    api.get<LiveDrive | undefined>(
+      `/api/live-drive/${encodeURIComponent(vehicleID)}`,
+    ),
   rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
   rivianLogin: (email: string, password: string) =>
     api.post<{ authenticated: boolean; mfa_pending?: boolean; email?: string }>(
