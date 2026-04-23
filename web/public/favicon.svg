@@ -1,19 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Rounded square background -->
+  <!-- Rivolt mark: lightning bolt in a rounded square. -->
   <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
-  <!-- Steam wisps -->
-  <path d="M22 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="#34d399" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.85"/>
-  <path d="M32 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="#34d399" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.55"/>
-  <path d="M42 10c0 4-4 6-4 10s4 6 4 10"
-        stroke="#34d399" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.85"/>
-  <!-- Cup body -->
-  <path d="M14 34h30v8a10 10 0 0 1-10 10H24a10 10 0 0 1-10-10v-8z"
-        fill="#e5e5e5"/>
-  <!-- Cup handle -->
-  <path d="M44 36h4a6 6 0 0 1 0 12h-4"
-        stroke="#e5e5e5" stroke-width="3" fill="none" stroke-linecap="round"/>
-  <!-- Saucer -->
-  <ellipse cx="29" cy="54" rx="22" ry="3" fill="#262626"/>
+  <rect x="6" y="6" width="52" height="52" rx="11"
+        fill="none" stroke="#34d399" stroke-width="3" opacity="0.9"/>
+  <path d="M36 10 L18 36 H30 L26 54 L46 26 H34 Z" fill="#34d399"/>
 </svg>
