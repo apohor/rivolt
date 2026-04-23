@@ -63,6 +63,14 @@ type Client interface {
 // treat ErrNotImplemented as "fine for boot, unusable at runtime."
 var ErrNotImplemented = errors.New("rivian: client not implemented yet")
 
+// ErrNotAuthenticated means the caller invoked a data method before
+// Login succeeded (or after the session was cleared).
+var ErrNotAuthenticated = errors.New("rivian: not authenticated; call Login first")
+
+// ErrVehicleNotFound means the caller asked for state on a vehicle ID
+// the client does not know about.
+var ErrVehicleNotFound = errors.New("rivian: vehicle not found")
+
 // StubClient is a safe-to-boot placeholder so cmd/rivolt compiles and
 // the HTTP server comes up even before the real client is wired.
 type StubClient struct{}
