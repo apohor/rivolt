@@ -9,23 +9,13 @@ import (
 	"time"
 )
 
-// qChargingSessionSubscription matches the iOS app's ChargingSession
-// subscription. Unlike the REST getLiveSessionHistory query — which
-// returns active=false / all zeros for home AC / L1 / L2 sessions —
-// this subscription pushes real telemetry for EVERY charging session
-// including home AC. Discovered from rivian-python-client's
-// subscribe_for_charging_session.
-//
-// Schema: chargingSession(vehicleId: ID!) { chartData {...} liveData {...} }
-// Field names are flat scalars here (powerKW, not powerKW { value } —
-// this subscription is NOT wrapped in valueRecord envelopes, unlike
-// vehicleState).
-//
-// The variable type is ID! — using String! is accepted by Apollo
-// but Rivian's resolver returns every field as null in that case.
-// v0.3.14 logged a raw first frame with `__typename` populated but
-// every scalar null; switching to ID! matches the REST equivalent
-// (getLiveSessionHistory uses $vehicleId: ID!).
+// qChargingSessionSubscription streams charging telemetry over the
+// WebSocket endpoint. Unlike the REST getLiveSessionHistory — which
+// returns zeros for home AC / L1 / L2 — this pushes populated data
+// for every session type. Scalars are flat (not wrapped in
+// valueRecord envelopes like vehicleState). The $vehicleID variable
+// must be ID!; String! is accepted by Apollo but the resolver
+// returns all-null payloads.
 const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: ID!) {
   chargingSession(vehicleId: $vehicleID) {
     __typename
@@ -55,10 +45,7 @@ const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: I
   }
 }`
 
-// chargingSessionNext is the envelope for a ChargingSession "next"
-// frame. All scalar fields in liveData are populated on push even
-// when getLiveSessionHistory returns active=false — Rivian's edge
-// collector emits the subscription for every session type.
+// chargingSessionNext is the "next" frame envelope.
 type chargingSessionNext struct {
 	Data struct {
 		ChargingSession struct {
@@ -87,22 +74,14 @@ type chargingSessionNext struct {
 	Errors []graphQLError `json:"errors,omitempty"`
 }
 
-// LiveSessionCallback fires on every ChargingSession subscription
-// push. The delivered LiveSession is marked Active (Rivian itself
-// doesn't send an active flag on this subscription — the fact that
-// we're receiving frames means the session is live).
+// LiveSessionCallback fires on every ChargingSession push. Delivered
+// sessions are marked Active — the subscription only emits while live.
 type LiveSessionCallback func(*LiveSession)
 
-// SubscribeChargingSession opens a websocket subscription to the
-// ChargingSession stream for the given vehicle. Blocks until ctx is
-// cancelled or a terminal auth failure occurs. Reconnects with
-// exponential backoff on transient errors, identical to
-// SubscribeVehicleState.
-//
-// Prefer this over the polling LiveSession REST call during active
-// charging: the subscription pushes updates as the vehicle reports
-// them (roughly every 30s) and returns populated data for home AC
-// sessions the REST endpoint cannot see.
+// SubscribeChargingSession streams charging telemetry for vehicleID.
+// Blocks until ctx is cancelled or auth fails; reconnects with
+// exponential backoff on transient errors. Preferred over the REST
+// LiveSession poll — this path carries home AC / L2 data.
 func (c *LiveClient) SubscribeChargingSession(ctx context.Context, vehicleID string, cb LiveSessionCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
@@ -149,12 +128,7 @@ func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, use
 		query:         qChargingSessionSubscription,
 		vehicleID:     vehicleID,
 	}, func(raw json.RawMessage) error {
-		// Log the first few raw frames per connection so we can
-		// verify the actual field shape Rivian pushes. Our query
-		// came from community reverse-engineering; if frames arrive
-		// with fields nulled, this tells us whether they ever
-		// populate (and when). Capped at 5 frames to avoid flooding
-		// the log during a long session.
+		// Log the first few frames per connection for schema debugging.
 		if framesLogged < 5 {
 			slog.Default().Info("rivian charging-session ws raw frame",
 				"vehicle", vehicleID,
@@ -167,8 +141,7 @@ func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, use
 			return nil // single bad frame — keep stream alive
 		}
 		if len(payload.Errors) > 0 {
-			// Surface errors so the outer reconnect loop backs off;
-			// getting here typically means the schema changed again.
+			// Surface errors so the outer loop reconnects with backoff.
 			msgs := ""
 			for i, e := range payload.Errors {
 				if i > 0 {
@@ -200,9 +173,8 @@ func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, use
 			CurrentPrice:             ld.Price,
 			CurrentCurrency:          ld.Currency,
 			IsFreeSession:            ld.IsFreeSession,
-			// IsRivianCharger isn't in the subscription selection —
-			// the REST response has it; we leave false here and let
-			// the poller's cached value win when both are present.
+			// IsRivianCharger comes from REST; left false here so the
+			// poller's cached value wins on merge.
 		}
 		cb(sess)
 		return nil
