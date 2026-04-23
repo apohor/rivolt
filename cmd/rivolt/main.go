@@ -173,6 +173,16 @@ func runServer() {
 		rivianClient = lc
 	}
 
+	// StateMonitor keeps a websocket subscription open per vehicle so
+	// /api/state/:id can serve from cache instead of hammering the
+	// GetVehicleState REST query. Only useful with the live client;
+	// mock/stub don't have a websocket to subscribe to.
+	var stateMonitor *rivian.StateMonitor
+	if lc, ok := rivianClient.(*rivian.LiveClient); ok {
+		stateMonitor = rivian.NewStateMonitor(lc, logger)
+		stateMonitor.Start(ctx)
+	}
+
 	drivesStore, err := drives.OpenStore(dbPath)
 	if err != nil {
 		logger.Warn("drives store unavailable", "err", err.Error())
@@ -221,6 +231,7 @@ func runServer() {
 		Drives:        drivesStore,
 		Charges:       chargesStore,
 		Samples:       samplesStore,
+		StateMonitor:  stateMonitor,
 		WebFS:         webFS,
 		Version:       version,
 	})
