@@ -468,6 +468,35 @@ type vsValue[T any] struct {
 	TimeStamp string `json:"timeStamp"`
 }
 
+// permissiveString is a JSON scalar that accepts either a string or a
+// number (or bool/null) and stores it as a string. Rivian's GraphQL
+// schema occasionally reports what used to be a string field as a
+// number (remoteChargingAvailable flipped from "true"/"false" to 0/1
+// in April 2026). One silently-wrong field stopped decoding the
+// entire GetVehicleState response, which left the cache stuck on
+// whatever the WS subscription happened to push. Using this type for
+// every stringly-typed vehicleState field isolates future flips to a
+// single field's semantics instead of blowing up the whole decode.
+type permissiveString string
+
+func (p *permissiveString) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*p = ""
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*p = permissiveString(s)
+		return nil
+	}
+	// Numbers, bools, everything else: store as the raw literal.
+	*p = permissiveString(string(b))
+	return nil
+}
+
 type vehicleStateData struct {
 	VehicleState struct {
 		GNSSLocation struct {
@@ -481,53 +510,53 @@ type vehicleStateData struct {
 		BatteryLevel                    vsValue[float64] `json:"batteryLevel"`
 		DistanceToEmpty                 vsValue[float64] `json:"distanceToEmpty"`
 		VehicleMileage                  vsValue[float64] `json:"vehicleMileage"`
-		GearStatus                      vsValue[string]  `json:"gearStatus"`
-		DriveMode                       vsValue[string]  `json:"driveMode"`
-		ChargerState                    vsValue[string]  `json:"chargerState"`
-		ChargerStatus                   vsValue[string]  `json:"chargerStatus"`
+		GearStatus                      vsValue[permissiveString]  `json:"gearStatus"`
+		DriveMode                       vsValue[permissiveString]  `json:"driveMode"`
+		ChargerState                    vsValue[permissiveString]  `json:"chargerState"`
+		ChargerStatus                   vsValue[permissiveString]  `json:"chargerStatus"`
 		BatteryLimit                    vsValue[float64] `json:"batteryLimit"`
-		ChargePortState                 vsValue[string]  `json:"chargePortState"`
-		RemoteChargingAvailable         vsValue[string]  `json:"remoteChargingAvailable"`
+		ChargePortState                 vsValue[permissiveString]  `json:"chargePortState"`
+		RemoteChargingAvailable         vsValue[permissiveString]  `json:"remoteChargingAvailable"`
 		CabinClimateInteriorTemperature vsValue[float64] `json:"cabinClimateInteriorTemperature"`
-		CabinPreconditioningStatus      vsValue[string]  `json:"cabinPreconditioningStatus"`
-		PowerState                      vsValue[string]  `json:"powerState"`
-		AlarmSoundStatus                vsValue[string]  `json:"alarmSoundStatus"`
-		TwelveVoltBatteryHealth         vsValue[string]  `json:"twelveVoltBatteryHealth"`
-		WiperFluidState                 vsValue[string]  `json:"wiperFluidState"`
-		OtaCurrentVersion               vsValue[string]  `json:"otaCurrentVersion"`
-		OtaAvailableVersion             vsValue[string]  `json:"otaAvailableVersion"`
-		OtaStatus                       vsValue[string]  `json:"otaStatus"`
+		CabinPreconditioningStatus      vsValue[permissiveString]  `json:"cabinPreconditioningStatus"`
+		PowerState                      vsValue[permissiveString]  `json:"powerState"`
+		AlarmSoundStatus                vsValue[permissiveString]  `json:"alarmSoundStatus"`
+		TwelveVoltBatteryHealth         vsValue[permissiveString]  `json:"twelveVoltBatteryHealth"`
+		WiperFluidState                 vsValue[permissiveString]  `json:"wiperFluidState"`
+		OtaCurrentVersion               vsValue[permissiveString]  `json:"otaCurrentVersion"`
+		OtaAvailableVersion             vsValue[permissiveString]  `json:"otaAvailableVersion"`
+		OtaStatus                       vsValue[permissiveString]  `json:"otaStatus"`
 		OtaInstallProgress              vsValue[float64] `json:"otaInstallProgress"`
 		TirePressureFrontLeft           vsValue[float64] `json:"tirePressureFrontLeft"`
 		TirePressureFrontRight          vsValue[float64] `json:"tirePressureFrontRight"`
 		TirePressureRearLeft            vsValue[float64] `json:"tirePressureRearLeft"`
 		TirePressureRearRight           vsValue[float64] `json:"tirePressureRearRight"`
-		TirePressureStatusFrontLeft     vsValue[string]  `json:"tirePressureStatusFrontLeft"`
-		TirePressureStatusFrontRight    vsValue[string]  `json:"tirePressureStatusFrontRight"`
-		TirePressureStatusRearLeft      vsValue[string]  `json:"tirePressureStatusRearLeft"`
-		TirePressureStatusRearRight     vsValue[string]  `json:"tirePressureStatusRearRight"`
+		TirePressureStatusFrontLeft     vsValue[permissiveString]  `json:"tirePressureStatusFrontLeft"`
+		TirePressureStatusFrontRight    vsValue[permissiveString]  `json:"tirePressureStatusFrontRight"`
+		TirePressureStatusRearLeft      vsValue[permissiveString]  `json:"tirePressureStatusRearLeft"`
+		TirePressureStatusRearRight     vsValue[permissiveString]  `json:"tirePressureStatusRearRight"`
 		// Closures: "open" | "closed" | "".
-		DoorFrontLeftClosed   vsValue[string] `json:"doorFrontLeftClosed"`
-		DoorFrontRightClosed  vsValue[string] `json:"doorFrontRightClosed"`
-		DoorRearLeftClosed    vsValue[string] `json:"doorRearLeftClosed"`
-		DoorRearRightClosed   vsValue[string] `json:"doorRearRightClosed"`
-		ClosureFrunkClosed    vsValue[string] `json:"closureFrunkClosed"`
-		ClosureLiftgateClosed vsValue[string] `json:"closureLiftgateClosed"`
-		ClosureTailgateClosed vsValue[string] `json:"closureTailgateClosed"`
-		ClosureTonneauClosed  vsValue[string] `json:"closureTonneauClosed"`
+		DoorFrontLeftClosed   vsValue[permissiveString] `json:"doorFrontLeftClosed"`
+		DoorFrontRightClosed  vsValue[permissiveString] `json:"doorFrontRightClosed"`
+		DoorRearLeftClosed    vsValue[permissiveString] `json:"doorRearLeftClosed"`
+		DoorRearRightClosed   vsValue[permissiveString] `json:"doorRearRightClosed"`
+		ClosureFrunkClosed    vsValue[permissiveString] `json:"closureFrunkClosed"`
+		ClosureLiftgateClosed vsValue[permissiveString] `json:"closureLiftgateClosed"`
+		ClosureTailgateClosed vsValue[permissiveString] `json:"closureTailgateClosed"`
+		ClosureTonneauClosed  vsValue[permissiveString] `json:"closureTonneauClosed"`
 		// Locks: "locked" | "unlocked" | "". Per home-assistant-rivian
 		// LOCK_STATE_ENTITIES, the car is locked iff none of these
 		// report "unlocked"; R1T/R1S return different subsets.
-		DoorFrontLeftLocked       vsValue[string] `json:"doorFrontLeftLocked"`
-		DoorFrontRightLocked      vsValue[string] `json:"doorFrontRightLocked"`
-		DoorRearLeftLocked        vsValue[string] `json:"doorRearLeftLocked"`
-		DoorRearRightLocked       vsValue[string] `json:"doorRearRightLocked"`
-		ClosureFrunkLocked        vsValue[string] `json:"closureFrunkLocked"`
-		ClosureLiftgateLocked     vsValue[string] `json:"closureLiftgateLocked"`
-		ClosureTonneauLocked      vsValue[string] `json:"closureTonneauLocked"`
-		ClosureTailgateLocked     vsValue[string] `json:"closureTailgateLocked"`
-		ClosureSideBinLeftLocked  vsValue[string] `json:"closureSideBinLeftLocked"`
-		ClosureSideBinRightLocked vsValue[string] `json:"closureSideBinRightLocked"`
+		DoorFrontLeftLocked       vsValue[permissiveString] `json:"doorFrontLeftLocked"`
+		DoorFrontRightLocked      vsValue[permissiveString] `json:"doorFrontRightLocked"`
+		DoorRearLeftLocked        vsValue[permissiveString] `json:"doorRearLeftLocked"`
+		DoorRearRightLocked       vsValue[permissiveString] `json:"doorRearRightLocked"`
+		ClosureFrunkLocked        vsValue[permissiveString] `json:"closureFrunkLocked"`
+		ClosureLiftgateLocked     vsValue[permissiveString] `json:"closureLiftgateLocked"`
+		ClosureTonneauLocked      vsValue[permissiveString] `json:"closureTonneauLocked"`
+		ClosureTailgateLocked     vsValue[permissiveString] `json:"closureTailgateLocked"`
+		ClosureSideBinLeftLocked  vsValue[permissiveString] `json:"closureSideBinLeftLocked"`
+		ClosureSideBinRightLocked vsValue[permissiveString] `json:"closureSideBinRightLocked"`
 	} `json:"vehicleState"`
 }
 
@@ -813,6 +842,10 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	}
 	vs := data.VehicleState
 	at := parseTimeOrNow(vs.GNSSLocation.TimeStamp)
+	// ps converts a permissiveString (which carries a possibly-numeric
+	// or -boolean scalar as text) to the string the State struct and
+	// helper functions expect.
+	ps := func(s permissiveString) string { return string(s) }
 	return &State{
 		At:              at,
 		VehicleID:       vehicleID,
@@ -822,64 +855,64 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		// comment above claimed — confirmed on a real account the
 		// field comes back as ~5.7e7 for a ~35k-mile vehicle.
 		OdometerKm:   vs.VehicleMileage.Value / 1000,
-		Gear:         normalizeGear(vs.GearStatus.Value),
-		DriveMode:    vs.DriveMode.Value,
-		ChargerState: vs.ChargerState.Value,
+		Gear:         normalizeGear(ps(vs.GearStatus.Value)),
+		DriveMode:    ps(vs.DriveMode.Value),
+		ChargerState: ps(vs.ChargerState.Value),
 		// ChargerPowerKW: the GetVehicleState schema no longer
 		// exposes a live-power field. Kilowatts are available via
 		// getLiveSessionData (chrg/user/graphql) — wire that in a
 		// follow-up when we render a live charging panel.
 		ChargerPowerKW:          0,
 		ChargeTargetPct:         vs.BatteryLimit.Value,
-		ChargerStatus:           vs.ChargerStatus.Value,
-		ChargePortState:         vs.ChargePortState.Value,
-		RemoteChargingAvailable: vs.RemoteChargingAvailable.Value,
+		ChargerStatus:           ps(vs.ChargerStatus.Value),
+		ChargePortState:         ps(vs.ChargePortState.Value),
+		RemoteChargingAvailable: ps(vs.RemoteChargingAvailable.Value),
 		Latitude:                vs.GNSSLocation.Latitude,
 		Longitude:               vs.GNSSLocation.Longitude,
 		SpeedKph:                vs.GNSSSpeed.Value,
 		HeadingDeg:              vs.GNSSBearing.Value,
 		AltitudeM:               vs.GNSSAltitude.Value,
 		Locked: aggregateLocked(
-			vs.DoorFrontLeftLocked.Value,
-			vs.DoorFrontRightLocked.Value,
-			vs.DoorRearLeftLocked.Value,
-			vs.DoorRearRightLocked.Value,
-			vs.ClosureFrunkLocked.Value,
-			vs.ClosureLiftgateLocked.Value,
-			vs.ClosureTonneauLocked.Value,
-			vs.ClosureTailgateLocked.Value,
-			vs.ClosureSideBinLeftLocked.Value,
-			vs.ClosureSideBinRightLocked.Value,
+			ps(vs.DoorFrontLeftLocked.Value),
+			ps(vs.DoorFrontRightLocked.Value),
+			ps(vs.DoorRearLeftLocked.Value),
+			ps(vs.DoorRearRightLocked.Value),
+			ps(vs.ClosureFrunkLocked.Value),
+			ps(vs.ClosureLiftgateLocked.Value),
+			ps(vs.ClosureTonneauLocked.Value),
+			ps(vs.ClosureTailgateLocked.Value),
+			ps(vs.ClosureSideBinLeftLocked.Value),
+			ps(vs.ClosureSideBinRightLocked.Value),
 		),
 		DoorsClosed: aggregateClosed(
-			vs.DoorFrontLeftClosed.Value,
-			vs.DoorFrontRightClosed.Value,
-			vs.DoorRearLeftClosed.Value,
-			vs.DoorRearRightClosed.Value,
+			ps(vs.DoorFrontLeftClosed.Value),
+			ps(vs.DoorFrontRightClosed.Value),
+			ps(vs.DoorRearLeftClosed.Value),
+			ps(vs.DoorRearRightClosed.Value),
 		),
-		FrunkClosed:                isClosed(vs.ClosureFrunkClosed.Value),
-		LiftgateClosed:             isClosed(vs.ClosureLiftgateClosed.Value),
-		TailgateClosed:             isClosed(vs.ClosureTailgateClosed.Value),
-		TonneauClosed:              isClosed(vs.ClosureTonneauClosed.Value),
+		FrunkClosed:                isClosed(ps(vs.ClosureFrunkClosed.Value)),
+		LiftgateClosed:             isClosed(ps(vs.ClosureLiftgateClosed.Value)),
+		TailgateClosed:             isClosed(ps(vs.ClosureTailgateClosed.Value)),
+		TonneauClosed:              isClosed(ps(vs.ClosureTonneauClosed.Value)),
 		CabinTempC:                 vs.CabinClimateInteriorTemperature.Value,
 		OutsideTempC:               0,
-		CabinPreconditioningStatus: vs.CabinPreconditioningStatus.Value,
-		PowerState:                 strings.ToLower(strings.TrimSpace(vs.PowerState.Value)),
-		AlarmSoundStatus:           vs.AlarmSoundStatus.Value,
-		TwelveVoltBatteryHealth:    vs.TwelveVoltBatteryHealth.Value,
-		WiperFluidState:            vs.WiperFluidState.Value,
-		OtaCurrentVersion:          vs.OtaCurrentVersion.Value,
-		OtaAvailableVersion:        vs.OtaAvailableVersion.Value,
-		OtaStatus:                  vs.OtaStatus.Value,
+		CabinPreconditioningStatus: ps(vs.CabinPreconditioningStatus.Value),
+		PowerState:                 strings.ToLower(strings.TrimSpace(ps(vs.PowerState.Value))),
+		AlarmSoundStatus:           ps(vs.AlarmSoundStatus.Value),
+		TwelveVoltBatteryHealth:    ps(vs.TwelveVoltBatteryHealth.Value),
+		WiperFluidState:            ps(vs.WiperFluidState.Value),
+		OtaCurrentVersion:          ps(vs.OtaCurrentVersion.Value),
+		OtaAvailableVersion:        ps(vs.OtaAvailableVersion.Value),
+		OtaStatus:                  ps(vs.OtaStatus.Value),
 		OtaInstallProgress:         vs.OtaInstallProgress.Value,
 		TirePressureFLBar:          vs.TirePressureFrontLeft.Value,
 		TirePressureFRBar:          vs.TirePressureFrontRight.Value,
 		TirePressureRLBar:          vs.TirePressureRearLeft.Value,
 		TirePressureRRBar:          vs.TirePressureRearRight.Value,
-		TirePressureStatusFL:       vs.TirePressureStatusFrontLeft.Value,
-		TirePressureStatusFR:       vs.TirePressureStatusFrontRight.Value,
-		TirePressureStatusRL:       vs.TirePressureStatusRearLeft.Value,
-		TirePressureStatusRR:       vs.TirePressureStatusRearRight.Value,
+		TirePressureStatusFL:       ps(vs.TirePressureStatusFrontLeft.Value),
+		TirePressureStatusFR:       ps(vs.TirePressureStatusFrontRight.Value),
+		TirePressureStatusRL:       ps(vs.TirePressureStatusRearLeft.Value),
+		TirePressureStatusRR:       ps(vs.TirePressureStatusRearRight.Value),
 	}, nil
 }
 
