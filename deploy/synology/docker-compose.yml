@@ -45,7 +45,7 @@ services:
     environment:
       # Listen address inside the container. With host networking this is
       # also the host port. Change if 8080 is taken.
-      ADDR: ":8080"
+      ADDR: ":8081"
 
       # SQLite DB + caches live here; bound to the named volume below.
       DATA_DIR: "/data"
