@@ -164,7 +164,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	defer cancelRefresh()
 	go m.periodicRefresh(refreshCtx, vehicleID, 2*time.Minute)
-	go m.chargingSessionPoller(refreshCtx, vehicleID, 30*time.Second)
+	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 
 	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
@@ -231,18 +231,21 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string, in
 	}
 }
 
-// chargingSessionPoller hits Rivian's chrg/user/graphql endpoint at
-// interval to pull real-time charging metrics (kW, SoC, minutes
-// remaining, range added). Only runs when the cached state reports
-// an active charging session — we don't spam the endpoint when
-// the car is parked offline.
+// chargingSessionMetadataFetcher pulls session-immutable metadata
+// (IsRivianCharger, StartTime) from Rivian's REST getLiveSessionHistory
+// endpoint exactly once per charging session. Live telemetry (power,
+// energy, SoC, time/range) comes via the Parallax and ChargingSession
+// WS subscriptions, so repeated REST polling is wasted work and — for
+// home-AC / L2 sessions where REST returns zero-filled bodies — risks
+// clobbering WS values on race.
 //
-// The result's PowerKW is merged into State.ChargerPowerKW so the
-// existing /api/state endpoint can render it without a second round
-// trip. Also cached separately for /api/live-session/:id callers.
-func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID string, interval time.Duration) {
-	t := time.NewTicker(interval)
+// Lifecycle: watches charger_state; on transition into an active
+// session fetches REST once and merges via applyLiveSession; on
+// transition out, resets so the next session gets a fresh fetch.
+func (m *StateMonitor) chargingSessionMetadataFetcher(ctx context.Context, vehicleID string) {
+	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
+	fetched := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -255,23 +258,28 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 				continue
 			}
 			cs := strings.ToLower(strings.TrimSpace(st.ChargerState))
-			if cs != "charging_active" && cs != "charging_connecting" {
+			charging := cs == "charging_active" || cs == "charging_connecting"
+			if !charging {
+				fetched = false
+				continue
+			}
+			if fetched {
 				continue
 			}
 			sess, err := m.client.LiveSession(ctx, vehicleID)
 			if err != nil {
 				if ctx.Err() == nil {
-					m.logger.Debug("rivian live-session poll failed", "vehicle", vehicleID, "err", err.Error())
+					m.logger.Debug("rivian live-session fetch failed", "vehicle", vehicleID, "err", err.Error())
 				}
 				continue
 			}
-			if sess == nil || !sess.Active {
+			if sess == nil {
 				continue
 			}
-			// Route through applyLiveSession so REST-reported zeros
-			// for home-AC fields can't clobber non-zero values from
-			// the WS Parallax / ChargingSession subscribers. Same
-			// merge semantics the WS path uses.
+			// Mark fetched even when sess.Active is false — REST
+			// reports active=false for home-AC sessions, but the
+			// StartTime / IsRivianCharger fields are still usable.
+			fetched = true
 			m.applyLiveSession(ctx, vehicleID, sess)
 		}
 	}
@@ -421,6 +429,13 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		// leave it false, so we keep prev's true value across pushes.
 		if prev.IsRivianCharger {
 			sess.IsRivianCharger = true
+		}
+		// Preserve Active once any source has set it true. The REST
+		// one-shot reports Active=false for home-AC sessions; without
+		// this guard it would briefly flip the WS-observed state to
+		// inactive.
+		if prev.Active {
+			sess.Active = true
 		}
 		// Field-level fallback: if this push reports zero for a
 		// field the prior snapshot populated, keep the prior value.
