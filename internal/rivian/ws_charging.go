@@ -13,10 +13,8 @@ import (
 // WebSocket endpoint. Unlike the REST getLiveSessionHistory — which
 // returns zeros for home AC / L1 / L2 — this pushes populated data
 // for every session type. Scalars are flat (not wrapped in
-// valueRecord envelopes like vehicleState). The $vehicleID variable
-// must be ID!; String! is accepted by Apollo but the resolver
-// returns all-null payloads.
-const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: ID!) {
+// valueRecord envelopes like vehicleState).
+const qChargingSessionSubscription = `subscription ChargingSession($vehicleID: String!) {
   chargingSession(vehicleId: $vehicleID) {
     __typename
     liveData {
