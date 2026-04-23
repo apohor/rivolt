@@ -106,6 +106,18 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		m.logger.Warn("rivian rest seed failed", "vehicle", vehicleID, "err", err.Error())
 	}
 
+	// Periodic REST refresh: Rivian's subscription only pushes fields
+	// that *change*, and it doesn't replay static fields (odometer,
+	// gear while parked, charge limit, lat/lon for a parked vehicle)
+	// on reconnect. If the initial REST seed happened while the car
+	// was asleep, those fields can come back null and remain zero in
+	// the cache indefinitely. Re-pulling REST every few minutes and
+	// merging it *under* the WS state (WS wins on overlap) keeps
+	// live delta freshness while backfilling anything Rivian dropped.
+	refreshCtx, cancelRefresh := context.WithCancel(ctx)
+	defer cancelRefresh()
+	go m.periodicRefresh(refreshCtx, vehicleID, 2*time.Minute)
+
 	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
 		m.mu.Lock()
 		// Rivian pushes deltas — each frame contains only the
@@ -122,6 +134,44 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	m.mu.Unlock()
 	if err != nil && ctx.Err() == nil {
 		m.logger.Warn("rivian ws subscribe ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// periodicRefresh pulls a fresh REST snapshot at interval and folds
+// it *under* whatever is cached — subscription deltas always win on
+// overlap, but REST fills in fields the subscription never pushes
+// for a parked/sleeping car (odometer, charge limit, etc.). Bails on
+// ctx cancellation.
+func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			st, err := m.client.State(ctx, vehicleID)
+			if err != nil {
+				if ctx.Err() == nil {
+					m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
+				}
+				continue
+			}
+			if st == nil {
+				continue
+			}
+			m.mu.Lock()
+			if m.cache[vehicleID] == nil {
+				m.cache[vehicleID] = st
+				m.stamp[vehicleID] = time.Now()
+			} else {
+				// mergeState(next=cached, prev=rest): cached values
+				// (which include WS deltas) win over REST where both
+				// are populated, REST fills in the zeros.
+				m.cache[vehicleID] = mergeState(st, m.cache[vehicleID])
+			}
+			m.mu.Unlock()
+		}
 	}
 }
 
