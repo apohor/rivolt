@@ -57,12 +57,16 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const s = state.data;
 
   // Gallery state. Rivian returns multiple configurator angles per
-  // vehicle (3/4 front, side, rear, interior, wheel detail). The
-  // default hero is pre-picked server-side; this lets the user click
-  // a thumbnail to swap the main image without leaving the page.
+  // vehicle (3/4 front, side, rear, interior, wheel detail). We pick
+  // an "auto" image that reflects what the car is doing — charging
+  // shows a side shot (where the charge port lives), driving shows
+  // the 3/4 front, frunk open shows the front, liftgate/tonneau shows
+  // the rear, and so on. Clicking a thumbnail overrides the auto
+  // pick; the "Auto" button resets.
   const gallery = vehicle.images ?? [];
-  const [activeImage, setActiveImage] = useState<string>(vehicle.image_url ?? "");
-  const heroUrl = activeImage || vehicle.image_url || "";
+  const [manualPick, setManualPick] = useState<string | null>(null);
+  const autoUrl = pickImageForState(gallery, s) || vehicle.image_url || "";
+  const heroUrl = manualPick || autoUrl;
 
   return (
     <Card
@@ -93,20 +97,35 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         </div>
       ) : null}
       {gallery.length > 1 ? (
-        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setManualPick(null)}
+            title="Auto (follow vehicle status)"
+            className={
+              "h-10 rounded border px-2 text-[10px] uppercase tracking-wide transition " +
+              (manualPick === null
+                ? "border-emerald-400/80 text-emerald-200 ring-1 ring-emerald-400/40"
+                : "border-neutral-700/60 text-neutral-400 hover:border-neutral-500")
+            }
+          >
+            auto
+          </button>
           {gallery.map((img) => {
-            const selected = img.url === heroUrl;
+            const selected = manualPick === img.url;
             return (
               <button
                 key={img.url}
                 type="button"
-                onClick={() => setActiveImage(img.url)}
+                onClick={() => setManualPick(img.url)}
                 title={img.placement || ""}
                 className={
                   "h-10 w-14 overflow-hidden rounded border transition " +
                   (selected
                     ? "border-emerald-400/80 ring-1 ring-emerald-400/40"
-                    : "border-neutral-700/60 hover:border-neutral-500")
+                    : img.url === autoUrl && manualPick === null
+                      ? "border-emerald-400/40"
+                      : "border-neutral-700/60 hover:border-neutral-500")
                 }
               >
                 <img
@@ -420,6 +439,78 @@ function ChargingDetail({
       ) : null}
     </div>
   );
+}
+
+// pickImageForState chooses which configurator angle best illustrates
+// the current vehicle state. Rivian tags each render with a
+// `placement` string like `side-exterior-3qfront-driver` or
+// `rear-exterior`. We score every image against the live state —
+// charging picks a side view (where the charge port lives), frunk
+// open picks a front angle, liftgate / tonneau open picks a rear
+// angle, driving picks a 3/4 front, and everything else falls back
+// to the marketing 3/4 front. Returns "" when there are no images.
+function pickImageForState(
+  images: readonly { url: string; placement?: string }[] | undefined,
+  state: VehicleState | undefined,
+): string {
+  if (!images || images.length === 0) return "";
+
+  // Decide which angle we want based on state.
+  type Want = "front" | "rear" | "side" | "3qfront" | "3qrear" | "interior";
+  const wants: Want[] = [];
+  if (state) {
+    const cs = (state.charger_state || "").toLowerCase();
+    const charging =
+      cs === "charging_active" ||
+      cs === "charging_connecting" ||
+      cs === "charging_ready" ||
+      cs === "charging_complete";
+    const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
+
+    if (!state.frunk_closed) wants.push("front", "3qfront");
+    if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "3qrear");
+    if (charging) wants.push("side", "3qfront");
+    if (driving) wants.push("3qfront", "front");
+    if (!state.doors_closed) wants.push("side");
+  }
+  // Universal fallback: the classic marketing 3/4 front.
+  wants.push("3qfront", "side", "front", "3qrear", "rear", "interior");
+
+  // Score each image; higher-priority wants give bigger bumps. Driver-
+  // side beats passenger-side on ties.
+  let bestURL = images[0].url;
+  let bestScore = -1;
+  for (const img of images) {
+    const p = (img.placement || "").toLowerCase();
+    let score = 0;
+    for (let i = 0; i < wants.length; i++) {
+      const w = wants[i];
+      const weight = wants.length - i; // earlier want = bigger weight
+      const match =
+        (w === "3qfront" && (p.includes("3qfront") || p.includes("3q-front"))) ||
+        (w === "3qrear" && (p.includes("3qrear") || p.includes("3q-rear"))) ||
+        (w === "side" && p.includes("side") && p.includes("exterior")) ||
+        (w === "front" &&
+          p.includes("front") &&
+          p.includes("exterior") &&
+          !p.includes("3q")) ||
+        (w === "rear" &&
+          p.includes("rear") &&
+          p.includes("exterior") &&
+          !p.includes("3q")) ||
+        (w === "interior" && p.includes("interior"));
+      if (match) {
+        score += weight;
+        break;
+      }
+    }
+    if (p.includes("driver")) score += 0.5;
+    if (score > bestScore) {
+      bestScore = score;
+      bestURL = img.url;
+    }
+  }
+  return bestURL;
 }
 
 function formatDuration(totalSeconds: number): string {
