@@ -1,30 +1,59 @@
 # Rivolt
 
-> A quiet rivolt against closed apps. Self-hosted Rivian companion with AI, home-energy integration, and an overland logbook.
+> The first Rivian companion with a real AI copilot. Self-hosted. Your data, your keys, your rules.
 
-**Rivolt** is an open-source, self-hosted companion for Rivian vehicles. It runs on your own hardware, keeps your credentials on your LAN, and gives you deeper insight into your drives, charging, efficiency, and routes than the official app.
+**Rivolt** is an open-source, self-hosted companion for Rivian vehicles with an **AI copilot at its core**. It runs on your own hardware, uses your own AI API key, and turns your drive and charge data into plain-language insight — not just another dashboard of charts.
 
 ---
 
 ## Why Rivolt
 
-Current Rivian companion apps (Rivian Roamer, Outpost, ElectraFi) are closed SaaS products that hold your Rivian credentials on their servers. They're good at what they do, but they all share four limitations:
+Current Rivian companion apps (Rivian Roamer, Outpost, ElectraFi) and the official app itself are **dashboards**. They show you numbers. None of them *explain* them. And all of them are closed SaaS.
 
-1. **Your data lives on someone else's server.** Disconnect anytime ≠ data sovereignty.
-2. **No AI.** They show you charts. They don't explain what the charts mean.
-3. **No home-energy awareness.** They don't know about your solar, your Powerwall, your TOU rate windows, or your Gen-2 V2H.
-4. **No overland / trip-journal primitive.** Closest is a drive history list.
+| | Official app | Roamer | Outpost | ElectraFi | **Rivolt** |
+|---|---|---|---|---|---|
+| AI copilot | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Self-hosted | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Credentials stay on your LAN | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Open source | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Home-energy aware | ❌ | ❌ | ❌ | ❌ | 🛣️ |
+| Overland logbook | ❌ | ❌ | ❌ | ❌ | 🛣️ |
 
-Rivolt is built to address all four.
+Rivolt is the first Rivian app to treat AI as a first-class primitive rather than a marketing afterthought.
 
-## What Rivolt does
+## 🤖 AI copilot (the differentiator)
+
+Every other Rivian app hands you a chart and leaves you to interpret it. Rivolt turns your own vehicle data into a conversation.
+
+**Hot-swappable providers.** OpenAI, Anthropic, and Google Gemini adapters ship in the box. Use the model you trust — or swap mid-week without losing history. Bring your own key; costs are yours and Rivolt never proxies calls.
+
+**Grounded in *your* data, not generic advice.** Every prompt is hydrated with your real drive traces, charge curves, battery temperatures, tire pressures, weather at the time, and electricity rate schedule. No hallucinated "try hypermiling!" tips — the coach points at the specific drive, the specific charge, the specific hour.
+
+**What it does today (v0.1):**
+
+- **Weekly driving digest** — 3-paragraph summary of your week: efficiency trend, cost, notable drives, anomalies
+- **"Why did my efficiency drop?"** — root-cause analysis across weather, payload, HVAC, tire pressure, route
+- **Trip planning** — given a destination, your historical curves, predicted weather, and home-charger schedule, recommend departure SoC + charging stops
+- **Charging strategy coach** — multi-leg road trip plans with fallbacks, tuned to *your* vehicle's observed DC fast-charge curve
+- **Anomaly alerts** — notifies when something in your data looks off (sudden range drop, phantom drain spike, unexpected BMS behavior)
+
+**What's coming (v0.2+):**
+
+- **Natural-language queries** — "what was my most efficient drive this month?", "how much did I spend charging in April?"
+- **Voice-in via Web Speech API** — ask questions from the truck before a trip
+- **Photo understanding** — attach a charger screen photo; AI logs cost/kWh/session ID automatically
+- **Pre-departure brief** — a 30-second AI summary pushed as a notification before you leave the garage
+- **Self-learning trip model** — AI improves its efficiency predictions the more you drive
+
+**On privacy.** Your AI calls go *directly* from your Rivolt server to the provider you chose. Rivolt operates no AI proxy, no analytics, no telemetry. Caching happens on your disk.
+
+## What else Rivolt does
 
 Core (free, open-source, self-hosted):
 
 - **Live vehicle dashboard** — SoC, range, charge state, last drive, last charge
 - **Drive analytics** — route maps, efficiency breakdowns, cost-per-mile using your actual electricity rate
 - **Charging analytics** — curves, temperature impact, session cost, BMS effects
-- **AI coach (bring your own key)** — plain-language weekly summaries, trip planning, "why did my efficiency drop" explanations grounded in *your* data, using your own OpenAI / Anthropic / Gemini key
 - **Installable PWA** — works on any browser; service-worker offline; web push for plug-in reminders, update alerts, departure prep
 
 Planned add-ons (not in the initial release):
