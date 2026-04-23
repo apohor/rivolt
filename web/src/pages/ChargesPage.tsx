@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import {
@@ -39,6 +40,7 @@ export default function ChargesPage() {
 }
 
 function ChargeTable({ charges }: { charges: Charge[] }) {
+  const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -54,7 +56,11 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
         </thead>
         <tbody className="divide-y divide-neutral-800">
           {charges.map((c) => (
-            <tr key={c.ID} className="hover:bg-neutral-900/40">
+            <tr
+              key={c.ID}
+              className="cursor-pointer hover:bg-neutral-900/60"
+              onClick={() => navigate(`/charges/${c.ID}`)}
+            >
               <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(c.StartedAt)}
               </td>

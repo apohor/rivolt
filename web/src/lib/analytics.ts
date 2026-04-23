@@ -1,0 +1,146 @@
+// Aggregation helpers for drives/charges. Pure functions — easy to
+// unit-test later and keep UI components thin.
+
+import type { Drive, Charge } from "./api";
+
+export type WindowKey = "7d" | "30d" | "90d" | "365d" | "all";
+
+export const WINDOW_OPTIONS: { key: WindowKey; label: string }[] = [
+  { key: "7d", label: "7 days" },
+  { key: "30d", label: "30 days" },
+  { key: "90d", label: "90 days" },
+  { key: "365d", label: "1 year" },
+  { key: "all", label: "All" },
+];
+
+export function windowStart(key: WindowKey, now = new Date()): Date | null {
+  if (key === "all") return null;
+  const days = key === "7d" ? 7 : key === "30d" ? 30 : key === "90d" ? 90 : 365;
+  const d = new Date(now);
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+export function filterByWindow<T extends { StartedAt: string }>(
+  items: T[],
+  key: WindowKey,
+): T[] {
+  const since = windowStart(key);
+  if (!since) return items;
+  const ms = since.getTime();
+  return items.filter((it) => new Date(it.StartedAt).getTime() >= ms);
+}
+
+export type DriveStats = {
+  count: number;
+  miles: number;
+  socUsedPct: number; // sum of (start - end) across drives; coarse
+  milesPerPct: number; // rough efficiency proxy
+  avgTripMi: number;
+  longestMi: number;
+  maxSpeedMph: number;
+};
+
+export function driveStats(drives: Drive[]): DriveStats {
+  const count = drives.length;
+  const miles = sum(drives.map((d) => d.DistanceMi || 0));
+  const socUsedPct = sum(
+    drives.map((d) => Math.max(0, (d.StartSoCPct || 0) - (d.EndSoCPct || 0))),
+  );
+  const milesPerPct = socUsedPct > 0 ? miles / socUsedPct : 0;
+  const avgTripMi = count > 0 ? miles / count : 0;
+  const longestMi = drives.reduce((m, d) => Math.max(m, d.DistanceMi || 0), 0);
+  const maxSpeedMph = drives.reduce((m, d) => Math.max(m, d.MaxSpeedMph || 0), 0);
+  return { count, miles, socUsedPct, milesPerPct, avgTripMi, longestMi, maxSpeedMph };
+}
+
+export type ChargeStats = {
+  count: number;
+  energyKWh: number;
+  addedPct: number;
+  avgDurationMin: number;
+  maxPowerKW: number;
+};
+
+export function chargeStats(charges: Charge[]): ChargeStats {
+  const count = charges.length;
+  const energyKWh = sum(charges.map((c) => c.EnergyAddedKWh || 0));
+  const addedPct = sum(
+    charges.map((c) => Math.max(0, (c.EndSoCPct || 0) - (c.StartSoCPct || 0))),
+  );
+  const durations = charges.map(
+    (c) => (new Date(c.EndedAt).getTime() - new Date(c.StartedAt).getTime()) / 60000,
+  );
+  const avgDurationMin =
+    durations.length > 0 ? sum(durations) / durations.length : 0;
+  const maxPowerKW = charges.reduce((m, c) => Math.max(m, c.MaxPowerKW || 0), 0);
+  return { count, energyKWh, addedPct, avgDurationMin, maxPowerKW };
+}
+
+// Bucket drives by local calendar day. Days with no drives show 0.
+export function milesPerDay(
+  drives: Drive[],
+  days: number,
+  now = new Date(),
+): { label: string; value: number; x: number }[] {
+  const buckets = new Map<string, number>();
+  for (const d of drives) {
+    const t = new Date(d.StartedAt);
+    const key = ymd(t);
+    buckets.set(key, (buckets.get(key) ?? 0) + (d.DistanceMi || 0));
+  }
+  const out: { label: string; value: number; x: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const t = new Date(now);
+    t.setDate(t.getDate() - i);
+    const key = ymd(t);
+    out.push({
+      label: key,
+      value: buckets.get(key) ?? 0,
+      x: t.getTime(),
+    });
+  }
+  return out;
+}
+
+// Drive endpoints as SoC trend. Each drive contributes two points:
+// (StartedAt, StartSoCPct) and (EndedAt, EndSoCPct). Plus charge
+// endpoints. Sorted by time.
+export function socTrend(
+  drives: Drive[],
+  charges: Charge[],
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  for (const d of drives) {
+    if (Number.isFinite(d.StartSoCPct) && d.StartSoCPct > 0) {
+      pts.push({ x: new Date(d.StartedAt).getTime(), y: d.StartSoCPct });
+    }
+    if (Number.isFinite(d.EndSoCPct) && d.EndSoCPct > 0) {
+      pts.push({ x: new Date(d.EndedAt).getTime(), y: d.EndSoCPct });
+    }
+  }
+  for (const c of charges) {
+    if (Number.isFinite(c.StartSoCPct) && c.StartSoCPct > 0) {
+      pts.push({ x: new Date(c.StartedAt).getTime(), y: c.StartSoCPct });
+    }
+    if (Number.isFinite(c.EndSoCPct) && c.EndSoCPct > 0) {
+      pts.push({ x: new Date(c.EndedAt).getTime(), y: c.EndSoCPct });
+    }
+  }
+  pts.sort((a, b) => a.x - b.x);
+  return pts;
+}
+
+function sum(xs: number[]): number {
+  let s = 0;
+  for (const x of xs) s += x;
+  return s;
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function pad(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
