@@ -59,6 +59,7 @@ Usage:
 
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+  RIVIAN_CLIENT=stub|live|mock   (default: stub)
 `)
 }
 
@@ -124,7 +125,21 @@ func runServer() {
 		}
 	}
 
-	var rivianClient rivian.Client = rivian.NewStub()
+	var rivianClient rivian.Client
+	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
+	case "live":
+		rivianClient = rivian.NewLive()
+		logger.Info("rivian client: live (real Rivian API)")
+	case "mock":
+		mc := rivian.NewMock()
+		// Pre-login the mock so Vehicles/State work immediately; the
+		// real client requires explicit Login via Settings.
+		_ = mc.Login(ctx, rivian.Credentials{})
+		rivianClient = mc
+		logger.Info("rivian client: mock (fixture data)")
+	default:
+		rivianClient = rivian.NewStub()
+	}
 
 	drivesStore, err := drives.OpenStore(dbPath)
 	if err != nil {
