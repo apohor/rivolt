@@ -11,22 +11,15 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
-// an inline DOM marker so the default <Marker> works without bundler
-// asset plumbing. The dot sits on a white ring so it stays visible
-// against both the emerald polyline and the dark basemap. Emerald for
-// start, rose for end. Label is rendered on the marker itself rather
-// than in a tooltip so it's visible without hover on touch devices.
-function labeledIcon(color: string, label: string): L.DivIcon {
-  const size = 22;
+// an inline DOM marker so we don't need bundler asset plumbing.
+// Emerald for start, rose for end, amber for charge. A thin dark ring
+// keeps the dot legible against both the polyline and the basemap.
+function circleIcon(color: string): L.DivIcon {
   return L.divIcon({
     className: "rivolt-map-marker",
-    html:
-      `<div style="position:relative;width:${size}px;height:${size}px;">` +
-      `<span style="position:absolute;inset:0;border-radius:9999px;background:${color};border:3px solid #ffffff;box-shadow:0 0 0 2px #0a0a0a,0 2px 6px rgba(0,0,0,0.6);"></span>` +
-      `<span style="position:absolute;left:50%;top:-22px;transform:translateX(-50%);font:600 10px/1 ui-sans-serif,system-ui;color:#f5f5f4;background:rgba(10,10,10,0.85);border:1px solid ${color};padding:2px 6px;border-radius:4px;letter-spacing:0.04em;white-space:nowrap;">${label}</span>` +
-      `</div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
+    html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:${color};border:2px solid #0a0a0a;box-shadow:0 0 0 2px ${color}33;"></span>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
   });
 }
 
@@ -88,17 +81,35 @@ export function DriveMap({
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
     }
 
-    if (start && Number.isFinite(start.lat) && (start.lat !== 0 || start.lon !== 0)) {
-      L.marker([start.lat, start.lon], {
-        icon: labeledIcon("#10b981", "START"),
+    // Prefer the actual first/last polyline points over any caller-supplied
+    // start/end. The stored Drive.Start/EndLat come from different telemetry
+    // events than the GPS samples, so on round-trips they can be ~hundreds
+    // of meters from the real "home" point where the trace begins and ends.
+    // Using the polyline endpoints makes a home→…→home drive correctly show
+    // both pins at the same spot.
+    const lineStart: Point | undefined = valid[0] ?? start;
+    const lineEnd: Point | undefined = valid[valid.length - 1] ?? end;
+
+    if (lineStart) {
+      L.marker([lineStart.lat, lineStart.lon], {
+        icon: circleIcon("#10b981"),
         zIndexOffset: 1000,
-      }).addTo(map);
+      })
+        .addTo(map)
+        .bindTooltip("Start", { direction: "top" });
     }
-    if (end && Number.isFinite(end.lat) && (end.lat !== 0 || end.lon !== 0)) {
-      L.marker([end.lat, end.lon], {
-        icon: labeledIcon("#f43f5e", "END"),
+    if (
+      lineEnd &&
+      (!lineStart ||
+        lineEnd.lat !== lineStart.lat ||
+        lineEnd.lon !== lineStart.lon)
+    ) {
+      L.marker([lineEnd.lat, lineEnd.lon], {
+        icon: circleIcon("#f43f5e"),
         zIndexOffset: 1000,
-      }).addTo(map);
+      })
+        .addTo(map)
+        .bindTooltip("End", { direction: "top" });
     }
 
     // Leaflet reads the container size on init; if we mount inside a
@@ -166,9 +177,11 @@ export function ChargeMap({
       },
     ).addTo(map);
     L.marker([lat, lon], {
-      icon: labeledIcon("#f59e0b", "CHARGE"),
+      icon: circleIcon("#f59e0b"),
       zIndexOffset: 1000,
-    }).addTo(map);
+    })
+      .addTo(map)
+      .bindTooltip("Charge location", { direction: "top" });
     const invalidate = () => map.invalidateSize();
     const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
     const ro = new ResizeObserver(invalidate);
