@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
-import { Card, Spinner, ErrorBox } from "../components/ui";
+import { Card, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
 import {
   durationSeconds,
@@ -20,7 +20,6 @@ import {
   type WindowKey,
 } from "../lib/analytics";
 import { WindowPicker } from "../components/WindowPicker";
-import { LiveSummary } from "../components/LiveSummary";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -80,7 +79,6 @@ export default function HomePage() {
     [winDrives, winCharges],
   );
 
-  const isLoading = drives.isLoading || charges.isLoading;
   const isError = drives.isError || charges.isError;
 
   return (
@@ -94,35 +92,14 @@ export default function HomePage() {
         <WindowPicker value={win} onChange={setWin} />
       </div>
 
-      {/* Slim glanceable strip: current SoC + remaining range in a
-          single row. Always visible (even before the Live card
-          resolves) so the most important numbers never sit below
-          the fold. */}
-      {liveSoC > 0 || liveState.data ? (
-        <div className="flex items-baseline justify-between rounded-xl border border-neutral-800 bg-neutral-900/50 px-4 py-3">
-          <div className="flex items-baseline gap-4 tabular-nums">
-            <span className="text-3xl font-semibold text-emerald-300">
-              {pct(liveSoC, 0)}
-            </span>
-            <span className="text-xl text-neutral-300">
-              {num(
-                (liveState.data?.distance_to_empty ?? 0) * 0.6213711922,
-                0,
-                "mi",
-              )}
-            </span>
-          </div>
-          <span className="text-[11px] uppercase tracking-wide text-neutral-500">
-            battery · range
-          </span>
-        </div>
-      ) : null}
-
-      <LiveSummary />
-
-      {isLoading ? (
-        <Spinner />
-      ) : isError ? (
+      {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
+          at the top of the data area now — it's the highest-signal
+          row on the page. Battery uses the live SoC so it also
+          doubles as the "current state" readout that used to live
+          in the separate LiveSummary card. Renders even while
+          drives/charges are still loading; the derived stats fill
+          in once those queries settle. */}
+      {isError ? (
         <ErrorBox
           title="Failed to load sessions"
           detail={String(drives.error ?? charges.error)}
@@ -285,55 +262,45 @@ function EmptyState({ kind }: { kind: string }) {
   return <p className="text-sm text-neutral-500">No {kind}.</p>;
 }
 
-// HeroBanner is the marketing-style top frame for the Overview — a
-// tagline pill, two-line headline, short product description, and a
-// CTA into the live view. Matches the visual structure of Caffeine's
-// home hero so the two self-hosted apps feel like a family. The
-// decorative lightning glyph floats in the right third of the banner
-// and is purely ornamental.
+// HeroBanner is a compact marketing frame at the top of the
+// Overview. Kept tight on vertical space so KPIs and data stay in
+// the first viewport on small screens: one-line headline, shorter
+// description, smaller padding. Matches the Caffeine home hero
+// visually (emerald tagline pill, two-tone headline) but trades
+// marketing breathing room for data density.
 function HeroBanner() {
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 px-6 py-8 sm:px-8 sm:py-10">
-      {/* Decorative lightning bolt — emerald, heavily faded. Sits
-          absolutely in the right half and is cropped on narrow
-          viewports so it never competes with the headline. */}
+    <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 px-5 py-4 sm:px-6 sm:py-5">
       <svg
         aria-hidden="true"
         viewBox="0 0 24 24"
-        className="pointer-events-none absolute -right-4 top-1/2 hidden h-48 w-48 -translate-y-1/2 text-emerald-500/10 md:block"
+        className="pointer-events-none absolute -right-2 top-1/2 hidden h-28 w-28 -translate-y-1/2 text-emerald-500/10 md:block"
         fill="currentColor"
       >
         <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
       </svg>
-      <div className="relative max-w-2xl">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs text-emerald-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          Your Rivian, your data
-        </span>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-          <span className="block text-neutral-100">Drive more.</span>
-          <span className="block text-emerald-300">Know it better.</span>
-        </h1>
-        <p className="mt-3 max-w-xl text-sm text-neutral-400 sm:text-base">
-          Live telemetry from your Rivian, a full history of drives and
-          charges with charts, and session-level cost tracking for home
-          and public charging. Runs on your network — nothing leaves
-          the box.
-        </p>
-        <div className="mt-5 flex items-center gap-3">
-          <Link
-            to="/live"
-            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow hover:bg-emerald-500"
-          >
-            Live view →
-          </Link>
-          <Link
-            to="/drives"
-            className="text-sm text-neutral-400 hover:text-neutral-200"
-          >
-            Browse history
-          </Link>
+      <div className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Your Rivian, your data
+            </span>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl">
+              <span className="text-neutral-100">Drive more.</span>{" "}
+              <span className="text-emerald-300">Know it better.</span>
+            </h1>
+          </div>
+          <p className="mt-1 text-[12px] text-neutral-400 sm:text-sm">
+            Live telemetry, full drive & charge history, session-level cost tracking. Runs on your network.
+          </p>
         </div>
+        <Link
+          to="/live"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-emerald-500 sm:text-sm"
+        >
+          Live view →
+        </Link>
       </div>
     </section>
   );
