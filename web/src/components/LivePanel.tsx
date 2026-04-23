@@ -2,10 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { backend, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
+import { formatTemperature, usePreferences } from "../lib/preferences";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
-const cToF = (c: number) => c * 1.8 + 32;
 const kphToMph = (k: number) => k * 0.6213711922;
 const barToPsi = (b: number) => b * 14.5037738;
 const mToFt = (m: number) => m * 3.2808399;
@@ -50,6 +50,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
     refetchInterval: 30_000,
     retry: 1,
   });
+  const { temperatureUnit: tempUnit } = usePreferences();
 
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
@@ -104,8 +105,8 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           </Section>
 
           <Section title="Climate">
-            <Field label="Cabin" value={num(cToF(s.cabin_temp_c), 0, "°F")} />
-            <Field label="Outside" value={num(cToF(s.outside_temp_c), 0, "°F")} />
+            <Field label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
+            <Field label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
             <Field
               label="Precondition"
               value={formatTitle(s.cabin_preconditioning_status)}
