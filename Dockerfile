@@ -17,6 +17,11 @@ RUN mkdir -p /internal/web && npm run build
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
+# VERSION is stamped into main.version via -ldflags -X. The workflow
+# passes docker/metadata-action's {{version}} output; local builds can
+# override with `docker build --build-arg VERSION=v0.1.0 .`. When not
+# provided, the Go default ("dev") stays in place.
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -27,7 +32,7 @@ ENV CGO_ENABLED=0
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/rivolt ./cmd/rivolt
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/rivolt ./cmd/rivolt
 # Pre-create a /data directory owned by distroless "nonroot" (uid 65532) so
 # the named volume mounts it with the right ownership on first run.
 RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
