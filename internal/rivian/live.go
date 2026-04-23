@@ -693,6 +693,41 @@ func parseSecondsString(s string) (int64, error) {
 	return n, err
 }
 
+// ChargingSchemaProbe runs an introspection query against the
+// charging GraphQL endpoint to discover which top-level fields exist
+// and which arguments they accept. Used to recover after Rivian
+// renames/removes a field (as happened when getLiveSessionData was
+// replaced with getSessionStatus/getLiveSessionHistory).
+//
+// Returns the raw `__schema.queryType.fields` array so callers can
+// introspect field names and arg shapes.
+func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, errors.New("rivian: not authenticated; call Login first")
+	}
+	const q = `query __Introspect {
+  __schema {
+    queryType {
+      fields {
+        name
+        args { name type { name kind ofType { name kind } } }
+        type { name kind ofType { name kind } }
+      }
+    }
+  }
+}`
+	data, err := doGraphQLAt[map[string]any](ctx, c, DefaultChargingEndpoint, graphQLRequest{
+		OperationName: "__Introspect",
+		Query:         q,
+	}, c.authHeaders())
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // State returns the current snapshot for a vehicle. Units are what the
 // server gave us: battery in percent, distances in kilometers, temps
 // in Celsius. The odometer field is exposed as-is (kilometers); the
