@@ -27,11 +27,54 @@ CREATE TABLE IF NOT EXISTS charges (
     final_state      TEXT,
     lat              REAL,
     lon              REAL,
-    source           TEXT NOT NULL
+    source           TEXT NOT NULL,
+    cost             REAL,
+    currency         TEXT,
+    price_per_kwh    REAL
 );
 CREATE INDEX IF NOT EXISTS charges_started_at ON charges(started_at);
 CREATE INDEX IF NOT EXISTS charges_vehicle_id ON charges(vehicle_id);
 `
+
+// migrate adds the cost/currency/price_per_kwh columns to any
+// pre-existing database that was created before they were part of
+// the schema. SQLite has no ADD COLUMN IF NOT EXISTS, so we probe
+// table_info and add only the missing ones.
+func migrate(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(charges)")
+	if err != nil {
+		return fmt.Errorf("pragma table_info: %w", err)
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	adds := []struct{ name, ddl string }{
+		{"cost", "ALTER TABLE charges ADD COLUMN cost REAL"},
+		{"currency", "ALTER TABLE charges ADD COLUMN currency TEXT"},
+		{"price_per_kwh", "ALTER TABLE charges ADD COLUMN price_per_kwh REAL"},
+	}
+	for _, a := range adds {
+		if have[a.name] {
+			continue
+		}
+		if _, err := db.Exec(a.ddl); err != nil {
+			return fmt.Errorf("add column %s: %w", a.name, err)
+		}
+	}
+	return nil
+}
 
 // Charge is a single charging session.
 type Charge struct {
@@ -48,6 +91,16 @@ type Charge struct {
 	FinalState     string // e.g. "Complete", "Disconnected", "charging_station_err"
 	Lat, Lon       float64
 	Source         string // "live" | "electrafi_import"
+	// Cost is the total session cost in Currency. 0 when unknown
+	// (legacy rows, imports that don't include price). Populated at
+	// session close either from a Rivian-reported RAN/Wall Charger
+	// price or from the operator's configured home $/kWh × energy.
+	Cost     float64
+	Currency string
+	// PricePerKWh is the effective $/kWh used to compute Cost at the
+	// time the charge closed. Snapshotting it means rate changes
+	// don't retroactively rewrite history.
+	PricePerKWh float64
 }
 
 // Store wraps access to the charges table.
@@ -63,6 +116,10 @@ func OpenStore(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &Store{db: db}, nil
 }
 
@@ -77,8 +134,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			start_soc_pct, end_soc_pct,
 			energy_added_kwh, miles_added,
 			max_power_kw, avg_power_kw, final_state,
-			lat, lon, source
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			lat, lon, source,
+			cost, currency, price_per_kwh
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET
 			vehicle_id       = excluded.vehicle_id,
 			started_at       = excluded.started_at,
@@ -92,12 +150,16 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			final_state      = excluded.final_state,
 			lat              = excluded.lat,
 			lon              = excluded.lon,
-			source           = excluded.source`,
+			source           = excluded.source,
+			cost             = excluded.cost,
+			currency         = excluded.currency,
+			price_per_kwh    = excluded.price_per_kwh`,
 		c.ID, c.VehicleID, c.StartedAt.Unix(), c.EndedAt.Unix(),
 		c.StartSoCPct, c.EndSoCPct,
 		c.EnergyAddedKWh, c.MilesAdded,
 		c.MaxPowerKW, c.AvgPowerKW, c.FinalState,
 		c.Lat, c.Lon, c.Source,
+		c.Cost, c.Currency, c.PricePerKWh,
 	)
 	return err
 }
@@ -121,7 +183,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       start_soc_pct, end_soc_pct,
 		       energy_added_kwh, miles_added,
 		       max_power_kw, avg_power_kw, final_state,
-		       lat, lon, source
+		       lat, lon, source,
+		       COALESCE(cost, 0), COALESCE(currency, ''), COALESCE(price_per_kwh, 0)
 		FROM charges ORDER BY started_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -136,6 +199,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.EnergyAddedKWh, &c.MilesAdded,
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
+			&c.Cost, &c.Currency, &c.PricePerKWh,
 		); err != nil {
 			return nil, err
 		}
@@ -161,7 +225,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, vehicleID string) (*Charge, 
 		       start_soc_pct, end_soc_pct,
 		       energy_added_kwh, miles_added,
 		       max_power_kw, avg_power_kw, final_state,
-		       lat, lon, source
+		       lat, lon, source,
+		       COALESCE(cost, 0), COALESCE(currency, ''), COALESCE(price_per_kwh, 0)
 		FROM charges
 		WHERE source = 'live'
 		  AND vehicle_id = ?
@@ -177,6 +242,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, vehicleID string) (*Charge, 
 		&c.EnergyAddedKWh, &c.MilesAdded,
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
+		&c.Cost, &c.Currency, &c.PricePerKWh,
 	); err != nil {
 		return nil, err
 	}

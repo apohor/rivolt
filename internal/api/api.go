@@ -446,6 +446,13 @@ type chargeResponse struct {
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeResponse {
 	resp := chargeResponse{Charge: c}
+	// Persisted cost wins: it was snapshotted at the rate in effect
+	// when the session closed. Only fall back to the current rate
+	// for legacy rows (imports, pre-v0.3.29 live) that have no
+	// persisted cost.
+	if c.Cost > 0 {
+		return resp
+	}
 	if cfg.HomePricePerKWh > 0 && c.EnergyAddedKWh > 0 {
 		resp.EstimatedCost = cfg.HomePricePerKWh * c.EnergyAddedKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency

@@ -194,8 +194,13 @@ export type Charge = {
   Lat: number;
   Lon: number;
   Source: string;
+  // Cost is the persisted total session cost in Currency, snapshotted
+  // at close time. Zero for legacy rows (imports, pre-v0.3.29 live).
+  Cost: number;
+  Currency: string;
+  PricePerKWh: number;
   // Locally-computed cost using the home $/kWh rate. Present when
-  // both a rate is configured and EnergyAddedKWh > 0.
+  // Cost is zero AND both a rate is configured and EnergyAddedKWh > 0.
   estimated_cost?: number;
   estimated_currency?: string;
 };

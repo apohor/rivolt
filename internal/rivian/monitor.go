@@ -58,7 +58,21 @@ type StateMonitor struct {
 	// pick an accurate pack size for the SoC-delta energy fallback.
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
+
+	// priceLookup returns the operator-configured home $/kWh rate
+	// and currency at the time of call. Consulted by the recorder
+	// when persisting a charge whose Rivian-reported price is absent
+	// (every home AC / L2 session). Nil means "don't snapshot a
+	// cost" — the charge row lands with Cost=0 and the read-path
+	// decorator computes an estimate instead.
+	priceLookup PriceLookup
 }
+
+// PriceLookup returns the current home electricity rate and its
+// ISO-4217 currency code. Rate of 0 means "not configured"; callers
+// should leave the persisted cost at zero in that case so it doesn't
+// show up as a misleading $0.00 in history.
+type PriceLookup func() (ratePerKWh float64, currency string)
 
 // NewStateMonitor wraps a live client. Pass a logger (usually from
 // main.go's structured logger). nil is allowed; events will be
@@ -86,6 +100,15 @@ func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drive
 	m.samplesStore = samplesStore
 	m.drivesStore = drivesStore
 	m.chargesStore = chargesStore
+}
+
+// SetPriceLookup wires a callback the recorder uses to stamp each
+// closed charge with the current home $/kWh rate. Safe to call at
+// any time; a nil value disables cost snapshotting.
+func (m *StateMonitor) SetPriceLookup(fn PriceLookup) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.priceLookup = fn
 }
 
 // Start binds the monitor to a parent context. All subscriptions
