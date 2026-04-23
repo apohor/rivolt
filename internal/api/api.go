@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -64,9 +65,11 @@ func New(d Deps) http.Handler {
 			r.Post("/unsubscribe", handlePushUnsubscribe(d.PushStore))
 		})
 
-		// Stub vehicle routes — return empty arrays until the Rivian
-		// client is wired. Lets the web UI render a graceful empty state.
+		// Rivian live endpoints. /api/vehicles returns [] when no real
+		// client is configured (the stub returns ErrNotImplemented);
+		// other errors surface as 502 so the UI can show them.
 		r.Get("/vehicles", handleVehicles(d.Rivian))
+		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian))
 
 		// Read-only session/telemetry endpoints. Populated by either the
 		// ElectraFi importer or the (future) live Rivian ingester.
@@ -104,13 +107,43 @@ func handleVehicles(c rivian.Client) http.HandlerFunc {
 		}
 		vs, err := c.Vehicles(r.Context())
 		if err != nil {
-			// ErrNotImplemented + any transient failure land here. For
-			// the v0 UX we treat both as "no vehicles yet"; a richer
-			// diagnostic lives on the Settings page.
-			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+			// Stub client just hasn't been configured — empty list is
+			// fine. Real failures (network, auth, upstream) surface so
+			// the UI can say what's wrong.
+			if errors.Is(err, rivian.ErrNotImplemented) {
+				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+				return
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, vs)
+	}
+}
+
+// handleVehicleState returns a current snapshot for the given vehicle.
+// 404 if no live client is configured, 502 for upstream failures.
+func handleVehicleState(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if c == nil {
+			http.Error(w, "no rivian client configured", http.StatusNotFound)
+			return
+		}
+		id := chi.URLParam(r, "vehicleID")
+		if id == "" {
+			http.Error(w, "vehicleID required", http.StatusBadRequest)
+			return
+		}
+		st, err := c.State(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, rivian.ErrNotImplemented) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
 	}
 }
 
