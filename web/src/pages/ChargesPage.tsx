@@ -63,6 +63,7 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
             <th className="py-2 pr-4 font-medium">SoC</th>
             <th className="py-2 pr-4 font-medium">Energy</th>
             <th className="py-2 pr-4 font-medium">Max kW</th>
+            <th className="py-2 pr-4 font-medium">Cost</th>
             <th className="py-2 pr-4 font-medium">Final state</th>
           </tr>
         </thead>
@@ -87,6 +88,11 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(c.MaxPowerKW, 1)}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {c.estimated_cost && c.estimated_cost > 0
+                  ? `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency ?? ""}`.trim()
+                  : "—"}
               </td>
               <td className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
             </tr>

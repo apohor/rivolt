@@ -39,6 +39,10 @@ export default function SettingsPage() {
         <DisplayPreferences />
       </Card>
 
+      <Card title="Home charging cost">
+        <ChargingCostPanel />
+      </Card>
+
       <Card title="Import ElectraFi CSV">
         <ImportPanel />
       </Card>
@@ -92,6 +96,95 @@ function DisplayPreferences() {
         </p>
       </div>
     </div>
+  );
+}
+
+// ChargingCostPanel lets the operator configure the home $/kWh rate
+// used to estimate the cost of sessions Rivian reports as free —
+// every home-AC / L2 session on non-RAN chargers. Rate × observed
+// energy (from the Parallax WS stream) drives estimated_cost on
+// /api/charges and /api/live-session responses.
+function ChargingCostPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["charging-settings"],
+    queryFn: () => backend.getChargingSettings(),
+  });
+  const [price, setPrice] = useState<string>("");
+  const [currency, setCurrency] = useState<string>("USD");
+  const [loaded, setLoaded] = useState(false);
+  if (!loaded && q.data) {
+    setPrice(q.data.home_price_per_kwh ? String(q.data.home_price_per_kwh) : "");
+    setCurrency(q.data.home_currency || "USD");
+    setLoaded(true);
+  }
+  const mut = useMutation({
+    mutationFn: () =>
+      backend.setChargingSettings({
+        home_price_per_kwh: Number(price) || 0,
+        home_currency: currency.toUpperCase() || "USD",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["charging-settings"] });
+      qc.invalidateQueries({ queryKey: ["charges"] });
+      qc.invalidateQueries({ queryKey: ["live-session"] });
+    },
+  });
+  if (q.isLoading) return <Spinner />;
+  if (q.isError)
+    return <ErrorBox title="Failed to load" detail={String(q.error)} />;
+  return (
+    <form
+      className="space-y-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        mut.mutate();
+      }}
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label htmlFor="home-price" className="block text-xs text-neutral-400 mb-1">
+            Price per kWh
+          </label>
+          <input
+            id="home-price"
+            type="number"
+            step="0.001"
+            min="0"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="0.14"
+            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          />
+        </div>
+        <div>
+          <label htmlFor="home-currency" className="block text-xs text-neutral-400 mb-1">
+            Currency
+          </label>
+          <input
+            id="home-currency"
+            type="text"
+            maxLength={3}
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={mut.isPending}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {mut.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">
+        Applied locally to sessions Rivian reports as free (home AC, L2 on
+        non-RAN chargers). Leave at 0 to disable.
+      </p>
+      {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}
+    </form>
   );
 }
 
