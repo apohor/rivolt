@@ -728,6 +728,64 @@ func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, e
 	return data, nil
 }
 
+// ChargingFieldProbe fires a deliberately malformed query for the
+// named top-level field against the charging endpoint. Rivian's
+// server responds with argument/subfield validation errors that
+// reveal the required input types and selection-set shape. We use
+// this to reverse-engineer renamed fields when introspection is
+// disabled.
+func (c *LiveClient) ChargingFieldProbe(ctx context.Context, field, vehicleID string) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, errors.New("rivian: not authenticated; call Login first")
+	}
+	if field == "" {
+		return nil, errors.New("field required")
+	}
+	// Empty selection + no arguments forces the server to emit
+	// "Field X requires args Y" or "Field X must have a selection of
+	// subfields" depending on which check fails first.
+	q := fmt.Sprintf(`query Probe { %s }`, field)
+	vars := map[string]any{}
+	if vehicleID != "" {
+		// Try a couple of likely arg names in one shot — server
+		// will reject at most one but the error message lists the
+		// real arg list.
+		q = fmt.Sprintf(`query Probe($vehicleId: ID!, $vid: String!) { %s(vehicleId: $vehicleId) }`, field)
+		vars["vehicleId"] = vehicleID
+		vars["vid"] = vehicleID
+	}
+	// Use a raw POST so we surface the error body instead of
+	// failing out in doGraphQLAt's HTTP 400 handler.
+	body, _ := json.Marshal(graphQLRequest{OperationName: "Probe", Query: q, Variables: vars})
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, DefaultChargingEndpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("apollographql-client-name", c.clientName)
+	httpReq.Header.Set("User-Agent", "rivolt/0.1 (+https://github.com/apohor/rivolt)")
+	for k, v := range c.authHeaders() {
+		if v != "" {
+			httpReq.Header.Set(k, v)
+		}
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	var out map[string]any
+	if jerr := json.Unmarshal(raw, &out); jerr != nil {
+		return map[string]any{"status": resp.StatusCode, "raw": string(raw)}, nil
+	}
+	out["_status"] = resp.StatusCode
+	return out, nil
+}
+
 // State returns the current snapshot for a vehicle. Units are what the
 // server gave us: battery in percent, distances in kilometers, temps
 // in Celsius. The odometer field is exposed as-is (kilometers); the
