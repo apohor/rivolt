@@ -104,6 +104,11 @@ export type LiveSession = {
   current_currency: string;
   is_free_session: boolean;
   is_rivian_charger: boolean;
+  // estimated_cost is computed locally from the operator-configured
+  // home $/kWh rate × total_charged_energy_kwh whenever Rivian reports
+  // no price (home AC / L2 sessions are always flagged free upstream).
+  estimated_cost?: number;
+  estimated_currency?: string;
 };
 
 // VehicleState matches internal/rivian.State. Units are SI at the wire:
@@ -189,6 +194,15 @@ export type Charge = {
   Lat: number;
   Lon: number;
   Source: string;
+  // Locally-computed cost using the home $/kWh rate. Present when
+  // both a rate is configured and EnergyAddedKWh > 0.
+  estimated_cost?: number;
+  estimated_currency?: string;
+};
+
+export type ChargingSettings = {
+  home_price_per_kwh: number;
+  home_currency: string;
 };
 
 export type Sample = {
@@ -238,6 +252,19 @@ export const backend = {
     ),
   rivianLogout: () =>
     api.post<{ authenticated: boolean }>("/api/settings/rivian/logout"),
+  getChargingSettings: () =>
+    api.get<ChargingSettings>("/api/settings/charging/"),
+  setChargingSettings: (cfg: ChargingSettings) =>
+    fetch("/api/settings/charging/", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }).then(async (res) => {
+      const text = await res.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, parsed);
+      return parsed as ChargingSettings;
+    }),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),
   charges: (limit = 50) => api.get<Charge[]>(`/api/charges?limit=${limit}`),
   // `allDrives` / `allCharges` pull enough history to drive the

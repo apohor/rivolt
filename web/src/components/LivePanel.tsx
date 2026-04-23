@@ -364,7 +364,15 @@ function ChargingDetail({
           <Field label="State" value={formatChargerState(state.charger_state)} />
           <Field
             label="Price"
-            value={price ? formatPrice(price, currency) : ls?.is_free_session ? "free" : "—"}
+            value={
+              price
+                ? formatPrice(price, currency)
+                : ls && ls.estimated_cost && ls.estimated_cost > 0
+                  ? `~${formatPrice(ls.estimated_cost.toFixed(2), ls.estimated_currency || "")}`
+                  : ls?.is_free_session
+                    ? "free"
+                    : "—"
+            }
           />
         </div>
       ) : (

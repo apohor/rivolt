@@ -84,7 +84,7 @@ func New(d Deps) http.Handler {
 		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
-		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor))
+		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
 		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
 		r.Get("/charging-frames", handleChargingFrames(d.Rivian))
@@ -98,10 +98,18 @@ func New(d Deps) http.Handler {
 			r.Post("/logout", handleRivianLogout(d.RivianAccount, d.SettingsStore))
 		})
 
+		// Home electricity cost settings, applied locally to estimate
+		// the price of sessions Rivian reports as free (home AC, L2,
+		// non-RAN public chargers).
+		r.Route("/settings/charging", func(r chi.Router) {
+			r.Get("/", handleChargingSettingsGet(d.SettingsStore))
+			r.Put("/", handleChargingSettingsPut(d.SettingsStore))
+		})
+
 		// Read-only session/telemetry endpoints. Populated by either the
 		// ElectraFi importer or the (future) live Rivian ingester.
 		r.Get("/drives", handleDrives(d.Drives))
-		r.Get("/charges", handleCharges(d.Charges))
+		r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
 		r.Get("/samples", handleSamples(d.Samples))
 
 		// Accepts a multipart upload of an ElectraFi CSV export. Streams
@@ -263,7 +271,12 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 // if nothing has been cached yet. The monitor cache is what carries
 // home AC / L2 telemetry — REST alone returns active:false with a
 // zeroed payload for those sessions.
-func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
+//
+// The response is decorated with an estimated_cost field computed
+// from the operator-configured home $/kWh rate. For sessions Rivian
+// reports as free (home AC, L2 on non-RAN chargers) this is the
+// only signal of what the charge cost.
+func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		if !ok || lc == nil {
@@ -275,9 +288,10 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFu
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
+		cfg, _ := settings.GetChargingConfig(r.Context(), store)
 		if mon != nil {
 			if sess := mon.LatestLiveSession(id); sess != nil {
-				writeJSON(w, http.StatusOK, sess)
+				writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
 				return
 			}
 		}
@@ -286,8 +300,34 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFu
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, sess)
+		writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
 	}
+}
+
+// liveSessionResponse is the wire shape for /api/live-session/:id —
+// the base LiveSession plus locally-computed estimated cost when the
+// operator has set a home $/kWh rate and the Rivian-reported price
+// is absent.
+type liveSessionResponse struct {
+	*rivian.LiveSession
+	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
+	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
+}
+
+func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) liveSessionResponse {
+	resp := liveSessionResponse{LiveSession: sess}
+	if sess == nil {
+		return resp
+	}
+	// Only compute when we have both a configured rate and observed
+	// energy. Don't overwrite a Rivian-reported price — those come
+	// from RAN / Wall Charger sessions where the real billing rate
+	// is authoritative.
+	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && sess.CurrentPrice == "" {
+		resp.EstimatedCost = cfg.HomePricePerKWh * sess.TotalChargedEnergyKWh
+		resp.EstimatedCurrency = cfg.HomeCurrency
+	}
+	return resp
 }
 
 // handleChargingSchemaProbe introspects the chrg/user/graphql
@@ -373,7 +413,7 @@ func handleDrives(store *drives.Store) http.HandlerFunc {
 	}
 }
 
-func handleCharges(store *charges.Store) http.HandlerFunc {
+func handleCharges(store *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusOK, []any{})
@@ -385,11 +425,32 @@ func handleCharges(store *charges.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if out == nil {
-			out = []charges.Charge{}
+		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
+		decorated := make([]chargeResponse, 0, len(out))
+		for _, c := range out {
+			decorated = append(decorated, decorateCharge(c, cfg))
 		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, decorated)
 	}
+}
+
+// chargeResponse is the wire shape for /api/charges: the stored
+// charge row plus a locally-computed estimated cost when the
+// operator has set a home $/kWh rate. Cost is only attached when
+// both the rate and the observed energy are non-zero.
+type chargeResponse struct {
+	charges.Charge
+	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
+	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
+}
+
+func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeResponse {
+	resp := chargeResponse{Charge: c}
+	if cfg.HomePricePerKWh > 0 && c.EnergyAddedKWh > 0 {
+		resp.EstimatedCost = cfg.HomePricePerKWh * c.EnergyAddedKWh
+		resp.EstimatedCurrency = cfg.HomeCurrency
+	}
+	return resp
 }
 
 // handleSamples serves raw vehicle_state rows newer than ?since=<rfc3339>
