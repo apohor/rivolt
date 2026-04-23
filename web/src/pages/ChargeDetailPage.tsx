@@ -145,10 +145,22 @@ export default function ChargeDetailPage() {
           <Spinner />
         ) : powerPts.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            No charger power samples recorded (the ElectraFi export
-            stopped reporting <code>charger_power</code> for Rivians in
-            Mar 2026). Energy and peak power are still reconstructed
-            from SoC deltas at the session level.
+            {charge.Source === "live" ? (
+              <>
+                No charger-power samples for this session. Rivian's
+                live feed reports <code>charger_power</code> only for
+                DC fast-charging and the occasional Level 2 — home
+                AC sessions come through with <code>0 kW</code>. Energy
+                is reconstructed from the SoC delta at the session level.
+              </>
+            ) : (
+              <>
+                No charger-power samples recorded (the ElectraFi export
+                stopped reporting <code>charger_power</code> for Rivians
+                in Mar 2026). Energy and peak power are still
+                reconstructed from SoC deltas at the session level.
+              </>
+            )}
           </p>
         ) : (
           <LineChart

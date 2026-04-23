@@ -2,6 +2,8 @@ package rivian
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -225,6 +227,27 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 
 	// Open new charge.
 	if charging && s.charge == nil {
+		// Resurrect-on-restart: if the charges store already has an
+		// open live session for this vehicle (process was killed
+		// mid-charge), reattach to it instead of minting a new ID.
+		// Otherwise every restart orphans the previous row and opens
+		// a duplicate `live_<vid>_c_<unix>`.
+		if resumed := m.resumeOpenCharge(ctx, curr); resumed != nil {
+			s.charge = resumed
+			s.chargeCounter++
+			s.charge.number = s.chargeCounter
+			// Update end-state to the current frame so the resurrected
+			// row advances forward on the next upsert.
+			s.charge.endAt = curr.At
+			s.charge.endSoC = curr.BatteryLevelPct
+			s.charge.finalState = curr.ChargerState
+			if curr.ChargerPowerKW > s.charge.maxPower {
+				s.charge.maxPower = curr.ChargerPowerKW
+			}
+			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
+			return s.charge.number
+		}
 		s.chargeCounter++
 		s.charge = &liveCharge{
 			id:         liveSessionID(curr.VehicleID, "c", curr.At),
@@ -243,6 +266,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.powerN = 1
 		}
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
 		return s.charge.number
 	}
 
@@ -416,4 +440,78 @@ func isChargingCS(s string) bool {
 // as it sees the same start time.
 func liveSessionID(vehicleID, kind string, t time.Time) string {
 	return fmt.Sprintf("live_%s_%s_%d", vehicleID, kind, t.UTC().Unix())
+}
+
+// resumeOpenCharge looks for a live-sourced charge row for this
+// vehicle that the recorder left in an open (non-terminal) state —
+// typically because the process was killed mid-session. Returns the
+// rehydrated liveCharge accumulator on hit, nil on miss (including
+// store errors, since failing to reattach just falls through to
+// opening a new session).
+//
+// Only charges that started within the last 24h are considered — an
+// older open row is almost certainly a recorder bug or a genuinely
+// lost session we shouldn't keep appending to.
+func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveCharge {
+	if m.chargesStore == nil || curr == nil {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	row, err := m.chargesStore.LatestOpenLive(rctx, curr.VehicleID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			m.logger.Debug("charge resume lookup failed", "vehicle", curr.VehicleID, "err", err.Error())
+		}
+		return nil
+	}
+	if row == nil || time.Since(row.StartedAt) > 24*time.Hour {
+		return nil
+	}
+	c := &liveCharge{
+		id:         row.ID,
+		startedAt:  row.StartedAt,
+		startSoC:   row.StartSoCPct,
+		lat:        row.Lat,
+		lon:        row.Lon,
+		maxPower:   row.MaxPowerKW,
+		endAt:      row.EndedAt,
+		endSoC:     row.EndSoCPct,
+		finalState: row.FinalState,
+	}
+	// We don't persist sumPower/powerN, so seed the running average
+	// from the stored avg×count-estimate. Using MaxPowerKW as a
+	// single-sample seed is a conservative approximation that keeps
+	// the avg from collapsing to 0 after restart.
+	if row.AvgPowerKW > 0 {
+		c.sumPower = row.AvgPowerKW
+		c.powerN = 1
+	}
+	m.logger.Info("resumed open charge from DB",
+		"vehicle", curr.VehicleID,
+		"id", row.ID,
+		"started_at", row.StartedAt,
+		"age", time.Since(row.StartedAt).Round(time.Second))
+	return c
+}
+
+// closeStaleOpenCharges marks every live charge row for the vehicle
+// OTHER than keepID whose final_state is still "charging_*" as
+// abandoned. Retires orphans created by previous restarts so they
+// don't show up as duplicate active sessions in the UI. Best-effort
+// — failures are logged and swallowed.
+func (m *StateMonitor) closeStaleOpenCharges(ctx context.Context, vehicleID, keepID string) {
+	if m.chargesStore == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	n, err := m.chargesStore.CloseStaleOpenLive(cctx, vehicleID, keepID)
+	if err != nil {
+		m.logger.Debug("stale charge cleanup failed", "vehicle", vehicleID, "err", err.Error())
+		return
+	}
+	if n > 0 {
+		m.logger.Info("closed stale open charges", "vehicle", vehicleID, "count", n, "kept", keepID)
+	}
 }

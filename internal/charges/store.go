@@ -146,6 +146,68 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 	return out, rows.Err()
 }
 
+// LatestOpenLive returns the most recent live-sourced charge for the
+// given vehicle whose final_state suggests the session hadn't
+// terminated yet — i.e. the recorder was still updating it when the
+// process stopped. Used to reconnect a restart to an in-flight
+// session instead of orphaning it and opening a new row.
+//
+// "Open" means final_state starts with "charging_" and is NOT a
+// terminal state (charging_complete / charging_station_err). Returns
+// sql.ErrNoRows when there is no candidate.
+func (s *Store) LatestOpenLive(ctx context.Context, vehicleID string) (*Charge, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, vehicle_id, started_at, ended_at,
+		       start_soc_pct, end_soc_pct,
+		       energy_added_kwh, miles_added,
+		       max_power_kw, avg_power_kw, final_state,
+		       lat, lon, source
+		FROM charges
+		WHERE source = 'live'
+		  AND vehicle_id = ?
+		  AND (final_state LIKE 'charging_%'
+		       AND final_state != 'charging_complete'
+		       AND final_state != 'charging_station_err')
+		ORDER BY started_at DESC
+		LIMIT 1`, vehicleID)
+	var c Charge
+	var startUnix, endUnix int64
+	if err := row.Scan(&c.ID, &c.VehicleID, &startUnix, &endUnix,
+		&c.StartSoCPct, &c.EndSoCPct,
+		&c.EnergyAddedKWh, &c.MilesAdded,
+		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
+		&c.Lat, &c.Lon, &c.Source,
+	); err != nil {
+		return nil, err
+	}
+	c.StartedAt = time.Unix(startUnix, 0).UTC()
+	c.EndedAt = time.Unix(endUnix, 0).UTC()
+	return &c, nil
+}
+
+// CloseStaleOpenLive marks every live-sourced charge row for the
+// vehicle whose ID is NOT in keepIDs and whose final_state is still
+// a non-terminal "charging_*" as closed. Used on recorder startup to
+// retire orphaned sessions created by previous restarts (each one
+// minted a fresh `live_<vid>_c_<unix>` row that never got closed).
+// Returns the number of rows updated.
+func (s *Store) CloseStaleOpenLive(ctx context.Context, vehicleID string, keepID string) (int, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET final_state = 'abandoned'
+		WHERE source = 'live'
+		  AND vehicle_id = ?
+		  AND id != ?
+		  AND final_state LIKE 'charging_%'
+		  AND final_state != 'charging_complete'
+		  AND final_state != 'charging_station_err'`, vehicleID, keepID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // Dedupe collapses duplicate charge rows. It runs two passes:
 //
 //  1. For electrafi_import rows, partition by started_at alone. Early
