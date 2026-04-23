@@ -16,6 +16,15 @@ import (
 const (
 	kmToMi  = 0.621371
 	kphToMi = 0.621371
+
+	// defaultPackKWh is the usable battery capacity used to estimate
+	// EnergyAddedKWh from a SoC delta when the live feed doesn't
+	// report charger power (observed for home AC charging — Rivian's
+	// chrg/user/graphql returns active:false for those, and the main
+	// GetVehicleState selection has no chargerPower field). Matches
+	// the Rivian R1T/R1S Large pack; adjust if we add per-vehicle pack
+	// metadata.
+	defaultPackKWh = 141.5
 )
 
 // liveSessions tracks in-flight drive and charge session accumulators
@@ -50,23 +59,23 @@ type liveDrive struct {
 	// Rolling "current end" so we can upsert as the drive grows. Each
 	// state update refreshes these; the final values are what lands in
 	// the drives table if the process dies mid-session.
-	endAt      time.Time
-	endSoC     float64
-	endOdoMi   float64
-	endLat     float64
-	endLon     float64
+	endAt    time.Time
+	endSoC   float64
+	endOdoMi float64
+	endLat   float64
+	endLon   float64
 }
 
 type liveCharge struct {
-	id         string
-	startedAt  time.Time
-	number     int64
-	startSoC   float64
-	lat        float64
-	lon        float64
-	maxPower   float64 // kW
-	sumPower   float64
-	powerN     int
+	id        string
+	startedAt time.Time
+	number    int64
+	startSoC  float64
+	lat       float64
+	lon       float64
+	maxPower  float64 // kW
+	sumPower  float64
+	powerN    int
 
 	endAt      time.Time
 	endSoC     float64
@@ -312,6 +321,49 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	if c.powerN > 0 {
 		avg = c.sumPower / float64(c.powerN)
 	}
+
+	// Prefer real metrics from Rivian's live session feed when we
+	// have them (DC fast charging at Rivian Adventure Network sites
+	// or public CCS stations that report back). The chargingSession
+	// poller stashes the latest non-inactive response keyed by
+	// vehicleID. Home AC sessions don't populate any of these —
+	// Rivian's chrg/user/graphql returns active:false and zero
+	// everything for those.
+	m.mu.RLock()
+	liveSess := m.lastSession[vehicleID]
+	m.mu.RUnlock()
+
+	var energy, milesAdded, maxPower float64
+	maxPower = c.maxPower
+	if liveSess != nil && liveSess.Active {
+		if liveSess.TotalChargedEnergyKWh > energy {
+			energy = liveSess.TotalChargedEnergyKWh
+		}
+		if liveSess.RangeAddedKm > 0 {
+			milesAdded = liveSess.RangeAddedKm * kmToMi
+		}
+		if liveSess.PowerKW > maxPower {
+			maxPower = liveSess.PowerKW
+		}
+	}
+
+	// SoC-delta fallback for home AC charging: Rivian's live endpoints
+	// don't report charger_power or energy_added for those sessions.
+	// Estimate energy from the SoC delta × pack capacity and back-fill
+	// avg/max power from elapsed time. Same fallback the ElectraFi
+	// importer uses for post-2026-03-24 sessions.
+	if energy == 0 && maxPower == 0 {
+		dSoC := c.endSoC - c.startSoC
+		if dSoC > 0 {
+			energy = dSoC / 100.0 * defaultPackKWh
+			hours := c.endAt.Sub(c.startedAt).Hours()
+			if hours > 0 && energy > 0 {
+				avg = energy / hours
+				maxPower = avg
+			}
+		}
+	}
+
 	row := charges.Charge{
 		ID:             c.id,
 		VehicleID:      vehicleID,
@@ -319,9 +371,9 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		EndedAt:        c.endAt,
 		StartSoCPct:    c.startSoC,
 		EndSoCPct:      c.endSoC,
-		EnergyAddedKWh: 0, // Not exposed by the live WS/REST feed; filled in by a future /api/live-session tie-in.
-		MilesAdded:     0,
-		MaxPowerKW:     c.maxPower,
+		EnergyAddedKWh: energy,
+		MilesAdded:     milesAdded,
+		MaxPowerKW:     maxPower,
 		AvgPowerKW:     avg,
 		FinalState:     c.finalState,
 		Lat:            c.lat,

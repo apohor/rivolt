@@ -46,6 +46,12 @@ type StateMonitor struct {
 	// doesn't serialize behind cache reads.
 	sessMu   sync.Mutex
 	sessions map[string]*liveSessions
+
+	// Latest LiveSession payload per vehicle, refreshed by
+	// chargingSessionPoller. Used by the recorder to enrich charge
+	// rows with TotalChargedEnergyKWh / RangeAddedKm. Guarded by mu
+	// alongside the state cache.
+	lastSession map[string]*LiveSession
 }
 
 // NewStateMonitor wraps a live client. Pass a logger (usually from
@@ -56,12 +62,13 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	return &StateMonitor{
-		client:   client,
-		logger:   logger,
-		cache:    make(map[string]*State),
-		stamp:    make(map[string]time.Time),
-		active:   make(map[string]context.CancelFunc),
-		sessions: make(map[string]*liveSessions),
+		client:      client,
+		logger:      logger,
+		cache:       make(map[string]*State),
+		stamp:       make(map[string]time.Time),
+		active:      make(map[string]context.CancelFunc),
+		sessions:    make(map[string]*liveSessions),
+		lastSession: make(map[string]*LiveSession),
 	}
 }
 
@@ -256,6 +263,7 @@ func (m *StateMonitor) chargingSessionPoller(ctx context.Context, vehicleID stri
 			m.mu.Lock()
 			var merged *State
 			prev := m.cache[vehicleID]
+			m.lastSession[vehicleID] = sess
 			if cur := prev; cur != nil && sess.PowerKW > 0 {
 				cp := *cur
 				cp.ChargerPowerKW = sess.PowerKW
