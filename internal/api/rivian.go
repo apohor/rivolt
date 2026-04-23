@@ -20,7 +20,7 @@ type rivianStatusDTO struct {
 	Email         string `json:"email,omitempty"`
 }
 
-func handleRivianStatus(lc *rivian.LiveClient) http.HandlerFunc {
+func handleRivianStatus(lc rivian.Account) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if lc == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
@@ -40,7 +40,7 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
-func handleRivianLogin(lc *rivian.LiveClient, store *settings.Store) http.HandlerFunc {
+func handleRivianLogin(lc rivian.Account, store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -84,7 +84,7 @@ type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(lc *rivian.LiveClient, store *settings.Store) http.HandlerFunc {
+func handleRivianMFA(lc rivian.Account, store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -121,7 +121,7 @@ func handleRivianMFA(lc *rivian.LiveClient, store *settings.Store) http.HandlerF
 	}
 }
 
-func handleRivianLogout(lc *rivian.LiveClient, store *settings.Store) http.HandlerFunc {
+func handleRivianLogout(lc rivian.Account, store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
