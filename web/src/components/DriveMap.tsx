@@ -71,8 +71,34 @@ export function DriveMap({
       },
     ).addTo(map);
 
-    if (valid.length > 1) {
-      const latlngs = valid.map((p) => [p.lat, p.lon]) as [number, number][];
+    // Pick start/end markers. Prefer caller-supplied start/end (the
+    // page can derive these from parked samples flanking the drive,
+    // which is more accurate than any in-drive GPS fix because
+    // telemetry frequently misses the first minute of a trip).
+    // Fall back to the polyline endpoints when no hint is given.
+    const lineStart: Point | undefined = start ?? valid[0];
+    const lineEnd: Point | undefined = end ?? valid[valid.length - 1];
+
+    // Round-trip detection: GPS samples jitter by a few meters even
+    // when parked, so strict equality never collapses. Use a ~50 m
+    // threshold (≈0.0005° at mid latitudes) so any drive that begins
+    // and ends in the same parking spot shows a single green "home"
+    // pin instead of two overlapping markers.
+    const sameSpot =
+      !!lineStart &&
+      !!lineEnd &&
+      Math.abs(lineStart.lat - lineEnd.lat) < 0.0005 &&
+      Math.abs(lineStart.lon - lineEnd.lon) < 0.0005;
+
+    // Draw the trace. When we have a reliable "home" start/end from a
+    // parked sample, extend the polyline out to it so the route visibly
+    // connects to the pins (otherwise there's a dangling gap between
+    // the first in-drive GPS fix and the start marker).
+    const latlngs: [number, number][] = [];
+    if (start) latlngs.push([start.lat, start.lon]);
+    for (const p of valid) latlngs.push([p.lat, p.lon]);
+    if (end && !sameSpot) latlngs.push([end.lat, end.lon]);
+    if (latlngs.length > 1) {
       const line = L.polyline(latlngs, {
         color: "#10b981",
         weight: 3,
@@ -81,29 +107,15 @@ export function DriveMap({
       map.fitBounds(line.getBounds(), { padding: [20, 20] });
     }
 
-    // Prefer the actual first/last polyline points over any caller-supplied
-    // start/end. The stored Drive.Start/EndLat come from different telemetry
-    // events than the GPS samples, so on round-trips they can be ~hundreds
-    // of meters from the real "home" point where the trace begins and ends.
-    // Using the polyline endpoints makes a home→…→home drive correctly show
-    // both pins at the same spot.
-    const lineStart: Point | undefined = valid[0] ?? start;
-    const lineEnd: Point | undefined = valid[valid.length - 1] ?? end;
-
     if (lineStart) {
       L.marker([lineStart.lat, lineStart.lon], {
         icon: circleIcon("#10b981"),
         zIndexOffset: 1000,
       })
         .addTo(map)
-        .bindTooltip("Start", { direction: "top" });
+        .bindTooltip(sameSpot ? "Start / End" : "Start", { direction: "top" });
     }
-    if (
-      lineEnd &&
-      (!lineStart ||
-        lineEnd.lat !== lineStart.lat ||
-        lineEnd.lon !== lineStart.lon)
-    ) {
+    if (lineEnd && !sameSpot) {
       L.marker([lineEnd.lat, lineEnd.lon], {
         icon: circleIcon("#f43f5e"),
         zIndexOffset: 1000,
@@ -118,8 +130,7 @@ export function DriveMap({
     // resizes, so the tile pane always covers the full card.
     const invalidate = () => {
       map.invalidateSize();
-      if (valid.length > 1) {
-        const latlngs = valid.map((p) => [p.lat, p.lon]) as [number, number][];
+      if (latlngs.length > 1) {
         map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
       }
     };
