@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math/rand"
 	"time"
 )
@@ -136,11 +137,23 @@ func (c *LiveClient) SubscribeChargingSession(ctx context.Context, vehicleID str
 }
 
 func (c *LiveClient) runChargingSubscription(ctx context.Context, vehicleID, userTok string, cb LiveSessionCallback) error {
+	firstFrameLogged := false
 	return c.runGenericSubscription(ctx, userTok, subParams{
 		operationName: "ChargingSession",
 		query:         qChargingSessionSubscription,
 		vehicleID:     vehicleID,
 	}, func(raw json.RawMessage) error {
+		// Log the first raw frame per connection so we can verify the
+		// actual field shape Rivian pushes. Our query is a guess
+		// derived from community reverse-engineering — if liveData
+		// comes back empty / wrapped in valueRecord envelopes / etc
+		// this is the only way to find out what the real schema is.
+		if !firstFrameLogged {
+			slog.Default().Info("rivian charging-session ws raw first frame",
+				"vehicle", vehicleID,
+				"raw", string(raw))
+			firstFrameLogged = true
+		}
 		var payload chargingSessionNext
 		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil // single bad frame — keep stream alive
