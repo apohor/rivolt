@@ -39,7 +39,7 @@ function StatusPill() {
 export default function AppLayout() {
   return (
     <div className="min-h-full flex flex-col">
-      <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-10 app-safe-top">
+      <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-[1100] app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">
           <NavLink
             to="/"

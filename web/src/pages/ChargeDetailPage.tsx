@@ -12,6 +12,7 @@ import {
   num,
   pct,
 } from "../lib/format";
+import { smoothGaussianTime } from "../lib/smooth";
 
 export default function ChargeDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -70,16 +71,21 @@ export default function ChargeDetailPage() {
     );
   }
 
-  const socPts = chargeSamples.map((p) => ({
+  const socPtsRaw = chargeSamples.map((p) => ({
     x: new Date(p.At).getTime(),
     y: p.BatteryLevelPct || 0,
   }));
-  const powerPts = chargeSamples
+  const powerPtsRaw = chargeSamples
     .filter((p) => p.ChargerPowerKW > 0)
     .map((p) => ({
       x: new Date(p.At).getTime(),
       y: p.ChargerPowerKW,
     }));
+  // Gaussian time-window smoothing: SoC ticks discretely in 1% steps,
+  // charger power jitters several kW sample-to-sample. Charging
+  // samples are 10–30s apart — use wider sigma for power.
+  const socPts = smoothGaussianTime(socPtsRaw, 30_000);
+  const powerPts = smoothGaussianTime(powerPtsRaw, 45_000);
   const duration = durationSeconds(charge.StartedAt, charge.EndedAt);
 
   return (
