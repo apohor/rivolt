@@ -180,7 +180,9 @@ func runServer() {
 	var stateMonitor *rivian.StateMonitor
 	if lc, ok := rivianClient.(*rivian.LiveClient); ok {
 		stateMonitor = rivian.NewStateMonitor(lc, logger)
-		stateMonitor.Start(ctx)
+		// Start is deferred until after the stores are opened below
+		// and wired via SetStores — otherwise the initial REST seed
+		// fires before the recorder has anywhere to write.
 	}
 
 	drivesStore, err := drives.OpenStore(dbPath)
@@ -194,6 +196,15 @@ func runServer() {
 	samplesStore, err := samples.OpenStore(dbPath)
 	if err != nil {
 		logger.Warn("samples store unavailable", "err", err.Error())
+	}
+
+	// Wire the stores into the monitor so live WS/REST frames get
+	// persisted into vehicle_state / drives / charges. Without this
+	// call the monitor is pure in-memory cache and live data is lost
+	// on restart.
+	if stateMonitor != nil {
+		stateMonitor.SetStores(samplesStore, drivesStore, chargesStore)
+		stateMonitor.Start(ctx)
 	}
 
 	// One-time migration: v0.1.7 and earlier keyed ElectraFi charge/drive
