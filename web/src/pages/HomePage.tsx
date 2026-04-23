@@ -12,7 +12,6 @@ import {
   pct,
 } from "../lib/format";
 import {
-  WINDOW_OPTIONS,
   chargeStats,
   driveStats,
   filterByWindow,
@@ -20,6 +19,7 @@ import {
   socTrend,
   type WindowKey,
 } from "../lib/analytics";
+import { WindowPicker } from "../components/WindowPicker";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -65,7 +65,7 @@ export default function HomePage() {
         title="Overview"
         subtitle={
           health.data
-            ? `Rivolt ${health.data.version} · connected`
+            ? `Rivolt ${health.data.version}`
             : health.isError
               ? "Rivolt backend unreachable"
               : "connecting…"
@@ -202,34 +202,6 @@ export default function HomePage() {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function WindowPicker({
-  value,
-  onChange,
-}: {
-  value: WindowKey;
-  onChange: (v: WindowKey) => void;
-}) {
-  return (
-    <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-xs">
-      {WINDOW_OPTIONS.map((opt) => (
-        <button
-          key={opt.key}
-          type="button"
-          onClick={() => onChange(opt.key)}
-          className={[
-            "rounded-md px-2.5 py-1 transition-colors",
-            value === opt.key
-              ? "bg-emerald-600 text-white"
-              : "text-neutral-400 hover:text-neutral-200",
-          ].join(" ")}
-        >
-          {opt.label}
-        </button>
-      ))}
     </div>
   );
 }
