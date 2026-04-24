@@ -99,23 +99,15 @@ export default function HomePage() {
   const isError = drives.isError || charges.isError;
 
   return (
-    <div className="space-y-6">
-      <HeroBanner />
-
-      {/* Header row for the summary section: mirrors the first-row
-          title+picker pattern on /drives and /charges so the window
-          picker has a visible anchor instead of floating alone. The
-          nav already shows "Overview" as the page name, so the label
-          here describes what the picker actually filters below. */}
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Summary</h2>
-          <p className="mt-0.5 text-xs text-neutral-400">
-            {WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? ""}
-          </p>
-        </div>
-        <WindowPicker value={win} onChange={setWin} />
-      </div>
+    <div className="space-y-4">
+      {/* Hero owns the page header AND the window picker: folding the
+          picker into the hero removes the orphan 'Summary · 30 days'
+          row that floated between the hero card and the KPI card on
+          the previous layout (three competing borders in the first
+          viewport). Hero is now the single anchor — its CTAs still
+          route to /live and /drives, and a divider + right-aligned
+          picker communicate "this scope affects everything below". */}
+      <HeroBanner win={win} onWinChange={setWin} />
 
       {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
           at the top of the data area now — it's the highest-signal
@@ -287,13 +279,22 @@ function EmptyState({ kind }: { kind: string }) {
   return <p className="text-sm text-neutral-500">No {kind}.</p>;
 }
 
-// HeroBanner is a compact marketing frame at the top of the
-// Overview. Kept tight on vertical space so KPIs and data stay in
-// the first viewport on small screens: one-line headline, shorter
-// description, smaller padding. Matches the Caffeine home hero
-// visually (emerald tagline pill, two-tone headline) but trades
-// marketing breathing room for data density.
-function HeroBanner() {
+// HeroBanner is the Overview's marketing frame AND filter anchor.
+// Top row = tagline pill / headline / description / CTAs (kept
+// intact from v0.3.34's Caffeine-style hero). Bottom row = a thin
+// divider + "Showing" label + WindowPicker so everything below the
+// hero inherits the picker's scope visually. Folding the picker
+// into the hero replaces the previous orphan 'Summary · 30 days'
+// header row that floated between two bordered cards.
+function HeroBanner({
+  win,
+  onWinChange,
+}: {
+  win: WindowKey;
+  onWinChange: (w: WindowKey) => void;
+}) {
+  const currentLabel =
+    WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? "";
   return (
     <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900">
       <svg
@@ -332,6 +333,20 @@ function HeroBanner() {
             Browse history
           </Link>
         </div>
+      </div>
+      {/* Filter footer: hairline divider + scope label + picker. The
+          label uses aria-hidden text because WindowPicker already
+          labels itself; we just want a visual cue that the picker
+          governs the summary below. currentLabel appears on sm+ to
+          avoid wrapping on narrow screens where the picker is wide. */}
+      <div className="relative flex flex-wrap items-center justify-between gap-2 border-t border-neutral-800/80 bg-neutral-950/40 px-4 py-2">
+        <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+          Showing{" "}
+          <span className="hidden text-neutral-300 sm:inline">
+            · {currentLabel}
+          </span>
+        </div>
+        <WindowPicker value={win} onChange={onWinChange} />
       </div>
     </section>
   );
