@@ -293,6 +293,17 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		n := s.charge.number
 		s.charge = nil
+		// Drop the cached LiveSession so its fields (energy, active,
+		// start_time, price) can't leak into the next session. The
+		// applyLiveSession merger intentionally preserves non-zero
+		// values across pushes to handle interleaved ChargingSession
+		// and Parallax frames within one session — without this reset
+		// those values stick across sessions too, and a spurious
+		// "charging_ready" minutes later would inherit the prior
+		// session's 25 kWh total and Active=true flag.
+		m.mu.Lock()
+		delete(m.lastSession, curr.VehicleID)
+		m.mu.Unlock()
 		return n
 	}
 	return 0
