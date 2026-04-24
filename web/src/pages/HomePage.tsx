@@ -237,8 +237,8 @@ function Stat({
 // percentage math.
 type LocationSplitBuckets = {
   Home: { sessions: number; energyKWh: number };
-  Work: { sessions: number; energyKWh: number };
   Public: { sessions: number; energyKWh: number };
+  Fast: { sessions: number; energyKWh: number };
   total: number;
 };
 
@@ -253,20 +253,20 @@ function locationSplit(
   const labelByID = new Map<string, ChargeClusterLabel>();
   for (const c of clusters) {
     const label: ChargeClusterLabel =
-      c.label === "Home" || c.label === "Work" || c.label === "Public"
+      c.label === "Home" || c.label === "Public" || c.label === "Fast"
         ? c.label
         : "";
     for (const id of c.member_ids) labelByID.set(id, label);
   }
   const buckets: LocationSplitBuckets = {
     Home: { sessions: 0, energyKWh: 0 },
-    Work: { sessions: 0, energyKWh: 0 },
     Public: { sessions: 0, energyKWh: 0 },
+    Fast: { sessions: 0, energyKWh: 0 },
     total: 0,
   };
   for (const c of winCharges) {
     const label = labelByID.get(c.ID);
-    if (label !== "Home" && label !== "Work" && label !== "Public") continue;
+    if (label !== "Home" && label !== "Public" && label !== "Fast") continue;
     buckets[label].sessions += 1;
     buckets[label].energyKWh += c.EnergyAddedKWh ?? 0;
     buckets.total += 1;
@@ -274,10 +274,13 @@ function locationSplit(
   return buckets;
 }
 
-// LocationSplit renders three tiles (Home / Work / Public) with
+// LocationSplit renders three tiles (Home / Public / Fast) with
 // session count, energy, and percentage of sessions in the window.
 // Tone mirrors the badges on /charges so the two surfaces read as
-// the same concept.
+// the same concept. Home is the largest slow location cluster
+// (driveway / apartment L2). Public is every other slow session
+// (non-home L1/L2). Fast is the DCFC bucket keyed off peak power
+// regardless of location.
 function LocationSplit({ split }: { split: LocationSplitBuckets }) {
   const rows: {
     label: ChargeClusterLabel;
@@ -292,16 +295,16 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
       energyKWh: split.Home.energyKWh,
     },
     {
-      label: "Work",
-      tone: "border-amber-600/40 text-amber-300 bg-amber-950/30",
-      sessions: split.Work.sessions,
-      energyKWh: split.Work.energyKWh,
-    },
-    {
       label: "Public",
       tone: "border-neutral-700 text-neutral-300",
       sessions: split.Public.sessions,
       energyKWh: split.Public.energyKWh,
+    },
+    {
+      label: "Fast",
+      tone: "border-amber-600/40 text-amber-300 bg-amber-950/30",
+      sessions: split.Fast.sessions,
+      energyKWh: split.Fast.energyKWh,
     },
   ];
   return (

@@ -313,8 +313,8 @@ export type AISettingsUpdate = {
 
 // ChargeCluster is one group returned by /api/charges/clusters. Member
 // IDs reference rows in the /api/charges response so the UI can paint
-// a Home/Work/Public badge next to each session.
-export type ChargeClusterLabel = "Home" | "Work" | "Public" | "";
+// a Home/Public/Fast badge next to each session.
+export type ChargeClusterLabel = "Home" | "Public" | "Fast" | "";
 
 export type ChargeCluster = {
   label: ChargeClusterLabel;
@@ -394,7 +394,7 @@ export const backend = {
       `/api/settings/ai/models/${encodeURIComponent(provider)}`,
     ),
   // Local DBSCAN clustering of charge locations. Returns one row per
-  // cluster, largest-first, with "Home" / "Work" / "Public" labels.
+  // cluster, largest-first, with "Home" / "Public" / "Fast" labels.
   chargeClusters: () =>
     api.get<ChargeCluster[]>("/api/charges/clusters"),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),

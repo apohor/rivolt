@@ -5,66 +5,112 @@ import (
 )
 
 // TestClusterCharges_HomeAndPublic verifies the common case: a pile of
-// charges in the driveway, a couple at the office, and two one-offs on
-// the freeway. Home + Work should be labelled, freeway stops become
-// single-session Public clusters.
+// low-power charges at home, a handful of slow charges elsewhere, and
+// some fast stops on a road trip. Largest slow cluster -> Home; every
+// other located slow session -> Public; fast sessions collapse into a
+// single Fast bucket regardless of location.
 func TestClusterCharges_HomeAndPublic(t *testing.T) {
-	// Home cluster: 5 sessions at the same driveway (jitter ~20m).
 	home := []ChargePoint{
-		{ID: "h1", Lat: 37.77490, Lon: -122.41940, EnergyAddedKWh: 30},
-		{ID: "h2", Lat: 37.77491, Lon: -122.41939, EnergyAddedKWh: 28},
-		{ID: "h3", Lat: 37.77492, Lon: -122.41941, EnergyAddedKWh: 25},
-		{ID: "h4", Lat: 37.77489, Lon: -122.41942, EnergyAddedKWh: 32},
-		{ID: "h5", Lat: 37.77493, Lon: -122.41938, EnergyAddedKWh: 29},
+		{ID: "h1", Lat: 37.77490, Lon: -122.41940, EnergyAddedKWh: 30, MaxPowerKW: 11},
+		{ID: "h2", Lat: 37.77491, Lon: -122.41939, EnergyAddedKWh: 28, MaxPowerKW: 11},
+		{ID: "h3", Lat: 37.77492, Lon: -122.41941, EnergyAddedKWh: 25, MaxPowerKW: 11},
+		{ID: "h4", Lat: 37.77489, Lon: -122.41942, EnergyAddedKWh: 32, MaxPowerKW: 11},
+		{ID: "h5", Lat: 37.77493, Lon: -122.41938, EnergyAddedKWh: 29, MaxPowerKW: 11},
 	}
-	// Work cluster: 3 sessions at the office (~5km north-east of home).
-	work := []ChargePoint{
-		{ID: "w1", Lat: 37.80500, Lon: -122.38000, EnergyAddedKWh: 10},
-		{ID: "w2", Lat: 37.80501, Lon: -122.38002, EnergyAddedKWh: 12},
-		{ID: "w3", Lat: 37.80499, Lon: -122.38001, EnergyAddedKWh: 8},
+	pub := []ChargePoint{
+		{ID: "p1", Lat: 37.80500, Lon: -122.38000, EnergyAddedKWh: 10, MaxPowerKW: 7},
+		{ID: "p2", Lat: 37.80501, Lon: -122.38002, EnergyAddedKWh: 12, MaxPowerKW: 7},
+		{ID: "p3", Lat: 37.80499, Lon: -122.38001, EnergyAddedKWh: 8, MaxPowerKW: 7},
 	}
-	// Two isolated road-trip stops far from everything else.
-	noise := []ChargePoint{
-		{ID: "n1", Lat: 38.50000, Lon: -121.50000, EnergyAddedKWh: 45},
-		{ID: "n2", Lat: 39.10000, Lon: -120.20000, EnergyAddedKWh: 50},
+	fast := []ChargePoint{
+		{ID: "f1", Lat: 38.50000, Lon: -121.50000, EnergyAddedKWh: 45, MaxPowerKW: 150},
+		{ID: "f2", Lat: 39.10000, Lon: -120.20000, EnergyAddedKWh: 50, MaxPowerKW: 200},
 	}
-	all := append(append(append([]ChargePoint{}, home...), work...), noise...)
+	all := append(append(append([]ChargePoint{}, home...), pub...), fast...)
 
 	clusters := ClusterCharges(all, DefaultParams())
 
-	if len(clusters) < 3 {
-		t.Fatalf("expected at least 3 clusters (home/work/noise), got %d", len(clusters))
-	}
-	if clusters[0].Label != LabelHome {
-		t.Errorf("largest cluster should be Home, got %q", clusters[0].Label)
-	}
-	if clusters[0].Sessions != len(home) {
-		t.Errorf("home should have %d sessions, got %d", len(home), clusters[0].Sessions)
-	}
-	if clusters[1].Label != LabelWork {
-		t.Errorf("second cluster should be Work, got %q", clusters[1].Label)
-	}
-	if clusters[1].Sessions != len(work) {
-		t.Errorf("work should have %d sessions, got %d", len(work), clusters[1].Sessions)
-	}
-	// Noise points must show up as singleton Public clusters.
-	publicSingletons := 0
-	for _, c := range clusters[2:] {
-		if c.Label == LabelPublic && c.Sessions == 1 {
-			publicSingletons++
+	var gotHome, gotFast *Cluster
+	pubSessions := 0
+	for i := range clusters {
+		c := &clusters[i]
+		switch c.Label {
+		case LabelHome:
+			gotHome = c
+		case LabelFast:
+			gotFast = c
+		case LabelPublic:
+			pubSessions += c.Sessions
 		}
 	}
-	if publicSingletons != 2 {
-		t.Errorf("expected 2 singleton Public clusters, got %d", publicSingletons)
+	if gotHome == nil {
+		t.Fatalf("no Home cluster produced; got %+v", clusters)
+	}
+	if gotHome.Sessions != len(home) {
+		t.Errorf("Home sessions = %d, want %d", gotHome.Sessions, len(home))
+	}
+	if pubSessions != len(pub) {
+		t.Errorf("Public total sessions = %d, want %d", pubSessions, len(pub))
+	}
+	if gotFast == nil {
+		t.Fatalf("no Fast cluster produced")
+	}
+	if gotFast.Sessions != len(fast) {
+		t.Errorf("Fast sessions = %d, want %d", gotFast.Sessions, len(fast))
 	}
 }
 
-// TestClusterCharges_MissingGPS routes charges with no fix into the
-// Unknown bucket rather than dropping them.
+// TestClusterCharges_FastBeatsLocation: a DCFC session happening at
+// the driveway coordinates is still classified as Fast, not folded
+// into Home. Power is the primary axis.
+func TestClusterCharges_FastBeatsLocation(t *testing.T) {
+	pts := []ChargePoint{
+		{ID: "h1", Lat: 37.77490, Lon: -122.41940, MaxPowerKW: 11},
+		{ID: "h2", Lat: 37.77491, Lon: -122.41939, MaxPowerKW: 11},
+		{ID: "f1", Lat: 37.77490, Lon: -122.41940, MaxPowerKW: 150},
+	}
+	clusters := ClusterCharges(pts, DefaultParams())
+
+	var homeSessions, fastSessions int
+	for _, c := range clusters {
+		switch c.Label {
+		case LabelHome:
+			homeSessions = c.Sessions
+		case LabelFast:
+			fastSessions = c.Sessions
+		}
+	}
+	if homeSessions != 2 {
+		t.Errorf("Home sessions = %d, want 2 (two L2 sessions)", homeSessions)
+	}
+	if fastSessions != 1 {
+		t.Errorf("Fast sessions = %d, want 1", fastSessions)
+	}
+}
+
+// TestClusterCharges_UnknownPowerGoesToLocation: MaxPowerKW==0 means
+// we don't know the peak, so the charge falls through to location
+// clustering rather than being silently treated as Fast.
+func TestClusterCharges_UnknownPowerGoesToLocation(t *testing.T) {
+	pts := []ChargePoint{
+		{ID: "a", Lat: 37.77490, Lon: -122.41940, MaxPowerKW: 0},
+		{ID: "b", Lat: 37.77491, Lon: -122.41939, MaxPowerKW: 0},
+	}
+	clusters := ClusterCharges(pts, DefaultParams())
+	if len(clusters) != 1 {
+		t.Fatalf("want 1 cluster, got %d", len(clusters))
+	}
+	if clusters[0].Label != LabelHome {
+		t.Errorf("label = %q, want Home", clusters[0].Label)
+	}
+}
+
+// TestClusterCharges_MissingGPS routes slow charges with no fix into
+// the Unknown bucket rather than dropping them.
 func TestClusterCharges_MissingGPS(t *testing.T) {
 	pts := []ChargePoint{
-		{ID: "a", Lat: 0, Lon: 0, EnergyAddedKWh: 20},
-		{ID: "b", Lat: 0, Lon: 0, EnergyAddedKWh: 18},
+		{ID: "a", Lat: 0, Lon: 0, EnergyAddedKWh: 20, MaxPowerKW: 11},
+		{ID: "b", Lat: 0, Lon: 0, EnergyAddedKWh: 18, MaxPowerKW: 11},
 	}
 	clusters := ClusterCharges(pts, DefaultParams())
 	if len(clusters) != 1 {
@@ -81,38 +127,8 @@ func TestClusterCharges_MissingGPS(t *testing.T) {
 // TestHaversineSanity pins the distance calc against a known pair so a
 // future refactor can't silently break units (metres vs kilometres).
 func TestHaversineSanity(t *testing.T) {
-	// San Francisco ↔ Los Angeles ≈ 559 km great-circle.
 	d := haversineMeters(37.7749, -122.4194, 34.0522, -118.2437)
 	if d < 550_000 || d > 570_000 {
 		t.Errorf("SF↔LA distance = %.0f m, want ~559000", d)
-	}
-}
-
-// TestWorkRequiresThreeSessions: a second cluster with only two
-// sessions should fall through to Public so we don't mislabel a
-// single repeat L3 stop as "Work".
-func TestWorkRequiresThreeSessions(t *testing.T) {
-	home := []ChargePoint{
-		{ID: "h1", Lat: 37.77490, Lon: -122.41940},
-		{ID: "h2", Lat: 37.77491, Lon: -122.41939},
-		{ID: "h3", Lat: 37.77492, Lon: -122.41941},
-		{ID: "h4", Lat: 37.77489, Lon: -122.41942},
-	}
-	// Only 2 sessions at a second location: cluster exists (min=2) but
-	// shouldn't be called "Work".
-	elsewhere := []ChargePoint{
-		{ID: "e1", Lat: 37.80500, Lon: -122.38000},
-		{ID: "e2", Lat: 37.80501, Lon: -122.38002},
-	}
-	all := append(append([]ChargePoint{}, home...), elsewhere...)
-	clusters := ClusterCharges(all, DefaultParams())
-	if len(clusters) < 2 {
-		t.Fatalf("want >=2 clusters, got %d", len(clusters))
-	}
-	if clusters[0].Label != LabelHome {
-		t.Errorf("first = %q, want Home", clusters[0].Label)
-	}
-	if clusters[1].Label != LabelPublic {
-		t.Errorf("second = %q, want Public (only 2 sessions)", clusters[1].Label)
 	}
 }
