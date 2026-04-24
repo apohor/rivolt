@@ -314,7 +314,9 @@ function ImportPanel() {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [packKWh, setPackKWh] = useState<string>("141.5");
+  // Matches electrafi.DefaultPackKWh (Gen 1 R1T/R1S Large, 131 kWh
+  // usable). Users on Gen 2 / Max / Standard override here.
+  const [packKWh, setPackKWh] = useState<string>("131");
 
   const mut = useMutation({
     mutationFn: (files: File[]) =>
