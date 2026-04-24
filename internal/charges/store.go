@@ -6,12 +6,25 @@ package charges
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// Embedded row-level data migrations. Dropping a new .sql file into
+// internal/charges/migrations/ is enough — the file's basename (without
+// the .sql extension) becomes its migration ID, and the migrations
+// table stops it replaying on subsequent boots. File names should be
+// date-prefixed so the lexical sort matches the intended apply order.
+//
+//go:embed migrations/*.sql
+var migrationFS embed.FS
 
 const schema = `
 CREATE TABLE IF NOT EXISTS charges (
@@ -38,7 +51,8 @@ CREATE INDEX IF NOT EXISTS charges_vehicle_id ON charges(vehicle_id);
 
 -- Tracks one-shot data migrations so they don't replay on every boot.
 -- Schema (CREATE TABLE IF NOT EXISTS / ALTER TABLE) is handled in Go;
--- this table is specifically for row-level cleanups that shouldn't run
+-- this table is specifically for row-level cleanups that ship as
+-- .sql files under internal/charges/migrations/ and shouldn't run
 -- more than once per database.
 CREATE TABLE IF NOT EXISTS migrations (
     id         TEXT PRIMARY KEY,
@@ -93,22 +107,20 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
-// applyDataMigrations runs one-shot row-level cleanups once per DB.
-// A migration is identified by a short ID string and records itself in
-// the migrations table on success so restarts don't replay it. Errors
-// abort the sequence; the next boot will retry only the unrecorded
-// ones. Keep migrations idempotent anyway — belt and braces.
+// applyDataMigrations runs every embedded migrations/*.sql file once
+// per DB, in lexical (and therefore date) order. Each file's basename
+// without the .sql extension is its migration ID; that ID is recorded
+// in the migrations table after a successful apply so it never
+// replays. A failing migration aborts the boot so broken state can't
+// accumulate silently.
 func applyDataMigrations(db *sql.DB) error {
+	steps, err := loadMigrations()
+	if err != nil {
+		return fmt.Errorf("load embedded migrations: %w", err)
+	}
 	applied, err := loadAppliedMigrations(db)
 	if err != nil {
-		return fmt.Errorf("load migrations: %w", err)
-	}
-	steps := []dataMigration{
-		{
-			id:   "2026-04-phantom-charges-v1",
-			note: "delete pre-v0.3.54 phantom charge rows where EndSoC - StartSoC < 1 pp",
-			run:  cleanPhantomCharges,
-		},
+		return fmt.Errorf("load applied migrations: %w", err)
 	}
 	for _, m := range steps {
 		if applied[m.id] {
@@ -121,13 +133,38 @@ func applyDataMigrations(db *sql.DB) error {
 	return nil
 }
 
-// dataMigration pairs a stable identifier with the work to do. The
-// worker runs inside a transaction; it must not commit or roll back
-// itself — runMigration owns that and also records the completion.
+// dataMigration pairs a stable identifier with the SQL to execute.
+// The SQL body is run as a single Exec inside a transaction — sqlite
+// accepts multiple semicolon-separated statements per call, which is
+// good enough for the simple cleanups we do here.
 type dataMigration struct {
-	id   string
-	note string
-	run  func(*sql.Tx) (affected int64, err error)
+	id  string
+	sql string
+}
+
+// loadMigrations walks the embedded FS and returns one dataMigration
+// per .sql file, sorted by filename. Using the basename (minus the
+// .sql suffix) as the ID means renaming a file will cause it to
+// re-run, which is the behaviour we want for a human-facing contract.
+func loadMigrations() ([]dataMigration, error) {
+	entries, err := fs.ReadDir(migrationFS, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	var out []dataMigration
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		body, err := fs.ReadFile(migrationFS, "migrations/"+e.Name())
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
+		}
+		id := strings.TrimSuffix(e.Name(), ".sql")
+		out = append(out, dataMigration{id: id, sql: string(body)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].id < out[j].id })
+	return out, nil
 }
 
 func loadAppliedMigrations(db *sql.DB) (map[string]bool, error) {
@@ -147,19 +184,33 @@ func loadAppliedMigrations(db *sql.DB) (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// runMigration executes the SQL body of one migration inside a single
+// transaction and records the marker row on success. Errors roll the
+// whole thing back; on the next boot this migration retries while
+// already-committed ones are skipped.
 func runMigration(db *sql.DB, m dataMigration) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	affected, err := m.run(tx)
-	if err != nil {
-		return err
+
+	body := strings.TrimSpace(m.sql)
+	if body == "" {
+		return fmt.Errorf("empty migration body")
 	}
+	res, err := tx.Exec(body)
+	if err != nil {
+		return fmt.Errorf("exec: %w", err)
+	}
+	// RowsAffected is only meaningful for the last statement in a
+	// multi-statement body, which is fine for the cleanups we run;
+	// it's purely informational for the log line below.
+	affected, _ := res.RowsAffected()
+
 	if _, err := tx.Exec(
 		`INSERT INTO migrations (id, applied_at, note) VALUES (?, ?, ?)`,
-		m.id, time.Now().Unix(), m.note,
+		m.id, time.Now().Unix(), firstSQLLine(body),
 	); err != nil {
 		return fmt.Errorf("record migration: %w", err)
 	}
@@ -169,26 +220,25 @@ func runMigration(db *sql.DB, m dataMigration) error {
 	slog.Info("charges migration applied",
 		"id", m.id,
 		"affected", affected,
-		"note", m.note,
 	)
 	return nil
 }
 
-// cleanPhantomCharges removes rows left behind by the pre-v0.3.54 live
-// recorder, which could open a new charge session when charger_state
-// briefly flickered into "charging_*" while the car was unplugged.
-// Those sessions inherited the cached Parallax frame (25.7 kWh, etc.)
-// and show StartSoC == EndSoC. Threshold is < 1 pp on the SoC delta,
-// matching the heuristic used in the v0.3.54 frontend filter before it
-// was removed.
-func cleanPhantomCharges(tx *sql.Tx) (int64, error) {
-	res, err := tx.Exec(
-		`DELETE FROM charges WHERE (end_soc_pct - start_soc_pct) < 1.0`,
-	)
-	if err != nil {
-		return 0, err
+// firstSQLLine returns the first non-comment, non-empty line of a SQL
+// body, stored in migrations.note so a casual SELECT from the table
+// tells you what each migration did without opening the source file.
+func firstSQLLine(body string) string {
+	for _, ln := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" || strings.HasPrefix(t, "--") {
+			continue
+		}
+		if len(t) > 200 {
+			t = t[:200] + "…"
+		}
+		return t
 	}
-	return res.RowsAffected()
+	return ""
 }
 
 // Charge is a single charging session.
