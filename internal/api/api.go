@@ -652,22 +652,47 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			return
 		}
 		imp.Location = loc
+
+		// Stream results as NDJSON. Synology's reverse proxy (and
+		// most default nginx setups) close idle upstream connections
+		// after ~60s, producing a 504 during long imports even
+		// though the Go handler is perfectly alive. Emitting a
+		// progress line per file — and a heartbeat before the first
+		// one lands — keeps bytes flowing so the proxy doesn't
+		// disconnect. The client reads line-by-line and treats the
+		// final {"done":true, files:[...]} as the result.
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no") // nginx hint
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		enc := json.NewEncoder(w)
+		emit := func(v any) {
+			_ = enc.Encode(v)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		emit(map[string]any{"event": "start", "files": len(files)})
+
 		results := make([]electrafi.Result, 0, len(files))
-		for _, fh := range files {
+		for i, fh := range files {
 			f, err := fh.Open()
 			if err != nil {
-				http.Error(w, fh.Filename+": open: "+err.Error(), http.StatusBadRequest)
+				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "open: " + err.Error()})
 				return
 			}
+			emit(map[string]any{"event": "file_start", "index": i, "file": fh.Filename})
 			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
 			f.Close()
 			if err != nil {
-				http.Error(w, fh.Filename+": import: "+err.Error(), http.StatusBadRequest)
+				emit(map[string]any{"event": "error", "file": fh.Filename, "error": err.Error()})
 				return
 			}
 			results = append(results, res)
+			emit(map[string]any{"event": "file_done", "index": i, "result": res})
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"files": results})
+		emit(map[string]any{"event": "done", "files": results})
 	}
 }
 
