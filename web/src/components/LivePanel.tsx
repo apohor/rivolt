@@ -139,7 +139,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           </Section>
 
           <Section title="Drive">
-            <Field label="Gear" value={s.gear || "—"} />
+            <Field label="Gear" value={formatGear(s.gear)} />
             <Field label="Mode" value={formatDriveMode(s.drive_mode)} />
             <Field label="Power" value={formatPower(s.power_state)} />
             <Field label="Speed" value={num(kphToMph(s.speed_kph), 0, "mph")} />
@@ -200,19 +200,14 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             <Field label="OTA installed" value={s.ota_current_version || "—"} />
             <Field
               label="OTA available"
-              value={
-                s.ota_available_version &&
-                s.ota_available_version !== s.ota_current_version
-                  ? s.ota_available_version
-                  : "up-to-date"
-              }
+              value={formatOtaAvailable(s.ota_available_version, s.ota_current_version)}
             />
             <Field label="OTA status" value={formatTitle(s.ota_status)} />
             {s.ota_install_progress > 0 ? (
               <Field label="Install" value={pct(s.ota_install_progress, 0)} />
             ) : null}
             <Field label="Alarm" value={formatBoolish(s.alarm_sound_status)} />
-            <Field label="12V" value={formatTitle(s.twelve_volt_battery_health)} />
+            <Field label="12V" value={formatTwelveVolt(s.twelve_volt_battery_health)} />
             <Field
               label="Wiper fluid"
               value={formatTitle(s.wiper_fluid_state)}
@@ -272,10 +267,19 @@ function StatusPill({ state }: { state: VehicleState }) {
 // 'charging_complete' across unplugs — without the charger_status
 // plug check the live panel keeps rendering a "Charging session"
 // long after the cable is out.
+//
+// A completed session (charger_state=='charging_complete') is
+// explicitly NOT charging even if the cable is still in the port —
+// Rivian's live-session feed returns a zeroed payload that would
+// otherwise render as "complete · waiting for first frame…", which
+// is misleading. When the session is done we fall through to
+// ParkedSummary, which surfaces the idle / asleep state and a
+// "plugged in" label so the cable status is still visible.
 function isCharging(s: VehicleState): boolean {
   if (!isPluggedIn(s)) return false;
-  if (s.charger_power_kw > 0) return true;
   const cs = s.charger_state || "";
+  if (cs === "charging_complete") return false;
+  if (s.charger_power_kw > 0) return true;
   return cs === "charging_active" || cs === "charging_ready";
 }
 
@@ -821,8 +825,16 @@ function formatChargerStatus(s: string): string {
       return "unplugged";
     case "chrgr_sts_connected_charging":
       return "charging";
+    // "connected_no_power" (cable in, no draw — e.g. paused session,
+    // complete session, or an AC charger that hasn't handshaken yet)
+    // and the older "connected_no_chrg" variant both render as a
+    // plain "connected" — the fact that there's no power is already
+    // obvious from the kW field next to it, and the verbose
+    // "plugged · no power" / "connected no chrg" readouts are the
+    // kind of jargon the Rivian app hides.
     case "chrgr_sts_connected_no_power":
-      return "plugged · no power";
+    case "chrgr_sts_connected_no_chrg":
+      return "connected";
     case "":
       return "—";
     default:
@@ -854,6 +866,48 @@ function formatBoolish(s: string): string {
 function formatTitle(s: string): string {
   if (!s) return "—";
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// formatGear expands the single-letter gear code into the
+// human-readable term. Rivian's VehicleState publishes gear as
+// "P"/"D"/"R"/"N" (plus blank while the ECU is waking); anything
+// that isn't in the map falls through to the raw value so new
+// firmware values don't silently render as "—".
+function formatGear(g: string): string {
+  const map: Record<string, string> = {
+    P: "Park",
+    D: "Drive",
+    R: "Reverse",
+    N: "Neutral",
+  };
+  if (!g) return "—";
+  return map[g.toUpperCase()] ?? g;
+}
+
+// formatOtaAvailable renders the pending-update slot. Rivian reports
+// "0.0.0" (and occasionally an empty string) when there's no pending
+// build, which the raw string would otherwise surface as a confusing
+// version label. Treat both as "no update", and only echo the real
+// version back when it differs from the installed one.
+function formatOtaAvailable(available: string, current: string): string {
+  if (!available || available === "0.0.0") return "no";
+  if (available === current) return "up-to-date";
+  return available;
+}
+
+// formatTwelveVolt collapses Rivian's verbose 12-V health states
+// ("NORMAL_OPERATION", "LOW_BATTERY", etc.) to a one-word readout
+// that fits the live panel's data-dense grid. Unknown values pass
+// through formatTitle so we don't lose information on a surprise
+// enum.
+function formatTwelveVolt(s: string): string {
+  if (!s) return "—";
+  const v = s.toLowerCase();
+  if (v === "normal_operation" || v === "normal") return "Normal";
+  if (v === "low_battery" || v === "low") return "Low";
+  if (v === "critical_battery" || v === "critical") return "Critical";
+  if (v === "unknown") return "—";
+  return formatTitle(s);
 }
 
 function formatDriveMode(s: string): string {

@@ -193,8 +193,12 @@ function formatPlugShort(s: string): string {
       return "unplugged";
     case "chrgr_sts_connected_charging":
       return "charging";
+    // Both "no_power" and the older "no_chrg" variant mean "cable in,
+    // not pulling juice" — present them uniformly as "connected" in
+    // the compact summary. Matches the Plug label in LivePanel.
     case "chrgr_sts_connected_no_power":
-      return "plugged";
+    case "chrgr_sts_connected_no_chrg":
+      return "connected";
     case "":
       return "—";
     default:
