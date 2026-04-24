@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { backend, type Charge } from "../lib/api";
+import {
+  backend,
+  type Charge,
+  type ChargeCluster,
+  type ChargeClusterLabel,
+} from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
@@ -20,6 +25,15 @@ export default function ChargesPage() {
     queryKey: ["charges", "all"],
     queryFn: () => backend.allCharges(),
   });
+  // Clusters are derived from the full charge set server-side and
+  // projected onto a map of chargeID → label for the table column.
+  // A failed request is non-fatal: absence just means no badge.
+  const cq = useQuery({
+    queryKey: ["charges", "clusters"],
+    queryFn: () => backend.chargeClusters(),
+    staleTime: 60_000,
+  });
+  const labelByID = useMemo(() => labelMap(cq.data ?? []), [cq.data]);
   const rows = useMemo(
     () => filterByWindow(q.data ?? [], win),
     [q.data, win],
@@ -47,7 +61,7 @@ export default function ChargesPage() {
         ) : (
           <div className="space-y-3">
             <SummaryStrip totals={totals} />
-            <ChargeTable charges={rows} />
+            <ChargeTable charges={rows} labelByID={labelByID} />
           </div>
         )}
       </Card>
@@ -55,7 +69,13 @@ export default function ChargesPage() {
   );
 }
 
-function ChargeTable({ charges }: { charges: Charge[] }) {
+function ChargeTable({
+  charges,
+  labelByID,
+}: {
+  charges: Charge[];
+  labelByID: Map<string, ChargeClusterLabel>;
+}) {
   const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
@@ -63,6 +83,7 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
             <th className="py-2 pr-4 font-medium">Start</th>
+            <th className="py-2 pr-4 font-medium">Location</th>
             <th className="py-2 pr-4 font-medium">Duration</th>
             <th className="py-2 pr-4 font-medium">SoC</th>
             <th className="py-2 pr-4 font-medium">Energy</th>
@@ -80,6 +101,9 @@ function ChargeTable({ charges }: { charges: Charge[] }) {
             >
               <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(c.StartedAt)}
+              </td>
+              <td className="py-2 pr-4 whitespace-nowrap">
+                <LocationBadge label={labelByID.get(c.ID) ?? ""} />
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {formatDuration(durationSeconds(c.StartedAt, c.EndedAt))}
@@ -192,5 +216,44 @@ function Stat({
         <div className="mt-0.5 text-[11px] text-neutral-500">{hint}</div>
       ) : null}
     </div>
+  );
+}
+
+// labelMap projects the cluster response into a per-charge lookup the
+// table uses to colour rows. Unknown-bucket clusters contribute an
+// empty label so the UI renders a neutral dash.
+function labelMap(clusters: ChargeCluster[]): Map<string, ChargeClusterLabel> {
+  const m = new Map<string, ChargeClusterLabel>();
+  for (const c of clusters) {
+    const label: ChargeClusterLabel =
+      c.label === "Home" || c.label === "Work" || c.label === "Public"
+        ? c.label
+        : "";
+    for (const id of c.member_ids) m.set(id, label);
+  }
+  return m;
+}
+
+// LocationBadge renders the Home/Work/Public tag. Styling follows the
+// convention of the rest of the app: Home leans emerald (positive /
+// matches the "ready" pill on Settings), Work is amber (informational),
+// Public is plain neutral because it's the default case.
+function LocationBadge({ label }: { label: ChargeClusterLabel }) {
+  if (!label) {
+    return <span className="text-neutral-600">—</span>;
+  }
+  const tone =
+    label === "Home"
+      ? "border-emerald-600/40 text-emerald-300 bg-emerald-950/30"
+      : label === "Work"
+        ? "border-amber-600/40 text-amber-300 bg-amber-950/30"
+        : "border-neutral-700 text-neutral-400";
+  return (
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full border ${tone}`}
+      title={`Clustered by charge location`}
+    >
+      {label}
+    </span>
   );
 }

@@ -1,6 +1,12 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { useRef, useState } from "react";
-import { backend, type ImportResult } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import {
+  backend,
+  type AIProvider,
+  type AISettings,
+  type AISettingsUpdate,
+  type ImportResult,
+} from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import {
@@ -45,6 +51,10 @@ export default function SettingsPage() {
 
       <Card title="Home charging cost">
         <ChargingCostPanel />
+      </Card>
+
+      <Card title="AI providers">
+        <AIProvidersPanel />
       </Card>
 
       <Card title="Import ElectraFi CSV">
@@ -420,6 +430,249 @@ function ImportPanel() {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI providers
+// ---------------------------------------------------------------------------
+//
+// Mirrors Caffeine's settings UX: one card per provider (OpenAI,
+// Anthropic, Gemini) with an API key field and a model dropdown, plus
+// a top-level picker that decides which provider is used when multiple
+// keys are configured. Keys are write-only — the server reports them
+// back as a boolean `has_key` and the UI renders "Key configured" when
+// true, so a secret never leaves the backend.
+//
+// Rivolt only uses text analysis (digest, anomaly explanations, trip
+// planner prose) so image / speech pipelines are omitted.
+
+const AI_PROVIDERS: { id: AIProvider; label: string; hint: string }[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    hint: "GPT-4o family. Paste a key starting with sk-…",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    hint: "Claude family. Paste a key starting with sk-ant-…",
+  },
+  {
+    id: "gemini",
+    label: "Google Gemini",
+    hint: "Gemini 2.x family. Paste a key from aistudio.google.com",
+  },
+];
+
+function AIProvidersPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: () => backend.getAISettings(),
+  });
+
+  const [selected, setSelected] = useState<"" | AIProvider>("");
+  const [keyDrafts, setKeyDrafts] = useState<Record<AIProvider, string>>({
+    openai: "",
+    anthropic: "",
+    gemini: "",
+  });
+  const [modelDrafts, setModelDrafts] = useState<Record<AIProvider, string>>({
+    openai: "",
+    anthropic: "",
+    gemini: "",
+  });
+
+  // Sync drafts from server state on load / after a save round-trips.
+  useEffect(() => {
+    if (!q.data) return;
+    setSelected(q.data.provider ?? "");
+    setModelDrafts({
+      openai: q.data.providers.openai?.model ?? "",
+      anthropic: q.data.providers.anthropic?.model ?? "",
+      gemini: q.data.providers.gemini?.model ?? "",
+    });
+    // Never prefill keys: backend never echoes them back.
+    setKeyDrafts({ openai: "", anthropic: "", gemini: "" });
+  }, [q.data]);
+
+  const mut = useMutation({
+    mutationFn: (patch: AISettingsUpdate) => backend.updateAISettings(patch),
+    onSuccess: (fresh) => {
+      qc.setQueryData(["ai-settings"], fresh);
+    },
+  });
+
+  if (q.isLoading) return <Spinner />;
+  if (q.isError)
+    return <ErrorBox title="Failed to load AI settings" detail={String(q.error)} />;
+  if (!q.data) return null;
+
+  const data: AISettings = q.data;
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <p className="text-sm text-neutral-400">
+          Rivolt uses an external LLM only for optional features (weekly digest,
+          anomaly explanations, trip planner). Vehicle data never leaves the
+          backend except for the specific prompt you invoke.
+        </p>
+        <div className="flex items-center gap-3 text-sm">
+          <label htmlFor="ai-provider" className="text-neutral-400">
+            Active provider
+          </label>
+          <select
+            id="ai-provider"
+            className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-neutral-100"
+            value={selected}
+            onChange={(e) => {
+              const v = e.target.value as "" | AIProvider;
+              setSelected(v);
+              mut.mutate({ provider: v });
+            }}
+          >
+            <option value="">Auto (first configured)</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="gemini">Google Gemini</option>
+          </select>
+          <span
+            className={[
+              "text-xs px-2 py-0.5 rounded-full border",
+              data.ready
+                ? "border-emerald-600/40 text-emerald-300 bg-emerald-950/40"
+                : "border-neutral-700 text-neutral-400",
+            ].join(" ")}
+          >
+            {data.ready
+              ? data.effective_model
+                ? `Ready · ${data.effective_model}`
+                : "Ready"
+              : "Not configured"}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        {AI_PROVIDERS.map((p) => {
+          const info = data.providers[p.id];
+          const keyDraft = keyDrafts[p.id];
+          const modelDraft = modelDrafts[p.id];
+          const effectiveModel = modelDraft || info?.model || "";
+          const isActive = data.effective_provider === p.id;
+          return (
+            <div
+              key={p.id}
+              className={[
+                "rounded-lg border p-3 space-y-2",
+                isActive
+                  ? "border-emerald-600/50 bg-emerald-950/20"
+                  : "border-neutral-800 bg-neutral-900/40",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between">
+                <div className="font-medium text-neutral-100">{p.label}</div>
+                <span
+                  className={[
+                    "text-xs px-2 py-0.5 rounded-full border",
+                    info?.has_key
+                      ? "border-emerald-600/40 text-emerald-300"
+                      : "border-neutral-700 text-neutral-500",
+                  ].join(" ")}
+                >
+                  {info?.has_key ? "Key set" : "No key"}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-500">{p.hint}</p>
+
+              <label className="block text-xs text-neutral-400">
+                API key
+                <input
+                  type="password"
+                  autoComplete="off"
+                  placeholder={info?.has_key ? "••••••••  (replace to update)" : "paste key"}
+                  value={keyDraft}
+                  onChange={(e) =>
+                    setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                  }
+                  className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+                />
+              </label>
+
+              <label className="block text-xs text-neutral-400">
+                Model
+                <input
+                  type="text"
+                  placeholder="provider default"
+                  value={modelDraft}
+                  onChange={(e) =>
+                    setModelDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
+                  }
+                  className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={mut.isPending}
+                  onClick={() => {
+                    const patch: AISettingsUpdate = {};
+                    if (keyDraft.trim().length > 0) {
+                      patch[`${p.id}_api_key` as keyof AISettingsUpdate] =
+                        keyDraft.trim() as never;
+                    }
+                    if (modelDraft !== (info?.model ?? "")) {
+                      patch[`${p.id}_model` as keyof AISettingsUpdate] =
+                        modelDraft as never;
+                    }
+                    if (Object.keys(patch).length === 0) return;
+                    mut.mutate(patch);
+                    setKeyDrafts((prev) => ({ ...prev, [p.id]: "" }));
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-emerald-700 bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50 disabled:opacity-50"
+                >
+                  Save
+                </button>
+                {info?.has_key && (
+                  <button
+                    type="button"
+                    disabled={mut.isPending}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          `Remove the ${p.label} API key from Rivolt?`,
+                        )
+                      )
+                        return;
+                      const patch: AISettingsUpdate = {};
+                      patch[`${p.id}_api_key` as keyof AISettingsUpdate] =
+                        "" as never;
+                      mut.mutate(patch);
+                    }}
+                    className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+                  >
+                    Clear key
+                  </button>
+                )}
+              </div>
+
+              {effectiveModel && (
+                <div className="text-[11px] text-neutral-500">
+                  Using model: <span className="font-mono">{effectiveModel}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {mut.isError && (
+        <ErrorBox title="Save failed" detail={String(mut.error)} />
       )}
     </div>
   );

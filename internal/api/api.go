@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
@@ -107,10 +109,23 @@ func New(d Deps) http.Handler {
 			r.Put("/", handleChargingSettingsPut(d.SettingsStore))
 		})
 
+		// AI provider configuration (OpenAI / Anthropic / Gemini).
+		// GET returns the redacted public view (api keys reported as
+		// has_key only); PUT accepts a partial patch. The /models
+		// endpoint proxies the provider's catalogue API so the UI can
+		// populate a dropdown instead of asking users to memorise IDs.
+		r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
+		r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
+		r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
+
 		// Read-only session/telemetry endpoints. Populated by either the
 		// ElectraFi importer or the (future) live Rivian ingester.
 		r.Get("/drives", handleDrives(d.Drives))
 		r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
+		// Pure-local analysis over the stored charge set. Groups
+		// sessions into Home / Work / Public buckets using DBSCAN on
+		// (lat, lon). No external calls; no LLM involved.
+		r.Get("/charges/clusters", handleChargeClusters(d.Charges))
 		r.Get("/samples", handleSamples(d.Samples))
 
 		// Accepts a multipart upload of an ElectraFi CSV export. Streams
@@ -561,5 +576,124 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			results = append(results, res)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"files": results})
+	}
+}
+
+// --- Charge clustering ----------------------------------------------------
+//
+// Pure-local DBSCAN grouping of charge sessions by (lat, lon). The UI
+// uses it to label Home vs. Work vs. Public charging on /charges and
+// in the overview summary. No external calls.
+
+type chargeClusterResponse struct {
+	Label       string   `json:"label"`
+	Lat         float64  `json:"lat"`
+	Lon         float64  `json:"lon"`
+	Sessions    int      `json:"sessions"`
+	EnergyKWh   float64  `json:"energy_kwh"`
+	RadiusMeter float64  `json:"radius_m"`
+	MemberIDs   []string `json:"member_ids"`
+}
+
+func handleChargeClusters(store *charges.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writeJSON(w, http.StatusOK, []chargeClusterResponse{})
+			return
+		}
+		// Pull the full usable window — clustering is cheap and the
+		// store caps list size anyway. A bigger corpus just gives
+		// better Home detection.
+		rows, err := store.ListRecent(r.Context(), 5000)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		pts := make([]analytics.ChargePoint, 0, len(rows))
+		for _, c := range rows {
+			pts = append(pts, analytics.ChargePoint{
+				ID:             c.ID,
+				Lat:            c.Lat,
+				Lon:            c.Lon,
+				EnergyAddedKWh: c.EnergyAddedKWh,
+			})
+		}
+		clusters := analytics.ClusterCharges(pts, analytics.DefaultParams())
+		out := make([]chargeClusterResponse, 0, len(clusters))
+		for _, c := range clusters {
+			out = append(out, chargeClusterResponse{
+				Label:       string(c.Label),
+				Lat:         c.Centroid.Lat,
+				Lon:         c.Centroid.Lon,
+				Sessions:    c.Sessions,
+				EnergyKWh:   c.EnergyKWh,
+				RadiusMeter: c.RadiusMeter,
+				MemberIDs:   c.MemberIDs,
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// --- AI settings ----------------------------------------------------------
+//
+// Thin wrappers around settings.Manager so the Settings UI can configure
+// which LLM provider Rivolt uses for AI features (weekly digest, trip
+// planner, anomaly explanations). The manager enforces the redaction
+// contract: API keys are reported as has_key=true/false, never echoed back.
+
+// handleAISettingsGet returns the redacted AI configuration.
+func handleAISettingsGet(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, mgr.Public())
+	}
+}
+
+// handleAISettingsPut accepts a partial patch: nil fields are untouched,
+// empty-string fields clear, non-empty values update.
+func handleAISettingsPut(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		var patch settings.AIUpdate
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+			return
+		}
+		pub, err := mgr.Update(r.Context(), patch)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, pub)
+	}
+}
+
+// handleAIModelsList proxies the provider's catalogue endpoint using the
+// stored API key so the UI can offer a live dropdown instead of asking
+// users to remember model IDs that drift across releases.
+func handleAIModelsList(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		provider := chi.URLParam(r, "provider")
+		// Independent timeout: the provider list endpoints are small but
+		// we don't want to inherit a stalled request's context.
+		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+		defer cancel()
+		models, err := mgr.ListModels(ctx, provider)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"models": models})
 	}
 }

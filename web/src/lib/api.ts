@@ -53,6 +53,9 @@ export const api = {
   get: <T>(url: string, signal?: AbortSignal) => request<T>("GET", url, undefined, signal),
   post: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
     request<T>("POST", url, body, signal),
+  put: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
+    request<T>("PUT", url, body, signal),
+  del: <T>(url: string, signal?: AbortSignal) => request<T>("DELETE", url, undefined, signal),
 };
 
 // ---------- types (exported JSON field names match Go struct tags) ----------
@@ -260,6 +263,51 @@ export type RivianStatus = {
   email?: string;
 };
 
+// AIProvider enumerates the LLM backends Rivolt supports. Image/speech
+// aren't offered — Rivolt only uses text analysis (digests, anomaly
+// explanations, trip planning prose).
+export type AIProvider = "openai" | "anthropic" | "gemini";
+
+// AISettings is the redacted public view returned by GET /api/settings/ai.
+// API keys are surfaced as a boolean `has_key` only — the secret never
+// leaves the backend.
+export type AISettings = {
+  // "" means "auto": first provider with a key wins. Otherwise pinned.
+  provider: "" | AIProvider;
+  effective_provider?: AIProvider;
+  // e.g. "openai:gpt-4o-mini" — set only when ready=true.
+  effective_model?: string;
+  providers: Record<AIProvider, { model: string; has_key: boolean }>;
+  ready: boolean;
+};
+
+// Partial patch for PUT /api/settings/ai. Omitted fields are left alone;
+// an explicit empty string clears the value.
+export type AISettingsUpdate = {
+  provider?: "" | AIProvider;
+  openai_model?: string;
+  openai_api_key?: string;
+  anthropic_model?: string;
+  anthropic_api_key?: string;
+  gemini_model?: string;
+  gemini_api_key?: string;
+};
+
+// ChargeCluster is one group returned by /api/charges/clusters. Member
+// IDs reference rows in the /api/charges response so the UI can paint
+// a Home/Work/Public badge next to each session.
+export type ChargeClusterLabel = "Home" | "Work" | "Public" | "";
+
+export type ChargeCluster = {
+  label: ChargeClusterLabel;
+  lat: number;
+  lon: number;
+  sessions: number;
+  energy_kwh: number;
+  radius_m: number;
+  member_ids: string[];
+};
+
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
@@ -300,6 +348,21 @@ export const backend = {
       if (!res.ok) throw new ApiError(res.status, parsed);
       return parsed as ChargingSettings;
     }),
+  // AI provider configuration. GET returns the redacted view; PUT takes
+  // a partial patch (nil = leave alone, "" = clear).
+  getAISettings: () => api.get<AISettings>("/api/settings/ai"),
+  updateAISettings: (patch: AISettingsUpdate) =>
+    api.put<AISettings>("/api/settings/ai", patch),
+  // Fetch the provider's own model catalogue via its list endpoint,
+  // proxied server-side so the API key never hits the browser.
+  listAIModels: (provider: AIProvider) =>
+    api.get<{ models: string[] }>(
+      `/api/settings/ai/models/${encodeURIComponent(provider)}`,
+    ),
+  // Local DBSCAN clustering of charge locations. Returns one row per
+  // cluster, largest-first, with "Home" / "Work" / "Public" labels.
+  chargeClusters: () =>
+    api.get<ChargeCluster[]>("/api/charges/clusters"),
   drives: (limit = 50) => api.get<Drive[]>(`/api/drives?limit=${limit}`),
   charges: (limit = 50) => api.get<Charge[]>(`/api/charges?limit=${limit}`),
   // `allDrives` / `allCharges` pull enough history to drive the

@@ -54,6 +54,7 @@ Core (free, open-source, self-hosted):
 - **Live vehicle dashboard** — SoC, range, charge state, last drive, last charge
 - **Drive analytics** — route maps, efficiency breakdowns, cost-per-mile using your actual electricity rate
 - **Charging analytics** — curves, temperature impact, session cost, BMS effects
+- **Home vs. public detection** — charges are clustered by location (DBSCAN on lat/lon); the largest cluster is tagged `Home`, the second is `Work`, everything else is `Public`. No LLM involved; fully local.
 - **Installable PWA** — works on any browser; service-worker offline; web push for plug-in reminders, update alerts, departure prep
 
 Planned add-ons (not in the initial release):
