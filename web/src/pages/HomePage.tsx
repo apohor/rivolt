@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { backend } from "../lib/api";
+import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
 import {
@@ -53,6 +53,21 @@ export default function HomePage() {
   const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
   const ds = useMemo(() => driveStats(winDrives), [winDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
+
+  // Cluster labels are computed server-side over the full charge corpus
+  // (bigger sample => better Home detection). We intersect with the
+  // window-filtered set here so the Home/Public split reflects the
+  // same scope as the KPI row above it. Missing data is non-fatal.
+  const clusters = useQuery({
+    queryKey: ["charges", "clusters"],
+    queryFn: () => backend.chargeClusters(),
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const locSplit = useMemo(
+    () => locationSplit(winCharges, clusters.data ?? []),
+    [winCharges, clusters.data],
+  );
 
   // Prefer the live vehicle state for the headline SoC — the fallback
   // to the last recorded session is misleading when the car has been
@@ -149,6 +164,12 @@ export default function HomePage() {
             />
           </div>
 
+          {locSplit.total > 0 && (
+            <Card title="Charging locations">
+              <LocationSplit split={locSplit} />
+            </Card>
+          )}
+
           <Card title={`Miles per day · last ${barDays}`}>
             <BarChart
               data={dailyMiles}
@@ -201,6 +222,116 @@ function Stat({
       {hint ? (
         <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
       ) : null}
+    </div>
+  );
+}
+
+// LocationSplitBuckets is the window-scoped roll-up the Charging
+// locations card renders. Sessions are counted once per charge ID
+// (a charge belongs to exactly one cluster); energy sums the kWh
+// added in each bucket. `total` is the session count used for
+// percentage math.
+type LocationSplitBuckets = {
+  Home: { sessions: number; energyKWh: number };
+  Work: { sessions: number; energyKWh: number };
+  Public: { sessions: number; energyKWh: number };
+  total: number;
+};
+
+// locationSplit joins the window-filtered charges with the
+// server-computed cluster labels and groups by label. Unknown-bucket
+// charges (no GPS fix) and anything outside the window are excluded
+// so the denominator matches what the rest of the Overview shows.
+function locationSplit(
+  winCharges: { ID: string; EnergyAddedKWh: number }[],
+  clusters: ChargeCluster[],
+): LocationSplitBuckets {
+  const labelByID = new Map<string, ChargeClusterLabel>();
+  for (const c of clusters) {
+    const label: ChargeClusterLabel =
+      c.label === "Home" || c.label === "Work" || c.label === "Public"
+        ? c.label
+        : "";
+    for (const id of c.member_ids) labelByID.set(id, label);
+  }
+  const buckets: LocationSplitBuckets = {
+    Home: { sessions: 0, energyKWh: 0 },
+    Work: { sessions: 0, energyKWh: 0 },
+    Public: { sessions: 0, energyKWh: 0 },
+    total: 0,
+  };
+  for (const c of winCharges) {
+    const label = labelByID.get(c.ID);
+    if (label !== "Home" && label !== "Work" && label !== "Public") continue;
+    buckets[label].sessions += 1;
+    buckets[label].energyKWh += c.EnergyAddedKWh ?? 0;
+    buckets.total += 1;
+  }
+  return buckets;
+}
+
+// LocationSplit renders three tiles (Home / Work / Public) with
+// session count, energy, and percentage of sessions in the window.
+// Tone mirrors the badges on /charges so the two surfaces read as
+// the same concept.
+function LocationSplit({ split }: { split: LocationSplitBuckets }) {
+  const rows: {
+    label: ChargeClusterLabel;
+    tone: string;
+    sessions: number;
+    energyKWh: number;
+  }[] = [
+    {
+      label: "Home",
+      tone: "border-emerald-600/40 text-emerald-300 bg-emerald-950/30",
+      sessions: split.Home.sessions,
+      energyKWh: split.Home.energyKWh,
+    },
+    {
+      label: "Work",
+      tone: "border-amber-600/40 text-amber-300 bg-amber-950/30",
+      sessions: split.Work.sessions,
+      energyKWh: split.Work.energyKWh,
+    },
+    {
+      label: "Public",
+      tone: "border-neutral-700 text-neutral-300",
+      sessions: split.Public.sessions,
+      energyKWh: split.Public.energyKWh,
+    },
+  ];
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {rows.map((r) => {
+        const sharePct =
+          split.total > 0 ? (r.sessions / split.total) * 100 : 0;
+        return (
+          <div
+            key={r.label}
+            className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3"
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full border ${r.tone}`}
+              >
+                {r.label}
+              </span>
+              <span className="text-xs text-neutral-500 tabular-nums">
+                {sharePct.toFixed(0)}%
+              </span>
+            </div>
+            <div className="mt-2 text-xl font-semibold tabular-nums text-neutral-100">
+              {r.sessions}
+              <span className="ml-1 text-xs font-normal text-neutral-500">
+                {r.sessions === 1 ? "session" : "sessions"}
+              </span>
+            </div>
+            <div className="mt-0.5 text-[11px] text-neutral-500 tabular-nums">
+              {num(r.energyKWh, 1, "kWh")} added
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
