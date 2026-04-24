@@ -160,7 +160,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             ) : null}
             <Field
               label="Precondition"
-              value={formatTitle(s.cabin_preconditioning_status)}
+              value={formatPrecondition(s.cabin_preconditioning_status)}
             />
           </Section>
 
@@ -865,6 +865,13 @@ function formatBoolish(s: string): string {
 
 function formatTitle(s: string): string {
   if (!s) return "—";
+  // Rivian publishes "undefined" / "unknown" literals for fields the
+  // car hasn't reported yet (OTA status on a brand-new vehicle,
+  // wiper-fluid telemetry during cold boot, etc.). Title-casing them
+  // produces a misleading "Undefined" label that reads like an app
+  // bug. Collapse both to a plain em-dash so the grid stays tidy.
+  const v = s.toLowerCase();
+  if (v === "undefined" || v === "unknown") return "—";
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -900,6 +907,23 @@ function formatOtaAvailable(available: string, current: string): string {
 // that fits the live panel's data-dense grid. Unknown values pass
 // through formatTitle so we don't lose information on a surprise
 // enum.
+// formatPrecondition renders the cabin preconditioning state. Rivian
+// publishes a small vocabulary ("preconditioning", "preconditioned",
+// "not_preconditioning", "undefined", "unknown") — "undefined" in
+// particular leaks out for vehicles that haven't reported yet, which
+// formatTitle would render as the literal word "Undefined". Map the
+// idle / unknown values to an em-dash and humanize the rest.
+function formatPrecondition(s: string): string {
+  if (!s) return "—";
+  const v = s.toLowerCase();
+  if (v === "undefined" || v === "unknown" || v === "not_preconditioning") {
+    return "off";
+  }
+  if (v === "preconditioning") return "on";
+  if (v === "preconditioned") return "ready";
+  return formatTitle(s);
+}
+
 function formatTwelveVolt(s: string): string {
   if (!s) return "—";
   const v = s.toLowerCase();
