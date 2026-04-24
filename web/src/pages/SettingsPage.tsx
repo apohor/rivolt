@@ -5,6 +5,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import {
   setTemperatureUnit,
+  setTimeZone,
   usePreferences,
   type TemperatureUnit,
 } from "../lib/preferences";
@@ -61,13 +62,35 @@ export default function SettingsPage() {
 // DisplayPreferences surfaces the client-side display toggles
 // (units, etc.) backed by localStorage via usePreferences().
 function DisplayPreferences() {
-  const { temperatureUnit } = usePreferences();
+  const { temperatureUnit, timeZone } = usePreferences();
   const options: { value: TemperatureUnit; label: string }[] = [
     { value: "c", label: "Celsius (°C)" },
     { value: "f", label: "Fahrenheit (°F)" },
   ];
+  // Populate the time-zone select from the platform's IANA list when
+  // available; fall back to a curated short list on older browsers
+  // that don't expose Intl.supportedValuesOf.
+  const zones: string[] =
+    typeof (Intl as unknown as { supportedValuesOf?: (k: string) => string[] })
+      .supportedValuesOf === "function"
+      ? (Intl as unknown as { supportedValuesOf: (k: string) => string[] })
+          .supportedValuesOf("timeZone")
+      : [
+          "UTC",
+          "America/Los_Angeles",
+          "America/Denver",
+          "America/Chicago",
+          "America/New_York",
+          "Europe/London",
+          "Europe/Berlin",
+          "Asia/Tokyo",
+        ];
+  const browserZone =
+    typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : "UTC";
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-4 text-sm">
       <div>
         <div className="text-neutral-400 mb-1">Temperature</div>
         <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden">
@@ -93,6 +116,25 @@ function DisplayPreferences() {
         <p className="mt-1 text-xs text-neutral-500">
           Backend always stores Celsius; this only affects how temperatures are
           displayed.
+        </p>
+      </div>
+
+      <div>
+        <div className="text-neutral-400 mb-1">Time zone</div>
+        <select
+          value={timeZone}
+          onChange={(e) => setTimeZone(e.target.value)}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+        >
+          <option value="auto">Auto — browser ({browserZone})</option>
+          {zones.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-neutral-500">
+          Timestamps are stored in UTC; this only affects how they're displayed.
         </p>
       </div>
     </div>
