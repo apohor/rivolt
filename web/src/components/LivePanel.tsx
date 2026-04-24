@@ -480,14 +480,7 @@ function ParkedSummary({
     staleTime: 60_000,
   });
   const lastDrive = drives.data?.[0];
-  // Skip "phantom" charge rows where the SoC didn't actually increase
-  // — those are historically-recorded stuck-charger_state sessions
-  // (see v0.3.54 recorder gate) and are confusing to surface as the
-  // most recent charge. Prefer the newest row where SoC went up by
-  // more than a trivial amount (>=1pp rules out sampling noise).
-  const lastCharge = charges.data?.find(
-    (c) => c.EndSoCPct - c.StartSoCPct >= 1,
-  );
+  const lastCharge = charges.data?.[0];
   const plugged = isPlugged(state);
 
   return (
