@@ -270,33 +270,33 @@ function EmptyState({ kind }: { kind: string }) {
 // marketing breathing room for data density.
 function HeroBanner() {
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900 px-6 py-6 sm:px-8 sm:py-7">
+    <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900">
       <svg
         aria-hidden="true"
         viewBox="0 0 24 24"
-        className="pointer-events-none absolute -right-3 top-1/2 hidden h-40 w-40 -translate-y-1/2 text-emerald-500/10 md:block"
+        className="pointer-events-none absolute -right-2 top-1/2 hidden h-32 w-32 -translate-y-1/2 text-emerald-500/10 md:block"
         fill="currentColor"
       >
         <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
       </svg>
-      <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="relative flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0 max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-emerald-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             Your Rivian, your data
           </span>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+          <h1 className="mt-1.5 text-lg font-semibold tracking-tight sm:text-xl">
             <span className="text-neutral-100">Drive more.</span>{" "}
             <span className="text-emerald-300">Know it better.</span>
           </h1>
-          <p className="mt-2 text-sm text-neutral-400">
+          <p className="mt-1 text-[12px] text-neutral-400 sm:text-sm">
             Live telemetry, full drive &amp; charge history, session-level cost tracking. Runs on your network.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <Link
             to="/live"
-            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white shadow hover:bg-emerald-500"
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow hover:bg-emerald-500"
           >
             Live view →
           </Link>
