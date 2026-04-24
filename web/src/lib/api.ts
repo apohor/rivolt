@@ -193,6 +193,10 @@ export type Drive = {
   EndLon: number;
   MaxSpeedMph: number;
   AvgSpeedMph: number;
+  // Pack-side energy consumed, derived from SoC delta × usable pack
+  // capacity at the time the drive was persisted. Zero on legacy rows
+  // and on imports where --pack-kwh wasn't set.
+  EnergyUsedKWh: number;
   Source: string;
 };
 

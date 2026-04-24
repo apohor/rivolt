@@ -536,6 +536,7 @@ func mergeState(prev, next *State) *State {
 
 	// Numerics: non-zero wins.
 	mergeFloat(&out.BatteryLevelPct, next.BatteryLevelPct)
+	mergeFloat(&out.BatteryCapacityKWh, next.BatteryCapacityKWh)
 	mergeFloat(&out.DistanceToEmpty, next.DistanceToEmpty)
 	mergeFloat(&out.OdometerKm, next.OdometerKm)
 	mergeFloat(&out.ChargerPowerKW, next.ChargerPowerKW)
@@ -857,4 +858,33 @@ func (m *StateMonitor) PackKWhFor(vehicleID string) float64 {
 		return DefaultPackKWh
 	}
 	return v.PackKWh
+}
+
+// observeBatteryCapacity folds a vehicle-reported usable pack
+// capacity (batteryCapacity from vehicleState) into the in-memory
+// vehicleInfo cache. The live number is authoritative — it reflects
+// the actual pack in the car, including any degradation or recall
+// rebalancing — whereas the bootstrap value from InferPackKWh is a
+// lookup-table guess by model/trim/year. No-op when kwh <= 0 or
+// equal to the cached value.
+func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
+	if kwh <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v := m.vehicleInfo[vehicleID]
+	if v == nil {
+		// First touch — create a stub so PackKWhFor can see the value
+		// even before RefreshVehicleInfo has run. Other fields stay
+		// zero/empty and get filled in by the later refresh.
+		m.vehicleInfo[vehicleID] = &Vehicle{ID: vehicleID, PackKWh: kwh}
+		return
+	}
+	if v.PackKWh == kwh {
+		return
+	}
+	cp := *v
+	cp.PackKWh = kwh
+	m.vehicleInfo[vehicleID] = &cp
 }

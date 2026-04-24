@@ -653,7 +653,7 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 		}
 		imp.Location = loc
 
-		// Stream results as NDJSON. Most default nginx setups 
+		// Stream results as NDJSON. Most default nginx setups
 		// close idle upstream connections after ~60s, producing a 504
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
