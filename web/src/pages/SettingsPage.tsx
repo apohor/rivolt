@@ -314,9 +314,10 @@ function ImportPanel() {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
-  // Matches electrafi.DefaultPackKWh (Gen 1 R1T/R1S Large, 131 kWh
-  // usable). Users on Gen 2 / Max / Standard override here.
-  const [packKWh, setPackKWh] = useState<string>("131");
+  // Empty = let the server use electrafi.DefaultPackKWh (single
+  // source of truth for the default). Users on Gen 2 / Max /
+  // Standard override here.
+  const [packKWh, setPackKWh] = useState<string>("");
 
   const mut = useMutation({
     mutationFn: (files: File[]) =>
@@ -394,11 +395,12 @@ function ImportPanel() {
           type="number"
           step="0.1"
           min="0"
+          placeholder="auto"
           value={packKWh}
           onChange={(e) => setPackKWh(e.target.value)}
           className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
         />
-        <span>kWh · used to estimate energy when ElectraFi omits <code>charger_power</code> (late-Mar 2026 onward)</span>
+        <span>kWh · leave blank to auto-detect from the vehicle; used to estimate energy when ElectraFi omits <code>charger_power</code> (late-Mar 2026 onward)</span>
       </div>
 
       {mut.isError && (
