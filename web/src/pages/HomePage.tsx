@@ -17,6 +17,7 @@ import {
   filterByWindow,
   milesPerDay,
   socTrend,
+  WINDOW_OPTIONS,
   type WindowKey,
 } from "../lib/analytics";
 import { collapseRoundTrips } from "../lib/drives";
@@ -101,10 +102,18 @@ export default function HomePage() {
     <div className="space-y-6">
       <HeroBanner />
 
-      {/* The nav already shows the page name in its highlighted state,
-          so a redundant h1 just eats vertical space above the fold.
-          Keep only the WindowPicker right-aligned. */}
-      <div className="flex justify-end">
+      {/* Header row for the summary section: mirrors the first-row
+          title+picker pattern on /drives and /charges so the window
+          picker has a visible anchor instead of floating alone. The
+          nav already shows "Overview" as the page name, so the label
+          here describes what the picker actually filters below. */}
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Summary</h2>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            {WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? ""}
+          </p>
+        </div>
         <WindowPicker value={win} onChange={setWin} />
       </div>
 
