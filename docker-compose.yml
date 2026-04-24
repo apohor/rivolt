@@ -25,9 +25,50 @@ services:
       ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
+      # Auth (v0.4.0+). Opt-in: setting USERNAME + PASSWORD flips
+      # the server to cookie-gated mode. COOKIE_SECRET should be
+      # hex (openssl rand -hex 32); empty = random on boot (every
+      # restart logs everyone out). SECURE_COOKIE defaults to true;
+      # set false for plain http.
+      RIVOLT_USERNAME: "${RIVOLT_USERNAME:-}"
+      RIVOLT_PASSWORD: "${RIVOLT_PASSWORD:-}"
+      RIVOLT_COOKIE_SECRET: "${RIVOLT_COOKIE_SECRET:-}"
+      RIVOLT_SECURE_COOKIE: "${RIVOLT_SECURE_COOKIE:-false}"
+      RIVOLT_TRUSTED_PROXY_CIDR: "${RIVOLT_TRUSTED_PROXY_CIDR:-}"
+      # Postgres backend (v0.4.0+). Leave unset to keep 100%
+      # SQLite; set to point Rivolt at the postgres service below.
+      # Schema is provisioned at boot; stores migrate per release.
+      DATABASE_URL: "${DATABASE_URL:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
     volumes:
       - rivolt-data:/data
     restart: unless-stopped
 
+  # Local-dev Postgres. Optional — compose up will happily run
+  # without it when DATABASE_URL is unset. Kept separate from the
+  # DSM compose so `docker compose up` in-repo gets a fully-
+  # working dual-backend stack for testing.
+  postgres:
+    image: postgres:16-alpine
+    container_name: rivolt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-rivolt}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-rivolt}"
+      POSTGRES_DB: "${POSTGRES_DB:-rivolt}"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - rivolt-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rivolt}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   rivolt-data:
+  rivolt-pg:

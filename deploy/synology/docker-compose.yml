@@ -1,88 +1,78 @@
-# Synology Container Manager — rivolt project
+# Rivolt on Synology Container Manager (DSM 7.2+).
 #
-# How to deploy on DSM 7.2+:
+# Deploy: Container Manager → Project → Create
+#   Path:   /volume1/docker/rivolt
+#   Source: Create docker-compose.yml (paste this)
+#   Build → Run → http://<nas-ip>:8081
 #
-#   1. In DSM: Container Manager → Project → Create
-#        Project name:  rivolt
-#        Path:          /volume1/docker/rivolt
-#        Source:        Create docker-compose.yml  (paste this file)
-#
-#   2. (Optional) Pin a tag instead of :latest for reproducible upgrades,
-#      e.g. `ghcr.io/apohor/rivolt:v0.1.0`.
-#
-#   3. (Optional) Change the host port if 8080 is already taken. With
-#      network_mode: host, the binary listens on whatever ADDR says.
-#
-#   4. Build → Run.  Open  http://<nas-ip>:8080
-#
-#   5. Rivolt has no cloud login yet — data comes in via ElectraFi CSV
-#      uploads. Open Settings → "Import ElectraFi CSV" and drop your
-#      monthly exports onto the upload panel.
-#
-# A named Docker volume is used on purpose: DSM's ACLs under
-# /volume1/docker block the image's nonroot uid (65532) from writing the
-# SQLite file. Docker-managed volumes sidestep that with no chown dance.
-# The data lives at:
-#
-#   /volume1/@docker/volumes/rivolt_rivolt-data/_data
-#
-# Back up by stopping the project and copying that directory.
-#
-# Updating: Container Manager → Project → Action → Build (pulls :latest
-# and recreates). Snapshot the data directory first if you care.
+# Data volume lives at /volume1/@docker/volumes/rivolt_rivolt-data/_data.
+# Update by clicking Build again (pulls :latest).
+
+# YAML anchor so the postgres password is declared once and reused
+# by both services. Change this single literal before first boot.
+x-pg-password: &pg_password "change-me"
 
 services:
   rivolt:
     image: ghcr.io/apohor/rivolt:latest
     container_name: rivolt
     restart: always
-
-    # Host networking: simplest path to serve the SPA on the NAS LAN and
-    # (later) reach a live Rivian ingester without docker-bridge fussing.
-    # Drop this and use `ports: ["8080:8080"]` if you want bridge isolation.
-    network_mode: host
-
+    # Host port is 8081; Caffeine owns 8080 on this NAS.
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      # Listen address inside the container. With host networking this is
-      # also the host port. Change if 8080 is taken.
       ADDR: ":8080"
-
-      # SQLite DB + caches live here; bound to the named volume below.
       DATA_DIR: "/data"
-
-      # Timezone used for day-boundary math in charts. Set this to your
-      # zone so "today" lines up with local time rather than UTC.
       TZ: "America/Chicago"
 
-      # Optional AI hooks (future analysis features). Leave blank to
-      # disable. You can also just paste a key in Settings once that UI
-      # lands.
-      # AI_PROVIDER: ""                  # openai | anthropic | gemini
+      # Auth. Cookie-signing key auto-generated on first boot to
+      # ${DATA_DIR}/cookie_secret. Set RIVOLT_COOKIE_SECRET (hex)
+      # explicitly only for multi-replica key sharing.
+      RIVOLT_USERNAME: "anton"
+      RIVOLT_PASSWORD: "change-me"
+      RIVOLT_SECURE_COOKIE: "true"  # DSM is fronted by HTTPS
+
+      # Postgres. Service-name DNS; nothing is exposed to the LAN.
+      DB_HOST: "postgres"
+      DB_NAME: "rivolt"
+      DB_USER: "rivolt"
+      DB_PASSWORD: *pg_password
+
+      # Optional AI keys (leave blank to configure in Settings UI).
       # OPENAI_API_KEY: ""
       # ANTHROPIC_API_KEY: ""
       # GEMINI_API_KEY: ""
 
-      # Optional web-push credentials. If unset, a VAPID keypair is
-      # generated on first boot and persisted to DATA_DIR; only pin these
-      # if you need the same key across rebuilds or multiple replicas.
+      # Optional VAPID override; auto-generated + persisted otherwise.
       # VAPID_SUBJECT: "mailto:you@example.com"
       # VAPID_PUBLIC_KEY: ""
       # VAPID_PRIVATE_KEY: ""
-
-    # `ports:` is intentionally omitted — network_mode: host ignores it
-    # and the binary listens on ADDR directly on the host.
-
     volumes:
       - rivolt-data:/data
+    security_opt:
+      - no-new-privileges:true
 
-    # No healthcheck: the image is distroless (no shell, no curl) and the
-    # binary doesn't expose a self-probe flag. Put a reverse proxy in
-    # front if you want probes hitting /api/health.
-
+  postgres:
+    image: postgres:16-alpine
+    container_name: rivolt-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: rivolt
+      POSTGRES_PASSWORD: *pg_password
+      POSTGRES_DB: rivolt
+    volumes:
+      - rivolt-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rivolt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     security_opt:
       - no-new-privileges:true
 
 volumes:
   rivolt-data:
-    # /volume1/@docker/volumes/rivolt_rivolt-data/_data on DSM. Back up
-    # by copying that directory while the container is stopped.
+  rivolt-pg:

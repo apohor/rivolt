@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/apohor/rivolt/internal/analytics"
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
@@ -47,8 +48,14 @@ type Deps struct {
 	// handler falls back to one-shot REST polls against Rivian's
 	// GetVehicleState query.
 	StateMonitor *rivian.StateMonitor
-	WebFS        fs.FS
-	Version      string
+	// Auth, when non-nil and Configured(), gates /api/* behind a
+	// login cookie or trusted proxy header. When nil or
+	// unconfigured (no RIVOLT_USERNAME / RIVOLT_PASSWORD) the API
+	// is open, preserving the pre-auth single-tenant UX so
+	// upgrades don't lock users out of their own NAS.
+	Auth    *auth.Service
+	WebFS   fs.FS
+	Version string
 }
 
 // New builds the root mux with all routes mounted.
@@ -67,74 +74,109 @@ func New(d Deps) http.Handler {
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Content-Type", "Authorization"},
-		MaxAge:         300,
+		// Credentials are intentionally NOT allowed here: the CORS
+		// spec forbids combining Access-Control-Allow-Credentials:
+		// true with Allow-Origin: *. The SPA is served same-origin
+		// with the API in every supported deployment (docker
+		// compose, DSM, k8s behind ingress), so the browser attaches
+		// the session cookie on its own — CORS isn't involved.
+		MaxAge: 300,
 	}))
 
+	// Authentication middleware runs on every request so handlers
+	// below can read auth.UserFromContext regardless of whether
+	// auth is enforced. With auth unconfigured (nil Service) the
+	// middleware is a no-op — the single-tenant legacy UX stays.
+	if d.Auth != nil {
+		r.Use(d.Auth.Middleware)
+	}
+
 	r.Route("/api", func(r chi.Router) {
+		// Health + auth endpoints stay reachable without a session,
+		// otherwise the browser has no way to log in.
 		r.Get("/health", handleHealth(d.Version))
+		if d.Auth != nil {
+			r.Route("/auth", func(r chi.Router) {
+				r.Post("/login", d.Auth.Login)
+				r.Post("/logout", d.Auth.Logout)
+				r.Get("/me", d.Auth.Me)
+			})
+		}
 
-		r.Route("/push", func(r chi.Router) {
-			r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
-			r.Post("/subscribe", handlePushSubscribe(d.PushStore))
-			r.Post("/unsubscribe", handlePushUnsubscribe(d.PushStore))
-		})
+		// Everything else sits behind requireUser when auth is
+		// configured. The bool guard means `docker run` with no env
+		// vars still works exactly like v0.3.x — login is opt-in via
+		// setting RIVOLT_USERNAME / RIVOLT_PASSWORD.
+		r.Group(func(r chi.Router) {
+			if d.Auth != nil && d.Auth.Configured() {
+				r.Use(requireUserMW)
+			}
 
-		// Rivian live endpoints. /api/vehicles returns [] when no real
-		// client is configured (the stub returns ErrNotImplemented);
-		// other errors surface as 502 so the UI can show them.
-		r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor))
-		r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
-		r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
-		r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
-		r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
-		r.Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
-		r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
-		r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
-		r.Get("/charging-frames", handleChargingFrames(d.Rivian))
+			r.Route("/push", func(r chi.Router) {
+				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
+				r.Post("/subscribe", handlePushSubscribe(d.PushStore))
+				r.Post("/unsubscribe", handlePushUnsubscribe(d.PushStore))
+			})
 
-		// Rivian account management. Only wired when a live client is
-		// present; with the stub/mock these return 404.
-		r.Route("/settings/rivian", func(r chi.Router) {
-			r.Get("/", handleRivianStatus(d.RivianAccount))
-			r.Post("/login", handleRivianLogin(d.RivianAccount, d.SettingsStore))
-			r.Post("/mfa", handleRivianMFA(d.RivianAccount, d.SettingsStore))
-			r.Post("/logout", handleRivianLogout(d.RivianAccount, d.SettingsStore))
-		})
+			// Rivian live endpoints. /api/vehicles returns [] when no real
+			// client is configured (the stub returns ErrNotImplemented);
+			// other errors surface as 502 so the UI can show them.
+			r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor))
+			r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
+			r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
+			r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
+			r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
+			r.Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
+			r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
+			r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
+			r.Get("/charging-frames", handleChargingFrames(d.Rivian))
 
-		// Home electricity cost settings, applied locally to estimate
-		// the price of sessions Rivian reports as free (home AC, L2,
-		// non-RAN public chargers).
-		r.Route("/settings/charging", func(r chi.Router) {
-			r.Get("/", handleChargingSettingsGet(d.SettingsStore))
-			r.Put("/", handleChargingSettingsPut(d.SettingsStore))
-		})
+			// Rivian account management. Only wired when a live client is
+			// present; with the stub/mock these return 404.
+			r.Route("/settings/rivian", func(r chi.Router) {
+				r.Get("/", handleRivianStatus(d.RivianAccount))
+				r.Post("/login", handleRivianLogin(d.RivianAccount, d.SettingsStore))
+				r.Post("/mfa", handleRivianMFA(d.RivianAccount, d.SettingsStore))
+				r.Post("/logout", handleRivianLogout(d.RivianAccount, d.SettingsStore))
+			})
 
-		// AI provider configuration (OpenAI / Anthropic / Gemini).
-		// GET returns the redacted public view (api keys reported as
-		// has_key only); PUT accepts a partial patch. The /models
-		// endpoint proxies the provider's catalogue API so the UI can
-		// populate a dropdown instead of asking users to memorise IDs.
-		r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
-		r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
-		r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
+			// Home electricity cost settings, applied locally to estimate
+			// the price of sessions Rivian reports as free (home AC, L2,
+			// non-RAN public chargers).
+			r.Route("/settings/charging", func(r chi.Router) {
+				r.Get("/", handleChargingSettingsGet(d.SettingsStore))
+				r.Put("/", handleChargingSettingsPut(d.SettingsStore))
+			})
 
-		// Read-only session/telemetry endpoints. Populated by either the
-		// ElectraFi importer or the (future) live Rivian ingester.
-		r.Get("/drives", handleDrives(d.Drives))
-		r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
-		// Pure-local analysis over the stored charge set. Groups
-		// sessions into Home / Work / Public buckets using DBSCAN on
-		// (lat, lon). No external calls; no LLM involved.
-		r.Get("/charges/clusters", handleChargeClusters(d.Charges))
-		r.Get("/samples", handleSamples(d.Samples))
+			// AI provider configuration (OpenAI / Anthropic / Gemini).
+			// GET returns the redacted public view (api keys reported as
+			// has_key only); PUT accepts a partial patch. The /models
+			// endpoint proxies the provider's catalogue API so the UI can
+			// populate a dropdown instead of asking users to memorise IDs.
+			r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
+			r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
+			r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
 
-		// Accepts a multipart upload of an ElectraFi CSV export. Streams
-		// it through the importer so users don't have to drop into a
-		// terminal to load data.
-		r.Post("/import/electrafi", handleImportElectrafi(d))
+			// Read-only session/telemetry endpoints. Populated by either the
+			// ElectraFi importer or the (future) live Rivian ingester.
+			r.Get("/drives", handleDrives(d.Drives))
+			r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
+			// Pure-local analysis over the stored charge set. Groups
+			// sessions into Home / Work / Public buckets using DBSCAN on
+			// (lat, lon). No external calls; no LLM involved.
+			r.Get("/charges/clusters", handleChargeClusters(d.Charges))
+			r.Get("/samples", handleSamples(d.Samples))
+
+			// Accepts a multipart upload of an ElectraFi CSV export. Streams
+			// it through the importer so users don't have to drop into a
+			// terminal to load data.
+			r.Post("/import/electrafi", handleImportElectrafi(d))
+		}) // end of authenticated /api group
 	})
 
-	// Everything else falls through to the embedded SPA.
+	// Everything else falls through to the embedded SPA. The SPA
+	// itself is always reachable — it needs to render the login
+	// page when the /api/auth/me bootstrap returns 401.
 	r.Handle("/*", spaHandler(d.WebFS))
 
 	return r

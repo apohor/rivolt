@@ -3,15 +3,20 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,8 +24,12 @@ import (
 	// even on distroless images that don't ship /usr/share/zoneinfo.
 	_ "time/tzdata"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/api"
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/push"
@@ -93,6 +102,37 @@ func runServer() {
 		os.Exit(1)
 	}
 	dbPath := filepath.Join(*dataDir, "rivolt.db")
+
+	// Postgres backend is opt-in via DATABASE_URL. When set, Rivolt
+	// opens a pool, runs the embedded schema migrations, and (if
+	// auth is configured) upserts the operator user row. Stores
+	// still read/write SQLite in this release — the pool is kept
+	// warm and the schema provisioned so subsequent releases can
+	// migrate stores one at a time without any infra churn. This
+	// is the advertised "dual-backend scaffolding" of v0.4.0.
+	//
+	// Leaving DATABASE_URL unset keeps the legacy single-file
+	// SQLite shape, which is what every existing homelab install
+	// is already running.
+	var pgPool *sql.DB
+	if dsn := postgresDSN(); dsn != "" {
+		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		p, err := db.Open(pctx, dsn)
+		cancel()
+		if err != nil {
+			logger.Error("postgres open failed", "err", err.Error())
+			os.Exit(1)
+		}
+		pgPool = p
+		logger.Info("postgres connected and schema migrated",
+			"stores_backend", "sqlite (migrating per release)",
+		)
+		if u := os.Getenv("RIVOLT_USERNAME"); u != "" {
+			if _, err := db.EnsureUser(ctx, pgPool, u); err != nil {
+				logger.Warn("ensure user row failed", "err", err.Error())
+			}
+		}
+	}
 
 	settingsStore, err := settings.OpenStore(dbPath)
 	if err != nil {
@@ -257,6 +297,98 @@ func runServer() {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
 	}
 
+	// Auth is opt-in via env. Leaving RIVOLT_USERNAME / RIVOLT_PASSWORD
+	// unset keeps the legacy single-tenant UX — every /api/* route
+	// stays open, exactly like v0.3.x. Setting them flips the router
+	// to cookie-gated mode; the homelab login page renders and
+	// /api/* requires a session.
+	//
+	// RIVOLT_COOKIE_SECRET should be a hex string of at least 64 chars
+	// (32 bytes). If empty, a random key is generated on boot and
+	// every restart invalidates all sessions — fine for first-run,
+	// wrong for anyone who doesn't like being logged out twice a
+	// week.
+	//
+	// RIVOLT_TRUSTED_PROXY_CIDR enables Option-B SSO: comma-separated
+	// subnets whose X-Forwarded-Preferred-Username header will be
+	// honoured. Empty (the default) means header-based auth is off,
+	// and a forged header from any client is ignored.
+	//
+	// RIVOLT_SECURE_COOKIE defaults to true; set to "false" for pure
+	// http:// homelab deployments where the browser will otherwise
+	// refuse to store the session cookie.
+	authEnabled := os.Getenv("RIVOLT_USERNAME") != "" && os.Getenv("RIVOLT_PASSWORD") != ""
+	trustedNets, err := auth.ParseTrustedCIDRs(os.Getenv("RIVOLT_TRUSTED_PROXY_CIDR"))
+	if err != nil {
+		logger.Error("bad RIVOLT_TRUSTED_PROXY_CIDR", "err", err.Error())
+		os.Exit(1)
+	}
+	cookieSecret, err := decodeHexSecret(os.Getenv("RIVOLT_COOKIE_SECRET"))
+	if err != nil {
+		logger.Error("bad RIVOLT_COOKIE_SECRET", "err", err.Error())
+		os.Exit(1)
+	}
+	// When the operator hasn't pinned a secret via env, persist a
+	// generated one under DATA_DIR so sessions survive restarts.
+	// The file lives inside the same volume the operator is
+	// already backing up; anyone who can read it also has the full
+	// SQLite database, so the threat model is unchanged. Rotating
+	// the secret is `rm ${DATA_DIR}/cookie_secret` on the host.
+	var cookieSecretSource string
+	switch {
+	case len(cookieSecret) > 0:
+		cookieSecretSource = "env"
+	default:
+		secretPath := filepath.Join(*dataDir, "cookie_secret")
+		cookieSecret, err = loadOrCreateCookieSecret(secretPath)
+		if err != nil {
+			logger.Error("cookie secret", "path", secretPath, "err", err.Error())
+			os.Exit(1)
+		}
+		cookieSecretSource = "file:" + secretPath
+	}
+	secureCookie := true
+	if v := os.Getenv("RIVOLT_SECURE_COOKIE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			logger.Error("bad RIVOLT_SECURE_COOKIE", "value", v, "err", err.Error())
+			os.Exit(1)
+		}
+		secureCookie = b
+	}
+	authSvc, err := auth.New(auth.Config{
+		Username:          os.Getenv("RIVOLT_USERNAME"),
+		Password:          os.Getenv("RIVOLT_PASSWORD"),
+		CookieSecret:      cookieSecret,
+		SecureCookie:      secureCookie,
+		TrustedProxyCIDRs: trustedNets,
+		UserIDFor:         db.UserIDFor,
+	}, func() (uuid.UUID, error) {
+		// With Postgres wired we do a real upsert so the users row
+		// is present for future FK references (charges.user_id,
+		// etc.). Without it we fall back to the deterministic v5
+		// hash — the UUID is stable either way, the upsert is the
+		// only thing that needs a backend.
+		if pgPool != nil {
+			return db.EnsureUser(ctx, pgPool, os.Getenv("RIVOLT_USERNAME"))
+		}
+		return db.UserIDFor(os.Getenv("RIVOLT_USERNAME")), nil
+	})
+	if err != nil {
+		logger.Error("auth init", "err", err.Error())
+		os.Exit(1)
+	}
+	if authEnabled {
+		logger.Info("auth enabled",
+			"username", os.Getenv("RIVOLT_USERNAME"),
+			"trusted_cidrs", len(trustedNets),
+			"secure_cookie", secureCookie,
+			"cookie_secret", cookieSecretSource,
+		)
+	} else {
+		logger.Warn("auth disabled — set RIVOLT_USERNAME and RIVOLT_PASSWORD to require login")
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
 		RivianAccount: rivianAccount,
@@ -268,6 +400,7 @@ func runServer() {
 		Charges:       chargesStore,
 		Samples:       samplesStore,
 		StateMonitor:  stateMonitor,
+		Auth:          authSvc,
 		WebFS:         webFS,
 		Version:       version,
 	})
@@ -313,6 +446,9 @@ func runServer() {
 	if samplesStore != nil {
 		_ = samplesStore.Close()
 	}
+	if pgPool != nil {
+		_ = pgPool.Close()
+	}
 }
 
 func envOr(name, fallback string) string {
@@ -341,6 +477,95 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// decodeHexSecret parses RIVOLT_COOKIE_SECRET. We require hex-
+// encoding (rather than accepting a raw string) so operators can
+// paste the output of `openssl rand -hex 32` without worrying about
+// shell quoting of special characters, and so the length check in
+// auth.New — which wants ≥32 bytes of entropy — is meaningful
+// (a 32-char ASCII password decodes to 32 bytes of high-entropy
+// key material; a 32-char hex string is only 16 bytes).
+func decodeHexSecret(raw string) ([]byte, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("expected hex (e.g. openssl rand -hex 32): %w", err)
+	}
+	return b, nil
+}
+
+// postgresDSN returns the Postgres connection string, either from
+// DATABASE_URL (takes precedence, for advanced DSN knobs) or
+// assembled from discrete DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/
+// DB_NAME/DB_SSLMODE so compose files don't have to embed the
+// password twice. Returns "" when neither form is configured.
+func postgresDSN() string {
+	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
+		return dsn
+	}
+	host := strings.TrimSpace(os.Getenv("DB_HOST"))
+	user := strings.TrimSpace(os.Getenv("DB_USER"))
+	pass := os.Getenv("DB_PASSWORD")
+	name := strings.TrimSpace(os.Getenv("DB_NAME"))
+	if host == "" || user == "" || name == "" {
+		return ""
+	}
+	port := strings.TrimSpace(os.Getenv("DB_PORT"))
+	if port == "" {
+		port = "5432"
+	}
+	sslmode := strings.TrimSpace(os.Getenv("DB_SSLMODE"))
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, pass),
+		Host:     host + ":" + port,
+		Path:     "/" + name,
+		RawQuery: "sslmode=" + url.QueryEscape(sslmode),
+	}
+	return u.String()
+}
+
+// loadOrCreateCookieSecret returns the 32-byte cookie-signing key
+// stored at path, creating it on first call. The file is written
+// 0o600 so only the rivolt user can read it; anyone with access to
+// this file can forge session cookies (but they already have the
+// whole database they'd be forging cookies to reach, so the blast
+// radius is the same either way).
+//
+// Short files are rejected rather than silently padded — if the
+// file got truncated by a botched copy we want to fail loud, not
+// quietly downgrade security.
+func loadOrCreateCookieSecret(path string) ([]byte, error) {
+	if b, err := os.ReadFile(path); err == nil {
+		if len(b) < 32 {
+			return nil, fmt.Errorf("%s is %d bytes, expected ≥32; delete it to regenerate", path, len(b))
+		}
+		return b, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, fmt.Errorf("generate secret: %w", err)
+	}
+	// WriteFile truncates+creates atomically enough for our use —
+	// the only caller is single-threaded boot. If two replicas race
+	// on a shared volume they'll each generate a secret and the
+	// loser's gets overwritten; sessions issued between the two
+	// boots stay valid under whichever key ultimately wins. Good
+	// enough for a homelab; a real HA story would use a config
+	// map / secret backend.
+	if err := os.WriteFile(path, buf, 0o600); err != nil {
+		return nil, fmt.Errorf("persist secret: %w", err)
+	}
+	return buf, nil
 }
 
 // runImport dispatches "rivolt import <kind> ..." subcommands.
