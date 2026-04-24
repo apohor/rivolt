@@ -66,7 +66,13 @@ func New(d Deps) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	// NOTE: the global request timeout is applied per-group below,
+	// not here. CSV imports, backups, and restores can legitimately
+	// run for minutes on large exports, and a 30s ceiling cancels
+	// the context mid-write — producing a 400/500 plus a
+	// "superfluous WriteHeader" warning when the handler then tries
+	// to write its own error. Carving those routes out of the
+	// timeout is the minimal fix.
 	r.Use(cors.Handler(cors.Options{
 		// Self-hosted: we don't know the LAN hostname in advance, and
 		// tightening CORS here doesn't add real security because this
@@ -112,6 +118,12 @@ func New(d Deps) http.Handler {
 			if d.Auth != nil && d.Auth.Configured() {
 				r.Use(requireUserMW)
 			}
+			// 30s is plenty for regular JSON endpoints; it keeps
+			// stuck Rivian calls from pinning a connection. Bulk
+			// data routes (import / backup / restore) live in a
+			// second group below without this timeout — large CSV
+			// exports can take minutes.
+			r.Use(middleware.Timeout(30 * time.Second))
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
@@ -167,6 +179,17 @@ func New(d Deps) http.Handler {
 			// (lat, lon). No external calls; no LLM involved.
 			r.Get("/charges/clusters", handleChargeClusters(d.Charges))
 			r.Get("/samples", handleSamples(d.Samples))
+		}) // end of timed authenticated /api group
+
+		// Bulk data routes. Identical auth, no 30s timeout — an
+		// ElectraFi import or a year-long backup can legitimately
+		// take minutes. chi's timeout middleware cancels the
+		// request context mid-write, which previously produced
+		// partial imports and a "superfluous WriteHeader" warning.
+		r.Group(func(r chi.Router) {
+			if d.Auth != nil && d.Auth.Configured() {
+				r.Use(requireUserMW)
+			}
 
 			// Accepts a multipart upload of an ElectraFi CSV export. Streams
 			// it through the importer so users don't have to drop into a
@@ -175,15 +198,15 @@ func New(d Deps) http.Handler {
 
 			// Data management. GET /data/backup streams every
 			// drive/charge/sample for the current user as a single
-			// downloadable JSON bundle. DELETE /data/sessions wipes
-			// those three tables (preserves vehicles/settings/push).
-			// The UI pairs them: download backup, then reset — used
-			// after changing importer parameters (tz / pack size)
-			// so the re-import lands on a clean slate instead of
-			// producing parallel rows with shifted external_ids.
+			// downloadable JSON bundle. POST /data/restore is its
+			// inverse. DELETE /data/sessions wipes those three
+			// tables (preserves vehicles/settings/push). The UI
+			// pairs backup+reset for the re-import-after-tz-change
+			// flow and backup+restore for disaster recovery.
 			r.Get("/data/backup", handleDataBackup(d))
+			r.Post("/data/restore", handleDataRestore(d))
 			r.Delete("/data/sessions", handleDataReset(d))
-		}) // end of authenticated /api group
+		}) // end of bulk-data authenticated /api group
 	})
 
 	// Everything else falls through to the embedded SPA. The SPA
@@ -686,6 +709,59 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			"drives":     drv,
 			"charges":    chg,
 			"samples":    smp,
+		})
+	}
+}
+
+// handleDataRestore accepts a previously downloaded backup bundle
+// (see handleDataBackup) and upserts every drive/charge/sample
+// into the current user's stores. Existing rows with the same
+// external_id (drives/charges) or (vehicle_id, at) (samples) are
+// left as-is for samples and overwritten for drives/charges — this
+// matches the importer's own behavior, so re-running is idempotent.
+//
+// The request body is the raw JSON file from /data/backup. Capped
+// at 100 MiB; a year of 60 s polls is ~100 MB in the current shape,
+// so this is the realistic ceiling.
+func handleDataRestore(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+			http.Error(w, "restore unavailable: stores not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
+		var bundle struct {
+			Version   string           `json:"version"`
+			CreatedAt string           `json:"created_at"`
+			Drives    []drives.Drive   `json:"drives"`
+			Charges   []charges.Charge `json:"charges"`
+			Samples   []samples.Sample `json:"samples"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&bundle); err != nil {
+			http.Error(w, "parse backup: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		ctx := r.Context()
+		for _, drv := range bundle.Drives {
+			if err := d.Drives.Upsert(ctx, drv); err != nil {
+				http.Error(w, "upsert drive "+drv.ID+": "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		for _, chg := range bundle.Charges {
+			if err := d.Charges.Upsert(ctx, chg); err != nil {
+				http.Error(w, "upsert charge "+chg.ID+": "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if err := d.Samples.InsertBatch(ctx, bundle.Samples); err != nil {
+			http.Error(w, "insert samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"drives":  len(bundle.Drives),
+			"charges": len(bundle.Charges),
+			"samples": len(bundle.Samples),
 		})
 	}
 }

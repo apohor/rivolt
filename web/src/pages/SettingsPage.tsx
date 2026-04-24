@@ -784,6 +784,7 @@ function DangerZonePanel() {
     filename: string;
     bytes: number;
   } | null>(null);
+  const restoreRef = useRef<HTMLInputElement | null>(null);
 
   const backup = useMutation({
     mutationFn: () => backend.backupData(),
@@ -795,6 +796,13 @@ function DangerZonePanel() {
       setConfirm(false);
       // Every list query goes stale now; invalidate the lot.
       qc.invalidateQueries();
+    },
+  });
+  const restore = useMutation({
+    mutationFn: (file: File) => backend.restoreData(file),
+    onSuccess: () => {
+      qc.invalidateQueries();
+      if (restoreRef.current) restoreRef.current.value = "";
     },
   });
 
@@ -829,6 +837,40 @@ function DangerZonePanel() {
         {backup.isError && (
           <p className="mt-2 text-xs text-rose-400">
             Backup failed: {String(backup.error)}
+          </p>
+        )}
+      </div>
+
+      <div className="border-t border-neutral-800 pt-4">
+        <div className="text-neutral-400 mb-1">Restore</div>
+        <p className="text-xs text-neutral-500 mb-2">
+          Uploads a <code>rivolt-backup-*.json</code> file and upserts every
+          drive, charge, and raw sample. Safe to re-run; existing rows are
+          upserted by session ID (drives/charges) or kept as-is (samples).
+        </p>
+        <input
+          ref={restoreRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) restore.mutate(f);
+          }}
+          disabled={restore.isPending}
+          className="text-xs text-neutral-400 file:mr-3 file:px-3 file:py-1.5 file:text-xs file:rounded-md file:border file:border-neutral-700 file:bg-neutral-800 file:text-neutral-200 hover:file:bg-neutral-700 file:cursor-pointer disabled:opacity-50"
+        />
+        {restore.isPending && (
+          <p className="mt-2 text-xs text-neutral-400">Restoring…</p>
+        )}
+        {restore.isSuccess && (
+          <p className="mt-2 text-xs text-emerald-400">
+            Restored {restore.data.drives} drives, {restore.data.charges}{" "}
+            charges, {restore.data.samples} samples.
+          </p>
+        )}
+        {restore.isError && (
+          <p className="mt-2 text-xs text-rose-400">
+            Restore failed: {String(restore.error)}
           </p>
         )}
       </div>
