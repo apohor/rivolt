@@ -64,18 +64,30 @@ type Importer struct {
 	// empty (ElectraFi stopped reporting them for some Rivian sessions
 	// starting ~late-March 2026). Zero means "use DefaultPackKWh".
 	PackKWh float64
+	// Location is the timezone the CSV timestamps were recorded in.
+	// ElectraFi/TeslaFi exports are local-without-zone; parsing them
+	// as UTC (the pre-v0.4.2 behavior) shifts every timestamp by the
+	// user's offset. Nil means UTC for backwards compatibility.
+	Location *time.Location
 }
 
 // DefaultPackKWh is the usable capacity we assume when the operator
-// didn't pass a value. Matches the Rivian R1T/R1S Large pack (~141 kWh
-// usable); adjust via Importer.PackKWh for Standard / Max packs.
-const DefaultPackKWh = 141.5
+// didn't pass a value. Matches the Rivian R1T/R1S Gen-2 Large pack
+// (~131 kWh usable); adjust via Importer.PackKWh for Standard / Max.
+const DefaultPackKWh = 131.0
 
 func (i *Importer) pack() float64 {
 	if i.PackKWh > 0 {
 		return i.PackKWh
 	}
 	return DefaultPackKWh
+}
+
+func (i *Importer) loc() *time.Location {
+	if i.Location != nil {
+		return i.Location
+	}
+	return time.UTC
 }
 
 // Import reads path and upserts the derived drives & charges. Safe to
@@ -151,7 +163,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		}
 		rows++
 
-		s, ok := parseRow(row, idx)
+		s, ok := parseRow(row, idx, i.loc())
 		if !ok {
 			skipped++
 			continue
@@ -253,7 +265,7 @@ type snapshot struct {
 	chargeNumber     int64
 }
 
-func parseRow(row []string, idx map[string]int) (snapshot, bool) {
+func parseRow(row []string, idx map[string]int, loc *time.Location) (snapshot, bool) {
 	get := func(k string) string {
 		i, ok := idx[k]
 		if !ok || i >= len(row) {
@@ -261,7 +273,7 @@ func parseRow(row []string, idx map[string]int) (snapshot, bool) {
 		}
 		return row[i]
 	}
-	at, err := parseElectrafiTime(get("Date"))
+	at, err := parseElectrafiTime(get("Date"), loc)
 	if err != nil {
 		return snapshot{}, false
 	}
@@ -415,14 +427,18 @@ func indexHeaders(h []string) map[string]int {
 }
 
 // parseElectrafiTime accepts the "2026-01-01 00:00:43" format used
-// across the export. Timestamps are local-without-zone; we treat them
-// as UTC since the export is timezone-opaque.
-func parseElectrafiTime(s string) (time.Time, error) {
+// across the export. Timestamps are local-without-zone; the caller
+// passes the location the export was recorded in (Importer.Location,
+// defaulting to UTC for back-compat).
+func parseElectrafiTime(s string, loc *time.Location) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, errors.New("empty time")
 	}
-	return time.ParseInLocation("2006-01-02 15:04:05", s, time.UTC)
+	if loc == nil {
+		loc = time.UTC
+	}
+	return time.ParseInLocation("2006-01-02 15:04:05", s, loc)
 }
 
 func atof(s string) float64 {

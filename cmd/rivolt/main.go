@@ -265,7 +265,7 @@ func runServer() {
 
 		// Prime per-vehicle metadata (model/trim/pack/image) in the
 		// background. Best-effort — failure just means the SoC-delta
-		// fallback uses DefaultPackKWh (141.5) and the UI has no
+		// fallback uses DefaultPackKWh (131) and the UI has no
 		// vehicle image to show. Don't block startup on Rivian's
 		// gateway being available.
 		go func() {
@@ -593,6 +593,7 @@ func runImportElectraFi(args []string) {
 	fs := flag.NewFlagSet("import electrafi", flag.ExitOnError)
 	vehicleID := fs.String("vehicle-id", envOr("RIVOLT_VEHICLE_ID", ""), "vehicle_id to attribute sessions to (default: derived from filename)")
 	packKWh := fs.Float64("pack-kwh", envFloat("RIVOLT_PACK_KWH", electrafi.DefaultPackKWh), "usable pack capacity in kWh; used to estimate energy when ElectraFi omits charger_power")
+	tz := fs.String("tz", envOr("RIVOLT_IMPORT_TZ", "Local"), "IANA timezone the CSV timestamps were recorded in (e.g. America/New_York); 'Local' uses the host's zone, 'UTC' keeps the pre-v0.4.2 behavior")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -646,7 +647,12 @@ func runImportElectraFi(args []string) {
 	}
 	defer ss.Close()
 
-	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID, PackKWh: *packKWh}
+	loc, err := time.LoadLocation(strings.TrimSpace(*tz))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --tz %q: %v\n", *tz, err)
+		os.Exit(2)
+	}
+	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID, PackKWh: *packKWh, Location: loc}
 	var totalRows, totalSamples, totalDrives, totalCharges, totalSkipped int
 	for _, f := range files {
 		res, err := imp.Import(ctx, f)
