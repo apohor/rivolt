@@ -224,7 +224,14 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 // handleDriveLifecycle. Must be called with m.sessMu held.
 func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor, ctx context.Context) int64 {
 	_ = prev // reserved, see handleDriveLifecycle.
-	charging := isChargingCS(curr.ChargerState)
+	// Gate the session predicate on BOTH the negotiating state AND the
+	// physical plug indicator. Rivian's charger_state field sticks at
+	// 'charging_ready' / 'charging_active' for hours after a cable is
+	// pulled — without the plug check a spurious post-unplug frame
+	// opens a phantom session that then absorbs stale 25 kWh from
+	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
+	// See v0.3.48 for the matching frontend gate.
+	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
 
 	// Open new charge.
 	if charging && s.charge == nil {
@@ -468,6 +475,15 @@ func isChargingCS(s string) bool {
 		return false
 	}
 	return strings.HasPrefix(v, "charging_") || v == "waiting_on_charger"
+}
+
+// isPluggedCS reports whether Rivian's chargerStatus field indicates
+// the cable is physically connected. Anything starting with
+// 'chrgr_sts_connected' means plugged in (charging or negotiating);
+// 'chrgr_sts_not_connected' (and the empty string) means unplugged.
+func isPluggedCS(s string) bool {
+	v := strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(v, "chrgr_sts_connected")
 }
 
 // liveSessionID builds a deterministic ID for a live-derived drive or
