@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -602,6 +603,21 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 				imp.PackKWh = f
 			}
 		}
+		// tz picks the timezone the CSV timestamps were recorded in;
+		// ElectraFi exports are local-without-zone so parsing as UTC
+		// (the pre-v0.4.2 default) shifts every row. Default to the
+		// server's local zone, which matches the typical self-hosted
+		// setup.
+		tz := strings.TrimSpace(r.FormValue("tz"))
+		if tz == "" {
+			tz = "Local"
+		}
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			http.Error(w, "invalid tz "+strconv.Quote(tz)+": "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		imp.Location = loc
 		results := make([]electrafi.Result, 0, len(files))
 		for _, fh := range files {
 			f, err := fh.Open()

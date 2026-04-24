@@ -406,10 +406,18 @@ export const backend = {
     ),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
-  importElectrafi: async (files: File[], packKWh?: number) => {
+  importElectrafi: async (files: File[], packKWh?: number, tz?: string) => {
     const fd = new FormData();
     for (const f of files) fd.append("file", f, f.name);
     if (packKWh && packKWh > 0) fd.append("pack_kwh", String(packKWh));
+    // ElectraFi timestamps are local-without-zone. Default to the
+    // browser's IANA zone so imports land on the date the user
+    // actually drove/charged, not shifted by their UTC offset.
+    const zone =
+      tz && tz.trim()
+        ? tz
+        : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    fd.append("tz", zone);
     const res = await fetch("/api/import/electrafi", { method: "POST", body: fd });
     const text = await res.text();
     let parsed: unknown = undefined;
