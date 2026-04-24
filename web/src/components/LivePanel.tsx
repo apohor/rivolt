@@ -545,9 +545,12 @@ function ParkedSummary({
 
 // isPlugged reports whether the charge cable is physically connected
 // but not actively drawing power (so we're parked, not charging).
+// Uses charger_status (real-time plug indicator) not charger_state,
+// which sticks at 'charging_ready'/'charging_complete' for hours
+// after the cable is pulled — see v0.3.48 notes in isPluggedIn().
 function isPlugged(s: VehicleState): boolean {
-  const cs = (s.charger_state || "").toLowerCase();
-  return cs === "charging_ready" || cs === "charging_complete" || cs === "waiting_on_charger";
+  const st = (s.charger_status || "").toLowerCase();
+  return st.startsWith("chrgr_sts_connected");
 }
 
 // timeAgo is a tiny relative-time formatter. Full localized dates
