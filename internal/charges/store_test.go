@@ -209,7 +209,7 @@ func TestPhantomCharges_CleanupOnOpen(t *testing.T) {
 	var n int
 	if err := s2.db.QueryRow(
 		"SELECT count(*) FROM migrations WHERE id = ?",
-		"2026-04-phantom-charges-v1",
+		"2026-04-24-phantom-charges-v1",
 	).Scan(&n); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
