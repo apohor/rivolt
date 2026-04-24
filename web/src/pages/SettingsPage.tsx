@@ -558,121 +558,205 @@ function AIProvidersPanel() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        {AI_PROVIDERS.map((p) => {
-          const info = data.providers[p.id];
-          const keyDraft = keyDrafts[p.id];
-          const modelDraft = modelDrafts[p.id];
-          const effectiveModel = modelDraft || info?.model || "";
-          const isActive = data.effective_provider === p.id;
-          return (
-            <div
-              key={p.id}
-              className={[
-                "rounded-lg border p-3 space-y-2",
-                isActive
-                  ? "border-emerald-600/50 bg-emerald-950/20"
-                  : "border-neutral-800 bg-neutral-900/40",
-              ].join(" ")}
-            >
-              <div className="flex items-center justify-between">
-                <div className="font-medium text-neutral-100">{p.label}</div>
-                <span
-                  className={[
-                    "text-xs px-2 py-0.5 rounded-full border",
-                    info?.has_key
-                      ? "border-emerald-600/40 text-emerald-300"
-                      : "border-neutral-700 text-neutral-500",
-                  ].join(" ")}
-                >
-                  {info?.has_key ? "Key set" : "No key"}
-                </span>
-              </div>
-              <p className="text-xs text-neutral-500">{p.hint}</p>
-
-              <label className="block text-xs text-neutral-400">
-                API key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  placeholder={info?.has_key ? "••••••••  (replace to update)" : "paste key"}
-                  value={keyDraft}
-                  onChange={(e) =>
-                    setKeyDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
-                  }
-                  className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
-                />
-              </label>
-
-              <label className="block text-xs text-neutral-400">
-                Model
-                <input
-                  type="text"
-                  placeholder="provider default"
-                  value={modelDraft}
-                  onChange={(e) =>
-                    setModelDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))
-                  }
-                  className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={mut.isPending}
-                  onClick={() => {
-                    const patch: AISettingsUpdate = {};
-                    if (keyDraft.trim().length > 0) {
-                      patch[`${p.id}_api_key` as keyof AISettingsUpdate] =
-                        keyDraft.trim() as never;
-                    }
-                    if (modelDraft !== (info?.model ?? "")) {
-                      patch[`${p.id}_model` as keyof AISettingsUpdate] =
-                        modelDraft as never;
-                    }
-                    if (Object.keys(patch).length === 0) return;
-                    mut.mutate(patch);
-                    setKeyDrafts((prev) => ({ ...prev, [p.id]: "" }));
-                  }}
-                  className="text-xs px-2 py-1 rounded border border-emerald-700 bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50 disabled:opacity-50"
-                >
-                  Save
-                </button>
-                {info?.has_key && (
-                  <button
-                    type="button"
-                    disabled={mut.isPending}
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          `Remove the ${p.label} API key from Rivolt?`,
-                        )
-                      )
-                        return;
-                      const patch: AISettingsUpdate = {};
-                      patch[`${p.id}_api_key` as keyof AISettingsUpdate] =
-                        "" as never;
-                      mut.mutate(patch);
-                    }}
-                    className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
-                  >
-                    Clear key
-                  </button>
-                )}
-              </div>
-
-              {effectiveModel && (
-                <div className="text-[11px] text-neutral-500">
-                  Using model: <span className="font-mono">{effectiveModel}</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {AI_PROVIDERS.map((p) => (
+          <ProviderCard
+            key={p.id}
+            meta={p}
+            info={data.providers[p.id]}
+            isActive={data.effective_provider === p.id}
+            keyDraft={keyDrafts[p.id]}
+            modelDraft={modelDrafts[p.id]}
+            onKeyDraftChange={(v) =>
+              setKeyDrafts((prev) => ({ ...prev, [p.id]: v }))
+            }
+            onModelDraftChange={(v) =>
+              setModelDrafts((prev) => ({ ...prev, [p.id]: v }))
+            }
+            onSave={(patch) => {
+              mut.mutate(patch);
+              setKeyDrafts((prev) => ({ ...prev, [p.id]: "" }));
+            }}
+            onClearKey={() => {
+              const patch: AISettingsUpdate = {};
+              patch[`${p.id}_api_key` as keyof AISettingsUpdate] = "" as never;
+              mut.mutate(patch);
+            }}
+            saving={mut.isPending}
+          />
+        ))}
       </div>
 
       {mut.isError && (
         <ErrorBox title="Save failed" detail={String(mut.error)} />
+      )}
+    </div>
+  );
+}
+
+// ProviderCard renders one OpenAI/Anthropic/Gemini tile. It owns the
+// model-list query so the fetch only kicks off once the provider has
+// a stored key (the list endpoint proxies the provider's own catalogue
+// API using the stored credential). When the list is unavailable — no
+// key, provider offline, or the endpoint returned an error — the field
+// degrades to free-text so the user can still type a model ID by hand.
+function ProviderCard({
+  meta,
+  info,
+  isActive,
+  keyDraft,
+  modelDraft,
+  onKeyDraftChange,
+  onModelDraftChange,
+  onSave,
+  onClearKey,
+  saving,
+}: {
+  meta: (typeof AI_PROVIDERS)[number];
+  info: { model: string; has_key: boolean } | undefined;
+  isActive: boolean;
+  keyDraft: string;
+  modelDraft: string;
+  onKeyDraftChange: (v: string) => void;
+  onModelDraftChange: (v: string) => void;
+  onSave: (patch: AISettingsUpdate) => void;
+  onClearKey: () => void;
+  saving: boolean;
+}) {
+  const models = useQuery({
+    queryKey: ["ai-models", meta.id, info?.has_key ? "keyed" : "nokey"],
+    queryFn: () => backend.listAIModels(meta.id),
+    // Only hit the provider's list endpoint when a key is actually
+    // stored; otherwise the backend would return 400 and we'd render
+    // a spurious error state.
+    enabled: !!info?.has_key,
+    staleTime: 10 * 60_000,
+    retry: 1,
+  });
+  const list = models.data?.models ?? [];
+  const effectiveModel = modelDraft || info?.model || "";
+  const currentInList = modelDraft && list.includes(modelDraft);
+  // Free-text fallback applies when the list is empty (loading, no
+  // key, or fetch failed) OR when the user already typed a model that
+  // doesn't appear in the catalogue (e.g. a preview model the list
+  // endpoint hasn't caught up to).
+  const useFreeText =
+    !info?.has_key || list.length === 0 || (modelDraft !== "" && !currentInList);
+  return (
+    <div
+      className={[
+        "rounded-lg border p-3 space-y-2",
+        isActive
+          ? "border-emerald-600/50 bg-emerald-950/20"
+          : "border-neutral-800 bg-neutral-900/40",
+      ].join(" ")}
+    >
+      <div className="flex items-center justify-between">
+        <div className="font-medium text-neutral-100">{meta.label}</div>
+        <span
+          className={[
+            "text-xs px-2 py-0.5 rounded-full border",
+            info?.has_key
+              ? "border-emerald-600/40 text-emerald-300"
+              : "border-neutral-700 text-neutral-500",
+          ].join(" ")}
+        >
+          {info?.has_key ? "Key set" : "No key"}
+        </span>
+      </div>
+      <p className="text-xs text-neutral-500">{meta.hint}</p>
+
+      <label className="block text-xs text-neutral-400">
+        API key
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={info?.has_key ? "••••••••  (replace to update)" : "paste key"}
+          value={keyDraft}
+          onChange={(e) => onKeyDraftChange(e.target.value)}
+          className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+        />
+      </label>
+
+      <label className="block text-xs text-neutral-400">
+        <span className="flex items-center justify-between">
+          <span>Model</span>
+          {info?.has_key && (
+            <span className="text-[10px] text-neutral-600">
+              {models.isLoading
+                ? "loading catalogue…"
+                : models.isError
+                  ? "catalogue unavailable — free-text"
+                  : list.length > 0
+                    ? `${list.length} models`
+                    : ""}
+            </span>
+          )}
+        </span>
+        {useFreeText ? (
+          <input
+            type="text"
+            placeholder={info?.model || "provider default"}
+            value={modelDraft}
+            onChange={(e) => onModelDraftChange(e.target.value)}
+            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+          />
+        ) : (
+          <select
+            value={modelDraft || info?.model || ""}
+            onChange={(e) => onModelDraftChange(e.target.value)}
+            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+          >
+            <option value="">provider default</option>
+            {list.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        )}
+      </label>
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            const patch: AISettingsUpdate = {};
+            if (keyDraft.trim().length > 0) {
+              patch[`${meta.id}_api_key` as keyof AISettingsUpdate] =
+                keyDraft.trim() as never;
+            }
+            if (modelDraft !== (info?.model ?? "")) {
+              patch[`${meta.id}_model` as keyof AISettingsUpdate] =
+                modelDraft as never;
+            }
+            if (Object.keys(patch).length === 0) return;
+            onSave(patch);
+          }}
+          className="text-xs px-2 py-1 rounded border border-emerald-700 bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50 disabled:opacity-50"
+        >
+          Save
+        </button>
+        {info?.has_key && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              if (!window.confirm(`Remove the ${meta.label} API key from Rivolt?`))
+                return;
+              onClearKey();
+            }}
+            className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+          >
+            Clear key
+          </button>
+        )}
+      </div>
+
+      {effectiveModel && (
+        <div className="text-[11px] text-neutral-500">
+          Using model: <span className="font-mono">{effectiveModel}</span>
+        </div>
       )}
     </div>
   );
