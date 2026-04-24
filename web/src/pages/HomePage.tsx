@@ -98,6 +98,17 @@ export default function HomePage() {
 
   const isError = drives.isError || charges.isError;
 
+  // Latest drive / charge pulled from the full unfiltered lists so
+  // the tiles are useful even when the window picker excludes them
+  // (e.g. user on 7d but no drives this week — still want to see
+  // when the last drive was).
+  //
+  // v0.3.54 added the phantom-skip for charges where SoC didn't
+  // actually increase; same rule here so the tile surfaces the last
+  // real charge, not a stuck-charger_state artifact.
+  const latestDrive = all[0];
+  const latestCharge = allC.find((c) => c.EndSoCPct - c.StartSoCPct >= 1);
+
   return (
     <div className="space-y-4">
       {/* Hero owns the page header AND the window picker: folding the
@@ -183,75 +194,114 @@ export default function HomePage() {
             />
           </Card>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card
-              title="Recent drives"
-              actions={
-                <Link to="/drives" className="text-xs text-emerald-400 hover:underline">
-                  all drives →
-                </Link>
+          {/* Latest activity strip — replaces the previous Recent
+              drives / Recent charges 2-col grid. Those lists duplicated
+              /drives and /charges with fewer columns and pushed the
+              charts below the fold. Two compact clickable rows here
+              give the at-a-glance "what happened most recently" without
+              the duplication. */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <LatestActivityTile
+              label="Last drive"
+              to={latestDrive ? `/drives/${latestDrive.ID}` : undefined}
+              when={latestDrive?.StartedAt}
+              primary={
+                latestDrive ? num(latestDrive.DistanceMi, 1, "mi") : "—"
               }
-            >
-              {winDrives.length === 0 ? (
-                <EmptyState kind="drives in window" />
-              ) : (
-                <ul className="divide-y divide-neutral-800">
-                  {winDrives.slice(0, 6).map((d) => (
-                    <li key={d.ID}>
-                      <Link
-                        to={`/drives/${d.ID}`}
-                        className="-mx-1 flex items-center justify-between rounded px-1 py-2 text-sm hover:bg-neutral-800/40"
-                      >
-                        <span className="text-neutral-300">
-                          {formatDateTime(d.StartedAt)}
-                        </span>
-                        <span className="text-neutral-400 tabular-nums">
-                          {num(d.DistanceMi, 1, "mi")} ·{" "}
-                          {pct(d.StartSoCPct)}→{pct(d.EndSoCPct)}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-
-            <Card
-              title="Recent charges"
-              actions={
-                <Link to="/charges" className="text-xs text-emerald-400 hover:underline">
-                  all charges →
-                </Link>
+              secondary={
+                latestDrive
+                  ? `${pct(latestDrive.StartSoCPct, 0)}→${pct(latestDrive.EndSoCPct, 0)} · ${formatDuration(
+                      durationSeconds(latestDrive.StartedAt, latestDrive.EndedAt),
+                    )}`
+                  : "no drives yet"
               }
-            >
-              {winCharges.length === 0 ? (
-                <EmptyState kind="charges in window" />
-              ) : (
-                <ul className="divide-y divide-neutral-800">
-                  {winCharges.slice(0, 6).map((c) => (
-                    <li key={c.ID}>
-                      <Link
-                        to={`/charges/${c.ID}`}
-                        className="-mx-1 flex items-center justify-between rounded px-1 py-2 text-sm hover:bg-neutral-800/40"
-                      >
-                        <span className="text-neutral-300">
-                          {formatDateTime(c.StartedAt)}
-                        </span>
-                        <span className="text-neutral-400 tabular-nums">
-                          {formatDuration(durationSeconds(c.StartedAt, c.EndedAt))} ·{" "}
-                          {pct(c.StartSoCPct)}→{pct(c.EndSoCPct)} ·{" "}
-                          {num(c.EnergyAddedKWh, 1, "kWh")}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+              allHref="/drives"
+              allLabel="all drives →"
+            />
+            <LatestActivityTile
+              label="Last charge"
+              to={latestCharge ? `/charges/${latestCharge.ID}` : undefined}
+              when={latestCharge?.StartedAt}
+              primary={
+                latestCharge ? num(latestCharge.EnergyAddedKWh, 1, "kWh") : "—"
+              }
+              secondary={
+                latestCharge
+                  ? `${pct(latestCharge.StartSoCPct, 0)}→${pct(latestCharge.EndSoCPct, 0)} · ${formatDuration(
+                      durationSeconds(latestCharge.StartedAt, latestCharge.EndedAt),
+                    )}`
+                  : "no charges yet"
+              }
+              allHref="/charges"
+              allLabel="all charges →"
+            />
           </div>
         </>
       )}
     </div>
+  );
+}
+
+// LatestActivityTile is a compact clickable summary of the most
+// recent drive or charge. Supplants the old Recent drives / charges
+// lists which were redundant with /drives and /charges. Keeps the
+// "all →" escape hatch so the lists are still one click away.
+function LatestActivityTile({
+  label,
+  to,
+  when,
+  primary,
+  secondary,
+  allHref,
+  allLabel,
+}: {
+  label: string;
+  to?: string;
+  when?: string;
+  primary: string;
+  secondary: string;
+  allHref: string;
+  allLabel: string;
+}) {
+  const body = (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+          {label}
+        </div>
+        <div className="mt-0.5 flex items-baseline gap-2">
+          <span className="tabular-nums text-xl font-semibold text-neutral-100">
+            {primary}
+          </span>
+          {when ? (
+            <span className="truncate text-[11px] text-neutral-500">
+              {formatDateTime(when)}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 truncate text-xs text-neutral-400 tabular-nums">
+          {secondary}
+        </div>
+      </div>
+      <Link
+        to={allHref}
+        className="shrink-0 text-[11px] text-emerald-400 hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {allLabel}
+      </Link>
+    </div>
+  );
+
+  const wrapClass =
+    "block rounded-xl border border-neutral-800 bg-neutral-900/50 p-3 hover:bg-neutral-900";
+  if (!to) {
+    return <div className={wrapClass}>{body}</div>;
+  }
+  return (
+    <Link to={to} className={wrapClass}>
+      {body}
+    </Link>
   );
 }
 
@@ -273,10 +323,6 @@ function Stat({
       ) : null}
     </div>
   );
-}
-
-function EmptyState({ kind }: { kind: string }) {
-  return <p className="text-sm text-neutral-500">No {kind}.</p>;
 }
 
 // HeroBanner is the Overview's marketing frame AND filter anchor.
