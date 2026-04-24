@@ -181,12 +181,16 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// gear while parked, charge limit, lat/lon for a parked vehicle)
 	// on reconnect. If the initial REST seed happened while the car
 	// was asleep, those fields can come back null and remain zero in
-	// the cache indefinitely. Re-pulling REST every few minutes and
+	// the cache indefinitely. Re-pulling REST periodically and
 	// merging it *under* the WS state (WS wins on overlap) keeps
 	// live delta freshness while backfilling anything Rivian dropped.
+	//
+	// Cadence is power-state-aware to avoid keeping a sleeping car
+	// awake: see adaptiveRefreshInterval. home-assistant-rivian
+	// refuses to REST-poll vehicleState at all for this reason.
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	defer cancelRefresh()
-	go m.periodicRefresh(refreshCtx, vehicleID, 2*time.Minute)
+	go m.periodicRefresh(refreshCtx, vehicleID)
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 
@@ -199,9 +203,23 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// Now we wrap the call in a loop that keeps resubscribing with
 	// bounded exponential backoff until ctx is cancelled, which is
 	// the only "done" signal we respect.
+	//
+	// A watchdog goroutine also cancels the per-subscribe context
+	// when no push has landed for wsStaleThreshold, catching the
+	// zombie-socket case where Rivian stops emitting frames but
+	// never closes the WebSocket. Home Assistant does the same with
+	// a 15-min heartbeat check.
 	backoff := time.Second
 	for ctx.Err() == nil {
-		err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
+		subCtx, cancelSub := context.WithCancel(ctx)
+		// Reset stamp cursor so the watchdog measures this attempt,
+		// not a stale value from a prior failed connection.
+		m.mu.Lock()
+		m.stamp[vehicleID] = time.Now()
+		m.mu.Unlock()
+		go m.watchSubscription(subCtx, vehicleID, cancelSub)
+
+		err := m.client.SubscribeVehicleState(subCtx, vehicleID, func(st *State) {
 			m.mu.Lock()
 			// Rivian pushes deltas — each frame contains only the
 			// fields that changed. Merge non-zero/non-empty values
@@ -215,6 +233,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			m.mu.Unlock()
 			m.record(ctx, vehicleID, prev, merged)
 		})
+		cancelSub()
 		if ctx.Err() != nil {
 			break
 		}
@@ -241,45 +260,118 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	m.mu.Unlock()
 }
 
-// periodicRefresh pulls a fresh REST snapshot at interval and folds
-// it *under* whatever is cached — subscription deltas always win on
-// overlap, but REST fills in fields the subscription never pushes
-// for a parked/sleeping car (odometer, charge limit, etc.). Bails on
-// ctx cancellation.
-func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string, interval time.Duration) {
-	t := time.NewTicker(interval)
+// wsStaleThreshold is how long we tolerate no WS pushes before
+// assuming the socket has gone zombie and forcing a resubscribe.
+// Rivian pushes at least powerState / chargerStatus heartbeats every
+// few minutes on a live session; 10 min is comfortably above normal
+// quiet periods for a sleeping car (which also gets periodic status
+// frames) while still recovering quickly from a silent dropout.
+const wsStaleThreshold = 10 * time.Minute
+
+// watchSubscription force-cancels the per-subscribe context if no
+// push has landed for wsStaleThreshold. Exits when its context is
+// cancelled by the subscribe loop (normal completion) or when it
+// fires the cancel itself (zombie detected). Safe to call cancel()
+// multiple times — context.CancelFunc is idempotent.
+func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, cancel context.CancelFunc) {
+	t := time.NewTicker(wsStaleThreshold / 2)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			st, err := m.client.State(ctx, vehicleID)
-			if err != nil {
-				if ctx.Err() == nil {
-					m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
-				}
-				continue
+		case now := <-t.C:
+			m.mu.RLock()
+			last := m.stamp[vehicleID]
+			m.mu.RUnlock()
+			if !last.IsZero() && now.Sub(last) > wsStaleThreshold {
+				m.logger.Warn("rivian ws stale, forcing resubscribe",
+					"vehicle", vehicleID,
+					"since_last_push", now.Sub(last).Round(time.Second).String())
+				cancel()
+				return
 			}
-			if st == nil {
-				continue
-			}
-			m.mu.Lock()
-			var merged *State
-			prev := m.cache[vehicleID]
-			if prev == nil {
-				merged = st
-			} else {
-				// mergeState(next=cached, prev=rest): cached values
-				// (which include WS deltas) win over REST where both
-				// are populated, REST fills in the zeros.
-				merged = mergeState(st, prev)
-			}
-			m.cache[vehicleID] = merged
-			m.stamp[vehicleID] = time.Now()
-			m.mu.Unlock()
-			m.record(ctx, vehicleID, prev, merged)
 		}
+	}
+}
+
+// adaptiveRefreshInterval picks a REST refresh cadence based on the
+// cached power state. REST GetVehicleState is known to bump the
+// vehicle out of deep sleep in some firmwares (home-assistant-rivian
+// explicitly refuses to poll vehicleState for this reason), so we
+// only poll aggressively when the car is demonstrably awake. The WS
+// subscription keeps running at all power states; REST is only a
+// backfill for fields Rivian's subscription doesn't replay.
+//
+//	asleep / no cache: 30 min — minimal wake pressure, we have WS
+//	standby / ready:   10 min — car is awake anyway
+//	go / charging:      2 min — driving or charging, we want freshness
+func (m *StateMonitor) adaptiveRefreshInterval(vehicleID string) time.Duration {
+	m.mu.RLock()
+	st := m.cache[vehicleID]
+	m.mu.RUnlock()
+	if st == nil {
+		return 30 * time.Minute
+	}
+	switch strings.ToLower(st.PowerState) {
+	case "go":
+		return 2 * time.Minute
+	case "ready", "standby":
+		return 10 * time.Minute
+	case "sleep", "":
+		// Sleeping or unknown. If the car is charging we still want
+		// responsiveness, so key off chargerState too.
+		if strings.Contains(strings.ToLower(st.ChargerState), "charging") {
+			return 2 * time.Minute
+		}
+		return 30 * time.Minute
+	default:
+		return 10 * time.Minute
+	}
+}
+
+// periodicRefresh pulls a fresh REST snapshot on an adaptive cadence
+// and folds it *under* whatever is cached — subscription deltas
+// always win on overlap, but REST fills in fields the subscription
+// never pushes for a parked/sleeping car (odometer, charge limit,
+// etc.). Interval is recomputed each tick from the current cached
+// powerState so a sleeping car doesn't get poked every 2 minutes.
+// Bails on ctx cancellation.
+func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string) {
+	for {
+		interval := m.adaptiveRefreshInterval(vehicleID)
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		st, err := m.client.State(ctx, vehicleID)
+		if err != nil {
+			if ctx.Err() == nil {
+				m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
+			}
+			continue
+		}
+		if st == nil {
+			continue
+		}
+		m.mu.Lock()
+		var merged *State
+		prev := m.cache[vehicleID]
+		if prev == nil {
+			merged = st
+		} else {
+			// mergeState(next=cached, prev=rest): cached values
+			// (which include WS deltas) win over REST where both
+			// are populated, REST fills in the zeros.
+			merged = mergeState(st, prev)
+		}
+		m.cache[vehicleID] = merged
+		m.stamp[vehicleID] = time.Now()
+		m.mu.Unlock()
+		m.record(ctx, vehicleID, prev, merged)
 	}
 }
 
