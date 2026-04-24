@@ -22,8 +22,8 @@ func TestParseElectrafiTime(t *testing.T) {
 		wantRF string // expected UTC RFC3339
 	}{
 		{"utc", raw, time.UTC, "2026-03-15T09:00:00Z"},
-		{"ny_edt", raw, ny, "2026-03-15T13:00:00Z"},     // EDT = UTC-4
-		{"ny_est", winter, ny, "2026-01-15T14:00:00Z"},  // EST = UTC-5
+		{"ny_edt", raw, ny, "2026-03-15T13:00:00Z"},    // EDT = UTC-4
+		{"ny_est", winter, ny, "2026-01-15T14:00:00Z"}, // EST = UTC-5
 		{"nil_loc_defaults_to_utc", raw, nil, "2026-03-15T09:00:00Z"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
