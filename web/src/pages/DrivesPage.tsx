@@ -5,6 +5,8 @@ import { backend, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
+import { collapseRoundTrips } from "../lib/drives";
+import { usePreferences } from "../lib/preferences";
 import {
   durationSeconds,
   formatDateTime,
@@ -15,14 +17,25 @@ import {
 
 export default function DrivesPage() {
   const [win, setWin] = useState<WindowKey>("30d");
+  const {
+    roundTripsEnabled,
+    roundTripRadiusMeters,
+    roundTripMaxGapMinutes,
+  } = usePreferences();
   const q = useQuery({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
   });
-  const rows = useMemo(
-    () => filterByWindow(q.data ?? [], win),
-    [q.data, win],
-  );
+  const rows = useMemo(() => {
+    const filtered = filterByWindow(q.data ?? [], win);
+    return roundTripsEnabled
+      ? collapseRoundTrips(
+          filtered,
+          roundTripRadiusMeters,
+          roundTripMaxGapMinutes,
+        )
+      : filtered;
+  }, [q.data, win, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
   const totals = useMemo(() => summarize(rows), [rows]);
 
   return (

@@ -15,6 +15,12 @@ export type TimeZonePref = "auto" | string;
 type Preferences = {
   temperatureUnit: TemperatureUnit;
   timeZone: TimeZonePref;
+  // Round-trip collapsing: merge consecutive A→B and B→A drive rows
+  // when B is within `roundTripRadiusMeters` of A's start *and* the
+  // park-gap between them is under `roundTripMaxGapMinutes`.
+  roundTripsEnabled: boolean;
+  roundTripRadiusMeters: number;
+  roundTripMaxGapMinutes: number;
 };
 
 const STORAGE_KEY = "rivolt.preferences.v1";
@@ -22,6 +28,9 @@ const STORAGE_KEY = "rivolt.preferences.v1";
 const DEFAULT_PREFERENCES: Preferences = {
   temperatureUnit: "c",
   timeZone: "auto",
+  roundTripsEnabled: true,
+  roundTripRadiusMeters: 200,
+  roundTripMaxGapMinutes: 60,
 };
 
 function readPreferences(): Preferences {
@@ -41,6 +50,22 @@ function readPreferences(): Preferences {
         typeof parsed.timeZone === "string" && parsed.timeZone.length > 0
           ? parsed.timeZone
           : DEFAULT_PREFERENCES.timeZone,
+      roundTripsEnabled:
+        typeof parsed.roundTripsEnabled === "boolean"
+          ? parsed.roundTripsEnabled
+          : DEFAULT_PREFERENCES.roundTripsEnabled,
+      roundTripRadiusMeters:
+        typeof parsed.roundTripRadiusMeters === "number" &&
+        Number.isFinite(parsed.roundTripRadiusMeters) &&
+        parsed.roundTripRadiusMeters > 0
+          ? parsed.roundTripRadiusMeters
+          : DEFAULT_PREFERENCES.roundTripRadiusMeters,
+      roundTripMaxGapMinutes:
+        typeof parsed.roundTripMaxGapMinutes === "number" &&
+        Number.isFinite(parsed.roundTripMaxGapMinutes) &&
+        parsed.roundTripMaxGapMinutes > 0
+          ? parsed.roundTripMaxGapMinutes
+          : DEFAULT_PREFERENCES.roundTripMaxGapMinutes,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -88,6 +113,41 @@ export function setTemperatureUnit(unit: TemperatureUnit): void {
 export function setTimeZone(tz: TimeZonePref): void {
   if (current.timeZone === tz) return;
   current = { ...current, timeZone: tz };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
+  }
+  emit();
+}
+
+export function setRoundTripsEnabled(enabled: boolean): void {
+  if (current.roundTripsEnabled === enabled) return;
+  current = { ...current, roundTripsEnabled: enabled };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
+  }
+  emit();
+}
+
+export function setRoundTripRadiusMeters(m: number): void {
+  if (!Number.isFinite(m) || m <= 0) return;
+  if (current.roundTripRadiusMeters === m) return;
+  current = { ...current, roundTripRadiusMeters: m };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
+  }
+  emit();
+}
+
+export function setRoundTripMaxGapMinutes(mins: number): void {
+  if (!Number.isFinite(mins) || mins <= 0) return;
+  if (current.roundTripMaxGapMinutes === mins) return;
+  current = { ...current, roundTripMaxGapMinutes: mins };
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
