@@ -58,6 +58,17 @@ func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, erro
 // Close is a no-op; the pool is managed by main.
 func (s *Store) Close() error { return nil }
 
+// Reset deletes every charge for this store's user. See drives.Store.Reset.
+func (s *Store) Reset(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM charges WHERE user_id = $1`, s.userID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Upsert inserts or replaces a charge by external_id within the
 // (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {
@@ -230,6 +241,48 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 // Dedupe is a no-op on Postgres — UNIQUE (vehicle_id, external_id)
 // prevents the SQLite-era duplicates the old code had to clean up.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
+
+// ListAll returns every charge for this user, newest first. Used by
+// the Settings → Backup endpoint.
+func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.external_id, v.rivian_vehicle_id,
+		       c.started_at, c.ended_at,
+		       COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0),
+		       COALESCE(c.energy_added_kwh,0), COALESCE(c.miles_added,0),
+		       COALESCE(c.max_power_kw,0), COALESCE(c.avg_power_kw,0),
+		       COALESCE(c.final_state,''),
+		       COALESCE(c.lat,0), COALESCE(c.lon,0),
+		       c.source,
+		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
+		       COALESCE(c.price_per_kwh,0)::float8
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1
+		ORDER BY c.started_at DESC`, s.userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Charge
+	for rows.Next() {
+		var c Charge
+		if err := rows.Scan(&c.ID, &c.VehicleID,
+			&c.StartedAt, &c.EndedAt,
+			&c.StartSoCPct, &c.EndSoCPct,
+			&c.EnergyAddedKWh, &c.MilesAdded,
+			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
+			&c.Lat, &c.Lon, &c.Source,
+			&c.Cost, &c.Currency, &c.PricePerKWh,
+		); err != nil {
+			return nil, err
+		}
+		c.StartedAt = c.StartedAt.UTC()
+		c.EndedAt = c.EndedAt.UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
 
 func nullIfZero(f float64) sql.NullFloat64 {
 	if f == 0 {

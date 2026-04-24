@@ -68,6 +68,10 @@ export default function SettingsPage() {
           is already generated and persisted.
         </p>
       </Card>
+
+      <Card title="Danger zone">
+        <DangerZonePanel />
+      </Card>
     </div>
   );
 }
@@ -758,6 +762,126 @@ function ProviderCard({
           Using model: <span className="font-mono">{effectiveModel}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// DangerZonePanel exposes the backup + reset flow. Reset wipes
+// every drive, charge, and raw sample for the current user;
+// vehicles, settings, push subscriptions, and the user row are
+// preserved. Intended for re-importing after changing timezone
+// or pack size (the importer's session IDs are tz-derived, so
+// otherwise you'd double up). The Backup button fires first and
+// is strongly encouraged before Reset.
+function DangerZonePanel() {
+  const qc = useQueryClient();
+  const [confirm, setConfirm] = useState(false);
+  const [lastBackup, setLastBackup] = useState<{
+    filename: string;
+    bytes: number;
+  } | null>(null);
+
+  const backup = useMutation({
+    mutationFn: () => backend.backupData(),
+    onSuccess: (res) => setLastBackup(res),
+  });
+  const reset = useMutation({
+    mutationFn: () => backend.resetSessions(),
+    onSuccess: () => {
+      setConfirm(false);
+      // Every list query goes stale now; invalidate the lot.
+      qc.invalidateQueries();
+    },
+  });
+
+  const fmtBytes = (n: number): string => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(1)} GiB`;
+  };
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <div className="text-neutral-400 mb-1">Backup</div>
+        <p className="text-xs text-neutral-500 mb-2">
+          Downloads every drive, charge, and raw sample for your account as a
+          single JSON file. Nothing is stored server-side.
+        </p>
+        <button
+          type="button"
+          onClick={() => backup.mutate()}
+          disabled={backup.isPending}
+          className="px-3 py-1.5 text-xs rounded-md border border-neutral-700 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
+        >
+          {backup.isPending ? "Preparing…" : "Download backup"}
+        </button>
+        {lastBackup && (
+          <p className="mt-2 text-xs text-emerald-400">
+            Saved {lastBackup.filename} ({fmtBytes(lastBackup.bytes)}).
+          </p>
+        )}
+        {backup.isError && (
+          <p className="mt-2 text-xs text-rose-400">
+            Backup failed: {String(backup.error)}
+          </p>
+        )}
+      </div>
+
+      <div className="border-t border-neutral-800 pt-4">
+        <div className="text-rose-400 mb-1">Reset sessions</div>
+        <p className="text-xs text-neutral-500 mb-2">
+          Deletes every drive, charge, and raw sample for your account.
+          Vehicles, settings, and push subscriptions are preserved. Useful
+          after changing timezone or pack size so a re-import doesn't
+          double up (session IDs are timestamp-derived).
+        </p>
+        {!confirm ? (
+          <button
+            type="button"
+            onClick={() => setConfirm(true)}
+            className="px-3 py-1.5 text-xs rounded-md border border-rose-700/50 bg-rose-900/30 text-rose-300 hover:bg-rose-900/50"
+          >
+            Reset sessions…
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-rose-300">
+              This can't be undone. Download a backup first if you haven't.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => reset.mutate()}
+                disabled={reset.isPending}
+                className="px-3 py-1.5 text-xs rounded-md bg-rose-600 text-white hover:bg-rose-500 disabled:opacity-50"
+              >
+                {reset.isPending ? "Deleting…" : "Yes, delete everything"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirm(false)}
+                disabled={reset.isPending}
+                className="px-3 py-1.5 text-xs rounded-md border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {reset.isSuccess && (
+          <p className="mt-2 text-xs text-emerald-400">
+            Deleted {reset.data.drives} drives, {reset.data.charges} charges,{" "}
+            {reset.data.samples} samples.
+          </p>
+        )}
+        {reset.isError && (
+          <p className="mt-2 text-xs text-rose-400">
+            Reset failed: {String(reset.error)}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

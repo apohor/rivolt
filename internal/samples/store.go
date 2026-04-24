@@ -58,6 +58,18 @@ func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, erro
 // Close is a no-op; the pool is managed by main.
 func (s *Store) Close() error { return nil }
 
+// Reset deletes every raw sample (vehicle_state row) for this
+// store's user. See drives.Store.Reset.
+func (s *Store) Reset(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM vehicle_state WHERE user_id = $1`, s.userID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // InsertBatch inserts many samples in a single transaction.
 // Duplicate (vehicle_id, at) tuples are ignored so re-imports are
 // idempotent. All samples must belong to the same user.
@@ -139,6 +151,45 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		WHERE vs.user_id = $1 AND vs.at > $2
 		ORDER BY vs.at ASC
 		LIMIT $3`, s.userID, since.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Sample
+	for rows.Next() {
+		var v Sample
+		if err := rows.Scan(&v.VehicleID, &v.At,
+			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
+			&v.Lat, &v.Lon, &v.SpeedMph, &v.ShiftState, &v.ChargingState,
+			&v.ChargerPowerKW, &v.ChargeLimitPct,
+			&v.InsideTempC, &v.OutsideTempC,
+			&v.DriveNumber, &v.ChargeNumber, &v.Source,
+		); err != nil {
+			return nil, err
+		}
+		v.At = v.At.UTC()
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ListAll returns every sample for this user, oldest first. Used by
+// the Settings → Backup endpoint. Unbounded — a year of 60 s polls
+// is on the order of 500k rows, ~100 MB JSON; acceptable for a
+// homelab backup but NOT suitable for UI consumption.
+func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT v.rivian_vehicle_id, vs.at,
+		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
+		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), COALESCE(vs.speed_mph,0),
+		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
+		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
+		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
+		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source
+		FROM vehicle_state vs
+		JOIN vehicles v ON v.id = vs.vehicle_id
+		WHERE vs.user_id = $1
+		ORDER BY vs.at ASC`, s.userID)
 	if err != nil {
 		return nil, err
 	}

@@ -69,6 +69,10 @@ Usage:
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
   RIVIAN_CLIENT=stub|live|mock   (default: stub)
+  RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
+                                 current user on boot, then continue. Scoped
+                                 to RIVOLT_USERNAME; vehicles/settings/push
+                                 are preserved. Unset after the first boot.
 `)
 }
 

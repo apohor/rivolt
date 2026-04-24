@@ -431,6 +431,39 @@ export const backend = {
     if (!res.ok) throw new ApiError(res.status, parsed);
     return parsed as { files: ImportResult[] };
   },
+
+  // Streams a full JSON backup (drives + charges + samples) into a
+  // browser download. Returns the blob size in bytes for the UI
+  // confirmation message. Does not keep anything server-side.
+  backupData: async () => {
+    const res = await fetch("/api/data/backup");
+    if (!res.ok) {
+      const body = await res.text();
+      throw new ApiError(res.status, body);
+    }
+    const blob = await res.blob();
+    // Prefer the server's suggested filename (Content-Disposition).
+    const cd = res.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="?([^";]+)"?/i);
+    const filename = m?.[1] || `rivolt-backup-${Date.now()}.json`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return { filename, bytes: blob.size };
+  },
+
+  // Wipes drives + charges + samples for the current user.
+  // Vehicles, settings, push subscriptions, and the user row
+  // are preserved. Returns per-table deleted counts.
+  resetSessions: () =>
+    api.del<{ drives: number; charges: number; samples: number }>(
+      "/api/data/sessions",
+    ),
 };
 
 export type ImportResult = {
