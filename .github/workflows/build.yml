@@ -2,8 +2,16 @@
 #
 # Two jobs:
 #   1. test    — go vet/test + web typecheck/build. Runs on every push + PR.
-#   2. publish — multi-arch image push to GHCR. Only runs on vX.Y.Z tags or
-#                manual workflow_dispatch. Pushes to main only run tests.
+#   2. publish — image push to GHCR. Only runs on vX.Y.Z tags or manual
+#                workflow_dispatch. Pushes to main only run tests.
+#
+# Triggers:
+#   - Push to main        → test only
+#   - Push of vX.Y.Z tag  → test, then publish 'vX.Y.Z', 'X.Y', 'latest'
+#                          (linux/amd64 only)
+#   - Pull request        → test only
+#   - workflow_dispatch   → test + publish; the `platforms` input picks
+#                          amd64 (default) or amd64+arm64
 #
 # Triggers:
 #   - Push to main        → test only
@@ -19,6 +27,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Target platforms (comma-separated) for the published image"
+        required: false
+        default: "linux/amd64"
+        type: choice
+        options:
+          - linux/amd64
+          - linux/amd64,linux/arm64
 
 concurrency:
   group: build-${{ github.ref }}
@@ -114,7 +131,12 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          # amd64 is the DSM target and the only platform Rivolt is
+          # currently deployed on. Multi-arch builds roughly double
+          # the image stage time, so arm64 is opt-in via
+          # workflow_dispatch (`platforms` input) for the rare
+          # cases we need to publish both.
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64' }}
           push: true
           provenance: false
           # Stamp the semver derived by metadata-action into the Go

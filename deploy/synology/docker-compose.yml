@@ -14,15 +14,9 @@ x-pg-password: &pg_password "change-me"
 
 services:
   rivolt:
-    # :latest tracks the most recent vX.Y.Z tag published by CI.
-    # Watchtower below watches this container and pulls+restarts
-    # whenever a new release is cut. Pin to a specific :vX.Y.Z tag
-    # for manual rollouts.
     image: ghcr.io/apohor/rivolt:latest
     container_name: rivolt
     restart: always
-    labels:
-      com.centurylinklabs.watchtower.enable: "true"
     # Host port is 8081; Caffeine owns 8080 on this NAS.
     ports:
       - "8081:8080"

@@ -42,13 +42,6 @@ docker-up: ## Run production image via docker compose
 docker-dev: ## Run dev docker compose stack (Go + Vite with HMR)
 	docker compose -f docker-compose.dev.yml up --build
 
-deploy-dsm: ## Pull :$(DSM_IMAGE_TAG) on the Synology and restart the stack (requires ssh access)
-	@echo ">> pulling ghcr.io/apohor/rivolt:$(DSM_IMAGE_TAG) on $(DSM_SSH_HOST) and restarting"
-	ssh $(DSM_SSH_HOST) 'cd $(DSM_COMPOSE_DIR) && \
-		sed -i.bak -E "s#(ghcr.io/apohor/rivolt):[^\" ]+#\1:$(DSM_IMAGE_TAG)#" docker-compose.yml && \
-		sudo docker compose pull rivolt && \
-		sudo docker compose up -d rivolt'
-
 clean:
 	rm -rf bin dist web/dist internal/web/dist
 	mkdir -p internal/web/dist
