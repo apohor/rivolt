@@ -172,6 +172,17 @@ func New(d Deps) http.Handler {
 			// it through the importer so users don't have to drop into a
 			// terminal to load data.
 			r.Post("/import/electrafi", handleImportElectrafi(d))
+
+			// Data management. GET /data/backup streams every
+			// drive/charge/sample for the current user as a single
+			// downloadable JSON bundle. DELETE /data/sessions wipes
+			// those three tables (preserves vehicles/settings/push).
+			// The UI pairs them: download backup, then reset — used
+			// after changing importer parameters (tz / pack size)
+			// so the re-import lands on a clean slate instead of
+			// producing parallel rows with shifted external_ids.
+			r.Get("/data/backup", handleDataBackup(d))
+			r.Delete("/data/sessions", handleDataReset(d))
 		}) // end of authenticated /api group
 	})
 
@@ -634,6 +645,87 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			results = append(results, res)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"files": results})
+	}
+}
+
+// handleDataBackup streams a single JSON bundle containing every
+// drive, charge, and raw sample for the current user. Intended to
+// be paired with the reset endpoint so an operator can snapshot
+// their data before wiping it. The response is served with a
+// Content-Disposition attachment so browsers download it directly;
+// nothing is kept server-side.
+func handleDataBackup(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+			http.Error(w, "backup unavailable: stores not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		ctx := r.Context()
+		drv, err := d.Drives.ListAll(ctx)
+		if err != nil {
+			http.Error(w, "list drives: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		chg, err := d.Charges.ListAll(ctx)
+		if err != nil {
+			http.Error(w, "list charges: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		smp, err := d.Samples.ListAll(ctx)
+		if err != nil {
+			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		stamp := time.Now().UTC().Format("20060102-150405")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition",
+			`attachment; filename="rivolt-backup-`+stamp+`.json"`)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"version":    d.Version,
+			"created_at": time.Now().UTC().Format(time.RFC3339),
+			"drives":     drv,
+			"charges":    chg,
+			"samples":    smp,
+		})
+	}
+}
+
+// handleDataReset truncates the three session tables for the current
+// user (drives, charges, vehicle_state). Vehicles, user_settings,
+// push_subscriptions, and the user row are preserved so settings
+// and the Rivian account link survive. Returns deleted row counts.
+//
+// This is the UI counterpart to what used to be a psql TRUNCATE.
+// Pair with /data/backup to avoid losing work.
+func handleDataReset(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+			http.Error(w, "reset unavailable: stores not initialized", http.StatusServiceUnavailable)
+			return
+		}
+		ctx := r.Context()
+		// Wipe in an order that can't violate FKs; there are no
+		// cross-table FKs on user_id so order is cosmetic.
+		samplesN, err := d.Samples.Reset(ctx)
+		if err != nil {
+			http.Error(w, "reset samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		drivesN, err := d.Drives.Reset(ctx)
+		if err != nil {
+			http.Error(w, "reset drives: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		chargesN, err := d.Charges.Reset(ctx)
+		if err != nil {
+			http.Error(w, "reset charges: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"drives":  drivesN,
+			"charges": chargesN,
+			"samples": samplesN,
+		})
 	}
 }
 

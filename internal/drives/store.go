@@ -57,6 +57,22 @@ func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, erro
 // Close is a no-op; the pool is managed by main.
 func (s *Store) Close() error { return nil }
 
+// Reset deletes every drive for this store's user. Intended for the
+// Settings → Danger zone reset button; the session external_id is
+// derived from the parsed timestamp, so changing importer inputs
+// (tz, pack size) creates parallel rows instead of ON CONFLICT
+// upserts. Clearing lets a re-import land on a clean slate.
+// Returns the number of rows deleted.
+func (s *Store) Reset(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM drives WHERE user_id = $1`, s.userID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Upsert inserts or replaces a drive by external_id within the
 // (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, d Drive) error {
@@ -154,6 +170,44 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 // UNIQUE (vehicle_id, external_id) makes the SQLite "same session
 // written with different ids" condition impossible here.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
+
+// ListAll returns every drive for this user, newest first. Used by
+// the Settings → Backup endpoint; /api/drives keeps the capped
+// ListRecent path for the dashboard.
+func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.external_id, v.rivian_vehicle_id,
+		       d.started_at, d.ended_at,
+		       COALESCE(d.start_soc_pct,0), COALESCE(d.end_soc_pct,0),
+		       COALESCE(d.start_odometer_mi,0), COALESCE(d.end_odometer_mi,0), COALESCE(d.distance_mi,0),
+		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
+		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
+		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0), d.source
+		FROM drives d
+		JOIN vehicles v ON v.id = d.vehicle_id
+		WHERE d.user_id = $1
+		ORDER BY d.started_at DESC`, s.userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Drive
+	for rows.Next() {
+		var d Drive
+		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
+			&d.StartSoCPct, &d.EndSoCPct,
+			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
+			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
+			&d.MaxSpeedMph, &d.AvgSpeedMph, &d.Source,
+		); err != nil {
+			return nil, err
+		}
+		d.StartedAt = d.StartedAt.UTC()
+		d.EndedAt = d.EndedAt.UTC()
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
 
 func nullIfZero(f float64) sql.NullFloat64 {
 	if f == 0 {
