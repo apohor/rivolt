@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -34,6 +35,16 @@ CREATE TABLE IF NOT EXISTS charges (
 );
 CREATE INDEX IF NOT EXISTS charges_started_at ON charges(started_at);
 CREATE INDEX IF NOT EXISTS charges_vehicle_id ON charges(vehicle_id);
+
+-- Tracks one-shot data migrations so they don't replay on every boot.
+-- Schema (CREATE TABLE IF NOT EXISTS / ALTER TABLE) is handled in Go;
+-- this table is specifically for row-level cleanups that shouldn't run
+-- more than once per database.
+CREATE TABLE IF NOT EXISTS migrations (
+    id         TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL,
+    note       TEXT
+);
 `
 
 // migrate adds the cost/currency/price_per_kwh columns to any
@@ -73,7 +84,111 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("add column %s: %w", a.name, err)
 		}
 	}
+	// Row-level cleanups run after DDL so they can assume the latest
+	// schema. Each one records itself in the migrations table and is
+	// skipped on subsequent boots.
+	if err := applyDataMigrations(db); err != nil {
+		return err
+	}
 	return nil
+}
+
+// applyDataMigrations runs one-shot row-level cleanups once per DB.
+// A migration is identified by a short ID string and records itself in
+// the migrations table on success so restarts don't replay it. Errors
+// abort the sequence; the next boot will retry only the unrecorded
+// ones. Keep migrations idempotent anyway — belt and braces.
+func applyDataMigrations(db *sql.DB) error {
+	applied, err := loadAppliedMigrations(db)
+	if err != nil {
+		return fmt.Errorf("load migrations: %w", err)
+	}
+	steps := []dataMigration{
+		{
+			id:   "2026-04-phantom-charges-v1",
+			note: "delete pre-v0.3.54 phantom charge rows where EndSoC - StartSoC < 1 pp",
+			run:  cleanPhantomCharges,
+		},
+	}
+	for _, m := range steps {
+		if applied[m.id] {
+			continue
+		}
+		if err := runMigration(db, m); err != nil {
+			return fmt.Errorf("migration %s: %w", m.id, err)
+		}
+	}
+	return nil
+}
+
+// dataMigration pairs a stable identifier with the work to do. The
+// worker runs inside a transaction; it must not commit or roll back
+// itself — runMigration owns that and also records the completion.
+type dataMigration struct {
+	id   string
+	note string
+	run  func(*sql.Tx) (affected int64, err error)
+}
+
+func loadAppliedMigrations(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query("SELECT id FROM migrations")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+func runMigration(db *sql.DB, m dataMigration) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	affected, err := m.run(tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO migrations (id, applied_at, note) VALUES (?, ?, ?)`,
+		m.id, time.Now().Unix(), m.note,
+	); err != nil {
+		return fmt.Errorf("record migration: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	slog.Info("charges migration applied",
+		"id", m.id,
+		"affected", affected,
+		"note", m.note,
+	)
+	return nil
+}
+
+// cleanPhantomCharges removes rows left behind by the pre-v0.3.54 live
+// recorder, which could open a new charge session when charger_state
+// briefly flickered into "charging_*" while the car was unplugged.
+// Those sessions inherited the cached Parallax frame (25.7 kWh, etc.)
+// and show StartSoC == EndSoC. Threshold is < 1 pp on the SoC delta,
+// matching the heuristic used in the v0.3.54 frontend filter before it
+// was removed.
+func cleanPhantomCharges(tx *sql.Tx) (int64, error) {
+	res, err := tx.Exec(
+		`DELETE FROM charges WHERE (end_soc_pct - start_soc_pct) < 1.0`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Charge is a single charging session.

@@ -147,3 +147,105 @@ func TestCountEmpty(t *testing.T) {
 		t.Errorf("Count=%d, want 0", n)
 	}
 }
+
+// TestPhantomCharges_CleanupOnOpen seeds a DB with one healthy charge
+// and three phantom rows (StartSoC == EndSoC), closes the store, then
+// re-opens it. The second open triggers applyDataMigrations, which
+// should delete the three phantoms and record the migration. A third
+// open must be a no-op so the migration doesn't replay against rows
+// added *after* v0.3.54 that happen to satisfy the same predicate
+// (unlikely, but worth being defensive about).
+func TestPhantomCharges_CleanupOnOpen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "charges.db")
+
+	// First open seeds the DB and — because the migrations table is
+	// empty — also sweeps the phantoms in the same go. That's the
+	// real-world path too: the first container boot on a DB that was
+	// created by an older rivolt will seed migrations + clean in one
+	// call. We work around it here by recording the migration up front
+	// so the first open is purely a seed pass, then clearing the
+	// record so the second open performs the clean.
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore #1: %v", err)
+	}
+	ctx := context.Background()
+	good := sampleCharge("good-1", time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC))
+	if err := s.Upsert(ctx, good); err != nil {
+		t.Fatalf("upsert good: %v", err)
+	}
+	for i, pid := range []string{"phantom-a", "phantom-b", "phantom-c"} {
+		p := sampleCharge(pid, time.Date(2026, 4, 2+i, 9, 0, 0, 0, time.UTC))
+		p.StartSoCPct = 52.0
+		p.EndSoCPct = 52.0 // 0 pp delta → phantom
+		p.EnergyAddedKWh = 25.7
+		if err := s.Upsert(ctx, p); err != nil {
+			t.Fatalf("upsert %s: %v", pid, err)
+		}
+	}
+	// Clear the recorded migration so a subsequent OpenStore re-runs
+	// the cleanup. Without this the first OpenStore would already
+	// have applied (and the test would just be checking the marker).
+	if _, err := s.db.Exec("DELETE FROM migrations"); err != nil {
+		t.Fatalf("clear migrations: %v", err)
+	}
+	s.Close()
+
+	// Second open: migration fires, phantoms gone, marker recorded.
+	s2, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore #2: %v", err)
+	}
+	got, err := s2.ListRecent(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "good-1" {
+		t.Fatalf("after migration: got %d rows (ids=%v), want 1 (good-1)",
+			len(got), chargeIDs(got))
+	}
+	// Marker must be present so the next boot is idempotent.
+	var n int
+	if err := s2.db.QueryRow(
+		"SELECT count(*) FROM migrations WHERE id = ?",
+		"2026-04-phantom-charges-v1",
+	).Scan(&n); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("migrations marker count = %d, want 1", n)
+	}
+
+	// Third open: a fresh phantom-looking row added AFTER the
+	// migration has been recorded must NOT be swept. This guards
+	// against accidental future replays if the predicate widens.
+	newPhantom := sampleCharge("phantom-postfix", time.Date(2026, 4, 10, 8, 0, 0, 0, time.UTC))
+	newPhantom.StartSoCPct = 60
+	newPhantom.EndSoCPct = 60
+	if err := s2.Upsert(ctx, newPhantom); err != nil {
+		t.Fatalf("upsert post-fix: %v", err)
+	}
+	s2.Close()
+
+	s3, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore #3: %v", err)
+	}
+	defer s3.Close()
+	got3, err := s3.ListRecent(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListRecent 3: %v", err)
+	}
+	if len(got3) != 2 {
+		t.Errorf("post-migration rows = %d, want 2 (good-1 + phantom-postfix)", len(got3))
+	}
+}
+
+func chargeIDs(cs []Charge) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.ID
+	}
+	return out
+}
