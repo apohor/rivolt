@@ -684,7 +684,7 @@ function pickImageForState(
     const charging = cs.startsWith("charging_") || cs === "waiting_on_charger";
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
 
-    if (charging) wants.push("3qfront", "side-exterior", "3qrear");
+    if (charging) wants.push("charging", "3qfront", "side-exterior", "3qrear");
     else if (driving) wants.push("side-exterior", "3qfront");
     if (!state.frunk_closed) wants.push("front-exterior", "3qfront");
     if (!state.liftgate_closed || !state.tonneau_closed) {
