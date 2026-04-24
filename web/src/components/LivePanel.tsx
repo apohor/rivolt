@@ -480,7 +480,14 @@ function ParkedSummary({
     staleTime: 60_000,
   });
   const lastDrive = drives.data?.[0];
-  const lastCharge = charges.data?.[0];
+  // Skip "phantom" charge rows where the SoC didn't actually increase
+  // — those are historically-recorded stuck-charger_state sessions
+  // (see v0.3.54 recorder gate) and are confusing to surface as the
+  // most recent charge. Prefer the newest row where SoC went up by
+  // more than a trivial amount (>=1pp rules out sampling noise).
+  const lastCharge = charges.data?.find(
+    (c) => c.EndSoCPct - c.StartSoCPct >= 1,
+  );
   const plugged = isPlugged(state);
 
   return (
@@ -530,7 +537,10 @@ function ParkedSummary({
             Last charge
           </div>
           {lastCharge ? (
-            <div>
+            <Link
+              to={`/charges/${encodeURIComponent(lastCharge.ID)}`}
+              className="block hover:text-emerald-300"
+            >
               <div className="tabular-nums text-neutral-200">
                 {num(lastCharge.EnergyAddedKWh, 1, "kWh")}
               </div>
@@ -538,7 +548,7 @@ function ParkedSummary({
                 {pct(lastCharge.StartSoCPct, 0)}→{pct(lastCharge.EndSoCPct, 0)} ·{" "}
                 {timeAgo(lastCharge.EndedAt)}
               </div>
-            </div>
+            </Link>
           ) : (
             <div className="text-neutral-500">—</div>
           )}
