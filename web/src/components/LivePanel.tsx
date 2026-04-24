@@ -149,7 +149,15 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
 
           <Section title="Climate">
             <Field label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
-            <Field label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
+            {/* Rivian's live VehicleState GraphQL feed doesn't expose
+                an outside/ambient temperature field — OutsideTempC
+                is hardcoded to 0 in internal/rivian/live.go. Hide
+                the Field entirely rather than render a misleading
+                "0 °C". Drive samples persisted from electrafi CSVs
+                do carry outside temp and surface on /drives/:id. */}
+            {s.outside_temp_c !== 0 ? (
+              <Field label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
+            ) : null}
             <Field
               label="Precondition"
               value={formatTitle(s.cabin_preconditioning_status)}
