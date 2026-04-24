@@ -1,0 +1,29 @@
+# xcodegen regenerates this from project.yml — never commit it.
+Rivolt.xcodeproj/
+
+# Xcode user state (breakpoints, window layout, last-opened file).
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Build artefacts.
+build/
+DerivedData/
+*.xcresult
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager resolution cache (if we ever add SPM deps).
+.swiftpm/
+Packages/
+Package.resolved
+
+# CocoaPods / Carthage — not used, but listed so a stray `pod install`
+# doesn't pollute the diff.
+Pods/
+Carthage/Build/
+
+# macOS noise.
+.DS_Store
