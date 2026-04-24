@@ -101,13 +101,10 @@ func runServer() {
 		logger.Error("cannot create data dir", "path", *dataDir, "err", err.Error())
 		os.Exit(1)
 	}
-	dbPath := filepath.Join(*dataDir, "rivolt.db")
 
-	// Postgres is required: the settings store lives there as of
-	// v0.4.1. The remaining stores (samples, drives, charges, push)
-	// still use SQLite and will move to Postgres one release at a
-	// time; until then the pool and the SQLite file coexist on the
-	// same data volume.
+	// Postgres is the only backend as of v0.4.2. The data dir still
+	// holds auto-generated secrets (cookie_secret, VAPID keys) so
+	// the volume mount stays.
 	var pgPool *sql.DB
 	var currentUserID uuid.UUID
 	{
@@ -157,7 +154,7 @@ func runServer() {
 		}
 	}
 
-	pushStore, err := push.OpenStore(dbPath)
+	pushStore, err := push.OpenStore(pgPool, currentUserID)
 	if err != nil {
 		logger.Warn("push store unavailable", "err", err.Error())
 	}
@@ -231,15 +228,17 @@ func runServer() {
 		// fires before the recorder has anywhere to write.
 	}
 
-	drivesStore, err := drives.OpenStore(dbPath)
+	vehiclesResolver := db.NewVehicleResolver(pgPool, currentUserID)
+
+	drivesStore, err := drives.OpenStore(pgPool, currentUserID, vehiclesResolver)
 	if err != nil {
 		logger.Warn("drives store unavailable", "err", err.Error())
 	}
-	chargesStore, err := charges.OpenStore(dbPath)
+	chargesStore, err := charges.OpenStore(pgPool, currentUserID, vehiclesResolver)
 	if err != nil {
 		logger.Warn("charges store unavailable", "err", err.Error())
 	}
-	samplesStore, err := samples.OpenStore(dbPath)
+	samplesStore, err := samples.OpenStore(pgPool, currentUserID, vehiclesResolver)
 	if err != nil {
 		logger.Warn("samples store unavailable", "err", err.Error())
 	}
@@ -592,7 +591,6 @@ func runImport(args []string) {
 // runImportElectraFi imports one or more TeslaFi/ElectraFi CSV dumps.
 func runImportElectraFi(args []string) {
 	fs := flag.NewFlagSet("import electrafi", flag.ExitOnError)
-	dataDir := fs.String("data-dir", envOr("DATA_DIR", "./data"), "directory holding rivolt.db")
 	vehicleID := fs.String("vehicle-id", envOr("RIVOLT_VEHICLE_ID", ""), "vehicle_id to attribute sessions to (default: derived from filename)")
 	packKWh := fs.Float64("pack-kwh", envFloat("RIVOLT_PACK_KWH", electrafi.DefaultPackKWh), "usable pack capacity in kWh; used to estimate energy when ElectraFi omits charger_power")
 	if err := fs.Parse(args); err != nil {
@@ -603,25 +601,45 @@ func runImportElectraFi(args []string) {
 		fmt.Fprintln(os.Stderr, "usage: rivolt import electrafi <file.csv> [<file.csv>...]")
 		os.Exit(2)
 	}
-	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "data dir: %v\n", err)
+
+	dsn := postgresDSN()
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME) is required")
 		os.Exit(1)
 	}
-	dbPath := filepath.Join(*dataDir, "rivolt.db")
+	ctx := context.Background()
+	pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pool, err := db.Open(pctx, dsn)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "postgres open: %v\n", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	username := strings.TrimSpace(os.Getenv("RIVOLT_USERNAME"))
+	if username == "" {
+		username = "local"
+	}
+	uid, err := db.EnsureUser(ctx, pool, username)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ensure user: %v\n", err)
+		os.Exit(1)
+	}
+	resolver := db.NewVehicleResolver(pool, uid)
 
-	ds, err := drives.OpenStore(dbPath)
+	ds, err := drives.OpenStore(pool, uid, resolver)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open drives: %v\n", err)
 		os.Exit(1)
 	}
 	defer ds.Close()
-	cs, err := charges.OpenStore(dbPath)
+	cs, err := charges.OpenStore(pool, uid, resolver)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open charges: %v\n", err)
 		os.Exit(1)
 	}
 	defer cs.Close()
-	ss, err := samples.OpenStore(dbPath)
+	ss, err := samples.OpenStore(pool, uid, resolver)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open samples: %v\n", err)
 		os.Exit(1)
@@ -629,7 +647,6 @@ func runImportElectraFi(args []string) {
 	defer ss.Close()
 
 	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID, PackKWh: *packKWh}
-	ctx := context.Background()
 	var totalRows, totalSamples, totalDrives, totalCharges, totalSkipped int
 	for _, f := range files {
 		res, err := imp.Import(ctx, f)

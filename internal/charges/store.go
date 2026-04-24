@@ -1,247 +1,20 @@
-// Package charges persists derived charge sessions. A charge is the
-// boundary-framed window of vehicle_state rows where charging_state was
-// one of the Charging/Complete/error terminal values.
+// Package charges persists derived charge sessions.
 package charges
 
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
-	"io/fs"
-	"log/slog"
-	"sort"
-	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/db"
 )
 
-// Embedded row-level data migrations. Dropping a new .sql file into
-// internal/charges/migrations/ is enough — the file's basename (without
-// the .sql extension) becomes its migration ID, and the migrations
-// table stops it replaying on subsequent boots. File names should be
-// date-prefixed so the lexical sort matches the intended apply order.
-//
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-
-const schema = `
-CREATE TABLE IF NOT EXISTS charges (
-    id               TEXT PRIMARY KEY,
-    vehicle_id       TEXT NOT NULL,
-    started_at       INTEGER NOT NULL,
-    ended_at         INTEGER NOT NULL,
-    start_soc_pct    REAL,
-    end_soc_pct      REAL,
-    energy_added_kwh REAL,
-    miles_added      REAL,
-    max_power_kw     REAL,
-    avg_power_kw     REAL,
-    final_state      TEXT,
-    lat              REAL,
-    lon              REAL,
-    source           TEXT NOT NULL,
-    cost             REAL,
-    currency         TEXT,
-    price_per_kwh    REAL
-);
-CREATE INDEX IF NOT EXISTS charges_started_at ON charges(started_at);
-CREATE INDEX IF NOT EXISTS charges_vehicle_id ON charges(vehicle_id);
-
--- Tracks one-shot data migrations so they don't replay on every boot.
--- Schema (CREATE TABLE IF NOT EXISTS / ALTER TABLE) is handled in Go;
--- this table is specifically for row-level cleanups that ship as
--- .sql files under internal/charges/migrations/ and shouldn't run
--- more than once per database.
-CREATE TABLE IF NOT EXISTS migrations (
-    id         TEXT PRIMARY KEY,
-    applied_at INTEGER NOT NULL,
-    note       TEXT
-);
-`
-
-// migrate adds the cost/currency/price_per_kwh columns to any
-// pre-existing database that was created before they were part of
-// the schema. SQLite has no ADD COLUMN IF NOT EXISTS, so we probe
-// table_info and add only the missing ones.
-func migrate(db *sql.DB) error {
-	rows, err := db.Query("PRAGMA table_info(charges)")
-	if err != nil {
-		return fmt.Errorf("pragma table_info: %w", err)
-	}
-	defer rows.Close()
-	have := map[string]bool{}
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			return err
-		}
-		have[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	adds := []struct{ name, ddl string }{
-		{"cost", "ALTER TABLE charges ADD COLUMN cost REAL"},
-		{"currency", "ALTER TABLE charges ADD COLUMN currency TEXT"},
-		{"price_per_kwh", "ALTER TABLE charges ADD COLUMN price_per_kwh REAL"},
-	}
-	for _, a := range adds {
-		if have[a.name] {
-			continue
-		}
-		if _, err := db.Exec(a.ddl); err != nil {
-			return fmt.Errorf("add column %s: %w", a.name, err)
-		}
-	}
-	// Row-level cleanups run after DDL so they can assume the latest
-	// schema. Each one records itself in the migrations table and is
-	// skipped on subsequent boots.
-	if err := applyDataMigrations(db); err != nil {
-		return err
-	}
-	return nil
-}
-
-// applyDataMigrations runs every embedded migrations/*.sql file once
-// per DB, in lexical (and therefore date) order. Each file's basename
-// without the .sql extension is its migration ID; that ID is recorded
-// in the migrations table after a successful apply so it never
-// replays. A failing migration aborts the boot so broken state can't
-// accumulate silently.
-func applyDataMigrations(db *sql.DB) error {
-	steps, err := loadMigrations()
-	if err != nil {
-		return fmt.Errorf("load embedded migrations: %w", err)
-	}
-	applied, err := loadAppliedMigrations(db)
-	if err != nil {
-		return fmt.Errorf("load applied migrations: %w", err)
-	}
-	for _, m := range steps {
-		if applied[m.id] {
-			continue
-		}
-		if err := runMigration(db, m); err != nil {
-			return fmt.Errorf("migration %s: %w", m.id, err)
-		}
-	}
-	return nil
-}
-
-// dataMigration pairs a stable identifier with the SQL to execute.
-// The SQL body is run as a single Exec inside a transaction — sqlite
-// accepts multiple semicolon-separated statements per call, which is
-// good enough for the simple cleanups we do here.
-type dataMigration struct {
-	id  string
-	sql string
-}
-
-// loadMigrations walks the embedded FS and returns one dataMigration
-// per .sql file, sorted by filename. Using the basename (minus the
-// .sql suffix) as the ID means renaming a file will cause it to
-// re-run, which is the behaviour we want for a human-facing contract.
-func loadMigrations() ([]dataMigration, error) {
-	entries, err := fs.ReadDir(migrationFS, "migrations")
-	if err != nil {
-		return nil, err
-	}
-	var out []dataMigration
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		body, err := fs.ReadFile(migrationFS, "migrations/"+e.Name())
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
-		}
-		id := strings.TrimSuffix(e.Name(), ".sql")
-		out = append(out, dataMigration{id: id, sql: string(body)})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].id < out[j].id })
-	return out, nil
-}
-
-func loadAppliedMigrations(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT id FROM migrations")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out[id] = true
-	}
-	return out, rows.Err()
-}
-
-// runMigration executes the SQL body of one migration inside a single
-// transaction and records the marker row on success. Errors roll the
-// whole thing back; on the next boot this migration retries while
-// already-committed ones are skipped.
-func runMigration(db *sql.DB, m dataMigration) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	body := strings.TrimSpace(m.sql)
-	if body == "" {
-		return fmt.Errorf("empty migration body")
-	}
-	res, err := tx.Exec(body)
-	if err != nil {
-		return fmt.Errorf("exec: %w", err)
-	}
-	// RowsAffected is only meaningful for the last statement in a
-	// multi-statement body, which is fine for the cleanups we run;
-	// it's purely informational for the log line below.
-	affected, _ := res.RowsAffected()
-
-	if _, err := tx.Exec(
-		`INSERT INTO migrations (id, applied_at, note) VALUES (?, ?, ?)`,
-		m.id, time.Now().Unix(), firstSQLLine(body),
-	); err != nil {
-		return fmt.Errorf("record migration: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	slog.Info("charges migration applied",
-		"id", m.id,
-		"affected", affected,
-	)
-	return nil
-}
-
-// firstSQLLine returns the first non-comment, non-empty line of a SQL
-// body, stored in migrations.note so a casual SELECT from the table
-// tells you what each migration did without opening the source file.
-func firstSQLLine(body string) string {
-	for _, ln := range strings.Split(body, "\n") {
-		t := strings.TrimSpace(ln)
-		if t == "" || strings.HasPrefix(t, "--") {
-			continue
-		}
-		if len(t) > 200 {
-			t = t[:200] + "…"
-		}
-		return t
-	}
-	return ""
-}
-
-// Charge is a single charging session.
+// Charge is a single charging session. ID is the stable external id
+// ("live_<vid>_c_<unix>", "electrafi_<vid>_c_<unix>") and maps to the
+// charges.external_id column. VehicleID is the Rivian gateway string.
 type Charge struct {
 	ID             string
 	VehicleID      string
@@ -253,86 +26,89 @@ type Charge struct {
 	MilesAdded     float64
 	MaxPowerKW     float64
 	AvgPowerKW     float64
-	FinalState     string // e.g. "Complete", "Disconnected", "charging_station_err"
+	FinalState     string
 	Lat, Lon       float64
-	Source         string // "live" | "electrafi_import"
-	// Cost is the total session cost in Currency. 0 when unknown
-	// (legacy rows, imports that don't include price). Populated at
-	// session close either from a Rivian-reported RAN/Wall Charger
-	// price or from the operator's configured home $/kWh × energy.
-	Cost     float64
-	Currency string
-	// PricePerKWh is the effective $/kWh used to compute Cost at the
-	// time the charge closed. Snapshotting it means rate changes
-	// don't retroactively rewrite history.
-	PricePerKWh float64
+	Source         string
+	Cost           float64
+	Currency       string
+	PricePerKWh    float64
 }
 
-// Store wraps access to the charges table.
-type Store struct{ db *sql.DB }
-
-// OpenStore opens (or creates) the store at path.
-func OpenStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
-	}
-	if _, err := db.Exec(schema); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
-	}
-	if err := migrate(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	return &Store{db: db}, nil
+// Store wraps the charges table.
+type Store struct {
+	db       *sql.DB
+	userID   uuid.UUID
+	vehicles *db.VehicleResolver
 }
 
-// Close releases the underlying database.
-func (s *Store) Close() error { return s.db.Close() }
+// OpenStore binds a pooled connection to a user + vehicle resolver.
+func OpenStore(d *sql.DB, userID uuid.UUID, v *db.VehicleResolver) (*Store, error) {
+	if d == nil {
+		return nil, fmt.Errorf("charges: db is nil")
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("charges: userID is zero")
+	}
+	if v == nil {
+		return nil, fmt.Errorf("charges: vehicle resolver is nil")
+	}
+	return &Store{db: d, userID: userID, vehicles: v}, nil
+}
 
-// Upsert inserts or replaces a charge by primary key.
+// Close is a no-op; the pool is managed by main.
+func (s *Store) Close() error { return nil }
+
+// Upsert inserts or replaces a charge by external_id within the
+// (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {
-	_, err := s.db.ExecContext(ctx, `
+	vid, err := s.vehicles.Resolve(ctx, c.VehicleID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO charges (
-			id, vehicle_id, started_at, ended_at,
+			user_id, vehicle_id, external_id,
+			started_at, ended_at,
 			start_soc_pct, end_soc_pct,
 			energy_added_kwh, miles_added,
 			max_power_kw, avg_power_kw, final_state,
 			lat, lon, source,
 			cost, currency, price_per_kwh
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET
-			vehicle_id       = excluded.vehicle_id,
-			started_at       = excluded.started_at,
-			ended_at         = excluded.ended_at,
-			start_soc_pct    = excluded.start_soc_pct,
-			end_soc_pct      = excluded.end_soc_pct,
-			energy_added_kwh = excluded.energy_added_kwh,
-			miles_added      = excluded.miles_added,
-			max_power_kw     = excluded.max_power_kw,
-			avg_power_kw     = excluded.avg_power_kw,
-			final_state      = excluded.final_state,
-			lat              = excluded.lat,
-			lon              = excluded.lon,
-			source           = excluded.source,
-			cost             = excluded.cost,
-			currency         = excluded.currency,
-			price_per_kwh    = excluded.price_per_kwh`,
-		c.ID, c.VehicleID, c.StartedAt.Unix(), c.EndedAt.Unix(),
-		c.StartSoCPct, c.EndSoCPct,
-		c.EnergyAddedKWh, c.MilesAdded,
-		c.MaxPowerKW, c.AvgPowerKW, c.FinalState,
-		c.Lat, c.Lon, c.Source,
-		c.Cost, c.Currency, c.PricePerKWh,
-	)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
+			started_at       = EXCLUDED.started_at,
+			ended_at         = EXCLUDED.ended_at,
+			start_soc_pct    = EXCLUDED.start_soc_pct,
+			end_soc_pct      = EXCLUDED.end_soc_pct,
+			energy_added_kwh = EXCLUDED.energy_added_kwh,
+			miles_added      = EXCLUDED.miles_added,
+			max_power_kw     = EXCLUDED.max_power_kw,
+			avg_power_kw     = EXCLUDED.avg_power_kw,
+			final_state      = EXCLUDED.final_state,
+			lat              = EXCLUDED.lat,
+			lon              = EXCLUDED.lon,
+			source           = EXCLUDED.source,
+			cost             = EXCLUDED.cost,
+			currency         = EXCLUDED.currency,
+			price_per_kwh    = EXCLUDED.price_per_kwh,
+			updated_at       = NOW()`,
+		s.userID, vid, c.ID,
+		c.StartedAt.UTC(), c.EndedAt.UTC(),
+		nullIfZero(c.StartSoCPct), nullIfZero(c.EndSoCPct),
+		nullIfZero(c.EnergyAddedKWh), nullIfZero(c.MilesAdded),
+		nullIfZero(c.MaxPowerKW), nullIfZero(c.AvgPowerKW),
+		c.FinalState,
+		nullIfZero(c.Lat), nullIfZero(c.Lon),
+		c.Source,
+		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh))
 	return err
 }
 
-// Count returns the total number of stored charges.
+// Count returns the total number of charges for this user.
 func (s *Store) Count(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM charges`).Scan(&n)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM charges WHERE user_id = $1`, s.userID).Scan(&n)
 	return n, err
 }
 
@@ -344,13 +120,21 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		limit = 10000
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, vehicle_id, started_at, ended_at,
-		       start_soc_pct, end_soc_pct,
-		       energy_added_kwh, miles_added,
-		       max_power_kw, avg_power_kw, final_state,
-		       lat, lon, source,
-		       COALESCE(cost, 0), COALESCE(currency, ''), COALESCE(price_per_kwh, 0)
-		FROM charges ORDER BY started_at DESC LIMIT ?`, limit)
+		SELECT c.external_id, v.rivian_vehicle_id,
+		       c.started_at, c.ended_at,
+		       COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0),
+		       COALESCE(c.energy_added_kwh,0), COALESCE(c.miles_added,0),
+		       COALESCE(c.max_power_kw,0), COALESCE(c.avg_power_kw,0),
+		       COALESCE(c.final_state,''),
+		       COALESCE(c.lat,0), COALESCE(c.lon,0),
+		       c.source,
+		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
+		       COALESCE(c.price_per_kwh,0)::float8
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1
+		ORDER BY c.started_at DESC
+		LIMIT $2`, s.userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -358,8 +142,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 	var out []Charge
 	for rows.Next() {
 		var c Charge
-		var startUnix, endUnix int64
-		if err := rows.Scan(&c.ID, &c.VehicleID, &startUnix, &endUnix,
+		if err := rows.Scan(&c.ID, &c.VehicleID,
+			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
 			&c.EnergyAddedKWh, &c.MilesAdded,
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
@@ -368,41 +152,43 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		); err != nil {
 			return nil, err
 		}
-		c.StartedAt = time.Unix(startUnix, 0).UTC()
-		c.EndedAt = time.Unix(endUnix, 0).UTC()
+		c.StartedAt = c.StartedAt.UTC()
+		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
 	}
 	return out, rows.Err()
 }
 
-// LatestOpenLive returns the most recent live-sourced charge for the
-// given vehicle whose final_state suggests the session hadn't
-// terminated yet — i.e. the recorder was still updating it when the
-// process stopped. Used to reconnect a restart to an in-flight
-// session instead of orphaning it and opening a new row.
-//
-// "Open" means final_state starts with "charging_" and is NOT a
-// terminal state (charging_complete / charging_station_err). Returns
-// sql.ErrNoRows when there is no candidate.
-func (s *Store) LatestOpenLive(ctx context.Context, vehicleID string) (*Charge, error) {
+// LatestOpenLive returns the most recent live-sourced charge for this
+// vehicle whose final_state is still a non-terminal "charging_*" —
+// i.e. the recorder was mid-session when the process stopped.
+func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Charge, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, vehicle_id, started_at, ended_at,
-		       start_soc_pct, end_soc_pct,
-		       energy_added_kwh, miles_added,
-		       max_power_kw, avg_power_kw, final_state,
-		       lat, lon, source,
-		       COALESCE(cost, 0), COALESCE(currency, ''), COALESCE(price_per_kwh, 0)
-		FROM charges
-		WHERE source = 'live'
-		  AND vehicle_id = ?
-		  AND (final_state LIKE 'charging_%'
-		       AND final_state != 'charging_complete'
-		       AND final_state != 'charging_station_err')
-		ORDER BY started_at DESC
-		LIMIT 1`, vehicleID)
+		SELECT c.external_id, $2::text,
+		       c.started_at, c.ended_at,
+		       COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0),
+		       COALESCE(c.energy_added_kwh,0), COALESCE(c.miles_added,0),
+		       COALESCE(c.max_power_kw,0), COALESCE(c.avg_power_kw,0),
+		       COALESCE(c.final_state,''),
+		       COALESCE(c.lat,0), COALESCE(c.lon,0),
+		       c.source,
+		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
+		       COALESCE(c.price_per_kwh,0)::float8
+		FROM charges c
+		WHERE c.user_id = $1 AND c.vehicle_id = $3
+		  AND c.source = 'live'
+		  AND c.final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND c.final_state <> 'charging_complete'
+		  AND c.final_state <> 'charging_station_err'
+		ORDER BY c.started_at DESC
+		LIMIT 1`, s.userID, rivianVehicleID, vid)
 	var c Charge
-	var startUnix, endUnix int64
-	if err := row.Scan(&c.ID, &c.VehicleID, &startUnix, &endUnix,
+	if err := row.Scan(&c.ID, &c.VehicleID,
+		&c.StartedAt, &c.EndedAt,
 		&c.StartSoCPct, &c.EndSoCPct,
 		&c.EnergyAddedKWh, &c.MilesAdded,
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
@@ -411,27 +197,29 @@ func (s *Store) LatestOpenLive(ctx context.Context, vehicleID string) (*Charge, 
 	); err != nil {
 		return nil, err
 	}
-	c.StartedAt = time.Unix(startUnix, 0).UTC()
-	c.EndedAt = time.Unix(endUnix, 0).UTC()
+	c.StartedAt = c.StartedAt.UTC()
+	c.EndedAt = c.EndedAt.UTC()
 	return &c, nil
 }
 
-// CloseStaleOpenLive marks every live-sourced charge row for the
-// vehicle whose ID is NOT in keepIDs and whose final_state is still
-// a non-terminal "charging_*" as closed. Used on recorder startup to
-// retire orphaned sessions created by previous restarts (each one
-// minted a fresh `live_<vid>_c_<unix>` row that never got closed).
-// Returns the number of rows updated.
-func (s *Store) CloseStaleOpenLive(ctx context.Context, vehicleID string, keepID string) (int, error) {
+// CloseStaleOpenLive marks every live-sourced charge for the vehicle
+// whose external_id is NOT keepID and whose final_state is still a
+// non-terminal "charging_*" as abandoned. Returns rows updated.
+func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID string) (int, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE charges
-		SET final_state = 'abandoned'
-		WHERE source = 'live'
-		  AND vehicle_id = ?
-		  AND id != ?
-		  AND final_state LIKE 'charging_%'
-		  AND final_state != 'charging_complete'
-		  AND final_state != 'charging_station_err'`, vehicleID, keepID)
+		SET final_state = 'abandoned', updated_at = NOW()
+		WHERE user_id = $1 AND vehicle_id = $2
+		  AND source = 'live'
+		  AND external_id <> $3
+		  AND final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND final_state <> 'charging_complete'
+		  AND final_state <> 'charging_station_err'`,
+		s.userID, vid, keepID)
 	if err != nil {
 		return 0, err
 	}
@@ -439,113 +227,20 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, vehicleID string, keepID
 	return int(n), nil
 }
 
-// Dedupe collapses duplicate charge rows. It runs two passes:
-//
-//  1. For electrafi_import rows, partition by started_at alone. Early
-//     versions derived vehicle_id by hashing the CSV file path, so
-//     re-importing the same session from a differently-named export
-//     wrote a second row with a *different* vehicle_id but the same
-//     start timestamp.
-//  2. For everything else, partition by (vehicle_id, started_at) —
-//     the standard case where a session was simply re-upserted.
-//
-// In each pass we pick the row with the most data as canonical, MAX
-// the numeric fields across the group into it, then delete the rest.
-// The electrafi pass also rewrites vehicle_id on the survivor so
-// future imports (which now use a stable vehicle_id) reconcile.
-//
-// Returns the total number of rows deleted.
-func (s *Store) Dedupe(ctx context.Context) (int, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback() //nolint:errcheck
+// Dedupe is a no-op on Postgres — UNIQUE (vehicle_id, external_id)
+// prevents the SQLite-era duplicates the old code had to clean up.
+func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
 
-	total := 0
-
-	// Pass 1: electrafi_import rows, grouped by started_at alone.
-	{
-		if _, err := tx.ExecContext(ctx, `
-			WITH ranked AS (
-				SELECT id, started_at,
-				       ROW_NUMBER() OVER (
-				         PARTITION BY started_at
-				         ORDER BY energy_added_kwh DESC,
-				                  max_power_kw DESC,
-				                  ended_at DESC,
-				                  id ASC
-				       ) AS rn
-				FROM charges
-				WHERE source = 'electrafi_import'
-			),
-			keepers AS (SELECT id, started_at FROM ranked WHERE rn = 1),
-			merges AS (
-				SELECT k.id AS keep_id,
-				       MAX(c.energy_added_kwh) AS energy_added_kwh,
-				       MAX(c.miles_added)      AS miles_added,
-				       MAX(c.max_power_kw)     AS max_power_kw,
-				       MAX(c.avg_power_kw)     AS avg_power_kw,
-				       MAX(c.ended_at)         AS ended_at
-				FROM keepers k
-				JOIN charges c
-				  ON c.started_at = k.started_at
-				 AND c.source = 'electrafi_import'
-				GROUP BY k.id
-			)
-			UPDATE charges SET
-				energy_added_kwh = (SELECT energy_added_kwh FROM merges WHERE merges.keep_id = charges.id),
-				miles_added      = (SELECT miles_added      FROM merges WHERE merges.keep_id = charges.id),
-				max_power_kw     = (SELECT max_power_kw     FROM merges WHERE merges.keep_id = charges.id),
-				avg_power_kw     = (SELECT avg_power_kw     FROM merges WHERE merges.keep_id = charges.id),
-				ended_at         = (SELECT ended_at         FROM merges WHERE merges.keep_id = charges.id)
-			WHERE id IN (SELECT keep_id FROM merges)
-		`); err != nil {
-			return 0, fmt.Errorf("electrafi merge: %w", err)
-		}
-		res, err := tx.ExecContext(ctx, `
-			DELETE FROM charges WHERE id IN (
-				SELECT id FROM (
-					SELECT id, ROW_NUMBER() OVER (
-						PARTITION BY started_at
-						ORDER BY energy_added_kwh DESC,
-						         max_power_kw DESC,
-						         ended_at DESC,
-						         id ASC
-					) AS rn FROM charges
-					WHERE source = 'electrafi_import'
-				) WHERE rn > 1
-			)`)
-		if err != nil {
-			return 0, fmt.Errorf("electrafi delete: %w", err)
-		}
-		n, _ := res.RowsAffected()
-		total += int(n)
+func nullIfZero(f float64) sql.NullFloat64 {
+	if f == 0 {
+		return sql.NullFloat64{}
 	}
+	return sql.NullFloat64{Float64: f, Valid: true}
+}
 
-	// Pass 2: everything else, grouped by (vehicle_id, started_at).
-	{
-		if _, err := tx.ExecContext(ctx, `
-			WITH ranked AS (
-				SELECT id, vehicle_id, started_at,
-				       ROW_NUMBER() OVER (
-				         PARTITION BY vehicle_id, started_at
-				         ORDER BY energy_added_kwh DESC,
-				                  max_power_kw DESC,
-				                  ended_at DESC,
-				                  id ASC
-				       ) AS rn
-				FROM charges
-				WHERE source <> 'electrafi_import'
-			)
-			DELETE FROM charges WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
-		`); err != nil {
-			return 0, fmt.Errorf("live delete: %w", err)
-		}
+func nullIfEmpty(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
 	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return total, nil
+	return sql.NullString{String: s, Valid: true}
 }
