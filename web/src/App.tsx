@@ -7,11 +7,21 @@ import ChargesPage from "./pages/ChargesPage";
 import ChargeDetailPage from "./pages/ChargeDetailPage";
 import LivePage from "./pages/LivePage";
 import SettingsPage from "./pages/SettingsPage";
+import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
   return (
     <Routes>
+      {/*
+        /login sits outside AppLayout so the layout's status pill and
+        nav don't fire /api/* calls before the user has a session —
+        those calls would 401 and bounce the user right back here,
+        creating a redirect loop. Once login succeeds we navigate into
+        the AppLayout tree where the API client's normal 401 handler
+        takes over.
+      */}
+      <Route path="login" element={<LoginPage />} />
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="drives" element={<DrivesPage />} />

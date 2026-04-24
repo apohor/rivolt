@@ -45,7 +45,21 @@ async function request<T>(
       parsed = text;
     }
   }
-  if (!res.ok) throw new ApiError(res.status, parsed);
+  if (!res.ok) {
+    // Global 401 handling: the session expired or was never
+    // established. Bounce the whole SPA to /login so every caller
+    // doesn't have to reinvent this. We *don't* redirect for
+    // /api/auth/me — the login page itself polls that endpoint to
+    // bootstrap, and redirecting on its 401 would create a loop.
+    if (res.status === 401 && !url.endsWith("/api/auth/me")) {
+      const here = window.location.pathname + window.location.search;
+      if (!window.location.pathname.startsWith("/login")) {
+        const next = here === "/" ? "" : `?next=${encodeURIComponent(here)}`;
+        window.location.assign(`/login${next}`);
+      }
+    }
+    throw new ApiError(res.status, parsed);
+  }
   return parsed as T;
 }
 
@@ -310,6 +324,22 @@ export type ChargeCluster = {
 
 export const backend = {
   health: () => api.get<Health>("/api/health"),
+  // whoami returns the logged-in user, or null when auth is
+  // disabled / no session. We squash the 401 here so callers can
+  // just await { user_id, username } | null without a try/catch.
+  whoami: async (): Promise<AuthUser | null> => {
+    try {
+      return await api.get<AuthUser>("/api/auth/me");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 404)) {
+        return null;
+      }
+      throw e;
+    }
+  },
+  login: (username: string, password: string) =>
+    api.post<AuthUser>("/api/auth/login", { username, password }),
+  logout: () => api.post<void>("/api/auth/logout"),
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
@@ -402,4 +432,12 @@ export type ImportResult = {
   Drives: number;
   Charges: number;
   SkippedRows: number;
+};
+
+// AuthUser is whatever /api/auth/me returns — today a user_id plus
+// the display username. When OIDC lands we'll add email/name; the
+// contract stays backward-compatible.
+export type AuthUser = {
+  user_id: string;
+  username: string;
 };
