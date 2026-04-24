@@ -1,0 +1,62 @@
+# xcodegen manifest — the `.xcodeproj` is generated from this file and
+# is NOT checked in. Regenerate after any change here or any time you
+# add / rename a source file:
+#
+#     cd ios && xcodegen
+#
+# Declarative-project-definition-over-pbxproj-diff keeps merge
+# conflicts out of Xcode's project file, which is the single worst
+# thing to review in a PR.
+name: Rivolt
+options:
+  # iOS 17 so we can use @Observable / Observation instead of the
+  # legacy @StateObject + ObservableObject pair. The native app is
+  # a greenfield surface; there's no back-compat reason to target
+  # older OS versions.
+  deploymentTarget:
+    iOS: "17.0"
+  # Bundle identifier is the key input to codesigning + App Store
+  # Connect later. Keep it in reverse-DNS and stable from day one.
+  bundleIdPrefix: me.apoh.rivolt
+  createIntermediateGroups: true
+  defaultConfig: Debug
+
+# Semantic version lives here so bumping it is a one-line PR.
+# Xcode reads MARKETING_VERSION + CURRENT_PROJECT_VERSION at build.
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.10"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    # Required Info.plist keys that xcodegen will emit for every
+    # target that references this settings block.
+    GENERATE_INFOPLIST_FILE: YES
+    # Export-compliance shortcut: we only use HTTPS + standard
+    # iOS crypto, so we qualify for the exemption. Skipping this
+    # flag means answering the yes/no question on every TestFlight
+    # upload — not relevant yet, but costs nothing to set now.
+    INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+    # UIKit scene delegates removed; SwiftUI App lifecycle only.
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    # Rivolt only runs portrait on phone; landscape comes later
+    # when the drive-detail maps need it.
+    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+
+targets:
+  Rivolt:
+    type: application
+    platform: iOS
+    sources:
+      - path: Rivolt
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.apoh.rivolt
+        PRODUCT_NAME: Rivolt
+        INFOPLIST_KEY_CFBundleDisplayName: Rivolt
+        # Default API base URL. Override at runtime on the login
+        # screen (the value is persisted to UserDefaults and
+        # survives app restart). Set here so a fresh install
+        # already points at the operator's prod host.
+        INFOPLIST_KEY_RivoltAPIBaseURL: "https://rivolt.apoh.synology.me"
