@@ -24,8 +24,22 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "deploy/**"
+      - "docker-compose*.yml"
+      - "LICENSE"
+      - ".editorconfig"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "deploy/**"
+      - "docker-compose*.yml"
+      - "LICENSE"
+      - ".editorconfig"
   workflow_dispatch:
     inputs:
       platforms:
@@ -45,8 +59,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: test
+  web:
+    name: web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,14 +71,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # Build the web bundle first — internal/web/web.go uses
-      # //go:embed all:dist which fails to compile if the directory
-      # is empty (it's gitignored, so fresh checkouts have nothing).
       - name: Install web deps
         working-directory: web
         run: npm ci --no-audit --no-fund
@@ -77,6 +83,25 @@ jobs:
         working-directory: web
         run: npm run build
 
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Satisfy `//go:embed all:dist` without running the vite build.
+      # Assets() returns nil at runtime when index.html is absent, so
+      # the stub is safe for vet/test.
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p internal/web/dist
+          touch internal/web/dist/.keep
+
       - name: go vet
         run: go vet ./...
 
@@ -85,7 +110,7 @@ jobs:
 
   publish:
     name: publish
-    needs: test
+    needs: [web, go]
     # Publish only on version tags or explicit manual dispatch. Pushes to
     # main run tests but don't produce an image — nothing consumes the
     # main/main-<sha> tags, and every merge re-publishing :latest-shaped

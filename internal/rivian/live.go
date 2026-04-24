@@ -513,6 +513,7 @@ const qVehicleState = `query GetVehicleState($vehicleID: String!) {
     gnssBearing { value }
     gnssAltitude { value }
     batteryLevel { value }
+    batteryCapacity { value }
     distanceToEmpty { value }
     vehicleMileage { value }
     gearStatus { value }
@@ -602,6 +603,7 @@ type vehicleStateData struct {
 		GNSSBearing                     vsValue[float64]          `json:"gnssBearing"`
 		GNSSAltitude                    vsValue[float64]          `json:"gnssAltitude"`
 		BatteryLevel                    vsValue[float64]          `json:"batteryLevel"`
+		BatteryCapacity                 vsValue[float64]          `json:"batteryCapacity"`
 		DistanceToEmpty                 vsValue[float64]          `json:"distanceToEmpty"`
 		VehicleMileage                  vsValue[float64]          `json:"vehicleMileage"`
 		GearStatus                      vsValue[permissiveString] `json:"gearStatus"`
@@ -941,10 +943,11 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	// helper functions expect.
 	ps := func(s permissiveString) string { return string(s) }
 	return &State{
-		At:              at,
-		VehicleID:       vehicleID,
-		BatteryLevelPct: vs.BatteryLevel.Value,
-		DistanceToEmpty: vs.DistanceToEmpty.Value,
+		At:                 at,
+		VehicleID:          vehicleID,
+		BatteryLevelPct:    vs.BatteryLevel.Value,
+		BatteryCapacityKWh: vs.BatteryCapacity.Value,
+		DistanceToEmpty:    vs.DistanceToEmpty.Value,
 		// vehicleMileage is reported in METERS despite what the old
 		// comment above claimed — confirmed on a real account the
 		// field comes back as ~5.7e7 for a ~35k-mile vehicle.

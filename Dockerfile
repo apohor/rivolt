@@ -25,7 +25,10 @@ ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY . .
+# Copy only what the Go build consumes so edits to docs, CI, compose
+# files, or web sources don't invalidate the build cache.
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
 # Overlay the built web assets produced in the `web` stage.
 COPY --from=web /internal/web/dist ./internal/web/dist
 ENV CGO_ENABLED=0

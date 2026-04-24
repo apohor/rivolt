@@ -104,6 +104,16 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 		return
 	}
 
+	// The vehicle reports its own usable pack capacity on every
+	// vehicleState push (batteryCapacity field). Fold that into the
+	// in-memory vehicleInfo cache so PackKWhFor prefers it over the
+	// static InferPackKWh lookup table — the vehicle's self-report
+	// is authoritative (and tracks the real pack, not a model-year
+	// nameplate).
+	if curr.BatteryCapacityKWh > 0 {
+		m.observeBatteryCapacity(vehicleID, curr.BatteryCapacityKWh)
+	}
+
 	// Use a detached context with a short timeout so recorder writes
 	// can't block cache updates on a slow disk. Use context.Background
 	// because the caller's ctx may be about to be cancelled (e.g. on
@@ -328,6 +338,14 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 	if distance < 0 {
 		distance = 0
 	}
+	// Pack-side energy consumed, derived from SoC delta × usable pack
+	// capacity. Same fallback the live /api/drive-live snapshot uses.
+	var energy float64
+	if socUsed := d.startSoC - d.endSoC; socUsed > 0 {
+		if pack := m.PackKWhFor(vehicleID); pack > 0 {
+			energy = socUsed / 100.0 * pack
+		}
+	}
 	row := drives.Drive{
 		ID:              d.id,
 		VehicleID:       vehicleID,
@@ -344,6 +362,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 		EndLon:          d.endLon,
 		MaxSpeedMph:     d.maxSpeed,
 		AvgSpeedMph:     avg,
+		EnergyUsedKWh:   energy,
 		Source:          "live",
 	}
 	if err := m.drivesStore.Upsert(ctx, row); err != nil {

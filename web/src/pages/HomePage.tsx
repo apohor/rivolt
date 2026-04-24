@@ -150,16 +150,20 @@ export default function HomePage() {
             <Stat
               label="Efficiency"
               value={
-                cs.energyKWh > 0 && ds.miles > 0
-                  ? `${(ds.miles / cs.energyKWh).toFixed(2)} mi/kWh`
-                  : ds.milesPerPct > 0
-                    ? `${ds.milesPerPct.toFixed(2)} mi/%`
-                    : "—"
+                ds.miPerKWh > 0
+                  ? `${ds.miPerKWh.toFixed(2)} mi/kWh`
+                  : cs.energyKWh > 0 && ds.miles > 0
+                    ? `${(ds.miles / cs.energyKWh).toFixed(2)} mi/kWh`
+                    : ds.milesPerPct > 0
+                      ? `${ds.milesPerPct.toFixed(2)} mi/%`
+                      : "—"
               }
               hint={
-                cs.energyKWh > 0 && ds.miles > 0
-                  ? `${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
-                  : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
+                ds.miPerKWh > 0
+                  ? `pack-side · ${num(ds.milesForEnergy, 0, "mi")} / ${num(ds.energyUsedKWh, 0, "kWh")}`
+                  : cs.energyKWh > 0 && ds.miles > 0
+                    ? `wall-to-wheel · ${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
+                    : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
               }
             />
           </div>

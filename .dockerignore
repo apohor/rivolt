@@ -10,9 +10,15 @@ data
 .DS_Store
 .vscode
 .idea
-README.md
+.editorconfig
+.github
+docs
+deploy
+*.md
+LICENSE
 Makefile
 docker-compose*.yml
+rivolt
 
 # Dev-only tools — never shipped in the production image.
 cmd/mockmachine

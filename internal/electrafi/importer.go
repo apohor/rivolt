@@ -233,7 +233,12 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	for _, snaps := range driveGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
 		id := stableID(vehicleID, "d", snaps[0].at)
-		d := deriveDrive(id, vehicleID, snaps)
+		// Only stamp per-drive energy when the operator set an explicit
+		// --pack-kwh. The DefaultPackKWh fallback is fine for charge
+		// estimation (already lossy) but we don't want to bake a guess
+		// into the drive row that the dashboard will then aggregate as
+		// if it were real.
+		d := deriveDrive(id, vehicleID, snaps, i.PackKWh)
 		if err := i.Drives.Upsert(ctx, d); err != nil {
 			return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
 		}
@@ -316,7 +321,7 @@ func parseRow(row []string, idx map[string]int, loc *time.Location) (snapshot, b
 	return s, true
 }
 
-func deriveDrive(id, vehicleID string, snaps []snapshot) drives.Drive {
+func deriveDrive(id, vehicleID string, snaps []snapshot, packKWh float64) drives.Drive {
 	if len(snaps) == 0 {
 		return drives.Drive{ID: id, VehicleID: vehicleID, Source: "electrafi_import"}
 	}
@@ -340,6 +345,12 @@ func deriveDrive(id, vehicleID string, snaps []snapshot) drives.Drive {
 	if distance < 0 {
 		distance = 0
 	}
+	// Pack-side energy from SoC delta × usable pack capacity. ElectraFi
+	// doesn't record a drive-energy column, so this is the best proxy.
+	var energy float64
+	if socUsed := first.batteryLevel - last.batteryLevel; socUsed > 0 && packKWh > 0 {
+		energy = socUsed / 100.0 * packKWh
+	}
 	return drives.Drive{
 		ID:              id,
 		VehicleID:       vehicleID,
@@ -356,6 +367,7 @@ func deriveDrive(id, vehicleID string, snaps []snapshot) drives.Drive {
 		EndLon:          last.lon,
 		MaxSpeedMph:     maxSpeed,
 		AvgSpeedMph:     avgSpeed,
+		EnergyUsedKWh:   energy,
 		Source:          "electrafi_import",
 	}
 }

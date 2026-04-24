@@ -58,13 +58,18 @@ type State struct {
 	At              time.Time `json:"at"`
 	VehicleID       string    `json:"vehicle_id"`
 	BatteryLevelPct float64   `json:"battery_level_pct"` // 0..100
-	DistanceToEmpty float64   `json:"distance_to_empty"` // kilometers
-	OdometerKm      float64   `json:"odometer_km"`
-	Gear            string    `json:"gear"`          // "P" | "R" | "N" | "D"
-	DriveMode       string    `json:"drive_mode"`    // "everyday" | "sport" | ...
-	ChargerState    string    `json:"charger_state"` // "charging_active" | "charger_disconnected" | ...
-	ChargerPowerKW  float64   `json:"charger_power_kw"`
-	ChargeTargetPct float64   `json:"charge_target_pct"` // 0..100
+	// BatteryCapacityKWh is the vehicle's self-reported usable pack
+	// capacity in kWh (batteryCapacity field on vehicleState). Zero
+	// when the field wasn't included in the subscription push or
+	// when an older firmware doesn't emit it.
+	BatteryCapacityKWh float64 `json:"battery_capacity_kwh"`
+	DistanceToEmpty    float64 `json:"distance_to_empty"` // kilometers
+	OdometerKm         float64 `json:"odometer_km"`
+	Gear               string  `json:"gear"`          // "P" | "R" | "N" | "D"
+	DriveMode          string  `json:"drive_mode"`    // "everyday" | "sport" | ...
+	ChargerState       string  `json:"charger_state"` // "charging_active" | "charger_disconnected" | ...
+	ChargerPowerKW     float64 `json:"charger_power_kw"`
+	ChargeTargetPct    float64 `json:"charge_target_pct"` // 0..100
 	// ChargerStatus is the physical plug state ("chrgr_sts_connected_charging",
 	// "chrgr_sts_not_connected", ...) — different from ChargerState which is
 	// the session state.

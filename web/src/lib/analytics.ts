@@ -36,6 +36,13 @@ export type DriveStats = {
   miles: number;
   socUsedPct: number; // sum of (start - end) across drives; coarse
   milesPerPct: number; // rough efficiency proxy
+  // Pack-side energy (sum of drive.EnergyUsedKWh) across drives with a
+  // known value. Drives without EnergyUsedKWh are excluded from both
+  // this sum and milesForEnergy, so miPerKWh reflects only drives we
+  // can trust.
+  energyUsedKWh: number;
+  milesForEnergy: number;
+  miPerKWh: number;
   avgTripMi: number;
   longestMi: number;
   maxSpeedMph: number;
@@ -48,10 +55,27 @@ export function driveStats(drives: Drive[]): DriveStats {
     drives.map((d) => Math.max(0, (d.StartSoCPct || 0) - (d.EndSoCPct || 0))),
   );
   const milesPerPct = socUsedPct > 0 ? miles / socUsedPct : 0;
+  const withEnergy = drives.filter(
+    (d) => (d.EnergyUsedKWh || 0) > 0 && (d.DistanceMi || 0) > 0,
+  );
+  const energyUsedKWh = sum(withEnergy.map((d) => d.EnergyUsedKWh));
+  const milesForEnergy = sum(withEnergy.map((d) => d.DistanceMi));
+  const miPerKWh = energyUsedKWh > 0 ? milesForEnergy / energyUsedKWh : 0;
   const avgTripMi = count > 0 ? miles / count : 0;
   const longestMi = drives.reduce((m, d) => Math.max(m, d.DistanceMi || 0), 0);
   const maxSpeedMph = drives.reduce((m, d) => Math.max(m, d.MaxSpeedMph || 0), 0);
-  return { count, miles, socUsedPct, milesPerPct, avgTripMi, longestMi, maxSpeedMph };
+  return {
+    count,
+    miles,
+    socUsedPct,
+    milesPerPct,
+    energyUsedKWh,
+    milesForEnergy,
+    miPerKWh,
+    avgTripMi,
+    longestMi,
+    maxSpeedMph,
+  };
 }
 
 export type ChargeStats = {

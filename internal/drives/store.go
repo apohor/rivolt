@@ -30,7 +30,11 @@ type Drive struct {
 	EndLat, EndLon     float64
 	MaxSpeedMph        float64
 	AvgSpeedMph        float64
-	Source             string
+	// EnergyUsedKWh is the pack-side energy consumed over the drive,
+	// derived from (startSoC - endSoC)/100 × usable pack capacity.
+	// Zero on legacy rows imported before migration 0002.
+	EnergyUsedKWh float64
+	Source        string
 }
 
 // Store wraps the drives table.
@@ -87,8 +91,8 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			start_soc_pct, end_soc_pct,
 			start_odometer_mi, end_odometer_mi, distance_mi,
 			start_lat, start_lon, end_lat, end_lon,
-			max_speed_mph, avg_speed_mph, source
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+			max_speed_mph, avg_speed_mph, energy_used_kwh, source
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at        = EXCLUDED.started_at,
 			ended_at          = EXCLUDED.ended_at,
@@ -103,6 +107,7 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			end_lon           = EXCLUDED.end_lon,
 			max_speed_mph     = EXCLUDED.max_speed_mph,
 			avg_speed_mph     = EXCLUDED.avg_speed_mph,
+			energy_used_kwh   = EXCLUDED.energy_used_kwh,
 			source            = EXCLUDED.source,
 			updated_at        = NOW()`,
 		s.userID, vid, d.ID,
@@ -112,6 +117,7 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 		nullIfZero(d.StartLat), nullIfZero(d.StartLon),
 		nullIfZero(d.EndLat), nullIfZero(d.EndLon),
 		nullIfZero(d.MaxSpeedMph), nullIfZero(d.AvgSpeedMph),
+		nullIfZero(d.EnergyUsedKWh),
 		d.Source)
 	return err
 }
@@ -138,7 +144,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 		       COALESCE(d.start_odometer_mi,0), COALESCE(d.end_odometer_mi,0), COALESCE(d.distance_mi,0),
 		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
-		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0), d.source
+		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
+		       COALESCE(d.energy_used_kwh,0), d.source
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -155,7 +162,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 			&d.StartSoCPct, &d.EndSoCPct,
 			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
-			&d.MaxSpeedMph, &d.AvgSpeedMph, &d.Source,
+			&d.MaxSpeedMph, &d.AvgSpeedMph,
+			&d.EnergyUsedKWh, &d.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -182,7 +190,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 		       COALESCE(d.start_odometer_mi,0), COALESCE(d.end_odometer_mi,0), COALESCE(d.distance_mi,0),
 		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
-		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0), d.source
+		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
+		       COALESCE(d.energy_used_kwh,0), d.source
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -198,7 +207,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 			&d.StartSoCPct, &d.EndSoCPct,
 			&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
-			&d.MaxSpeedMph, &d.AvgSpeedMph, &d.Source,
+			&d.MaxSpeedMph, &d.AvgSpeedMph,
+			&d.EnergyUsedKWh, &d.Source,
 		); err != nil {
 			return nil, err
 		}
