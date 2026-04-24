@@ -406,7 +406,15 @@ export const backend = {
     ),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
-  importElectrafi: async (files: File[], packKWh?: number, tz?: string) => {
+  // onProgress, when provided, is called for each server-emitted NDJSON
+  // event (file_start / progress / file_done) so the UI can render a
+  // live "row N of file.csv" status during long imports.
+  importElectrafi: async (
+    files: File[],
+    packKWh?: number,
+    tz?: string,
+    onProgress?: (p: ImportProgress) => void,
+  ) => {
     const fd = new FormData();
     for (const f of files) fd.append("file", f, f.name);
     if (packKWh && packKWh > 0) fd.append("pack_kwh", String(packKWh));
@@ -452,6 +460,10 @@ export const backend = {
         done = { files: ev.files as ImportResult[] };
       } else if (ev.event === "error") {
         err = { file: ev.file as string, error: ev.error as string };
+      } else if (onProgress) {
+        // Forward start / file_start / progress / file_done so the
+        // UI can render a live status line.
+        onProgress(ev as unknown as ImportProgress);
       }
     };
     for (;;) {
@@ -536,6 +548,21 @@ export type ImportResult = {
   Drives: number;
   Charges: number;
   SkippedRows: number;
+};
+
+// ImportProgress is a single server-emitted NDJSON event for the
+// streaming /api/import/electrafi endpoint. The final {event:"done"}
+// and any {event:"error"} are consumed internally; everything else
+// (start, file_start, progress, file_done) is forwarded via the
+// onProgress callback so the UI can render a live status line.
+export type ImportProgress = {
+  event: "start" | "file_start" | "progress" | "file_done";
+  index?: number;
+  file?: string;
+  files?: number;
+  phase?: string;
+  rows?: number;
+  result?: ImportResult;
 };
 
 // AuthUser is whatever /api/auth/me returns — today a user_id plus

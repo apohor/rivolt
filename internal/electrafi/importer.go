@@ -69,6 +69,12 @@ type Importer struct {
 	// as UTC (the pre-v0.4.2 behavior) shifts every timestamp by the
 	// user's offset. Nil means UTC for backwards compatibility.
 	Location *time.Location
+	// OnProgress, when non-nil, is called periodically during a
+	// single file import with a phase label and a row count so an
+	// HTTP handler can emit heartbeats to the client. The callback
+	// must not block (it's called from the row loop); the API
+	// handler uses it to flush NDJSON lines.
+	OnProgress func(phase string, rows int)
 }
 
 // DefaultPackKWh is the usable capacity we assume when the operator
@@ -162,6 +168,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			continue
 		}
 		rows++
+		if i.OnProgress != nil && rows%20000 == 0 {
+			i.OnProgress("rows", rows)
+		}
 
 		s, ok := parseRow(row, idx, i.loc())
 		if !ok {
@@ -210,6 +219,10 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	if err := flushSamples(); err != nil {
 		return Result{}, fmt.Errorf("flush samples: %w", err)
 	}
+	if i.OnProgress != nil {
+		i.OnProgress("rows", rows)
+		i.OnProgress("persist_drives", len(driveGroups))
+	}
 
 	// Persist. IDs are derived from each group's earliest-snapshot
 	// timestamp, NOT from ElectraFi's driveNumber/chargeNumber — those
@@ -224,6 +237,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		if err := i.Drives.Upsert(ctx, d); err != nil {
 			return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
 		}
+	}
+	if i.OnProgress != nil {
+		i.OnProgress("persist_charges", len(chargeGroups))
 	}
 	for _, snaps := range chargeGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
