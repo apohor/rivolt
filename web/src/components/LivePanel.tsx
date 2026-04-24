@@ -833,8 +833,8 @@ function formatYesNo(v: boolean): string {
 function formatBoolish(s: string): string {
   if (!s) return "—";
   const v = s.toLowerCase();
-  if (v === "true" || v === "on" || v === "active") return "yes";
-  if (v === "false" || v === "off" || v === "inactive") return "no";
+  if (v === "true" || v === "on" || v === "active" || v === "1") return "yes";
+  if (v === "false" || v === "off" || v === "inactive" || v === "0") return "no";
   return formatTitle(s);
 }
 
