@@ -6,6 +6,7 @@ import {
   type AISettings,
   type AISettingsUpdate,
   type ImportResult,
+  type ImportProgress,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
@@ -306,6 +307,34 @@ function ChargingCostPanel() {
   );
 }
 
+// formatImportProgress turns a single NDJSON event from the streaming
+// import endpoint into a user-facing status line. The row loop emits
+// ~20k-row heartbeats (see electrafi.Importer.OnProgress) which is
+// what keeps the proxy from idling out on a long CSV.
+function formatImportProgress(p: ImportProgress | null): string {
+  if (!p) return "Importing…";
+  if (p.event === "start") {
+    return p.files && p.files > 1 ? `Importing ${p.files} files…` : "Importing…";
+  }
+  if (p.event === "file_start") {
+    return `Reading ${p.file ?? "…"}`;
+  }
+  if (p.event === "progress") {
+    const f = p.file ?? "";
+    if (p.phase === "persist_drives") {
+      return `Persisting ${p.rows ?? 0} drives · ${f}`;
+    }
+    if (p.phase === "persist_charges") {
+      return `Persisting ${p.rows ?? 0} charges · ${f}`;
+    }
+    return `${(p.rows ?? 0).toLocaleString()} rows · ${f}`;
+  }
+  if (p.event === "file_done") {
+    return `Finished ${p.file ?? "file"}`;
+  }
+  return "Importing…";
+}
+
 // ImportPanel lets the user drop or pick ElectraFi CSV exports and
 // streams them straight to POST /api/import/electrafi. On success we
 // invalidate the cached drives/charges/samples so the rest of the app
@@ -318,15 +347,23 @@ function ImportPanel() {
   // source of truth for the default). Users on Gen 2 / Max /
   // Standard override here.
   const [packKWh, setPackKWh] = useState<string>("");
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
 
   const mut = useMutation({
     mutationFn: (files: File[]) =>
-      backend.importElectrafi(files, Number(packKWh) || undefined),
+      backend.importElectrafi(
+        files,
+        Number(packKWh) || undefined,
+        undefined,
+        (p) => setProgress(p),
+      ),
     onSuccess: () => {
+      setProgress(null);
       qc.invalidateQueries({ queryKey: ["drives"] });
       qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["samples"] });
     },
+    onError: () => setProgress(null),
   });
 
   const handleFiles = (fl: FileList | null) => {
@@ -372,7 +409,7 @@ function ImportPanel() {
         <div className="text-sm text-neutral-300">
           {mut.isPending ? (
             <span className="inline-flex items-center gap-2">
-              <Spinner /> Importing…
+              <Spinner /> {formatImportProgress(progress)}
             </span>
           ) : (
             <>

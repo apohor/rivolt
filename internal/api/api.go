@@ -653,14 +653,8 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 		}
 		imp.Location = loc
 
-		// Stream results as NDJSON. Synology's reverse proxy (and
-		// most default nginx setups) close idle upstream connections
-		// after ~60s, producing a 504 during long imports even
-		// though the Go handler is perfectly alive. Emitting a
-		// progress line per file — and a heartbeat before the first
-		// one lands — keeps bytes flowing so the proxy doesn't
-		// disconnect. The client reads line-by-line and treats the
-		// final {"done":true, files:[...]} as the result.
+		// Stream results as NDJSON. Most default nginx setups 
+		// close idle upstream connections after ~60s, producing a 504
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("X-Accel-Buffering", "no") // nginx hint
@@ -683,6 +677,20 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 				return
 			}
 			emit(map[string]any{"event": "file_start", "index": i, "file": fh.Filename})
+			// Heartbeat inside a single file. Large CSVs have 20k+
+			// rows and can easily spend >60s parsing + inserting;
+			// without an in-flight progress line the proxy idles out.
+			idx := i
+			name := fh.Filename
+			imp.OnProgress = func(phase string, n int) {
+				emit(map[string]any{
+					"event": "progress",
+					"index": idx,
+					"file":  name,
+					"phase": phase,
+					"rows":  n,
+				})
+			}
 			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
 			f.Close()
 			if err != nil {
