@@ -690,8 +690,14 @@ function pickImageForState(
   // `interior-cabin-*`). First match wins.
   const wants: string[] = [];
   if (state) {
+    // Gate charging imagery on the real plug indicator: charger_state
+    // sticks at 'charging_ready' for hours after unplug (see v0.3.48),
+    // which would otherwise keep the side-charging / 3qfront crop
+    // pinned on a parked unplugged car.
+    const plugSt = (state.charger_status || "").toLowerCase();
+    const plugged = plugSt.startsWith("chrgr_sts_connected");
     const cs = (state.charger_state || "").toLowerCase();
-    const charging = cs.startsWith("charging_") || cs === "waiting_on_charger";
+    const charging = plugged && (cs.startsWith("charging_") || cs === "waiting_on_charger");
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
 
     if (charging) wants.push("charging", "3qfront", "side-exterior", "3qrear");
