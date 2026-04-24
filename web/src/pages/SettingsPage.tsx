@@ -6,6 +6,9 @@ import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import {
   setTemperatureUnit,
   setTimeZone,
+  setRoundTripsEnabled,
+  setRoundTripRadiusMeters,
+  setRoundTripMaxGapMinutes,
   usePreferences,
   type TemperatureUnit,
 } from "../lib/preferences";
@@ -62,7 +65,13 @@ export default function SettingsPage() {
 // DisplayPreferences surfaces the client-side display toggles
 // (units, etc.) backed by localStorage via usePreferences().
 function DisplayPreferences() {
-  const { temperatureUnit, timeZone } = usePreferences();
+  const {
+    temperatureUnit,
+    timeZone,
+    roundTripsEnabled,
+    roundTripRadiusMeters,
+    roundTripMaxGapMinutes,
+  } = usePreferences();
   const options: { value: TemperatureUnit; label: string }[] = [
     { value: "c", label: "Celsius (°C)" },
     { value: "f", label: "Fahrenheit (°F)" },
@@ -136,6 +145,59 @@ function DisplayPreferences() {
         <p className="mt-1 text-xs text-neutral-500">
           Timestamps are stored in UTC; this only affects how they're displayed.
         </p>
+      </div>
+
+      <div>
+        <label className="flex items-center gap-2 text-neutral-300">
+          <input
+            type="checkbox"
+            checked={roundTripsEnabled}
+            onChange={(e) => setRoundTripsEnabled(e.target.checked)}
+            className="h-3.5 w-3.5 accent-emerald-500"
+          />
+          Merge round-trip drives
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Collapses consecutive A→B and B→A drives into a single row when the
+          return ends near where the first drive started. Raw drive rows in the
+          database are never modified — this is a display-only merge.
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="block text-xs text-neutral-500">
+              Radius (meters)
+            </span>
+            <input
+              type="number"
+              min={10}
+              step={10}
+              value={roundTripRadiusMeters}
+              disabled={!roundTripsEnabled}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n > 0) setRoundTripRadiusMeters(n);
+              }}
+              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none disabled:opacity-50"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs text-neutral-500">
+              Max park gap (minutes)
+            </span>
+            <input
+              type="number"
+              min={1}
+              step={5}
+              value={roundTripMaxGapMinutes}
+              disabled={!roundTripsEnabled}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n > 0) setRoundTripMaxGapMinutes(n);
+              }}
+              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none disabled:opacity-50"
+            />
+          </label>
+        </div>
       </div>
     </div>
   );

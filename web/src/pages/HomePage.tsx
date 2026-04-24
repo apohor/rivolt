@@ -19,10 +19,17 @@ import {
   socTrend,
   type WindowKey,
 } from "../lib/analytics";
+import { collapseRoundTrips } from "../lib/drives";
+import { usePreferences } from "../lib/preferences";
 import { WindowPicker } from "../components/WindowPicker";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
+  const {
+    roundTripsEnabled,
+    roundTripRadiusMeters,
+    roundTripMaxGapMinutes,
+  } = usePreferences();
 
   const drives = useQuery({
     queryKey: ["drives", "all"],
@@ -35,7 +42,16 @@ export default function HomePage() {
 
   const all = drives.data ?? [];
   const allC = charges.data ?? [];
-  const winDrives = useMemo(() => filterByWindow(all, win), [all, win]);
+  const winDrives = useMemo(() => {
+    const filtered = filterByWindow(all, win);
+    return roundTripsEnabled
+      ? collapseRoundTrips(
+          filtered,
+          roundTripRadiusMeters,
+          roundTripMaxGapMinutes,
+        )
+      : filtered;
+  }, [all, win, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
   const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
   const ds = useMemo(() => driveStats(winDrives), [winDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
