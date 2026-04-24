@@ -968,9 +968,9 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		// Convert at the boundary so downstream conversions (kphToMi etc.)
 		// produce correct mph. Without this, a 50 mph drive was logging ~15
 		// mph max speed because 22.35 m/s was being treated as kph.
-		SpeedKph:                vs.GNSSSpeed.Value * 3.6,
-		HeadingDeg:              vs.GNSSBearing.Value,
-		AltitudeM:               vs.GNSSAltitude.Value,
+		SpeedKph:   vs.GNSSSpeed.Value * 3.6,
+		HeadingDeg: vs.GNSSBearing.Value,
+		AltitudeM:  vs.GNSSAltitude.Value,
 		Locked: aggregateLocked(
 			ps(vs.DoorFrontLeftLocked.Value),
 			ps(vs.DoorFrontRightLocked.Value),

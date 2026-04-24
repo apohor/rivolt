@@ -258,17 +258,25 @@ function StatusPill({ state }: { state: VehicleState }) {
   );
 }
 
-// isCharging is true whenever the primary VehicleState feed says a
-// session is actively moving electrons. We include the transitional
-// "charging_ready" state so the detail panel renders even before
-// the session reports non-zero power, but NOT "charging_complete"
-// — a completed session shouldn't keep the live panel pinned; the
-// car is effectively parked (with a plug in) and ParkedSummary is
-// the right surface.
+// isCharging is true only when the car is actually plugged in AND a
+// session is active (or transitioning to active). Rivian's
+// charger_state sticks at 'charging_ready' / 'charging_active' /
+// 'charging_complete' across unplugs — without the charger_status
+// plug check the live panel keeps rendering a "Charging session"
+// long after the cable is out.
 function isCharging(s: VehicleState): boolean {
+  if (!isPluggedIn(s)) return false;
   if (s.charger_power_kw > 0) return true;
   const cs = s.charger_state || "";
   return cs === "charging_active" || cs === "charging_ready";
+}
+
+// isPluggedIn interprets Rivian's charger_status field. The
+// connected-charging and connected-not-charging states are the only
+// ones that mean there's a physical cable in the port.
+function isPluggedIn(s: VehicleState): boolean {
+  const st = (s.charger_status || "").toLowerCase();
+  return st.startsWith("chrgr_sts_connected");
 }
 
 // ChargingDetail renders Rivian's live charging session data —
