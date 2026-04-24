@@ -103,19 +103,19 @@ func runServer() {
 	}
 	dbPath := filepath.Join(*dataDir, "rivolt.db")
 
-	// Postgres backend is opt-in via DATABASE_URL. When set, Rivolt
-	// opens a pool, runs the embedded schema migrations, and (if
-	// auth is configured) upserts the operator user row. Stores
-	// still read/write SQLite in this release — the pool is kept
-	// warm and the schema provisioned so subsequent releases can
-	// migrate stores one at a time without any infra churn. This
-	// is the advertised "dual-backend scaffolding" of v0.4.0.
-	//
-	// Leaving DATABASE_URL unset keeps the legacy single-file
-	// SQLite shape, which is what every existing homelab install
-	// is already running.
+	// Postgres is required: the settings store lives there as of
+	// v0.4.1. The remaining stores (samples, drives, charges, push)
+	// still use SQLite and will move to Postgres one release at a
+	// time; until then the pool and the SQLite file coexist on the
+	// same data volume.
 	var pgPool *sql.DB
-	if dsn := postgresDSN(); dsn != "" {
+	var currentUserID uuid.UUID
+	{
+		dsn := postgresDSN()
+		if dsn == "" {
+			logger.Error("DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME) is required")
+			os.Exit(1)
+		}
 		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		p, err := db.Open(pctx, dsn)
 		cancel()
@@ -124,17 +124,23 @@ func runServer() {
 			os.Exit(1)
 		}
 		pgPool = p
-		logger.Info("postgres connected and schema migrated",
-			"stores_backend", "sqlite (migrating per release)",
-		)
-		if u := os.Getenv("RIVOLT_USERNAME"); u != "" {
-			if _, err := db.EnsureUser(ctx, pgPool, u); err != nil {
-				logger.Warn("ensure user row failed", "err", err.Error())
-			}
+		u := strings.TrimSpace(os.Getenv("RIVOLT_USERNAME"))
+		if u == "" {
+			// No login configured — still need a user row to scope
+			// settings against. Use a well-known "local" identity;
+			// it's just a UUID salt, it isn't displayed anywhere.
+			u = "local"
 		}
+		uid, err := db.EnsureUser(ctx, pgPool, u)
+		if err != nil {
+			logger.Error("ensure user row failed", "err", err.Error())
+			os.Exit(1)
+		}
+		currentUserID = uid
+		logger.Info("postgres connected", "user_id", currentUserID.String())
 	}
 
-	settingsStore, err := settings.OpenStore(dbPath)
+	settingsStore, err := settings.OpenStore(pgPool, currentUserID)
 	if err != nil {
 		logger.Warn("settings store unavailable", "err", err.Error())
 	}
