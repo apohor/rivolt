@@ -490,7 +490,17 @@ function ParkedSummary({
           {plugged ? "Parked · plugged in" : "Parked"}
         </div>
         <div className="text-[11px] text-neutral-500">
-          {formatChargerState(state.charger_state) || "idle"}
+          {/*
+            charger_state sticks at "charging_ready" for hours after
+            the cable is unplugged (same stale-field problem isPlugged
+            was introduced to dodge). When the plug is physically out,
+            the session label is meaningless — show power_state
+            instead so a sleeping car reads "asleep" rather than a
+            phantom "ready".
+          */}
+          {plugged
+            ? formatChargerState(state.charger_state) || "idle"
+            : formatPower(state.power_state).toLowerCase()}
         </div>
       </div>
       <div className="mb-3 flex items-baseline gap-4">
