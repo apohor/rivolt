@@ -464,6 +464,27 @@ export const backend = {
     api.del<{ drives: number; charges: number; samples: number }>(
       "/api/data/sessions",
     ),
+
+  // Uploads a JSON bundle previously produced by backupData() and
+  // upserts every drive, charge, and sample back. Safe to re-run
+  // (drives/charges upsert by external_id; samples dedupe by
+  // (vehicle_id, at)). Returns per-table processed counts.
+  restoreData: async (file: File) => {
+    const res = await fetch("/api/data/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: file,
+    });
+    const text = await res.text();
+    let parsed: unknown = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // non-JSON error body; keep as text
+    }
+    if (!res.ok) throw new ApiError(res.status, parsed);
+    return parsed as { drives: number; charges: number; samples: number };
+  },
 };
 
 export type ImportResult = {
