@@ -419,17 +419,59 @@ export const backend = {
         : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     fd.append("tz", zone);
     const res = await fetch("/api/import/electrafi", { method: "POST", body: fd });
-    const text = await res.text();
-    let parsed: unknown = undefined;
-    if (text) {
+    if (!res.ok) {
+      const text = await res.text();
+      let parsed: unknown = text;
       try {
         parsed = JSON.parse(text);
       } catch {
-        parsed = text;
+        // keep as text
+      }
+      throw new ApiError(res.status, parsed);
+    }
+
+    // The server streams NDJSON (progress events + final {done:true})
+    // so the reverse proxy doesn't time out on long imports. Read the
+    // stream line-by-line; the last event is either {event:"done",
+    // files:[...]} or {event:"error", file, error}.
+    if (!res.body) throw new ApiError(500, "no response body");
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let done: { files: ImportResult[] } | null = null;
+    let err: { file?: string; error: string } | null = null;
+    const consumeLine = (line: string) => {
+      if (!line.trim()) return;
+      let ev: Record<string, unknown>;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (ev.event === "done" && Array.isArray(ev.files)) {
+        done = { files: ev.files as ImportResult[] };
+      } else if (ev.event === "error") {
+        err = { file: ev.file as string, error: ev.error as string };
+      }
+    };
+    for (;;) {
+      const { value, done: eof } = await reader.read();
+      if (value) {
+        buf += dec.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          consumeLine(buf.slice(0, idx));
+          buf = buf.slice(idx + 1);
+        }
+      }
+      if (eof) {
+        if (buf) consumeLine(buf);
+        break;
       }
     }
-    if (!res.ok) throw new ApiError(res.status, parsed);
-    return parsed as { files: ImportResult[] };
+    if (err) throw new ApiError(400, (err as { error: string }).error);
+    if (!done) throw new ApiError(500, "import stream ended without done event");
+    return done as { files: ImportResult[] };
   },
 
   // Streams a full JSON backup (drives + charges + samples) into a
