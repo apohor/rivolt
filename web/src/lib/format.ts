@@ -1,17 +1,24 @@
 // Shared formatters and small presentational helpers.
 
-// Timestamps were originally rendered in UTC because the ElectraFi CSV
-// import had naive timestamps and we stored them as UTC by convention
-// — rendering in UTC made "07:21" come back as "07:21 AM" instead of
-// "02:21 AM" for Central-time users. With live telemetry now the
-// dominant source (and those rows carrying a true UTC instant from
-// time.Now().UTC()), UTC-rendering is the wrong default: a 7:15 AM CDT
-// drive displays as 12:15 PM. Switch to the browser's local zone.
-// CSV-import rows will shift by the local offset — acceptable since
-// new telemetry is the primary surface now.
-//
-// undefined → honors the browser's resolved timezone.
-const DISPLAY_TZ: string | undefined = undefined;
+import { resolvedTimeZone } from "./preferences";
+
+// Timestamp rendering zone. Defaults to the browser's local zone via
+// `resolvedTimeZone("auto") === undefined`; users can pick an explicit
+// IANA identifier in Settings → Display → Time zone. Reading the
+// current preference at call time (not module init) is important so
+// updates take effect without a reload.
+function currentTZ(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem("rivolt.preferences.v1");
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { timeZone?: string };
+    if (!parsed.timeZone || parsed.timeZone === "auto") return undefined;
+    return resolvedTimeZone(parsed.timeZone);
+  } catch {
+    return undefined;
+  }
+}
 
 // Format an RFC3339 string as a short date-time in the display zone.
 export function formatDateTime(iso: string): string {
@@ -21,7 +28,7 @@ export function formatDateTime(iso: string): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: DISPLAY_TZ,
+    timeZone: currentTZ(),
   });
 }
 

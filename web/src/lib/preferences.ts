@@ -8,14 +8,20 @@ import { useSyncExternalStore } from "react";
 
 export type TemperatureUnit = "c" | "f";
 
+// TimeZone preference: "auto" defers to the browser (Intl resolved
+// zone); otherwise an IANA identifier (e.g. "America/Chicago", "UTC").
+export type TimeZonePref = "auto" | string;
+
 type Preferences = {
   temperatureUnit: TemperatureUnit;
+  timeZone: TimeZonePref;
 };
 
 const STORAGE_KEY = "rivolt.preferences.v1";
 
 const DEFAULT_PREFERENCES: Preferences = {
   temperatureUnit: "c",
+  timeZone: "auto",
 };
 
 function readPreferences(): Preferences {
@@ -31,6 +37,10 @@ function readPreferences(): Preferences {
         parsed.temperatureUnit === "f" || parsed.temperatureUnit === "c"
           ? parsed.temperatureUnit
           : DEFAULT_PREFERENCES.temperatureUnit,
+      timeZone:
+        typeof parsed.timeZone === "string" && parsed.timeZone.length > 0
+          ? parsed.timeZone
+          : DEFAULT_PREFERENCES.timeZone,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -73,6 +83,26 @@ export function setTemperatureUnit(unit: TemperatureUnit): void {
     // still applies for this tab.
   }
   emit();
+}
+
+export function setTimeZone(tz: TimeZonePref): void {
+  if (current.timeZone === tz) return;
+  current = { ...current, timeZone: tz };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
+  }
+  emit();
+}
+
+// resolvedTimeZone returns undefined for "auto" (letting Intl pick the
+// browser's local zone) or the stored IANA identifier otherwise.
+// Callers pass the return value directly into
+// `Intl.DateTimeFormat`'s `timeZone` option.
+export function resolvedTimeZone(pref: TimeZonePref): string | undefined {
+  if (pref === "auto") return undefined;
+  return pref;
 }
 
 export function usePreferences(): Preferences {
