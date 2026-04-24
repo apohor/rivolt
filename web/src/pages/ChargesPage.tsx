@@ -226,7 +226,7 @@ function labelMap(clusters: ChargeCluster[]): Map<string, ChargeClusterLabel> {
   const m = new Map<string, ChargeClusterLabel>();
   for (const c of clusters) {
     const label: ChargeClusterLabel =
-      c.label === "Home" || c.label === "Work" || c.label === "Public"
+      c.label === "Home" || c.label === "Public" || c.label === "Fast"
         ? c.label
         : "";
     for (const id of c.member_ids) m.set(id, label);
@@ -234,10 +234,11 @@ function labelMap(clusters: ChargeCluster[]): Map<string, ChargeClusterLabel> {
   return m;
 }
 
-// LocationBadge renders the Home/Work/Public tag. Styling follows the
+// LocationBadge renders the Home/Public/Fast tag. Styling follows the
 // convention of the rest of the app: Home leans emerald (positive /
-// matches the "ready" pill on Settings), Work is amber (informational),
-// Public is plain neutral because it's the default case.
+// matches the "ready" pill on Settings), Fast is amber (attention —
+// DCFC stops are the expensive ones), Public is plain neutral because
+// it's the default catch-all for non-home slow charging.
 function LocationBadge({ label }: { label: ChargeClusterLabel }) {
   if (!label) {
     return <span className="text-neutral-600">—</span>;
@@ -245,13 +246,17 @@ function LocationBadge({ label }: { label: ChargeClusterLabel }) {
   const tone =
     label === "Home"
       ? "border-emerald-600/40 text-emerald-300 bg-emerald-950/30"
-      : label === "Work"
+      : label === "Fast"
         ? "border-amber-600/40 text-amber-300 bg-amber-950/30"
         : "border-neutral-700 text-neutral-400";
   return (
     <span
       className={`text-xs px-2 py-0.5 rounded-full border ${tone}`}
-      title={`Clustered by charge location`}
+      title={
+        label === "Fast"
+          ? "Peak power ≥ 50 kW (DCFC)"
+          : "Clustered by charge location"
+      }
     >
       {label}
     </span>

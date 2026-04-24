@@ -175,8 +175,11 @@ func New(d Deps) http.Handler {
 			r.Get("/drives", handleDrives(d.Drives))
 			r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
 			// Pure-local analysis over the stored charge set. Groups
-			// sessions into Home / Work / Public buckets using DBSCAN on
-			// (lat, lon). No external calls; no LLM involved.
+			// sessions into Home / Public / Fast buckets: peak-power
+			// >=50 kW is Fast (DCFC) regardless of where it happened,
+			// and the remaining slow sessions are DBSCAN-clustered on
+			// (lat, lon) with the largest cluster winning Home and
+			// everything else being Public. No external calls; no LLM.
 			r.Get("/charges/clusters", handleChargeClusters(d.Charges))
 			r.Get("/samples", handleSamples(d.Samples))
 		}) // end of timed authenticated /api group
@@ -840,9 +843,11 @@ func handleDataReset(d Deps) http.HandlerFunc {
 
 // --- Charge clustering ----------------------------------------------------
 //
-// Pure-local DBSCAN grouping of charge sessions by (lat, lon). The UI
-// uses it to label Home vs. Work vs. Public charging on /charges and
-// in the overview summary. No external calls.
+// Pure-local classification of charge sessions into Home / Public / Fast.
+// Fast is anything peaking >=50 kW (DCFC) regardless of location; the
+// rest is DBSCAN-clustered on (lat, lon) with the biggest cluster
+// winning Home. The UI uses this for /charges badges and the Overview
+// Charging locations card. No external calls.
 
 type chargeClusterResponse struct {
 	Label       string   `json:"label"`
@@ -875,6 +880,10 @@ func handleChargeClusters(store *charges.Store) http.HandlerFunc {
 				Lat:            c.Lat,
 				Lon:            c.Lon,
 				EnergyAddedKWh: c.EnergyAddedKWh,
+				// Peak kW drives the Home/Public/Fast split: anything
+				// >=50 kW is DCFC regardless of location. Zero means
+				// unknown peak and falls through to location clustering.
+				MaxPowerKW: c.MaxPowerKW,
 			})
 		}
 		clusters := analytics.ClusterCharges(pts, analytics.DefaultParams())
