@@ -1,11 +1,17 @@
 // Shared formatters and small presentational helpers.
 
-// Timestamps in this app come from the ElectraFi CSV export, which has
-// no timezone info — we store them as UTC by convention. Displaying in
-// the browser's local zone introduces a phantom offset ("07:21" in the
-// export shows up as "02:21 AM" for a Central-time user). Render in
-// UTC so the UI matches the source.
-const DISPLAY_TZ = "UTC";
+// Timestamps were originally rendered in UTC because the ElectraFi CSV
+// import had naive timestamps and we stored them as UTC by convention
+// — rendering in UTC made "07:21" come back as "07:21 AM" instead of
+// "02:21 AM" for Central-time users. With live telemetry now the
+// dominant source (and those rows carrying a true UTC instant from
+// time.Now().UTC()), UTC-rendering is the wrong default: a 7:15 AM CDT
+// drive displays as 12:15 PM. Switch to the browser's local zone.
+// CSV-import rows will shift by the local offset — acceptable since
+// new telemetry is the primary surface now.
+//
+// undefined → honors the browser's resolved timezone.
+const DISPLAY_TZ: string | undefined = undefined;
 
 // Format an RFC3339 string as a short date-time in the display zone.
 export function formatDateTime(iso: string): string {

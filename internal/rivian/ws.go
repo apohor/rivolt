@@ -267,7 +267,9 @@ func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 		RemoteChargingAvailable: ps(vs.RemoteChargingAvailable.Value),
 		Latitude:                vs.GNSSLocation.Latitude,
 		Longitude:               vs.GNSSLocation.Longitude,
-		SpeedKph:                vs.GNSSSpeed.Value,
+		// gnssSpeed is m/s (standard GNSS) — convert to kph at the boundary.
+		// See live.go for the same fix / rationale.
+		SpeedKph:                vs.GNSSSpeed.Value * 3.6,
 		HeadingDeg:              vs.GNSSBearing.Value,
 		AltitudeM:               vs.GNSSAltitude.Value,
 		Locked: aggregateLocked(
