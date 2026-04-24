@@ -14,11 +14,11 @@ x-pg-password: &pg_password "change-me"
 
 services:
   rivolt:
-    # :main tracks the tip of the main branch (published by CI on
-    # every push). Switch to a pinned :vX.Y.Z tag (or :latest) if
-    # you prefer manual rollouts. Watchtower below watches this
-    # container and pulls+restarts on image updates.
-    image: ghcr.io/apohor/rivolt:main
+    # :latest tracks the most recent vX.Y.Z tag published by CI.
+    # Watchtower below watches this container and pulls+restarts
+    # whenever a new release is cut. Pin to a specific :vX.Y.Z tag
+    # for manual rollouts.
+    image: ghcr.io/apohor/rivolt:latest
     container_name: rivolt
     restart: always
     labels:
