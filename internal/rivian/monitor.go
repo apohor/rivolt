@@ -190,26 +190,55 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 
-	err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
-		m.mu.Lock()
-		// Rivian pushes deltas — each frame contains only the
-		// fields that changed. Merge non-zero/non-empty values
-		// from the push over whatever we had cached so static
-		// fields (odometer, gear, charge limit, tire pressures)
-		// don't disappear between frames.
-		prev := m.cache[vehicleID]
-		merged := mergeState(prev, st)
-		m.cache[vehicleID] = merged
-		m.stamp[vehicleID] = time.Now()
-		m.mu.Unlock()
-		m.record(ctx, vehicleID, prev, merged)
-	})
+	// Resubscribe loop: SubscribeVehicleState has per-connection
+	// retry/backoff internally, but eventually returns (e.g. Rivian
+	// idles the session when the car goes to sleep for a while).
+	// Before v0.5.1 we exited after a single return, so a car that
+	// slept overnight would wake with no live subscription — drives
+	// went unrecorded until the UI happened to poll /api/vehicles.
+	// Now we wrap the call in a loop that keeps resubscribing with
+	// bounded exponential backoff until ctx is cancelled, which is
+	// the only "done" signal we respect.
+	backoff := time.Second
+	for ctx.Err() == nil {
+		err := m.client.SubscribeVehicleState(ctx, vehicleID, func(st *State) {
+			m.mu.Lock()
+			// Rivian pushes deltas — each frame contains only the
+			// fields that changed. Merge non-zero/non-empty values
+			// from the push over whatever we had cached so static
+			// fields (odometer, gear, charge limit, tire pressures)
+			// don't disappear between frames.
+			prev := m.cache[vehicleID]
+			merged := mergeState(prev, st)
+			m.cache[vehicleID] = merged
+			m.stamp[vehicleID] = time.Now()
+			m.mu.Unlock()
+			m.record(ctx, vehicleID, prev, merged)
+		})
+		if ctx.Err() != nil {
+			break
+		}
+		if err != nil {
+			m.logger.Warn("rivian ws subscribe ended, retrying", "vehicle", vehicleID, "err", err.Error(), "backoff", backoff.String())
+		} else {
+			m.logger.Info("rivian ws subscribe returned cleanly, resubscribing", "vehicle", vehicleID, "backoff", backoff.String())
+		}
+		// Any successful session resets backoff; a fast failure
+		// escalates up to 60 s.
+		select {
+		case <-ctx.Done():
+		case <-time.After(backoff):
+		}
+		if backoff < 60*time.Second {
+			backoff *= 2
+			if backoff > 60*time.Second {
+				backoff = 60 * time.Second
+			}
+		}
+	}
 	m.mu.Lock()
 	delete(m.active, vehicleID)
 	m.mu.Unlock()
-	if err != nil && ctx.Err() == nil {
-		m.logger.Warn("rivian ws subscribe ended", "vehicle", vehicleID, "err", err.Error())
-	}
 }
 
 // periodicRefresh pulls a fresh REST snapshot at interval and folds

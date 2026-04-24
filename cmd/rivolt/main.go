@@ -271,12 +271,24 @@ func runServer() {
 		// background. Best-effort — failure just means the SoC-delta
 		// fallback uses DefaultPackKWh (131) and the UI has no
 		// vehicle image to show. Don't block startup on Rivian's
-		// gateway being available.
+		// gateway being available. Once metadata lands, kick off a
+		// live-state subscription for every known vehicle so we
+		// capture drives that happen while no browser is open — the
+		// monitor used to only subscribe when /api/vehicles/{id}/state
+		// was hit, which meant a car driven overnight recorded no
+		// live samples.
 		go func() {
 			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
 			if err := stateMonitor.RefreshVehicleInfo(rctx); err != nil {
 				logger.Warn("vehicle info refresh failed", "err", err.Error())
+				return
+			}
+			for _, v := range stateMonitor.AllVehicleInfo() {
+				if v.ID == "" {
+					continue
+				}
+				stateMonitor.EnsureSubscribed(v.ID)
 			}
 		}()
 	}
