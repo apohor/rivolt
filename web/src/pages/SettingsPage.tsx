@@ -5,6 +5,7 @@ import {
   type AIProvider,
   type AISettings,
   type AISettingsUpdate,
+  type AIPingResult,
   type ImportResult,
   type ImportProgress,
 } from "../lib/api";
@@ -599,6 +600,7 @@ function AIProvidersPanel() {
                 : "Ready"
               : "Not configured"}
           </span>
+          {data.ready ? <AIPingButton /> : null}
         </div>
       </div>
 
@@ -634,6 +636,50 @@ function AIProvidersPanel() {
       {mut.isError && (
         <ErrorBox title="Save failed" detail={String(mut.error)} />
       )}
+    </div>
+  );
+}
+
+// AIPingButton sends a trivial prompt to the active provider and
+// surfaces the reply + latency + token usage. Purpose is strictly
+// diagnostic: confirm the key/model pair produces a 200 from the
+// provider so the operator doesn't have to wait for a real feature
+// (digest, anomaly, etc.) to exercise the integration.
+//
+// Error surface is deliberately verbose — a wrong key or a model the
+// account doesn't have access to are the two most common failures,
+// and both come back with useful messages from the provider. We
+// bubble the raw error through so the operator can self-diagnose.
+function AIPingButton() {
+  const [result, setResult] = useState<AIPingResult | null>(null);
+  const mut = useMutation({
+    mutationFn: () => backend.pingAI(),
+    onSuccess: (r) => setResult(r),
+    onError: () => setResult(null),
+  });
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => mut.mutate()}
+        disabled={mut.isPending}
+        className="text-xs px-2 py-0.5 rounded-full border border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-50"
+      >
+        {mut.isPending ? "Testing…" : "Test provider"}
+      </button>
+      {mut.isSuccess && result ? (
+        <div className="text-[11px] text-neutral-400 max-w-md">
+          <div className="text-emerald-300">{result.reply || "(empty reply)"}</div>
+          <div className="mt-0.5 tabular-nums text-neutral-500">
+            {result.latency_ms} ms · {result.input_tokens}→{result.output_tokens} tokens
+          </div>
+        </div>
+      ) : null}
+      {mut.isError ? (
+        <div className="text-[11px] text-red-400/80 max-w-md">
+          {String(mut.error)}
+        </div>
+      ) : null}
     </div>
   );
 }

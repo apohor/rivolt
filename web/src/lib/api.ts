@@ -311,6 +311,18 @@ export type AISettingsUpdate = {
   gemini_api_key?: string;
 };
 
+// AIPingResult is what POST /api/ai/ping returns. The backend sends
+// a trivial smoke-test prompt to the active provider and echoes the
+// reply plus latency / token usage so the UI can confirm the
+// key+model triple actually works.
+export type AIPingResult = {
+  reply: string;
+  model: string;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+};
+
 // ChargeCluster is one group returned by /api/charges/clusters. Member
 // IDs reference rows in the /api/charges response so the UI can paint
 // a Home/Public/Fast badge next to each session.
@@ -393,6 +405,11 @@ export const backend = {
     api.get<{ models: string[] }>(
       `/api/settings/ai/models/${encodeURIComponent(provider)}`,
     ),
+  // Smoke-test the currently configured AI provider. Sends a trivial
+  // prompt and returns the reply + token usage + round-trip latency,
+  // so the Settings UI can confirm key/model validity without waiting
+  // for a downstream feature to exercise the integration.
+  pingAI: () => api.post<AIPingResult>("/api/ai/ping", {}),
   // Local DBSCAN clustering of charge locations. Returns one row per
   // cluster, largest-first, with "Home" / "Public" / "Fast" labels.
   chargeClusters: () =>
