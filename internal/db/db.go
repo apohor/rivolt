@@ -97,16 +97,34 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 // Returns an error if username is empty; the all-zero UUID would
 // otherwise act as a silent multi-tenant footgun.
 func EnsureUser(ctx context.Context, d *sql.DB, username string) (uuid.UUID, error) {
+	return EnsureUserFull(ctx, d, username, "", "")
+}
+
+// EnsureUserFull is EnsureUser plus optional email and display_name
+// columns. OIDC sign-in uses this so the user row reflects what the
+// IdP knows (display_name in particular is what the UI surfaces in
+// the account menu). Empty values are not written — a later sign-in
+// that does carry them will fill the columns in, but a sign-in that
+// doesn't (e.g. an IdP misconfigured to omit `name`) won't blank
+// out a previously-good value.
+func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName string) (uuid.UUID, error) {
 	u := strings.ToLower(strings.TrimSpace(username))
 	if u == "" {
 		return uuid.Nil, fmt.Errorf("username is required")
 	}
 	id := UserIDFor(u)
+	// COALESCE(NULLIF(EXCLUDED.x, ''), users.x) keeps an existing
+	// non-empty value when the new sign-in supplies "". The empty-
+	// string-as-null normalisation is in the application layer
+	// because the column itself allows NULL.
 	_, err := d.ExecContext(ctx, `
-		INSERT INTO users (id, username)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username
-	`, id, u)
+		INSERT INTO users (id, username, email, display_name)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''))
+		ON CONFLICT (id) DO UPDATE SET
+			username     = EXCLUDED.username,
+			email        = COALESCE(NULLIF(EXCLUDED.email, ''),        users.email),
+			display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name)
+	`, id, u, strings.TrimSpace(email), strings.TrimSpace(displayName))
 	if err != nil {
 		return uuid.Nil, err
 	}

@@ -202,9 +202,26 @@ decisions 5–7, 10–12.
 
 ### Identity
 
-- [ ] **OIDC login** (Google + GitHub first) via `go-oidc`.
+- [x] **OIDC login** via `go-oidc`. Generic OIDC works against any
+      compliant IdP (Google, Authentik, Authelia, Keycloak,
+      Okta…). Configuration is per-provider env soup —
+      `RIVOLT_OIDC_PROVIDERS=google,authentik` plus
+      `RIVOLT_OIDC_<NAME>_{ISSUER,CLIENT_ID,CLIENT_SECRET,DISPLAY_NAME,SCOPES}` —
+      so adding a provider is a deploy-time change, not a code
+      change. Flow is OAuth2 auth-code with PKCE (S256), state +
+      nonce reused as a single 32-byte random in an HttpOnly +
+      SameSite=Lax cookie scoped to `/api/auth/oidc`. Identity
+      resolves verified-email > preferred_username > unverified
+      email > iss+sub so an OIDC sign-in joins cleanly with a
+      password sign-in on the same email — same UUIDv5 either
+      way. SPA fetches `/api/auth/oidc/` and renders one
+      "Continue with X" button per provider on the login page;
+      empty list = invisible chrome. (`internal/oidc`,
+      `auth.IssueSession` extracted as the shared session-mint
+      seam, `db.EnsureUserFull` populates email + display_name.)
       Username/password login remains for self-hosters who don't
-      want an IdP.
+      want an IdP. **GitHub** is not OIDC-native; pure OAuth2
+      adapter is a follow-up using the same Service shape.
 
 ### Observability
 

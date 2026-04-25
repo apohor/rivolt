@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, backend } from "../lib/api";
+import { ApiError, backend, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
 
 // LoginPage is the cookie-issuing front door. It sits outside the
@@ -17,6 +17,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // OIDC providers, fetched once on mount. Empty array means the
+  // server isn't configured for any social-login provider — the
+  // password-only form is the entire UI in that case.
+  const [providers, setProviders] = useState<OIDCProvider[]>([]);
 
   // If the session cookie is still valid (e.g. user opened /login by
   // accident, or the browser restored a tab), skip the form.
@@ -24,6 +28,9 @@ export default function LoginPage() {
     let cancelled = false;
     backend.whoami().then((me) => {
       if (!cancelled && me) navigate(nextPath, { replace: true });
+    });
+    backend.oidcProviders().then((p) => {
+      if (!cancelled) setProviders(p);
     });
     return () => {
       cancelled = true;
@@ -51,6 +58,18 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // OIDC start URLs are GET endpoints that 302 to the IdP; we
+  // intentionally use full-page navigation rather than fetch +
+  // hand-rolled redirect handling, because the browser must own
+  // the cookie + Set-Cookie roundtrip.
+  function startOIDC(p: OIDCProvider) {
+    const url = new URL(p.start_url, window.location.origin);
+    if (nextPath && nextPath !== "/") {
+      url.searchParams.set("return", nextPath);
+    }
+    window.location.assign(url.toString());
   }
 
   return (
@@ -106,6 +125,28 @@ export default function LoginPage() {
         >
           {submitting ? "Signing in…" : "Sign in"}
         </button>
+
+        {providers.length > 0 && (
+          <>
+            <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-neutral-500">
+              <span className="h-px flex-1 bg-neutral-800" />
+              or
+              <span className="h-px flex-1 bg-neutral-800" />
+            </div>
+            <div className="flex flex-col gap-2">
+              {providers.map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  onClick={() => startOIDC(p)}
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
+                >
+                  Continue with {p.display_name}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </form>
     </div>
   );
