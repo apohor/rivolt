@@ -11,6 +11,37 @@ const kphToMph = (k: number) => k * 0.6213711922;
 const barToPsi = (b: number) => b * 14.5037738;
 const mToFt = (m: number) => m * 3.2808399;
 
+// liveRefetchInterval picks a poll cadence based on the most
+// recent VehicleState. The backend StateMonitor caches WebSocket
+// pushes from Rivian (1–5s while driving) so the only thing
+// gating UI freshness is how often the SPA asks for the cache.
+// Polling at 30s flat — the previous behaviour — wasted budget
+// when the car was asleep AND felt laggy in motion. This adapts.
+//
+// Conservative thresholds: speed > 1 kph (filters GPS jitter
+// when parked), or transmission in D/R, or active charger flow.
+function liveRefetchInterval(s: VehicleState | undefined): number {
+  if (!s) return 5_000; // Initial load — get the first snapshot quickly.
+  const driving =
+    (s.speed_kph ?? 0) > 1 ||
+    s.gear === "Drive" ||
+    s.gear === "Reverse" ||
+    s.gear === "D" ||
+    s.gear === "R";
+  if (driving) return 2_000;
+  const charging =
+    (s.charger_power_kw ?? 0) > 0.1 ||
+    s.charger_state === "charging_active" ||
+    s.charger_state === "charging_dc";
+  if (charging) return 5_000;
+  // Standby / sleeping cars don't change minute-to-minute, and
+  // hammering /api/state pokes the StateMonitor into wake-the-
+  // car mode upstream. 60s is the slow lane.
+  if (s.power_state === "standby" || s.power_state === "sleep") return 60_000;
+  // Awake but parked — likely a user staring at the dashboard.
+  return 15_000;
+}
+
 // LivePanel polls the connected Rivian client (live or mock) and
 // renders one card per vehicle with the current state. Hidden entirely
 // when /api/vehicles returns an empty list — Rivolt still works fine
@@ -48,7 +79,26 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const state = useQuery<VehicleState>({
     queryKey: ["rivian", "state", vehicle.id],
     queryFn: () => backend.vehicleState(vehicle.id),
-    refetchInterval: 30_000,
+    // Adaptive cadence — the backend's WebSocket subscription
+    // already pushes deltas every 1–5s while the car is driving,
+    // but a static refetch interval would either burn upstream
+    // budget when parked or feel laggy in motion. We pick the
+    // interval based on the *previous* response so a stationary
+    // poll that catches the user pulling out of the driveway
+    // upgrades to fast cadence on the next tick. Returning a
+    // function from refetchInterval is React Query's documented
+    // hook for this; it re-evaluates after every successful
+    // fetch.
+    //
+    //   Driving (speed > 0 or D/R gear)     → 2s
+    //   Charging (DC fast or AC tracked)    → 5s
+    //   Awake but parked                    → 15s
+    //   Asleep / power_state="standby"      → 60s
+    //
+    // staleTime: 1s deduplicates concurrent reads from multiple
+    // tabs / a focus-refetch landing on top of the interval tick.
+    refetchInterval: (query) => liveRefetchInterval(query.state.data),
+    staleTime: 1_000,
     retry: 1,
   });
   const { temperatureUnit: tempUnit } = usePreferences();
