@@ -20,6 +20,8 @@ import {
 import { collapseRoundTrips } from "../lib/drives";
 import { usePreferences } from "../lib/preferences";
 import { WindowPicker } from "../components/WindowPicker";
+import { VehiclePicker } from "../components/VehiclePicker";
+import { useSelectedVehicle } from "../lib/selectedVehicle";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -85,11 +87,17 @@ export default function HomePage() {
     staleTime: 5 * 60_000,
     retry: 1,
   });
-  const firstVehicleID = vehicles.data?.[0]?.id;
+  // Multi-vehicle-aware selection: honours the user's picker
+  // choice (localStorage-backed), falls back to vehicles[0].
+  // The previous code hard-picked index 0, which meant a
+  // two-car household's second car was invisible on the
+  // overview page.
+  const { selectedID: activeVehicleID, select: selectVehicle } =
+    useSelectedVehicle(vehicles.data);
   const liveState = useQuery({
-    queryKey: ["rivian", "state", firstVehicleID ?? ""],
-    queryFn: () => backend.vehicleState(firstVehicleID as string),
-    enabled: !!firstVehicleID,
+    queryKey: ["rivian", "state", activeVehicleID ?? ""],
+    queryFn: () => backend.vehicleState(activeVehicleID as string),
+    enabled: !!activeVehicleID,
     refetchInterval: 60_000,
     retry: 1,
   });
@@ -119,7 +127,13 @@ export default function HomePage() {
           viewport). Hero is now the single anchor — its CTAs still
           route to /live and /drives, and a divider + right-aligned
           picker communicate "this scope affects everything below". */}
-      <HeroBanner win={win} onWinChange={setWin} />
+      <HeroBanner
+        win={win}
+        onWinChange={setWin}
+        vehicles={vehicles.data ?? []}
+        selectedVehicleID={activeVehicleID}
+        onSelectVehicle={selectVehicle}
+      />
 
       {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
           at the top of the data area now — it's the highest-signal
@@ -353,9 +367,15 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
 function HeroBanner({
   win,
   onWinChange,
+  vehicles,
+  selectedVehicleID,
+  onSelectVehicle,
 }: {
   win: WindowKey;
   onWinChange: (w: WindowKey) => void;
+  vehicles: import("../lib/api").Vehicle[];
+  selectedVehicleID: string | undefined;
+  onSelectVehicle: (id: string) => void;
 }) {
   const currentLabel =
     WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? "";
@@ -410,7 +430,16 @@ function HeroBanner({
             · {currentLabel}
           </span>
         </div>
-        <WindowPicker value={win} onChange={onWinChange} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/* VehiclePicker self-hides when vehicles.length <= 1
+              so the single-car common case has zero new chrome. */}
+          <VehiclePicker
+            vehicles={vehicles}
+            selectedID={selectedVehicleID}
+            onChange={onSelectVehicle}
+          />
+          <WindowPicker value={win} onChange={onWinChange} />
+        </div>
       </div>
     </section>
   );

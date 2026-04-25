@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,8 +19,67 @@ import (
 const DefaultEndpoint = "https://rivian.com/api/gql/gateway/graphql"
 
 // DefaultClientName is the apollographql-client-name header value the
-// Android app sends. Some Rivian endpoints gate behaviour on this.
-const DefaultClientName = "com.rivian.android.consumer"
+// iOS Rivian Owner App sends. Some Rivian endpoints gate behaviour on
+// this; the iOS value unlocks everything the Android one did plus
+// iOS-only surfaces (service appointments, chat session,
+// registerPushNotificationToken, …) — see
+// https://github.com/jrgutier/rivian-python-client v2.2.0 notes.
+//
+// We impersonate the iOS app (rather than identifying as Rivolt)
+// because Rivian's gateway is an unofficial upstream: a
+// non-allowlisted User-Agent is the single easiest signal for them
+// to block. Shipping an honest "Rivolt/<ver>" UA is a phase-3
+// conversation to have *with* Rivian dev-rels, not a unilateral
+// announcement from us — for now we look like the official client,
+// and we surface our own identity via the optional
+// `X-Rivolt-Version` trailer below so operators tailing upstream
+// logs can still tell Rivolt traffic apart.
+const DefaultClientName = "com.rivian.ios.consumer"
+
+// DefaultClientVersion matches iOS Rivian Owner App v4400 (marketing
+// build 3.6.0). Advance this when mitm evidence shows the gateway
+// has started rejecting stale versions; today it's advisory.
+const DefaultClientVersion = "3.6.0-4400"
+
+// DefaultUserAgent is the exact User-Agent string the iOS app emits.
+// Matching it verbatim (rather than appending "; rivolt/x.y.z") is
+// deliberate — the gateway compares by equality in at least one
+// anti-automation code path, per community-observed 403s on
+// modified UAs.
+const DefaultUserAgent = "RivianApp/4400 CFNetwork/1498.700.2 Darwin/23.6.0"
+
+// DefaultAccept is the iOS app's Accept header. It advertises
+// support for Apollo's deferred-fields spec (multipart/mixed; ...),
+// which unlocks schema fragments the GraphQL server streams
+// progressively. Plain application/json still works today but some
+// endpoints return truncated payloads without the multipart hint —
+// matching the iOS app is the safe default.
+const DefaultAccept = "multipart/mixed;deferSpec=20220824,application/graphql-response+json,application/json"
+
+// applyBaseHeaders sets the iOS-app-matching headers every
+// Rivian-gateway HTTPS request should carry. Callers still layer
+// auth headers (a-sess / u-sess / csrf-token) on top via
+// extraHeaders.
+//
+// Deliberately *not* setting Accept-Encoding: Go's net/http adds
+// "gzip" automatically and transparently decompresses the response
+// body; setting it manually would make us responsible for
+// decompression and would break every existing decoder in this
+// package. iOS's "gzip, deflate, br" value isn't worth the churn
+// for that one header.
+func (c *LiveClient) applyBaseHeaders(h http.Header) {
+	h.Set("Content-Type", "application/json")
+	h.Set("Accept", DefaultAccept)
+	h.Set("Accept-Language", "en-US,en;q=0.9")
+	h.Set("User-Agent", DefaultUserAgent)
+	h.Set("apollographql-client-name", c.clientName)
+	h.Set("apollographql-client-version", c.clientVersion)
+	// Non-standard header Rivolt ships so an operator tailing
+	// upstream logs can tell our traffic apart from a genuine iOS
+	// client. Rivian's gateway doesn't inspect it; if they start,
+	// dropping it is a one-character patch.
+	h.Set("X-Rivolt-Version", c.rivoltVersion)
+}
 
 // ErrMFARequired is returned by Login when the account has MFA enabled
 // and the server issued an OTP challenge. Callers should collect the
@@ -42,9 +102,32 @@ var ErrMFARequired = errors.New("rivian: MFA code required")
 // TODO. Until those land, callers should expect to re-login when the
 // session expires.
 type LiveClient struct {
-	httpClient *http.Client
-	endpoint   string
-	clientName string
+	httpClient    *http.Client
+	endpoint      string
+	clientName    string
+	clientVersion string
+	// rivoltVersion is stamped into the X-Rivolt-Version header so
+	// operators can distinguish Rivolt traffic from the real iOS
+	// app in upstream logs. Defaults to "dev"; main.go overrides
+	// with the build-time version via WithRivoltVersion.
+	rivoltVersion string
+
+	// upstreamGate is consulted before every outbound Rivian
+	// request. Nil = never blocked (back-compat / tests). Non-nil
+	// and returning an error = short-circuit the call with that
+	// error, no HTTP traffic emitted. The kill switch wires this;
+	// future rate-limit / circuit-breaker layers can stack on top
+	// by composing checks.
+	upstreamGate func(ctx context.Context) error
+
+	// reauthSink is called whenever a classified UserAction
+	// error lands, so main.go can flip users.needs_reauth in
+	// Postgres. Nil = don't persist (dev / tests). The
+	// LiveClient keeps its own in-memory mirror
+	// (needsReauth / needsReauthReason) which the gate consults
+	// on every subsequent outbound call — we don't want to block
+	// forever waiting for Postgres on the hot path.
+	reauthSink func(ctx context.Context, reason string)
 
 	mu               sync.Mutex
 	csrfToken        string
@@ -56,6 +139,15 @@ type LiveClient struct {
 	pendingOTPToken  string // populated when the server returns an MFA challenge
 	pendingOTPEmail  string
 	authenticatedAt  time.Time
+
+	// reauthState mirrors users.needs_reauth in memory so the
+	// gate doesn't pay a lock on every outbound request, and —
+	// critically — so the classifier can flip the flag from
+	// inside doGraphQL without deadlocking against the c.mu that
+	// Login already holds during its own call graph. Written
+	// via markNeedsReauth / clearNeedsReauth; read via a cheap
+	// atomic load in checkUpstream.
+	reauthState atomic.Pointer[reauthSnapshot]
 
 	// Ring buffer of recent raw ChargingSession WS frames for
 	// debugging. Populated by runChargingSubscription, read via
@@ -133,9 +225,145 @@ func (c *LiveClient) RecentChargingFrames(vehicleID string) []ChargingFrame {
 // http.Client if you want — we set a reasonable timeout below.
 func NewLive() *LiveClient {
 	return &LiveClient{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		endpoint:   DefaultEndpoint,
-		clientName: DefaultClientName,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		endpoint:      DefaultEndpoint,
+		clientName:    DefaultClientName,
+		clientVersion: DefaultClientVersion,
+		rivoltVersion: "dev",
+	}
+}
+
+// WithRivoltVersion stamps the build version into the
+// X-Rivolt-Version header. Called from main.go wiring so the
+// compiled binary's version travels with every upstream call.
+// Returns the receiver for chaining.
+func (c *LiveClient) WithRivoltVersion(v string) *LiveClient {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		v = "dev"
+	}
+	c.rivoltVersion = v
+	return c
+}
+
+// ErrUpstreamPaused is returned by LiveClient operations when the
+// operator has flipped the kill switch. Callers surface it to
+// users as "service temporarily paused" rather than retrying —
+// the switch exists precisely because retrying is what's making
+// the incident worse.
+var ErrUpstreamPaused = errors.New("rivian: upstream paused by operator")
+
+// ErrNeedsReauth is returned when the per-user needs_reauth flag
+// is set. The UI turns this into a "please log into Rivian
+// again" nudge; background jobs stop retrying until the user
+// completes Login. Cleared automatically on a successful Login.
+var ErrNeedsReauth = errors.New("rivian: re-authentication required")
+
+// WithUpstreamGate installs a pre-flight hook that short-circuits
+// every outbound Rivian call when the hook returns a non-nil
+// error. The hook is cheap (atomic load on the kill-switch
+// snapshot) so running it on the hot path is fine.
+//
+// Calling again with nil removes the gate. Returns the receiver
+// for chaining.
+func (c *LiveClient) WithUpstreamGate(gate func(ctx context.Context) error) *LiveClient {
+	c.upstreamGate = gate
+	return c
+}
+
+// WithReauthSink installs a callback fired whenever the error
+// classifier lands a ClassUserAction error on an outbound call.
+// main.go plugs in a function that writes
+// users.needs_reauth = true + reason in Postgres. The callback
+// is best-effort: sink errors are not surfaced to the caller of
+// the failing request (the classification is what matters;
+// persistence failure shouldn't mask the original error).
+//
+// Returns the receiver for chaining.
+func (c *LiveClient) WithReauthSink(sink func(ctx context.Context, reason string)) *LiveClient {
+	c.reauthSink = sink
+	return c
+}
+
+// reauthSnapshot is the value stored under LiveClient.reauthState.
+// Treat it as immutable once published; mutations allocate a new
+// struct and atomic-swap the pointer.
+type reauthSnapshot struct {
+	needs  bool
+	reason string
+}
+
+// NeedsReauth reports whether the in-memory mirror of
+// users.needs_reauth is set. Exposed so main.go can prime the
+// flag from Postgres at startup (via SetNeedsReauth) and the
+// Settings UI can render a banner.
+func (c *LiveClient) NeedsReauth() (bool, string) {
+	s := c.reauthState.Load()
+	if s == nil {
+		return false, ""
+	}
+	return s.needs, s.reason
+}
+
+// SetNeedsReauth sets the flag without firing the sink. Used by
+// main.go at startup to hydrate the in-memory state from the
+// users row, and by tests. To raise the flag as the consequence
+// of a classified error, let doGraphQLAt handle it.
+func (c *LiveClient) SetNeedsReauth(needs bool, reason string) {
+	if !needs {
+		c.reauthState.Store(&reauthSnapshot{})
+		return
+	}
+	c.reauthState.Store(&reauthSnapshot{needs: true, reason: reason})
+}
+
+// checkUpstream runs the configured gate. Separated so every
+// outbound path can reuse the same "nil-gate allows" semantics
+// without each caller spelling it out.
+func (c *LiveClient) checkUpstream(ctx context.Context) error {
+	// Per-user re-auth flag takes precedence over the global
+	// gate: a kill-switched instance that also has stale
+	// credentials should surface "re-auth" first, because
+	// lifting the kill switch alone won't make the calls
+	// succeed.
+	if s := c.reauthState.Load(); s != nil && s.needs {
+		return ErrNeedsReauth
+	}
+	if c.upstreamGate == nil {
+		return nil
+	}
+	return c.upstreamGate(ctx)
+}
+
+// markNeedsReauth is the internal helper called by doGraphQLAt
+// when a ClassUserAction error is classified. Publishes a new
+// snapshot and fires the sink on the first edge into true. Safe
+// to call from any goroutine, including one that holds c.mu —
+// the atomic pointer is independent of the token mutex.
+func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
+	next := &reauthSnapshot{needs: true, reason: reason}
+	prev := c.reauthState.Swap(next)
+	// Only fire the sink on the transition to true — repeated
+	// calls from a failure storm shouldn't flood Postgres with
+	// identical writes.
+	if prev != nil && prev.needs {
+		return
+	}
+	if c.reauthSink != nil {
+		c.reauthSink(ctx, reason)
+	}
+}
+
+// clearNeedsReauth is called by Login on success so a user who
+// re-authenticates starts fresh. Symmetric with markNeedsReauth.
+func (c *LiveClient) clearNeedsReauth(ctx context.Context) {
+	prev := c.reauthState.Swap(&reauthSnapshot{})
+	if prev == nil || !prev.needs {
+		return
+	}
+	if c.reauthSink != nil {
+		// Empty reason signals "clear the flag" to the sink.
+		c.reauthSink(ctx, "")
 	}
 }
 
@@ -191,6 +419,9 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 // from the main gateway but sharing the same auth headers.
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (T, error) {
 	var zero T
+	if err := c.checkUpstream(ctx); err != nil {
+		return zero, err
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return zero, fmt.Errorf("marshal %s: %w", req.OperationName, err)
@@ -200,10 +431,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 	if err != nil {
 		return zero, fmt.Errorf("build request: %w", err)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("apollographql-client-name", c.clientName)
-	httpReq.Header.Set("User-Agent", "rivolt/0.1 (+https://github.com/apohor/rivolt)")
+	c.applyBaseHeaders(httpReq.Header)
 	for k, v := range extraHeaders {
 		if v != "" {
 			httpReq.Header.Set(k, v)
@@ -212,28 +440,67 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return zero, fmt.Errorf("post %s: %w", req.OperationName, err)
+		class, reason := ClassifyNetwork(err)
+		ue := &UpstreamError{Class: class, Op: req.OperationName, Reason: reason, Cause: err}
+		if class == ClassUserAction {
+			c.markNeedsReauth(ctx, reason)
+		}
+		return zero, ue
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
 	if err != nil {
-		return zero, fmt.Errorf("read %s response: %w", req.OperationName, err)
+		return zero, &UpstreamError{
+			Class:      ClassTransient,
+			Op:         req.OperationName,
+			HTTPStatus: resp.StatusCode,
+			Reason:     "read body",
+			Cause:      err,
+		}
 	}
 	if resp.StatusCode >= 400 {
-		return zero, fmt.Errorf("rivian %s: HTTP %d: %s", req.OperationName, resp.StatusCode, truncate(string(raw), 512))
+		class, reason := ClassifyHTTP(resp.StatusCode, string(raw))
+		ue := &UpstreamError{
+			Class:      class,
+			Op:         req.OperationName,
+			HTTPStatus: resp.StatusCode,
+			Reason:     reason,
+			Cause:      fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256)),
+		}
+		if class == ClassUserAction {
+			c.markNeedsReauth(ctx, reason)
+		}
+		return zero, ue
 	}
 
 	var out graphQLResponse[T]
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return zero, fmt.Errorf("decode %s: %w: %s", req.OperationName, err, truncate(string(raw), 256))
+		return zero, &UpstreamError{
+			Class:  ClassTransient,
+			Op:     req.OperationName,
+			Reason: "decode",
+			Cause:  fmt.Errorf("%w: %s", err, truncate(string(raw), 256)),
+		}
 	}
 	if len(out.Errors) > 0 {
+		first := out.Errors[0]
+		class, reason := ClassifyGraphQL(first.Extensions.Code, first.Message)
 		msgs := make([]string, 0, len(out.Errors))
 		for _, e := range out.Errors {
 			msgs = append(msgs, e.Message)
 		}
-		return zero, fmt.Errorf("rivian %s: %s", req.OperationName, strings.Join(msgs, "; "))
+		ue := &UpstreamError{
+			Class:   class,
+			Op:      req.OperationName,
+			ExtCode: first.Extensions.Code,
+			Reason:  reason,
+			Cause:   fmt.Errorf("%s", strings.Join(msgs, "; ")),
+		}
+		if class == ClassUserAction {
+			c.markNeedsReauth(ctx, reason)
+		}
+		return zero, ue
 	}
 	return out.Data, nil
 }
@@ -354,6 +621,10 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.pendingOTPToken = ""
 		c.pendingOTPEmail = ""
 		c.authenticatedAt = time.Now()
+		// Successful LoginWithOTP is the one and only signal
+		// Rivolt has that the user re-authenticated; drop the
+		// per-user gate so subsequent outbound calls resume.
+		c.clearNeedsReauth(ctx)
 		return nil
 	}
 
@@ -385,6 +656,10 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.userSessionToken = data.Login.UserSessionToken
 		c.email = creds.Email
 		c.authenticatedAt = time.Now()
+		// Successful password-only Login means the user's
+		// credentials are good; clear needs_reauth so the gate
+		// stops short-circuiting.
+		c.clearNeedsReauth(ctx)
 		return nil
 	case "MobileMFALoginResponse":
 		c.pendingOTPToken = data.Login.OTPToken
@@ -866,6 +1141,9 @@ func (c *LiveClient) ChargingFieldProbe(ctx context.Context, field, vehicleID st
 // selection { __typename } and rely on arg-validation errors
 // instead.
 func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field, vehicleID, selection string) (map[string]any, error) {
+	if err := c.checkUpstream(ctx); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
@@ -891,10 +1169,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	httpReq.Header.Set("apollographql-client-name", c.clientName)
-	httpReq.Header.Set("User-Agent", "rivolt/0.1 (+https://github.com/apohor/rivolt)")
+	c.applyBaseHeaders(httpReq.Header)
 	for k, v := range c.authHeaders() {
 		if v != "" {
 			httpReq.Header.Set(k, v)

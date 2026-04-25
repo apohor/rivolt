@@ -29,12 +29,16 @@ import (
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
+	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
+	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/secrets"
+	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/web"
 )
@@ -145,6 +149,40 @@ func runServer() {
 	if err != nil {
 		logger.Warn("settings store unavailable", "err", err.Error())
 	}
+
+	// Envelope-encrypted secret store. Backs the rivian.Session
+	// blob (previously plaintext in settings_kv) and, later, AI
+	// keys + per-user VAPID private keys.
+	//
+	// RIVOLT_KEK is required in production (32-byte AES-256 key,
+	// base64-encoded, prefixed with "<kekID>:"). Absence is
+	// tolerated only when RIVOLT_ALLOW_NOOP_SEALER=1 — strictly
+	// for the local dev workstation; the env-var name is
+	// deliberately long and ugly so it never ends up in a helm
+	// chart or compose file.
+	var secretsStore *secrets.Store
+	if pgPool != nil {
+		sealer, serr := buildSealer(logger)
+		if serr != nil {
+			logger.Error("sealer setup failed — refusing to start", "err", serr.Error())
+			os.Exit(1)
+		}
+		secretsStore = secrets.New(pgPool, sealer)
+		logger.Info("secret store ready", "kek_id", sealer.KEKID())
+	}
+
+	// Operational flag store backs the Rivian upstream kill
+	// switch (ARCHITECTURE decision 6). Non-critical: when open
+	// fails we log and carry on — the hot path treats a nil
+	// store as "gate always open", matching the legacy
+	// pre-kill-switch behavior.
+	flagsStore, err := flags.OpenStore(ctx, pgPool, logger)
+	if err != nil {
+		logger.Warn("flags store unavailable", "err", err.Error())
+	}
+	if flagsStore != nil {
+		flagsStore.Start(ctx)
+	}
 	var settingsMgr *settings.Manager
 	if settingsStore != nil {
 		seed := settings.AIConfig{
@@ -181,8 +219,11 @@ func runServer() {
 		// start logged-out so the UI shows the sign-in panel.
 		// Any email+password authenticates; "mfa" in the email
 		// triggers the MFA flow; "fail" rejects.
-		if settingsStore != nil {
-			if sess, err := settings.LoadRivianSession(ctx, settingsStore); err != nil {
+		if secretsStore != nil {
+			// One-shot migration from the legacy settings_kv row.
+			// Cheap: 1 SELECT + (on hit) 1 INSERT + 1 DELETE.
+			migrateLegacyRivianSession(ctx, logger, settingsStore, secretsStore, currentUserID)
+			if sess, err := secrets.LoadRivianSession(ctx, secretsStore, currentUserID); err != nil {
 				logger.Warn("restore rivian session", "err", err.Error())
 			} else if sess.UserSessionToken != "" {
 				mc.Restore(sess)
@@ -191,7 +232,7 @@ func runServer() {
 				logger.Info("rivian client: mock (awaiting Settings login)")
 			}
 		} else {
-			logger.Info("rivian client: mock (no settings store; login state will not persist)")
+			logger.Info("rivian client: mock (no secrets store; login state will not persist)")
 		}
 		rivianClient = mc
 		rivianAccount = mc
@@ -203,9 +244,41 @@ func runServer() {
 		// server comes up fine without credentials, and Vehicles/State
 		// just return a 'not authenticated' error until the user logs
 		// in.
-		lc := rivian.NewLive()
-		if settingsStore != nil {
-			if sess, err := settings.LoadRivianSession(ctx, settingsStore); err != nil {
+		lc := rivian.NewLive().WithRivoltVersion(version)
+		if flagsStore != nil {
+			// Gate every outbound Rivian call on the kill switch.
+			// Cheap atomic load; returns ErrUpstreamPaused when
+			// the operator has flipped the flag.
+			lc.WithUpstreamGate(func(_ context.Context) error {
+				if ks := flagsStore.KillSwitch(); ks.Paused {
+					return rivian.ErrUpstreamPaused
+				}
+				return nil
+			})
+		}
+		// Persist needs_reauth transitions to Postgres so the
+		// flag survives restarts and is visible to the Settings
+		// UI's "re-authenticate" banner. The sink runs off the
+		// hot path (only on the true→false edges); best-effort
+		// persistence — failure is logged but doesn't mask the
+		// original upstream error.
+		lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
+			if err := db.SetNeedsReauth(sinkCtx, pgPool, currentUserID, reason); err != nil {
+				logger.Warn("persist needs_reauth", "reason", reason, "err", err.Error())
+			}
+		})
+		// Prime the in-memory mirror from Postgres at startup so
+		// a crash-loop with stale creds doesn't briefly allow
+		// requests until the first classification lands.
+		if needs, reason, err := db.GetNeedsReauth(ctx, pgPool, currentUserID); err != nil {
+			logger.Warn("load needs_reauth", "err", err.Error())
+		} else if needs {
+			lc.SetNeedsReauth(true, reason)
+			logger.Info("rivian client: needs re-auth (from Postgres)", "reason", reason)
+		}
+		if secretsStore != nil {
+			migrateLegacyRivianSession(ctx, logger, settingsStore, secretsStore, currentUserID)
+			if sess, err := secrets.LoadRivianSession(ctx, secretsStore, currentUserID); err != nil {
 				logger.Warn("restore rivian session", "err", err.Error())
 			} else if sess.UserSessionToken != "" {
 				lc.Restore(sess)
@@ -214,7 +287,7 @@ func runServer() {
 				logger.Info("rivian client: live (awaiting Settings login)")
 			}
 		} else {
-			logger.Info("rivian client: live (no settings store; login state will not persist)")
+			logger.Info("rivian client: live (no secrets store; login state will not persist)")
 		}
 		rivianAccount = lc
 		rivianClient = lc
@@ -245,6 +318,16 @@ func runServer() {
 	samplesStore, err := samples.OpenStore(pgPool, currentUserID, vehiclesResolver)
 	if err != nil {
 		logger.Warn("samples store unavailable", "err", err.Error())
+	}
+	// Keep `vehicle_state` monthly partitions rolling. Without
+	// this a pod that runs past the last partition created at
+	// migration time would start rejecting live-recorder writes
+	// with "no partition of relation … found for row". Fire-
+	// and-forget goroutine; ctx cancellation stops it on
+	// SIGTERM.
+	if pgPool != nil {
+		partitionJanitor := samples.NewPartitionJanitor(pgPool)
+		go partitionJanitor.Run(ctx)
 	}
 
 	// Wire the stores into the monitor so live WS/REST frames get
@@ -399,6 +482,22 @@ func runServer() {
 		logger.Error("auth init", "err", err.Error())
 		os.Exit(1)
 	}
+	// Wire the opaque-session store when Postgres is present.
+	// Without a DB we fall back to auth's legacy HMAC-signed
+	// cookie path so the in-memory / no-DB dev mode still
+	// boots. The same cookieSecret doubles as the sessions
+	// pepper — in production both sinks need the value to be
+	// stable (rotating either invalidates cookies, which is
+	// fine on a credentials bump but catastrophic otherwise).
+	if pgPool != nil {
+		sStore, serr := sessions.New(pgPool, cookieSecret)
+		if serr != nil {
+			logger.Error("sessions init", "err", serr.Error())
+			os.Exit(1)
+		}
+		authSvc.WithSessionStore(sessions.NewAuthAdapter(sStore))
+		logger.Info("sessions store ready — cookies are opaque, revocable")
+	}
 	if authEnabled {
 		logger.Info("auth enabled",
 			"username", os.Getenv("RIVOLT_USERNAME"),
@@ -424,6 +523,10 @@ func runServer() {
 		Auth:          authSvc,
 		WebFS:         webFS,
 		Version:       version,
+		DB:            pgPool,
+		Logger:        logger,
+		Flags:         flagsStore,
+		Secrets:       secretsStore,
 	})
 
 	srv := &http.Server{
@@ -686,4 +789,81 @@ func runImportElectraFi(args []string) {
 	}
 	fmt.Printf("total: rows=%d samples=%d drives=%d charges=%d skipped=%d\n",
 		totalRows, totalSamples, totalDrives, totalCharges, totalSkipped)
+}
+
+// buildSealer resolves the envelope-encryption KEK source from the
+// environment. In production the operator sets RIVOLT_KEK to
+// "<kekID>:<base64-32-bytes>" and optionally RIVOLT_KEK_ROTATION as
+// a comma-separated list of retained old keys in the same format.
+//
+// The no-op path (RIVOLT_ALLOW_NOOP_SEALER=1) is a developer
+// convenience only — it stores "ciphertext" that is plaintext with a
+// magic header. Gated behind a deliberately long env var so it
+// never accidentally ships; also logged at WARN so a mis-configured
+// production instance is obvious in the very first log line.
+func buildSealer(logger *slog.Logger) (rivoltcrypto.Sealer, error) {
+	if os.Getenv("RIVOLT_ALLOW_NOOP_SEALER") == "1" {
+		logger.Warn("RIVOLT_ALLOW_NOOP_SEALER=1 — secrets will NOT be encrypted at rest. Dev only.")
+		return rivoltcrypto.NoopSealer{}, nil
+	}
+	rotation := []string{}
+	if rot := strings.TrimSpace(os.Getenv("RIVOLT_KEK_ROTATION")); rot != "" {
+		for _, v := range strings.Split(rot, ",") {
+			if v = strings.TrimSpace(v); v != "" {
+				rotation = append(rotation, v)
+			}
+		}
+	}
+	return rivoltcrypto.NewEnvSealerFromEnv("RIVOLT_KEK", rotation...)
+}
+
+// migrateLegacyRivianSession is a one-shot migration from the old
+// plaintext settings_kv["rivian.session"] row to the new sealed
+// user_secrets table. Idempotent: on second run the old row is
+// absent and the function is a no-op. Best-effort: any error is
+// logged (so an operator sees it) but the caller continues with
+// the new store either way — a failed migration just means the
+// user has to re-link Rivian on next login, which is annoying but
+// not data-losing (the tokens still work until they expire).
+//
+// Remove after 2 minor releases: this path only exists to avoid
+// forcing every existing self-hoster through a fresh login on
+// upgrade.
+func migrateLegacyRivianSession(
+	ctx context.Context,
+	logger *slog.Logger,
+	ss *settings.Store,
+	sec *secrets.Store,
+	userID uuid.UUID,
+) {
+	if ss == nil || sec == nil {
+		return
+	}
+	sess, err := settings.LoadRivianSession(ctx, ss)
+	if err != nil {
+		logger.Warn("legacy rivian session read failed", "err", err.Error())
+		return
+	}
+	if sess.UserSessionToken == "" {
+		return // nothing to migrate
+	}
+	// Don't clobber if the sealed row already exists — that means a
+	// prior boot already migrated and the plaintext row is just
+	// stale.
+	if cur, err := secrets.LoadRivianSession(ctx, sec, userID); err == nil && cur.UserSessionToken != "" {
+		// Clean up the stale plaintext row.
+		if derr := ss.Delete(ctx, "rivian.session"); derr != nil {
+			logger.Warn("legacy rivian session cleanup failed", "err", derr.Error())
+		}
+		return
+	}
+	if err := secrets.SaveRivianSession(ctx, sec, userID, sess); err != nil {
+		logger.Warn("legacy rivian session seal failed", "err", err.Error())
+		return
+	}
+	if err := ss.Delete(ctx, "rivian.session"); err != nil {
+		logger.Warn("legacy rivian session cleanup failed (re-run safe)", "err", err.Error())
+		return
+	}
+	logger.Info("migrated rivian session from settings_kv to user_secrets")
 }

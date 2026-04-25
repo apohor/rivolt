@@ -16,9 +16,15 @@ import (
 // graphql-transport-ws subprotocol (init → ack → subscribe → next...).
 const wsEndpoint = "wss://api.rivian.com/gql-consumer-subscriptions/graphql"
 
-// apolloClientVersion matches what the iOS app sends. The gateway
-// doesn't appear to enforce this, but it's what HA-rivian has been
-// using successfully for months.
+// apolloClientVersion is the client-version reported on the
+// websocket subscription gateway's connection_init payload. This is
+// a *separate* contract from the main GraphQL gateway's
+// apollographql-client-version header (see DefaultClientVersion in
+// live.go, which tracks the iOS app's marketing build). The
+// subscription gateway pins an older apollo-subscription-ws client
+// version that home-assistant-rivian has been running against
+// successfully; bumping it unilaterally has caused rejected inits
+// in community reports, so we pin what works.
 const apolloClientVersion = "1.13.0-1494"
 
 // qVehicleStateSubscription is the subscription counterpart to

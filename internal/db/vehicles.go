@@ -77,3 +77,35 @@ func (r *VehicleResolver) RivianID(ctx context.Context, id uuid.UUID) (string, e
 		`SELECT rivian_vehicle_id FROM vehicles WHERE id = $1`, id).Scan(&s)
 	return s, err
 }
+
+// OwnsRivianID reports whether the given user owns a vehicle
+// registered under the given Rivian gateway vehicle-id.
+//
+// This is deliberately a plain SELECT (no upsert) so ownership
+// probing can't be used to silently provision rows in another
+// user's vehicles set — the write path goes through
+// VehicleResolver.Resolve, which is user-scoped by construction.
+//
+// Used by the HTTP ownership middleware as the single seam that
+// decides whether /api/state/{vehicleID} and friends are allowed
+// to touch Rivian upstream on behalf of the session user. False
+// with nil error means "not yours" and the caller must return 404
+// (not 403) so enumerating vehicle-ids doesn't leak existence.
+func OwnsRivianID(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID string) (bool, error) {
+	if rivianID == "" || userID == uuid.Nil {
+		return false, nil
+	}
+	var one int
+	err := d.QueryRowContext(ctx, `
+		SELECT 1 FROM vehicles
+		WHERE user_id = $1 AND rivian_vehicle_id = $2
+		LIMIT 1
+	`, userID, rivianID).Scan(&one)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("vehicles ownership check: %w", err)
+	}
+	return true, nil
+}
