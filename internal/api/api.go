@@ -4,9 +4,11 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,9 +23,11 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
+	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -57,6 +61,30 @@ type Deps struct {
 	Auth    *auth.Service
 	WebFS   fs.FS
 	Version string
+	// DB is the shared Postgres pool. Used by request middleware
+	// that needs to answer "does this session user own this
+	// vehicle?" without round-tripping through a per-user store.
+	// Safe to be nil in legacy code paths that predate the
+	// ownership middleware; ownership enforcement is only wired
+	// when DB is non-nil.
+	DB *sql.DB
+	// Logger is the structured logger used by middleware for
+	// infrastructure-class warnings (DB errors on ownership check,
+	// etc.). nil is fine; events are dropped.
+	Logger *slog.Logger
+	// Flags is the operational-flag store (kill switch, future
+	// pause_digest / pause_push rows). When nil the /api/admin/*
+	// routes return 503 but the server still boots — the flag
+	// surface is non-critical to rendering the app.
+	Flags *flags.Store
+	// Secrets is the envelope-encrypted per-user blob store
+	// (see internal/crypto, internal/secrets). Holds the
+	// sealed rivian.Session and, later, AI provider keys and
+	// per-user VAPID private keys. nil is tolerated so tests
+	// and the mock/stub client don't have to stand up a
+	// sealer; the Rivian sign-in surface becomes read-only
+	// when it's absent.
+	Secrets *secrets.Store
 }
 
 // New builds the root mux with all routes mounted.
@@ -134,12 +162,25 @@ func New(d Deps) http.Handler {
 			// Rivian live endpoints. /api/vehicles returns [] when no real
 			// client is configured (the stub returns ErrNotImplemented);
 			// other errors surface as 502 so the UI can show them.
+			//
+			// Vehicle-scoped routes below sit behind
+			// requireVehicleOwnershipMW when the shared DB pool is
+			// wired: that check converts "unknown vehicle for this
+			// user" into a 404 before any handler runs, so
+			// /api/state/{someone-elses-id} can't read tenant data
+			// even if Rivian upstream would honor the call.
+			var vehicleScoped func(http.Handler) http.Handler
+			if d.DB != nil {
+				vehicleScoped = requireVehicleOwnershipMW(d.DB, d.Logger)
+			} else {
+				vehicleScoped = func(next http.Handler) http.Handler { return next }
+			}
 			r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor))
-			r.Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
-			r.Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
-			r.Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
-			r.Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
-			r.Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
+			r.With(vehicleScoped).Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
+			r.With(vehicleScoped).Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
+			r.With(vehicleScoped).Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
+			r.With(vehicleScoped).Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
+			r.With(vehicleScoped).Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
 			r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
 			r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
 			r.Get("/charging-frames", handleChargingFrames(d.Rivian))
@@ -148,9 +189,9 @@ func New(d Deps) http.Handler {
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
 				r.Get("/", handleRivianStatus(d.RivianAccount))
-				r.Post("/login", handleRivianLogin(d.RivianAccount, d.SettingsStore))
-				r.Post("/mfa", handleRivianMFA(d.RivianAccount, d.SettingsStore))
-				r.Post("/logout", handleRivianLogout(d.RivianAccount, d.SettingsStore))
+				r.Post("/login", handleRivianLogin(d.RivianAccount, d.Secrets))
+				r.Post("/mfa", handleRivianMFA(d.RivianAccount, d.Secrets))
+				r.Post("/logout", handleRivianLogout(d.RivianAccount, d.Secrets))
 			})
 
 			// Home electricity cost settings, applied locally to estimate
@@ -175,6 +216,17 @@ func New(d Deps) http.Handler {
 			// key+model pair without waiting for a downstream AI
 			// feature (digest, anomaly, etc.) to exercise it.
 			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
+
+			// Operational admin surface. Today's only endpoint is the
+			// Rivian-upstream kill switch (ARCHITECTURE decision 6 /
+			// ROADMAP Phase 1). GET returns the cached flag state;
+			// PUT flips it and refreshes the local snapshot
+			// immediately. Remote pods see the change on their next
+			// poll (~10s) — decision 6 sizes that delay explicitly.
+			r.Route("/admin", func(r chi.Router) {
+				r.Get("/kill-switch", handleFlagsGet(d.Flags))
+				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
+			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
 			// ElectraFi importer or the (future) live Rivian ingester.

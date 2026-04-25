@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/rivian"
-	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/secrets"
 )
 
 // rivianStatusDTO is the public view of the Rivian account state.
@@ -40,10 +41,15 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
-func handleRivianLogin(lc rivian.Account, store *settings.Store) http.HandlerFunc {
+func handleRivianLogin(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
+			return
+		}
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
 		var req rivianLoginReq
@@ -69,7 +75,7 @@ func handleRivianLogin(lc rivian.Account, store *settings.Store) http.HandlerFun
 			return
 		}
 		// Fully authenticated — persist.
-		if perr := settings.SaveRivianSession(r.Context(), store, lc.Snapshot()); perr != nil {
+		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
@@ -84,10 +90,15 @@ type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(lc rivian.Account, store *settings.Store) http.HandlerFunc {
+func handleRivianMFA(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
+			return
+		}
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
 		if !lc.MFAPending() {
@@ -110,7 +121,7 @@ func handleRivianMFA(lc rivian.Account, store *settings.Store) http.HandlerFunc 
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}
-		if perr := settings.SaveRivianSession(r.Context(), store, lc.Snapshot()); perr != nil {
+		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
@@ -121,14 +132,19 @@ func handleRivianMFA(lc rivian.Account, store *settings.Store) http.HandlerFunc 
 	}
 }
 
-func handleRivianLogout(lc rivian.Account, store *settings.Store) http.HandlerFunc {
+func handleRivianLogout(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
 		lc.Logout()
-		if perr := settings.SaveRivianSession(r.Context(), store, rivian.Session{}); perr != nil {
+		if perr := secrets.SaveRivianSession(r.Context(), store, uid, rivian.Session{}); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}

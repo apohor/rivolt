@@ -60,6 +60,9 @@ type wsSub struct {
 // Each successful acquireMux MUST be paired with a releaseMux, which
 // decrements refs and closes the WS when the last holder leaves.
 func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
+	if err := c.checkUpstream(ctx); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()

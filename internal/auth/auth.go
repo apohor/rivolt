@@ -130,6 +130,49 @@ type Service struct {
 	hdrUser     string
 	hdrEmail    string
 	userIDFor   func(string) uuid.UUID
+
+	// sessionStore, when non-nil, is the source of truth for
+	// cookie identity: Login creates a row, Middleware looks up
+	// by hashed token, Logout revokes. When nil (tests, legacy
+	// cookie-only binaries), the HMAC-signed-cookie path below
+	// still works — so stepping back to the old behaviour is a
+	// matter of wiring, not code churn.
+	sessionStore SessionStore
+}
+
+// SessionStore is the slice of sessions.Store that auth actually
+// uses, exposed as an interface so tests can stub without a live
+// DB. The concrete implementation lives in internal/sessions.
+type SessionStore interface {
+	Create(ctx context.Context, userID uuid.UUID, ttl time.Duration, opts SessionCreateOpts) (SessionInfo, string, error)
+	Lookup(ctx context.Context, rawTokenCookie string) (SessionInfo, error)
+	RevokeByToken(ctx context.Context, rawTokenCookie string) error
+}
+
+// SessionCreateOpts / SessionInfo mirror the sessions package's
+// types so callers don't need to import both. The sessions
+// package's Store satisfies auth.SessionStore via a thin
+// adapter wired in main.go.
+type SessionCreateOpts struct {
+	UserAgent   string
+	IPAddress   string
+	DeviceLabel string
+}
+
+// SessionInfo is the projection auth needs — just the identity
+// fields. Extra metadata (last_seen_at, device list) is out of
+// scope for the auth seam.
+type SessionInfo struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// WithSessionStore installs the opaque-session backend. Chainable
+// from New for compact wiring. When unset, auth falls back to
+// the HMAC-signed cookie issued inline.
+func (s *Service) WithSessionStore(store SessionStore) *Service {
+	s.sessionStore = store
+	return s
 }
 
 // New builds a Service. ensureUser is invoked once on successful
@@ -269,10 +312,13 @@ func UserFromContext(ctx context.Context) (uuid.UUID, bool) {
 	return v, ok && v != uuid.Nil
 }
 
-// withUser returns a copy of ctx with uid stored under this
-// package's private key. Exported for tests that want to build an
-// authenticated context without going through the HTTP surface.
-func withUser(ctx context.Context, uid uuid.UUID) context.Context {
+// WithUser returns a copy of ctx with uid stored under this
+// package's private key. Exported for tests (including tests in
+// sibling packages) that want to build an authenticated context
+// without replaying the full cookie / header handshake. The
+// context key itself remains unexported, so only this package's
+// code paths can inject an identity.
+func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
 	return context.WithValue(ctx, ctxKey{}, uid)
 }
 
@@ -304,7 +350,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if uid, ok := s.identityFromHeader(r); ok {
-			next.ServeHTTP(w, r.WithContext(withUser(r.Context(), uid)))
+			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), uid)))
 			return
 		}
 		c, err := r.Cookie(s.cookieName)
@@ -312,6 +358,23 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Opaque-session path: cookie is a random 32-byte
+		// token; the DB is the source of truth. Any failure
+		// (bad format, revoked, expired) is collapsed into
+		// "no user" plus a cookie-clear so the browser stops
+		// resending the stale value.
+		if s.sessionStore != nil {
+			info, err := s.sessionStore.Lookup(r.Context(), c.Value)
+			if err != nil {
+				s.clearCookie(w)
+				next.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), info.UserID)))
+			return
+		}
+		// Legacy HMAC-signed-cookie path. Kept so tests and
+		// single-binary builds without a DB continue to work.
 		t, err := s.decode(c.Value)
 		if err != nil {
 			// Nudge the browser to drop the bad cookie so it
@@ -320,7 +383,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), t.UserID)))
+		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), t.UserID)))
 	})
 }
 
@@ -429,6 +492,43 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ensure user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Opaque-session path: DB is the source of truth. The
+	// cookie carries only the 32-byte random token; the HMAC
+	// pepper in sessions.Store is what protects DB-dump
+	// readability. This is the production code path once
+	// RIVOLT_COOKIE_SECRET is wired into both sinks by main.
+	if s.sessionStore != nil {
+		info, raw, err := s.sessionStore.Create(r.Context(), uid, s.ttl, SessionCreateOpts{
+			UserAgent: r.UserAgent(),
+			IPAddress: firstNonEmpty(
+				// Honour chi's RealIP middleware output
+				// (which rewrites RemoteAddr) and fall back
+				// to r.RemoteAddr verbatim; sessions.Store
+				// silently drops unparseable forms.
+				r.RemoteAddr,
+			),
+		})
+		if err != nil {
+			http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = info // reserved for future auditing / response body
+		http.SetCookie(w, &http.Cookie{
+			Name:     s.cookieName,
+			Value:    raw,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   s.secureCooke,
+			SameSite: http.SameSiteLaxMode,
+			Expires:  time.Now().Add(s.ttl),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
+		return
+	}
+	// Legacy HMAC-signed cookie: self-describing, no DB
+	// required. Used by tests and by binaries built without a
+	// sessions backend.
 	tok, err := s.encode(token{
 		UserID:    uid,
 		ExpiresAt: time.Now().Add(s.ttl).Unix(),
@@ -450,8 +550,28 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
 }
 
+// firstNonEmpty returns the first non-empty string in vs.
+// Sentinel helper kept local so the auth package doesn't grow
+// a util.go for one function.
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // Logout clears the session cookie. No-op when there isn't one.
 func (s *Service) Logout(w http.ResponseWriter, r *http.Request) {
+	// Opaque-session path: revoke the row so the cookie is
+	// permanently dead, even if some stale tab replays it.
+	// Best-effort — a DB error doesn't block cookie-clear.
+	if s.sessionStore != nil {
+		if c, err := r.Cookie(s.cookieName); err == nil {
+			_ = s.sessionStore.RevokeByToken(r.Context(), c.Value)
+		}
+	}
 	s.clearCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 }
