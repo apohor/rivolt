@@ -356,6 +356,20 @@ export const backend = {
   login: (username: string, password: string) =>
     api.post<AuthUser>("/api/auth/login", { username, password }),
   logout: () => api.post<void>("/api/auth/logout"),
+  // oidcProviders returns the list of OIDC sign-in options the
+  // server has wired up. An empty array (or a 404 when an old
+  // server is in front of a new SPA) means: just render the
+  // password form, no social-login row.
+  oidcProviders: async (): Promise<OIDCProvider[]> => {
+    try {
+      return await api.get<OIDCProvider[]>("/api/auth/oidc/");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 401)) {
+        return [];
+      }
+      throw e;
+    }
+  },
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
@@ -592,4 +606,13 @@ export type ImportProgress = {
 export type AuthUser = {
   user_id: string;
   username: string;
+};
+
+// OIDCProvider is one entry in /api/auth/oidc/. The SPA renders
+// one button per entry; clicking sends the browser to start_url
+// where the server kicks off the auth-code flow.
+export type OIDCProvider = {
+  name: string;
+  display_name: string;
+  start_url: string;
 };

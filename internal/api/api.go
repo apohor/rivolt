@@ -24,6 +24,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
@@ -59,6 +60,11 @@ type Deps struct {
 	// is open, preserving the pre-auth single-tenant UX so
 	// upgrades don't lock users out of their own NAS.
 	Auth    *auth.Service
+	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
+	// auth issuer alongside static creds and trusted-proxy
+	// header. nil disables the social-login button row in the
+	// SPA but doesn't affect any other code path.
+	OIDC    *oidc.Service
 	WebFS   fs.FS
 	Version string
 	// DB is the shared Postgres pool. Used by request middleware
@@ -135,6 +141,9 @@ func New(d Deps) http.Handler {
 				r.Post("/login", d.Auth.Login)
 				r.Post("/logout", d.Auth.Logout)
 				r.Get("/me", d.Auth.Me)
+				if d.OIDC != nil {
+					d.OIDC.Mount(r)
+				}
 			})
 		}
 

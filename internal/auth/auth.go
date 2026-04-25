@@ -492,27 +492,46 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ensure user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Opaque-session path: DB is the source of truth. The
-	// cookie carries only the 32-byte random token; the HMAC
-	// pepper in sessions.Store is what protects DB-dump
-	// readability. This is the production code path once
-	// RIVOLT_COOKIE_SECRET is wired into both sinks by main.
+	if err := s.IssueSession(w, r, uid); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
+}
+
+// IssueSession plants the session cookie for an already-resolved
+// user_id. Extracted from Login so non-password issuers (OIDC,
+// magic-link, dev-shortcut) can reuse the exact same cookie path
+// without duplicating the opaque-session/HMAC-fallback fork.
+//
+// Wire shape:
+//
+//   - With a sessionStore: a row is created (random token + HMACed
+//     row key) and the cookie carries only the raw token.
+//   - Without one: a self-describing HMAC-signed token is signed
+//     into the cookie. This branch keeps the legacy cookie-only
+//     binaries (and the auth tests that don't spin up a sessions
+//     store) working.
+//
+// Note that we deliberately do not write the response body here —
+// that's the caller's responsibility because the OIDC callback
+// wants to send a 302 redirect, while /api/auth/login wants JSON.
+func (s *Service) IssueSession(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error {
+	if s == nil {
+		return errors.New("auth: nil service")
+	}
+	if uid == uuid.Nil {
+		return errors.New("auth: zero user id")
+	}
 	if s.sessionStore != nil {
-		info, raw, err := s.sessionStore.Create(r.Context(), uid, s.ttl, SessionCreateOpts{
+		_, raw, err := s.sessionStore.Create(r.Context(), uid, s.ttl, SessionCreateOpts{
 			UserAgent: r.UserAgent(),
-			IPAddress: firstNonEmpty(
-				// Honour chi's RealIP middleware output
-				// (which rewrites RemoteAddr) and fall back
-				// to r.RemoteAddr verbatim; sessions.Store
-				// silently drops unparseable forms.
-				r.RemoteAddr,
-			),
+			IPAddress: firstNonEmpty(r.RemoteAddr),
 		})
 		if err != nil {
-			http.Error(w, "create session: "+err.Error(), http.StatusInternalServerError)
-			return
+			return fmt.Errorf("create session: %w", err)
 		}
-		_ = info // reserved for future auditing / response body
 		http.SetCookie(w, &http.Cookie{
 			Name:     s.cookieName,
 			Value:    raw,
@@ -522,20 +541,14 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Now().Add(s.ttl),
 		})
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
-		return
+		return nil
 	}
-	// Legacy HMAC-signed cookie: self-describing, no DB
-	// required. Used by tests and by binaries built without a
-	// sessions backend.
 	tok, err := s.encode(token{
 		UserID:    uid,
 		ExpiresAt: time.Now().Add(s.ttl).Unix(),
 	})
 	if err != nil {
-		http.Error(w, "sign token: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("sign token: %w", err)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.cookieName,
@@ -546,8 +559,7 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(s.ttl),
 	})
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
+	return nil
 }
 
 // firstNonEmpty returns the first non-empty string in vs.

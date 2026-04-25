@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
@@ -509,6 +510,43 @@ func runServer() {
 		logger.Warn("auth disabled — set RIVOLT_USERNAME and RIVOLT_PASSWORD to require login")
 	}
 
+	// OIDC: third issuer alongside static creds + trusted-proxy
+	// header. Disabled when RIVOLT_OIDC_PROVIDERS is empty so the
+	// homelab default ships zero behaviour change. When enabled
+	// it requires pgPool (we need EnsureUserFull and a sessions
+	// store) — emit a clear error rather than silently dropping.
+	var oidcSvc *oidc.Service
+	if provs, perr := oidc.ParseProvidersFromEnv(os.Getenv, os.Getenv("RIVOLT_BASE_URL")); perr != nil {
+		logger.Error("oidc env parse", "err", perr.Error())
+		os.Exit(1)
+	} else if len(provs) > 0 {
+		if pgPool == nil {
+			logger.Error("oidc requires DATABASE_URL (sessions + users tables)")
+			os.Exit(1)
+		}
+		svc, oerr := oidc.New(ctx, oidc.Config{
+			IssueSession: authSvc.IssueSession,
+			EnsureUser: func(ctx context.Context, username, email, displayName string) (uuid.UUID, error) {
+				return db.EnsureUserFull(ctx, pgPool, username, email, displayName)
+			},
+			UserIDFor:    db.UserIDFor,
+			PostLoginURL: "/",
+			SecureCookie: secureCookie,
+			Logger:       logger,
+			Providers:    provs,
+		})
+		if oerr != nil {
+			logger.Error("oidc init", "err", oerr.Error())
+			os.Exit(1)
+		}
+		oidcSvc = svc
+		names := make([]string, 0, len(provs))
+		for _, p := range provs {
+			names = append(names, p.Name)
+		}
+		logger.Info("oidc enabled", "providers", names)
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
 		RivianAccount: rivianAccount,
@@ -521,6 +559,7 @@ func runServer() {
 		Samples:       samplesStore,
 		StateMonitor:  stateMonitor,
 		Auth:          authSvc,
+		OIDC:          oidcSvc,
 		WebFS:         webFS,
 		Version:       version,
 		DB:            pgPool,
