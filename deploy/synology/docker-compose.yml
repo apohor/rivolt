@@ -35,6 +35,25 @@ services:
       RIVOLT_PASSWORD: "change-me"
       RIVOLT_SECURE_COOKIE: "true"  # DSM is fronted by HTTPS
 
+      # Envelope key (KEK). Required. 32-byte AES-256 key, base64-
+      # encoded, prefixed with a key-id and a colon. The key-id is
+      # arbitrary ("v1" is fine for first boot) and gets stored
+      # alongside each ciphertext so future rotations can decrypt
+      # legacy rows. Generate with:
+      #
+      #   echo "v1:$(openssl rand -base64 32)"
+      #
+      # Treat this like a database password — losing it bricks every
+      # encrypted secret in the DB (Rivian session, AI keys, VAPID
+      # private keys). Back it up out-of-band before first boot.
+      #
+      # Rotation: set RIVOLT_KEK to the new key (e.g. "v2:...") and
+      # add the previous key as RIVOLT_KEK_ROTATION="v1:..." so the
+      # old ciphertexts keep decrypting until a background rewrap
+      # migrates them.
+      RIVOLT_KEK: "v1:REPLACE_WITH_OUTPUT_OF_openssl_rand_base64_32"
+      # RIVOLT_KEK_ROTATION: "v0:..."  # optional, comma-separated old keys
+
       # Optional: OIDC sign-in (Phase 2 — Identity).
       # When enabled, Rivolt mounts /api/auth/oidc/{name}/{start,callback}
       # and the SPA renders a "Continue with X" button per provider on
