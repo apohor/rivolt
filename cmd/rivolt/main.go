@@ -122,7 +122,12 @@ func runServer() {
 			logger.Error("DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME) is required")
 			os.Exit(1)
 		}
-		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		// 5 minutes covers the worst-case migration we ship
+		// (0007's partition swap on an already-populated
+		// vehicle_state heap). Ping itself is sub-second; only
+		// migrations can legitimately take this long, and they
+		// run exactly once per upgrade.
+		pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		p, err := db.Open(pctx, dsn)
 		cancel()
 		if err != nil {
@@ -767,7 +772,7 @@ func runImportElectraFi(args []string) {
 		os.Exit(1)
 	}
 	ctx := context.Background()
-	pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	pool, err := db.Open(pctx, dsn)
 	cancel()
 	if err != nil {
