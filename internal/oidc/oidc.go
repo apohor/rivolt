@@ -15,16 +15,16 @@
 //
 // # The flow
 //
-//   GET  /api/auth/oidc/{provider}/start
-//        → 302 to provider.AuthURL(state) with a state+nonce cookie
+//	GET  /api/auth/oidc/{provider}/start
+//	     → 302 to provider.AuthURL(state) with a state+nonce cookie
 //
-//   GET  /api/auth/oidc/{provider}/callback?code&state
-//        → verify state cookie matches query param
-//        → exchange code for tokens
-//        → verify ID token signature + nonce + audience
-//        → resolve identity → stable UUID via auth's UserIDFor
-//        → upsert users row → mint Rivolt session cookie
-//        → 302 back into the SPA (configurable post-login URL)
+//	GET  /api/auth/oidc/{provider}/callback?code&state
+//	     → verify state cookie matches query param
+//	     → exchange code for tokens
+//	     → verify ID token signature + nonce + audience
+//	     → resolve identity → stable UUID via auth's UserIDFor
+//	     → upsert users row → mint Rivolt session cookie
+//	     → 302 back into the SPA (configurable post-login URL)
 //
 // # Identity resolution
 //
@@ -254,8 +254,8 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 
 // Mount installs the OIDC routes onto r under /oidc:
 //
-//   GET /oidc/{provider}/start
-//   GET /oidc/{provider}/callback
+//	GET /oidc/{provider}/start
+//	GET /oidc/{provider}/callback
 //
 // Caller is api.go, which mounts this whole group under /api/auth.
 func (s *Service) Mount(r chi.Router) {
@@ -592,12 +592,12 @@ func decodeState(raw string) (flowState, error) {
 // ParseProvidersFromEnv reads the operator's env soup and produces
 // a slice of ProviderConfig. Format:
 //
-//   RIVOLT_OIDC_PROVIDERS=google,authentik
-//   RIVOLT_OIDC_GOOGLE_ISSUER=https://accounts.google.com
-//   RIVOLT_OIDC_GOOGLE_CLIENT_ID=...
-//   RIVOLT_OIDC_GOOGLE_CLIENT_SECRET=...
-//   RIVOLT_OIDC_GOOGLE_DISPLAY_NAME=Google         # optional
-//   RIVOLT_OIDC_GOOGLE_SCOPES=openid,email,profile # optional
+//	RIVOLT_OIDC_PROVIDERS=google,authentik
+//	RIVOLT_OIDC_GOOGLE_ISSUER=https://accounts.google.com
+//	RIVOLT_OIDC_GOOGLE_CLIENT_ID=...
+//	RIVOLT_OIDC_GOOGLE_CLIENT_SECRET=...
+//	RIVOLT_OIDC_GOOGLE_DISPLAY_NAME=Google         # optional
+//	RIVOLT_OIDC_GOOGLE_SCOPES=openid,email,profile # optional
 //
 // baseURL is the public origin Rivolt is reachable at; we build
 // the redirect URL automatically as

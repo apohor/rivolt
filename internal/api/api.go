@@ -59,7 +59,7 @@ type Deps struct {
 	// unconfigured (no RIVOLT_USERNAME / RIVOLT_PASSWORD) the API
 	// is open, preserving the pre-auth single-tenant UX so
 	// upgrades don't lock users out of their own NAS.
-	Auth    *auth.Service
+	Auth *auth.Service
 	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
 	// auth issuer alongside static creds and trusted-proxy
 	// header. nil disables the social-login button row in the

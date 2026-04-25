@@ -153,11 +153,11 @@ func TestParseProvidersFromEnv(t *testing.T) {
 	})
 	t.Run("happy path builds redirect URL", func(t *testing.T) {
 		m := map[string]string{
-			"RIVOLT_OIDC_PROVIDERS":           "google",
-			"RIVOLT_OIDC_GOOGLE_ISSUER":       "https://accounts.google.com",
-			"RIVOLT_OIDC_GOOGLE_CLIENT_ID":    "id",
+			"RIVOLT_OIDC_PROVIDERS":            "google",
+			"RIVOLT_OIDC_GOOGLE_ISSUER":        "https://accounts.google.com",
+			"RIVOLT_OIDC_GOOGLE_CLIENT_ID":     "id",
 			"RIVOLT_OIDC_GOOGLE_CLIENT_SECRET": "secret",
-			"RIVOLT_OIDC_GOOGLE_DISPLAY_NAME": "Sign in with Google",
+			"RIVOLT_OIDC_GOOGLE_DISPLAY_NAME":  "Sign in with Google",
 		}
 		got, err := ParseProvidersFromEnv(env(m), "https://rivolt.example.com/")
 		if err != nil {
@@ -189,9 +189,9 @@ func TestParseProvidersFromEnv(t *testing.T) {
 	})
 	t.Run("duplicate provider name is an error", func(t *testing.T) {
 		m := map[string]string{
-			"RIVOLT_OIDC_PROVIDERS":            "google,google",
-			"RIVOLT_OIDC_GOOGLE_ISSUER":        "https://x",
-			"RIVOLT_OIDC_GOOGLE_CLIENT_ID":     "id",
+			"RIVOLT_OIDC_PROVIDERS":        "google,google",
+			"RIVOLT_OIDC_GOOGLE_ISSUER":    "https://x",
+			"RIVOLT_OIDC_GOOGLE_CLIENT_ID": "id",
 		}
 		_, err := ParseProvidersFromEnv(env(m), "https://x")
 		if err == nil || !strings.Contains(err.Error(), "twice") {
@@ -200,10 +200,10 @@ func TestParseProvidersFromEnv(t *testing.T) {
 	})
 	t.Run("scopes are parsed", func(t *testing.T) {
 		m := map[string]string{
-			"RIVOLT_OIDC_PROVIDERS":         "x",
-			"RIVOLT_OIDC_X_ISSUER":          "https://x",
-			"RIVOLT_OIDC_X_CLIENT_ID":       "id",
-			"RIVOLT_OIDC_X_SCOPES":          "openid, email , profile, groups ",
+			"RIVOLT_OIDC_PROVIDERS":   "x",
+			"RIVOLT_OIDC_X_ISSUER":    "https://x",
+			"RIVOLT_OIDC_X_CLIENT_ID": "id",
+			"RIVOLT_OIDC_X_SCOPES":    "openid, email , profile, groups ",
 		}
 		got, err := ParseProvidersFromEnv(env(m), "https://x")
 		if err != nil {

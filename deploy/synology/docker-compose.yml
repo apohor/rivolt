@@ -35,6 +35,36 @@ services:
       RIVOLT_PASSWORD: "change-me"
       RIVOLT_SECURE_COOKIE: "true"  # DSM is fronted by HTTPS
 
+      # Optional: OIDC sign-in (Phase 2 — Identity).
+      # When enabled, Rivolt mounts /api/auth/oidc/{name}/{start,callback}
+      # and the SPA renders a "Continue with X" button per provider on
+      # /login. Username/password login keeps working alongside it.
+      #
+      # RIVOLT_BASE_URL is required as soon as any provider is set —
+      # the OIDC redirect URL is derived from it
+      # ({BASE_URL}/api/auth/oidc/{name}/callback) and that path must
+      # match what's registered in the IdP byte-for-byte.
+      #
+      # RIVOLT_BASE_URL: "https://rivolt.example.com"
+      # RIVOLT_OIDC_PROVIDERS: "google"   # comma-separated slugs
+      #
+      # Google example. Create an OAuth Web Application credential at
+      # https://console.cloud.google.com → APIs & Services → Credentials.
+      # Authorized redirect URI must be exactly:
+      #   {RIVOLT_BASE_URL}/api/auth/oidc/google/callback
+      # RIVOLT_OIDC_GOOGLE_ISSUER: "https://accounts.google.com"
+      # RIVOLT_OIDC_GOOGLE_CLIENT_ID: ""        # 1234-abc.apps.googleusercontent.com
+      # RIVOLT_OIDC_GOOGLE_CLIENT_SECRET: ""    # GOCSPX-...
+      # RIVOLT_OIDC_GOOGLE_DISPLAY_NAME: "Google"
+      # RIVOLT_OIDC_GOOGLE_SCOPES: "openid,email,profile"  # default; override only if needed
+      #
+      # Self-hosted Authentik / Authelia / Keycloak follow the same
+      # pattern — add the slug to RIVOLT_OIDC_PROVIDERS and set
+      # RIVOLT_OIDC_<UPPER_SLUG>_{ISSUER,CLIENT_ID,CLIENT_SECRET,...}.
+      # RIVOLT_OIDC_AUTHENTIK_ISSUER: "https://auth.example.com/application/o/rivolt/"
+      # RIVOLT_OIDC_AUTHENTIK_CLIENT_ID: ""
+      # RIVOLT_OIDC_AUTHENTIK_CLIENT_SECRET: ""
+
       # Postgres. Service-name DNS; nothing is exposed to the LAN.
       DB_HOST: "postgres"
       DB_NAME: "rivolt"
