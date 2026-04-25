@@ -30,6 +30,14 @@
 -- PL/pgSQL function + a Go boot-time call cover it. Phase 3 can
 -- graduate to pg_partman if we ever want its retention automation.
 
+-- Disable any cluster-default statement_timeout for the duration of
+-- this migration's tx. The boot context already enforces a generous
+-- ceiling on db.Open; we don't want a 30s default in postgresql.conf
+-- or in PGOPTIONS to bite the data copy on a populated heap. SET
+-- LOCAL is tx-scoped and reverts on COMMIT/ROLLBACK.
+SET LOCAL statement_timeout = 0;
+SET LOCAL lock_timeout      = 0;
+
 -- -------------------------------------------------------------------
 -- 1. New partitioned parent, same shape as the existing heap. All
 --    indexes declared here become partitioned indexes (PG11+), which
