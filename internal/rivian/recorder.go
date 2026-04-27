@@ -114,11 +114,18 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 		m.observeBatteryCapacity(vehicleID, curr.BatteryCapacityKWh)
 	}
 
-	// Use a detached context with a short timeout so recorder writes
-	// can't block cache updates on a slow disk. Use context.Background
+	// Use a detached context with a generous timeout so recorder
+	// writes can't block cache updates on a slow disk. context.Background
 	// because the caller's ctx may be about to be cancelled (e.g. on
 	// subscription shutdown) and we still want the last sample to land.
-	wctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	//
+	// 10s is well over what an idle Postgres needs (sub-millisecond)
+	// but covers (a) Synology HDD-backed volumes during a checkpoint,
+	// (b) the period right after migration 0007 when the new
+	// vehicle_state partition indexes are warming, and (c) any
+	// transient lock wait. Anything still slower than this points to
+	// a real DB problem worth surfacing.
+	wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = ctx // reserved for future backpressure signals
 
@@ -159,7 +166,12 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 			Source:          "live",
 		}
 		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
-			m.logger.Debug("live sample insert failed", "vehicle", vehicleID, "err", err.Error())
+			// Warn (not Debug) — this is the only place a silent
+			// vehicle_state write failure shows up, and a quiet
+			// failure is exactly what produces "the drive list has
+			// the drive but the map is empty". Anything that wants
+			// to silence it can lift the level back via slog.
+			m.logger.Warn("live sample insert failed", "vehicle", vehicleID, "err", err.Error())
 		}
 	}
 }
