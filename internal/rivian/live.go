@@ -48,13 +48,25 @@ const DefaultClientVersion = "3.6.0-4400"
 // modified UAs.
 const DefaultUserAgent = "RivianApp/4400 CFNetwork/1498.700.2 Darwin/23.6.0"
 
-// DefaultAccept is the iOS app's Accept header. It advertises
-// support for Apollo's deferred-fields spec (multipart/mixed; ...),
-// which unlocks schema fragments the GraphQL server streams
-// progressively. Plain application/json still works today but some
-// endpoints return truncated payloads without the multipart hint —
-// matching the iOS app is the safe default.
-const DefaultAccept = "multipart/mixed;deferSpec=20220824,application/graphql-response+json,application/json"
+// DefaultAccept is what we advertise on Apollo client requests. We
+// deliberately do NOT request `multipart/mixed;deferSpec=20220824`
+// the way the real iOS app does, even though impersonating the iOS
+// client is otherwise the policy in this file (see DefaultUserAgent).
+//
+// Why: when the gateway sees the multipart/mixed accept, it streams
+// any field tagged @defer server-side as a separate part of a
+// multipart response. `gnssLocation` is one such field. Our
+// doGraphQLAt is a single-shot json.Unmarshal of the whole body and
+// has no multipart-mixed reader, so deferred parts are silently
+// dropped — non-deferred scalars (gnssSpeed, batteryLevel,
+// gearStatus, …) come through fine, but Latitude/Longitude land as
+// zero. Net effect on the live recorder is "drives appear in the
+// list but the map is empty" — see the v0.10.4 fix that landed
+// alongside this constant. If we ever want to send the iOS Accept
+// verbatim again, doGraphQLAt has to gain a multipart/mixed reader
+// that splices the deferred chunks into the same response struct
+// before json.Unmarshal sees it.
+const DefaultAccept = "application/json"
 
 // applyBaseHeaders sets the iOS-app-matching headers every
 // Rivian-gateway HTTPS request should carry. Callers still layer
