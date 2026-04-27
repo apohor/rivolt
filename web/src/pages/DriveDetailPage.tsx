@@ -162,6 +162,31 @@ export default function DriveDetailPage() {
           label="Speed avg / max"
           value={`${num(drive.AvgSpeedMph, 0)} / ${num(drive.MaxSpeedMph, 0)} mph`}
         />
+        <Stat
+          label="Energy"
+          value={drive.EnergyUsedKWh > 0 ? num(drive.EnergyUsedKWh, 1, "kWh") : "—"}
+        />
+        <Stat
+          label="Cost"
+          value={
+            drive.estimated_cost && drive.estimated_cost > 0
+              ? `~${drive.estimated_cost.toFixed(2)}${drive.estimated_currency ? ` ${drive.estimated_currency}` : ""}`
+              : "—"
+          }
+          hint={
+            drive.blended_price_per_kwh
+              ? `at ~${drive.blended_price_per_kwh.toFixed(3)}${drive.estimated_currency ? ` ${drive.estimated_currency}` : ""}/kWh from your most recent charge`
+              : undefined
+          }
+        />
+        <Stat
+          label="Efficiency"
+          value={
+            drive.EnergyUsedKWh > 0 && drive.DistanceMi > 0
+              ? `${(drive.DistanceMi / drive.EnergyUsedKWh).toFixed(2)} mi/kWh`
+              : "—"
+          }
+        />
       </div>
 
       <Card title="Speed">
@@ -290,11 +315,22 @@ function hasEndpointPair(d: {
   return ok(d.StartLat, d.StartLon) && ok(d.EndLat, d.EndLon);
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+      {hint ? (
+        <div className="mt-1 text-[10px] text-neutral-500">{hint}</div>
+      ) : null}
     </div>
   );
 }
