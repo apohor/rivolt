@@ -44,14 +44,15 @@ func TestIOSHeadersOnEveryRequest(t *testing.T) {
 		}
 	}
 
-	// Compile-time sanity: the iOS values we committed to must be
-	// the ones documented upstream. If someone bumps these
-	// constants without updating the implementation summary
-	// reference in live.go, this test is where they find out.
-	if DefaultClientName != "com.rivian.ios.consumer" {
+	// Compile-time sanity: the Apollo-client identity we ship must
+	// remain Android. We tried iOS in v0.10.0 and it triggered
+	// server-side @defer on the WS subscription's gnssLocation
+	// (see DefaultClientName comment in live.go). If someone bumps
+	// these constants, this test is where they find out.
+	if DefaultClientName != "com.rivian.android.consumer" {
 		t.Errorf("DefaultClientName drifted: %q", DefaultClientName)
 	}
-	if DefaultClientVersion != "3.6.0-4400" {
+	if DefaultClientVersion != "3.6.0-3989" {
 		t.Errorf("DefaultClientVersion drifted: %q", DefaultClientVersion)
 	}
 }
