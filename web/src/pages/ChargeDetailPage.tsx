@@ -129,7 +129,7 @@ export default function ChargeDetailPage() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Stat label="Duration" value={formatDuration(duration)} />
         <Stat
           label="SoC"
@@ -137,6 +137,11 @@ export default function ChargeDetailPage() {
         />
         <Stat label="Energy" value={num(charge.EnergyAddedKWh, 1, "kWh")} />
         <Stat label="Max kW" value={num(charge.MaxPowerKW, 1, "kW")} />
+        <Stat
+          label="Cost"
+          value={chargeCostLabel(charge)}
+          hint={chargeCostHint(charge)}
+        />
       </div>
 
       <Card title="Battery state">
@@ -292,13 +297,62 @@ function powerYMax(sessionMax: number, smoothed: { y: number }[]): number {
   return Math.ceil((peak * 1.2) / 50) * 50;
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
       <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+      {hint ? (
+        <div className="mt-1 text-[10px] text-neutral-500">{hint}</div>
+      ) : null}
     </div>
   );
+}
+
+// chargeCostLabel returns the headline cost string for the Cost
+// stat tile. Persisted Cost wins (Rivian-billed RAN session, or a
+// manual override); otherwise we fall back to the estimated_cost
+// the API attaches via the configured home rate. Em-dash if neither
+// is available.
+function chargeCostLabel(c: import("../lib/api").Charge): string {
+  if (c.Cost > 0) {
+    return `${c.Cost.toFixed(2)}${c.Currency ? ` ${c.Currency}` : ""}`;
+  }
+  if (c.estimated_cost && c.estimated_cost > 0) {
+    return `~${c.estimated_cost.toFixed(2)}${c.estimated_currency ? ` ${c.estimated_currency}` : ""}`;
+  }
+  return "—";
+}
+
+// chargeCostHint annotates the headline cost with the per-kWh rate
+// it implies, plus a flag noting whether this is a real billed
+// number or a home-rate estimate. Falls back to undefined so the
+// tile collapses cleanly when we have nothing useful to say.
+function chargeCostHint(c: import("../lib/api").Charge): string | undefined {
+  if (c.Cost > 0) {
+    const ppk =
+      c.PricePerKWh > 0
+        ? c.PricePerKWh
+        : c.EnergyAddedKWh > 0
+          ? c.Cost / c.EnergyAddedKWh
+          : 0;
+    return ppk > 0
+      ? `at ${ppk.toFixed(3)}${c.Currency ? ` ${c.Currency}` : ""}/kWh`
+      : undefined;
+  }
+  if (c.estimated_cost && c.estimated_cost > 0 && c.EnergyAddedKWh > 0) {
+    const ppk = c.estimated_cost / c.EnergyAddedKWh;
+    return `estimated at ${ppk.toFixed(3)}${c.estimated_currency ? ` ${c.estimated_currency}` : ""}/kWh (home rate)`;
+  }
+  return undefined;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
