@@ -60,6 +60,33 @@ async function snapToRoads(
   }
 }
 
+// Tile config shared by both maps. CARTO's dark basemap split into a
+// no-labels layer (z-index below the route polyline) and a labels-only
+// layer (z-index above the route), so place names stay legible without
+// being cut by the line.
+const CARTO_ATTRIB =
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>';
+function addCartoDark(map: L.Map) {
+  L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
+    {
+      maxZoom: 20,
+      subdomains: "abcd",
+      attribution: CARTO_ATTRIB,
+      className: "rivolt-tiles-base",
+    },
+  ).addTo(map);
+  L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
+    {
+      maxZoom: 20,
+      subdomains: "abcd",
+      pane: "markerPane",
+      attribution: "",
+    },
+  ).addTo(map);
+}
+
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
 // an inline DOM marker so we don't need bundler asset plumbing.
 // Emerald for start, rose for end, amber for charge. A thin dark ring
@@ -71,6 +98,29 @@ function circleIcon(color: string): L.DivIcon {
     iconSize: [14, 14],
     iconAnchor: [7, 7],
   });
+}
+
+// drawRoute renders the polyline as a wide low-opacity glow underneath
+// a crisp main line, which reads much better on the dark basemap than
+// a single flat stroke.
+function drawRoute(map: L.Map, latlngs: [number, number][]): L.LayerGroup {
+  const group = L.layerGroup();
+  L.polyline(latlngs, {
+    color: "#10b981",
+    weight: 9,
+    opacity: 0.18,
+    lineCap: "round",
+    lineJoin: "round",
+  }).addTo(group);
+  L.polyline(latlngs, {
+    color: "#34d399",
+    weight: 3,
+    opacity: 0.95,
+    lineCap: "round",
+    lineJoin: "round",
+  }).addTo(group);
+  group.addTo(map);
+  return group;
 }
 
 type Point = { lat: number; lon: number };
@@ -109,23 +159,19 @@ export function DriveMap({
       attributionControl: true,
       preferCanvas: true,
       scrollWheelZoom: false,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 120,
+      fadeAnimation: true,
     }).setView(center, 13);
     mapRef.current = map;
 
-    // Click to enable wheel zoom; blur (mouseout) disables it again so
-    // the page keeps scrolling normally over the map.
+    // Click to enable wheel zoom; mouseout disables it again so the
+    // page keeps scrolling normally over the map.
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
 
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        maxZoom: 20,
-        subdomains: "abcd",
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
-      },
-    ).addTo(map);
+    addCartoDark(map);
 
     // Pick start/end markers. Prefer caller-supplied start/end (the
     // page can derive these from parked samples flanking the drive,
@@ -154,14 +200,10 @@ export function DriveMap({
     if (start) latlngs.push([start.lat, start.lon]);
     for (const p of valid) latlngs.push([p.lat, p.lon]);
     if (end && !sameSpot) latlngs.push([end.lat, end.lon]);
-    let line: L.Polyline | null = null;
+    let line: L.LayerGroup | null = null;
     if (latlngs.length > 1) {
-      line = L.polyline(latlngs, {
-        color: "#10b981",
-        weight: 3,
-        opacity: 0.9,
-      }).addTo(map);
-      map.fitBounds(line.getBounds(), { padding: [20, 20] });
+      line = drawRoute(map, latlngs);
+      map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
     }
 
     // Best-effort: replace the straight-line polyline with a road-snapped
@@ -178,12 +220,9 @@ export function DriveMap({
     snapToRoads(tracePoints, ac.signal).then((matched) => {
       if (!matched || !mapRef.current) return;
       if (line) line.remove();
-      const snapped = L.polyline(matched, {
-        color: "#10b981",
-        weight: 3,
-        opacity: 0.95,
-      }).addTo(map);
-      map.fitBounds(snapped.getBounds(), { padding: [20, 20] });
+      const snapped = drawRoute(map, matched);
+      map.fitBounds(L.latLngBounds(matched), { padding: [20, 20] });
+      line = snapped;
     });
 
     if (lineStart) {
@@ -258,18 +297,14 @@ export function ChargeMap({
       zoomControl: true,
       preferCanvas: true,
       scrollWheelZoom: false,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 120,
+      fadeAnimation: true,
     }).setView([lat, lon], 15);
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      {
-        maxZoom: 20,
-        subdomains: "abcd",
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
-      },
-    ).addTo(map);
+    addCartoDark(map);
     L.marker([lat, lon], {
       icon: circleIcon("#f59e0b"),
       zIndexOffset: 1000,
