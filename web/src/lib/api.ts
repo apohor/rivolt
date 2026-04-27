@@ -435,6 +435,11 @@ export const backend = {
   // The store queries cap out at a few hundred rows so this stays cheap.
   allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
+  // Removes a single charge row by its external ID. Used by the
+  // detail page's danger-zone affordance to clear obviously-broken
+  // sessions (e.g. pre-v0.10.7 phantom rows).
+  deleteCharge: (id: string) =>
+    api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
   samples: (since: Date, limit = 1000) =>
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,

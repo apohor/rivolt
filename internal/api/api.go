@@ -241,6 +241,11 @@ func New(d Deps) http.Handler {
 			// ElectraFi importer or the (future) live Rivian ingester.
 			r.Get("/drives", handleDrives(d.Drives))
 			r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
+			// DELETE /charges/{id} removes a single charge row owned
+			// by the current user. Used by the UI's per-row "delete"
+			// affordance to clear obviously-broken sessions (e.g.
+			// pre-v0.10.7 phantom rows where SoC went down).
+			r.Delete("/charges/{id}", handleDeleteCharge(d.Charges))
 			// Pure-local analysis over the stored charge set. Groups
 			// sessions into Home / Public / Fast buckets: peak-power
 			// >=50 kW is Fast (DCFC) regardless of where it happened,
@@ -620,6 +625,34 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 			decorated = append(decorated, decorateCharge(c, cfg))
 		}
 		writeJSON(w, http.StatusOK, decorated)
+	}
+}
+
+// handleDeleteCharge removes a single charge row by external ID,
+// scoped to the authenticated user. 204 on success, 404 if no row
+// matched, 500 on a DB error. The store filters by user_id so a
+// caller can't reach into another user's data.
+func handleDeleteCharge(store *charges.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+			return
+		}
+		id := strings.TrimSpace(chi.URLParam(r, "id"))
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		n, err := store.DeleteByExternalID(r.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if n == 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
