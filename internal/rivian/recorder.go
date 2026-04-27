@@ -21,6 +21,20 @@ const (
 	kphToMi = 0.621371
 )
 
+// Stale-session guards. A live session that's been "open" without a
+// frame for longer than these gaps almost certainly straddles a real
+// session boundary the recorder missed (Rivian's chargerState sticks
+// at charging_ready/active for hours after unplug; WS drops; etc.),
+// so the next incoming frame is treated as a NEW session instead of
+// extending the old one. Same applies if SoC drops mid-charge — a
+// real charge can't go backwards, so the user must have unplugged
+// and driven between frames.
+const (
+	liveChargeMaxGap        = 30 * time.Minute
+	liveChargeMaxSoCDropPct = 2.0
+	liveDriveMaxGap         = 30 * time.Minute
+)
+
 // Pack size for the SoC-delta energy fallback is looked up
 // per-vehicle via StateMonitor.PackKWhFor; see vehicle_info.go for
 // the model/trim → kWh table.
@@ -136,8 +150,17 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 		m.sessions[vehicleID] = sess
 	}
 
-	// Handle session lifecycle FIRST so the sample row carries the
-	// right drive_number / charge_number for this frame.
+	// Physical-invariant guard: a car can't be driving and charging
+	// at the same time. If the current frame says it's doing one,
+	// any open accumulator for the OTHER must be stale (Rivian's
+	// charger fields stick across unplug + drive cycles, and the WS
+	// occasionally drops mid-session). Force-close it BEFORE the
+	// lifecycle handlers so the new gear/charge state opens a clean
+	// session instead of extending the wrong one.
+	sess.applyMutualExclusion(curr, m, wctx)
+
+	// Handle session lifecycle so the sample row carries the right
+	// drive_number / charge_number for this frame.
 	driveNum := sess.handleDriveLifecycle(curr, prev, m, wctx)
 	chargeNum := sess.handleChargeLifecycle(curr, prev, m, wctx)
 	m.sessMu.Unlock()
@@ -176,6 +199,31 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 	}
 }
 
+// applyMutualExclusion enforces the physical invariant that a car
+// can't be driving and charging simultaneously. Closes whichever
+// accumulator contradicts the current frame. Must be called with
+// m.sessMu held.
+func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx context.Context) {
+	driving := isDrivingGear(curr.Gear)
+	chargingNow := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	if driving && s.charge != nil {
+		m.logger.Info("closing live charge: gear is driving",
+			"vehicle", curr.VehicleID, "id", s.charge.id, "gear", curr.Gear)
+		s.charge.finalState = "abandoned"
+		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		s.charge = nil
+		m.mu.Lock()
+		delete(m.lastSession, curr.VehicleID)
+		m.mu.Unlock()
+	}
+	if chargingNow && s.drive != nil {
+		m.logger.Info("closing live drive: car is charging",
+			"vehicle", curr.VehicleID, "id", s.drive.id, "charger_state", curr.ChargerState)
+		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		s.drive = nil
+	}
+}
+
 // handleDriveLifecycle manages the drive accumulator across a single
 // state transition. Returns the drive_number to stamp on this frame's
 // sample row (0 if not currently driving).
@@ -184,6 +232,19 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, ctx context.Context) int64 {
 	_ = prev // reserved for future transition-aware logic (e.g. only upserting on real changes).
 	driving := isDrivingGear(curr.Gear)
+
+	// Stale-session guard (drive). If the accumulator hasn't seen a
+	// frame in a long time, the WS likely dropped and reconnected on
+	// a fresh drive — close the old in-memory session so we don't
+	// straddle two real drives.
+	if driving && s.drive != nil && curr.At.Sub(s.drive.endAt) > liveDriveMaxGap {
+		m.logger.Info("closing stale live drive",
+			"vehicle", curr.VehicleID,
+			"id", s.drive.id,
+			"gap", curr.At.Sub(s.drive.endAt).Round(time.Second))
+		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		s.drive = nil
+	}
 
 	// Open new drive on transition P/"" → D/R/N.
 	if driving && s.drive == nil {
@@ -254,6 +315,30 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
 	// See v0.3.48 for the matching frontend gate.
 	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+
+	// Stale-session guard. If the in-memory accumulator hasn't seen a
+	// frame in a long time, OR SoC has dropped meaningfully since the
+	// last frame, the user almost certainly unplugged & drove between
+	// frames while Rivian's sticky charger fields kept us stuck in a
+	// "charging" state. Force-close the current session so the next
+	// branch opens a fresh one.
+	if charging && s.charge != nil {
+		gap := curr.At.Sub(s.charge.endAt)
+		socDrop := s.charge.endSoC - curr.BatteryLevelPct
+		if gap > liveChargeMaxGap || socDrop > liveChargeMaxSoCDropPct {
+			m.logger.Info("closing stale live charge",
+				"vehicle", curr.VehicleID,
+				"id", s.charge.id,
+				"gap", gap.Round(time.Second),
+				"soc_drop", socDrop)
+			s.charge.finalState = "abandoned"
+			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+			s.charge = nil
+			m.mu.Lock()
+			delete(m.lastSession, curr.VehicleID)
+			m.mu.Unlock()
+		}
+	}
 
 	// Open new charge.
 	if charging && s.charge == nil {

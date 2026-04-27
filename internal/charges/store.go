@@ -238,6 +238,29 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 	return int(n), nil
 }
 
+// CloseStaleOpenLiveBefore is the unattended janitor variant: marks
+// every open live charge for THIS user whose ended_at is older than
+// `before` as abandoned. Used by the recorder's periodic sweep to
+// self-heal sessions left open by a previous process that died
+// mid-charge and never came back. Returns rows updated.
+func (s *Store) CloseStaleOpenLiveBefore(ctx context.Context, before time.Time) (int, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET final_state = 'abandoned', updated_at = NOW()
+		WHERE user_id = $1
+		  AND source = 'live'
+		  AND ended_at < $2
+		  AND final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND final_state <> 'charging_complete'
+		  AND final_state <> 'charging_station_err'`,
+		s.userID, before.UTC())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // Dedupe is a no-op on Postgres — UNIQUE (vehicle_id, external_id)
 // prevents the SQLite-era duplicates the old code had to clean up.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
