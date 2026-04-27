@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { backend, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
@@ -17,6 +17,8 @@ import { smoothGaussianTime } from "../lib/smooth";
 
 export default function ChargeDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const charges = useQuery({
     queryKey: ["charges", "all"],
     queryFn: () => backend.allCharges(),
@@ -26,6 +28,14 @@ export default function ChargeDetailPage() {
     () => charges.data?.find((c) => c.ID === id),
     [charges.data, id],
   );
+
+  const deleteCharge = useMutation({
+    mutationFn: () => backend.deleteCharge(id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["charges"] });
+      navigate("/charges", { replace: true });
+    },
+  });
 
   const samples = useQuery({
     queryKey: ["samples", "charge", id],
@@ -199,6 +209,35 @@ export default function ChargeDetailPage() {
           <ChargeMap lat={charge.Lat} lon={charge.Lon} height={260} />
         </Card>
       ) : null}
+
+      <Card title="Danger zone">
+        <p className="text-xs text-neutral-500 mb-2">
+          Permanently removes this row from the database. Use this on
+          obviously-broken sessions (e.g. SoC went down, or energy is
+          way out of proportion to the SoC delta). Cannot be undone.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              window.confirm(
+                `Delete charge ${charge.ID}? This cannot be undone.`,
+              )
+            ) {
+              deleteCharge.mutate();
+            }
+          }}
+          disabled={deleteCharge.isPending}
+          className="px-3 py-1.5 text-xs rounded-md border border-rose-700/50 bg-rose-900/30 text-rose-300 hover:bg-rose-900/50 disabled:opacity-50"
+        >
+          {deleteCharge.isPending ? "Deleting…" : "Delete this charge"}
+        </button>
+        {deleteCharge.isError ? (
+          <p className="mt-2 text-xs text-rose-400">
+            {String(deleteCharge.error)}
+          </p>
+        ) : null}
+      </Card>
 
       {samples.isError ? (
         <ErrorBox

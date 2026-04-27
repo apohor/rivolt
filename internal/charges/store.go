@@ -69,6 +69,21 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// DeleteByExternalID removes a single charge row owned by this user.
+// Returns the number of rows deleted (0 if no match — caller should
+// treat that as 404). Scoped by user_id so a malicious external_id
+// can't reach into another user's data.
+func (s *Store) DeleteByExternalID(ctx context.Context, externalID string) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM charges WHERE user_id = $1 AND external_id = $2`,
+		s.userID, externalID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Upsert inserts or replaces a charge by external_id within the
 // (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {
