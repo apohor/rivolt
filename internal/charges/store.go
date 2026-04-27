@@ -84,6 +84,28 @@ func (s *Store) DeleteByExternalID(ctx context.Context, externalID string) (int6
 	return n, nil
 }
 
+// UpdatePricing overwrites the cost / currency / price-per-kWh of a
+// single charge row, scoped to the current user. Used when the user
+// edits a row in the UI to correct a missing or wrong DCFC price
+// (e.g. a session paid outside the Rivian app). Zeros clear the
+// stored value and let the API-layer fallbacks (home rate, etc.)
+// take over again.
+func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET cost = $3,
+		    currency = NULLIF($4, ''),
+		    price_per_kwh = $5,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND external_id = $2
+	`, s.userID, externalID, nullIfZero(cost), currency, nullIfZero(pricePerKWh))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Upsert inserts or replaces a charge by external_id within the
 // (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {

@@ -81,6 +81,8 @@ function DriveTable({ drives }: { drives: Drive[] }) {
             <th className="py-2 pr-4 font-medium">Distance</th>
             <th className="py-2 pr-4 font-medium">SoC</th>
             <th className="py-2 pr-4 font-medium">Avg / Max</th>
+            <th className="py-2 pr-4 font-medium">Energy</th>
+            <th className="py-2 pr-4 font-medium">Cost</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800">
@@ -105,6 +107,21 @@ function DriveTable({ drives }: { drives: Drive[] }) {
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(d.AvgSpeedMph, 0)} / {num(d.MaxSpeedMph, 0)} mph
               </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {d.EnergyUsedKWh > 0 ? num(d.EnergyUsedKWh, 1, "kWh") : "—"}
+              </td>
+              <td
+                className="py-2 pr-4 text-neutral-400 tabular-nums"
+                title={
+                  d.blended_price_per_kwh
+                    ? `Estimated at ${d.blended_price_per_kwh.toFixed(3)} ${d.estimated_currency ?? ""}/kWh — rate from the most recent charge before this drive`
+                    : undefined
+                }
+              >
+                {d.estimated_cost && d.estimated_cost > 0
+                  ? `~${d.estimated_cost.toFixed(2)}${d.estimated_currency ? ` ${d.estimated_currency}` : ""}`
+                  : "—"}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -123,6 +140,9 @@ type DriveTotals = {
   distanceMi: number;
   avgSpeedMph: number;
   maxSpeedMph: number;
+  energyKWh: number;
+  cost: number;
+  currency: string;
 };
 
 function summarize(rows: Drive[]): DriveTotals {
@@ -132,6 +152,9 @@ function summarize(rows: Drive[]): DriveTotals {
     distanceMi: 0,
     avgSpeedMph: 0,
     maxSpeedMph: 0,
+    energyKWh: 0,
+    cost: 0,
+    currency: "",
   };
   let weightedSpeed = 0;
   for (const r of rows) {
@@ -140,6 +163,11 @@ function summarize(rows: Drive[]): DriveTotals {
     t.distanceMi += r.DistanceMi || 0;
     if (r.MaxSpeedMph > t.maxSpeedMph) t.maxSpeedMph = r.MaxSpeedMph;
     weightedSpeed += (r.AvgSpeedMph || 0) * dur;
+    t.energyKWh += r.EnergyUsedKWh || 0;
+    if (r.estimated_cost && r.estimated_cost > 0) {
+      t.cost += r.estimated_cost;
+      if (!t.currency && r.estimated_currency) t.currency = r.estimated_currency;
+    }
   }
   if (t.durationSec > 0) t.avgSpeedMph = weightedSpeed / t.durationSec;
   return t;
@@ -147,13 +175,30 @@ function summarize(rows: Drive[]): DriveTotals {
 
 function SummaryStrip({ totals }: { totals: DriveTotals }) {
   return (
-    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       <Stat label="Drives" value={String(totals.count)} />
       <Stat label="Duration" value={formatDuration(totals.durationSec)} />
       <Stat label="Distance" value={num(totals.distanceMi, 1, "mi")} />
       <Stat
         label="Avg / Max"
         value={`${num(totals.avgSpeedMph, 0)} / ${num(totals.maxSpeedMph, 0)} mph`}
+      />
+      <Stat
+        label="Energy"
+        value={totals.energyKWh > 0 ? num(totals.energyKWh, 1, "kWh") : "—"}
+      />
+      <Stat
+        label="Cost"
+        value={
+          totals.cost > 0
+            ? `~${totals.cost.toFixed(2)}${totals.currency ? ` ${totals.currency}` : ""}`
+            : "—"
+        }
+        hint={
+          totals.cost > 0
+            ? "each drive billed at the rate of its most recent prior charge"
+            : undefined
+        }
       />
     </dl>
   );

@@ -69,6 +69,8 @@ export const api = {
     request<T>("POST", url, body, signal),
   put: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
     request<T>("PUT", url, body, signal),
+  patch: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
+    request<T>("PATCH", url, body, signal),
   del: <T>(url: string, signal?: AbortSignal) => request<T>("DELETE", url, undefined, signal),
 };
 
@@ -198,6 +200,13 @@ export type Drive = {
   // and on imports where --pack-kwh wasn't set.
   EnergyUsedKWh: number;
   Source: string;
+  // Locally-computed cost. The backend computes a blended $/kWh from
+  // the user's charge history (Σ cost ÷ Σ energy across all charges,
+  // falling back to the configured home rate) and multiplies by
+  // EnergyUsedKWh. Present when both energy and a usable rate exist.
+  estimated_cost?: number;
+  estimated_currency?: string;
+  blended_price_per_kwh?: number;
 };
 
 export type Charge = {
@@ -440,6 +449,17 @@ export const backend = {
   // sessions (e.g. pre-v0.10.7 phantom rows).
   deleteCharge: (id: string) =>
     api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
+  // Overrides the persisted cost / currency / price-per-kWh on a
+  // single charge. Useful for paid-outside-Rivian DCFC sessions
+  // where Rivian doesn't surface a price; otherwise our drive cost
+  // model has to fall back to the home rate, which underestimates.
+  // Pass zeros / empty string to clear a field and let the
+  // recent-charge or home-rate fallbacks take over again.
+  updateChargePricing: (
+    id: string,
+    body: { cost?: number; currency?: string; price_per_kwh?: number },
+  ) =>
+    api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
   samples: (since: Date, limit = 1000) =>
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
