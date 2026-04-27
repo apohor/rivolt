@@ -198,6 +198,7 @@ export default function ChargeDetailPage() {
               },
             ]}
             height={160}
+            yDomain={[0, powerYMax(charge.MaxPowerKW, powerPts)]}
             formatY={(v) => `${v.toFixed(0)} kW`}
             formatX={xTimeFmt}
           />
@@ -271,6 +272,24 @@ function xTimeFmt(x: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// powerYMax picks a y-axis ceiling that snaps to common charging
+// "tiers" so a 7 kW home session and a 250 kW RAN pull both look
+// right. We pick the smallest tier that fits the session's peak,
+// keeping a small headroom so the line doesn't kiss the top edge.
+//
+// Tiers reflect the canonical charger classes: L1 (1.4 kW), L2 home
+// (7-11 kW), L2 commercial (19 kW), DC slow (50 kW), DC standard
+// (150-250 kW), DC ultra (350 kW). Falls back to "max + 20%" if a
+// session somehow blows past the highest tier.
+function powerYMax(sessionMax: number, smoothed: { y: number }[]): number {
+  let peak = sessionMax;
+  for (const p of smoothed) if (p.y > peak) peak = p.y;
+  if (peak <= 0) return 12;
+  const tiers = [12, 25, 60, 120, 200, 300, 400];
+  for (const t of tiers) if (peak <= t * 0.92) return t;
+  return Math.ceil((peak * 1.2) / 50) * 50;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
