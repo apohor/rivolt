@@ -13,6 +13,10 @@ export type LineSeries = {
   // If true, fill the area below the line with a faded gradient.
   area?: boolean;
   label?: string;
+  // Path interpolation. "monotone" uses Fritsch–Carlson cubic, which
+  // preserves local extrema (no overshoot) so peaks like top speed
+  // stay accurate while the line still looks smooth.
+  curve?: "linear" | "monotone";
 };
 
 export function LineChart({
@@ -109,20 +113,27 @@ export function LineChart({
       ))}
       {/* series */}
       {series.map((s, i) => {
-        const pts = s.points.map((p) => `${sx(p.x).toFixed(2)},${sy(p.y).toFixed(2)}`).join(" ");
+        const proj = s.points.map((p) => ({
+          x: sx(p.x),
+          y: sy(p.y),
+        }));
+        const path =
+          s.curve === "monotone"
+            ? monotonePath(proj)
+            : linePath(proj);
         const color = s.color ?? "#10b981";
         const sw = s.strokeWidth ?? 1.5;
         return (
           <g key={i}>
-            {s.area && s.points.length > 1 ? (
-              <polygon
-                points={`${sx(s.points[0].x).toFixed(2)},${sy(y0).toFixed(2)} ${pts} ${sx(s.points[s.points.length - 1].x).toFixed(2)},${sy(y0).toFixed(2)}`}
+            {s.area && proj.length > 1 ? (
+              <path
+                d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${sy(y0).toFixed(2)} L ${proj[0].x.toFixed(2)},${sy(y0).toFixed(2)} Z`}
                 fill={color}
                 opacity={0.15}
               />
             ) : null}
-            <polyline
-              points={pts}
+            <path
+              d={path}
               fill="none"
               stroke={color}
               strokeWidth={sw}
@@ -135,6 +146,59 @@ export function LineChart({
       })}
     </svg>
   );
+}
+
+function linePath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  let d = `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 1; i < pts.length; i++) {
+    d += ` L ${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)}`;
+  }
+  return d;
+}
+
+// Fritsch–Carlson monotone cubic interpolation. Produces a smooth path
+// that never overshoots between samples, so genuine peaks (max speed,
+// hard braking) survive intact.
+function monotonePath(pts: { x: number; y: number }[]): string {
+  const n = pts.length;
+  if (n < 2) return linePath(pts);
+  const dx = new Array<number>(n - 1);
+  const dy = new Array<number>(n - 1);
+  const m = new Array<number>(n - 1); // secant slopes
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1].x - pts[i].x;
+    dy[i] = pts[i + 1].y - pts[i].y;
+    m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
+  }
+  const t = new Array<number>(n); // tangents
+  t[0] = m[0];
+  t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    if (m[i - 1] * m[i] <= 0) {
+      t[i] = 0;
+    } else {
+      t[i] = (m[i - 1] + m[i]) / 2;
+      // Fritsch–Carlson constraint to enforce monotonicity.
+      const a = t[i] / m[i - 1];
+      const b = t[i] / m[i];
+      const h = a * a + b * b;
+      if (h > 9) {
+        const tau = 3 / Math.sqrt(h);
+        t[i] = tau * m[i - 1] * a;
+      }
+    }
+  }
+  let d = `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i];
+    const c1x = pts[i].x + h / 3;
+    const c1y = pts[i].y + (t[i] * h) / 3;
+    const c2x = pts[i + 1].x - h / 3;
+    const c2y = pts[i + 1].y - (t[i + 1] * h) / 3;
+    d += ` C ${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${pts[i + 1].x.toFixed(2)},${pts[i + 1].y.toFixed(2)}`;
+  }
+  return d;
 }
 
 export function BarChart({

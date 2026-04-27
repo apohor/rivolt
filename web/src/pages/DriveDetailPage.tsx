@@ -132,11 +132,7 @@ export default function DriveDetailPage() {
     x: new Date(p.At).getTime(),
     y: p.BatteryLevelPct || 0,
   }));
-  // Gaussian-weighted moving average over a *time* window. ElectraFi
-  // samples are irregularly spaced (5–60s apart); a time-based kernel
-  // handles that correctly and preserves peaks (max speed, braking
-  // events) better than a flat MA.
-  const speedPts = smoothGaussianTime(speedPtsRaw, 20_000);
+  const speedPts = speedPtsRaw;
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 
@@ -179,8 +175,9 @@ export default function DriveDetailPage() {
               {
                 points: speedPts,
                 color: "#38bdf8",
-                strokeWidth: 1.2,
+                strokeWidth: 1.4,
                 area: true,
+                curve: "monotone",
               },
             ]}
             height={180}
