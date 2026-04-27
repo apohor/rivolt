@@ -86,8 +86,6 @@ type liveCharge struct {
 	lat       float64
 	lon       float64
 	maxPower  float64 // kW
-	sumPower  float64
-	powerN    int
 
 	endAt      time.Time
 	endSoC     float64
@@ -377,8 +375,6 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		if curr.ChargerPowerKW > 0 {
 			s.charge.maxPower = curr.ChargerPowerKW
-			s.charge.sumPower = curr.ChargerPowerKW
-			s.charge.powerN = 1
 		}
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -389,10 +385,6 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	if charging && s.charge != nil {
 		if curr.ChargerPowerKW > s.charge.maxPower {
 			s.charge.maxPower = curr.ChargerPowerKW
-		}
-		if curr.ChargerPowerKW > 0 {
-			s.charge.sumPower += curr.ChargerPowerKW
-			s.charge.powerN++
 		}
 		s.charge.endAt = curr.At
 		s.charge.endSoC = curr.BatteryLevelPct
@@ -471,10 +463,6 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	if m.chargesStore == nil || c == nil {
 		return
 	}
-	avg := 0.0
-	if c.powerN > 0 {
-		avg = c.sumPower / float64(c.powerN)
-	}
 
 	// Prefer real metrics from Rivian's live session feed when we
 	// have them. As of v0.3.6 this map is populated by BOTH the REST
@@ -503,19 +491,27 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 
 	// SoC-delta fallback for home AC charging: Rivian's live endpoints
 	// don't report charger_power or energy_added for those sessions.
-	// Estimate energy from the SoC delta × pack capacity and back-fill
-	// avg/max power from elapsed time. Same fallback the ElectraFi
-	// importer uses for post-2026-03-24 sessions.
+	// Estimate energy from the SoC delta × pack capacity. Same
+	// fallback the ElectraFi importer uses for post-2026-03-24
+	// sessions.
 	if energy == 0 && maxPower == 0 {
 		dSoC := c.endSoC - c.startSoC
 		if dSoC > 0 {
 			energy = dSoC / 100.0 * m.PackKWhFor(vehicleID)
-			hours := c.endAt.Sub(c.startedAt).Hours()
-			if hours > 0 && energy > 0 {
-				avg = energy / hours
-				maxPower = avg
-			}
 		}
+	}
+
+	// Session average = energy delivered ÷ wall-clock duration. Folds
+	// in ramp-up, taper, and any idle gaps. For the SoC-fallback
+	// case where we have no live power readings, this is also the
+	// only sensible peak we can report, so we mirror it into
+	// maxPower when the live feed didn't surface one.
+	avg := 0.0
+	if hours := c.endAt.Sub(c.startedAt).Hours(); hours > 0 && energy > 0 {
+		avg = energy / hours
+	}
+	if maxPower == 0 && avg > 0 {
+		maxPower = avg
 	}
 
 	row := charges.Charge{
@@ -647,14 +643,6 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		endAt:      row.EndedAt,
 		endSoC:     row.EndSoCPct,
 		finalState: row.FinalState,
-	}
-	// We don't persist sumPower/powerN, so seed the running average
-	// from the stored avg×count-estimate. Using MaxPowerKW as a
-	// single-sample seed is a conservative approximation that keeps
-	// the avg from collapsing to 0 after restart.
-	if row.AvgPowerKW > 0 {
-		c.sumPower = row.AvgPowerKW
-		c.powerN = 1
 	}
 	m.logger.Info("resumed open charge from DB",
 		"vehicle", curr.VehicleID,
