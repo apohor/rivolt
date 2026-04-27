@@ -14,8 +14,7 @@ import (
 	"time"
 )
 
-// DefaultEndpoint is the Rivian Owner App GraphQL gateway used by the
-// mobile app. This is an unofficial endpoint — it can and does break.
+// DefaultEndpoint is the Rivian Owner App GraphQL gateway. Unofficial.
 const DefaultEndpoint = "https://rivian.com/api/gql/gateway/graphql"
 
 // DefaultClientName identifies us as the Android Owner App. The
@@ -27,44 +26,17 @@ const DefaultClientName = "com.rivian.android.consumer"
 // in sync to avoid a never-shipped hybrid fingerprint.
 const DefaultClientVersion = "3.6.0-3989"
 
-// DefaultUserAgent is the exact User-Agent string the iOS app emits.
-// Matching it verbatim (rather than appending "; rivolt/x.y.z") is
-// deliberate — the gateway compares by equality in at least one
-// anti-automation code path, per community-observed 403s on
-// modified UAs.
+// DefaultUserAgent matches the iOS app verbatim; the gateway 403s on modified UAs.
 const DefaultUserAgent = "RivianApp/4400 CFNetwork/1498.700.2 Darwin/23.6.0"
 
-// DefaultAccept is what we advertise on Apollo client requests. We
-// deliberately do NOT request `multipart/mixed;deferSpec=20220824`
-// the way the real iOS app does, even though impersonating the iOS
-// client is otherwise the policy in this file (see DefaultUserAgent).
-//
-// Why: when the gateway sees the multipart/mixed accept, it streams
-// any field tagged @defer server-side as a separate part of a
-// multipart response. `gnssLocation` is one such field. Our
-// doGraphQLAt is a single-shot json.Unmarshal of the whole body and
-// has no multipart-mixed reader, so deferred parts are silently
-// dropped — non-deferred scalars (gnssSpeed, batteryLevel,
-// gearStatus, …) come through fine, but Latitude/Longitude land as
-// zero. Net effect on the live recorder is "drives appear in the
-// list but the map is empty" — see the v0.10.4 fix that landed
-// alongside this constant. If we ever want to send the iOS Accept
-// verbatim again, doGraphQLAt has to gain a multipart/mixed reader
-// that splices the deferred chunks into the same response struct
-// before json.Unmarshal sees it.
+// DefaultAccept stays application/json. The iOS multipart/mixed value
+// makes the gateway @defer fields like gnssLocation into separate parts
+// our single-shot json.Unmarshal can't reassemble.
 const DefaultAccept = "application/json"
 
-// applyBaseHeaders sets the iOS-app-matching headers every
-// Rivian-gateway HTTPS request should carry. Callers still layer
-// auth headers (a-sess / u-sess / csrf-token) on top via
-// extraHeaders.
-//
-// Deliberately *not* setting Accept-Encoding: Go's net/http adds
-// "gzip" automatically and transparently decompresses the response
-// body; setting it manually would make us responsible for
-// decompression and would break every existing decoder in this
-// package. iOS's "gzip, deflate, br" value isn't worth the churn
-// for that one header.
+// applyBaseHeaders sets the headers every Rivian-gateway request needs.
+// Auth (a-sess / u-sess / csrf-token) layered on top via extraHeaders.
+// Accept-Encoding is intentionally unset so net/http handles gzip.
 func (c *LiveClient) applyBaseHeaders(h http.Header) {
 	h.Set("Content-Type", "application/json")
 	h.Set("Accept", DefaultAccept)
@@ -72,59 +44,28 @@ func (c *LiveClient) applyBaseHeaders(h http.Header) {
 	h.Set("User-Agent", DefaultUserAgent)
 	h.Set("apollographql-client-name", c.clientName)
 	h.Set("apollographql-client-version", c.clientVersion)
-	// Non-standard header Rivolt ships so an operator tailing
-	// upstream logs can tell our traffic apart from a genuine iOS
-	// client. Rivian's gateway doesn't inspect it; if they start,
-	// dropping it is a one-character patch.
 	h.Set("X-Rivolt-Version", c.rivoltVersion)
 }
 
-// ErrMFARequired is returned by Login when the account has MFA enabled
-// and the server issued an OTP challenge. Callers should collect the
-// one-time code from the user and call Login again with Credentials.OTP
-// populated. Between the two calls, the same LiveClient instance must
-// be reused — it holds the otpToken needed for the second step.
+// ErrMFARequired signals an OTP challenge; resubmit Login on the same
+// client with Credentials.OTP populated.
 var ErrMFARequired = errors.New("rivian: MFA code required")
 
 // LiveClient talks to the real Rivian Owner App GraphQL gateway.
-//
-// Thread-safety: all exported methods take the internal mutex while
-// they touch tokens or hit the network. It is safe to call Login,
-// Vehicles, and State concurrently from different goroutines, though
-// in practice the server will rate-limit you long before it matters.
-//
-// This client is a best-effort reimplementation of the mobile app's
-// auth flow based on the community docs at
-// https://rivian-api.kaedenb.org. The happy path (CSRF → Login → GetVehicleState)
-// is covered by unit tests; token refresh and some edge cases are
-// TODO. Until those land, callers should expect to re-login when the
-// session expires.
+// All exported methods are safe to call concurrently.
 type LiveClient struct {
 	httpClient    *http.Client
 	endpoint      string
 	clientName    string
 	clientVersion string
-	// rivoltVersion is stamped into the X-Rivolt-Version header so
-	// operators can distinguish Rivolt traffic from the real iOS
-	// app in upstream logs. Defaults to "dev"; main.go overrides
-	// with the build-time version via WithRivoltVersion.
+	// rivoltVersion is stamped into X-Rivolt-Version. Defaults to "dev".
 	rivoltVersion string
 
-	// upstreamGate is consulted before every outbound Rivian
-	// request. Nil = never blocked (back-compat / tests). Non-nil
-	// and returning an error = short-circuit the call with that
-	// error, no HTTP traffic emitted. The kill switch wires this;
-	// future rate-limit / circuit-breaker layers can stack on top
-	// by composing checks.
+	// upstreamGate, when non-nil, short-circuits outbound calls with its error.
 	upstreamGate func(ctx context.Context) error
 
-	// reauthSink is called whenever a classified UserAction
-	// error lands, so main.go can flip users.needs_reauth in
-	// Postgres. Nil = don't persist (dev / tests). The
-	// LiveClient keeps its own in-memory mirror
-	// (needsReauth / needsReauthReason) which the gate consults
-	// on every subsequent outbound call — we don't want to block
-	// forever waiting for Postgres on the hot path.
+	// reauthSink fires on classified UserAction errors so callers can
+	// persist users.needs_reauth. Best-effort; failures are not surfaced.
 	reauthSink func(ctx context.Context, reason string)
 
 	mu               sync.Mutex
@@ -138,33 +79,23 @@ type LiveClient struct {
 	pendingOTPEmail  string
 	authenticatedAt  time.Time
 
-	// reauthState mirrors users.needs_reauth in memory so the
-	// gate doesn't pay a lock on every outbound request, and —
-	// critically — so the classifier can flip the flag from
-	// inside doGraphQL without deadlocking against the c.mu that
-	// Login already holds during its own call graph. Written
-	// via markNeedsReauth / clearNeedsReauth; read via a cheap
-	// atomic load in checkUpstream.
+	// reauthState is an atomic mirror of needs_reauth read on every outbound
+	// call; lock-free so doGraphQL can flip it without deadlocking c.mu.
 	reauthState atomic.Pointer[reauthSnapshot]
 
-	// Ring buffer of recent raw ChargingSession WS frames for
-	// debugging. Populated by runChargingSubscription, read via
-	// RecentChargingFrames. Guarded by framesMu.
+	// Ring buffer of recent ChargingSession WS frames for debugging.
 	framesMu     sync.Mutex
 	recentFrames []ChargingFrame
 	maxFrames    int
 
-	// Shared WS connection multiplexer. Nil until the first
-	// Subscribe* call, torn down when the last subscriber leaves
-	// (or the connection dies). Guarded by muxMu.
+	// Shared WS multiplexer; lazily dialled, torn down on last release.
 	muxMu sync.Mutex
 	mux   *wsMux
 }
 
-// ChargingFrame captures one raw ChargingSession push or lifecycle
-// event for diagnostic inspection via the debug HTTP endpoint.
-// Event is set for lifecycle markers ("open", "error", "close"); Raw
-// carries the JSON payload for push frames.
+// ChargingFrame is one raw ChargingSession push or lifecycle event.
+// Event is set for lifecycle markers ("open", "error", "close");
+// Raw carries the JSON payload for push frames.
 type ChargingFrame struct {
 	At        time.Time `json:"at"`
 	VehicleID string    `json:"vehicle_id"`
@@ -219,8 +150,7 @@ func (c *LiveClient) RecentChargingFrames(vehicleID string) []ChargingFrame {
 	return out
 }
 
-// NewLive returns a LiveClient with sane defaults. Pass a zero-value
-// http.Client if you want — we set a reasonable timeout below.
+// NewLive returns a LiveClient with sane defaults.
 func NewLive() *LiveClient {
 	return &LiveClient{
 		httpClient:    &http.Client{Timeout: 30 * time.Second},
@@ -231,10 +161,7 @@ func NewLive() *LiveClient {
 	}
 }
 
-// WithRivoltVersion stamps the build version into the
-// X-Rivolt-Version header. Called from main.go wiring so the
-// compiled binary's version travels with every upstream call.
-// Returns the receiver for chaining.
+// WithRivoltVersion stamps the build version into X-Rivolt-Version.
 func (c *LiveClient) WithRivoltVersion(v string) *LiveClient {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -244,57 +171,33 @@ func (c *LiveClient) WithRivoltVersion(v string) *LiveClient {
 	return c
 }
 
-// ErrUpstreamPaused is returned by LiveClient operations when the
-// operator has flipped the kill switch. Callers surface it to
-// users as "service temporarily paused" rather than retrying —
-// the switch exists precisely because retrying is what's making
-// the incident worse.
+// ErrUpstreamPaused is returned when the operator kill switch is on.
 var ErrUpstreamPaused = errors.New("rivian: upstream paused by operator")
 
-// ErrNeedsReauth is returned when the per-user needs_reauth flag
-// is set. The UI turns this into a "please log into Rivian
-// again" nudge; background jobs stop retrying until the user
-// completes Login. Cleared automatically on a successful Login.
+// ErrNeedsReauth is returned when the per-user needs_reauth flag is set.
+// Cleared on a successful Login.
 var ErrNeedsReauth = errors.New("rivian: re-authentication required")
 
-// WithUpstreamGate installs a pre-flight hook that short-circuits
-// every outbound Rivian call when the hook returns a non-nil
-// error. The hook is cheap (atomic load on the kill-switch
-// snapshot) so running it on the hot path is fine.
-//
-// Calling again with nil removes the gate. Returns the receiver
-// for chaining.
+// WithUpstreamGate installs a pre-flight hook that short-circuits outbound
+// calls when it returns non-nil. Pass nil to remove.
 func (c *LiveClient) WithUpstreamGate(gate func(ctx context.Context) error) *LiveClient {
 	c.upstreamGate = gate
 	return c
 }
 
-// WithReauthSink installs a callback fired whenever the error
-// classifier lands a ClassUserAction error on an outbound call.
-// main.go plugs in a function that writes
-// users.needs_reauth = true + reason in Postgres. The callback
-// is best-effort: sink errors are not surfaced to the caller of
-// the failing request (the classification is what matters;
-// persistence failure shouldn't mask the original error).
-//
-// Returns the receiver for chaining.
+// WithReauthSink installs a callback fired on ClassUserAction errors.
 func (c *LiveClient) WithReauthSink(sink func(ctx context.Context, reason string)) *LiveClient {
 	c.reauthSink = sink
 	return c
 }
 
-// reauthSnapshot is the value stored under LiveClient.reauthState.
-// Treat it as immutable once published; mutations allocate a new
-// struct and atomic-swap the pointer.
+// reauthSnapshot is the immutable value behind LiveClient.reauthState.
 type reauthSnapshot struct {
 	needs  bool
 	reason string
 }
 
-// NeedsReauth reports whether the in-memory mirror of
-// users.needs_reauth is set. Exposed so main.go can prime the
-// flag from Postgres at startup (via SetNeedsReauth) and the
-// Settings UI can render a banner.
+// NeedsReauth reports the in-memory needs_reauth flag and reason.
 func (c *LiveClient) NeedsReauth() (bool, string) {
 	s := c.reauthState.Load()
 	if s == nil {
@@ -303,10 +206,8 @@ func (c *LiveClient) NeedsReauth() (bool, string) {
 	return s.needs, s.reason
 }
 
-// SetNeedsReauth sets the flag without firing the sink. Used by
-// main.go at startup to hydrate the in-memory state from the
-// users row, and by tests. To raise the flag as the consequence
-// of a classified error, let doGraphQLAt handle it.
+// SetNeedsReauth sets the flag without firing the sink. Used to hydrate
+// from storage at startup; runtime classification goes through doGraphQLAt.
 func (c *LiveClient) SetNeedsReauth(needs bool, reason string) {
 	if !needs {
 		c.reauthState.Store(&reauthSnapshot{})
@@ -315,15 +216,9 @@ func (c *LiveClient) SetNeedsReauth(needs bool, reason string) {
 	c.reauthState.Store(&reauthSnapshot{needs: true, reason: reason})
 }
 
-// checkUpstream runs the configured gate. Separated so every
-// outbound path can reuse the same "nil-gate allows" semantics
-// without each caller spelling it out.
+// checkUpstream runs the configured gate; nil gate allows.
 func (c *LiveClient) checkUpstream(ctx context.Context) error {
-	// Per-user re-auth flag takes precedence over the global
-	// gate: a kill-switched instance that also has stale
-	// credentials should surface "re-auth" first, because
-	// lifting the kill switch alone won't make the calls
-	// succeed.
+	// Per-user re-auth takes precedence over the global gate.
 	if s := c.reauthState.Load(); s != nil && s.needs {
 		return ErrNeedsReauth
 	}
@@ -333,17 +228,10 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 	return c.upstreamGate(ctx)
 }
 
-// markNeedsReauth is the internal helper called by doGraphQLAt
-// when a ClassUserAction error is classified. Publishes a new
-// snapshot and fires the sink on the first edge into true. Safe
-// to call from any goroutine, including one that holds c.mu —
-// the atomic pointer is independent of the token mutex.
+// markNeedsReauth publishes the flag and fires the sink on the rising edge.
 func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 	next := &reauthSnapshot{needs: true, reason: reason}
 	prev := c.reauthState.Swap(next)
-	// Only fire the sink on the transition to true — repeated
-	// calls from a failure storm shouldn't flood Postgres with
-	// identical writes.
 	if prev != nil && prev.needs {
 		return
 	}
@@ -352,8 +240,7 @@ func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 	}
 }
 
-// clearNeedsReauth is called by Login on success so a user who
-// re-authenticates starts fresh. Symmetric with markNeedsReauth.
+// clearNeedsReauth resets the flag on a successful Login.
 func (c *LiveClient) clearNeedsReauth(ctx context.Context) {
 	prev := c.reauthState.Swap(&reauthSnapshot{})
 	if prev == nil || !prev.needs {
@@ -365,30 +252,26 @@ func (c *LiveClient) clearNeedsReauth(ctx context.Context) {
 	}
 }
 
-// WithEndpoint points the client at an alternate GraphQL URL. Used by
-// the unit tests to redirect to an httptest server.
+// WithEndpoint points the client at an alternate GraphQL URL.
 func (c *LiveClient) WithEndpoint(url string) *LiveClient {
 	c.endpoint = url
 	return c
 }
 
-// WithHTTPClient lets callers install a custom *http.Client (e.g. one
-// with a proxy, or with logging transport wrapped for debugging).
+// WithHTTPClient installs a custom *http.Client.
 func (c *LiveClient) WithHTTPClient(h *http.Client) *LiveClient {
 	c.httpClient = h
 	return c
 }
 
-// graphQLRequest is the JSON body shape the Rivian gateway expects for
-// every GraphQL request.
+// graphQLRequest is the request body the gateway expects.
 type graphQLRequest struct {
 	OperationName string `json:"operationName"`
 	Query         string `json:"query"`
 	Variables     any    `json:"variables"`
 }
 
-// graphQLError matches the per-error entry the Rivian gateway returns
-// when a query fails validation or the server blows up.
+// graphQLError is one entry from a failed GraphQL response.
 type graphQLError struct {
 	Message    string   `json:"message"`
 	Path       []string `json:"path,omitempty"`
@@ -397,24 +280,18 @@ type graphQLError struct {
 	} `json:"extensions"`
 }
 
-// graphQLResponse is the outer envelope for every GraphQL call.
+// graphQLResponse is the outer envelope.
 type graphQLResponse[T any] struct {
 	Data   T              `json:"data"`
 	Errors []graphQLError `json:"errors,omitempty"`
 }
 
-// doGraphQL posts a GraphQL request and decodes the response into out.
-// The extraHeaders map is merged over the base set — callers use it to
-// attach a-sess / u-sess / csrf-token depending on which stage of auth
-// they're in.
+// doGraphQL posts to c.endpoint; extraHeaders layer on top of the base set.
 func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, extraHeaders map[string]string) (T, error) {
 	return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)
 }
 
-// doGraphQLAt is the same as doGraphQL but targets an arbitrary URL.
-// Used for the charging endpoint (`/api/gql/chrg/user/graphql`) which
-// hosts `getLiveSessionData` and `getRegisteredWallboxes` — separate
-// from the main gateway but sharing the same auth headers.
+// doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (T, error) {
 	var zero T
 	if err := c.checkUpstream(ctx); err != nil {
@@ -555,8 +432,7 @@ type loginOTPData struct {
 	} `json:"loginWithOTP"`
 }
 
-// ensureCSRF populates csrfToken and appSessionToken if they aren't
-// already. Must be called with c.mu held.
+// ensureCSRF populates csrfToken/appSessionToken if missing. Caller holds c.mu.
 func (c *LiveClient) ensureCSRF(ctx context.Context) error {
 	if c.csrfToken != "" && c.appSessionToken != "" {
 		return nil
@@ -587,8 +463,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		return err
 	}
 
-	// Second-step: the caller has already seen ErrMFARequired and is
-	// now submitting the OTP. Use LoginWithOTP.
+	// Second-step: caller already saw ErrMFARequired, now submitting OTP.
 	if creds.OTP != "" && c.pendingOTPToken != "" {
 		email := creds.Email
 		if email == "" {
@@ -619,9 +494,6 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.pendingOTPToken = ""
 		c.pendingOTPEmail = ""
 		c.authenticatedAt = time.Now()
-		// Successful LoginWithOTP is the one and only signal
-		// Rivolt has that the user re-authenticated; drop the
-		// per-user gate so subsequent outbound calls resume.
 		c.clearNeedsReauth(ctx)
 		return nil
 	}
@@ -654,9 +526,6 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.userSessionToken = data.Login.UserSessionToken
 		c.email = creds.Email
 		c.authenticatedAt = time.Now()
-		// Successful password-only Login means the user's
-		// credentials are good; clear needs_reauth so the gate
-		// stops short-circuiting.
 		c.clearNeedsReauth(ctx)
 		return nil
 	case "MobileMFALoginResponse":
@@ -668,8 +537,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 	}
 }
 
-// authHeaders builds the a-sess / u-sess / csrf-token triple used by
-// every authenticated call. Must be called with c.mu held.
+// authHeaders builds the a-sess / u-sess / csrf-token triple. Caller holds c.mu.
 func (c *LiveClient) authHeaders() map[string]string {
 	return map[string]string{
 		"a-sess":     c.appSessionToken,
@@ -680,12 +548,7 @@ func (c *LiveClient) authHeaders() map[string]string {
 
 // ----- Data queries --------------------------------------------------
 
-// qUser is the getUserInfo query from the Rivian mobile app. The root
-// field is currentUser; an earlier version of this code tried `user`
-// and hit GRAPHQL_VALIDATION_FAILED on every deployment. We only
-// select the fields Rivolt actually needs — the real mobile-app
-// query pulls 200+ lines of configuration + phone enrolment that the
-// UI doesn't render.
+// qUser is a trimmed getUserInfo selecting only the fields Rivolt uses.
 const qUser = `query getUserInfo {
   currentUser {
     __typename
@@ -737,8 +600,7 @@ type userData struct {
 	} `json:"currentUser"`
 }
 
-// Vehicles lists the vehicles on the authenticated Rivian account.
-// Returns id, vin, user-assigned name (may be empty), and model.
+// Vehicles lists the vehicles on the authenticated account.
 func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -771,13 +633,8 @@ func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	return out, nil
 }
 
-// GetVehicleState returns a snapshot of the vehicle's state. The
-// upstream object has ~100 timestamped fields; we pull the subset
-// that's useful for a dashboard (location, battery, range, gear,
-// charging, climate, closures, tires, OTA, safety, power state).
-// Adding more is a matter of expanding the GraphQL selection and
-// the parse struct below; field names come straight from
-// home-assistant-rivian's entity map.
+// qVehicleState pulls the dashboard subset of vehicleState (~50 fields).
+// Field names from home-assistant-rivian's entity map.
 const qVehicleState = `query GetVehicleState($vehicleID: String!) {
   vehicleState(id: $vehicleID) {
     __typename
@@ -836,15 +693,8 @@ type vsValue[T any] struct {
 	TimeStamp string `json:"timeStamp"`
 }
 
-// permissiveString is a JSON scalar that accepts either a string or a
-// number (or bool/null) and stores it as a string. Rivian's GraphQL
-// schema occasionally reports what used to be a string field as a
-// number (remoteChargingAvailable flipped from "true"/"false" to 0/1
-// in April 2026). One silently-wrong field stopped decoding the
-// entire GetVehicleState response, which left the cache stuck on
-// whatever the WS subscription happened to push. Using this type for
-// every stringly-typed vehicleState field isolates future flips to a
-// single field's semantics instead of blowing up the whole decode.
+// permissiveString accepts string|number|bool|null and stores it as text,
+// so a single Rivian schema flip can't blow up the whole decode.
 type permissiveString string
 
 func (p *permissiveString) UnmarshalJSON(b []byte) error {
@@ -913,9 +763,7 @@ type vehicleStateData struct {
 		ClosureLiftgateClosed vsValue[permissiveString] `json:"closureLiftgateClosed"`
 		ClosureTailgateClosed vsValue[permissiveString] `json:"closureTailgateClosed"`
 		ClosureTonneauClosed  vsValue[permissiveString] `json:"closureTonneauClosed"`
-		// Locks: "locked" | "unlocked" | "". Per home-assistant-rivian
-		// LOCK_STATE_ENTITIES, the car is locked iff none of these
-		// report "unlocked"; R1T/R1S return different subsets.
+		// Locks: "locked" | "unlocked" | "". Locked iff none report "unlocked".
 		DoorFrontLeftLocked       vsValue[permissiveString] `json:"doorFrontLeftLocked"`
 		DoorFrontRightLocked      vsValue[permissiveString] `json:"doorFrontRightLocked"`
 		DoorRearLeftLocked        vsValue[permissiveString] `json:"doorRearLeftLocked"`
@@ -929,9 +777,7 @@ type vehicleStateData struct {
 	} `json:"vehicleState"`
 }
 
-// StateRaw returns the decoded vehicleState object from Rivian as
-// generic JSON for debugging. Used by /api/state/:id/debug to verify
-// which fields Rivian actually populates for a given vehicle.
+// StateRaw returns the decoded vehicleState as generic JSON for debugging.
 func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string]any, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -952,10 +798,7 @@ func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string
 	return data, nil
 }
 
-// DefaultChargingEndpoint is Rivian's separate GraphQL endpoint for
-// charging-session data. Gated on the same auth tokens as the main
-// gateway but served under /chrg/user/graphql. Hosts
-// getLiveSessionData and getRegisteredWallboxes.
+// DefaultChargingEndpoint hosts getLiveSessionHistory and friends.
 const DefaultChargingEndpoint = "https://rivian.com/api/gql/chrg/user/graphql"
 
 const qLiveSession = `query getLiveSessionHistory($vehicleId: ID!) {
@@ -981,9 +824,7 @@ const qLiveSession = `query getLiveSessionHistory($vehicleId: ID!) {
   }
 }`
 
-// valueRecord matches the __typename/value/updatedAt envelope Rivian
-// wraps most live-session scalars in. T handles both FloatValueRecord
-// (value is float64) and StringValueRecord (string).
+// valueRecord wraps the {value, updatedAt} envelope on live-session scalars.
 type valueRecord[T any] struct {
 	Value     T      `json:"value"`
 	UpdatedAt string `json:"updatedAt"`
@@ -1011,10 +852,7 @@ type liveSessionData struct {
 	} `json:"getLiveSessionHistory"`
 }
 
-// LiveSession returns the in-progress charging session for vehicleID,
-// or a zero/inactive LiveSession when no session exists. The server
-// still returns a 200 with most fields nulled when nothing is
-// plugged in; we treat that as inactive.
+// LiveSession returns the in-progress charging session, or an inactive one.
 func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSession, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1033,11 +871,8 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 		return nil, fmt.Errorf("getLiveSessionHistory: %w", err)
 	}
 	d := data.GetLiveSessionHistory
-	// vehicleChargerState drives the "active" flag. Rivian reports
-	// "charging_active" while energy is flowing and other values
-	// ("charging_complete", "charging_ready") at session boundaries —
-	// home-assistant-rivian treats charging_active + charging_connecting
-	// as "on". Anything else (empty, complete, disconnected) → inactive.
+	// Active iff charger state is charging_active or charging_connecting
+	// (matches home-assistant-rivian).
 	cs := strings.ToLower(strings.TrimSpace(d.VehicleChargerState.Value))
 	active := cs == "charging_active" || cs == "charging_connecting"
 
@@ -1056,9 +891,7 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 		out.StartTime = *d.StartTime
 	}
 	if d.TimeElapsed != nil {
-		// TimeElapsed is a stringified seconds count in both
-		// upstream clients. Not worth decoding for the UI today;
-		// we pass it through and parse at the API layer if needed.
+		// Stringified seconds count.
 		if n, convErr := parseSecondsString(*d.TimeElapsed); convErr == nil {
 			out.TimeElapsedSeconds = n
 		}
@@ -1091,14 +924,8 @@ func parseSecondsString(s string) (int64, error) {
 	return n, err
 }
 
-// ChargingSchemaProbe runs an introspection query against the
-// charging GraphQL endpoint to discover which top-level fields exist
-// and which arguments they accept. Used to recover after Rivian
-// renames/removes a field (as happened when getLiveSessionData was
-// replaced with getSessionStatus/getLiveSessionHistory).
-//
-// Returns the raw `__schema.queryType.fields` array so callers can
-// introspect field names and arg shapes.
+// ChargingSchemaProbe runs an introspection query against the charging
+// endpoint, returning __schema.queryType.fields for diagnostics.
 func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1126,18 +953,12 @@ func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, e
 	return data, nil
 }
 
-// ChargingFieldProbe fires a deliberately malformed query for the
-// named top-level field against the charging endpoint.
+// ChargingFieldProbe fires a deliberately malformed query for diagnostics.
 func (c *LiveClient) ChargingFieldProbe(ctx context.Context, field, vehicleID string) (map[string]any, error) {
-	selection := ""
-	return c.ChargingFieldProbeWithSelection(ctx, field, vehicleID, selection)
+	return c.ChargingFieldProbeWithSelection(ctx, field, vehicleID, "")
 }
 
-// ChargingFieldProbeWithSelection probes a top-level field and
-// supplies a selection set so the server's validator proceeds to
-// verify subfields. When selection is empty we emit an empty
-// selection { __typename } and rely on arg-validation errors
-// instead.
+// ChargingFieldProbeWithSelection probes a field with a custom selection set.
 func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field, vehicleID, selection string) (map[string]any, error) {
 	if err := c.checkUpstream(ctx); err != nil {
 		return nil, err
@@ -1160,8 +981,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 		q = fmt.Sprintf(`query Probe($vehicleId: ID!) { %s(vehicleId: $vehicleId) { %s } }`, field, sel)
 		vars["vehicleId"] = vehicleID
 	}
-	// Use a raw POST so we surface the error body instead of
-	// failing out in doGraphQLAt's HTTP 400 handler.
+	// Raw POST so error bodies surface instead of being swallowed by doGraphQLAt.
 	body, _ := json.Marshal(graphQLRequest{OperationName: "Probe", Query: q, Variables: vars})
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, DefaultChargingEndpoint, bytes.NewReader(body))
 	if err != nil {
@@ -1187,11 +1007,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 	return out, nil
 }
 
-// State returns the current snapshot for a vehicle. Units are what the
-// server gave us: battery in percent, distances in kilometers, temps
-// in Celsius. The odometer field is exposed as-is (kilometers); the
-// samples table stores miles, so callers converting for storage need
-// to * 0.621371.
+// State returns the current vehicle snapshot. Battery %, distances km, temps °C.
 func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1211,9 +1027,6 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	}
 	vs := data.VehicleState
 	at := parseTimeOrNow(vs.GNSSLocation.TimeStamp)
-	// ps converts a permissiveString (which carries a possibly-numeric
-	// or -boolean scalar as text) to the string the State struct and
-	// helper functions expect.
 	ps := func(s permissiveString) string { return string(s) }
 	return &State{
 		At:                 at,
@@ -1221,17 +1034,12 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		BatteryLevelPct:    vs.BatteryLevel.Value,
 		BatteryCapacityKWh: vs.BatteryCapacity.Value,
 		DistanceToEmpty:    vs.DistanceToEmpty.Value,
-		// vehicleMileage is reported in METERS despite what the old
-		// comment above claimed — confirmed on a real account the
-		// field comes back as ~5.7e7 for a ~35k-mile vehicle.
+		// vehicleMileage is in meters.
 		OdometerKm:   vs.VehicleMileage.Value / 1000,
 		Gear:         normalizeGear(ps(vs.GearStatus.Value)),
 		DriveMode:    ps(vs.DriveMode.Value),
 		ChargerState: ps(vs.ChargerState.Value),
-		// ChargerPowerKW: the GetVehicleState schema no longer
-		// exposes a live-power field. Kilowatts are available via
-		// getLiveSessionData (chrg/user/graphql) — wire that in a
-		// follow-up when we render a live charging panel.
+		// Live kW is on the charging endpoint, not vehicleState.
 		ChargerPowerKW:          0,
 		ChargeTargetPct:         vs.BatteryLimit.Value,
 		ChargerStatus:           ps(vs.ChargerStatus.Value),
@@ -1239,11 +1047,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		RemoteChargingAvailable: ps(vs.RemoteChargingAvailable.Value),
 		Latitude:                vs.GNSSLocation.Latitude,
 		Longitude:               vs.GNSSLocation.Longitude,
-		// gnssSpeed is reported in meters-per-second (standard GNSS), not
-		// kph — the field name on our State struct predates the discovery.
-		// Convert at the boundary so downstream conversions (kphToMi etc.)
-		// produce correct mph. Without this, a 50 mph drive was logging ~15
-		// mph max speed because 22.35 m/s was being treated as kph.
+		// gnssSpeed is m/s; convert to kph at the boundary.
 		SpeedKph:   vs.GNSSSpeed.Value * 3.6,
 		HeadingDeg: vs.GNSSBearing.Value,
 		AltitudeM:  vs.GNSSAltitude.Value,
@@ -1291,12 +1095,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	}, nil
 }
 
-// aggregateLocked follows home-assistant-rivian's LOCK_STATE_ENTITIES
-// convention: the car is locked iff none of the per-door/closure
-// values equals "unlocked" (case-insensitive). Empty values — which
-// the gateway emits for closures a given trim doesn't have — are
-// ignored, and an all-empty response is treated as unknown→locked so
-// we don't falsely claim the car is wide open.
+// aggregateLocked: locked iff none of vs equals "unlocked". All-empty → locked.
 func aggregateLocked(vs ...string) bool {
 	for _, v := range vs {
 		if strings.EqualFold(strings.TrimSpace(v), "unlocked") {
@@ -1306,8 +1105,7 @@ func aggregateLocked(vs ...string) bool {
 	return true
 }
 
-// aggregateClosed is the mirror for closure/door booleans: all are
-// closed iff none of the per-panel values equals "open".
+// aggregateClosed: closed iff none of vs equals "open".
 func aggregateClosed(vs ...string) bool {
 	for _, v := range vs {
 		if strings.EqualFold(strings.TrimSpace(v), "open") {
@@ -1317,16 +1115,12 @@ func aggregateClosed(vs ...string) bool {
 	return true
 }
 
-// isClosed handles a single closure field; empty string → closed
-// (the trim doesn't have that panel, so we can't meaningfully show
-// it as "open").
+// isClosed: empty → closed (trim lacks that panel).
 func isClosed(v string) bool {
 	return !strings.EqualFold(strings.TrimSpace(v), "open")
 }
 
-// normalizeGear maps Rivian's gearStatus values ("park", "drive",
-// "reverse", "neutral", and occasionally an empty string while the
-// car is asleep) to the single-letter contract exposed by State.Gear.
+// normalizeGear maps gearStatus to the P/D/R/N contract.
 func normalizeGear(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "park", "p":
@@ -1356,10 +1150,7 @@ func parseTimeOrNow(s string) time.Time {
 // Compile-time assertion: LiveClient satisfies Client.
 var _ Client = (*LiveClient)(nil)
 
-// Session is the persisted subset of LiveClient state — enough to
-// restore an authenticated session across restarts without asking the
-// user to log in again. MFA is stored for a single in-flight challenge
-// only (the token is short-lived server-side).
+// Session is the persistable subset of LiveClient state.
 type Session struct {
 	Email            string    `json:"email"`
 	CSRFToken        string    `json:"csrf_token"`
@@ -1370,8 +1161,7 @@ type Session struct {
 	AuthenticatedAt  time.Time `json:"authenticated_at"`
 }
 
-// Snapshot returns a copy of the currently-authenticated session, or
-// the zero value if nothing is logged in. Safe to persist as JSON.
+// Snapshot returns the current Session, or zero if not authenticated.
 func (c *LiveClient) Snapshot() Session {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1386,9 +1176,7 @@ func (c *LiveClient) Snapshot() Session {
 	}
 }
 
-// Restore hydrates the client from a prior Snapshot. No network I/O.
-// Intended to be called once at startup; subsequent calls overwrite
-// everything including any pending OTP state.
+// Restore hydrates the client from a Snapshot. No network I/O.
 func (c *LiveClient) Restore(s Session) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1403,35 +1191,28 @@ func (c *LiveClient) Restore(s Session) {
 	c.pendingOTPToken = ""
 }
 
-// Authenticated reports whether the client currently has a valid
-// userSessionToken. Does not probe the server — only checks local
-// state. Use a short /user query to verify liveness.
+// Authenticated reports whether a userSessionToken is set locally.
 func (c *LiveClient) Authenticated() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.userSessionToken != ""
 }
 
-// Email returns the email the current session is authenticated as, or
-// "" if no session is active.
+// Email returns the authenticated email, or "" if not logged in.
 func (c *LiveClient) Email() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.email
 }
 
-// MFAPending reports whether Login returned ErrMFARequired and the
-// client is waiting for an OTP submission. Allows the UI to restore a
-// half-completed login across page reloads.
+// MFAPending reports whether Login is awaiting an OTP submission.
 func (c *LiveClient) MFAPending() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.pendingOTPToken != ""
 }
 
-// Logout clears every authenticated-session field but keeps the CSRF
-// token (it survives logout server-side and saves a round-trip on the
-// next login).
+// Logout clears session fields but keeps the CSRF token (it survives logout).
 func (c *LiveClient) Logout() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
