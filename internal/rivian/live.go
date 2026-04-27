@@ -18,28 +18,14 @@ import (
 // mobile app. This is an unofficial endpoint — it can and does break.
 const DefaultEndpoint = "https://rivian.com/api/gql/gateway/graphql"
 
-// DefaultClientName is the apollographql-client-name header value the
-// iOS Rivian Owner App sends. Some Rivian endpoints gate behaviour on
-// this; the iOS value unlocks everything the Android one did plus
-// iOS-only surfaces (service appointments, chat session,
-// registerPushNotificationToken, …) — see
-// https://github.com/jrgutier/rivian-python-client v2.2.0 notes.
-//
-// We impersonate the iOS app (rather than identifying as Rivolt)
-// because Rivian's gateway is an unofficial upstream: a
-// non-allowlisted User-Agent is the single easiest signal for them
-// to block. Shipping an honest "Rivolt/<ver>" UA is a phase-3
-// conversation to have *with* Rivian dev-rels, not a unilateral
-// announcement from us — for now we look like the official client,
-// and we surface our own identity via the optional
-// `X-Rivolt-Version` trailer below so operators tailing upstream
-// logs can still tell Rivolt traffic apart.
-const DefaultClientName = "com.rivian.ios.consumer"
+// DefaultClientName identifies us as the Android Owner App. The
+// iOS client name triggers server-side @defer of gnssLocation on
+// the WS subscription, which our single-shot frame parser drops.
+const DefaultClientName = "com.rivian.android.consumer"
 
-// DefaultClientVersion matches iOS Rivian Owner App v4400 (marketing
-// build 3.6.0). Advance this when mitm evidence shows the gateway
-// has started rejecting stale versions; today it's advisory.
-const DefaultClientVersion = "3.6.0-4400"
+// DefaultClientVersion is paired with DefaultClientName; keep them
+// in sync to avoid a never-shipped hybrid fingerprint.
+const DefaultClientVersion = "3.6.0-3989"
 
 // DefaultUserAgent is the exact User-Agent string the iOS app emits.
 // Matching it verbatim (rather than appending "; rivolt/x.y.z") is
