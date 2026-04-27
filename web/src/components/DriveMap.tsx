@@ -108,8 +108,14 @@ export function DriveMap({
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true,
+      scrollWheelZoom: false,
     }).setView(center, 13);
     mapRef.current = map;
+
+    // Click to enable wheel zoom; blur (mouseout) disables it again so
+    // the page keeps scrolling normally over the map.
+    map.on("click", () => map.scrollWheelZoom.enable());
+    map.on("mouseout", () => map.scrollWheelZoom.disable());
 
     L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -251,7 +257,10 @@ export function ChargeMap({
     const map = L.map(ref.current, {
       zoomControl: true,
       preferCanvas: true,
+      scrollWheelZoom: false,
     }).setView([lat, lon], 15);
+    map.on("click", () => map.scrollWheelZoom.enable());
+    map.on("mouseout", () => map.scrollWheelZoom.disable());
     L.tileLayer(
       "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
       {
