@@ -116,8 +116,55 @@ func (m *StateMonitor) SetPriceLookup(fn PriceLookup) {
 // parent; cancelling parent tears them all down.
 func (m *StateMonitor) Start(ctx context.Context) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.parent = ctx
+	m.mu.Unlock()
+
+	// Periodic janitor: close any live charge row left open from a
+	// previous process death. The in-memory gear/charge mutex and
+	// staleness guards in record() handle live cases, but neither
+	// helps a row whose process died and never came back. Runs every
+	// 10 min, marks anything still 'charging_*' with ended_at older
+	// than 1h as 'abandoned'.
+	if m.chargesStore != nil {
+		go m.runStaleChargeJanitor(ctx)
+	}
+}
+
+// runStaleChargeJanitor sweeps abandoned live charge rows on a timer.
+// Errors are logged and swallowed — this is best-effort cleanup.
+func (m *StateMonitor) runStaleChargeJanitor(ctx context.Context) {
+	const sweepInterval = 10 * time.Minute
+	const staleAfter = 1 * time.Hour
+
+	t := time.NewTicker(sweepInterval)
+	defer t.Stop()
+	// Run once immediately so a freshly-restarted process doesn't
+	// leave stale rows visible for up to sweepInterval.
+	m.sweepStaleCharges(ctx, staleAfter)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.sweepStaleCharges(ctx, staleAfter)
+		}
+	}
+}
+
+func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Duration) {
+	if m.chargesStore == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	n, err := m.chargesStore.CloseStaleOpenLiveBefore(cctx, time.Now().Add(-staleAfter))
+	if err != nil {
+		m.logger.Debug("stale charge janitor failed", "err", err.Error())
+		return
+	}
+	if n > 0 {
+		m.logger.Info("stale charge janitor closed rows", "count", n)
+	}
 }
 
 // EnsureSubscribed guarantees a background subscription exists for
