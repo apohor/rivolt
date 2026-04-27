@@ -377,16 +377,11 @@ func deriveCharge(id, vehicleID string, snaps []snapshot, packKWh float64) charg
 		return charges.Charge{ID: id, VehicleID: vehicleID, Source: "electrafi_import"}
 	}
 	first, last := snaps[0], snaps[len(snaps)-1]
-	var maxPower, powerSum float64
-	var powerN int
+	var maxPower float64
 	var maxEnergy, maxMiles float64
 	for _, s := range snaps {
 		if s.chargerPowerKW > maxPower {
 			maxPower = s.chargerPowerKW
-		}
-		if s.chargerPowerKW > 0 {
-			powerSum += s.chargerPowerKW
-			powerN++
 		}
 		if s.chargeEnergyKWh > maxEnergy {
 			maxEnergy = s.chargeEnergyKWh
@@ -395,9 +390,14 @@ func deriveCharge(id, vehicleID string, snaps []snapshot, packKWh float64) charg
 			maxMiles = s.chargeMilesAdded
 		}
 	}
+	// Session average = energy delivered ÷ wall-clock duration. Folds
+	// in ramp-up and taper, and stays consistent with EnergyAddedKWh
+	// and Duration on the row. We used to compute Σ(charger_power)/N
+	// over only ticks where charger_power > 0, but that excludes
+	// ramp/taper and isn't physically meaningful.
 	avgPower := 0.0
-	if powerN > 0 {
-		avgPower = powerSum / float64(powerN)
+	if hours := last.at.Sub(first.at).Hours(); hours > 0 && maxEnergy > 0 {
+		avgPower = maxEnergy / hours
 	}
 
 	// Fallback: ElectraFi occasionally stops reporting charger_power /
