@@ -174,8 +174,8 @@ export default function DriveDetailPage() {
               : "—"
           }
           hint={
-            drive.blended_price_per_kwh
-              ? `at ~${drive.blended_price_per_kwh.toFixed(3)}${drive.estimated_currency ? ` ${drive.estimated_currency}` : ""}/kWh from your most recent charge`
+            drive.estimated_price_per_kwh
+              ? `at ~${drive.estimated_price_per_kwh.toFixed(3)}${drive.estimated_currency ? ` ${drive.estimated_currency}` : ""}/kWh from your most recent charge`
               : undefined
           }
         />

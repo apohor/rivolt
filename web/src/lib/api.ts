@@ -200,13 +200,14 @@ export type Drive = {
   // and on imports where --pack-kwh wasn't set.
   EnergyUsedKWh: number;
   Source: string;
-  // Locally-computed cost. The backend computes a blended $/kWh from
-  // the user's charge history (Σ cost ÷ Σ energy across all charges,
-  // falling back to the configured home rate) and multiplies by
-  // EnergyUsedKWh. Present when both energy and a usable rate exist.
+  // Locally-computed cost. The backend bills each drive at the
+  // rate of the most recent charge that ended before it started
+  // (RAN, home, or manual override), falling back to a blended
+  // rate for drives that predate the first known charge. Present
+  // when both EnergyUsedKWh and a usable rate exist.
   estimated_cost?: number;
   estimated_currency?: string;
-  blended_price_per_kwh?: number;
+  estimated_price_per_kwh?: number;
 };
 
 export type Charge = {
