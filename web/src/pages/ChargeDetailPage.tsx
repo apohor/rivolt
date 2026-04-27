@@ -299,10 +299,12 @@ function NoSamples() {
   );
 }
 
-// PricingCard lets the user override the persisted cost / currency /
-// price-per-kWh on a single charge — the escape hatch for DCFC
-// sessions paid outside the Rivian app, where neither the live feed
-// nor the home-rate fallback gets the right number.
+// PricingCard lets the user override the persisted price-per-kWh on
+// a single charge — the escape hatch for DCFC sessions paid outside
+// the Rivian app, where neither the live feed nor the home-rate
+// fallback gets the right number. Total cost is derived from the
+// rate × energy at save time so the rate stays the single source of
+// truth (the same rate is what the per-drive cost calc consumes).
 function PricingCard({
   charge,
   mutation,
@@ -320,79 +322,46 @@ function PricingCard({
     error: unknown;
   };
 }) {
-  const [cost, setCost] = useState(
-    charge.Cost > 0 ? String(charge.Cost) : "",
-  );
+  // Seed from PricePerKWh, but fall back to Cost/Energy so a row that
+  // only has a total cost (legacy data, ElectraFi import) still
+  // round-trips without surprising the user.
+  const seed =
+    charge.PricePerKWh > 0
+      ? charge.PricePerKWh
+      : charge.Cost > 0 && charge.EnergyAddedKWh > 0
+        ? charge.Cost / charge.EnergyAddedKWh
+        : 0;
+  const [ppk, setPpk] = useState(seed > 0 ? seed.toFixed(3) : "");
   const [currency, setCurrency] = useState(charge.Currency || "USD");
-  const [ppk, setPpk] = useState(
-    charge.PricePerKWh > 0 ? String(charge.PricePerKWh) : "",
-  );
 
   const energy = charge.EnergyAddedKWh;
-  // Live preview: if the user typed only a per-kWh rate, derive the
-  // implied total; if only a total, derive the implied rate. Lets
-  // them sanity-check before submitting.
-  const costNum = Number(cost);
   const ppkNum = Number(ppk);
-  const previewCost =
-    !Number.isFinite(costNum) || costNum <= 0
-      ? ppkNum > 0 && energy > 0
-        ? ppkNum * energy
-        : 0
-      : costNum;
-  const previewPpk =
-    !Number.isFinite(ppkNum) || ppkNum <= 0
-      ? costNum > 0 && energy > 0
-        ? costNum / energy
-        : 0
-      : ppkNum;
+  const previewCost = ppkNum > 0 && energy > 0 ? ppkNum * energy : 0;
 
   return (
     <Card title="Pricing">
       <p className="text-xs text-neutral-500 mb-3">
-        Override the cost or per-kWh rate for this charge — handy
-        when you paid for fast-charging outside the Rivian app and we
-        don't have an upstream price. Leave both blank to clear the
-        override and let the home rate take over again on read.
+        Override the per-kWh rate for this charge — handy when you
+        paid for fast-charging outside the Rivian app and we don't
+        have an upstream price. Total cost is derived from rate ×
+        energy. Leave blank to clear the override and let the home
+        rate take over again on read.
       </p>
       <form
-        className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+        className="grid grid-cols-1 sm:grid-cols-2 gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           mutation.mutate({
-            cost: costNum > 0 ? costNum : 0,
+            // Backend treats zero as "clear", and derives cost from
+            // ppk × energy itself when ppk > 0 — we send 0 for cost
+            // so the row stays consistent if the user later edits
+            // EnergyAddedKWh in some other flow.
+            cost: previewCost,
             currency: currency.trim().toUpperCase(),
             price_per_kwh: ppkNum > 0 ? ppkNum : 0,
           });
         }}
       >
-        <label className="block">
-          <span className="block text-xs text-neutral-400 mb-1">
-            Total cost
-          </span>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            inputMode="decimal"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-            placeholder="e.g. 12.34"
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none"
-          />
-        </label>
-        <label className="block">
-          <span className="block text-xs text-neutral-400 mb-1">
-            Currency
-          </span>
-          <input
-            type="text"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-            maxLength={4}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm uppercase text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
-          />
-        </label>
         <label className="block">
           <span className="block text-xs text-neutral-400 mb-1">
             Price per kWh
@@ -408,10 +377,22 @@ function PricingCard({
             className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none"
           />
         </label>
-        <div className="sm:col-span-3 flex items-center justify-between gap-3 flex-wrap">
+        <label className="block">
+          <span className="block text-xs text-neutral-400 mb-1">
+            Currency
+          </span>
+          <input
+            type="text"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            maxLength={4}
+            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm uppercase text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+          />
+        </label>
+        <div className="sm:col-span-2 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-xs text-neutral-500 tabular-nums">
-            {previewCost > 0 || previewPpk > 0
-              ? `≈ ${previewCost.toFixed(2)} ${currency} at ${previewPpk.toFixed(3)} ${currency}/kWh over ${energy.toFixed(1)} kWh`
+            {previewCost > 0
+              ? `≈ ${previewCost.toFixed(2)} ${currency} over ${energy.toFixed(1)} kWh`
               : `Energy: ${energy.toFixed(1)} kWh`}
           </p>
           <button
@@ -423,7 +404,7 @@ function PricingCard({
           </button>
         </div>
         {mutation.isError ? (
-          <p className="sm:col-span-3 text-xs text-rose-400">
+          <p className="sm:col-span-2 text-xs text-rose-400">
             {String(mutation.error)}
           </p>
         ) : null}
