@@ -633,10 +633,12 @@ type driveResponse struct {
 	drives.Drive
 	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
-	// BlendedPricePerKWh is the rate used to compute EstimatedCost.
-	// Surfaced so the UI can render "~$5.23 at $0.14/kWh (home)" or
-	// similar instead of treating the cost as a hard number.
-	BlendedPricePerKWh float64 `json:"blended_price_per_kwh,omitempty"`
+	// EstimatedPricePerKWh is the rate used to compute EstimatedCost
+	// — sourced from the most recent prior charge (or a blended
+	// fallback for drives that predate the first known charge).
+	// Surfaced so the UI can render "~$5.23 at $0.14/kWh" instead
+	// of treating the cost as a hard number.
+	EstimatedPricePerKWh float64 `json:"estimated_price_per_kwh,omitempty"`
 }
 
 func decorateDrive(d drives.Drive, rate float64, cur string) driveResponse {
@@ -644,7 +646,7 @@ func decorateDrive(d drives.Drive, rate float64, cur string) driveResponse {
 	if rate > 0 && d.EnergyUsedKWh > 0 {
 		resp.EstimatedCost = rate * d.EnergyUsedKWh
 		resp.EstimatedCurrency = cur
-		resp.BlendedPricePerKWh = rate
+		resp.EstimatedPricePerKWh = rate
 	}
 	return resp
 }

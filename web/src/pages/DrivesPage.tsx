@@ -113,8 +113,8 @@ function DriveTable({ drives }: { drives: Drive[] }) {
               <td
                 className="py-2 pr-4 text-neutral-400 tabular-nums"
                 title={
-                  d.blended_price_per_kwh
-                    ? `Estimated at ${d.blended_price_per_kwh.toFixed(3)} ${d.estimated_currency ?? ""}/kWh — rate from the most recent charge before this drive`
+                  d.estimated_price_per_kwh
+                    ? `Estimated at ${d.estimated_price_per_kwh.toFixed(3)} ${d.estimated_currency ?? ""}/kWh — rate from the most recent charge before this drive`
                     : undefined
                 }
               >
