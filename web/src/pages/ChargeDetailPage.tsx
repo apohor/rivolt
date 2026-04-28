@@ -13,6 +13,7 @@ import {
   num,
   pct,
 } from "../lib/format";
+import { formatTemperature, usePreferences } from "../lib/preferences";
 import { smoothGaussianTime } from "../lib/smooth";
 
 export default function ChargeDetailPage() {
@@ -72,6 +73,12 @@ export default function ChargeDetailPage() {
       return t >= s && t <= e;
     });
   }, [charge, samples.data]);
+
+  const insights = useMemo(
+    () => (charge ? computeSessionInsights(charge, chargeSamples) : null),
+    [charge, chargeSamples],
+  );
+  const prefs = usePreferences();
 
   if (charges.isLoading) {
     return (
@@ -211,18 +218,11 @@ export default function ChargeDetailPage() {
       </Card>
 
       <Card title="Session">
-        <dl className="grid grid-cols-2 gap-3 text-sm text-neutral-300">
-          <Row label="Final state" value={formatChargeState(charge.FinalState)} />
-          <Row
-            label="Avg power"
-            value={num(charge.AvgPowerKW, 1, "kW")}
-          />
-          <Row
-            label="Miles added"
-            value={num(charge.MilesAdded, 1, "mi")}
-          />
-          <Row label="Source" value={charge.Source} />
-        </dl>
+        <SessionInsights
+          charge={charge}
+          insights={insights}
+          tempUnit={prefs.temperatureUnit}
+        />
       </Card>
 
       {Number.isFinite(charge.Lat) && (charge.Lat !== 0 || charge.Lon !== 0) ? (
@@ -362,6 +362,309 @@ function Row({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 tabular-nums">{value}</dd>
     </div>
   );
+}
+
+// SessionInsights is a richer reformulation of the old four-row
+// Session card. We split the metrics into thematic sections so the
+// user can scan them quickly: the top row is always-available
+// "what happened", followed by power/timing and battery/energy
+// blocks computed from the raw sample stream, and an environment
+// block that only renders when temp data is present.
+function SessionInsights({
+  charge,
+  insights,
+  tempUnit,
+}: {
+  charge: import("../lib/api").Charge;
+  insights: SessionInsightsData | null;
+  tempUnit: import("../lib/preferences").TemperatureUnit;
+}) {
+  if (!insights) return null;
+  const tier = insights.tier;
+  return (
+    <div className="space-y-4 text-sm text-neutral-300">
+      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Row
+          label="Final state"
+          value={formatChargeState(charge.FinalState)}
+        />
+        <Row label="Charging tier" value={tier.label} />
+        <Row label="Source" value={charge.Source} />
+        <Row
+          label="Sessions like this"
+          value={tier.hint}
+        />
+      </dl>
+
+      <div>
+        <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+          Power &amp; timing
+        </h4>
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Row label="Peak power" value={num(charge.MaxPowerKW, 1, "kW")} />
+          <Row label="Avg power" value={num(charge.AvgPowerKW, 1, "kW")} />
+          <Row
+            label="Time to peak"
+            value={
+              insights.timeToPeakSec > 0
+                ? formatDuration(insights.timeToPeakSec)
+                : "—"
+            }
+          />
+          <Row
+            label="Active charging"
+            value={
+              insights.activeChargingSec > 0
+                ? `${formatDuration(insights.activeChargingSec)} (${pct(
+                    insights.activeChargingPct,
+                    0,
+                  )})`
+                : "—"
+            }
+          />
+        </dl>
+      </div>
+
+      <div>
+        <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+          Battery &amp; energy
+        </h4>
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Row
+            label="SoC gained"
+            value={`${pct(insights.socGainedPct, 1)} (${pct(charge.StartSoCPct, 0)} → ${pct(charge.EndSoCPct, 0)})`}
+          />
+          <Row
+            label="Charge rate"
+            value={
+              insights.socPerHour > 0
+                ? `${insights.socPerHour.toFixed(1)} %/h`
+                : "—"
+            }
+          />
+          <Row
+            label="Charge limit"
+            value={
+              insights.chargeLimitPct > 0
+                ? pct(insights.chargeLimitPct, 0)
+                : "—"
+            }
+          />
+          <Row
+            label="Miles added"
+            value={num(charge.MilesAdded, 1, "mi")}
+          />
+          <Row
+            label="Energy added"
+            value={num(charge.EnergyAddedKWh, 2, "kWh")}
+          />
+          <Row
+            label="Range efficiency"
+            value={
+              insights.miPerKWh > 0
+                ? `${insights.miPerKWh.toFixed(2)} mi/kWh`
+                : "—"
+            }
+          />
+          <Row
+            label="$/mile"
+            value={insights.costPerMile || "—"}
+          />
+          <Row
+            label="$/kWh"
+            value={insights.costPerKWh || "—"}
+          />
+        </dl>
+      </div>
+
+      {insights.outsideTempC !== null || insights.insideTempC !== null ? (
+        <div>
+          <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+            Environment
+          </h4>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Row
+              label="Outside temp"
+              value={formatTemperature(insights.outsideTempC, tempUnit, 0)}
+            />
+            <Row
+              label="Inside temp"
+              value={formatTemperature(insights.insideTempC, tempUnit, 0)}
+            />
+            <Row
+              label="Started"
+              value={formatDateTime(charge.StartedAt)}
+            />
+            <Row
+              label="Ended"
+              value={formatDateTime(charge.EndedAt)}
+            />
+          </dl>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// SessionInsightsData is the shape of derived metrics consumed by
+// the SessionInsights card. Kept narrow on purpose: only fields
+// that drive the rendered rows go here, with units pre-baked.
+type SessionInsightsData = {
+  tier: { label: string; hint: string };
+  timeToPeakSec: number;
+  activeChargingSec: number;
+  activeChargingPct: number; // share of total session spent at >0 kW
+  socGainedPct: number;
+  socPerHour: number; // %/hour over the whole session
+  chargeLimitPct: number; // mode of ChargeLimitPct over the window
+  miPerKWh: number; // MilesAdded / EnergyAddedKWh, when both > 0
+  costPerMile: string; // pre-formatted, "" when unavailable
+  costPerKWh: string;
+  outsideTempC: number | null;
+  insideTempC: number | null;
+};
+
+// computeSessionInsights derives the metrics shown in the enriched
+// Session card. Anything that requires raw samples is computed
+// inline; pure-Charge-field metrics are computed from the row
+// directly so the card still renders meaningfully when sample data
+// is missing or stale.
+function computeSessionInsights(
+  charge: import("../lib/api").Charge,
+  samples: Sample[],
+): SessionInsightsData {
+  const startMs = new Date(charge.StartedAt).getTime();
+  const endMs = new Date(charge.EndedAt).getTime();
+  const totalSec = Math.max(0, (endMs - startMs) / 1000);
+  const totalHours = totalSec / 3600;
+
+  // Active charging time: integrate the gaps between consecutive
+  // samples whose ChargerPowerKW > 0. Caps each step at 5 minutes
+  // so a long sample drop-out doesn't get counted as charging.
+  const ACTIVE_STEP_CAP_SEC = 300;
+  let activeSec = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const prev = samples[i - 1];
+    const cur = samples[i];
+    if ((prev.ChargerPowerKW || 0) <= 0) continue;
+    const dt =
+      (new Date(cur.At).getTime() - new Date(prev.At).getTime()) / 1000;
+    if (dt <= 0) continue;
+    activeSec += Math.min(dt, ACTIVE_STEP_CAP_SEC);
+  }
+  const activePct = totalSec > 0 ? (activeSec / totalSec) * 100 : 0;
+
+  // Time-to-peak: from session start to the first sample within
+  // 90% of the max charger power. Helps surface ramp behaviour
+  // (DC sessions ramp in seconds; L2 is essentially instant).
+  let timeToPeakSec = 0;
+  if (charge.MaxPowerKW > 0) {
+    const target = charge.MaxPowerKW * 0.9;
+    for (const s of samples) {
+      if ((s.ChargerPowerKW || 0) >= target) {
+        timeToPeakSec = Math.max(
+          0,
+          (new Date(s.At).getTime() - startMs) / 1000,
+        );
+        break;
+      }
+    }
+  }
+
+  // Charge limit: pick the mode of ChargeLimitPct across samples.
+  // The user may bump the limit mid-session so mode beats first/last.
+  const limitCounts = new Map<number, number>();
+  for (const s of samples) {
+    const l = Math.round(s.ChargeLimitPct || 0);
+    if (l <= 0) continue;
+    limitCounts.set(l, (limitCounts.get(l) || 0) + 1);
+  }
+  let chargeLimitPct = 0;
+  let bestN = 0;
+  for (const [l, n] of limitCounts) {
+    if (n > bestN) {
+      chargeLimitPct = l;
+      bestN = n;
+    }
+  }
+
+  // Average outside / inside temperature across the window. We use
+  // a plain mean over present values — temps drift slowly enough
+  // that a mean is more representative than mode.
+  const outsideTempC = mean(samples.map((s) => s.OutsideTempC));
+  const insideTempC = mean(samples.map((s) => s.InsideTempC));
+
+  const socGainedPct = Math.max(0, charge.EndSoCPct - charge.StartSoCPct);
+  const socPerHour = totalHours > 0 ? socGainedPct / totalHours : 0;
+
+  const miPerKWh =
+    charge.EnergyAddedKWh > 0 && charge.MilesAdded > 0
+      ? charge.MilesAdded / charge.EnergyAddedKWh
+      : 0;
+
+  // Cost-per-X favours the persisted Cost; falls back to the home-
+  // rate estimate so legacy / un-billed sessions still surface a
+  // ballpark number with the right currency code.
+  const cost = charge.Cost > 0 ? charge.Cost : charge.estimated_cost || 0;
+  const costCurrency =
+    charge.Cost > 0 ? charge.Currency : charge.estimated_currency || "";
+  const isEstimate = charge.Cost <= 0;
+  const costPerMile =
+    cost > 0 && charge.MilesAdded > 0
+      ? `${isEstimate ? "~" : ""}${(cost / charge.MilesAdded).toFixed(3)}${
+          costCurrency ? ` ${costCurrency}` : ""
+        }/mi`
+      : "";
+  const costPerKWh =
+    cost > 0 && charge.EnergyAddedKWh > 0
+      ? `${isEstimate ? "~" : ""}${(cost / charge.EnergyAddedKWh).toFixed(3)}${
+          costCurrency ? ` ${costCurrency}` : ""
+        }/kWh`
+      : "";
+
+  return {
+    tier: classifyChargingTier(charge.MaxPowerKW),
+    timeToPeakSec,
+    activeChargingSec: activeSec,
+    activeChargingPct: activePct,
+    socGainedPct,
+    socPerHour,
+    chargeLimitPct,
+    miPerKWh,
+    costPerMile,
+    costPerKWh,
+    outsideTempC,
+    insideTempC,
+  };
+}
+
+// classifyChargingTier maps a session's peak charger power to the
+// canonical tier the operator would think in. Buckets borrow from
+// SAE J1772 / CCS naming: L1 wall outlet, L2 home, L2 commercial,
+// then DC slow / standard / fast / ultra.
+function classifyChargingTier(maxKW: number): { label: string; hint: string } {
+  if (maxKW <= 0) return { label: "—", hint: "no power data" };
+  if (maxKW <= 2) return { label: "L1 (120 V)", hint: "wall outlet" };
+  if (maxKW <= 12) return { label: "L2 home", hint: "7–11 kW range" };
+  if (maxKW <= 25) return { label: "L2 commercial", hint: "destination charger" };
+  if (maxKW <= 60) return { label: "DC slow", hint: "~50 kW DCFC" };
+  if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW DCFC" };
+  if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW DCFC" };
+  return { label: "DC ultra", hint: "350 kW+ DCFC" };
+}
+
+// mean returns the arithmetic mean of finite, non-zero values, or
+// null when no usable values are present. Zero is treated as
+// "missing" because the ingester emits 0 for unset numeric columns.
+function mean(values: number[]): number | null {
+  let sum = 0;
+  let n = 0;
+  for (const v of values) {
+    if (!Number.isFinite(v) || v === 0) continue;
+    sum += v;
+    n++;
+  }
+  return n > 0 ? sum / n : null;
 }
 
 function NoSamples() {
