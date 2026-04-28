@@ -100,6 +100,27 @@ export default function DriveDetailPage() {
     return first ? { lat: first.Lat, lon: first.Lon } : undefined;
   }, [drive, samples.data]);
 
+  // Samples to feed the route map. Same window as `driveSamples`,
+  // but with leading and trailing parked points trimmed off. The
+  // 60-second post-end pad on `driveSamples` (kept so the speed
+  // chart visibly returns to 0) routinely captures 10–20 stale
+  // telemetry frames clustered at the parking spot — same lat/lon
+  // repeating, with a frozen non-zero speed value cached from
+  // before the shift to P. OSRM /match treats those as a slow
+  // crawl and snaps them onto whichever local street is nearest,
+  // producing a phantom loop next to the destination pin.
+  // Stripping ShiftState === "P" frames from each end gives /match
+  // only the actually-moving portion of the trace, which is what
+  // it's calibrated for.
+  const mapPathSamples = useMemo(() => {
+    const ds = driveSamples;
+    let head = 0;
+    while (head < ds.length && ds[head].ShiftState === "P") head++;
+    let tail = ds.length;
+    while (tail > head && ds[tail - 1].ShiftState === "P") tail--;
+    return ds.slice(head, tail);
+  }, [driveSamples]);
+
   if (drives.isLoading) {
     return (
       <div>
@@ -240,11 +261,11 @@ export default function DriveDetailPage() {
       <Card title="Route">
         {samples.isLoading ? (
           <Spinner />
-        ) : driveSamples.length === 0 ? (
+        ) : mapPathSamples.length === 0 ? (
           <NoSamples />
         ) : (
           <DriveMap
-            points={driveSamples.map((p) => ({
+            points={mapPathSamples.map((p) => ({
               lat: p.Lat,
               lon: p.Lon,
               // Unix seconds — OSRM /match needs a monotonic time
