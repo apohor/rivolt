@@ -242,7 +242,21 @@ export default function DriveDetailPage() {
     x: new Date(p.At).getTime(),
     y: p.BatteryLevelPct || 0,
   }));
-  const speedPts = speedPtsRaw;
+  // Speed chart anchor: a drive's last in-motion sample is by
+  // definition non-zero (the trip ends because the car shifts out
+  // of D, not because it crawls to 0 mph). The 60 s post-end pad in
+  // driveSamples gives the line space to drop, but only if a parked
+  // sample lands inside that window — and Rivian's telemetry often
+  // doesn't write one for several minutes after parking. So when
+  // the visible tail is still moving, append a synthetic 0-mph
+  // sample 1 s after the last in-motion point. Speed chart only —
+  // we don't fabricate SoC.
+  const speedPts = (() => {
+    if (speedPtsRaw.length === 0) return speedPtsRaw;
+    const last = speedPtsRaw[speedPtsRaw.length - 1];
+    if ((last.y ?? 0) <= 0.5) return speedPtsRaw;
+    return [...speedPtsRaw, { x: last.x + 1000, y: 0 }];
+  })();
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 

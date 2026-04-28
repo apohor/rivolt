@@ -199,12 +199,15 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
 
           <Section title="Climate">
             <Field label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
-            {/* Rivian's live VehicleState GraphQL feed doesn't expose
-                an outside/ambient temperature field — OutsideTempC
-                is hardcoded to 0 in internal/rivian/live.go. Hide
-                the Field entirely rather than render a misleading
-                "0 °C". Drive samples persisted from electrafi CSVs
-                do carry outside temp and surface on /drives/:id. */}
+            {/* Rivian's live VehicleState GraphQL feed itself doesn't
+                expose outside_temp_c, but the StateMonitor's REST
+                periodicRefresh (every ~2 min while driving/charging)
+                folds REST's outside_temp_c into the cached state via
+                mergeState, so this field IS live — just refreshed
+                on the REST cadence rather than the WS cadence.
+                We still hide on === 0 so the very first second after
+                ignition (before the first REST poll lands) doesn't
+                render a misleading "0 °C". */}
             {s.outside_temp_c !== 0 ? (
               <Field label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
             ) : null}
