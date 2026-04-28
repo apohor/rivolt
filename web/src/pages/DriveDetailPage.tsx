@@ -101,25 +101,38 @@ export default function DriveDetailPage() {
   }, [drive, samples.data]);
 
   // Samples to feed the route map. Same window as `driveSamples`,
-  // but with leading and trailing parked points trimmed off. The
-  // 60-second post-end pad on `driveSamples` (kept so the speed
-  // chart visibly returns to 0) routinely captures 10–20 stale
-  // telemetry frames clustered at the parking spot — same lat/lon
-  // repeating, with a frozen non-zero speed value cached from
-  // before the shift to P. OSRM /match treats those as a slow
-  // crawl and snaps them onto whichever local street is nearest,
-  // producing a phantom loop next to the destination pin.
-  // Stripping ShiftState === "P" frames from each end gives /match
-  // only the actually-moving portion of the trace, which is what
-  // it's calibrated for.
+  // but with two extra constraints that matter for OSRM /match:
+  //
+  //   1. Hard-cap at EndedAt (no post-end pad). The 60 s pad on
+  //      driveSamples exists so the speed chart can visibly return
+  //      to 0, but on back-to-back trips (e.g. driver pauses < 60 s
+  //      between drives) it bleeds samples from the *next* drive
+  //      onto this drive's polyline. Those bleed samples are
+  //      `ShiftState === "D"` so the parked-frame trim below
+  //      doesn't catch them — only the time cap does.
+  //
+  //   2. Strip leading/trailing `ShiftState === "P"` frames. When
+  //      Rivian transitions D → P at the destination, telemetry
+  //      often replays the last in-motion sample several times
+  //      (same lat/lon, frozen non-zero speed). /match treats
+  //      those as a slow crawl and snaps each onto whichever
+  //      local street is nearest, producing a phantom loop next
+  //      to the end pin.
+  //
+  // Charts still consume the full driveSamples window so the
+  // speed return-to-zero animation is preserved.
   const mapPathSamples = useMemo(() => {
-    const ds = driveSamples;
+    if (!drive) return [] as Sample[];
+    const endMs = new Date(drive.EndedAt).getTime();
+    const inWindow = driveSamples.filter(
+      (p) => new Date(p.At).getTime() <= endMs,
+    );
     let head = 0;
-    while (head < ds.length && ds[head].ShiftState === "P") head++;
-    let tail = ds.length;
-    while (tail > head && ds[tail - 1].ShiftState === "P") tail--;
-    return ds.slice(head, tail);
-  }, [driveSamples]);
+    while (head < inWindow.length && inWindow[head].ShiftState === "P") head++;
+    let tail = inWindow.length;
+    while (tail > head && inWindow[tail - 1].ShiftState === "P") tail--;
+    return inWindow.slice(head, tail);
+  }, [drive, driveSamples]);
 
   if (drives.isLoading) {
     return (
