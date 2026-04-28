@@ -14,7 +14,7 @@ import {
 } from "../lib/format";
 import { smoothGaussianTime } from "../lib/smooth";
 import { collapseRoundTrips } from "../lib/drives";
-import { usePreferences } from "../lib/preferences";
+import { usePreferences, formatTemperature } from "../lib/preferences";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -246,6 +246,38 @@ export default function DriveDetailPage() {
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 
+  // Temperature series. Convert to the user's chosen unit at the
+  // points level so the chart Y-axis, formatY label and the cursor
+  // readout all stay consistent (smoothing happens in chart units).
+  // Filter out the (0, 0) sentinel samples emitted by the live merge
+  // path when Rivian's WS feed didn't carry a fresh ambient reading
+  // — a real 0 °C is rare and a phantom 0 line would distort the
+  // y-domain. We accept any sample where at least one of the two
+  // sensors reports a non-zero reading, then per-series we drop the
+  // zero side (so e.g. live-only samples still contribute cabin).
+  const tempUnit = prefs.temperatureUnit;
+  const cToUnit = (c: number) => (tempUnit === "f" ? c * 1.8 + 32 : c);
+  const tempUnitSuffix = tempUnit === "f" ? "°F" : "°C";
+  const outsideTempPts = driveSamples
+    .filter((p) => Number.isFinite(p.OutsideTempC) && p.OutsideTempC !== 0)
+    .map((p) => ({
+      x: new Date(p.At).getTime(),
+      y: cToUnit(p.OutsideTempC),
+    }));
+  const insideTempPts = driveSamples
+    .filter((p) => Number.isFinite(p.InsideTempC) && p.InsideTempC !== 0)
+    .map((p) => ({
+      x: new Date(p.At).getTime(),
+      y: cToUnit(p.InsideTempC),
+    }));
+  // Outdoor temperature changes slowly (minutes, not seconds), so a
+  // wide smoothing window cleans the typical ~1 °C sensor jitter
+  // without flattening real ramps when driving in/out of sun.
+  const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
+  const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
+  const hasTempSeries =
+    outsideTempSmoothed.length > 0 || insideTempSmoothed.length > 0;
+
   // Resolve the sample closest to the synced cursor for the
   // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
   // so the lat/lon stays exact (smoothing is a chart-only concern).
@@ -335,6 +367,11 @@ export default function DriveDetailPage() {
             <span className="text-emerald-400">
               {(cursorSample.BatteryLevelPct || 0).toFixed(0)}%
             </span>
+            {cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0 ? (
+              <span className="text-sky-300">
+                {formatTemperature(cursorSample.OutsideTempC, tempUnit, 0)}
+              </span>
+            ) : null}
             {cursorSample.Lat || cursorSample.Lon ? (
               <span className="text-neutral-500">
                 {cursorSample.Lat.toFixed(5)}, {cursorSample.Lon.toFixed(5)}
@@ -399,6 +436,58 @@ export default function DriveDetailPage() {
           />
         )}
       </Card>
+
+      {/* Temperature card. Only renders when we have at least one
+          non-sentinel reading in the drive window — many drives
+          predate the recorder writing temps, and live-only segments
+          can carry only cabin or only outside. */}
+      {samples.isLoading ? null : hasTempSeries ? (
+        <Card title="Temperature">
+          <LineChart
+            series={[
+              ...(outsideTempSmoothed.length > 0
+                ? [
+                    {
+                      points: outsideTempSmoothed,
+                      color: "#60a5fa",
+                      strokeWidth: 1.4,
+                      label: "Outside",
+                    },
+                  ]
+                : []),
+              ...(insideTempSmoothed.length > 0
+                ? [
+                    {
+                      points: insideTempSmoothed,
+                      color: "#f97316",
+                      strokeWidth: 1.2,
+                      label: "Cabin",
+                    },
+                  ]
+                : []),
+            ]}
+            height={140}
+            formatY={(v) => `${v.toFixed(0)} ${tempUnitSuffix}`}
+            formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
+          />
+          <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
+            {outsideTempSmoothed.length > 0 ? (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
+                Outside
+              </span>
+            ) : null}
+            {insideTempSmoothed.length > 0 ? (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+                Cabin
+              </span>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <Card title="Route">
         {samples.isLoading ? (
