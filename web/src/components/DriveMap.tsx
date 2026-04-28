@@ -74,11 +74,37 @@ async function matchChunk(
       matchings?: { geometry: { coordinates: [number, number][] } }[];
     };
     if (j.code !== "Ok" || !j.matchings?.length) return null;
+    // OSRM splits the response into multiple matchings when it
+    // can't confidently connect the whole trace as one path
+    // (typical at parking lots / off-graph drift). Naïvely
+    // concatenating draws a straight chord between matching N's
+    // end and matching N+1's start — visibly cuts through
+    // buildings. Bridge each gap with a /route call so the
+    // polyline follows the road network all the way through.
     const out: [number, number][] = [];
-    for (const m of j.matchings) {
-      for (const [lon, lat] of m.geometry.coordinates) {
-        out.push([lat, lon]);
+    for (let i = 0; i < j.matchings.length; i++) {
+      const seg = j.matchings[i].geometry.coordinates.map(
+        ([lon, lat]) => [lat, lon] as [number, number],
+      );
+      if (i === 0) {
+        out.push(...seg);
+        continue;
       }
+      const from = out[out.length - 1];
+      const to = seg[0];
+      const bridge = await routeAll(
+        [
+          { lat: from[0], lon: from[1] },
+          { lat: to[0], lon: to[1] },
+        ],
+        signal,
+      );
+      if (bridge && bridge.length > 1) {
+        // bridge[0] === from (already in out); bridge.at(-1) === to
+        // (also seg[0]) — drop both endpoints to avoid duplicates.
+        out.push(...bridge.slice(1, -1));
+      }
+      out.push(...seg);
     }
     return out.length > 1 ? out : null;
   } catch {
