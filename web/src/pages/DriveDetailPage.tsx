@@ -193,6 +193,23 @@ export default function DriveDetailPage() {
     return inWindow.slice(head, tail);
   }, [drive, driveSamples]);
 
+  // Stable map points: DriveMap's effect tears the map down whenever
+  // its `points` array identity changes, so we MUST memoize the
+  // mapped {lat,lon,t} list. Without this, every cursor-hover
+  // re-render hands DriveMap a brand-new array, the map rebuilds
+  // (zooming in/out visibly), and the cursor marker is wiped.
+  const mapPoints = useMemo(
+    () =>
+      mapPathSamples.map((p) => ({
+        lat: p.Lat,
+        lon: p.Lon,
+        // Unix seconds — OSRM /match needs a monotonic time axis,
+        // and the cursor marker uses it to find the nearest sample.
+        t: Math.floor(new Date(p.At).getTime() / 1000),
+      })),
+    [mapPathSamples],
+  );
+
   if (drives.isLoading) {
     return (
       <div>
@@ -390,14 +407,7 @@ export default function DriveDetailPage() {
           <NoSamples />
         ) : (
           <DriveMap
-            points={mapPathSamples.map((p) => ({
-              lat: p.Lat,
-              lon: p.Lon,
-              // Unix seconds — OSRM /match needs a monotonic time
-              // axis to weight kinematic plausibility against
-              // each candidate road.
-              t: Math.floor(new Date(p.At).getTime() / 1000),
-            }))}
+            points={mapPoints}
             start={homeStart ?? { lat: drive.StartLat, lon: drive.StartLon }}
             end={homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon }}
             height={360}
