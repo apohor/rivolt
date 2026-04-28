@@ -145,6 +145,16 @@ export default function ChargeDetailPage() {
   const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
   const hasTempSeries =
     outsideTempSmoothed.length > 0 || insideTempSmoothed.length > 0;
+  // Combined-chart overlay picks whichever signal is present.
+  // Rivian live WS only exposes cabin (outside hardcoded to 0 in
+  // internal/rivian/live.go); ElectraFi imports carry outside but
+  // not cabin. Prefer outside; fall back to cabin.
+  const ambientTempSeries =
+    outsideTempSmoothed.length > 1
+      ? { points: outsideTempSmoothed, label: "Outside temp" }
+      : insideTempSmoothed.length > 1
+        ? { points: insideTempSmoothed, label: "Cabin temp" }
+        : null;
 
   // Resolve the sample closest to the synced cursor for the readout.
   const cursorSample = (() => {
@@ -206,7 +216,13 @@ export default function ChargeDetailPage() {
         />
       </div>
 
-      <Card title="Battery, charger power & outside temp">
+      <Card
+        title={
+          ambientTempSeries && powerPts.length > 0
+            ? `Battery, charger power & ${ambientTempSeries.label.toLowerCase()}`
+            : "Battery & charger power"
+        }
+      >
         {samples.isLoading ? (
           <Spinner />
         ) : socPts.length === 0 ? (
@@ -233,8 +249,10 @@ export default function ChargeDetailPage() {
                       },
                     ]
                   : []),
-                // Outside-temperature overlay. Mapped linearly into
-                // the right (kW) axis so the dotted line stays
+                // Ambient-temperature overlay. Picks outside or
+                // cabin depending on which signal exists for this
+                // session (see ambientTempSeries). Mapped linearly
+                // into the right (kW) axis so the dotted line stays
                 // inside the chart frame; `formatCursor` inverts so
                 // the readout still shows real °F/°C. Visual only —
                 // the right axis labels remain kW. Suppressed when
@@ -243,8 +261,8 @@ export default function ChargeDetailPage() {
                 // dotted line floating above an unlabeled axis.
                 ...(() => {
                   if (powerPts.length === 0) return [];
-                  if (outsideTempSmoothed.length < 2) return [];
-                  const ys = outsideTempSmoothed.map((p) => p.y);
+                  if (!ambientTempSeries) return [];
+                  const ys = ambientTempSeries.points.map((p) => p.y);
                   const tMin = Math.min(...ys);
                   const tMax = Math.max(...ys);
                   const span = Math.max(1, tMax - tMin);
@@ -258,7 +276,7 @@ export default function ChargeDetailPage() {
                     tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
                   return [
                     {
-                      points: outsideTempSmoothed.map((p) => ({
+                      points: ambientTempSeries.points.map((p) => ({
                         x: p.x,
                         y: map(p.y),
                       })),
@@ -267,7 +285,7 @@ export default function ChargeDetailPage() {
                       curve: "monotone" as const,
                       dash: "3 3",
                       axis: "right" as const,
-                      label: "Outside temp",
+                      label: ambientTempSeries.label,
                       formatCursor: (m: number) =>
                         `${inv(m).toFixed(0)}${tempUnitSuffix}`,
                     },
@@ -301,10 +319,10 @@ export default function ChargeDetailPage() {
                   No charger-power samples — see session card for context.
                 </span>
               )}
-              {outsideTempSmoothed.length > 1 && powerPts.length > 0 ? (
+              {ambientTempSeries && powerPts.length > 0 ? (
                 <span className="flex items-center gap-1">
                   <span className="inline-block w-3 h-[2px] border-t border-dashed border-orange-400" />
-                  Outside temp ({tempUnitSuffix})
+                  {ambientTempSeries.label} ({tempUnitSuffix})
                 </span>
               ) : null}
             </div>
