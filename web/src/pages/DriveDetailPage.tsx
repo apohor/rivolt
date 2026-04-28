@@ -399,55 +399,62 @@ export default function DriveDetailPage() {
         )}
       </div>
 
-      <Card title="Speed">
+      <Card title="Speed + Battery">
         {samples.isLoading ? (
           <Spinner />
-        ) : speedPts.length === 0 ? (
+        ) : speedPts.length === 0 && socPts.length === 0 ? (
           <NoSamples />
         ) : (
-          <LineChart
-            series={[
-              {
-                points: speedPts,
-                color: "#38bdf8",
-                strokeWidth: 1.4,
-                area: true,
-                curve: "monotone",
-              },
-            ]}
-            height={180}
-            formatY={(v) => `${v.toFixed(0)} mph`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
-        )}
-      </Card>
-
-      <Card title="Battery">
-        {samples.isLoading ? (
-          <Spinner />
-        ) : socPts.length === 0 ? (
-          <NoSamples />
-        ) : (
-          <LineChart
-            series={[
-              {
-                points: socPts,
-                color: "#10b981",
-                strokeWidth: 1.4,
-              },
-            ]}
-            height={140}
-            yDomain={[
-              Math.max(0, drive.EndSoCPct - 5),
-              Math.min(100, drive.StartSoCPct + 5),
-            ]}
-            formatY={(v) => `${v.toFixed(0)}%`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
+          <>
+            <LineChart
+              series={[
+                ...(speedPts.length > 0
+                  ? [
+                      {
+                        points: speedPts,
+                        color: "#38bdf8",
+                        strokeWidth: 1.4,
+                        area: true,
+                        curve: "monotone" as const,
+                        label: "Speed",
+                      },
+                    ]
+                  : []),
+                ...(socPts.length > 0
+                  ? [
+                      {
+                        points: socPts,
+                        color: "#10b981",
+                        strokeWidth: 1.4,
+                        label: "Battery",
+                        axis: "right" as const,
+                      },
+                    ]
+                  : []),
+              ]}
+              height={200}
+              yDomain={[0, Math.max(50, drive.MaxSpeedMph + 5)]}
+              y2Domain={[
+                Math.max(0, drive.EndSoCPct - 5),
+                Math.min(100, drive.StartSoCPct + 5),
+              ]}
+              formatY={(v) => `${v.toFixed(0)} mph`}
+              formatY2={(v) => `${v.toFixed(0)}%`}
+              formatX={xTimeFmt}
+              cursorX={cursorMs}
+              onCursorChange={setCursorMs}
+            />
+            <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
+                Speed (left)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
+                Battery (right)
+              </span>
+            </div>
+          </>
         )}
       </Card>
 

@@ -17,6 +17,11 @@ export type LineSeries = {
   // preserves local extrema (no overshoot) so peaks like top speed
   // stay accurate while the line still looks smooth.
   curve?: "linear" | "monotone";
+  // Which Y-axis this series maps to. Defaults to "left". Use "right"
+  // to overlay a second signal with a different unit (e.g. SoC% on
+  // the left, charger kW on the right). The right axis only renders
+  // when at least one series opts in.
+  axis?: "left" | "right";
 };
 
 export function LineChart({
@@ -31,6 +36,8 @@ export function LineChart({
   className,
   cursorX,
   onCursorChange,
+  y2Domain,
+  formatY2,
 }: {
   series: LineSeries[];
   height?: number;
@@ -51,10 +58,17 @@ export function LineChart({
   // pointermove, and with `null` on pointerleave. Omit to disable
   // pointer interaction entirely.
   onCursorChange?: (x: number | null) => void;
+  // Optional secondary Y-axis. Only used when at least one series
+  // sets `axis: "right"`. Shares the X-axis with the primary axis.
+  y2Domain?: [number, number];
+  formatY2?: (y: number) => string;
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
   const padL = 52;
-  const padR = 8;
+  // Make room for right-axis tick labels when a second axis is in
+  // use. Without this the labels would clip the chart edge.
+  const hasRightAxis = series.some((s) => s.axis === "right");
+  const padR = hasRightAxis ? 52 : 8;
   const padT = 8;
   const padB = 20;
   const innerW = width - padL - padR;
@@ -67,19 +81,46 @@ export function LineChart({
     return <EmptyChart height={height} />;
   }
 
+  // Split points by axis so each Y-domain is auto-fit only to its
+  // own series. A right-axis signal with a different unit
+  // (charger kW) shouldn't be squashed by the left-axis signal's
+  // range.
+  const leftAll = series
+    .filter((s) => s.axis !== "right")
+    .flatMap((s) => s.points);
+  const rightAll = series
+    .filter((s) => s.axis === "right")
+    .flatMap((s) => s.points);
+
   const xs = all.map((p) => p.x);
-  const ys = all.map((p) => p.y);
   const x0 = xDomain?.[0] ?? Math.min(...xs);
   const x1 = xDomain?.[1] ?? Math.max(...xs);
-  const y0 = yDomain?.[0] ?? Math.min(...ys);
-  const y1 = yDomain?.[1] ?? Math.max(...ys);
   const xSpan = Math.max(1e-9, x1 - x0);
+
+  const leftYs = (leftAll.length > 0 ? leftAll : all).map((p) => p.y);
+  const y0 = yDomain?.[0] ?? Math.min(...leftYs);
+  const y1 = yDomain?.[1] ?? Math.max(...leftYs);
   const ySpan = Math.max(1e-9, y1 - y0);
 
+  const rightYs = rightAll.map((p) => p.y);
+  const y20 =
+    y2Domain?.[0] ?? (rightYs.length > 0 ? Math.min(...rightYs) : 0);
+  const y21 =
+    y2Domain?.[1] ?? (rightYs.length > 0 ? Math.max(...rightYs) : 1);
+  const y2Span = Math.max(1e-9, y21 - y20);
+
   const sx = (x: number) => padL + ((x - x0) / xSpan) * innerW;
-  const sy = (y: number) => padT + innerH - ((y - y0) / ySpan) * innerH;
+  const syLeft = (y: number) =>
+    padT + innerH - ((y - y0) / ySpan) * innerH;
+  const syRight = (y: number) =>
+    padT + innerH - ((y - y20) / y2Span) * innerH;
+  const syFor = (s: LineSeries) => (s.axis === "right" ? syRight : syLeft);
+  // Backward-compat alias for non-axis-aware code paths below
+  // (grid lines, area baseline) — those all live on the left axis.
+  const sy = syLeft;
 
   const yTickValues = tickValues(y0, y1, yTicks);
+  const y2TickValues = hasRightAxis ? tickValues(y20, y21, yTicks) : [];
   const xTickValues = tickValues(x0, x1, xTicks);
 
   // Convert a client pointer event to a data-space x value, clamped
@@ -183,11 +224,28 @@ export function LineChart({
           {formatX ? formatX(xv) : xv.toFixed(0)}
         </text>
       ))}
+      {/* right y axis labels (no extra grid; the left-axis grid
+          already spans the chart). Drawing only labels keeps the
+          background clean when two unrelated signals overlay. */}
+      {hasRightAxis &&
+        y2TickValues.map((yv, i) => (
+          <text
+            key={`y2-${i}`}
+            x={width - padR + 6}
+            y={syRight(yv) + 3}
+            textAnchor="start"
+            className="fill-neutral-500"
+            fontSize={10}
+          >
+            {formatY2 ? formatY2(yv) : yv.toFixed(0)}
+          </text>
+        ))}
       {/* series */}
       {series.map((s, i) => {
+        const ys2 = syFor(s);
         const proj = s.points.map((p) => ({
           x: sx(p.x),
-          y: sy(p.y),
+          y: ys2(p.y),
         }));
         const path =
           s.curve === "monotone"
@@ -195,11 +253,16 @@ export function LineChart({
             : linePath(proj);
         const color = s.color ?? "#10b981";
         const sw = s.strokeWidth ?? 1.5;
+        // Area baseline: bottom of the chart for each axis. For a
+        // right-axis series we anchor to that axis's zero/min so the
+        // fill doesn't stretch past the visible bounds.
+        const baseY =
+          s.axis === "right" ? ys2(y20) : ys2(y0);
         return (
           <g key={i}>
             {s.area && proj.length > 1 ? (
               <path
-                d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${sy(y0).toFixed(2)} L ${proj[0].x.toFixed(2)},${sy(y0).toFixed(2)} Z`}
+                d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
                 fill={color}
                 opacity={0.15}
               />
@@ -231,10 +294,13 @@ export function LineChart({
           />
           {cursorSamples.map((sample, i) => {
             if (!sample) return null;
-            const color = series[i].color ?? "#10b981";
+            const s = series[i];
+            const color = s.color ?? "#10b981";
             const cx = sx(sample.x);
-            const cy = sy(sample.y);
-            const label = formatY ? formatY(sample.y) : sample.y.toFixed(0);
+            const cy = syFor(s)(sample.y);
+            const fmt =
+              s.axis === "right" ? formatY2 ?? formatY : formatY;
+            const label = fmt ? fmt(sample.y) : sample.y.toFixed(0);
             const labelX = cx + 8;
             const labelY = Math.max(padT + 12, cy - 6);
             return (
