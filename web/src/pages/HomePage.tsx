@@ -149,7 +149,7 @@ export default function HomePage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
             <Stat
               label="Miles"
@@ -178,6 +178,23 @@ export default function HomePage() {
                   : cs.energyKWh > 0 && ds.miles > 0
                     ? `wall-to-wheel · ${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
                     : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
+              }
+            />
+            <Stat
+              label="Cost"
+              value={
+                ds.cost > 0
+                  ? `~${ds.cost.toFixed(2)}${ds.currency ? ` ${ds.currency}` : ""}`
+                  : cs.cost > 0
+                    ? `~${cs.cost.toFixed(2)}${cs.currency ? ` ${cs.currency}` : ""}`
+                    : "—"
+              }
+              hint={
+                ds.cost > 0 && ds.miles > 0
+                  ? `${(ds.cost / ds.miles).toFixed(3)}${ds.currency ? ` ${ds.currency}` : ""}/mi · driving`
+                  : cs.cost > 0
+                    ? `charging spend · ${cs.count} sessions`
+                    : "no priced charges yet"
               }
             />
           </div>

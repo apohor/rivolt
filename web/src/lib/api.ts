@@ -241,6 +241,15 @@ export type ChargingSettings = {
   home_currency: string;
 };
 
+// ChargingNetwork is one entry in the user's price book for fast /
+// public charging — a friendly name and a default rate the UI can
+// one-click apply when manually pricing a session.
+export type ChargingNetwork = {
+  name: string;
+  price_per_kwh: number;
+  currency: string;
+};
+
 // LiveDrive is the in-flight drive snapshot returned by
 // /api/live-drive/:vehicleID while the car is in gear. Mirrors
 // internal/rivian.LiveDrive — fields are flat and already in mph /
@@ -418,6 +427,12 @@ export const backend = {
       if (!res.ok) throw new ApiError(res.status, parsed);
       return parsed as ChargingSettings;
     }),
+  // Price book for fast/public charging networks. GET returns the
+  // current list (possibly empty); PUT replaces it wholesale.
+  getChargingNetworks: () =>
+    api.get<ChargingNetwork[]>("/api/settings/charging/networks"),
+  setChargingNetworks: (networks: ChargingNetwork[]) =>
+    api.put<ChargingNetwork[]>("/api/settings/charging/networks", networks),
   // AI provider configuration. GET returns the redacted view; PUT takes
   // a partial patch (nil = leave alone, "" = clear).
   getAISettings: () => api.get<AISettings>("/api/settings/ai"),

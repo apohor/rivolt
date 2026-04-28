@@ -210,6 +210,11 @@ func New(d Deps) http.Handler {
 			r.Route("/settings/charging", func(r chi.Router) {
 				r.Get("/", handleChargingSettingsGet(d.SettingsStore))
 				r.Put("/", handleChargingSettingsPut(d.SettingsStore))
+				// Price book for fast/public charging networks: a flat
+				// list of {name, price_per_kwh, currency} rows the UI
+				// uses to one-click prefill the PricingCard.
+				r.Get("/networks", handleChargingNetworksGet(d.SettingsStore))
+				r.Put("/networks", handleChargingNetworksPut(d.SettingsStore))
 			})
 
 			// AI provider configuration (OpenAI / Anthropic / Gemini).

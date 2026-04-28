@@ -407,6 +407,15 @@ function PricingCard({
   const [ppk, setPpk] = useState(seed > 0 ? seed.toFixed(3) : "");
   const [currency, setCurrency] = useState(charge.Currency || "USD");
 
+  // Network price book — the user-managed list from
+  // /api/settings/charging/networks. Failure is non-fatal: the
+  // dropdown just doesn't appear and manual entry still works.
+  const networks = useQuery({
+    queryKey: ["charging-networks"],
+    queryFn: () => backend.getChargingNetworks(),
+    staleTime: 60_000,
+  });
+
   const energy = charge.EnergyAddedKWh;
   const ppkNum = Number(ppk);
   const previewCost = ppkNum > 0 && energy > 0 ? ppkNum * energy : 0;
@@ -435,6 +444,36 @@ function PricingCard({
           });
         }}
       >
+        {networks.data && networks.data.length > 0 ? (
+          <label className="block sm:col-span-2">
+            <span className="block text-xs text-neutral-400 mb-1">
+              Prefill from network
+            </span>
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const n = networks.data!.find((x) => x.name === e.target.value);
+                if (n) {
+                  setPpk(n.price_per_kwh.toFixed(3));
+                  setCurrency(n.currency || "USD");
+                }
+                // Reset back to placeholder so the same option can
+                // be re-selected later (a no-op nudge for the user).
+                e.target.value = "";
+              }}
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+            >
+              <option value="" disabled>
+                Pick a network…
+              </option>
+              {networks.data.map((n) => (
+                <option key={n.name} value={n.name}>
+                  {n.name} — {n.price_per_kwh.toFixed(3)} {n.currency}/kWh
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="block">
           <span className="block text-xs text-neutral-400 mb-1">
             Price per kWh
