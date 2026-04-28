@@ -13,18 +13,52 @@ import {
   pct,
 } from "../lib/format";
 import { smoothGaussianTime } from "../lib/smooth";
+import { collapseRoundTrips } from "../lib/drives";
+import { usePreferences } from "../lib/preferences";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const prefs = usePreferences();
   const drives = useQuery({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
   });
 
-  const drive = useMemo(
-    () => drives.data?.find((d) => d.ID === id),
-    [drives.data, id],
-  );
+  // The drives list collapses A→B / B→A pairs into a single round-trip
+  // row, but the row's link points at the first leg's ID. Apply the
+  // same collapsing here so the detail page shows combined stats and
+  // both legs of the route — otherwise the URL behind the row only
+  // renders the first leg, contradicting the list. We also accept
+  // the second leg's ID for completeness (a merged row is
+  // addressable via either leg).
+  const drive = useMemo(() => {
+    if (!drives.data) return undefined;
+    const direct = drives.data.find((d) => d.ID === id);
+    if (!prefs.roundTripsEnabled) return direct;
+    const collapsed = collapseRoundTrips(
+      drives.data,
+      prefs.roundTripRadiusMeters,
+      prefs.roundTripMaxGapMinutes,
+    );
+    // The merged drive keeps the first leg's ID. Match by that, or
+    // by the original drive's StartedAt falling within a merged
+    // window (so navigating to the second leg also resolves).
+    const byId = collapsed.find((d) => d.ID === id);
+    if (byId) return byId;
+    if (!direct) return undefined;
+    const ds = new Date(direct.StartedAt).getTime();
+    return collapsed.find((d) => {
+      const s = new Date(d.StartedAt).getTime();
+      const e = new Date(d.EndedAt).getTime();
+      return ds >= s && ds <= e;
+    });
+  }, [
+    drives.data,
+    id,
+    prefs.roundTripsEnabled,
+    prefs.roundTripRadiusMeters,
+    prefs.roundTripMaxGapMinutes,
+  ]);
 
   // Pull a bit of padding around the drive so chart doesn't start
   // exactly at the first sample edge, and — critically — so we catch
