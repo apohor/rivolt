@@ -530,6 +530,13 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		Lon:            c.lon,
 		Source:         "live",
 	}
+	// Parallax-only thermal breakdown. Only set when the live session
+	// has actually reported a thermal_kwh value (>0) — otherwise leave
+	// nil so legacy / non-Parallax paths don't synthesize fake zeros.
+	if liveSess != nil && liveSess.ThermalKWh > 0 {
+		v := liveSess.ThermalKWh
+		row.ThermalKWh = &v
+	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
 	// (they're the real billed amount); otherwise use the operator's
 	// configured home $/kWh rate. Persisting means future rate

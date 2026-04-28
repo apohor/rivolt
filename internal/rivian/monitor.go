@@ -665,6 +665,21 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		if sess.CurrentCurrency == "" {
 			sess.CurrentCurrency = prev.CurrentCurrency
 		}
+		// Parallax-only breakdown fields. The regular ChargingSession
+		// stream leaves these at zero, so we always preserve the
+		// last-known Parallax value across non-Parallax pushes.
+		if sess.PackKWh == 0 {
+			sess.PackKWh = prev.PackKWh
+		}
+		if sess.ThermalKWh == 0 {
+			sess.ThermalKWh = prev.ThermalKWh
+		}
+		if sess.OutletsKWh == 0 {
+			sess.OutletsKWh = prev.OutletsKWh
+		}
+		if sess.SystemKWh == 0 {
+			sess.SystemKWh = prev.SystemKWh
+		}
 	}
 	m.lastSession[vehicleID] = sess
 	prev := m.cache[vehicleID]

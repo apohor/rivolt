@@ -136,6 +136,18 @@ type LiveSession struct {
 	KilometersChargedPerHour float64   `json:"kilometers_charged_per_hour"`
 	RangeAddedKm             float64   `json:"range_added_km"`
 	TotalChargedEnergyKWh    float64   `json:"total_charged_energy_kwh"`
+	// PackKWh / ThermalKWh / OutletsKWh / SystemKWh come only from the
+	// Parallax ChargingSessionLiveData breakdown. The regular
+	// ChargingSession subscription leaves them at zero. Together they
+	// approximate where the wall energy went: into the pack, into
+	// thermal management, into 12V outlets / accessories, and into
+	// other vehicle systems. ThermalKWh is the closest thing Rivian
+	// gives us to a "battery temperature" signal — high values during
+	// a session mean the BMS is working hard to heat or cool the pack.
+	PackKWh                  float64   `json:"pack_kwh"`
+	ThermalKWh               float64   `json:"thermal_kwh"`
+	OutletsKWh               float64   `json:"outlets_kwh"`
+	SystemKWh                float64   `json:"system_kwh"`
 	SoCPct                   float64   `json:"soc_pct"`
 	CurrentPrice             string    `json:"current_price"`
 	CurrentCurrency          string    `json:"current_currency"`

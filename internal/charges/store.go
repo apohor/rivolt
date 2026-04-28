@@ -32,6 +32,12 @@ type Charge struct {
 	Cost           float64
 	Currency       string
 	PricePerKWh    float64
+	// ThermalKWh is the energy the BMS spent on pack heating / cooling
+	// during the session, surfaced by Rivian's Parallax
+	// ChargingSessionLiveData protobuf. Nullable: legacy rows
+	// recorded before this column existed leave it nil so the UI
+	// can render "—" instead of misleading "0 kWh thermal".
+	ThermalKWh *float64
 }
 
 // Store wraps the charges table.
@@ -121,8 +127,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			energy_added_kwh, miles_added,
 			max_power_kw, avg_power_kw, final_state,
 			lat, lon, source,
-			cost, currency, price_per_kwh
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			cost, currency, price_per_kwh,
+			thermal_kwh
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -139,6 +146,11 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			cost             = EXCLUDED.cost,
 			currency         = EXCLUDED.currency,
 			price_per_kwh    = EXCLUDED.price_per_kwh,
+			-- Only overwrite thermal_kwh when the new row actually
+			-- has one. A re-upsert from a path that doesn't track
+			-- this metric (REST poller, ElectraFi import) shouldn't
+			-- erase a value the Parallax stream already captured.
+			thermal_kwh      = COALESCE(EXCLUDED.thermal_kwh, charges.thermal_kwh),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -148,7 +160,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		c.FinalState,
 		nullIfZero(c.Lat), nullIfZero(c.Lon),
 		c.Source,
-		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh))
+		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh),
+		nullableFloatPtr(c.ThermalKWh))
 	return err
 }
 
@@ -177,7 +190,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       COALESCE(c.lat,0), COALESCE(c.lon,0),
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
-		       COALESCE(c.price_per_kwh,0)::float8
+		       COALESCE(c.price_per_kwh,0)::float8,
+		       c.thermal_kwh
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -190,6 +204,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 	var out []Charge
 	for rows.Next() {
 		var c Charge
+		var thermal sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -197,9 +212,11 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
+			&thermal,
 		); err != nil {
 			return nil, err
 		}
+		c.ThermalKWh = floatFromNull(thermal)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -225,7 +242,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.lat,0), COALESCE(c.lon,0),
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
-		       COALESCE(c.price_per_kwh,0)::float8
+		       COALESCE(c.price_per_kwh,0)::float8,
+		       c.thermal_kwh
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -235,6 +253,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		ORDER BY c.started_at DESC
 		LIMIT 1`, s.userID, rivianVehicleID, vid)
 	var c Charge
+	var thermal sql.NullFloat64
 	if err := row.Scan(&c.ID, &c.VehicleID,
 		&c.StartedAt, &c.EndedAt,
 		&c.StartSoCPct, &c.EndSoCPct,
@@ -242,9 +261,11 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
+		&thermal,
 	); err != nil {
 		return nil, err
 	}
+	c.ThermalKWh = floatFromNull(thermal)
 	c.StartedAt = c.StartedAt.UTC()
 	c.EndedAt = c.EndedAt.UTC()
 	return &c, nil
@@ -315,7 +336,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       COALESCE(c.lat,0), COALESCE(c.lon,0),
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
-		       COALESCE(c.price_per_kwh,0)::float8
+		       COALESCE(c.price_per_kwh,0)::float8,
+		       c.thermal_kwh
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -327,6 +349,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 	var out []Charge
 	for rows.Next() {
 		var c Charge
+		var thermal sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -334,9 +357,11 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
+			&thermal,
 		); err != nil {
 			return nil, err
 		}
+		c.ThermalKWh = floatFromNull(thermal)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -356,4 +381,24 @@ func nullIfEmpty(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// floatFromNull lifts a sql.NullFloat64 into a *float64. NULL columns
+// become nil, so callers can distinguish "unknown" (legacy / non-
+// Parallax sources) from "explicitly zero".
+func floatFromNull(n sql.NullFloat64) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Float64
+	return &v
+}
+
+// nullableFloatPtr is the inverse: a *float64 → sql.NullFloat64
+// suitable as a driver argument. nil pointer → SQL NULL.
+func nullableFloatPtr(p *float64) sql.NullFloat64 {
+	if p == nil {
+		return sql.NullFloat64{}
+	}
+	return sql.NullFloat64{Float64: *p, Valid: true}
 }
