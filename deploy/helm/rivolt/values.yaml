@@ -1,0 +1,307 @@
+# Default values for rivolt.
+#
+# Two install modes:
+#   1. Homelab quick-start — `--set cnpg.enabled=true`. The chart
+#      renders a CloudNativePG `Cluster` (single instance, local-path
+#      PVC). Requires the CNPG operator installed in the cluster.
+#   2. Production / external DB — `cnpg.enabled=false` (default),
+#      point `externalDatabase.*` at a real Postgres (an existing
+#      CNPG cluster, managed cloud DB, etc.).
+
+# -- Container image. The runtime is distroless/static; rootless,
+# read-only-rootfs-ready, exposes 8080.
+image:
+  repository: ghcr.io/apohor/rivolt
+  pullPolicy: IfNotPresent
+  # Override the appVersion if you're chasing a specific tag.
+  tag: ""
+imagePullSecrets: []
+
+# -- Replica count. KEEP AT 1 until Phase 2 lands.
+#
+# Rivolt today does not have:
+#   - subscription lease reconciliation (every replica would open
+#     its own Rivian websocket → ban risk),
+#   - the global Redis token bucket,
+#   - reconnect-storm controls.
+# Running >1 replicas is a footgun. The HPA section below is wired
+# but disabled-by-default for the same reason.
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# -- Pod-level security context. The image already runs as the
+# distroless `nonroot` user (uid 65532); we restate it here so the
+# kubelet enforces it even if a future base image regresses.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level hardening. read-only root + drop ALL caps is
+# safe because the only writable path the app needs is /data, which
+# is mounted from a PVC.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 80
+  # Container listens on 8080 (Dockerfile EXPOSE).
+  targetPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Set to a real host once you have DNS. With cert-manager:
+  #   annotations:
+  #     cert-manager.io/cluster-issuer: letsencrypt-prod
+  #   tls:
+  #     - secretName: rivolt-tls
+  #       hosts: [rivolt.example.com]
+  hosts:
+    - host: rivolt.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  # Conservative defaults sized for ~1 user / 1 vehicle. Bump for
+  # multi-tenant; the binary is mostly idle between Rivian polls.
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# -- HPA. Disabled by default; flip on only after Phase 2 lease
+# reconciliation lands. See `replicaCount` for why.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+# -- PodDisruptionBudget. Off by default because at replicaCount=1
+# a PDB with minAvailable=1 will block every node drain.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# -- Persistent storage for /data (cookie secret, VAPID keys auto-
+# generated on first boot, sqlite caches). Small; ~100Mi is plenty
+# in practice.
+persistence:
+  enabled: true
+  storageClass: ""        # k3s: leave empty to inherit local-path
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  # If you already have a PVC managed elsewhere:
+  existingClaim: ""
+
+# -- Probes. /api/health is unauthenticated by design (auth.go
+# explicitly mounts it before the requireUser group).
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# Application configuration
+# ---------------------------------------------------------------------------
+config:
+  # Required as soon as any OIDC provider is configured. The OIDC
+  # redirect URL is derived from this; must match what's registered
+  # in the IdP byte-for-byte.
+  baseUrl: ""
+
+  oidc:
+    # Comma-separated provider slugs. Empty disables OIDC.
+    providers: ""
+    # Per-provider config goes in extraEnv as
+    #   RIVOLT_OIDC_<UPPER_SLUG>_{ISSUER,CLIENT_ID,DISPLAY_NAME,SCOPES}
+    # plus the matching secret in `secrets.*` or extraEnv valueFrom.
+
+  # Cookie security. `true` requires the ingress to terminate TLS.
+  secureCookie: true
+
+  # Optional CIDRs trusted for X-Forwarded-* parsing. Set when an
+  # ingress controller / mesh sits in front.
+  trustedProxyCIDR: ""
+
+  # Timezone for log timestamps + scheduler ticks.
+  tz: "UTC"
+
+  extraEnv: {}
+  # extraEnv:
+  #   RIVOLT_OIDC_GOOGLE_ISSUER: "https://accounts.google.com"
+  #   RIVOLT_OIDC_GOOGLE_DISPLAY_NAME: "Google"
+
+# -- App secrets. Either set values inline (homelab) or point at an
+# already-managed Secret with `existingSecret`. When `existingSecret`
+# is set, the chart skips the Secret resource entirely and the
+# Deployment's envFrom references the user-supplied object.
+secrets:
+  existingSecret: ""
+
+  # Required. 32-byte AES-256 key, base64-encoded, prefixed with a
+  # key-id and a colon. Generate with:
+  #   echo "v1:$(openssl rand -base64 32)"
+  # Losing this bricks every encrypted secret in the DB.
+  kek: ""
+  # Optional comma-separated list of retired KEKs kept around so old
+  # ciphertexts decrypt during rotation:
+  #   "v0:base64old,vminus1:base64older"
+  kekRotation: ""
+
+  # Optional local username/password. Empty disables local auth
+  # (then OIDC must be configured).
+  username: ""
+  password: ""
+
+  # Optional cookie-signing pepper. Auto-generated and persisted to
+  # /data/cookie_secret on first boot when empty. Set explicitly
+  # only if you'll ever scale beyond a single replica AND have a
+  # real way to share it (Phase 2 territory).
+  cookieSecret: ""
+
+  # Optional AI keys. Empty leaves the Settings UI free to manage them.
+  openAIApiKey: ""
+  anthropicApiKey: ""
+  geminiApiKey: ""
+
+  # Optional VAPID override. Auto-generated + persisted otherwise.
+  vapidSubject: ""
+  vapidPublicKey: ""
+  vapidPrivateKey: ""
+
+# Extra raw env / envFrom entries — final override hatch.
+extraEnv: []
+# - name: RIVOLT_OIDC_GOOGLE_CLIENT_ID
+#   valueFrom:
+#     secretKeyRef:
+#       name: rivolt-oidc-google
+#       key: client-id
+extraEnvFrom: []
+# - secretRef:
+#     name: rivolt-oidc-bundle
+
+# ---------------------------------------------------------------------------
+# CloudNativePG Cluster
+# ---------------------------------------------------------------------------
+#
+# When `cnpg.enabled=true`, the chart renders a `postgresql.cnpg.io/v1`
+# Cluster CR. The CNPG operator must be installed separately (once
+# per cluster) — this chart does NOT install or template the
+# operator's CRDs. See Chart.yaml for install instructions.
+#
+# CNPG auto-creates two Secrets per Cluster:
+#   <cluster>-app          → app-role credentials (username, password,
+#                            jdbc-uri, …); the chart wires DB_USER /
+#                            DB_PASSWORD from this Secret via valueFrom.
+#   <cluster>-superuser    → superuser; rivolt never references it.
+#
+# CNPG also exposes a read-write Service named `<cluster>-rw` which
+# is what the app dials.
+cnpg:
+  enabled: false
+
+  # Cluster name. Defaults to `<release>-pg`.
+  clusterName: ""
+
+  # Number of Postgres instances (primary + N-1 hot standbys with
+  # streaming replication). 1 is fine for a homelab; bump to 3 for
+  # production HA. CNPG handles failover.
+  instances: 1
+
+  # Postgres major version. CNPG tracks recent majors; bump as
+  # needed. Image catalog is operator-managed.
+  imageName: "ghcr.io/cloudnative-pg/postgresql:16.4"
+
+  # Database + owner role created by CNPG on first boot. Rivolt
+  # connects as this role; CNPG runs migrations as the superuser
+  # behind the scenes.
+  database: rivolt
+  owner: rivolt
+
+  storage:
+    size: 8Gi
+    storageClass: ""      # leave empty to inherit cluster default
+
+  resources: {}
+  # resources:
+  #   requests: { cpu: 100m, memory: 256Mi }
+  #   limits:   { cpu: 500m, memory: 512Mi }
+
+  # Postgres tuning. CNPG passes these straight through to
+  # postgresql.conf. Defaults below match CNPG's own defaults +
+  # a couple of sensible knobs for a small instance.
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+      work_mem: "4MB"
+
+  # Optional WAL archiving / backup config. Plug in an object-store
+  # endpoint (S3 / GCS / Azure Blob) to enable PITR. Off by default.
+  # See https://cloudnative-pg.io/documentation/current/backup_recovery/
+  backup:
+    enabled: false
+    # barmanObjectStore: {}
+    # retentionPolicy: "30d"
+
+# ---------------------------------------------------------------------------
+# External database
+# ---------------------------------------------------------------------------
+#
+# Used when `cnpg.enabled=false`. Either set `password` (templated
+# into the chart-managed Secret) OR set `existingSecret` +
+# `existingSecretPasswordKey` to source from a Secret you manage
+# (e.g. another CNPG Cluster's `<name>-app` Secret, ExternalSecrets,
+# SOPS, sealed-secrets).
+externalDatabase:
+  host: ""
+  port: 5432
+  database: rivolt
+  user: rivolt
+  sslmode: disable
+
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "password"
+  # Optional: source DB_USER from the same Secret. CNPG's
+  # `<cluster>-app` Secret carries `username` here.
+  existingSecretUserKey: ""

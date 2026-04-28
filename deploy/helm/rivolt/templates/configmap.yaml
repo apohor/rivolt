@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rivolt.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+data:
+  ADDR: ":8080"
+  DATA_DIR: "/data"
+  DB_HOST: {{ include "rivolt.dbHost" . | quote }}
+  DB_PORT: {{ include "rivolt.dbPort" . | quote }}
+  DB_NAME: {{ include "rivolt.dbName" . | quote }}
+  DB_SSLMODE: {{ include "rivolt.dbSslMode" . | quote }}
+  TZ: {{ .Values.config.tz | quote }}
+  RIVOLT_SECURE_COOKIE: {{ .Values.config.secureCookie | quote }}
+  {{- with .Values.config.baseUrl }}
+  RIVOLT_BASE_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.oidc.providers }}
+  RIVOLT_OIDC_PROVIDERS: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.trustedProxyCIDR }}
+  RIVOLT_TRUSTED_PROXY_CIDR: {{ . | quote }}
+  {{- end }}
+  {{- range $k, $v := .Values.config.extraEnv }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

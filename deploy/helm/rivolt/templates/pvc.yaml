@@ -1,0 +1,22 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "rivolt.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+  # Keep the PVC across `helm uninstall` so a recreate doesn't lose
+  # the auto-generated cookie secret + VAPID keypair living in /data.
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

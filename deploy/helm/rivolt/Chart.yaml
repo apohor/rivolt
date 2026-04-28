@@ -1,0 +1,42 @@
+apiVersion: v2
+name: rivolt
+description: |
+  Rivolt — self-hosted Rivian companion. Single Deployment, optional
+  CloudNativePG Cluster CR for in-cluster Postgres, ExternalSecret-friendly
+  for cluster operators who already run Postgres elsewhere.
+type: application
+version: 0.1.0
+appVersion: "0.10.33"
+home: https://github.com/apohor/rivolt
+sources:
+  - https://github.com/apohor/rivolt
+maintainers:
+  - name: apohor
+keywords:
+  - rivian
+  - ev
+  - telemetry
+  - homelab
+
+# No subchart dependencies on purpose.
+#
+# Two supported wiring modes for Postgres:
+#
+#   1. CloudNativePG (`cnpg.enabled=true`). The chart renders a
+#      `Cluster` CR; the CNPG operator (installed separately, once
+#      per cluster) reconciles it into a real Postgres. Same shape
+#      for homelab (1 instance, local-path PVC) and production
+#      (3 instances + WAL archiving). Recommended.
+#
+#   2. External Postgres (`cnpg.enabled=false`, default). Set
+#      `externalDatabase.*` to point at any reachable Postgres —
+#      managed cloud DB, an existing CNPG cluster shared with other
+#      apps, or a hand-rolled StatefulSet.
+#
+# CNPG is a CRD reference rather than a chart dependency so the
+# rivolt chart stays self-contained. Install the operator once per
+# cluster:
+#
+#   helm repo add cnpg https://cloudnative-pg.github.io/charts
+#   helm install cnpg --namespace cnpg-system --create-namespace \
+#     cnpg/cloudnative-pg

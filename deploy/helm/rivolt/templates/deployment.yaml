@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivolt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  # Single-replica today (see values.yaml). Recreate avoids the
+  # rolling-update window where two pods would briefly share a
+  # ReadWriteOnce data PVC and clash on the cookie-secret file.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rivolt.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the pod when config or app secrets change so we don't
+        # serve stale env until the next manual restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: rivolt
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "rivolt.fullname" . }}-config
+            - secretRef:
+                name: {{ include "rivolt.appSecretName" . }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            # DB_USER. CNPG: from the auto-generated <cluster>-app
+            # Secret. External w/ existingSecret + UserKey: from
+            # there. Otherwise the literal in externalDatabase.user.
+            {{- $dbUserSecret := include "rivolt.dbUserSecretName" . }}
+            {{- if $dbUserSecret }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbUserSecret }}
+                  key: {{ include "rivolt.dbUserSecretKey" . }}
+            {{- else }}
+            - name: DB_USER
+              value: {{ include "rivolt.dbUserLiteral" . | quote }}
+            {{- end }}
+            # DB_PASSWORD. Always via secretKeyRef — either the
+            # CNPG-managed Secret, the user-supplied one, or the
+            # chart-managed `<release>-app` Secret.
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "rivolt.dbPasswordSecretName" . }}
+                  key: {{ include "rivolt.dbPasswordSecretKey" . }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem=true means we need a writable
+            # /tmp for any transient scratch (Go's os.MkdirTemp,
+            # net/http multipart, …). Mounted from emptyDir.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "rivolt.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
