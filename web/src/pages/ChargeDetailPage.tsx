@@ -143,8 +143,6 @@ export default function ChargeDetailPage() {
     .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.InsideTempC) }));
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
   const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
-  const hasTempSeries =
-    outsideTempSmoothed.length > 0 || insideTempSmoothed.length > 0;
   // Combined-chart overlay picks whichever signal is present.
   // Rivian live WS only exposes cabin (outside hardcoded to 0 in
   // internal/rivian/live.go); ElectraFi imports carry outside but
@@ -156,20 +154,6 @@ export default function ChargeDetailPage() {
         ? { points: insideTempSmoothed, label: "Cabin temp" }
         : null;
 
-  // Resolve the sample closest to the synced cursor for the readout.
-  const cursorSample = (() => {
-    if (cursorMs == null || chargeSamples.length === 0) return null;
-    let best = chargeSamples[0];
-    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
-    for (let i = 1; i < chargeSamples.length; i++) {
-      const d = Math.abs(new Date(chargeSamples[i].At).getTime() - cursorMs);
-      if (d < bestD) {
-        bestD = d;
-        best = chargeSamples[i];
-      }
-    }
-    return best;
-  })();
   // For active live sessions the backend keeps `EndedAt` updated to
   // the last-seen sample, which makes the page look like the session
   // already ended. Compute duration against `now` and surface a
@@ -357,84 +341,6 @@ export default function ChargeDetailPage() {
           </p>
         </Card>
       )}
-
-      {/* Temperature card. Renders when we have at least one
-          non-sentinel reading in the session window. Joins the
-          shared cursor with the Battery / Power charts above. */}
-      {samples.isLoading ? null : hasTempSeries ? (
-        <Card title="Temperature">
-          <LineChart
-            series={[
-              ...(outsideTempSmoothed.length > 0
-                ? [
-                    {
-                      points: outsideTempSmoothed,
-                      color: "#60a5fa",
-                      strokeWidth: 1.4,
-                      label: "Outside",
-                    },
-                  ]
-                : []),
-              ...(insideTempSmoothed.length > 0
-                ? [
-                    {
-                      points: insideTempSmoothed,
-                      color: "#f97316",
-                      strokeWidth: 1.2,
-                      label: "Cabin",
-                    },
-                  ]
-                : []),
-            ]}
-            height={140}
-            formatY={(v) => `${v.toFixed(0)} ${tempUnitSuffix}`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
-            {outsideTempSmoothed.length > 0 ? (
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
-                Outside
-              </span>
-            ) : null}
-            {insideTempSmoothed.length > 0 ? (
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
-                Cabin
-              </span>
-            ) : null}
-          </div>
-          {/* Compact cursor readout — only on this card; the page
-              already has a busy session-insights summary, so we keep
-              the inline value next to the temperature chart instead
-              of replicating Drive's top-of-page banner. */}
-          <div className="mt-2 h-4 text-[11px] font-mono text-neutral-400 flex items-center gap-3">
-            {cursorSample ? (
-              <>
-                <span className="text-neutral-500">
-                  {new Date(cursorSample.At).toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  })}
-                </span>
-                {cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0 ? (
-                  <span className="text-sky-300">
-                    Outside {formatTemperature(cursorSample.OutsideTempC, tempUnit, 0)}
-                  </span>
-                ) : null}
-                {cursorSample.InsideTempC && cursorSample.InsideTempC !== 0 ? (
-                  <span className="text-orange-300">
-                    Cabin {formatTemperature(cursorSample.InsideTempC, tempUnit, 0)}
-                  </span>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        </Card>
-      ) : null}
 
       <Card title="Session">
         <SessionInsights

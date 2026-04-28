@@ -289,8 +289,6 @@ export default function DriveDetailPage() {
   // without flattening real ramps when driving in/out of sun.
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
   const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
-  const hasTempSeries =
-    outsideTempSmoothed.length > 0 || insideTempSmoothed.length > 0;
   // The combined chart can only fit one extra dotted line, so pick
   // whichever temperature signal we actually have. Rivian's live WS
   // feed only exposes cabin temp (outside is hardcoded to 0 in
@@ -523,58 +521,6 @@ export default function DriveDetailPage() {
           </>
         )}
       </Card>
-
-      {/* Temperature card. Only renders when we have at least one
-          non-sentinel reading in the drive window — many drives
-          predate the recorder writing temps, and live-only segments
-          can carry only cabin or only outside. */}
-      {samples.isLoading ? null : hasTempSeries ? (
-        <Card title="Temperature">
-          <LineChart
-            series={[
-              ...(outsideTempSmoothed.length > 0
-                ? [
-                    {
-                      points: outsideTempSmoothed,
-                      color: "#60a5fa",
-                      strokeWidth: 1.4,
-                      label: "Outside",
-                    },
-                  ]
-                : []),
-              ...(insideTempSmoothed.length > 0
-                ? [
-                    {
-                      points: insideTempSmoothed,
-                      color: "#f97316",
-                      strokeWidth: 1.2,
-                      label: "Cabin",
-                    },
-                  ]
-                : []),
-            ]}
-            height={140}
-            formatY={(v) => `${v.toFixed(0)} ${tempUnitSuffix}`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
-            {outsideTempSmoothed.length > 0 ? (
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
-                Outside
-              </span>
-            ) : null}
-            {insideTempSmoothed.length > 0 ? (
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
-                Cabin
-              </span>
-            ) : null}
-          </div>
-        </Card>
-      ) : null}
 
       <Card title="Route">
         {samples.isLoading ? (
