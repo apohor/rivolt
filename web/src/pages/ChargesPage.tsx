@@ -21,6 +21,12 @@ import {
 
 export default function ChargesPage() {
   const [win, setWin] = useState<WindowKey>("30d");
+  // categoryFilter narrows the table + summary to a single charging
+  // bucket. "" means "all categories" (the default). Stored in
+  // component state because the filter is purely a view concern;
+  // hitting reload starts you back on "all" which is what users want.
+  const [categoryFilter, setCategoryFilter] =
+    useState<ChargeClusterLabel | "">("");
   const q = useQuery({
     queryKey: ["charges", "all"],
     queryFn: () => backend.allCharges(),
@@ -34,11 +40,26 @@ export default function ChargesPage() {
     staleTime: 60_000,
   });
   const labelByID = useMemo(() => labelMap(cq.data ?? []), [cq.data]);
-  const rows = useMemo(
+  const windowed = useMemo(
     () => filterByWindow(q.data ?? [], win),
     [q.data, win],
   );
+  const rows = useMemo(() => {
+    if (!categoryFilter) return windowed;
+    return windowed.filter((c) => labelByID.get(c.ID) === categoryFilter);
+  }, [windowed, categoryFilter, labelByID]);
   const totals = useMemo(() => summarize(rows), [rows]);
+  // Counts for each filter pill so the user knows what they'll get
+  // before clicking. Computed off the windowed (pre-filter) set so
+  // the pill labels stay stable while a filter is active.
+  const counts = useMemo(() => {
+    const c = { all: windowed.length, Home: 0, Public: 0, Fast: 0 };
+    for (const r of windowed) {
+      const l = labelByID.get(r.ID);
+      if (l === "Home" || l === "Public" || l === "Fast") c[l]++;
+    }
+    return c;
+  }, [windowed, labelByID]);
 
   return (
     <div className="space-y-4">
@@ -56,15 +77,69 @@ export default function ChargesPage() {
           <Spinner />
         ) : q.isError ? (
           <ErrorBox title="Failed to load charges" detail={String(q.error)} />
-        ) : rows.length === 0 ? (
+        ) : windowed.length === 0 ? (
           <p className="text-sm text-neutral-400">No charges in this window.</p>
         ) : (
           <div className="space-y-3">
+            <CategoryFilter
+              value={categoryFilter}
+              onChange={setCategoryFilter}
+              counts={counts}
+            />
             <SummaryStrip totals={totals} />
-            <ChargeTable charges={rows} labelByID={labelByID} />
+            {rows.length === 0 ? (
+              <p className="text-sm text-neutral-500">
+                No {categoryFilter} charges in this window.
+              </p>
+            ) : (
+              <ChargeTable charges={rows} labelByID={labelByID} />
+            )}
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// CategoryFilter renders a horizontal pill row that toggles between
+// All / Home / Public / Fast. Pills are click-to-select with the
+// active one highlighted; counts trail each label so the user can
+// see at a glance how the window splits across categories.
+function CategoryFilter({
+  value,
+  onChange,
+  counts,
+}: {
+  value: ChargeClusterLabel | "";
+  onChange: (v: ChargeClusterLabel | "") => void;
+  counts: { all: number; Home: number; Public: number; Fast: number };
+}) {
+  const pills: { label: string; value: ChargeClusterLabel | ""; count: number }[] = [
+    { label: "All", value: "", count: counts.all },
+    { label: "Home", value: "Home", count: counts.Home },
+    { label: "Public", value: "Public", count: counts.Public },
+    { label: "Fast", value: "Fast", count: counts.Fast },
+  ];
+  return (
+    <div className="flex flex-wrap gap-2 text-xs">
+      {pills.map((p) => {
+        const active = value === p.value;
+        return (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onChange(p.value)}
+            className={`rounded-full border px-3 py-1 tabular-nums transition ${
+              active
+                ? "border-emerald-700/60 bg-emerald-900/40 text-emerald-200"
+                : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+            }`}
+          >
+            {p.label}{" "}
+            <span className="text-neutral-500">({p.count})</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -46,6 +46,13 @@ export type DriveStats = {
   avgTripMi: number;
   longestMi: number;
   maxSpeedMph: number;
+  // Sum of per-drive estimated costs (rate × energy). Currency is
+  // the dominant code by drive count — single-currency setups
+  // collapse to one value, mixed-currency users get the most
+  // common one with a small inaccuracy on the minority. Zero when
+  // no drive in the window has an estimate.
+  cost: number;
+  currency: string;
 };
 
 export function driveStats(drives: Drive[]): DriveStats {
@@ -64,6 +71,16 @@ export function driveStats(drives: Drive[]): DriveStats {
   const avgTripMi = count > 0 ? miles / count : 0;
   const longestMi = drives.reduce((m, d) => Math.max(m, d.DistanceMi || 0), 0);
   const maxSpeedMph = drives.reduce((m, d) => Math.max(m, d.MaxSpeedMph || 0), 0);
+  let cost = 0;
+  const curCount: Record<string, number> = {};
+  for (const d of drives) {
+    if (d.estimated_cost && d.estimated_cost > 0) {
+      cost += d.estimated_cost;
+      const c = d.estimated_currency || "";
+      curCount[c] = (curCount[c] || 0) + 1;
+    }
+  }
+  const currency = pickDominantCurrency(curCount);
   return {
     count,
     miles,
@@ -75,6 +92,8 @@ export function driveStats(drives: Drive[]): DriveStats {
     avgTripMi,
     longestMi,
     maxSpeedMph,
+    cost,
+    currency,
   };
 }
 
@@ -84,6 +103,11 @@ export type ChargeStats = {
   addedPct: number;
   avgDurationMin: number;
   maxPowerKW: number;
+  // Sum of charge cost (persisted Cost when present, else
+  // estimated_cost from the home-rate fallback). Currency picked by
+  // dominant cost share so the headline number is meaningful.
+  cost: number;
+  currency: string;
 };
 
 export function chargeStats(charges: Charge[]): ChargeStats {
@@ -98,7 +122,36 @@ export function chargeStats(charges: Charge[]): ChargeStats {
   const avgDurationMin =
     durations.length > 0 ? sum(durations) / durations.length : 0;
   const maxPowerKW = charges.reduce((m, c) => Math.max(m, c.MaxPowerKW || 0), 0);
-  return { count, energyKWh, addedPct, avgDurationMin, maxPowerKW };
+  let cost = 0;
+  const curCount: Record<string, number> = {};
+  for (const c of charges) {
+    if (c.Cost > 0) {
+      cost += c.Cost;
+      const cur = c.Currency || "";
+      curCount[cur] = (curCount[cur] || 0) + 1;
+    } else if (c.estimated_cost && c.estimated_cost > 0) {
+      cost += c.estimated_cost;
+      const cur = c.estimated_currency || "";
+      curCount[cur] = (curCount[cur] || 0) + 1;
+    }
+  }
+  const currency = pickDominantCurrency(curCount);
+  return { count, energyKWh, addedPct, avgDurationMin, maxPowerKW, cost, currency };
+}
+
+// pickDominantCurrency picks the currency code most rows used.
+// Empty / all-zero buckets return "". Ties break alphabetically so
+// the result is deterministic across renders.
+function pickDominantCurrency(counts: Record<string, number>): string {
+  let best = "";
+  let bestN = 0;
+  for (const [cur, n] of Object.entries(counts)) {
+    if (n > bestN || (n === bestN && cur < best)) {
+      best = cur;
+      bestN = n;
+    }
+  }
+  return best;
 }
 
 // Bucket drives by local calendar day. Days with no drives show 0.

@@ -6,6 +6,7 @@ import {
   type AISettings,
   type AISettingsUpdate,
   type AIPingResult,
+  type ChargingNetwork,
   type ImportResult,
   type ImportProgress,
 } from "../lib/api";
@@ -53,6 +54,10 @@ export default function SettingsPage() {
 
       <Card title="Home charging cost">
         <ChargingCostPanel />
+      </Card>
+
+      <Card title="Charging networks">
+        <ChargingNetworksPanel />
       </Card>
 
       <Card title="AI providers">
@@ -308,7 +313,141 @@ function ChargingCostPanel() {
   );
 }
 
-// formatImportProgress turns a single NDJSON event from the streaming
+// ChargingNetworksPanel manages the price book of fast/public
+// networks (EVgo, EA, Tesla, etc.) — a flat list of {name, rate,
+// currency} rows. The PricingCard on the charge detail page reads
+// this list and offers one-click prefill so manual cost entry is
+// fast and consistent across sessions on the same network.
+function ChargingNetworksPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["charging-networks"],
+    queryFn: () => backend.getChargingNetworks(),
+  });
+  // Local draft state mirrors the server list. We seed once on first
+  // successful fetch and let the user mutate freely until they hit
+  // Save; cancelling is just a page reload.
+  const [rows, setRows] = useState<ChargingNetwork[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  if (!loaded && q.data) {
+    setRows(q.data);
+    setLoaded(true);
+  }
+  const mut = useMutation({
+    mutationFn: () => backend.setChargingNetworks(rows),
+    onSuccess: (saved) => {
+      setRows(saved);
+      qc.invalidateQueries({ queryKey: ["charging-networks"] });
+    },
+  });
+  const update = (i: number, patch: Partial<ChargingNetwork>) =>
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const remove = (i: number) =>
+    setRows((prev) => prev.filter((_, idx) => idx !== i));
+  const add = () =>
+    setRows((prev) => [
+      ...prev,
+      { name: "", price_per_kwh: 0, currency: "USD" },
+    ]);
+  if (q.isLoading) return <Spinner />;
+  if (q.isError)
+    return <ErrorBox title="Failed to load" detail={String(q.error)} />;
+  return (
+    <form
+      className="space-y-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        mut.mutate();
+      }}
+    >
+      {rows.length === 0 ? (
+        <p className="text-xs text-neutral-500">
+          No networks configured yet. Add EVgo, Electrify America, or whichever
+          fast-charge networks you use most so you can one-click apply their
+          rate when pricing a session.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[10rem]">
+                <label className="block text-xs text-neutral-400 mb-1">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={r.name}
+                  onChange={(e) => update(i, { name: e.target.value })}
+                  placeholder="EVgo"
+                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-1">
+                  $/kWh
+                </label>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  inputMode="decimal"
+                  value={r.price_per_kwh || ""}
+                  onChange={(e) =>
+                    update(i, { price_per_kwh: Number(e.target.value) || 0 })
+                  }
+                  placeholder="0.36"
+                  className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-1">
+                  Currency
+                </label>
+                <input
+                  type="text"
+                  maxLength={3}
+                  value={r.currency}
+                  onChange={(e) =>
+                    update(i, { currency: e.target.value.toUpperCase() })
+                  }
+                  className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-400 hover:text-red-300 hover:border-red-700"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={add}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
+        >
+          + Add network
+        </button>
+        <button
+          type="submit"
+          disabled={mut.isPending}
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {mut.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">
+        Empty rows and zero-priced rows are dropped on save. Available as
+        one-click prefill on each charge's pricing card.
+      </p>
+      {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}
+    </form>
+  );
+}
 // import endpoint into a user-facing status line. The row loop emits
 // ~20k-row heartbeats (see electrafi.Importer.OnProgress) which is
 // what keeps the proxy from idling out on a long CSV.

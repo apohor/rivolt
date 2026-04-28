@@ -48,3 +48,49 @@ func handleChargingSettingsPut(store *settings.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
+
+// handleChargingNetworksGet returns the user's price book for fast /
+// public charging networks. Empty list when nothing is configured.
+func handleChargingNetworksGet(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		nets, err := settings.GetChargingNetworks(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if nets == nil {
+			nets = []settings.ChargingNetwork{}
+		}
+		writeJSON(w, http.StatusOK, nets)
+	}
+}
+
+// handleChargingNetworksPut overwrites the price book with the
+// provided list. The settings layer drops invalid rows; the response
+// reflects the post-normalization state so the UI re-syncs.
+func handleChargingNetworksPut(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "settings store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var nets []settings.ChargingNetwork
+		if err := json.NewDecoder(r.Body).Decode(&nets); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := settings.SetChargingNetworks(r.Context(), store, nets); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, err := settings.GetChargingNetworks(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if out == nil {
+			out = []settings.ChargingNetwork{}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
