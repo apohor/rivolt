@@ -186,6 +186,27 @@ decisions 5–7, 10–12.
       tag, pushes to `ghcr.io/apohor/rivolt`, packages the Helm
       chart, publishes to a GitHub Pages chart repo. SBOM + cosign
       signature on every release.
+- [ ] **Self-hosted map tiles + routing.** Today the drive/charge
+      maps fetch raster tiles from CARTO's free CDN
+      (`*.basemaps.cartocdn.com`) and snap GPS traces with the
+      public OSRM demo (`router.project-osrm.org`). Both have
+      no-uptime-SLA, hammered-by-the-internet rate limits — fine
+      for a single-operator instance, hostile at multi-tenant
+      scale. Stand up:
+      - A self-hosted tile server (TileServer-GL or a
+        Protomaps-style PMTiles bundle on object storage with a
+        `pmtiles://` viewer) — eliminates per-tile CDN calls and
+        works offline for overland mode.
+      - A self-hosted OSRM (or Valhalla) container with a regional
+        OSM extract, exposed on the cluster network. Lifts the
+        9-coord `/match` cap that currently forces the frontend
+        to chunk traces, and removes the rate-limit dependency
+        from drive-route rendering.
+      The frontend already has the URLs centralized
+      (`addCartoDark` in `DriveMap.tsx`, the OSRM base URL in
+      `snapToRoads`); swap behind a runtime config flag so
+      self-hosters can pick public-CDN or self-hosted at deploy
+      time.
 
 ### Runtime correctness at N > 1 pods
 
