@@ -144,12 +144,24 @@ code. See [`ARCHITECTURE.md`](ARCHITECTURE.md) decisions 1–4, 8, 9, 13.
       /api/admin/kill-switch` so operators can pause the service
       without a deploy. Actor + reason stamped on the row for
       audit.
-- [ ] **Unit tests on the load-bearing pure logic.** Today the
-      only test files are `internal/rivian/errclass_test.go` and
-      a couple of import-parser tables — everything else relies
-      on manual smoke-testing through the UI. The classes that
-      actively need coverage before Phase 2 multi-replica goes
-      live, in priority order:
+- [x] **Unit tests on the load-bearing pure logic.** v0.10.33
+      filled the genuine gaps: `internal/secrets` (nil-store
+      paths + `rivian.Session` JSON round-trip pin),
+      `internal/samples` (partition janitor defaults + nil-receiver
+      guards + ctx-cancel honour), `internal/charges` (the four
+      `nullIf*` / `*FromNull` helpers + `OpenStore` validation).
+      The other classes listed below were already covered when I
+      audited the tree — `internal/crypto`, `internal/sessions`,
+      `internal/auth`, `internal/oidc`, `internal/rivian`
+      (`errclass`, `headers`, `recorder`, `killswitch`, `live`,
+      `ws_parallax`), `internal/api/vehicle_mw`,
+      `internal/electrafi/logic`, and the charge clustering pass
+      that lives in `internal/analytics/cluster_test.go`. Project
+      convention (see `internal/sessions/store_test.go` header) is
+      pure DB-free surface only — DB-touching code stays under
+      runtime smoke until we adopt testcontainers wholesale, which
+      is its own line item. Original priority list kept below for
+      historical context:
       - `internal/crypto` (envelope sealer) — KEK rotation,
         AAD binding, malformed-ciphertext rejection,
         `kek_id` mismatch.
