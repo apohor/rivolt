@@ -28,9 +28,21 @@ Sanity-check the rollout:
 
 {{- if not .Values.secrets.kek }}
 {{- if not .Values.secrets.existingSecret }}
+{{- if .Values.secrets.autoGenerateKek }}
 
-WARNING: secrets.kek is empty. Rivolt will refuse to start without a
-KEK. Generate one and `helm upgrade` before traffic hits the pod:
+KEK auto-generated and stored in Secret `{{ include "rivolt.appSecretName" . }}`.
+The Secret carries `helm.sh/resource-policy: keep` — `helm uninstall`
+will NOT delete it. BACK IT UP OUT-OF-BAND BEFORE LOADING REAL DATA;
+losing the KEK bricks every encrypted row.
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "rivolt.appSecretName" . }} \
+    -o jsonpath='{.data.RIVOLT_KEK}' | base64 -d
+{{- else }}
+
+WARNING: secrets.kek is empty AND autoGenerateKek=false.
+Rivolt will refuse to start without a KEK. Either set `secrets.kek`
+or set `secrets.existingSecret` to a Secret you manage out-of-band:
     echo "v1:$(openssl rand -base64 32)"
+{{- end }}
 {{- end }}
 {{- end }}

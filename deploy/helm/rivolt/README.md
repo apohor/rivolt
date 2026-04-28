@@ -12,16 +12,18 @@ helm repo add cnpg https://cloudnative-pg.github.io/charts
 helm install cnpg --namespace cnpg-system --create-namespace \
   cnpg/cloudnative-pg
 
-# 2. Mint a KEK.
-KEK="v1:$(openssl rand -base64 32)"
-
-# 3. Install rivolt with the bundled CNPG cluster.
+# 2. Install rivolt with the bundled CNPG cluster.
+#    KEK is auto-generated on first install and persisted in the
+#    chart-managed Secret (see "KEK lifecycle" below).
 helm install rivolt ./deploy/helm/rivolt \
   --namespace rivolt --create-namespace \
   --set cnpg.enabled=true \
-  --set secrets.kek="$KEK" \
   --set secrets.username=anton \
   --set secrets.password=change-me
+
+# 3. BACK UP THE KEK out-of-band before loading real data.
+kubectl -n rivolt get secret rivolt-app \
+  -o jsonpath='{.data.RIVOLT_KEK}' | base64 -d
 
 # 4. Port-forward.
 kubectl -n rivolt port-forward svc/rivolt 8080:80
@@ -99,11 +101,45 @@ Three layers, in priority order:
    the chart doesn't model directly (per-provider OIDC client IDs,
    etc.).
 
-`secrets.kek` is **required**. Losing it bricks every encrypted row
-(Rivian session, AI keys, VAPID private key). Back it up before
-first boot. Rotate by setting `secrets.kek` to a new key (e.g.
-`v2:...`) and `secrets.kekRotation` to the previous key so old
-ciphertexts decrypt during the rewrap migration.
+### KEK lifecycle
+
+The KEK is the master key that wraps every encrypted column in the
+DB (Rivian session, AI keys, VAPID private key). It is **required**
+and **must not be lost or rotated naively** — every encrypted row
+was written under the current KEK and would be unreadable if the
+key is replaced.
+
+The chart supports three sourcing modes:
+
+| Mode                                                    | When to use                                | Behaviour                                                                                                  |
+| ------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `secrets.autoGenerateKek: true` + `kek=""` (**default**) | Homelab quick-start                        | Chart mints a `v1:<base64>` KEK on first install via Sprig `randBytes 32`, persists in the chart-managed Secret with `helm.sh/resource-policy: keep`. On `helm upgrade`, `lookup` reads the existing value back so it's never rotated by accident. |
+| `secrets.kek: "v1:..."` inline                          | Explicit operator control                  | Value is templated as-is. Generate with `echo "v1:$(openssl rand -base64 32)"`. Sealed-secrets / SOPS recommended.                                                                  |
+| `secrets.existingSecret: <name>`                        | Production / GitOps with ExternalSecrets   | Chart references the Secret via `envFrom` and never templates anything. Provision the KEK out of band.                                                                              |
+
+Whichever mode you pick:
+
+- **Back the KEK up out of band** before the system holds real data:
+
+  ```bash
+  kubectl -n rivolt get secret rivolt-app \
+    -o jsonpath='{.data.RIVOLT_KEK}' | base64 -d
+  ```
+
+- `helm uninstall` will **not** delete the chart-managed Secret —
+  the `helm.sh/resource-policy: keep` annotation is intentional.
+  Delete by hand if you really mean it.
+
+- **Rotation:** set `secrets.kek` to the new value (e.g. `v2:...`)
+  and `secrets.kekRotation` to a comma-separated list of retired
+  keys (`v1:...`) so old ciphertexts keep decrypting until the
+  background rewrap migration finishes.
+
+- **GitOps / ArgoCD caveat:** `lookup` returns nil under client-
+  side rendering, so leaving `secrets.kek` empty under ArgoCD
+  would mint a fresh KEK on every reconcile. Pin via
+  `secrets.kek` + sealed-secrets, or use ExternalSecrets +
+  `secrets.existingSecret`.
 
 ## OIDC
 
