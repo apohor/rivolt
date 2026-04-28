@@ -143,6 +143,9 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
           <Stat label="Odo" value={num(kmToMi(s.odometer_km), 0, "mi")} />
           <Stat label="Limit" value={pct(s.charge_target_pct, 0)} />
           <Stat label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
+          {s.outside_temp_c !== 0 ? (
+            <Stat label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
+          ) : null}
           <Stat label="Gear" value={s.gear || "—"} />
           <Stat label="Power" value={formatPowerShort(s.power_state)} />
           <Stat
