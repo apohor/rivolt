@@ -144,6 +144,38 @@ code. See [`ARCHITECTURE.md`](ARCHITECTURE.md) decisions 1–4, 8, 9, 13.
       /api/admin/kill-switch` so operators can pause the service
       without a deploy. Actor + reason stamped on the row for
       audit.
+- [ ] **Unit tests on the load-bearing pure logic.** Today the
+      only test files are `internal/rivian/errclass_test.go` and
+      a couple of import-parser tables — everything else relies
+      on manual smoke-testing through the UI. The classes that
+      actively need coverage before Phase 2 multi-replica goes
+      live, in priority order:
+      - `internal/crypto` (envelope sealer) — KEK rotation,
+        AAD binding, malformed-ciphertext rejection,
+        `kek_id` mismatch.
+      - `internal/sessions` (opaque token + HMAC pepper) —
+        issue / lookup / revoke / janitor sweep, `last_seen_at`
+        rate-limit.
+      - `internal/auth` middleware — vehicle-ownership cross-check
+        rejects foreign `{vehicleID}`; OIDC state/nonce
+        round-trip.
+      - `internal/secrets` (sealed `rivian.Session` + plaintext
+        migration) — round-trip, legacy import path.
+      - `internal/rivian` GraphQL client — `UpstreamError`
+        unwrap into HTTP responses (rate-limit → 503,
+        user-action → 401), `needs_reauth` edge-trigger fires
+        once.
+      - `internal/samples` partition janitor — boot-time backfill,
+        idempotent re-runs, "now + 3 months" window.
+      - `internal/charges` clustering (Home / Public / Fast) and
+        the drive/charge derivation passes — table-driven on
+        recorded sample fixtures.
+      Goal isn't 100% coverage; it's that anything I'd be afraid
+      to refactor blind has a fixture-level test. Snapshot the
+      fixtures from real samples scrubbed of `vehicle_id` /
+      `user_id`. Web-side tests stay deferred until the app gets
+      a second contributor — one operator + Playwright smoke is
+      enough today.
 - [x] **Outbound user-agent identification.** Impersonate the iOS
       Rivian Owner App on every upstream request —
       `User-Agent: RivianApp/4400 CFNetwork/1498.700.2 Darwin/23.6.0`,
