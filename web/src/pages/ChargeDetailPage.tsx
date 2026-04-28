@@ -10,6 +10,7 @@ import {
   formatChargeState,
   formatDateTime,
   formatDuration,
+  isActiveCharge,
   num,
   pct,
 } from "../lib/format";
@@ -119,13 +120,27 @@ export default function ChargeDetailPage() {
   // samples are 10–30s apart — use wider sigma for power.
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const powerPts = smoothGaussianTime(powerPtsRaw, 45_000);
-  const duration = durationSeconds(charge.StartedAt, charge.EndedAt);
+  // For active live sessions the backend keeps `EndedAt` updated to
+  // the last-seen sample, which makes the page look like the session
+  // already ended. Compute duration against `now` and surface a
+  // "charging now" subtitle instead so the UI matches reality.
+  const active = isActiveCharge(charge);
+  const duration = active
+    ? Math.max(
+        0,
+        Math.floor((Date.now() - new Date(charge.StartedAt).getTime()) / 1000),
+      )
+    : durationSeconds(charge.StartedAt, charge.EndedAt);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Charge"
-        subtitle={`${formatDateTime(charge.StartedAt)} → ${formatDateTime(charge.EndedAt)}`}
+        subtitle={
+          active
+            ? `${formatDateTime(charge.StartedAt)} · charging now`
+            : `${formatDateTime(charge.StartedAt)} → ${formatDateTime(charge.EndedAt)}`
+        }
         actions={
           <Link
             to="/charges"
@@ -535,7 +550,11 @@ function SessionInsights({
             />
             <Row
               label="Ended"
-              value={formatDateTime(charge.EndedAt)}
+              value={
+                isActiveCharge(charge)
+                  ? "In progress"
+                  : formatDateTime(charge.EndedAt)
+              }
             />
           </dl>
         </div>
