@@ -178,10 +178,32 @@ secrets:
   existingSecret: ""
 
   # Required. 32-byte AES-256 key, base64-encoded, prefixed with a
-  # key-id and a colon. Generate with:
-  #   echo "v1:$(openssl rand -base64 32)"
-  # Losing this bricks every encrypted secret in the DB.
+  # key-id and a colon — `v1:<base64>`. Three sourcing modes:
+  #
+  #   1. Leave `kek` empty + `autoGenerateKek: true` (default) — the
+  #      chart generates one on first install via Sprig's `randBytes`,
+  #      reads back the existing value via `lookup` on subsequent
+  #      upgrades. The Secret is annotated `helm.sh/resource-policy:
+  #      keep` so `helm uninstall` cannot accidentally delete it.
+  #   2. Set `kek` inline — fine for explicit Ops control, but the
+  #      value lives in your values file (and probably in shell
+  #      history / CI logs). Generate with:
+  #          echo "v1:$(openssl rand -base64 32)"
+  #   3. Set `existingSecret` and pre-create a Secret out-of-band
+  #      (ExternalSecrets / SOPS / sealed-secrets). The chart
+  #      references it via envFrom and never templates the value.
+  #
+  # LOSING THE KEK BRICKS EVERY ENCRYPTED ROW (Rivian session, AI
+  # keys, VAPID private key). Whatever path you pick, back it up
+  # OUT OF BAND before you trust the system with real data.
+  #
+  # Auto-generate caveat for GitOps: ArgoCD renders the chart
+  # client-side where `lookup` returns nil, so every sync would
+  # regenerate the KEK. With ArgoCD either set `kek` inline (sealed-
+  # secrets / SOPS) or use `existingSecret` + ExternalSecrets.
   kek: ""
+  autoGenerateKek: true
+
   # Optional comma-separated list of retired KEKs kept around so old
   # ciphertexts decrypt during rotation:
   #   "v0:base64old,vminus1:base64older"
