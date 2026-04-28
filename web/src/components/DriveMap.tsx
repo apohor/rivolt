@@ -10,36 +10,88 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Route raw GPS samples along actual roads using the public OSRM demo's
-// /route endpoint. Raw telemetry samples are typically 20–60s apart;
-// drawing straight lines between them "cuts corners" and makes the
-// trace look like it's in the middle of a field. /route returns a
-// turn-by-turn driving path between successive waypoints, which gives
-// us a road-following polyline.
+// Snap raw GPS samples to actual roads using OSRM's map-matching
+// endpoint (/match). Map-matching is the right primitive for this:
+// it takes a noisy GPS trace plus timestamps and returns the road
+// geometry the vehicle most likely traveled, given the kinematic
+// constraints of the road network.
 //
-// We use /route rather than /match because /match requires tightly-
-// spaced trace points with timestamps to behave well on sparse GPS
-// (our samples can be a minute apart). /route just connects the dots
-// with real road segments, which is visually what we want here.
+// Why /match and not /route:
+//   /route returns the *cheapest drivable path* between a list of
+//   waypoints, ignoring everything between them. With sparse or
+//   jittery samples — e.g., low-speed parking-lot maneuvers where
+//   GPS lands on the wrong side of a building — /route happily
+//   picks a different path than was actually driven, often 20–30%
+//   longer. We saw exactly this on a real 2.5 mi drive that /route
+//   stretched into a 3.1 mi reroute.
 //
-// Notes:
-// - router.project-osrm.org's /route accepts up to 100 waypoints. We
-//   downsample if needed and include start/end pinned points so the
-//   path connects to the markers.
-// - Request is best-effort: on failure we keep the raw polyline.
-// - For production you'd host your own OSRM or use Mapbox Directions.
-async function snapToRoads(
-  points: Point[],
+//   /match instead treats the trace as evidence: it walks the road
+//   graph using a Hidden Markov Model, weighted by point-to-road
+//   distance and travel-time plausibility. The result hugs the
+//   actual driven roads even when individual fixes are noisy.
+//
+// Why we chunk:
+//   The public OSRM demo caps /match at 9 trace coordinates per
+//   request — far below the 100-coord cap on /route. To use /match
+//   on a multi-mile drive we walk the trace in overlapping chunks
+//   of CHUNK_SIZE points (overlap of 1 keeps adjacent chunks
+//   geometrically continuous). Self-hosted OSRM lifts this cap, at
+//   which point the chunking is harmless overhead.
+//
+// Trace requirements & tradeoffs:
+//   - We downsample to MAX_TRACE so the request count stays bounded
+//     for long drives (otherwise rate limits will start denying us).
+//   - `tidy=true` lets OSRM drop pathological points itself, which
+//     materially improves match quality on stop-and-go traces.
+//   - /match can split a chunk into multiple `matchings` if it
+//     loses confidence (signal gap, U-turn, off-road segment); we
+//     concatenate their geometries in order.
+//   - On any chunk failure we fall through to a single /route call,
+//     and on /route failure to the raw straight-line polyline.
+//
+// For production scale you'd self-host OSRM (or use Mapbox/Valhalla)
+// instead of the public demo server, which is rate-limited.
+type SnapPoint = { lat: number; lon: number; t?: number };
+
+const MATCH_CHUNK_SIZE = 9; // public OSRM demo cap per /match request
+const MATCH_CHUNK_OVERLAP = 1; // shared anchor point between chunks
+const MAX_TRACE = 49; // = 6 × (9 − 1) + 1, i.e. ≤ 6 /match calls
+
+async function matchChunk(
+  pts: SnapPoint[],
   signal: AbortSignal,
 ): Promise<[number, number][] | null> {
-  if (points.length < 2) return null;
-  const MAX = 90;
-  const step = Math.max(1, Math.ceil(points.length / MAX));
-  const sampled = points.filter((_, i) => i % step === 0);
-  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
-    sampled.push(points[points.length - 1]);
+  if (pts.length < 2) return null;
+  const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
+  const url =
+    `https://router.project-osrm.org/match/v1/driving/${coords}` +
+    `?geometries=geojson&overview=full&tidy=true`;
+  try {
+    const r = await fetch(url, { signal });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      code?: string;
+      matchings?: { geometry: { coordinates: [number, number][] } }[];
+    };
+    if (j.code !== "Ok" || !j.matchings?.length) return null;
+    const out: [number, number][] = [];
+    for (const m of j.matchings) {
+      for (const [lon, lat] of m.geometry.coordinates) {
+        out.push([lat, lon]);
+      }
+    }
+    return out.length > 1 ? out : null;
+  } catch {
+    return null;
   }
-  const coords = sampled.map((p) => `${p.lon},${p.lat}`).join(";");
+}
+
+async function routeAll(
+  pts: SnapPoint[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  if (pts.length < 2) return null;
+  const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
   const url =
     `https://router.project-osrm.org/route/v1/driving/${coords}` +
     `?geometries=geojson&overview=full`;
@@ -58,6 +110,46 @@ async function snapToRoads(
   } catch {
     return null;
   }
+}
+
+async function snapToRoads(
+  points: SnapPoint[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  if (points.length < 2) return null;
+
+  const step = Math.max(1, Math.ceil(points.length / MAX_TRACE));
+  const sampled = points.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1]);
+  }
+
+  // Walk overlapping chunks through /match. The first point of each
+  // subsequent chunk duplicates the previous chunk's last point so
+  // the matched geometries connect without a visible seam — we drop
+  // that duplicated head when stitching.
+  const stride = MATCH_CHUNK_SIZE - MATCH_CHUNK_OVERLAP;
+  const matched: [number, number][] = [];
+  for (let i = 0; i < sampled.length - 1; i += stride) {
+    if (signal.aborted) return null;
+    const chunk = sampled.slice(i, i + MATCH_CHUNK_SIZE);
+    if (chunk.length < 2) break;
+    const m = await matchChunk(chunk, signal);
+    if (!m) {
+      // /match gave up on this chunk. Bail out of the chunked path
+      // entirely and try a single /route over the whole trace —
+      // less faithful to the actual driven path, but better than
+      // returning a partial polyline.
+      return await routeAll(sampled, signal);
+    }
+    if (matched.length > 0 && m.length > 0) m.shift();
+    matched.push(...m);
+    if (i + MATCH_CHUNK_SIZE >= sampled.length) break;
+  }
+  if (matched.length > 1) return matched;
+
+  // Final fallback: /route, then raw.
+  return await routeAll(sampled, signal);
 }
 
 // Tile config shared by both maps. CARTO's dark basemap split into a
@@ -123,7 +215,7 @@ function drawRoute(map: L.Map, latlngs: [number, number][]): L.LayerGroup {
   return group;
 }
 
-type Point = { lat: number; lon: number };
+type Point = { lat: number; lon: number; t?: number };
 
 export function DriveMap({
   points,
@@ -212,10 +304,22 @@ export function DriveMap({
     // cancels the in-flight request if the component unmounts or props
     // change before OSRM responds.
     const ac = new AbortController();
+    // Synthesize bracketing timestamps for the parked start/end pins
+    // so the trace stays monotonic. We anchor them ~60 s outside the
+    // first/last in-drive sample, which mirrors how Rivian's
+    // telemetry typically misses the very start and end of a trip.
+    const firstT = valid.find((p) => Number.isFinite(p.t))?.t;
+    const lastT = [...valid]
+      .reverse()
+      .find((p) => Number.isFinite(p.t))?.t;
+    const startT = Number.isFinite(firstT)
+      ? (firstT as number) - 60
+      : undefined;
+    const endT = Number.isFinite(lastT) ? (lastT as number) + 60 : undefined;
     const tracePoints: Point[] = [
-      ...(start ? [start] : []),
+      ...(start ? [{ ...start, t: startT }] : []),
       ...valid,
-      ...(end && !sameSpot ? [end] : []),
+      ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
     ];
     snapToRoads(tracePoints, ac.signal).then((matched) => {
       if (!matched || !mapRef.current) return;

@@ -144,15 +144,15 @@ type LiveSession struct {
 	// other vehicle systems. ThermalKWh is the closest thing Rivian
 	// gives us to a "battery temperature" signal — high values during
 	// a session mean the BMS is working hard to heat or cool the pack.
-	PackKWh                  float64   `json:"pack_kwh"`
-	ThermalKWh               float64   `json:"thermal_kwh"`
-	OutletsKWh               float64   `json:"outlets_kwh"`
-	SystemKWh                float64   `json:"system_kwh"`
-	SoCPct                   float64   `json:"soc_pct"`
-	CurrentPrice             string    `json:"current_price"`
-	CurrentCurrency          string    `json:"current_currency"`
-	IsFreeSession            bool      `json:"is_free_session"`
-	IsRivianCharger          bool      `json:"is_rivian_charger"`
+	PackKWh         float64 `json:"pack_kwh"`
+	ThermalKWh      float64 `json:"thermal_kwh"`
+	OutletsKWh      float64 `json:"outlets_kwh"`
+	SystemKWh       float64 `json:"system_kwh"`
+	SoCPct          float64 `json:"soc_pct"`
+	CurrentPrice    string  `json:"current_price"`
+	CurrentCurrency string  `json:"current_currency"`
+	IsFreeSession   bool    `json:"is_free_session"`
+	IsRivianCharger bool    `json:"is_rivian_charger"`
 }
 
 // Client is the high-level API surface Rivolt uses against Rivian.
