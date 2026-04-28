@@ -399,7 +399,7 @@ export default function DriveDetailPage() {
         )}
       </div>
 
-      <Card title="Speed + Battery">
+      <Card title="Speed, battery & outside temp">
         {samples.isLoading ? (
           <Spinner />
         ) : speedPts.length === 0 && socPts.length === 0 ? (
@@ -431,6 +431,45 @@ export default function DriveDetailPage() {
                       },
                     ]
                   : []),
+                // Outside-temperature overlay. Temp has nothing to do
+                // with mph or %; we stretch it linearly into the
+                // right-axis range so the dotted line stays inside
+                // the chart, and use `formatCursor` to invert the
+                // mapping so the cursor readout still shows the real
+                // °F/°C. Pure visual aid — the right axis labels
+                // remain battery %.
+                ...(() => {
+                  if (outsideTempSmoothed.length < 2) return [];
+                  const ys = outsideTempSmoothed.map((p) => p.y);
+                  const tMin = Math.min(...ys);
+                  const tMax = Math.max(...ys);
+                  const span = Math.max(1, tMax - tMin);
+                  const lo2 = Math.max(0, drive.EndSoCPct - 5);
+                  const hi2 = Math.min(100, drive.StartSoCPct + 5);
+                  const pad = (hi2 - lo2) * 0.05;
+                  const lo = lo2 + pad;
+                  const hi = hi2 - pad;
+                  const map = (t: number) =>
+                    lo + ((t - tMin) / span) * (hi - lo);
+                  const inv = (m: number) =>
+                    tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
+                  return [
+                    {
+                      points: outsideTempSmoothed.map((p) => ({
+                        x: p.x,
+                        y: map(p.y),
+                      })),
+                      color: "#fb923c",
+                      strokeWidth: 1,
+                      curve: "monotone" as const,
+                      dash: "3 3",
+                      axis: "right" as const,
+                      label: "Outside temp",
+                      formatCursor: (m: number) =>
+                        `${inv(m).toFixed(0)}${tempUnitSuffix}`,
+                    },
+                  ];
+                })(),
               ]}
               height={200}
               yDomain={[0, Math.max(50, drive.MaxSpeedMph + 5)]}
@@ -453,6 +492,12 @@ export default function DriveDetailPage() {
                 <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
                 Battery (right)
               </span>
+              {outsideTempSmoothed.length > 1 ? (
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-[2px] border-t border-dashed border-orange-400" />
+                  Outside temp ({tempUnitSuffix.replace("°", "°")})
+                </span>
+              ) : null}
             </div>
           </>
         )}

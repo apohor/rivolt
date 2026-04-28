@@ -17,6 +17,16 @@ export type LineSeries = {
   // preserves local extrema (no overshoot) so peaks like top speed
   // stay accurate while the line still looks smooth.
   curve?: "linear" | "monotone";
+  // Optional SVG `stroke-dasharray` (e.g. "3 3"). Used for secondary
+  // signals like ambient temperature where we want them visibly
+  // de-emphasized against the primary speed/SoC traces.
+  dash?: string;
+  // Per-series override for the cursor value label. Useful when a
+  // series shares an axis with another series of a different unit
+  // (e.g. temperature riding on the SoC% axis), where the axis
+  // formatter would print the wrong unit. Falls back to the
+  // axis-level `formatY` / `formatY2`.
+  formatCursor?: (y: number) => string;
   // Which Y-axis this series maps to. Defaults to "left". Use "right"
   // to overlay a second signal with a different unit (e.g. SoC% on
   // the left, charger kW on the right). The right axis only renders
@@ -274,6 +284,7 @@ export function LineChart({
               strokeWidth={sw}
               strokeLinecap="round"
               strokeLinejoin="round"
+              strokeDasharray={s.dash}
               vectorEffect="non-scaling-stroke"
             />
           </g>
@@ -299,7 +310,8 @@ export function LineChart({
             const cx = sx(sample.x);
             const cy = syFor(s)(sample.y);
             const fmt =
-              s.axis === "right" ? formatY2 ?? formatY : formatY;
+              s.formatCursor ??
+              (s.axis === "right" ? formatY2 ?? formatY : formatY);
             const label = fmt ? fmt(sample.y) : sample.y.toFixed(0);
             const labelX = cx + 8;
             const labelY = Math.max(padT + 12, cy - 6);

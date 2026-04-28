@@ -206,7 +206,7 @@ export default function ChargeDetailPage() {
         />
       </div>
 
-      <Card title="Battery + Charger power">
+      <Card title="Battery, charger power & outside temp">
         {samples.isLoading ? (
           <Spinner />
         ) : socPts.length === 0 ? (
@@ -233,6 +233,46 @@ export default function ChargeDetailPage() {
                       },
                     ]
                   : []),
+                // Outside-temperature overlay. Mapped linearly into
+                // the right (kW) axis so the dotted line stays
+                // inside the chart frame; `formatCursor` inverts so
+                // the readout still shows real °F/°C. Visual only —
+                // the right axis labels remain kW. Suppressed when
+                // there's no power signal: the right axis itself
+                // disappears in that case and we don't want a lone
+                // dotted line floating above an unlabeled axis.
+                ...(() => {
+                  if (powerPts.length === 0) return [];
+                  if (outsideTempSmoothed.length < 2) return [];
+                  const ys = outsideTempSmoothed.map((p) => p.y);
+                  const tMin = Math.min(...ys);
+                  const tMax = Math.max(...ys);
+                  const span = Math.max(1, tMax - tMin);
+                  const y2hi = powerYMax(charge.MaxPowerKW, powerPts);
+                  const pad = y2hi * 0.05;
+                  const lo = pad;
+                  const hi = y2hi - pad;
+                  const map = (t: number) =>
+                    lo + ((t - tMin) / span) * (hi - lo);
+                  const inv = (m: number) =>
+                    tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
+                  return [
+                    {
+                      points: outsideTempSmoothed.map((p) => ({
+                        x: p.x,
+                        y: map(p.y),
+                      })),
+                      color: "#fb923c",
+                      strokeWidth: 1,
+                      curve: "monotone" as const,
+                      dash: "3 3",
+                      axis: "right" as const,
+                      label: "Outside temp",
+                      formatCursor: (m: number) =>
+                        `${inv(m).toFixed(0)}${tempUnitSuffix}`,
+                    },
+                  ];
+                })(),
               ]}
               height={200}
               yDomain={[
@@ -261,6 +301,12 @@ export default function ChargeDetailPage() {
                   No charger-power samples — see session card for context.
                 </span>
               )}
+              {outsideTempSmoothed.length > 1 && powerPts.length > 0 ? (
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-[2px] border-t border-dashed border-orange-400" />
+                  Outside temp ({tempUnitSuffix})
+                </span>
+              ) : null}
             </div>
           </>
         )}
