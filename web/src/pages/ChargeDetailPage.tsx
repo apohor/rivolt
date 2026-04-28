@@ -206,38 +206,73 @@ export default function ChargeDetailPage() {
         />
       </div>
 
-      <Card title="Battery state">
+      <Card title="Battery + Charger power">
         {samples.isLoading ? (
           <Spinner />
         ) : socPts.length === 0 ? (
           <NoSamples />
         ) : (
-          <LineChart
-            series={[
-              {
-                points: socPts,
-                color: "#10b981",
-                strokeWidth: 1.4,
-                area: true,
-              },
-            ]}
-            height={180}
-            yDomain={[
-              Math.max(0, charge.StartSoCPct - 5),
-              Math.min(100, charge.EndSoCPct + 5),
-            ]}
-            formatY={(v) => `${v.toFixed(0)}%`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
+          <>
+            <LineChart
+              series={[
+                {
+                  points: socPts,
+                  color: "#10b981",
+                  strokeWidth: 1.4,
+                  area: true,
+                  label: "Battery",
+                },
+                ...(powerPts.length > 0
+                  ? [
+                      {
+                        points: powerPts,
+                        color: "#f59e0b",
+                        strokeWidth: 1.2,
+                        label: "Power",
+                        axis: "right" as const,
+                      },
+                    ]
+                  : []),
+              ]}
+              height={200}
+              yDomain={[
+                Math.max(0, charge.StartSoCPct - 5),
+                Math.min(100, charge.EndSoCPct + 5),
+              ]}
+              y2Domain={[0, powerYMax(charge.MaxPowerKW, powerPts)]}
+              formatY={(v) => `${v.toFixed(0)}%`}
+              formatY2={(v) => `${v.toFixed(0)} kW`}
+              formatX={xTimeFmt}
+              cursorX={cursorMs}
+              onCursorChange={setCursorMs}
+            />
+            <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
+                Battery (left)
+              </span>
+              {powerPts.length > 0 ? (
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />
+                  Power (right)
+                </span>
+              ) : (
+                <span className="text-neutral-600">
+                  No charger-power samples — see session card for context.
+                </span>
+              )}
+            </div>
+          </>
         )}
       </Card>
 
-      <Card title="Charger power">
-        {samples.isLoading ? (
-          <Spinner />
-        ) : powerPts.length === 0 ? (
+      {/* When power is genuinely missing (home AC sessions; the
+          ElectraFi pre-Mar-2026 export gap) we still want to surface
+          the explanatory copy that used to live in the standalone
+          "Charger power" card. Rendered only when the SoC chart is
+          present and there's no power signal to overlay. */}
+      {samples.isLoading || socPts.length === 0 || powerPts.length > 0 ? null : (
+        <Card title="Charger power">
           <p className="text-sm text-neutral-500">
             {charge.Source === "live" ? (
               <>
@@ -256,25 +291,8 @@ export default function ChargeDetailPage() {
               </>
             )}
           </p>
-        ) : (
-          <LineChart
-            series={[
-              {
-                points: powerPts,
-                color: "#f59e0b",
-                strokeWidth: 1.2,
-                area: true,
-              },
-            ]}
-            height={160}
-            yDomain={[0, powerYMax(charge.MaxPowerKW, powerPts)]}
-            formatY={(v) => `${v.toFixed(0)} kW`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
-        )}
-      </Card>
+        </Card>
+      )}
 
       {/* Temperature card. Renders when we have at least one
           non-sentinel reading in the session window. Joins the
