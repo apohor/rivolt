@@ -20,9 +20,9 @@ const keyChargingNetworks = "charging.networks"
 // We intentionally keep this flat: no per-tier pricing, no time-of-
 // use rules. The goal is faster manual entry, not full automation.
 type ChargingNetwork struct {
-	Name          string  `json:"name"`
-	PricePerKWh   float64 `json:"price_per_kwh"`
-	Currency      string  `json:"currency"`
+	Name        string  `json:"name"`
+	PricePerKWh float64 `json:"price_per_kwh"`
+	Currency    string  `json:"currency"`
 }
 
 // GetChargingNetworks returns the configured price book, or an empty
