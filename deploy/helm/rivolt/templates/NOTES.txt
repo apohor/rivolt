@@ -1,0 +1,36 @@
+Rivolt {{ .Chart.AppVersion }} installed as `{{ .Release.Name }}` in namespace `{{ .Release.Namespace }}`.
+
+Database:
+{{- if .Values.cnpg.enabled }}
+  CloudNativePG cluster: {{ include "rivolt.cnpgClusterName" . }}
+  Read-write Service:    {{ include "rivolt.cnpgClusterName" . }}-rw:5432
+  App Secret (creds):    {{ include "rivolt.cnpgClusterName" . }}-app
+  → wait for the cluster to come up:
+      kubectl -n {{ .Release.Namespace }} get cluster {{ include "rivolt.cnpgClusterName" . }} -w
+{{- else }}
+  External Postgres:     {{ include "rivolt.dbHost" . }}:{{ include "rivolt.dbPort" . }}/{{ include "rivolt.dbName" . }}
+{{- end }}
+
+App:
+{{- if .Values.ingress.enabled }}
+  Ingress:
+  {{- range .Values.ingress.hosts }}
+    https://{{ .host }}
+  {{- end }}
+{{- else }}
+  No Ingress configured. Port-forward for a quick test:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "rivolt.fullname" . }} 8080:{{ .Values.service.port }}
+    → http://localhost:8080
+{{- end }}
+
+Sanity-check the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "rivolt.fullname" . }}
+
+{{- if not .Values.secrets.kek }}
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: secrets.kek is empty. Rivolt will refuse to start without a
+KEK. Generate one and `helm upgrade` before traffic hits the pod:
+    echo "v1:$(openssl rand -base64 32)"
+{{- end }}
+{{- end }}

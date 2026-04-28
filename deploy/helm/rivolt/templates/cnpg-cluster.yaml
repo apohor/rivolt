@@ -1,0 +1,66 @@
+{{- if .Values.cnpg.enabled }}
+# CloudNativePG Cluster CR. The CNPG operator (installed separately
+# in the cluster — typically into the `cnpg-system` namespace)
+# reconciles this into a real Postgres StatefulSet, plus the
+# `<cluster>-rw` / `<cluster>-ro` / `<cluster>-r` Services and a
+# `<cluster>-app` Secret carrying the app-role credentials.
+#
+# We deliberately keep this minimal — operators who need WAL
+# archiving, custom pg_hba, monitoring exporters, etc. should
+# either copy this Cluster CR into their own GitOps repo (and set
+# rivolt's `cnpg.enabled=false` + `externalDatabase.*` to point
+# at it) or extend this template via a downstream chart.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "rivolt.cnpgClusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+  # Helm uninstall must NOT delete the database. Operator policy
+  # `keep` plus a finalizer-style annotation makes the lifecycle of
+  # the data cluster deliberately separate from the app's release.
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ .Values.cnpg.instances }}
+  imageName: {{ .Values.cnpg.imageName | quote }}
+
+  # CNPG creates the database + owner role on bootstrap and writes
+  # the credentials into `<cluster>-app`. The Deployment sources
+  # DB_USER / DB_PASSWORD from that Secret via secretKeyRef.
+  bootstrap:
+    initdb:
+      database: {{ .Values.cnpg.database | quote }}
+      owner: {{ .Values.cnpg.owner | quote }}
+
+  storage:
+    size: {{ .Values.cnpg.storage.size | quote }}
+    {{- with .Values.cnpg.storage.storageClass }}
+    storageClass: {{ . | quote }}
+    {{- end }}
+
+  {{- with .Values.cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- with .Values.cnpg.postgresql.parameters }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := . }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  {{- end }}
+
+  {{- if .Values.cnpg.backup.enabled }}
+  backup:
+    {{- with .Values.cnpg.backup.barmanObjectStore }}
+    barmanObjectStore:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.cnpg.backup.retentionPolicy }}
+    retentionPolicy: {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

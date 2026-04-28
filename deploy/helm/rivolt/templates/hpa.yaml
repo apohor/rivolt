@@ -1,0 +1,27 @@
+{{- if .Values.autoscaling.enabled }}
+# WARNING: Phase 2 prerequisites (subscription lease reconciliation,
+# global Redis token bucket, reconnect-storm controls) are not yet
+# implemented. Running >1 replicas means duplicate Rivian websockets
+# and ban risk. See values.yaml `replicaCount` for context.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "rivolt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "rivolt.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

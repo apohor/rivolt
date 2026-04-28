@@ -212,13 +212,24 @@ decisions 5–7, 10–12.
 
 ### Infra
 
-- [ ] **Helm chart** at `deploy/helm/rivolt/` — single Deployment,
-      HPA 3–8 on CPU, ConfigMap for non-secrets, ExternalSecret
-      references for secrets. Chart takes a Postgres DSN; does not
-      ship the DB.
-- [ ] **Container hardening** — readiness/liveness on `/healthz`,
-      non-root user, read-only rootfs, resource requests/limits,
-      `PodDisruptionBudget`.
+- [x] **Helm chart** at `deploy/helm/rivolt/` — single Deployment,
+      HPA pre-wired but disabled-by-default (Phase 2 lease work
+      isn't done; >1 replicas means duplicate Rivian websockets),
+      ConfigMap for non-secrets, three secrets-wiring modes
+      (inline values, `secrets.existingSecret` for ExternalSecrets/
+      SOPS/sealed-secrets, `extraEnvFrom` escape hatch). Database
+      is intentionally NOT bundled — chart takes either an
+      external DSN (`externalDatabase.*`) or renders a CNPG
+      `Cluster` CR (`cnpg.enabled=true`); no Bitnami subchart, no
+      raw StatefulSet. CNPG operator install is documented but
+      out-of-scope for the chart (cluster-scoped, one per cluster).
+- [x] **Container hardening** — `/api/health` probes, non-root
+      (uid 65532 from distroless base), `readOnlyRootFilesystem`
+      with emptyDir `/tmp`, `seccompProfile: RuntimeDefault`,
+      `capabilities: drop: [ALL]`, `automountServiceAccountToken:
+      false`, resource requests/limits, PDB template (off by
+      default at replicaCount=1 to avoid blocking node drains).
+      Landed with the Helm chart.
 - [ ] **CloudNativePG** (or a managed Postgres) as the database.
       Never a single-pod StatefulSet with local PVC.
 - [ ] **Redis Deployment** for the global upstream token bucket.
