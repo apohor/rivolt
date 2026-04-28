@@ -2,7 +2,7 @@
 // overview dashboards; if we ever need interactivity/zoom we can swap
 // individual charts for uplot without touching call sites.
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 
 type Point = { x: number; y: number };
 
@@ -29,6 +29,8 @@ export function LineChart({
   formatX,
   formatY,
   className,
+  cursorX,
+  onCursorChange,
 }: {
   series: LineSeries[];
   height?: number;
@@ -39,6 +41,16 @@ export function LineChart({
   formatX?: (x: number) => string;
   formatY?: (y: number) => string;
   className?: string;
+  // Controlled crosshair X in data units. When set, the chart renders
+  // a vertical guide line and a dot on each series at the x value
+  // closest to `cursorX`. Callers use this to keep multiple charts
+  // (and the route map) synchronized to the same moment in time.
+  cursorX?: number | null;
+  // Hover/leave callback. Fires with the data-space x of the pointer
+  // (snapped to the nearest sample of the first series) on
+  // pointermove, and with `null` on pointerleave. Omit to disable
+  // pointer interaction entirely.
+  onCursorChange?: (x: number | null) => void;
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
   const padL = 52;
@@ -47,6 +59,8 @@ export function LineChart({
   const padB = 20;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
+
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   const all = series.flatMap((s) => s.points);
   if (all.length === 0) {
@@ -68,8 +82,66 @@ export function LineChart({
   const yTickValues = tickValues(y0, y1, yTicks);
   const xTickValues = tickValues(x0, x1, xTicks);
 
+  // Convert a client pointer event to a data-space x value, clamped
+  // to the visible domain. Uses the SVG's bounding rect so it works
+  // regardless of CSS scaling (preserveAspectRatio="none" stretches
+  // the viewBox to fit the container width).
+  const eventToDataX = (clientX: number): number | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    const vbX = ((clientX - rect.left) / rect.width) * width;
+    if (vbX < padL || vbX > width - padR) return null;
+    return x0 + ((vbX - padL) / innerW) * xSpan;
+  };
+
+  // Snap an arbitrary data x to the closest point in the first
+  // series. Charts on the same page share the same time grid so
+  // snapping to series[0] keeps the cursor anchored to a real
+  // sample even when the pointer moves between samples.
+  const snapToSample = (x: number): number => {
+    const pts = series[0]?.points;
+    if (!pts || pts.length === 0) return x;
+    let best = pts[0].x;
+    let bestD = Math.abs(pts[0].x - x);
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.abs(pts[i].x - x);
+      if (d < bestD) {
+        bestD = d;
+        best = pts[i].x;
+      }
+    }
+    return best;
+  };
+
+  // Resolve the cursor sample for each series at the controlled
+  // cursorX (snapped per-series). Used to position dots and labels.
+  const cursorSamples =
+    cursorX != null && Number.isFinite(cursorX)
+      ? series.map((s) => {
+          const pts = s.points;
+          if (!pts || pts.length === 0) return null;
+          let best = pts[0];
+          let bestD = Math.abs(pts[0].x - cursorX);
+          for (let i = 1; i < pts.length; i++) {
+            const d = Math.abs(pts[i].x - cursorX);
+            if (d < bestD) {
+              bestD = d;
+              best = pts[i];
+            }
+          }
+          return best;
+        })
+      : null;
+  const cursorXClamped =
+    cursorX != null && Number.isFinite(cursorX)
+      ? Math.min(Math.max(cursorX, x0), x1)
+      : null;
+
   return (
     <svg
+      ref={svgRef}
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
       preserveAspectRatio="none"
@@ -144,6 +216,72 @@ export function LineChart({
           </g>
         );
       })}
+      {/* crosshair: vertical guide + per-series dot + value label */}
+      {cursorSamples && cursorXClamped != null ? (
+        <g pointerEvents="none">
+          <line
+            x1={sx(cursorXClamped)}
+            x2={sx(cursorXClamped)}
+            y1={padT}
+            y2={padT + innerH}
+            stroke="#a3a3a3"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+          />
+          {cursorSamples.map((sample, i) => {
+            if (!sample) return null;
+            const color = series[i].color ?? "#10b981";
+            const cx = sx(sample.x);
+            const cy = sy(sample.y);
+            const label = formatY ? formatY(sample.y) : sample.y.toFixed(0);
+            const labelX = cx + 8;
+            const labelY = Math.max(padT + 12, cy - 6);
+            return (
+              <g key={`cursor-${i}`}>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={3.5}
+                  fill={color}
+                  stroke="#0a0a0a"
+                  strokeWidth={1.5}
+                />
+                <text
+                  x={labelX}
+                  y={labelY}
+                  className="fill-neutral-100"
+                  fontSize={11}
+                  fontWeight={600}
+                  paintOrder="stroke"
+                  stroke="#0a0a0a"
+                  strokeWidth={3}
+                  strokeLinejoin="round"
+                >
+                  {label}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      ) : null}
+      {/* pointer-capture overlay; only present when interactive */}
+      {onCursorChange ? (
+        <rect
+          x={padL}
+          y={padT}
+          width={innerW}
+          height={innerH}
+          fill="transparent"
+          style={{ cursor: "crosshair" }}
+          onPointerMove={(e) => {
+            const x = eventToDataX(e.clientX);
+            if (x == null) return;
+            onCursorChange(snapToSample(x));
+          }}
+          onPointerLeave={() => onCursorChange(null)}
+        />
+      ) : null}
     </svg>
   );
 }

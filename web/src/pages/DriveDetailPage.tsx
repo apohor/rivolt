@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { backend, type Sample } from "../lib/api";
@@ -19,6 +19,10 @@ import { usePreferences } from "../lib/preferences";
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
   const prefs = usePreferences();
+  // Shared cursor for the Speed chart, Battery chart and route map.
+  // Stored in milliseconds so it can be passed straight through as
+  // the chart x-axis cursor; converted to unix seconds for the map.
+  const [cursorMs, setCursorMs] = useState<number | null>(null);
   const drives = useQuery({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
@@ -81,11 +85,32 @@ export default function DriveDetailPage() {
   const driveSamples = useMemo(() => {
     if (!drive || !samples.data) return [] as Sample[];
     const s = new Date(drive.StartedAt).getTime();
-    const e = new Date(drive.EndedAt).getTime() + 60_000;
-    return samples.data.filter((p) => {
+    const endMs = new Date(drive.EndedAt).getTime();
+    // Pad 60 s past EndedAt so the speed chart can visibly return
+    // to 0 instead of cutting off at the last in-motion sample.
+    // BUT stop ingesting the moment we see a parked sample after
+    // EndedAt — anything D-shift past that point belongs to the
+    // *next* drive (Rivian's telemetry sometimes resumes within
+    // 30–60 s of parking) and would pull the tail of this chart
+    // back up to highway speed. The first P sample is exactly the
+    // anchor we want for return-to-0; we keep it and drop the rest.
+    const padEnd = endMs + 60_000;
+    const out: Sample[] = [];
+    let sawPostEndParked = false;
+    for (const p of samples.data) {
       const t = new Date(p.At).getTime();
-      return t >= s && t <= e;
-    });
+      if (t < s || t > padEnd) continue;
+      if (t > endMs) {
+        if (sawPostEndParked) break;
+        if (p.ShiftState === "P") {
+          out.push(p);
+          sawPostEndParked = true;
+          continue;
+        }
+      }
+      out.push(p);
+    }
+    return out;
   }, [drive, samples.data]);
 
   // Infer "home" endpoints from the last parked sample before the drive
@@ -204,6 +229,23 @@ export default function DriveDetailPage() {
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 
+  // Resolve the sample closest to the synced cursor for the
+  // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
+  // so the lat/lon stays exact (smoothing is a chart-only concern).
+  const cursorSample = (() => {
+    if (cursorMs == null || driveSamples.length === 0) return null;
+    let best = driveSamples[0];
+    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
+    for (let i = 1; i < driveSamples.length; i++) {
+      const d = Math.abs(new Date(driveSamples[i].At).getTime() - cursorMs);
+      if (d < bestD) {
+        bestD = d;
+        best = driveSamples[i];
+      }
+    }
+    return best;
+  })();
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -257,6 +299,38 @@ export default function DriveDetailPage() {
         />
       </div>
 
+      {/* Synced cursor readout. Reserves a single line of vertical
+          space whether or not the user is hovering, so adding/removing
+          the cursor never shifts the charts below. */}
+      <div className="h-5 -mt-2 text-xs font-mono text-neutral-300 flex items-center gap-3">
+        {cursorSample ? (
+          <>
+            <span className="text-neutral-500">
+              {new Date(cursorSample.At).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </span>
+            <span className="text-sky-400">
+              {(cursorSample.SpeedMph || 0).toFixed(0)} mph
+            </span>
+            <span className="text-emerald-400">
+              {(cursorSample.BatteryLevelPct || 0).toFixed(0)}%
+            </span>
+            {cursorSample.Lat || cursorSample.Lon ? (
+              <span className="text-neutral-500">
+                {cursorSample.Lat.toFixed(5)}, {cursorSample.Lon.toFixed(5)}
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <span className="text-neutral-600">
+            Hover any chart or the route map to inspect a moment.
+          </span>
+        )}
+      </div>
+
       <Card title="Speed">
         {samples.isLoading ? (
           <Spinner />
@@ -276,6 +350,8 @@ export default function DriveDetailPage() {
             height={180}
             formatY={(v) => `${v.toFixed(0)} mph`}
             formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
           />
         )}
       </Card>
@@ -301,6 +377,8 @@ export default function DriveDetailPage() {
             ]}
             formatY={(v) => `${v.toFixed(0)}%`}
             formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
           />
         )}
       </Card>
@@ -323,6 +401,10 @@ export default function DriveDetailPage() {
             start={homeStart ?? { lat: drive.StartLat, lon: drive.StartLon }}
             end={homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon }}
             height={360}
+            cursorTime={cursorMs != null ? cursorMs / 1000 : null}
+            onCursorChange={(t) =>
+              setCursorMs(t != null ? Math.round(t * 1000) : null)
+            }
           />
         )}
       </Card>

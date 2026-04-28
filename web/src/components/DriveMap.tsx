@@ -248,14 +248,37 @@ export function DriveMap({
   start,
   end,
   height = 320,
+  cursorTime,
+  onCursorChange,
 }: {
   points: Point[];
   start?: Point;
   end?: Point;
   height?: number;
+  // Controlled cursor in unix seconds. When set, a small accent
+  // marker is rendered on the polyline at the sample whose
+  // timestamp is closest to this value. Used to keep the route in
+  // sync with hover on the speed/battery charts.
+  cursorTime?: number | null;
+  // Hover/leave callback. Fires with the unix-seconds timestamp of
+  // the polyline sample nearest the pointer (only when the pointer
+  // is close to the trace, in pixel space) and with `null` on
+  // mouseout.
+  onCursorChange?: (t: number | null) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  // Track which time samples are on the polyline so the hover and
+  // cursor effects can both binary/linear-search the same array.
+  const tracePointsRef = useRef<Point[]>([]);
+  // Stable ref to the latest onCursorChange callback so we don't
+  // tear down and rebuild the map every time the parent re-renders
+  // with a new closure.
+  const onCursorChangeRef = useRef(onCursorChange);
+  onCursorChangeRef.current = onCursorChange;
+  // Layer for the synced cursor marker (managed by a separate
+  // effect so cursor updates never trigger a full map rebuild).
+  const cursorLayerRef = useRef<L.CircleMarker | null>(null);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -400,6 +423,41 @@ export function DriveMap({
         .bindTooltip("End", { direction: "top" });
     }
 
+    // Hover→time emission. We project each timestamped sample to
+    // pixel space on every move and emit the time of the nearest
+    // one, but only when the pointer is reasonably close (≤ 28 px)
+    // to the polyline. This avoids the cursor jumping to a point
+    // hundreds of meters away just because the user is panning the
+    // map. Re-projects on every event, which is fine for the
+    // hundreds of points in a typical drive.
+    const timed = valid.filter((p) => Number.isFinite(p.t)) as Required<Point>[];
+    tracePointsRef.current = timed;
+    if (timed.length > 0) {
+      const HOVER_PX = 28;
+      map.on("mousemove", (ev: L.LeafletMouseEvent) => {
+        const cb = onCursorChangeRef.current;
+        if (!cb) return;
+        const px = map.latLngToContainerPoint(ev.latlng);
+        let bestI = -1;
+        let bestD2 = HOVER_PX * HOVER_PX;
+        for (let i = 0; i < timed.length; i++) {
+          const p = timed[i];
+          const q = map.latLngToContainerPoint([p.lat, p.lon]);
+          const dx = q.x - px.x;
+          const dy = q.y - px.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestD2) {
+            bestD2 = d2;
+            bestI = i;
+          }
+        }
+        if (bestI >= 0) cb(timed[bestI].t);
+      });
+      map.on("mouseout", () => {
+        onCursorChangeRef.current?.(null);
+      });
+    }
+
     // Leaflet reads the container size on init; if we mount inside a
     // freshly-revealed card the size is wrong until the next tick.
     // Re-invalidate after layout settles, and again when the window
@@ -424,6 +482,43 @@ export function DriveMap({
     // points is an array derived upstream; re-run only when identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, start?.lat, start?.lon, end?.lat, end?.lon]);
+
+  // Sync the cursor marker on cursorTime changes without rebuilding
+  // the map. We binary/linear-search the timed trace for the closest
+  // sample by t and reposition (or create) a small accent marker.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const timed = tracePointsRef.current;
+    if (cursorTime == null || !Number.isFinite(cursorTime) || timed.length === 0) {
+      if (cursorLayerRef.current) {
+        cursorLayerRef.current.remove();
+        cursorLayerRef.current = null;
+      }
+      return;
+    }
+    let best = timed[0];
+    let bestD = Math.abs((timed[0].t ?? 0) - cursorTime);
+    for (let i = 1; i < timed.length; i++) {
+      const d = Math.abs((timed[i].t ?? 0) - cursorTime);
+      if (d < bestD) {
+        bestD = d;
+        best = timed[i];
+      }
+    }
+    if (cursorLayerRef.current) {
+      cursorLayerRef.current.setLatLng([best.lat, best.lon]);
+    } else {
+      cursorLayerRef.current = L.circleMarker([best.lat, best.lon], {
+        radius: 6,
+        color: "#0a0a0a",
+        weight: 2,
+        fillColor: "#fbbf24",
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(map);
+    }
+  }, [cursorTime, points]);
 
   return (
     <div
