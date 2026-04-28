@@ -93,3 +93,16 @@ export function formatChargeState(s: string): string {
         .replace(/^./, (c) => c.toUpperCase());
   }
 }
+
+// True when the charge session is still in progress. The backend
+// keeps `EndedAt` updated to the last-seen sample timestamp on open
+// live sessions, so callers must NOT treat EndedAt as the real end
+// for these — show "in progress" instead. A session is active when
+// FinalState is a non-terminal `charging_*` value (the same rule
+// the Go store uses to find LatestOpenLive).
+export function isActiveCharge(c: { FinalState: string; Source?: string }): boolean {
+  const s = c.FinalState;
+  if (!s) return false;
+  if (!s.startsWith("charging_")) return false;
+  return s !== "charging_complete" && s !== "charging_station_err";
+}
