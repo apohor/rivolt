@@ -244,7 +244,14 @@ export default function DriveDetailPage() {
           <NoSamples />
         ) : (
           <DriveMap
-            points={driveSamples.map((p) => ({ lat: p.Lat, lon: p.Lon }))}
+            points={driveSamples.map((p) => ({
+              lat: p.Lat,
+              lon: p.Lon,
+              // Unix seconds — OSRM /match needs a monotonic time
+              // axis to weight kinematic plausibility against
+              // each candidate road.
+              t: Math.floor(new Date(p.At).getTime() / 1000),
+            }))}
             start={homeStart ?? { lat: drive.StartLat, lon: drive.StartLon }}
             end={homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon }}
             height={360}
