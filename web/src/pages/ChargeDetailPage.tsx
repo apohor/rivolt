@@ -80,6 +80,10 @@ export default function ChargeDetailPage() {
     [charge, chargeSamples],
   );
   const prefs = usePreferences();
+  // Shared cursor across the Battery / Charger power / Temperature
+  // charts on this page. Stored in milliseconds so it maps directly
+  // onto each chart's x-axis (every series is keyed on Sample.At).
+  const [cursorMs, setCursorMs] = useState<number | null>(null);
 
   if (charges.isLoading) {
     return (
@@ -120,6 +124,42 @@ export default function ChargeDetailPage() {
   // samples are 10–30s apart — use wider sigma for power.
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
   const powerPts = smoothGaussianTime(powerPtsRaw, 45_000);
+
+  // Temperature series. Convert to the user's chosen unit at the
+  // points level so the chart Y-axis, formatY label and the cursor
+  // readout all stay consistent. Filter out the (0, 0) sentinel
+  // emitted when the live merge path didn't carry a fresh reading
+  // — a real 0 °C indoors is implausible and would distort the
+  // Y-domain. Outside temp drifts slowly so a wide smoothing window
+  // is appropriate.
+  const tempUnit = prefs.temperatureUnit;
+  const cToUnit = (c: number) => (tempUnit === "f" ? c * 1.8 + 32 : c);
+  const tempUnitSuffix = tempUnit === "f" ? "°F" : "°C";
+  const outsideTempPts = chargeSamples
+    .filter((p) => Number.isFinite(p.OutsideTempC) && p.OutsideTempC !== 0)
+    .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.OutsideTempC) }));
+  const insideTempPts = chargeSamples
+    .filter((p) => Number.isFinite(p.InsideTempC) && p.InsideTempC !== 0)
+    .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.InsideTempC) }));
+  const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
+  const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
+  const hasTempSeries =
+    outsideTempSmoothed.length > 0 || insideTempSmoothed.length > 0;
+
+  // Resolve the sample closest to the synced cursor for the readout.
+  const cursorSample = (() => {
+    if (cursorMs == null || chargeSamples.length === 0) return null;
+    let best = chargeSamples[0];
+    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
+    for (let i = 1; i < chargeSamples.length; i++) {
+      const d = Math.abs(new Date(chargeSamples[i].At).getTime() - cursorMs);
+      if (d < bestD) {
+        bestD = d;
+        best = chargeSamples[i];
+      }
+    }
+    return best;
+  })();
   // For active live sessions the backend keeps `EndedAt` updated to
   // the last-seen sample, which makes the page look like the session
   // already ended. Compute duration against `now` and surface a
@@ -188,6 +228,8 @@ export default function ChargeDetailPage() {
             ]}
             formatY={(v) => `${v.toFixed(0)}%`}
             formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
           />
         )}
       </Card>
@@ -228,9 +270,89 @@ export default function ChargeDetailPage() {
             yDomain={[0, powerYMax(charge.MaxPowerKW, powerPts)]}
             formatY={(v) => `${v.toFixed(0)} kW`}
             formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
           />
         )}
       </Card>
+
+      {/* Temperature card. Renders when we have at least one
+          non-sentinel reading in the session window. Joins the
+          shared cursor with the Battery / Power charts above. */}
+      {samples.isLoading ? null : hasTempSeries ? (
+        <Card title="Temperature">
+          <LineChart
+            series={[
+              ...(outsideTempSmoothed.length > 0
+                ? [
+                    {
+                      points: outsideTempSmoothed,
+                      color: "#60a5fa",
+                      strokeWidth: 1.4,
+                      label: "Outside",
+                    },
+                  ]
+                : []),
+              ...(insideTempSmoothed.length > 0
+                ? [
+                    {
+                      points: insideTempSmoothed,
+                      color: "#f97316",
+                      strokeWidth: 1.2,
+                      label: "Cabin",
+                    },
+                  ]
+                : []),
+            ]}
+            height={140}
+            formatY={(v) => `${v.toFixed(0)} ${tempUnitSuffix}`}
+            formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
+          />
+          <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
+            {outsideTempSmoothed.length > 0 ? (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
+                Outside
+              </span>
+            ) : null}
+            {insideTempSmoothed.length > 0 ? (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+                Cabin
+              </span>
+            ) : null}
+          </div>
+          {/* Compact cursor readout — only on this card; the page
+              already has a busy session-insights summary, so we keep
+              the inline value next to the temperature chart instead
+              of replicating Drive's top-of-page banner. */}
+          <div className="mt-2 h-4 text-[11px] font-mono text-neutral-400 flex items-center gap-3">
+            {cursorSample ? (
+              <>
+                <span className="text-neutral-500">
+                  {new Date(cursorSample.At).toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+                {cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0 ? (
+                  <span className="text-sky-300">
+                    Outside {formatTemperature(cursorSample.OutsideTempC, tempUnit, 0)}
+                  </span>
+                ) : null}
+                {cursorSample.InsideTempC && cursorSample.InsideTempC !== 0 ? (
+                  <span className="text-orange-300">
+                    Cabin {formatTemperature(cursorSample.InsideTempC, tempUnit, 0)}
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <Card title="Session">
         <SessionInsights
