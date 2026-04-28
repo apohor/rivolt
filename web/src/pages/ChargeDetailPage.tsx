@@ -477,6 +477,44 @@ function SessionInsights({
         </dl>
       </div>
 
+      {insights.thermalKWh !== null ? (
+        <div>
+          <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
+            Thermal management
+          </h4>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Row
+              label="BMS energy"
+              value={`${insights.thermalKWh.toFixed(2)} kWh`}
+            />
+            <Row
+              label="Share of total"
+              value={
+                insights.thermalSharePct !== null
+                  ? pct(insights.thermalSharePct, 1)
+                  : "—"
+              }
+            />
+            <Row
+              label="Conditioning intensity"
+              value={thermalIntensityLabel(insights.thermalSharePct)}
+            />
+            <Row
+              label="Source"
+              value="Parallax live data"
+            />
+          </dl>
+          <p className="mt-2 text-[11px] text-neutral-500">
+            Energy the battery management system spent heating or
+            cooling the pack during this session. Rivian's API doesn't
+            expose pack temperature directly — high BMS energy means
+            the pack was being aggressively conditioned (cold-soak
+            DC fast-charge, hot-ambient L2, preconditioning before
+            departure).
+          </p>
+        </div>
+      ) : null}
+
       {insights.outsideTempC !== null || insights.insideTempC !== null ? (
         <div>
           <h4 className="text-[10px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
@@ -522,6 +560,11 @@ type SessionInsightsData = {
   costPerKWh: string;
   outsideTempC: number | null;
   insideTempC: number | null;
+  // thermalKWh is null when not reported (legacy rows, non-Parallax
+  // sources). thermalSharePct is computed only when both thermal and
+  // total energy are > 0; otherwise null.
+  thermalKWh: number | null;
+  thermalSharePct: number | null;
 };
 
 // computeSessionInsights derives the metrics shown in the enriched
@@ -635,6 +678,16 @@ function computeSessionInsights(
     costPerKWh,
     outsideTempC,
     insideTempC,
+    thermalKWh:
+      charge.ThermalKWh != null && charge.ThermalKWh >= 0
+        ? charge.ThermalKWh
+        : null,
+    thermalSharePct:
+      charge.ThermalKWh != null &&
+      charge.ThermalKWh > 0 &&
+      charge.EnergyAddedKWh > 0
+        ? (charge.ThermalKWh / charge.EnergyAddedKWh) * 100
+        : null,
   };
 }
 
@@ -651,6 +704,20 @@ function classifyChargingTier(maxKW: number): { label: string; hint: string } {
   if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW DCFC" };
   if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW DCFC" };
   return { label: "DC ultra", hint: "350 kW+ DCFC" };
+}
+
+// thermalIntensityLabel turns the thermal-share percentage into a
+// human-friendly bucket. Buckets are calibrated against typical
+// Rivian sessions: home L2 in mild weather is ~1–2% thermal; a
+// cold-soaked DC fast-charge can push past 8%. The thresholds are
+// heuristic, not from a Rivian spec — adjust as more data lands.
+function thermalIntensityLabel(sharePct: number | null): string {
+  if (sharePct === null) return "—";
+  if (sharePct < 1) return "Minimal";
+  if (sharePct < 3) return "Light";
+  if (sharePct < 6) return "Moderate";
+  if (sharePct < 10) return "Heavy";
+  return "Aggressive";
 }
 
 // mean returns the arithmetic mean of finite, non-zero values, or

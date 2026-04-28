@@ -234,6 +234,12 @@ export type Charge = {
   // Cost is zero AND both a rate is configured and EnergyAddedKWh > 0.
   estimated_cost?: number;
   estimated_currency?: string;
+  // Energy the BMS spent on pack heating / cooling during the
+  // session, decoded from Rivian's Parallax ChargingSessionLiveData
+  // protobuf (field 3). Null on legacy rows recorded before the
+  // column existed and on sessions that didn't go through the
+  // Parallax stream (REST poller, ElectraFi import).
+  ThermalKWh?: number | null;
 };
 
 export type ChargingSettings = {

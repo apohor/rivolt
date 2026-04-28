@@ -194,6 +194,10 @@ func (c *LiveClient) runParallaxChargingSubscription(ctx context.Context, vehicl
 			KilometersChargedPerHour: float64(ld.CurrentRangePerHour),
 			RangeAddedKm:             float64(ld.RangeAddedKms),
 			TotalChargedEnergyKWh:    ld.TotalKWh,
+			PackKWh:                  ld.PackKWh,
+			ThermalKWh:               ld.ThermalKWh,
+			OutletsKWh:               ld.OutletsKWh,
+			SystemKWh:                ld.SystemKWh,
 			IsFreeSession:            ld.IsFreeSession,
 		}
 		cb(sess)
