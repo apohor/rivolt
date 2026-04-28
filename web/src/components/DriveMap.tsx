@@ -329,7 +329,33 @@ export function DriveMap({
     // non-drivable terrain) we keep the raw trace. The abort controller
     // cancels the in-flight request if the component unmounts or props
     // change before OSRM responds.
+    //
+    // We only invoke /match when the GPS sample density is too sparse
+    // for the raw trace to look like a road (e.g. a drive with only
+    // a handful of mid-trip fixes). Rivian normally streams 3–5 s
+    // samples that already lie within ~3 m of the actual road, and
+    // running them through OSRM's HMM downsamples + sometimes snaps
+    // the trace to a parallel arterial (Reagan Blvd in our test
+    // round trip) instead of the residential streets actually driven.
+    // For dense traces, the raw polyline is more faithful than any
+    // /match output we can get out of the public OSRM demo (capped
+    // at 9 coordinates per request).
     const ac = new AbortController();
+    const SPARSE_MIN_GAP_M = 200; // average spacing that justifies /match
+    let avgGap = 0;
+    if (valid.length >= 2) {
+      let total = 0;
+      for (let i = 1; i < valid.length; i++) {
+        const a = valid[i - 1];
+        const b = valid[i];
+        const dy = (b.lat - a.lat) * 111111;
+        const dx =
+          (b.lon - a.lon) * 111111 * Math.cos((a.lat * Math.PI) / 180);
+        total += Math.hypot(dx, dy);
+      }
+      avgGap = total / (valid.length - 1);
+    }
+    const useOsrm = avgGap >= SPARSE_MIN_GAP_M;
     // Synthesize bracketing timestamps for the parked start/end pins
     // so the trace stays monotonic. We anchor them ~60 s outside the
     // first/last in-drive sample, which mirrors how Rivian's
@@ -347,13 +373,15 @@ export function DriveMap({
       ...valid,
       ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
     ];
-    snapToRoads(tracePoints, ac.signal).then((matched) => {
-      if (!matched || !mapRef.current) return;
-      if (line) line.remove();
-      const snapped = drawRoute(map, matched);
-      map.fitBounds(L.latLngBounds(matched), { padding: [20, 20] });
-      line = snapped;
-    });
+    if (useOsrm) {
+      snapToRoads(tracePoints, ac.signal).then((matched) => {
+        if (!matched || !mapRef.current) return;
+        if (line) line.remove();
+        const snapped = drawRoute(map, matched);
+        map.fitBounds(L.latLngBounds(matched), { padding: [20, 20] });
+        line = snapped;
+      });
+    }
 
     if (lineStart) {
       L.marker([lineStart.lat, lineStart.lon], {
