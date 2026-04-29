@@ -25,7 +25,7 @@ import (
 //   - email containing "fail" or "bad" rejects the password so the
 //     error state is reachable without tripping real Rivian.
 //
-// Snapshots round-trip through JSON so settings.SaveRivianSession can
+// Snapshots round-trip through JSON so secrets.SaveRivianSession can
 // persist them; on restart Restore brings the mock back to its
 // authenticated state, matching the live client's behaviour.
 type MockClient struct {
@@ -221,7 +221,7 @@ func (c *MockClient) Logout() {
 }
 
 // Snapshot returns a serialisable copy of the current session so
-// settings.SaveRivianSession can round-trip it through JSON. The
+// secrets.SaveRivianSession can round-trip it through JSON. The
 // mock uses UserSessionToken purely as the "we are logged in"
 // sentinel — the contents are not real tokens.
 func (c *MockClient) Snapshot() Session {
