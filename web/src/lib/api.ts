@@ -14,6 +14,9 @@ export class ApiError extends Error {
   body: unknown;
   constructor(status: number, body: unknown, msg?: string) {
     let message = msg;
+    if (!message && typeof body === "string" && body.length > 0) {
+      message = body;
+    }
     if (!message && body && typeof body === "object" && "error" in body) {
       const e = (body as { error?: unknown }).error;
       if (typeof e === "string" && e.length > 0) message = e;
