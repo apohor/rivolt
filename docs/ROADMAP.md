@@ -25,13 +25,17 @@
 - ✅ **Phase 1 (correctness)** — all checklist items landed and
   load-bearing in production. RLS policies are declarative-dormant
   pending the Phase 2 app-role split.
-- 🟡 **Phase 2 (self-hosted k8s)** — actively in flight. Helm
-  chart + container hardening + OIDC-only auth shipped;
-  multi-replica runtime correctness (lease reconciliation,
-  Redis token bucket, reconnect-storm controls), observability
-  stack, and CI-to-registry are still ahead. v0.11.0 cut OIDC
-  out of password login; v0.11.1 fixed Go's `oauth2` auth-style
-  probing against Authelia's strict `client_secret_post`.
+- 🟡 **Phase 2 (self-hosted k8s)** — most of the platform is in
+  place. ✅ Helm chart, container hardening, OIDC-only auth,
+  CloudNativePG, ExternalSecrets-from-Vault, cert-manager+LE,
+  Loki+Promtail, kube-prometheus-stack, ArgoCD-managed everything,
+  CI to GHCR. The remaining work is mostly **app-side**:
+  multi-replica runtime correctness (lease reconciliation, Redis
+  token bucket, reconnect-storm controls), app-level structured
+  logs / metrics / traces, and self-hosted map tiles + routing.
+  v0.11.0 cut OIDC out of password login; v0.11.1 fixed Go's
+  `oauth2` auth-style probing against Authelia's strict
+  `client_secret_post`.
 - 🟡 **iOS scaffold** landed (v0.9 track) — skeleton-only, runs via
   Xcode on a tethered iPhone. See [`../ios/README.md`](../ios/README.md).
 
@@ -237,17 +241,31 @@ decisions 5–7, 10–12.
       false`, resource requests/limits, PDB template (off by
       default at replicaCount=1 to avoid blocking node drains).
       Landed with the Helm chart.
-- [ ] **CloudNativePG** (or a managed Postgres) as the database.
-      Never a single-pod StatefulSet with local PVC.
+- [x] **CloudNativePG** as the database. CNPG operator runs in
+      `cnpg-system` (Helm chart `cloudnative-pg` 0.22.1, ArgoCD-managed
+      via `apps/cnpg-operator.yaml` in rivolt-infra). Rivolt's own
+      Helm chart renders a `Cluster` CR via `cnpg.enabled=true` —
+      no Bitnami subchart, no single-pod StatefulSet.
 - [ ] **Redis Deployment** for the global upstream token bucket.
       No persistence; `t4g.micro`-class resources.
-- [ ] **SealedSecrets** for secret delivery in self-host phase. KEK
-      sealed the same way.
-- [ ] **cert-manager + Let's Encrypt** for TLS on the Ingress.
-- [ ] **CI → registry** — GitHub Actions builds multi-arch image on
-      tag, pushes to `ghcr.io/apohor/rivolt`, packages the Helm
-      chart, publishes to a GitHub Pages chart repo. SBOM + cosign
-      signature on every release.
+- [x] **Secret delivery via External Secrets + Vault** (instead of
+      SealedSecrets). HashiCorp Vault runs in-cluster; ExternalSecrets
+      Operator syncs `kv/rivolt/*` paths into k8s Secrets. KEK is
+      pulled the same way (`rivolt-app` Secret). Bootstrap script
+      (`bootstrap/seed-vault.sh` in rivolt-infra) is idempotent
+      across `vault kv delete` soft-deletes.
+- [x] **cert-manager + Let's Encrypt** for TLS on the Ingress.
+      cert-manager bootstrapped pre-ArgoCD; ClusterIssuer
+      `letsencrypt-prod` is git-managed via
+      `apps/cluster-issuers.yaml`. Every Ingress in the platform
+      (rivolt, auth, grafana, argocd, vault) has a working cert.
+- [x] **CI → registry** — GitHub Actions builds the image on tag,
+      pushes to `ghcr.io/apohor/rivolt` with `vX.Y.Z`, `X.Y`,
+      `latest` tags. Multi-arch (amd64 default; amd64+arm64 via
+      `workflow_dispatch`). Helm chart packaging + GitHub Pages
+      chart repo + SBOM/cosign signing remain — chart is
+      consumed today via raw git path from rivolt-infra, which
+      works but doesn't give a versioned dependency surface.
 - [ ] **Self-hosted map tiles + routing.** Today the drive/charge
       maps fetch raster tiles from CARTO's free CDN
       (`*.basemaps.cartocdn.com`) and snap GPS traces with the
@@ -308,15 +326,32 @@ decisions 5–7, 10–12.
 
 ### Observability
 
-- [ ] **Structured logs** (`slog`) with `user_id`, `vehicle_id`,
-      `request_id`, `trace_id` injected from context. Shipped to
-      Grafana Cloud (free tier).
-- [ ] **Prometheus `/metrics`** — histograms for request latency,
-      counters for Rivian results by class, gauges for lease counts
-      per pod, AI token spend per user. Scraped by
-      kube-prometheus-stack.
+- [x] **Log shipping pipeline.** Loki + Promtail run cluster-wide
+      (rivolt-infra `apps/loki.yaml`, `apps/promtail.yaml`) and
+      ingest stdout from every pod, including Rivolt. Grafana
+      (deployed via kube-prometheus-stack) is the unified pane.
+      OIDC-backed at `https://grafana.rivolt.dev`. Per-request
+      structured slog with `user_id`/`vehicle_id`/`request_id`/
+      `trace_id` from context **isn't done yet** — current logs
+      are stdout-text and we grep them in Loki.
+- [x] **Prometheus stack deployed.** kube-prometheus-stack runs
+      cluster-wide and scrapes node/k8s/cnpg/argocd metrics out of
+      the box. Rivolt-side instrumentation (`/metrics` endpoint
+      with handler-latency histograms, Rivian-result-class
+      counters, lease-count gauges, AI-token spend) is **not yet
+      shipped**.
+- [ ] **App-level structured logs** (`slog` with handler/job
+      context fields injected end-to-end), so the existing Loki
+      pipeline becomes useful for per-user/per-vehicle correlation
+      instead of full-text grep.
+- [ ] **App-level Prometheus `/metrics`** — histograms for request
+      latency, counters for Rivian results by class, gauges for
+      lease counts per pod, AI token spend per user. Scraped by
+      kube-prometheus-stack (already running).
 - [ ] **OpenTelemetry traces** via OTLP to Grafana Tempo. Spans for
       every handler, every upstream call, every AI completion.
+      Tempo isn't deployed yet either — likely lands together with
+      the app-side OTel SDK wiring.
 
 ### Native iOS app (live-panel-era)
 
