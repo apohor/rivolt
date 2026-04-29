@@ -188,7 +188,7 @@ func New(d Deps) http.Handler {
 			} else {
 				vehicleScoped = func(next http.Handler) http.Handler { return next }
 			}
-			r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor))
+			r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor, d.DB, d.Logger))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
 			r.With(vehicleScoped).Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
 			r.With(vehicleScoped).Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
@@ -316,7 +316,7 @@ func handleHealth(version string) http.HandlerFunc {
 	}
 }
 
-func handleVehicles(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
@@ -333,6 +333,40 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc 
 			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
+		}
+		// Prime the local `vehicles` table for the calling user. The
+		// ownership middleware on /api/state/{vehicleID} et al. checks
+		// this table, so a brand-new account with no recorded samples
+		// would otherwise 404 forever (recorder writes are the only
+		// other path that creates rows, but recording requires a WS
+		// subscription that is itself gated by the ownership check).
+		// One upsert per upstream vehicle on each /api/vehicles call
+		// is cheap and idempotent.
+		if sqlDB != nil {
+			if userID, ok := auth.UserFromContext(r.Context()); ok {
+				for i := range vs {
+					if vs[i].ID == "" {
+						continue
+					}
+					_, uerr := sqlDB.ExecContext(r.Context(), `
+						INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, pack_kwh)
+						VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, 0)::double precision)
+						ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
+							vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
+							display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
+							model        = COALESCE(EXCLUDED.model,        vehicles.model),
+							model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
+							pack_kwh     = COALESCE(EXCLUDED.pack_kwh,     vehicles.pack_kwh),
+							updated_at   = NOW()
+					`, userID, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
+					if uerr != nil && logger != nil {
+						logger.Warn("vehicles prime upsert failed",
+							"user_id", userID.String(),
+							"rivian_vehicle_id", vs[i].ID,
+							"err", uerr.Error())
+					}
+				}
+			}
 		}
 		// Enrich each vehicle with cached monitor metadata (PackKWh +
 		// ImageURL), when available. The live Vehicles() call returns
