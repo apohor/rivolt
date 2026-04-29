@@ -25,7 +25,7 @@ type Account interface {
 	// as, or "" if no session is active.
 	Email() string
 	// Snapshot returns a copy of the current session. Persisted as
-	// JSON by settings.SaveRivianSession so a restart doesn't drop
+	// JSON by secrets.SaveRivianSession so a restart doesn't drop
 	// the login.
 	Snapshot() Session
 	// Restore hydrates the client from a prior Snapshot. No I/O.
