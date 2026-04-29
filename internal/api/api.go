@@ -373,6 +373,7 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		// trim/year/pack already, but image URLs come from a separate
 		// Rivian endpoint cached only on the monitor.
 		if mon != nil {
+			missingInfo := false
 			for i := range vs {
 				if info := mon.VehicleInfo(vs[i].ID); info != nil {
 					if vs[i].ImageURL == "" {
@@ -384,7 +385,31 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 					if vs[i].PackKWh == 0 {
 						vs[i].PackKWh = info.PackKWh
 					}
+				} else if vs[i].ID != "" {
+					missingInfo = true
 				}
+			}
+			// Cold-start: when the user links Rivian *after* server
+			// boot, the monitor's cache is empty. Kick a best-effort
+			// refresh + subscription so the next /api/vehicles call
+			// returns image URLs and the recorder starts capturing
+			// drives without waiting for a /api/state click.
+			if missingInfo {
+				go func() {
+					rctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+					defer cancel()
+					if err := mon.RefreshVehicleInfo(rctx); err != nil {
+						if logger != nil {
+							logger.Warn("post-login vehicle info refresh failed", "err", err.Error())
+						}
+						return
+					}
+					for _, v := range mon.AllVehicleInfo() {
+						if v.ID != "" {
+							mon.EnsureSubscribed(v.ID)
+						}
+					}
+				}()
 			}
 		}
 		writeJSON(w, http.StatusOK, vs)
