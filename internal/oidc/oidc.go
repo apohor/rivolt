@@ -246,8 +246,18 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 			ClientID:     pc.ClientID,
 			ClientSecret: pc.ClientSecret,
 			RedirectURL:  pc.RedirectURL,
-			Endpoint:     op.Endpoint(),
-			Scopes:       scopes,
+			// Force client_secret_post. Without this, Go's oauth2
+			// library auto-detects (defaults to client_secret_basic
+			// on the first attempt). Authelia's per-client
+			// token_endpoint_auth_method enforcement rejects the
+			// mismatched method outright instead of letting the
+			// library fall back, so we pin the style here.
+			Endpoint: func() oauth2.Endpoint {
+				ep := op.Endpoint()
+				ep.AuthStyle = oauth2.AuthStyleInParams
+				return ep
+			}(),
+			Scopes: scopes,
 		},
 	}, nil
 }
