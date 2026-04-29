@@ -18,6 +18,50 @@ func chargingFrame(at time.Time, soc float64) *State {
 	}
 }
 
+// chargingFrameKW is like chargingFrame but lets the caller override
+// the per-frame charger_power_kw — used to exercise the maxLivePowerKW
+// outlier cap (see v0.10.x phantom-charges incident: a single bad
+// Parallax frame reported ~90 MW and ratcheted the session peak).
+func chargingFrameKW(at time.Time, soc, kw float64) *State {
+	f := chargingFrame(at, soc)
+	f.ChargerPowerKW = kw
+	return f
+}
+
+// TestHandleChargeLifecycle_OutlierPowerFrameIgnored ensures a single
+// physically-impossible charger_power_kw frame does NOT update the
+// running max. Real Rivian packs accept ~220 kW peak; anything above
+// maxLivePowerKW is a corrupt wire frame and must be discarded, not
+// clamped (clamping would silently set the session peak to the cap).
+func TestHandleChargeLifecycle_OutlierPowerFrameIgnored(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 4, 28, 17, 7, 0, 0, time.UTC)
+	// Open with a normal 7.4 kW frame.
+	_ = s.handleChargeLifecycle(chargingFrame(t0, 70), nil, m, ctx)
+	if s.charge == nil || s.charge.maxPower != 7.4 {
+		t.Fatalf("setup: want maxPower=7.4, got %+v", s.charge)
+	}
+
+	// One bogus 90,897.9 kW frame — exactly what we saw on the
+	// 4/28 phantom DC-ultra row in production.
+	_ = s.handleChargeLifecycle(chargingFrameKW(t0.Add(time.Second), 70.1, 90897.9), nil, m, ctx)
+	if s.charge.maxPower > maxLivePowerKW {
+		t.Fatalf("outlier frame leaked into maxPower: got %v, want <= %v", s.charge.maxPower, maxLivePowerKW)
+	}
+	if s.charge.maxPower != 7.4 {
+		t.Fatalf("outlier frame should be discarded, not clamped: got %v, want 7.4", s.charge.maxPower)
+	}
+
+	// A plausible 200 kW frame must still update the peak.
+	_ = s.handleChargeLifecycle(chargingFrameKW(t0.Add(2*time.Second), 70.2, 200), nil, m, ctx)
+	if s.charge.maxPower != 200 {
+		t.Fatalf("plausible 200 kW frame must update maxPower: got %v", s.charge.maxPower)
+	}
+}
+
 // TestHandleChargeLifecycle_StaleGapForcesNewSession reproduces the
 // `live_*_c_*` row that ran for 32h with EndSoC < StartSoC. A long
 // frame gap between two charging frames must close the in-memory

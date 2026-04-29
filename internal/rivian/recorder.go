@@ -33,6 +33,15 @@ const (
 	liveChargeMaxGap        = 30 * time.Minute
 	liveChargeMaxSoCDropPct = 2.0
 	liveDriveMaxGap         = 30 * time.Minute
+
+	// maxLivePowerKW is a hard physical ceiling on per-frame charger
+	// power. Rivian packs accept ~220 kW on the highest-trim DCFC and
+	// the largest CCS stations top out around 350 kW. Anything above
+	// this is a corrupted Parallax frame (we've seen ~90 MW from a
+	// single bad float) and must be dropped, not clamped — clamping
+	// would silently ratchet the session peak to 400 kW. We discard
+	// the frame instead so the running max is unaffected.
+	maxLivePowerKW = 400.0
 )
 
 // Pack size for the SoC-delta energy fallback is looked up
@@ -354,7 +363,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.endAt = curr.At
 			s.charge.endSoC = curr.BatteryLevelPct
 			s.charge.finalState = curr.ChargerState
-			if curr.ChargerPowerKW > s.charge.maxPower {
+			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -373,7 +382,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			endSoC:     curr.BatteryLevelPct,
 			finalState: curr.ChargerState,
 		}
-		if curr.ChargerPowerKW > 0 {
+		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -383,7 +392,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 
 	// Charge ongoing: update running aggregates.
 	if charging && s.charge != nil {
-		if curr.ChargerPowerKW > s.charge.maxPower {
+		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		s.charge.endAt = curr.At
@@ -464,6 +473,17 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		return
 	}
 
+	// Phantom-charge guard. A session with zero wall-clock duration AND
+	// zero SoC delta is by definition not a charge: it's a single sticky
+	// chargerState frame that opened and closed in the same tick. Real
+	// charges advance one of the two within seconds (the open frame is
+	// zero-delta too, but the very next ongoing frame moves endAt). Skip
+	// the upsert so neither the open nor the same-tick close path can
+	// persist a 0m / 70%→70% row. See v0.10.x phantom-charges incident.
+	if !c.endAt.After(c.startedAt) && c.endSoC == c.startSoC {
+		return
+	}
+
 	// Prefer real metrics from Rivian's live session feed when we
 	// have them. As of v0.3.6 this map is populated by BOTH the REST
 	// chargingSessionPoller (Rivian chargers / select DC fast) and
@@ -475,8 +495,25 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	liveSess := m.lastSession[vehicleID]
 	m.mu.RUnlock()
 
+	// Stale-cache filter. If lastSession was repopulated by the WS /
+	// REST feeders between sessions (they only gate on chargerState,
+	// not plug status), its StartTime can predate the current row's
+	// startedAt. Trust only a cached session that started at or after
+	// this row started — anything older belongs to a previous charge
+	// and would otherwise leak its TotalChargedEnergyKWh / RangeAddedKm
+	// / PowerKW into the current row. tolerance: 60s of clock skew.
+	if liveSess != nil {
+		if t, err := time.Parse(time.RFC3339, liveSess.StartTime); err == nil && !t.IsZero() {
+			if t.Before(c.startedAt.Add(-60 * time.Second)) {
+				liveSess = nil
+			}
+		}
+	}
+
 	var energy, milesAdded, maxPower float64
-	maxPower = c.maxPower
+	if c.maxPower <= maxLivePowerKW {
+		maxPower = c.maxPower
+	}
 	if liveSess != nil && liveSess.Active {
 		if liveSess.TotalChargedEnergyKWh > energy {
 			energy = liveSess.TotalChargedEnergyKWh
@@ -484,7 +521,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		if liveSess.RangeAddedKm > 0 {
 			milesAdded = liveSess.RangeAddedKm * kmToMi
 		}
-		if liveSess.PowerKW > maxPower {
+		if liveSess.PowerKW > maxPower && liveSess.PowerKW <= maxLivePowerKW {
 			maxPower = liveSess.PowerKW
 		}
 	}
