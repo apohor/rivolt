@@ -76,7 +76,7 @@ Environment:
   RIVIAN_CLIENT=stub|live|mock   (default: stub)
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
                                  current user on boot, then continue. Scoped
-                                 to RIVOLT_USERNAME; vehicles/settings/push
+                                 to the legacy "local" user; vehicles/settings/push
                                  are preserved. Unset after the first boot.
 `)
 }
@@ -135,14 +135,11 @@ func runServer() {
 			os.Exit(1)
 		}
 		pgPool = p
-		u := strings.TrimSpace(os.Getenv("RIVOLT_USERNAME"))
-		if u == "" {
-			// No login configured — still need a user row to scope
-			// settings against. Use a well-known "local" identity;
-			// it's just a UUID salt, it isn't displayed anywhere.
-			u = "local"
-		}
-		uid, err := db.EnsureUser(ctx, pgPool, u)
+		// Boot-time user-row seed for the legacy single-tenant
+		// identity "local". This is what scopes settings/data when
+		// no issuer (OIDC, trusted-proxy, bypass) is configured.
+		// OIDC sign-in upserts its own user via EnsureUserFull.
+		uid, err := db.EnsureUser(ctx, pgPool, "local")
 		if err != nil {
 			logger.Error("ensure user row failed", "err", err.Error())
 			os.Exit(1)
@@ -407,11 +404,12 @@ func runServer() {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
 	}
 
-	// Auth is opt-in via env. Leaving RIVOLT_USERNAME / RIVOLT_PASSWORD
-	// unset keeps the legacy single-tenant UX — every /api/* route
-	// stays open, exactly like v0.3.x. Setting them flips the router
-	// to cookie-gated mode; the homelab login page renders and
-	// /api/* requires a session.
+	// Auth wiring. Rivolt has three issuers: OIDC sign-in (the
+	// default for any real deployment), a trusted-upstream-proxy
+	// header (oauth2-proxy / Authelia in front), and a debug
+	// bypass that hard-injects a user without any credential
+	// check. With none of them configured the API stays open —
+	// the legacy single-tenant docker-compose UX.
 	//
 	// RIVOLT_COOKIE_SECRET should be a hex string of at least 64 chars
 	// (32 bytes). If empty, a random key is generated on boot and
@@ -427,7 +425,11 @@ func runServer() {
 	// RIVOLT_SECURE_COOKIE defaults to true; set to "false" for pure
 	// http:// homelab deployments where the browser will otherwise
 	// refuse to store the session cookie.
-	authEnabled := os.Getenv("RIVOLT_USERNAME") != "" && os.Getenv("RIVOLT_PASSWORD") != ""
+	//
+	// RIVOLT_AUTH_BYPASS_USER, when set, makes every unauthenticated
+	// request resolve to the named user. Local-dev only — it's the
+	// equivalent of disabling auth, gated by an explicit opt-in env
+	// so production never lights it up by accident.
 	trustedNets, err := auth.ParseTrustedCIDRs(os.Getenv("RIVOLT_TRUSTED_PROXY_CIDR"))
 	if err != nil {
 		logger.Error("bad RIVOLT_TRUSTED_PROXY_CIDR", "err", err.Error())
@@ -466,23 +468,43 @@ func runServer() {
 		}
 		secureCookie = b
 	}
+
+	// Debug bypass: when RIVOLT_AUTH_BYPASS_USER is set, every
+	// unauthenticated request resolves to that user. We refuse to
+	// enable it when SecureCookie is true (i.e. probably-prod) so
+	// a typo in env config can't silently turn off auth on the
+	// public internet.
+	var bypassUserID uuid.UUID
+	if bypassUser := strings.TrimSpace(os.Getenv("RIVOLT_AUTH_BYPASS_USER")); bypassUser != "" {
+		if secureCookie {
+			logger.Error("RIVOLT_AUTH_BYPASS_USER refused while RIVOLT_SECURE_COOKIE!=false; this is a debug-only knob")
+			os.Exit(1)
+		}
+		if pgPool != nil {
+			if _, err := db.EnsureUser(ctx, pgPool, bypassUser); err != nil {
+				logger.Error("bypass user ensure", "username", bypassUser, "err", err.Error())
+				os.Exit(1)
+			}
+		}
+		bypassUserID = db.UserIDFor(bypassUser)
+		logger.Warn("AUTH BYPASS ENABLED — every request resolves to this user. DO NOT USE IN PRODUCTION.",
+			"username", bypassUser,
+			"user_id", bypassUserID.String(),
+		)
+	}
+
 	authSvc, err := auth.New(auth.Config{
-		Username:          os.Getenv("RIVOLT_USERNAME"),
-		Password:          os.Getenv("RIVOLT_PASSWORD"),
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
 		TrustedProxyCIDRs: trustedNets,
 		UserIDFor:         db.UserIDFor,
-	}, func() (uuid.UUID, error) {
-		// With Postgres wired we do a real upsert so the users row
-		// is present for future FK references (charges.user_id,
-		// etc.). Without it we fall back to the deterministic v5
-		// hash — the UUID is stable either way, the upsert is the
-		// only thing that needs a backend.
-		if pgPool != nil {
-			return db.EnsureUser(ctx, pgPool, os.Getenv("RIVOLT_USERNAME"))
-		}
-		return db.UserIDFor(os.Getenv("RIVOLT_USERNAME")), nil
+		UsernameFor: func(ctx context.Context, uid uuid.UUID) (string, error) {
+			if pgPool == nil {
+				return "", nil
+			}
+			return db.LookupUsername(ctx, pgPool, uid)
+		},
+		BypassUserID: bypassUserID,
 	})
 	if err != nil {
 		logger.Error("auth init", "err", err.Error())
@@ -503,16 +525,6 @@ func runServer() {
 		}
 		authSvc.WithSessionStore(sessions.NewAuthAdapter(sStore))
 		logger.Info("sessions store ready — cookies are opaque, revocable")
-	}
-	if authEnabled {
-		logger.Info("auth enabled",
-			"username", os.Getenv("RIVOLT_USERNAME"),
-			"trusted_cidrs", len(trustedNets),
-			"secure_cookie", secureCookie,
-			"cookie_secret", cookieSecretSource,
-		)
-	} else {
-		logger.Warn("auth disabled — set RIVOLT_USERNAME and RIVOLT_PASSWORD to require login")
 	}
 
 	// OIDC: third issuer alongside static creds + trusted-proxy
@@ -552,6 +564,19 @@ func runServer() {
 		logger.Info("oidc enabled", "providers", names)
 	}
 
+	authEnforced := oidcSvc != nil || len(trustedNets) > 0 || bypassUserID != uuid.Nil
+	if authEnforced {
+		logger.Info("auth enforced",
+			"oidc", oidcSvc != nil,
+			"trusted_cidrs", len(trustedNets),
+			"bypass", bypassUserID != uuid.Nil,
+			"secure_cookie", secureCookie,
+			"cookie_secret", cookieSecretSource,
+		)
+	} else {
+		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
 		RivianAccount: rivianAccount,
@@ -564,6 +589,7 @@ func runServer() {
 		Samples:       samplesStore,
 		StateMonitor:  stateMonitor,
 		Auth:          authSvc,
+		AuthEnforced:  authEnforced,
 		OIDC:          oidcSvc,
 		WebFS:         webFS,
 		Version:       version,
@@ -780,7 +806,9 @@ func runImportElectraFi(args []string) {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	username := strings.TrimSpace(os.Getenv("RIVOLT_USERNAME"))
+	// Single-tenant identity. Imports always land on "local" \u2014
+	// override via RIVOLT_IMPORT_USER for multi-user setups.
+	username := strings.TrimSpace(os.Getenv("RIVOLT_IMPORT_USER"))
 	if username == "" {
 		username = "local"
 	}

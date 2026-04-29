@@ -4,13 +4,12 @@
 //
 // # Identity model
 //
-// A Rivolt user is identified by a username — currently one static
-// operator credential baked in via env (RIVOLT_USERNAME /
-// RIVOLT_PASSWORD), with the intent that real auth (OIDC, Rivian
-// SSO, …) will slot in behind the same seam later. The stable
-// user_id is a deterministic UUIDv5 over the lowercased username,
-// so the same login always resolves to the same tenant across
-// restarts, exports and future federated installs.
+// A Rivolt user is identified by a username — sourced from an OIDC
+// IdP for any real deployment, or hard-wired to "local" for the
+// legacy single-tenant docker-compose UX. The stable user_id is a
+// deterministic UUIDv5 over the lowercased username, so the same
+// login always resolves to the same tenant across restarts,
+// exports and future federated installs.
 //
 // There is no default user. Stores expect a concrete user_id from
 // an authenticated request context; unauthenticated writes are a
@@ -129,6 +128,31 @@ func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName
 		return uuid.Nil, err
 	}
 	return id, nil
+}
+
+// LookupUsername returns the display-friendly name for a user UUID,
+// preferring display_name (set by OIDC sign-in from the IdP's `name`
+// claim) and falling back to the bare username column. Returns the
+// empty string for an unknown UUID; callers treat that as "no
+// username available" rather than as an error.
+func LookupUsername(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, error) {
+	if uid == uuid.Nil {
+		return "", nil
+	}
+	var displayName, username sql.NullString
+	err := d.QueryRowContext(ctx,
+		`SELECT display_name, username FROM users WHERE id = $1`, uid,
+	).Scan(&displayName, &username)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if displayName.Valid && displayName.String != "" {
+		return displayName.String, nil
+	}
+	return username.String, nil
 }
 
 // Rebind rewrites `?` placeholders into Postgres `$N` style. Safe to

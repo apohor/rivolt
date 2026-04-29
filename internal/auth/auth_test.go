@@ -24,12 +24,10 @@ func newTestService(t *testing.T, cidrs []string) *Service {
 		t.Fatalf("ParseTrustedCIDRs: %v", err)
 	}
 	s, err := New(Config{
-		Username:          "alice",
-		Password:          "hunter2",
 		CookieSecret:      []byte("0123456789abcdef0123456789abcdef"),
 		TrustedProxyCIDRs: nets,
 		UserIDFor:         fakeUserIDFor,
-	}, func() (uuid.UUID, error) { return fakeUserIDFor("alice"), nil })
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -119,59 +117,60 @@ func TestHeader_FallbackToEmail(t *testing.T) {
 	}
 }
 
-// TestCookie_RoundTrip exercises the local-login path. Login issues
-// a cookie; a subsequent request carrying that cookie resolves to
-// the same user.
+// TestCookie_RoundTrip exercises the issued-cookie path. IssueSession
+// plants a cookie; a subsequent request carrying that cookie
+// resolves to the same user. Stand-in for what an OIDC callback
+// flow does after EnsureUserFull.
 func TestCookie_RoundTrip(t *testing.T) {
 	s := newTestService(t, nil)
 
-	loginReq := httptest.NewRequest("POST", "/api/auth/login",
-		strings.NewReader(`{"username":"alice","password":"hunter2"}`))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginRec := httptest.NewRecorder()
-	s.Login(loginRec, loginReq)
-	if loginRec.Code != http.StatusOK {
-		t.Fatalf("login status = %d, want 200; body=%q", loginRec.Code, loginRec.Body.String())
+	uid := fakeUserIDFor("alice")
+	issueRec := httptest.NewRecorder()
+	issueReq := httptest.NewRequest("GET", "/oidc/callback", nil)
+	if err := s.IssueSession(issueRec, issueReq, uid); err != nil {
+		t.Fatalf("IssueSession: %v", err)
 	}
-	cookies := loginRec.Result().Cookies()
+	cookies := issueRec.Result().Cookies()
 	if len(cookies) == 0 {
-		t.Fatalf("no cookie issued on successful login")
+		t.Fatalf("no cookie issued by IssueSession")
 	}
 
 	followup := httptest.NewRequest("GET", "/", nil)
 	for _, c := range cookies {
 		followup.AddCookie(c)
 	}
-	want := fakeUserIDFor("alice")
 	var got uuid.UUID
 	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, _ = UserFromContext(r.Context())
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), followup)
 
-	if got != want {
-		t.Fatalf("cookie-resolved user = %s, want %s", got, want)
+	if got != uid {
+		t.Fatalf("cookie-resolved user = %s, want %s", got, uid)
 	}
 }
 
-// TestLogin_RejectsBadCredentials covers the timing-safe compare
-// path — both wrong-user and wrong-password must yield the same
-// 401 with the same body, so an attacker can't tell which side
-// they got wrong.
-func TestLogin_RejectsBadCredentials(t *testing.T) {
-	s := newTestService(t, nil)
-	cases := []string{
-		`{"username":"alice","password":"wrong"}`,
-		`{"username":"mallory","password":"hunter2"}`,
+// TestBypass_InjectsUser covers the debug bypass: when BypassUserID
+// is set, an unauthenticated request still resolves to that user.
+func TestBypass_InjectsUser(t *testing.T) {
+	want := fakeUserIDFor("local")
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		BypassUserID: want,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
-	for _, body := range cases {
-		req := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		s.Login(rec, req)
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("body=%s -> status %d, want 401", body, rec.Code)
-		}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "203.0.113.7:1234" // not in any trusted CIDR
+	var got uuid.UUID
+	handler := s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), r)
+	if got != want {
+		t.Fatalf("bypass-resolved user = %s, want %s", got, want)
 	}
 }
 

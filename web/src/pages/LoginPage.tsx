@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, backend, type OIDCProvider } from "../lib/api";
+import { backend, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
 
 // LoginPage is the cookie-issuing front door. It sits outside the
@@ -13,17 +13,14 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const nextPath = params.get("next") || "/";
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   // OIDC providers, fetched once on mount. Empty array means the
-  // server isn't configured for any social-login provider — the
-  // password-only form is the entire UI in that case.
-  const [providers, setProviders] = useState<OIDCProvider[]>([]);
+  // server isn't configured for any provider — in OIDC-only mode
+  // there is no password fallback, so we render a clear message
+  // instead of a sign-in button.
+  const [providers, setProviders] = useState<OIDCProvider[] | null>(null);
 
   // If the session cookie is still valid (e.g. user opened /login by
-  // accident, or the browser restored a tab), skip the form.
+  // accident, or the browser restored a tab), skip straight to next.
   useEffect(() => {
     let cancelled = false;
     backend.whoami().then((me) => {
@@ -36,29 +33,6 @@ export default function LoginPage() {
       cancelled = true;
     };
   }, [navigate, nextPath]);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await backend.login(username, password);
-      navigate(nextPath, { replace: true });
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        // Match the backend's deliberate ambiguity: one error for
-        // both wrong-user and wrong-password so we don't become a
-        // username oracle.
-        setError("Invalid credentials");
-      } else if (err instanceof ApiError && err.status === 503) {
-        setError("Auth is not configured on the server");
-      } else {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   // OIDC start URLs are GET endpoints that 302 to the IdP; we
   // intentionally use full-page navigation rather than fetch +
@@ -74,80 +48,46 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg"
-      >
+      <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
         <div className="mb-6 flex items-center gap-2 text-neutral-100">
           <Logo size={24} className="text-emerald-400" />
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
         <h1 className="mb-1 text-base font-semibold text-neutral-100">Sign in</h1>
         <p className="mb-5 text-sm text-neutral-400">
-          Use the credentials configured in <code className="text-neutral-300">RIVOLT_USERNAME</code> /{" "}
-          <code className="text-neutral-300">RIVOLT_PASSWORD</code>.
+          Choose an identity provider to continue.
         </p>
 
-        <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-neutral-300">Username</span>
-          <input
-            autoFocus
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-neutral-100 outline-none focus:border-emerald-600"
-          />
-        </label>
-        <label className="mb-4 block text-sm">
-          <span className="mb-1 block text-neutral-300">Password</span>
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-neutral-100 outline-none focus:border-emerald-600"
-          />
-        </label>
+        {providers === null && (
+          <p className="text-sm text-neutral-500">Loading…</p>
+        )}
 
-        {error && (
+        {providers !== null && providers.length === 0 && (
           <div
             role="alert"
-            className="mb-4 rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
+            className="rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
           >
-            {error}
+            No identity providers are configured on the server. Set
+            <code className="mx-1 text-neutral-300">RIVOLT_OIDC_PROVIDERS</code>
+            and the per-provider issuer / client credentials, then restart.
           </div>
         )}
 
-        <button
-          type="submit"
-          disabled={submitting || !username || !password}
-          className="w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-600 disabled:opacity-50"
-        >
-          {submitting ? "Signing in…" : "Sign in"}
-        </button>
-
-        {providers.length > 0 && (
-          <>
-            <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-neutral-500">
-              <span className="h-px flex-1 bg-neutral-800" />
-              or
-              <span className="h-px flex-1 bg-neutral-800" />
-            </div>
-            <div className="flex flex-col gap-2">
-              {providers.map((p) => (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => startOIDC(p)}
-                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
-                >
-                  Continue with {p.display_name}
-                </button>
-              ))}
-            </div>
-          </>
+        {providers !== null && providers.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {providers.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                onClick={() => startOIDC(p)}
+                className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
+              >
+                Continue with {p.display_name}
+              </button>
+            ))}
+          </div>
         )}
-      </form>
+      </div>
     </div>
   );
 }

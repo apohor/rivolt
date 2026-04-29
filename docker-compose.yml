@@ -25,16 +25,17 @@ services:
       ANTHROPIC_MODEL: "${ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-2.5-flash}"
-      # Auth (v0.4.0+). Opt-in: setting USERNAME + PASSWORD flips
-      # the server to cookie-gated mode. COOKIE_SECRET should be
-      # hex (openssl rand -hex 32); empty = random on boot (every
-      # restart logs everyone out). SECURE_COOKIE defaults to true;
-      # set false for plain http.
-      RIVOLT_USERNAME: "${RIVOLT_USERNAME:-}"
-      RIVOLT_PASSWORD: "${RIVOLT_PASSWORD:-}"
+      # Auth (v0.5.0+). OIDC-only. Configure RIVOLT_OIDC_PROVIDERS
+      # plus per-provider issuer/client to enable sign-in.
+      # COOKIE_SECRET should be hex (openssl rand -hex 32); empty =
+      # random on boot (every restart logs everyone out).
+      # SECURE_COOKIE defaults to true; set false for plain http.
+      # RIVOLT_AUTH_BYPASS_USER (debug only) hard-injects a user
+      # without any credential check; refused unless SECURE_COOKIE=false.
       RIVOLT_COOKIE_SECRET: "${RIVOLT_COOKIE_SECRET:-}"
       RIVOLT_SECURE_COOKIE: "${RIVOLT_SECURE_COOKIE:-false}"
       RIVOLT_TRUSTED_PROXY_CIDR: "${RIVOLT_TRUSTED_PROXY_CIDR:-}"
+      RIVOLT_AUTH_BYPASS_USER: "${RIVOLT_AUTH_BYPASS_USER:-}"
       # Postgres backend (v0.4.0+). Leave unset to keep 100%
       # SQLite; set to point Rivolt at the postgres service below.
       # Schema is provisioned at boot; stores migrate per release.

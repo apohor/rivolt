@@ -28,11 +28,11 @@ services:
       DATA_DIR: "/data"
       TZ: "America/Chicago"
 
-      # Auth. Cookie-signing key auto-generated on first boot to
+      # Auth. OIDC-only. Configure RIVOLT_OIDC_PROVIDERS plus the
+      # per-provider issuer/client/secret to enable sign-in.
+      # Cookie-signing key auto-generated on first boot to
       # ${DATA_DIR}/cookie_secret. Set RIVOLT_COOKIE_SECRET (hex)
       # explicitly only for multi-replica key sharing.
-      RIVOLT_USERNAME: "anton"
-      RIVOLT_PASSWORD: "change-me"
       RIVOLT_SECURE_COOKIE: "true"  # DSM is fronted by HTTPS
 
       # Envelope key (KEK). Required. 32-byte AES-256 key, base64-

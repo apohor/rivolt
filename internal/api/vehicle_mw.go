@@ -38,10 +38,10 @@ func requireVehicleOwnershipMW(dbPool *sql.DB, logger *slog.Logger) func(http.Ha
 //     only attached to routes that carry the param; a nested router
 //     without it is a caller bug, not an auth decision.
 //   - No authenticated user in context: pass through. This mirrors
-//     the existing requireUserMW gating — when RIVOLT_USERNAME is
-//     unset the whole auth stack is a no-op, and the server runs
-//     in the legacy single-tenant mode where every request is "the
-//     operator". Multi-tenant deployments MUST pair this middleware
+//     the existing requireUserMW gating — when no auth issuer is
+//     configured (no OIDC, no trusted-proxy CIDR, no bypass), the
+//     server runs in legacy single-tenant mode where every request
+//     is "the operator". Multi-tenant deployments MUST pair this middleware
 //     with requireUserMW (which runs earlier in the chain) so the
 //     fall-open branch can never be reached in anger.
 //   - Check error: 500. Infra failure, not an auth answer; we don't
