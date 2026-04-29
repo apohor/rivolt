@@ -378,13 +378,12 @@ export const backend = {
       throw e;
     }
   },
-  login: (username: string, password: string) =>
-    api.post<AuthUser>("/api/auth/login", { username, password }),
   logout: () => api.post<void>("/api/auth/logout"),
   // oidcProviders returns the list of OIDC sign-in options the
   // server has wired up. An empty array (or a 404 when an old
-  // server is in front of a new SPA) means: just render the
-  // password form, no social-login row.
+  // server is in front of a new SPA) means the server isn't
+  // configured for any IdP \u2014 LoginPage shows a clear message
+  // since OIDC is the only sign-in method.
   oidcProviders: async (): Promise<OIDCProvider[]> => {
     try {
       return await api.get<OIDCProvider[]>("/api/auth/oidc/");

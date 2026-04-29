@@ -2,39 +2,29 @@
 // /api/auth/* endpoints, the cookie format, and the middleware that
 // resolves an authenticated user into request context.
 //
-// # Two issuers, one identity seam
+// # Issuers, one identity seam
 //
-// Middleware accepts two wire formats and collapses them onto the
+// Middleware accepts three wire formats and collapses them onto the
 // same user_id contract:
 //
 //  1. A trusted upstream proxy (oauth2-proxy, Authelia, Keycloak
 //     gatekeeper, …) writes X-Forwarded-User / -Email. Rivolt
 //     believes the header only if the request's RemoteAddr falls
-//     inside a CIDR in Config.TrustedProxyCIDRs; an empty list (the
-//     default, and what homelab / docker-compose deployments use)
+//     inside a CIDR in Config.TrustedProxyCIDRs; an empty list
 //     disables header-based auth entirely.
 //
-//  2. The built-in POST /api/auth/login handler checks the static
-//     operator credential (RIVOLT_USERNAME / RIVOLT_PASSWORD) and
-//     issues an HMAC-signed session cookie. This path is the local
-//     fallback / homelab default.
+//  2. An OIDC sign-in (mounted under /api/auth/oidc/*, see
+//     internal/oidc) terminates by calling Service.IssueSession,
+//     which mints the same opaque session cookie used by every
+//     other path.
 //
-// Both routes map a username to the same deterministic UUIDv5 via
-// Config.UserIDFor, so swapping issuers never re-keys data.
-// Handlers only ever see UserFromContext(ctx); they don't know
-// which issuer authenticated the request.
+//  3. A debug bypass: when Config.BypassUserID is set, Middleware
+//     injects that user when no other issuer resolves. Intended
+//     for local-dev only — main logs a loud warning at boot.
 //
-// Why this shape
-//
-//   - One seam to extend. Adding OIDC direct later is a third
-//     Middleware branch, no change to any handler or store.
-//   - Session state lives in the cookie itself (HMAC-signed), not
-//     in a server-side table. Zero DB writes per request, stateless
-//     replicas, nothing to clean up on logout beyond clearing the
-//     cookie.
-//   - Credential comparison uses subtle.ConstantTimeCompare so the
-//     obvious timing side-channel on the static-creds path doesn't
-//     leak which field was wrong.
+// All three routes hand off to the same Middleware identity
+// contract (UserFromContext(ctx) returns the user UUID); handlers
+// don't know which issuer authenticated the request.
 package auth
 
 import (
@@ -60,12 +50,6 @@ import (
 // than pulling os.Getenv here — makes this package trivially
 // testable.
 type Config struct {
-	// Username and Password are the single operator credential. If
-	// either is empty the auth layer refuses to mint tokens and
-	// every /api call behind Middleware gets a 401.
-	Username string
-	Password string
-
 	// CookieSecret is the HMAC key used to sign sessions. Must be
 	// at least 32 bytes of entropy. If empty, New generates a
 	// process-local random key — fine for dev, wrong for prod
@@ -114,22 +98,36 @@ type Config struct {
 	// wires this to db.UserIDFor; the indirection keeps the auth
 	// package free of any direct dependency on the db package.
 	UserIDFor func(username string) uuid.UUID
+
+	// UsernameFor resolves a user UUID back to a display username
+	// for /api/auth/me. Optional — when nil, Me returns an empty
+	// username, which the SPA tolerates. Wired by main to a DB
+	// lookup so OIDC sessions surface the IdP's display name.
+	UsernameFor func(ctx context.Context, uid uuid.UUID) (string, error)
+
+	// BypassUserID, when non-zero, makes Middleware inject this
+	// user on every request that doesn't already have an identity
+	// resolved by header or cookie. Debug / local-dev only —
+	// effectively disables auth. main logs a loud warning at boot
+	// and refuses to set this when SecureCookie is true.
+	BypassUserID uuid.UUID
 }
 
-// Service wraps the configured credential + cookie signer and
-// produces the login/logout/me HTTP handlers plus the authenticating
-// middleware.
+// Service wraps the cookie signer and produces the logout/me HTTP
+// handlers plus the authenticating middleware. Sign-in itself lives
+// in sibling packages (internal/oidc) which call IssueSession.
 type Service struct {
-	cfg         Config
-	ensureUser  func() (uuid.UUID, error)
-	cookieName  string
-	ttl         time.Duration
-	secret      []byte
-	secureCooke bool
-	trustedNets []*net.IPNet
-	hdrUser     string
-	hdrEmail    string
-	userIDFor   func(string) uuid.UUID
+	cfg          Config
+	cookieName   string
+	ttl          time.Duration
+	secret       []byte
+	secureCooke  bool
+	trustedNets  []*net.IPNet
+	hdrUser      string
+	hdrEmail     string
+	userIDFor    func(string) uuid.UUID
+	usernameFor  func(ctx context.Context, uid uuid.UUID) (string, error)
+	bypassUserID uuid.UUID
 
 	// sessionStore, when non-nil, is the source of truth for
 	// cookie identity: Login creates a row, Middleware looks up
@@ -175,11 +173,8 @@ func (s *Service) WithSessionStore(store SessionStore) *Service {
 	return s
 }
 
-// New builds a Service. ensureUser is invoked once on successful
-// login and must upsert the user row and return its UUID; main
-// wires it up to db.EnsureUser so this package has no dependency
-// on the db package itself.
-func New(cfg Config, ensureUser func() (uuid.UUID, error)) (*Service, error) {
+// New builds a Service from the supplied Config.
+func New(cfg Config) (*Service, error) {
 	if cfg.CookieName == "" {
 		cfg.CookieName = "rivolt_session"
 	}
@@ -205,16 +200,17 @@ func New(cfg Config, ensureUser func() (uuid.UUID, error)) (*Service, error) {
 		return nil, fmt.Errorf("RIVOLT_COOKIE_SECRET must be at least 32 bytes, got %d", len(secret))
 	}
 	return &Service{
-		cfg:         cfg,
-		ensureUser:  ensureUser,
-		cookieName:  cfg.CookieName,
-		ttl:         cfg.CookieTTL,
-		secret:      secret,
-		secureCooke: cfg.SecureCookie,
-		trustedNets: cfg.TrustedProxyCIDRs,
-		hdrUser:     cfg.HeaderUser,
-		hdrEmail:    cfg.HeaderEmail,
-		userIDFor:   cfg.UserIDFor,
+		cfg:          cfg,
+		cookieName:   cfg.CookieName,
+		ttl:          cfg.CookieTTL,
+		secret:       secret,
+		secureCooke:  cfg.SecureCookie,
+		trustedNets:  cfg.TrustedProxyCIDRs,
+		hdrUser:      cfg.HeaderUser,
+		hdrEmail:     cfg.HeaderEmail,
+		userIDFor:    cfg.UserIDFor,
+		usernameFor:  cfg.UsernameFor,
+		bypassUserID: cfg.BypassUserID,
 	}, nil
 }
 
@@ -323,10 +319,11 @@ func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
 }
 
 // Middleware resolves the active user from (in order) a trusted
-// proxy header or a signed session cookie, and injects the user_id
-// into request context. Requests with neither fall through with no
-// user set — the individual handler (or RequireUser) decides what
-// to do, so /api/auth/login itself stays reachable to the
+// proxy header, a signed session cookie, or the debug bypass, and
+// injects the user_id into request context. Requests with none of
+// those fall through with no user set — the individual handler
+// (or RequireUser) decides what to do, so /api/auth/oidc/* (the
+// only sign-in surface in OIDC-only mode) stays reachable to the
 // unauthenticated.
 //
 // Resolution order is fixed: header wins if and only if the
@@ -355,7 +352,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		}
 		c, err := r.Cookie(s.cookieName)
 		if err != nil {
-			next.ServeHTTP(w, r)
+			s.maybeBypass(next, w, r)
 			return
 		}
 		// Opaque-session path: cookie is a random 32-byte
@@ -367,7 +364,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			info, err := s.sessionStore.Lookup(r.Context(), c.Value)
 			if err != nil {
 				s.clearCookie(w)
-				next.ServeHTTP(w, r)
+				s.maybeBypass(next, w, r)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), info.UserID)))
@@ -380,11 +377,23 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			// Nudge the browser to drop the bad cookie so it
 			// stops resending it; a new login will replace it.
 			s.clearCookie(w)
-			next.ServeHTTP(w, r)
+			s.maybeBypass(next, w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), t.UserID)))
 	})
+}
+
+// maybeBypass injects the configured bypass user into the request
+// context when no real issuer resolved one. When BypassUserID is
+// the zero UUID this is a no-op and the request continues
+// unauthenticated.
+func (s *Service) maybeBypass(next http.Handler, w http.ResponseWriter, r *http.Request) {
+	if s.bypassUserID != uuid.Nil {
+		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), s.bypassUserID)))
+		return
+	}
+	next.ServeHTTP(w, r)
 }
 
 // identityFromHeader returns the user id claimed by a trusted
@@ -447,62 +456,18 @@ func (s *Service) RequireUser(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Configured reports whether static credentials are wired. If
-// false, login will always fail — the server is effectively a
-// read-nothing box until the operator sets env vars.
+// Configured reports whether the auth Service is wired. Used by
+// the API router to decide whether to mount the auth middleware.
+// Enforcement (whether unauthenticated requests get 401'd) is
+// computed by main from the set of configured issuers.
 func (s *Service) Configured() bool {
-	return s != nil && s.cfg.Username != "" && s.cfg.Password != ""
-}
-
-// Login is the POST /api/auth/login handler. Expects
-// `{ "username": "...", "password": "..." }` JSON. On success, sets
-// the session cookie and returns `{ "username": "..." }`.
-func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
-	if !s.Configured() {
-		http.Error(w, "auth not configured", http.StatusServiceUnavailable)
-		return
-	}
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
-		return
-	}
-	// subtle.ConstantTimeCompare guards against the trivial timing
-	// side-channel on string compare. We evaluate both sides every
-	// time (no short-circuit on username mismatch) so an attacker
-	// can't tell whether the username or the password was wrong.
-	userOK := subtle.ConstantTimeCompare(
-		[]byte(strings.ToLower(strings.TrimSpace(body.Username))),
-		[]byte(strings.ToLower(strings.TrimSpace(s.cfg.Username))),
-	)
-	passOK := subtle.ConstantTimeCompare(
-		[]byte(body.Password),
-		[]byte(s.cfg.Password),
-	)
-	if userOK&passOK != 1 {
-		// Same 401 wording regardless of which field was wrong.
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-		return
-	}
-	uid, err := s.ensureUser()
-	if err != nil {
-		http.Error(w, "ensure user: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := s.IssueSession(w, r, uid); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"username": s.cfg.Username})
+	return s != nil
 }
 
 // IssueSession plants the session cookie for an already-resolved
-// user_id. Extracted from Login so non-password issuers (OIDC,
-// magic-link, dev-shortcut) can reuse the exact same cookie path
+// user_id. Used by the OIDC callback (the only sign-in surface in
+// OIDC-only mode); kept as its own method so future issuers
+// (magic-link, dev-shortcut) can reuse the exact same cookie path
 // without duplicating the opaque-session/HMAC-fallback fork.
 //
 // Wire shape:
@@ -516,7 +481,7 @@ func (s *Service) Login(w http.ResponseWriter, r *http.Request) {
 //
 // Note that we deliberately do not write the response body here —
 // that's the caller's responsibility because the OIDC callback
-// wants to send a 302 redirect, while /api/auth/login wants JSON.
+// wants to send a 302 redirect.
 func (s *Service) IssueSession(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error {
 	if s == nil {
 		return errors.New("auth: nil service")
@@ -597,10 +562,16 @@ func (s *Service) Me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	var username string
+	if s.usernameFor != nil {
+		if name, err := s.usernameFor(r.Context(), uid); err == nil {
+			username = name
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user_id":  uid.String(),
-		"username": s.cfg.Username,
+		"username": username,
 	})
 }
 

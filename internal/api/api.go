@@ -55,12 +55,17 @@ type Deps struct {
 	// handler falls back to one-shot REST polls against Rivian's
 	// GetVehicleState query.
 	StateMonitor *rivian.StateMonitor
-	// Auth, when non-nil and Configured(), gates /api/* behind a
-	// login cookie or trusted proxy header. When nil or
-	// unconfigured (no RIVOLT_USERNAME / RIVOLT_PASSWORD) the API
-	// is open, preserving the pre-auth single-tenant UX so
-	// upgrades don't lock users out of their own NAS.
+	// Auth, when non-nil, gates /api/* behind a session cookie
+	// or trusted-proxy header. Whether unauthenticated requests
+	// are 401'd is governed by AuthEnforced below; with Auth
+	// non-nil but AuthEnforced false, sessions still resolve into
+	// request context but the API stays open (legacy single-tenant
+	// UX so docker-compose upgrades don't lock anyone out).
 	Auth *auth.Service
+	// AuthEnforced flips on the requireUser middleware for /api/*.
+	// True when at least one real issuer is configured (OIDC,
+	// trusted-proxy, or the debug bypass).
+	AuthEnforced bool
 	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
 	// auth issuer alongside static creds and trusted-proxy
 	// header. nil disables the social-login button row in the
@@ -139,7 +144,6 @@ func New(d Deps) http.Handler {
 		r.Get("/health", handleHealth(d.Version))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
-				r.Post("/login", d.Auth.Login)
 				r.Post("/logout", d.Auth.Logout)
 				r.Get("/me", d.Auth.Me)
 				if d.OIDC != nil {
@@ -149,11 +153,10 @@ func New(d Deps) http.Handler {
 		}
 
 		// Everything else sits behind requireUser when auth is
-		// configured. The bool guard means `docker run` with no env
-		// vars still works exactly like v0.3.x — login is opt-in via
-		// setting RIVOLT_USERNAME / RIVOLT_PASSWORD.
+		// enforced. Unenforced mode (no issuer wired) keeps the
+		// API open — legacy single-tenant docker-compose UX.
 		r.Group(func(r chi.Router) {
-			if d.Auth != nil && d.Auth.Configured() {
+			if d.AuthEnforced {
 				r.Use(requireUserMW)
 			}
 			// 30s is plenty for regular JSON endpoints; it keeps

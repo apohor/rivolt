@@ -42,10 +42,10 @@ In Xcode:
    *Settings → General → VPN & Device Management → trust the
    profile*. Only needed once per device per developer account.
 
-The app opens to a login screen. Server URL is prefilled; enter your
-Rivolt username + password (the same `RIVOLT_USERNAME` / `RIVOLT_PASSWORD`
-the web UI uses). Session cookie persists across app restarts, so
-cold launch lands you on the home screen directly.
+The app opens to a sign-in screen. Server URL is prefilled; tap
+your IdP to start the OIDC flow (Rivolt is OIDC-only as of v0.5.0).
+Session cookie persists across app restarts, so cold launch lands
+you on the home screen directly.
 
 ## Workflow
 

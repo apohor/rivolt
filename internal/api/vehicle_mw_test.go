@@ -108,10 +108,10 @@ func TestVehicleOwnershipMW_CheckErrorReturns500(t *testing.T) {
 }
 
 // TestVehicleOwnershipMW_NoUserFallsOpen covers the legacy
-// single-tenant deployment: RIVOLT_USERNAME unset, the auth chain
-// is a no-op, and the stores are bound to a static operator
-// identity. The middleware must not 404 in this mode or the whole
-// self-hosted UX breaks.
+// single-tenant deployment: no auth issuer is configured, the
+// auth chain is a no-op, and the stores are bound to a static
+// operator identity. The middleware must not 404 in this mode or
+// the whole self-hosted UX breaks.
 func TestVehicleOwnershipMW_NoUserFallsOpen(t *testing.T) {
 	checkCalled := false
 	mux, next := mountVehicleRoute(func(context.Context, uuid.UUID, string) (bool, error) {
