@@ -6,7 +6,7 @@ description: |
   for cluster operators who already run Postgres elsewhere.
 type: application
 version: 0.1.0
-appVersion: "0.10.33"
+appVersion: "0.10.36"
 home: https://github.com/apohor/rivolt
 sources:
   - https://github.com/apohor/rivolt
