@@ -22,9 +22,16 @@
   Rivian client, live panel, drive/charge history, AI smoke test,
   push notifications, charge-location clustering (Home / Public /
   Fast).
-- 🟡 **Phase 1 (correctness)** — all checklist items landed. RLS
-  policies are declarative-dormant pending the Phase 2 app-role
-  split; everything else is load-bearing in production today.
+- ✅ **Phase 1 (correctness)** — all checklist items landed and
+  load-bearing in production. RLS policies are declarative-dormant
+  pending the Phase 2 app-role split.
+- 🟡 **Phase 2 (self-hosted k8s)** — actively in flight. Helm
+  chart + container hardening + OIDC-only auth shipped;
+  multi-replica runtime correctness (lease reconciliation,
+  Redis token bucket, reconnect-storm controls), observability
+  stack, and CI-to-registry are still ahead. v0.11.0 cut OIDC
+  out of password login; v0.11.1 fixed Go's `oauth2` auth-style
+  probing against Authelia's strict `client_secret_post`.
 - 🟡 **iOS scaffold** landed (v0.9 track) — skeleton-only, runs via
   Xcode on a tethered iPhone. See [`../ios/README.md`](../ios/README.md).
 
