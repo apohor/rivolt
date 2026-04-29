@@ -159,6 +159,16 @@ func New(d Deps) http.Handler {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
 			}
+			// Lazily restore the request user's Rivian session into
+			// the in-memory Account on first authenticated hit. See
+			// internal/api/rivian_hydrate.go for the full rationale —
+			// short version: this replaces boot-time hydration so
+			// (a) replicas can start with no per-user state and
+			// (b) OIDC users with their own user_id work without
+			// being routed back through a legacy "local" identity.
+			if d.RivianAccount != nil && d.Secrets != nil {
+				r.Use(rivianHydrateMW(d.RivianAccount, d.Secrets, d.Logger))
+			}
 			// 30s is plenty for regular JSON endpoints; it keeps
 			// stuck Rivian calls from pinning a connection. Bulk
 			// data routes (import / backup / restore) live in a
@@ -1045,11 +1055,15 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 		emit(map[string]any{"event": "start", "files": len(files)})
 
 		results := make([]electrafi.Result, 0, len(files))
+		var firstErr string
 		for i, fh := range files {
 			f, err := fh.Open()
 			if err != nil {
+				if firstErr == "" {
+					firstErr = fh.Filename + ": open: " + err.Error()
+				}
 				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "open: " + err.Error()})
-				return
+				continue
 			}
 			emit(map[string]any{"event": "file_start", "index": i, "file": fh.Filename})
 			// Heartbeat inside a single file. Large CSVs have 20k+
@@ -1069,13 +1083,25 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
 			f.Close()
 			if err != nil {
+				if firstErr == "" {
+					firstErr = fh.Filename + ": " + err.Error()
+				}
 				emit(map[string]any{"event": "error", "file": fh.Filename, "error": err.Error()})
-				return
+				continue
 			}
 			results = append(results, res)
 			emit(map[string]any{"event": "file_done", "index": i, "result": res})
 		}
-		emit(map[string]any{"event": "done", "files": results})
+		// If at least one file succeeded, still emit `done` with the
+		// successful slice so the UI can display partial results
+		// alongside the error. Pure-failure imports surface only the
+		// per-file `error` events the client already knows how to
+		// render.
+		if firstErr != "" && len(results) == 0 {
+			emit(map[string]any{"event": "error", "error": firstErr})
+			return
+		}
+		emit(map[string]any{"event": "done", "files": results, "error": firstErr})
 	}
 }
 

@@ -218,24 +218,16 @@ func runServer() {
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "mock":
 		mc := rivian.NewMock()
-		// The mock now speaks the same Account surface as live —
-		// start logged-out so the UI shows the sign-in panel.
-		// Any email+password authenticates; "mfa" in the email
-		// triggers the MFA flow; "fail" rejects.
-		if secretsStore != nil {
-			// One-shot migration from the legacy settings_kv row.
-			// Cheap: 1 SELECT + (on hit) 1 INSERT + 1 DELETE.
-			migrateLegacyRivianSession(ctx, logger, settingsStore, secretsStore, currentUserID)
-			if sess, err := secrets.LoadRivianSession(ctx, secretsStore, currentUserID); err != nil {
-				logger.Warn("restore rivian session", "err", err.Error())
-			} else if sess.UserSessionToken != "" {
-				mc.Restore(sess)
-				logger.Info("rivian client: mock (restored session)", "email", sess.Email)
-			} else {
-				logger.Info("rivian client: mock (awaiting Settings login)")
-			}
-		} else {
+		// Mock starts logged-out; the UI sign-in panel drives Login()
+		// just like the live client. Per-user session hydration from
+		// `secrets` happens lazily on the first authenticated request
+		// via rivianHydrateMW — see internal/api/rivian_hydrate.go.
+		// That keeps the boot path out of the per-user data plane,
+		// which is the precondition for multi-user / multi-replica.
+		if secretsStore == nil {
 			logger.Info("rivian client: mock (no secrets store; login state will not persist)")
+		} else {
+			logger.Info("rivian client: mock (awaiting login)")
 		}
 		rivianClient = mc
 		rivianAccount = mc
@@ -279,18 +271,15 @@ func runServer() {
 			lc.SetNeedsReauth(true, reason)
 			logger.Info("rivian client: needs re-auth (from Postgres)", "reason", reason)
 		}
-		if secretsStore != nil {
-			migrateLegacyRivianSession(ctx, logger, settingsStore, secretsStore, currentUserID)
-			if sess, err := secrets.LoadRivianSession(ctx, secretsStore, currentUserID); err != nil {
-				logger.Warn("restore rivian session", "err", err.Error())
-			} else if sess.UserSessionToken != "" {
-				lc.Restore(sess)
-				logger.Info("rivian client: live (restored session)", "email", sess.Email)
-			} else {
-				logger.Info("rivian client: live (awaiting Settings login)")
-			}
-		} else {
+		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
+		} else {
+			// Per-user Rivian session hydration is deferred to the first
+			// authenticated request — see rivianHydrateMW. Booting without
+			// a hydrated client is the right default for multi-user /
+			// multi-replica: each replica lazy-loads from `user_secrets`
+			// on demand, no coordination required.
+			logger.Info("rivian client: live (awaiting login)")
 		}
 		rivianAccount = lc
 		rivianClient = lc
