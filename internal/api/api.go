@@ -26,6 +26,7 @@ import (
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -98,6 +99,11 @@ type Deps struct {
 	// sealer; the Rivian sign-in surface becomes read-only
 	// when it's absent.
 	Secrets *secrets.Store
+	// Metrics is the Prometheus instrumentation surface. When non-nil
+	// the router wires per-handler latency + count tracking and
+	// mounts /metrics. nil disables both — useful for tests that
+	// don't want the global default registry pollution.
+	Metrics *metrics.Metrics
 }
 
 // New builds the root mux with all routes mounted.
@@ -111,6 +117,13 @@ func New(d Deps) http.Handler {
 	// emits a single structured access-log entry per request. Must
 	// run after RequestID, before Recoverer so panics still log.
 	r.Use(logging.HTTPMiddleware)
+	// Metrics middleware piggybacks on chi's RouteContext to record
+	// per-pattern latency without exploding cardinality. Mounted
+	// after logging so a panic logs first, then increments the 5xx
+	// counter via Recoverer's recovered response.
+	if d.Metrics != nil {
+		r.Use(d.Metrics.HTTPMiddleware)
+	}
 	r.Use(middleware.Recoverer)
 	// NOTE: the global request timeout is applied per-group below,
 	// not here. CSV imports, backups, and restores can legitimately
@@ -142,6 +155,14 @@ func New(d Deps) http.Handler {
 	// middleware is a no-op — the single-tenant legacy UX stays.
 	if d.Auth != nil {
 		r.Use(d.Auth.Middleware)
+	}
+
+	// /metrics is intentionally mounted at the root, outside the
+	// /api tree, with no auth. The Prometheus scraper inside the
+	// cluster reaches it via the pod IP; the Ingress doesn't expose
+	// /metrics externally.
+	if d.Metrics != nil {
+		r.Handle("/metrics", d.Metrics.Handler())
 	}
 
 	r.Route("/api", func(r chi.Router) {

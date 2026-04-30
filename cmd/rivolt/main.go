@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -582,6 +583,11 @@ func runServer() {
 		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
+	// appMetrics owns the Prometheus registry. /metrics is mounted
+	// inside api.New when this is non-nil; kube-prometheus-stack
+	// scrapes it via the ServiceMonitor in deploy/helm/rivolt.
+	appMetrics := metrics.New()
+
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
 		RivianAccount: rivianAccount,
@@ -602,6 +608,7 @@ func runServer() {
 		Logger:        logger,
 		Flags:         flagsStore,
 		Secrets:       secretsStore,
+		Metrics:       appMetrics,
 	})
 
 	srv := &http.Server{
