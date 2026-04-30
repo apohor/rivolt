@@ -233,10 +233,36 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 // Returns (true, currentChargerState) only on a clean response that
 // agrees the session is live. On any error or ambiguity we return
 // false so the caller falls back to the safe close path.
+//
+// Cache-first to protect the sleep budget: REST GetVehicleState is
+// known to wake a deep-sleeping car on some firmwares (see
+// adaptiveRefreshInterval), and a charging car typically goes to
+// `powerState=sleep` once the BMS is happy with the SoC ramp. The
+// WS subscription is the authoritative source of chargerState
+// transitions \u2014 if the cache says still charging, we trust it
+// rather than poking the car every sweep. We only fall through to
+// REST when the cache itself is missing or already shows a
+// non-charging state (which contradicts the row being open).
 func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID string) (bool, string) {
 	if m.client == nil || rivianVehicleID == "" {
 		return false, ""
 	}
+
+	// Cache check first.
+	m.mu.RLock()
+	cached := m.cache[rivianVehicleID]
+	m.mu.RUnlock()
+	if cached != nil && isChargingCS(cached.ChargerState) {
+		// WS-cached state agrees the car is still charging. Don't
+		// REST-poll \u2014 that would risk waking a sleeping car
+		// unnecessarily. Refresh on cached state alone.
+		return true, cached.ChargerState
+	}
+
+	// Cache says NOT charging (terminal state) or has no entry. The
+	// row being open contradicts the cache, so fall back to a REST
+	// confirm. Worst case we wake the car once per stale row, but
+	// only when the data is genuinely ambiguous.
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	st, err := m.client.State(cctx, rivianVehicleID)
