@@ -255,6 +255,11 @@ func runServer() {
 
 	var rivianClient rivian.Client
 	var rivianAccount rivian.Account
+	// appMetrics owns the Prometheus registry. Built before the
+	// rivian client so the breaker observer (which writes to the
+	// breaker gauge/counter) and the lease coordinator (which
+	// writes to the leases gauge) can both wire in at construction.
+	appMetrics := metrics.New()
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "mock":
 		mc := rivian.NewMock()
@@ -291,6 +296,14 @@ func runServer() {
 				return nil
 			})
 		}
+		// Failure-driven breaker: complements the operator kill
+		// switch by short-circuiting outbound calls automatically
+		// when Rivian returns a sustained 429 or 5xx burst. State
+		// transitions update the rivolt_rivian_breaker_state gauge
+		// and bump rivolt_rivian_breaker_trips_total so we can
+		// alert on a breaker that's been open for >5m.
+		breaker := rivian.NewBreaker(rivian.DefaultBreakerConfig(), &breakerMetrics{m: appMetrics})
+		lc.WithBreaker(breaker)
 		// Persist needs_reauth transitions to Postgres so the
 		// flag survives restarts and is visible to the Settings
 		// UI's "re-authenticate" banner. The sink runs off the
@@ -340,10 +353,6 @@ func runServer() {
 	// reconciliation loop. nil when pgPool is nil (single-binary
 	// path) — the eager-subscribe fallback covers that case.
 	var leaseCoordinator *leases.Coordinator
-	// appMetrics owns the Prometheus registry. Built early so the
-	// lease coordinator can wire its count observer into the
-	// rivolt_subscription_leases gauge before Run() starts.
-	appMetrics := metrics.New()
 
 	vehiclesResolver := db.NewVehicleResolver(pgPool, currentUserID)
 
@@ -1032,4 +1041,32 @@ func buildSealer(logger *slog.Logger) (rivoltcrypto.Sealer, error) {
 		}
 	}
 	return rivoltcrypto.NewEnvSealerFromEnv("RIVOLT_KEK", rotation...)
+}
+
+// breakerMetrics adapts rivian.BreakerObserver onto the Prometheus
+// gauge + counter on appMetrics. Kept in main.go (not the metrics
+// package) so the metrics package stays import-free of rivian; the
+// dependency direction is rivian → main → metrics, never the other
+// way.
+type breakerMetrics struct{ m *metrics.Metrics }
+
+func (b *breakerMetrics) OnStateChange(_, to rivian.BreakerState) {
+	if b == nil || b.m == nil {
+		return
+	}
+	switch to {
+	case rivian.BreakerClosed:
+		b.m.RivianBreakerState.Set(0)
+	case rivian.BreakerHalfOpen:
+		b.m.RivianBreakerState.Set(1)
+	case rivian.BreakerOpen:
+		b.m.RivianBreakerState.Set(2)
+	}
+}
+
+func (b *breakerMetrics) OnTrip(reason string) {
+	if b == nil || b.m == nil {
+		return
+	}
+	b.m.RivianBreakerTrips.WithLabelValues(reason).Inc()
 }

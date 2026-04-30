@@ -69,6 +69,13 @@ type LiveClient struct {
 	// upstreamGate, when non-nil, short-circuits outbound calls with its error.
 	upstreamGate func(ctx context.Context) error
 
+	// breaker, when non-nil, observes every classified outcome and
+	// can short-circuit calls before they hit the network. Distinct
+	// from upstreamGate so the kill switch (operator-driven) and
+	// the breaker (failure-driven) compose without one needing to
+	// know about the other.
+	breaker *Breaker
+
 	// reauthSink fires on classified UserAction errors so callers can
 	// persist users.needs_reauth. Best-effort; failures are not surfaced.
 	reauthSink func(ctx context.Context, reason string)
@@ -197,6 +204,14 @@ func (c *LiveClient) WithUpstreamGate(gate func(ctx context.Context) error) *Liv
 	return c
 }
 
+// WithBreaker attaches a circuit breaker. Every classified outcome
+// from doGraphQLAt is reported to b; when b is open, checkUpstream
+// returns ErrUpstreamBreakerOpen before we hit the network.
+func (c *LiveClient) WithBreaker(b *Breaker) *LiveClient {
+	c.breaker = b
+	return c
+}
+
 // WithReauthSink installs a callback fired on ClassUserAction errors.
 func (c *LiveClient) WithReauthSink(sink func(ctx context.Context, reason string)) *LiveClient {
 	c.reauthSink = sink
@@ -234,10 +249,20 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 	if s := c.reauthState.Load(); s != nil && s.needs {
 		return ErrNeedsReauth
 	}
-	if c.upstreamGate == nil {
-		return nil
+	// Operator kill switch beats failure-driven backpressure: if the
+	// human told us to stop, stop. The breaker only adds an extra
+	// gate on top.
+	if c.upstreamGate != nil {
+		if err := c.upstreamGate(ctx); err != nil {
+			return err
+		}
 	}
-	return c.upstreamGate(ctx)
+	if c.breaker != nil {
+		if err := c.breaker.Allow(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // markNeedsReauth publishes the flag and fires the sink on the rising edge.
@@ -333,8 +358,15 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 					attribute.String("rivian.error.class", ue.Class.String()),
 					attribute.Int("rivian.http.status", ue.HTTPStatus),
 				)
+				if c.breaker != nil {
+					c.breaker.Observe(ue.Class)
+				}
 			}
 			span.RecordError(err)
+		} else if c.breaker != nil {
+			// Successful 2xx with no GraphQL errors: closes the
+			// breaker if it was half-open.
+			c.breaker.ObserveSuccess()
 		}
 		span.End()
 	}()
