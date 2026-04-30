@@ -367,10 +367,24 @@ decisions 5–7, 10–12.
       Helm chart ships a ServiceMonitor gated on
       `metrics.serviceMonitor.enabled` (off by default for
       docker-compose / k3s-without-KPS users).
-- [ ] **OpenTelemetry traces** via OTLP to Grafana Tempo. Spans for
-      every handler, every upstream call, every AI completion.
-      Tempo isn't deployed yet either — likely lands together with
-      the app-side OTel SDK wiring.
+- [x] **OpenTelemetry traces** via OTLP/HTTP to Grafana Tempo.
+      `internal/tracing` builds an SDK TracerProvider with a batch
+      OTLP/HTTP exporter when `RIVOLT_OTEL_ENABLED=true` (no-op
+      shutdown when off, so docker-compose / single-binary boots
+      stay quiet). Env: `RIVOLT_OTEL_ENDPOINT`, `RIVOLT_OTEL_INSECURE`,
+      `RIVOLT_OTEL_SAMPLE_RATIO` (default 1.0 — dial down at scale),
+      `RIVOLT_OTEL_SERVICE_NAME`. The chi router is wrapped with
+      `otelhttp.NewHandler`; an inner `otelTraceRoute` middleware
+      renames the root span to `HTTP <method> <chi-pattern>` once
+      routing resolves so Tempo bucketizes by route, not by URL.
+      `/api/health` and `/metrics` are filtered out so probes /
+      scrapes don't drown trace storage. The Rivian client's
+      `*http.Client` uses `otelhttp.NewTransport`, and
+      `doGraphQLAt` opens a `rivian.<Op>` client span carrying the
+      GraphQL operation name + error class as attributes — failed
+      branches highlight red in Tempo. `slog.ContextHandler` reads
+      the active `SpanContext` and stamps `trace_id` + `span_id` on
+      every log line, so Loki ↔ Tempo navigation is one click.
 
 ### Native iOS app (live-panel-era)
 

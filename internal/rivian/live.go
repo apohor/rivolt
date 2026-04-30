@@ -12,6 +12,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // DefaultEndpoint is the Rivian Owner App GraphQL gateway. Unofficial.
@@ -153,7 +158,14 @@ func (c *LiveClient) RecentChargingFrames(vehicleID string) []ChargingFrame {
 // NewLive returns a LiveClient with sane defaults.
 func NewLive() *LiveClient {
 	return &LiveClient{
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		// otelhttp.NewTransport produces no spans when tracing is
+		// disabled (no-op TracerProvider) and a CHILD span of the
+		// inbound request when it's enabled — so the trace
+		// rivolt → Rivian gateway is one continuous tree in Tempo.
+		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		},
 		endpoint:      DefaultEndpoint,
 		clientName:    DefaultClientName,
 		clientVersion: DefaultClientVersion,
@@ -292,11 +304,41 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 }
 
 // doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
-func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (T, error) {
+func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (result T, err error) {
 	var zero T
 	if err := c.checkUpstream(ctx); err != nil {
 		return zero, err
 	}
+
+	// Wrap the call in a span named after the GraphQL operation so
+	// Tempo shows "rivian.<Op>" in the trace tree instead of just
+	// "HTTP POST". The otelhttp.Transport on c.httpClient still
+	// produces a child HTTP span underneath this one — useful when
+	// we eventually want to see TLS / connect timing separately.
+	ctx, span := otel.Tracer("rivolt/rivian").Start(ctx, "rivian."+req.OperationName,
+		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
+		oteltrace.WithAttributes(
+			attribute.String("graphql.operation.name", req.OperationName),
+			attribute.String("graphql.endpoint", url),
+		),
+	)
+	defer func() {
+		// Mark the span as errored when the call returns an
+		// *UpstreamError so Tempo highlights the failed branch and
+		// stamps the error class as a queryable attribute.
+		if err != nil {
+			var ue *UpstreamError
+			if errors.As(err, &ue) {
+				span.SetAttributes(
+					attribute.String("rivian.error.class", ue.Class.String()),
+					attribute.Int("rivian.http.status", ue.HTTPStatus),
+				)
+			}
+			span.RecordError(err)
+		}
+		span.End()
+	}()
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return zero, fmt.Errorf("marshal %s: %w", req.OperationName, err)

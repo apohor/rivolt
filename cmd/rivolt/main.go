@@ -43,7 +43,10 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/web"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // version is stamped by the Docker build via -ldflags.
@@ -122,6 +125,25 @@ func runServer() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Bring up OTel before anything that might want to record a
+	// span (DB pings, Rivian token refresh on boot). Init returns
+	// a no-op shutdown when RIVOLT_OTEL_ENABLED is unset, so the
+	// docker-compose / single-binary path stays untouched.
+	tracingShutdown, err := tracing.Init(ctx, version)
+	if err != nil {
+		logger.Error("tracing init failed", "err", err.Error())
+		os.Exit(1)
+	}
+	defer func() {
+		// Bounded shutdown — Tempo or its OTLP receiver being
+		// unreachable should not stall pod termination.
+		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tracingShutdown(sctx); err != nil {
+			logger.Warn("tracing shutdown error", "err", err.Error())
+		}
+	}()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		logger.Error("cannot create data dir", "path", *dataDir, "err", err.Error())
@@ -611,9 +633,21 @@ func runServer() {
 		Metrics:       appMetrics,
 	})
 
+	// Wrap the chi router with otelhttp at the very outside. Span
+	// is created here per request; the otelTraceRoute middleware
+	// inside the chi chain renames it once the route pattern is
+	// known. /api/health is excluded so the readiness/liveness
+	// probes don't blow trace volume up — same reasoning as the
+	// access-log skip.
+	tracedHandler := otelhttp.NewHandler(handler, "http.server",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return r.URL.Path != "/api/health" && r.URL.Path != "/metrics"
+		}),
+	)
+
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           handler,
+		Handler:           tracedHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/auth"
@@ -117,6 +118,12 @@ func New(d Deps) http.Handler {
 	// emits a single structured access-log entry per request. Must
 	// run after RequestID, before Recoverer so panics still log.
 	r.Use(logging.HTTPMiddleware)
+	// otelTraceRoute updates the active span name (set by
+	// otelhttp.NewHandler at the outer wrap) from "HTTP <method>"
+	// to "HTTP <method> <chi-route-pattern>" once chi has resolved
+	// the pattern. Cardinality stays bounded the same way the
+	// metrics labels do — pattern, not raw URL.
+	r.Use(otelTraceRoute)
 	// Metrics middleware piggybacks on chi's RouteContext to record
 	// per-pattern latency without exploding cardinality. Mounted
 	// after logging so a panic logs first, then increments the 5xx
@@ -1445,4 +1452,26 @@ func handleAIPing(mgr *settings.Manager) http.HandlerFunc {
 			"output_tokens": usage.OutputTokens,
 		})
 	}
+}
+
+// otelTraceRoute renames the active span (created by otelhttp at the
+// outer wrap) to "HTTP <method> <chi-pattern>" after chi resolves
+// the route. otelhttp's default name is "HTTP <method>", which is
+// useless in Tempo because every request lands under one bucket.
+// We could instead use a custom SpanNameFormatter on otelhttp, but
+// that runs before routing — the chi pattern isn't filled in yet.
+//
+// Also stamps http.route as a span attribute (semconv-correct).
+// Cheap no-op when tracing is disabled (span is a no-op span).
+func otelTraceRoute(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		span := trace.SpanFromContext(r.Context())
+		if !span.IsRecording() {
+			return
+		}
+		if pattern := chi.RouteContext(r.Context()).RoutePattern(); pattern != "" {
+			span.SetName("HTTP " + r.Method + " " + pattern)
+		}
+	})
 }

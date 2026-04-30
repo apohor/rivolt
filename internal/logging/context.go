@@ -19,6 +19,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ctxKey is unexported so callers must use the With* / *FromContext
@@ -131,8 +132,16 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if vid := VehicleIDFromContext(ctx); vid != "" {
 		r.AddAttrs(slog.String("vehicle_id", vid))
 	}
+	// trace_id resolution order: explicit WithTraceID value first
+	// (callers that synthesise a trace ID without OTel can still
+	// stamp it), then the active OTel span. Either way the trace_id
+	// in Loki matches the trace_id in Tempo so Grafana's
+	// "log → trace" jump works without translation.
 	if tid := TraceIDFromContext(ctx); tid != "" {
 		r.AddAttrs(slog.String("trace_id", tid))
+	} else if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r.AddAttrs(slog.String("trace_id", sc.TraceID().String()))
+		r.AddAttrs(slog.String("span_id", sc.SpanID().String()))
 	}
 	return h.inner.Handle(ctx, r)
 }
