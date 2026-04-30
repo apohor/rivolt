@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -82,7 +83,22 @@ Environment:
 }
 
 func runServer() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	// Build the slog handler:
+	//   RIVOLT_LOG_LEVEL = debug|info|warn|error  (default: info)
+	//   RIVOLT_LOG_FORMAT = json|text             (default: json)
+	// ContextHandler wraps whatever inner handler we pick so every
+	// log line emitted while serving a request automatically gets
+	// request_id / user_id / vehicle_id / trace_id from context —
+	// no callsite changes needed in internal/* packages.
+	level := parseLogLevel(os.Getenv("RIVOLT_LOG_LEVEL"))
+	var inner slog.Handler
+	switch strings.ToLower(os.Getenv("RIVOLT_LOG_FORMAT")) {
+	case "text":
+		inner = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	default:
+		inner = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	}
+	logger := slog.New(logging.NewContextHandler(inner))
 	slog.SetDefault(logger)
 
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
@@ -639,6 +655,22 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// parseLogLevel turns RIVOLT_LOG_LEVEL into a slog.Level. Defaults to
+// Info on empty or unrecognised input — we'd rather log too much on a
+// typo than silently log nothing.
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // envFloat reads a float from an env var, or returns fallback if unset

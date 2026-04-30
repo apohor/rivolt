@@ -25,6 +25,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -105,6 +106,11 @@ func New(d Deps) http.Handler {
 
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
+	// HTTPMiddleware (a) copies chi's RequestID into our context so
+	// the slog ContextHandler stamps it on every log line, and (b)
+	// emits a single structured access-log entry per request. Must
+	// run after RequestID, before Recoverer so panics still log.
+	r.Use(logging.HTTPMiddleware)
 	r.Use(middleware.Recoverer)
 	// NOTE: the global request timeout is applied per-group below,
 	// not here. CSV imports, backups, and restores can legitimately

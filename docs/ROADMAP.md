@@ -340,10 +340,18 @@ decisions 5–7, 10–12.
       with handler-latency histograms, Rivian-result-class
       counters, lease-count gauges, AI-token spend) is **not yet
       shipped**.
-- [ ] **App-level structured logs** (`slog` with handler/job
-      context fields injected end-to-end), so the existing Loki
-      pipeline becomes useful for per-user/per-vehicle correlation
-      instead of full-text grep.
+- [x] **App-level structured logs.** `internal/logging` package
+      ships a `ContextHandler` wrapper around `slog.JSONHandler` that
+      pulls `request_id` (chi), `user_id` (auth middleware) and
+      `vehicle_id` (vehicle-ownership middleware) out of
+      `context.Context` and stamps them on every record — no
+      callsite changes in `internal/*` were needed thanks to
+      `slog.SetDefault`. `trace_id` slot is plumbed but unset until
+      OTel lands. Per-request access log emitted by
+      `logging.HTTPMiddleware` (skips `/api/health`). New env vars:
+      `RIVOLT_LOG_LEVEL` (debug|info|warn|error), `RIVOLT_LOG_FORMAT`
+      (json|text). The Loki pipeline becomes filterable by user /
+      vehicle / request without grep gymnastics.
 - [ ] **App-level Prometheus `/metrics`** — histograms for request
       latency, counters for Rivian results by class, gauges for
       lease counts per pod, AI token spend per user. Scraped by

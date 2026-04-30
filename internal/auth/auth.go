@@ -43,6 +43,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/logging"
 )
 
 // Config is the operator-supplied auth configuration. Built by main
@@ -315,6 +317,10 @@ func UserFromContext(ctx context.Context) (uuid.UUID, bool) {
 // context key itself remains unexported, so only this package's
 // code paths can inject an identity.
 func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
+	// Also stamp the logging context so every slog line emitted
+	// downstream carries `user_id` automatically. Cheap; the helper
+	// no-ops on uuid.Nil.
+	ctx = logging.WithUserID(ctx, uid)
 	return context.WithValue(ctx, ctxKey{}, uid)
 }
 

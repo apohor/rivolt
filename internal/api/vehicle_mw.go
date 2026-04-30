@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/logging"
 )
 
 // vehicleOwnershipCheck is the seam the ownership middleware uses
@@ -82,6 +83,9 @@ func vehicleOwnershipMW(check vehicleOwnershipCheck, logger *slog.Logger) func(h
 				http.NotFound(w, r)
 				return
 			}
+			// Stamp vehicle_id onto the logging context so every
+			// downstream slog line in this request gets it for free.
+			r = r.WithContext(logging.WithVehicleID(r.Context(), rivianID))
 			next.ServeHTTP(w, r)
 		})
 	}
