@@ -352,10 +352,21 @@ decisions 5–7, 10–12.
       `RIVOLT_LOG_LEVEL` (debug|info|warn|error), `RIVOLT_LOG_FORMAT`
       (json|text). The Loki pipeline becomes filterable by user /
       vehicle / request without grep gymnastics.
-- [ ] **App-level Prometheus `/metrics`** — histograms for request
-      latency, counters for Rivian results by class, gauges for
-      lease counts per pod, AI token spend per user. Scraped by
-      kube-prometheus-stack (already running).
+- [x] **App-level Prometheus `/metrics`** — `internal/metrics`
+      package owns a private registry; `cmd/rivolt` constructs a
+      `*Metrics` and wires it into `api.Deps`. The chi middleware
+      records `rivolt_http_requests_total` (method/route/status) and
+      `rivolt_http_request_duration_seconds` (method/route) — `route`
+      is the chi route pattern, NOT the raw URL, so cardinality
+      stays bounded as vehicles scale. Also exposes (currently
+      always-zero, wired up so dashboards can pre-build):
+      `rivolt_rivian_results_total{op,class}`,
+      `rivolt_subscription_leases`, `rivolt_ai_requests_total`.
+      `/metrics` is mounted at the root (NOT under `/api`) with no
+      auth — kube-prometheus-stack reaches it via the pod IP. The
+      Helm chart ships a ServiceMonitor gated on
+      `metrics.serviceMonitor.enabled` (off by default for
+      docker-compose / k3s-without-KPS users).
 - [ ] **OpenTelemetry traces** via OTLP to Grafana Tempo. Spans for
       every handler, every upstream call, every AI completion.
       Tempo isn't deployed yet either — likely lands together with

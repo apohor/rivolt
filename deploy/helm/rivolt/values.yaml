@@ -85,6 +85,19 @@ ingress:
           pathType: Prefix
   tls: []
 
+# -- Prometheus instrumentation. /metrics is always exposed by the
+# binary (cmd/rivolt always builds a *metrics.Metrics); the chart
+# only governs whether a ServiceMonitor is created so a
+# kube-prometheus-stack scraper in the same cluster picks it up.
+metrics:
+  serviceMonitor:
+    # Disabled by default for environments without
+    # kube-prometheus-stack installed. The rivolt-infra umbrella
+    # turns this on for the rivolt cluster.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
 resources:
   # Conservative defaults sized for ~1 user / 1 vehicle. Bump for
   # multi-tenant; the binary is mostly idle between Rivian polls.

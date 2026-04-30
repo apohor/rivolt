@@ -1,0 +1,26 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+# ServiceMonitor lights up rivolt's /metrics endpoint for the
+# in-cluster kube-prometheus-stack scraper. The chart is configured
+# (in rivolt-infra) with serviceMonitorSelectorNilUsesHelmValues:false
+# so any ServiceMonitor in any namespace is picked up — no extra
+# label match is required here.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "rivolt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      # /metrics is mounted at the root by internal/api when Deps.Metrics
+      # is non-nil (set in cmd/rivolt/main.go). It's intentionally NOT
+      # under /api so the auth middleware never touches it.
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}
