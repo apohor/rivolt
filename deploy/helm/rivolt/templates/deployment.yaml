@@ -9,11 +9,15 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
-  # Single-replica today (see values.yaml). Recreate avoids the
-  # rolling-update window where two pods would briefly share a
-  # ReadWriteOnce data PVC and clash on the cookie-secret file.
+  # Update strategy is configurable so deployments don't have to
+  # eat a hard "no available server" window. Default in values.yaml
+  # is RollingUpdate (maxSurge=1, maxUnavailable=0) so a new pod
+  # comes up healthy before the old one is removed. Operators who
+  # turn `persistence.enabled` on with a ReadWriteOnce PVC must
+  # flip this to Recreate via values to avoid two pods racing for
+  # the volume — see values.yaml for the trade-off note.
   strategy:
-    type: Recreate
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "rivolt.selectorLabels" . | nindent 6 }}
@@ -36,6 +40,12 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
+      # Give the binary time to (a) stop receiving new traffic via
+      # the preStop sleep, then (b) finish in-flight requests +
+      # release Rivian websocket subscriptions cleanly. 30s is
+      # enough headroom for a slow GraphQL roundtrip; bump if a
+      # specific upstream call regularly exceeds that.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -88,6 +98,16 @@ spec:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+          # Drain hook: kubelet pulls the pod out of the Service's
+          # Endpoints concurrently with sending SIGTERM. There's a
+          # brief race where new traffic can still hit a terminating
+          # pod. A short preStop sleep gives kube-proxy / Traefik
+          # time to remove the endpoint before the binary starts
+          # tearing down — eliminates 502s during rollouts.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep {{ .Values.preStopSleepSeconds }}"]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
