@@ -199,6 +199,13 @@ type Coordinator struct {
 
 	reconcileInterval time.Duration
 
+	// trigger lets external callers (e.g. the StateMonitor's
+	// post-RefreshVehicleInfo goroutine) ask the coordinator to
+	// reconcile immediately rather than wait for the next tick.
+	// Buffered cap-1 with non-blocking send: many simultaneous
+	// pokes coalesce into a single reconcile.
+	trigger chan struct{}
+
 	mu    sync.Mutex
 	owned map[string]struct{}
 }
@@ -241,7 +248,28 @@ func newCoordinator(
 		onAcquire:         onAcquire,
 		onRelease:         onRelease,
 		reconcileInterval: reconcileInterval,
+		trigger:           make(chan struct{}, 1),
 		owned:             make(map[string]struct{}),
+	}
+}
+
+// TriggerReconcile asks the Run loop to reconcile on its next
+// scheduling pass instead of waiting for the next tick. Safe to
+// call concurrently and from any goroutine; multiple calls coalesce
+// into a single reconcile (the channel is cap-1, send is
+// non-blocking).
+//
+// Used at startup: RefreshVehicleInfo's success goroutine calls
+// this so the first set of vehicles claims its leases within
+// milliseconds of the REST reply, instead of waiting up to a full
+// reconcileInterval.
+func (c *Coordinator) TriggerReconcile() {
+	if c == nil {
+		return
+	}
+	select {
+	case c.trigger <- struct{}{}:
+	default:
 	}
 }
 
@@ -267,6 +295,8 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			c.reconcile(ctx)
+		case <-c.trigger:
 			c.reconcile(ctx)
 		}
 	}
