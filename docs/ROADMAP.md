@@ -255,6 +255,21 @@ decisions 5–7, 10–12.
       on a pod bounce just means a fresh budget. Wired into
       rivolt via `RIVOLT_REDIS_ADDR` (`ratelimit.redis.addr` in
       `values.yaml`).
+- [ ] **Migrate Redis to `ot-helm/redis-operator`** once a second
+      Redis-shaped workload lands (session cache, job queue,
+      websocket fan-out — anything beyond the rate-limit cache)
+      OR persistence/HA becomes a hard requirement. Today the
+      plain-manifest Deployment is the smallest correct thing:
+      operator overhead (CRDs + reconciler Deployment + RBAC +
+      webhooks) dwarfs the 64 MiB Valkey pod, and HA/failover/
+      backups are explicitly out of scope for a fail-open
+      rate-limit cache. The flip is a ~30-line YAML change at
+      the point where it earns its keep — wraps the existing
+      Deployment in a `Redis` (or `RedisReplication`) CR and
+      gives us declarative ACLs, TLS rotation, scheduled S3
+      backups, and Sentinel/Cluster topologies for free. Track
+      this so we don't spend a year accreting bespoke Redis
+      manifests across apps.
 - [x] **Secret delivery via External Secrets + Vault** (instead of
       SealedSecrets). HashiCorp Vault runs in-cluster; ExternalSecrets
       Operator syncs `kv/rivolt/*` paths into k8s Secrets. KEK is
