@@ -39,6 +39,7 @@ import (
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
+	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -48,6 +49,8 @@ import (
 	"github.com/apohor/rivolt/internal/web"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // version is stamped by the Docker build via -ldflags.
@@ -304,6 +307,24 @@ func runServer() {
 		// alert on a breaker that's been open for >5m.
 		breaker := rivian.NewBreaker(rivian.DefaultBreakerConfig(), &breakerMetrics{m: appMetrics})
 		lc.WithBreaker(breaker)
+		// Global token bucket: optional. Off when RIVOLT_REDIS_ADDR
+		// is unset, which keeps single-binary / local dev working
+		// with no Redis around. When set, every outbound Rivian
+		// call goes through the limiter; main bucket for periodic
+		// pollers, priority bucket for user-blocking calls (Login).
+		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
+			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+			limiter, err := ratelimit.New(pingCtx, rdb, ratelimit.DefaultConfig(), logger)
+			pingCancel()
+			if err != nil {
+				logger.Warn("ratelimit: disabled (redis unreachable)", "addr", addr, "err", err.Error())
+				_ = rdb.Close()
+			} else {
+				lc.WithRateLimit(&rateLimitMetrics{l: limiter, m: appMetrics})
+				logger.Info("ratelimit: enabled", "addr", addr)
+			}
+		}
 		// Persist needs_reauth transitions to Postgres so the
 		// flag survives restarts and is visible to the Settings
 		// UI's "re-authenticate" banner. The sink runs off the
@@ -1082,4 +1103,21 @@ func (b *breakerMetrics) OnTrip(reason string) {
 		return
 	}
 	b.m.RivianBreakerTrips.WithLabelValues(reason).Inc()
+}
+
+// rateLimitMetrics wraps a *ratelimit.Limiter so we can observe
+// every rejection without coupling the limiter package to
+// internal/metrics. Kept here for the same dependency-direction
+// reason as breakerMetrics.
+type rateLimitMetrics struct {
+	l *ratelimit.Limiter
+	m *metrics.Metrics
+}
+
+func (r *rateLimitMetrics) Allow(ctx context.Context, class string) (bool, time.Duration) {
+	ok, retry := r.l.Allow(ctx, ratelimit.Class(class))
+	if !ok && r.m != nil {
+		r.m.RivianRateLimitBlocked.WithLabelValues(class).Inc()
+	}
+	return ok, retry
 }

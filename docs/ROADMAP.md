@@ -246,8 +246,15 @@ decisions 5–7, 10–12.
       via `apps/cnpg-operator.yaml` in rivolt-infra). Rivolt's own
       Helm chart renders a `Cluster` CR via `cnpg.enabled=true` —
       no Bitnami subchart, no single-pod StatefulSet.
-- [ ] **Redis Deployment** for the global upstream token bucket.
-      No persistence; `t4g.micro`-class resources.
+- [x] **Redis Deployment** for the global upstream token bucket.
+      Plain-manifest single-replica `valkey/valkey:8-alpine`
+      Deployment + Service in the `redis` namespace (Valkey is
+      the LF Redis fork; we picked it over the Bitnami chart so we
+      don't ride the Aug-2025 Bitnami premium-tier rails). No
+      persistence — the bucket is pure rate-limit state, losing it
+      on a pod bounce just means a fresh budget. Wired into
+      rivolt via `RIVOLT_REDIS_ADDR` (`ratelimit.redis.addr` in
+      `values.yaml`).
 - [x] **Secret delivery via External Secrets + Vault** (instead of
       SealedSecrets). HashiCorp Vault runs in-cluster; ExternalSecrets
       Operator syncs `kv/rivolt/*` paths into k8s Secrets. KEK is
@@ -341,9 +348,23 @@ decisions 5–7, 10–12.
       production. ~150 LOC of scaffolding + ~5–10s test runtime;
       gate it behind `-tags integration` so the unit run stays
       fast.
-- [ ] **Global upstream token bucket** in Redis, main + priority
-      classes, Lua-scripted atomic check-and-decrement. See
-      architecture decision 7.
+- [x] **Global upstream token bucket** in Redis, main + priority
+      classes, Lua-scripted atomic check-and-decrement.
+      `internal/ratelimit.Limiter` runs a single Redis EVAL per
+      call: HMGET `tokens`+`ts`, refill by `elapsed * rate`
+      capped at capacity, attempt subtract, on insufficient
+      compute `retry_ms = ceil(short / refill * 1000)`, HSET back
+      with PEXPIRE 10x refill-to-full (capped 1h). Two classes:
+      `main` (60 cap, 2 rps — periodic pollers) and `priority`
+      (20 cap, 1 rps — Login + reauth, set via
+      `rivian.WithPriority(ctx)`). Wired into `LiveClient.checkUpstream`
+      after the operator kill switch and the breaker; rejection
+      surfaces as `*rivian.ErrRateLimited{RetryAfter}`. Fail-open
+      on Redis errors (a Redis blip must not black-hole the
+      upstream — the breaker still gates real 429s). Off when
+      `RIVOLT_REDIS_ADDR` is unset, so single-binary local dev
+      keeps working. Telemetry:
+      `rivolt_rivian_ratelimit_blocked_total{class}` counter.
 
 ### Identity
 

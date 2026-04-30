@@ -77,6 +77,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            {{- with .Values.ratelimit }}
+            {{- if .redis.addr }}
+            # Global token bucket (Phase 2 #3): when set, every
+            # outbound Rivian call passes through a Redis-backed
+            # main+priority bucket. Empty string disables it
+            # cleanly — useful for single-binary local dev.
+            - name: RIVOLT_REDIS_ADDR
+              value: {{ .redis.addr | quote }}
+            {{- end }}
+            {{- end }}
             # DB_USER. CNPG: from the auto-generated <cluster>-app
             # Secret. External w/ existingSecret + UserKey: from
             # there. Otherwise the literal in externalDatabase.user.
