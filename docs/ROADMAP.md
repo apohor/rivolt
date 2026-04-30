@@ -353,16 +353,17 @@ decisions 5–7, 10–12.
       of firing all at once. Telemetry:
       `rivolt_rivian_breaker_state` (0/1/2 gauge),
       `rivolt_rivian_breaker_trips_total{reason}` counter.
-- [ ] **Boot-to-record integration test.** End-to-end test that
-      stands up a testcontainers Postgres + the rivolt binary with
-      `RIVIAN_CLIENT=mock`, drives the mock through a state
-      transition, and asserts a row landed in `vehicle_state`.
-      Target the whole boot → leases → subscribe → recorder
-      pipeline as a single black box — the kind of test that would
-      have caught the v0.16.1 chicken-and-egg in CI instead of in
-      production. ~150 LOC of scaffolding + ~5–10s test runtime;
-      gate it behind `-tags integration` so the unit run stays
-      fast.
+- [x] **Boot-to-record integration test.** End-to-end test that
+      stands up a testcontainers Postgres, drives the mock Rivian
+      client through Login → Vehicles → State, writes a sample
+      via `samples.InsertBatch`, and runs a real
+      `leases.Coordinator` reconcile against the DB. Asserts a
+      row landed in `vehicle_state` (with the right SoC + source)
+      AND that `subscription_leases` was claimed by the test pod;
+      also verifies re-inserting the same batch is idempotent.
+      Lives at `internal/integration/boot_to_record_test.go`,
+      gated behind `-tags integration` so the default unit run
+      stays fast (~3s incl. container boot on a warm cache).
 - [x] **Global upstream token bucket** in Redis, main + priority
       classes, Lua-scripted atomic check-and-decrement.
       `internal/ratelimit.Limiter` runs a single Redis EVAL per
