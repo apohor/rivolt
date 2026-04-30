@@ -189,6 +189,32 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	go m.run(ctx, vehicleID)
 }
 
+// Unsubscribe tears down the background subscription for vehicleID
+// if one is running, and is a no-op otherwise. Used by the lease
+// coordinator when this pod loses ownership of a vehicle to a peer.
+//
+// Cancellation is async — the run goroutine observes ctx.Done() the
+// next time it loops around. The cache entry is left intact so a
+// subsequent Latest() call returns the last known state for the
+// short window between Unsubscribe and the goroutine actually
+// exiting; once Unsubscribe is called we should not be the source
+// of new state, but stale-but-coherent is better than blanking the
+// UI mid-rebalance.
+func (m *StateMonitor) Unsubscribe(vehicleID string) {
+	m.mu.Lock()
+	cancel, ok := m.active[vehicleID]
+	if ok {
+		// Drop the entry now so a concurrent EnsureSubscribed for a
+		// re-acquired lease (acquired → released → reacquired in
+		// quick succession) doesn't see a stale cancel func.
+		delete(m.active, vehicleID)
+	}
+	m.mu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
+}
+
 // run is the per-vehicle subscription goroutine. It blocks inside
 // SubscribeVehicleState, which internally reconnects with backoff on
 // transient errors, and only returns when ctx is cancelled or the

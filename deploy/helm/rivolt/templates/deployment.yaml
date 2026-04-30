@@ -69,6 +69,14 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           env:
+            # Pod identity for the subscription-lease coordinator
+            # (internal/leases). Must be unique per pod across the
+            # ReplicaSet — `metadata.name` from the downward API
+            # gives us exactly that.
+            - name: RIVOLT_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             # DB_USER. CNPG: from the auto-generated <cluster>-app
             # Secret. External w/ existingSecret + UserKey: from
             # there. Otherwise the literal in externalDatabase.user.
