@@ -316,9 +316,21 @@ decisions 5–7, 10–12.
       `metadata.name` in the chart) with `os.Hostname()` as a
       single-binary fallback. The `rivolt_subscription_leases`
       gauge tracks the per-pod count.
-- [ ] **Reconnect-storm controls.** Jittered exponential backoff per
-      subscription, 50ms startup stagger, global circuit breaker on
-      Rivian 5xx/429. See architecture decision 6.
+- [x] **Reconnect-storm controls.** `internal/rivian.Breaker` is a
+      sliding-window circuit breaker (60s window, trip on 3
+      rate-limited or 8 outage classifications, 30s initial
+      cooldown doubling to 5min on failed half-open probes); wired
+      into `LiveClient.checkUpstream` so it gates every GraphQL
+      call before the network and observes the classified outcome
+      after. `StateMonitor.run` reconnect backoff is now
+      `±50%`-jittered so concurrent vehicles whose sessions died
+      from the same blip don't reconnect in lockstep, and a 50ms
+      startup staggerer (`waitStaggerSlot`) spaces out the first
+      WS connect of each subscription goroutine — cold-start of a
+      pod with N existing leases now spreads over 50ms*N instead
+      of firing all at once. Telemetry:
+      `rivolt_rivian_breaker_state` (0/1/2 gauge),
+      `rivolt_rivian_breaker_trips_total{reason}` counter.
 - [ ] **Global upstream token bucket** in Redis, main + priority
       classes, Lua-scripted atomic check-and-decrement. See
       architecture decision 7.

@@ -49,6 +49,14 @@ type Metrics struct {
 	// will increment/decrement these as it claims/releases.
 	SubscriptionLeases prometheus.Gauge
 
+	// Circuit breaker telemetry. State is a 0/1/2 gauge
+	// (closed/half_open/open) so Grafana can alert on
+	// max_over_time != 0. Trips is a counter labelled by reason
+	// ("rate_limited" | "outage") so we can answer "what's making
+	// it open" in one PromQL.
+	RivianBreakerState  prometheus.Gauge
+	RivianBreakerTrips  *prometheus.CounterVec
+
 	// AI provider spend per user is intentionally NOT exposed here.
 	// User-id labels would blow up cardinality at 1000 vehicles. The
 	// existing internal/ai/usage.go writes per-user totals to
@@ -106,6 +114,19 @@ func New() *Metrics {
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
 			},
 		),
+		RivianBreakerState: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "rivolt_rivian_breaker_state",
+				Help: "Rivian upstream breaker state. 0=closed, 1=half_open, 2=open.",
+			},
+		),
+		RivianBreakerTrips: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_rivian_breaker_trips_total",
+				Help: "Times the breaker tripped to open, partitioned by reason.",
+			},
+			[]string{"reason"},
+		),
 		AIRequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_ai_requests_total",
@@ -120,6 +141,8 @@ func New() *Metrics {
 		m.HTTPRequestDuration,
 		m.RivianResultsTotal,
 		m.SubscriptionLeases,
+		m.RivianBreakerState,
+		m.RivianBreakerTrips,
 		m.AIRequestsTotal,
 	)
 	return m

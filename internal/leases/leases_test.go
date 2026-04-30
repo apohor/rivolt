@@ -60,9 +60,9 @@ func TestCoordinatorAcquiresAndReleases(t *testing.T) {
 
 	fs := newFakeStore()
 	var (
-		mu             sync.Mutex
-		acquired       []string
-		released       []string
+		mu       sync.Mutex
+		acquired []string
+		released []string
 	)
 	onAcquire := func(v string) {
 		mu.Lock()

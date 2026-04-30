@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,16 @@ type StateMonitor struct {
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
 
+	// startupStagger spaces out the first WS connect attempt of each
+	// run() goroutine so a coordinator-driven mass-acquire (or a
+	// pod restart with N existing leases) doesn't fire N parallel
+	// SubscribeVehicleState calls into Rivian's gateway in the same
+	// millisecond. Each run() takes one slot before its first
+	// network call; serialized at staggerInterval (default 50ms).
+	staggerMu       sync.Mutex
+	staggerLastSlot time.Time
+	staggerInterval time.Duration
+
 	// priceLookup returns the operator-configured home $/kWh rate
 	// and currency at the time of call. Consulted by the recorder
 	// when persisting a charge whose Rivian-reported price is absent
@@ -90,6 +101,10 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		sessions:    make(map[string]*liveSessions),
 		lastSession: make(map[string]*LiveSession),
 		vehicleInfo: make(map[string]*Vehicle),
+		// 50ms between WS subscribe attempts. With a 60-vehicle pod
+		// that's a 3-second cold-start spread, well below Rivian's
+		// observed rate-limit window.
+		staggerInterval: 50 * time.Millisecond,
 	}
 }
 
@@ -220,6 +235,19 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 // transient errors, and only returns when ctx is cancelled or the
 // server rejects the session token.
 func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
+	// Stagger first contact so a thundering herd (post-restart with
+	// N existing leases, or a coordinator that just acquired a batch)
+	// doesn't fire N concurrent SubscribeVehicleState calls into
+	// Rivian's gateway. The wait is bounded by ctx cancellation so
+	// Unsubscribe still returns promptly during a rebalance.
+	m.waitStaggerSlot(ctx)
+	if ctx.Err() != nil {
+		m.mu.Lock()
+		delete(m.active, vehicleID)
+		m.mu.Unlock()
+		return
+	}
+
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
 
 	// Seed the cache from REST before the subscription starts
@@ -316,10 +344,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			m.logger.Info("rivian ws subscribe returned cleanly, resubscribing", "vehicle", vehicleID, "backoff", backoff.String())
 		}
 		// Any successful session resets backoff; a fast failure
-		// escalates up to 60 s.
+		// escalates up to 60 s. Jitter the actual sleep ±50% so
+		// concurrent vehicles whose sessions died from the same
+		// upstream blip don't reconnect in lockstep.
 		select {
 		case <-ctx.Done():
-		case <-time.After(backoff):
+		case <-time.After(jitter(backoff)):
 		}
 		if backoff < 60*time.Second {
 			backoff *= 2
@@ -1096,4 +1126,43 @@ func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
 	cp := *v
 	cp.PackKWh = kwh
 	m.vehicleInfo[vehicleID] = &cp
+}
+
+// waitStaggerSlot blocks until at least staggerInterval has passed
+// since the last admitted run() goroutine, returning early if ctx
+// is cancelled. The reservation is made under the lock so two
+// concurrent goroutines never collapse onto the same slot.
+func (m *StateMonitor) waitStaggerSlot(ctx context.Context) {
+	if m.staggerInterval <= 0 {
+		return
+	}
+	m.staggerMu.Lock()
+	now := time.Now()
+	next := m.staggerLastSlot.Add(m.staggerInterval)
+	if now.Before(next) {
+		// Reserve our slot at `next` and release the lock so other
+		// goroutines can queue up behind us.
+		m.staggerLastSlot = next
+		wait := next.Sub(now)
+		m.staggerMu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+		return
+	}
+	m.staggerLastSlot = now
+	m.staggerMu.Unlock()
+}
+
+// jitter returns d randomized to [d/2, d*3/2). Used for reconnect
+// backoff so concurrent subscriptions that died from the same
+// upstream blip don't reconnect in lockstep — that's the literal
+// definition of a thundering herd.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	half := int64(d / 2)
+	return time.Duration(half + rand.Int64N(2*half+1))
 }
