@@ -319,6 +319,104 @@ func (s *Store) CloseStaleOpenLiveBefore(ctx context.Context, before time.Time) 
 	return int(n), nil
 }
 
+// StaleOpenCandidate is one row the janitor is considering for
+// abandonment. The rivian-side vehicle ID is denormalised here so
+// the caller can REST-poll the gateway without re-resolving from
+// the internal vehicle UUID.
+type StaleOpenCandidate struct {
+	ExternalID      string
+	RivianVehicleID string
+	FinalState      string
+	EndedAt         time.Time
+}
+
+// ListStaleOpenLive returns every open live-sourced charge row whose
+// ended_at is older than `before`. Same WHERE shape as
+// CloseStaleOpenLiveBefore but read-only — used by the smarter
+// janitor that wants to REST-confirm the vehicle is actually no
+// longer charging before tagging the row abandoned. WS feeds for
+// long L1/L2 sessions can go silent for hours without the charge
+// having ended.
+func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]StaleOpenCandidate, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.external_id, v.rivian_vehicle_id,
+		       COALESCE(c.final_state,''), c.ended_at
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1
+		  AND c.source = 'live'
+		  AND c.ended_at < $2
+		  AND c.final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND c.final_state <> 'charging_complete'
+		  AND c.final_state <> 'charging_station_err'`,
+		s.userID, before.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StaleOpenCandidate
+	for rows.Next() {
+		var c StaleOpenCandidate
+		if err := rows.Scan(&c.ExternalID, &c.RivianVehicleID, &c.FinalState, &c.EndedAt); err != nil {
+			return nil, err
+		}
+		c.EndedAt = c.EndedAt.UTC()
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// RefreshOpenLive bumps ended_at = NOW() on a single open live row
+// and optionally advances its final_state. Used by the smart
+// janitor when a REST poll confirms the vehicle is still actively
+// charging — keeps the row live for another sweep window without
+// abandoning it. The WHERE clause is intentionally narrow (still
+// open, still live) so a concurrent terminal-state push that closed
+// the row legitimately can't be undone here.
+func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState string) (int, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET ended_at = NOW(),
+		    final_state = COALESCE(NULLIF($3, ''), final_state),
+		    updated_at = NOW()
+		WHERE user_id = $1
+		  AND external_id = $2
+		  AND source = 'live'
+		  AND final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND final_state <> 'charging_complete'
+		  AND final_state <> 'charging_station_err'`,
+		s.userID, externalID, finalState)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// AbandonOpenLive closes one specific open live row as abandoned.
+// The smart janitor calls this only after a REST poll has confirmed
+// the vehicle is no longer in a charging state. Same guarded WHERE
+// as RefreshOpenLive so we never abandon a row that's already been
+// closed legitimately by a terminal-state push between the list
+// and the close.
+func (s *Store) AbandonOpenLive(ctx context.Context, externalID string) (int, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET final_state = 'abandoned', updated_at = NOW()
+		WHERE user_id = $1
+		  AND external_id = $2
+		  AND source = 'live'
+		  AND final_state LIKE 'charging\_%' ESCAPE '\'
+		  AND final_state <> 'charging_complete'
+		  AND final_state <> 'charging_station_err'`,
+		s.userID, externalID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // Dedupe is a no-op on Postgres — UNIQUE (vehicle_id, external_id)
 // prevents the SQLite-era duplicates the old code had to clean up.
 func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }

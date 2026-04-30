@@ -166,20 +166,91 @@ func (m *StateMonitor) runStaleChargeJanitor(ctx context.Context) {
 	}
 }
 
+// sweepStaleCharges decides what to do with each open live charge row
+// whose ended_at hasn't advanced for `staleAfter`. The first
+// implementation just abandoned all of them, but L1/L2 home charges
+// can stay open for >12h with the WS feed going dark for stretches
+// at a time (deep-sleep cycles, LTE blips), so blanket abandonment
+// closed real ongoing charges as collateral damage.
+//
+// Per-row policy now:
+//  1. List the candidates (read-only).
+//  2. REST-poll the vehicle gateway. If the gateway also says
+//     chargerState is in a charging_* non-terminal state, refresh
+//     the row's ended_at = NOW() so the next sweep gives it another
+//     full window.
+//  3. Otherwise — REST agrees charge is over, or the call failed —
+//     close the row as 'abandoned'. Failing the REST and abandoning
+//     is fine: if the WS *and* the REST are both silent for >1h on
+//     a session, the row is genuinely orphaned.
 func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Duration) {
 	if m.chargesStore == nil {
 		return
 	}
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	n, err := m.chargesStore.CloseStaleOpenLiveBefore(cctx, time.Now().Add(-staleAfter))
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	candidates, err := m.chargesStore.ListStaleOpenLive(listCtx, time.Now().Add(-staleAfter))
+	listCancel()
 	if err != nil {
-		m.logger.Debug("stale charge janitor failed", "err", err.Error())
+		m.logger.Debug("stale charge janitor list failed", "err", err.Error())
 		return
 	}
-	if n > 0 {
-		m.logger.Info("stale charge janitor closed rows", "count", n)
+	if len(candidates) == 0 {
+		return
 	}
+
+	var refreshed, abandoned int
+	for _, c := range candidates {
+		if ctx.Err() != nil {
+			return
+		}
+		stillCharging, finalState := m.confirmStillCharging(ctx, c.RivianVehicleID)
+		opCtx, opCancel := context.WithTimeout(ctx, 5*time.Second)
+		if stillCharging {
+			if _, err := m.chargesStore.RefreshOpenLive(opCtx, c.ExternalID, finalState); err != nil {
+				m.logger.Debug("stale charge keep-alive failed",
+					"vehicle", c.RivianVehicleID, "id", c.ExternalID, "err", err.Error())
+			} else {
+				refreshed++
+			}
+		} else {
+			if _, err := m.chargesStore.AbandonOpenLive(opCtx, c.ExternalID); err != nil {
+				m.logger.Debug("stale charge abandon failed",
+					"vehicle", c.RivianVehicleID, "id", c.ExternalID, "err", err.Error())
+			} else {
+				abandoned++
+			}
+		}
+		opCancel()
+	}
+	if refreshed > 0 || abandoned > 0 {
+		m.logger.Info("stale charge janitor",
+			"abandoned", abandoned, "refreshed", refreshed, "candidates", len(candidates))
+	}
+}
+
+// confirmStillCharging asks the Rivian REST gateway whether the
+// vehicle is still in a charging_* non-terminal state right now.
+// Returns (true, currentChargerState) only on a clean response that
+// agrees the session is live. On any error or ambiguity we return
+// false so the caller falls back to the safe close path.
+func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID string) (bool, string) {
+	if m.client == nil || rivianVehicleID == "" {
+		return false, ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	st, err := m.client.State(cctx, rivianVehicleID)
+	if err != nil || st == nil {
+		if err != nil && ctx.Err() == nil {
+			m.logger.Debug("stale charge REST confirm failed",
+				"vehicle", rivianVehicleID, "err", err.Error())
+		}
+		return false, ""
+	}
+	if !isChargingCS(st.ChargerState) {
+		return false, st.ChargerState
+	}
+	return true, st.ChargerState
 }
 
 // EnsureSubscribed guarantees a background subscription exists for
