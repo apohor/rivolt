@@ -290,6 +290,17 @@ decisions 5–7, 10–12.
 
 ### Runtime correctness at N > 1 pods
 
+- [x] **Zero-downtime deploys at replicaCount=1.** Helm chart
+      strategy switched from `Recreate` to `RollingUpdate`
+      (maxSurge=1, maxUnavailable=0), `persistence.enabled`
+      defaults to `false` (cookie secret + VAPID keys come from
+      the `rivolt-app` Secret), preStop sleep + 30s
+      terminationGracePeriodSeconds drain the pod cleanly. The
+      `Recreate` strategy is still selectable via `updateStrategy.type`
+      for operators who want PVC-backed `/data`. This unblocks
+      chart bumps from causing "no available server" but does NOT
+      unblock steady-state replicaCount>1 — the three items below
+      still gate that.
 - [ ] **Subscription lease reconciliation.** `subscription_leases`
       table + consistent hashing across the pod set + 30s
       reconciliation loop + 2-minute lease TTL. SIGTERM releases all

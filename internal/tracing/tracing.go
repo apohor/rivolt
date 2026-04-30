@@ -74,7 +74,7 @@ func Init(ctx context.Context, version string) (ShutdownFunc, error) {
 		serviceName = "rivolt"
 	}
 	res, err := resource.New(ctx,
-		resource.WithFromEnv(),  // OTEL_RESOURCE_ATTRIBUTES if set
+		resource.WithFromEnv(), // OTEL_RESOURCE_ATTRIBUTES if set
 		resource.WithProcess(),
 		resource.WithTelemetrySDK(),
 		resource.WithAttributes(

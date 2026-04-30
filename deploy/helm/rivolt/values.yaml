@@ -28,6 +28,38 @@ imagePullSecrets: []
 # but disabled-by-default for the same reason.
 replicaCount: 1
 
+# -- Deployment update strategy. RollingUpdate with maxSurge=1
+# and maxUnavailable=0 is the right default even at replicaCount=1
+# because it keeps the old pod serving until the new one is
+# Ready — eliminating the "no available server" gap during chart
+# bumps. The brief rollout window in which two pods both hold
+# Rivian websocket subscriptions is tolerable; full N>1 steady
+# state is not (see the gating bullets above).
+#
+# Operators who turn `persistence.enabled: true` on with a
+# ReadWriteOnce PVC must change this to `type: Recreate` —
+# RollingUpdate would deadlock at PVC attach. With
+# `persistence.enabled: false` (the default) there's no PVC, so
+# RollingUpdate is safe.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# -- Graceful shutdown knobs.
+#
+# preStopSleepSeconds: how long to sleep in the container's preStop
+# hook before the binary receives SIGTERM. Buys kube-proxy /
+# Traefik time to drop the pod from the Service's Endpoints, so
+# in-flight rollouts don't 502.
+#
+# terminationGracePeriodSeconds: must be > preStopSleepSeconds plus
+# the longest expected request duration. 30s is enough for the
+# GraphQL roundtrips against Rivian's gateway.
+preStopSleepSeconds: 5
+terminationGracePeriodSeconds: 30
+
 nameOverride: ""
 fullnameOverride: ""
 
@@ -122,11 +154,19 @@ podDisruptionBudget:
   enabled: false
   minAvailable: 1
 
-# -- Persistent storage for /data (cookie secret, VAPID keys auto-
-# generated on first boot, sqlite caches). Small; ~100Mi is plenty
-# in practice.
+# -- Persistent storage for /data.
+#
+# Historically held the cookie-secret file and auto-generated
+# VAPID keys. In every k8s deployment shape we ship today those
+# come from env (the `rivolt-app` Secret — see secrets.yaml), so
+# /data is unused in cluster mode and the PVC is a liability for
+# zero-downtime deploys (RWO can't attach to two pods at once).
+#
+# Default is now off. Self-hosters running docker-compose still
+# bind-mount their `data/` dir; this knob is for the rare cluster
+# operator who wants the legacy file-based cookie-secret path.
 persistence:
-  enabled: true
+  enabled: false
   storageClass: ""        # k3s: leave empty to inherit local-path
   accessModes: [ReadWriteOnce]
   size: 1Gi
