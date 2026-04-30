@@ -56,7 +56,10 @@ type Metrics struct {
 	// it open" in one PromQL.
 	RivianBreakerState prometheus.Gauge
 	RivianBreakerTrips *prometheus.CounterVec
-
+	// Global token bucket gating. Counter increments every time
+	// the bucket says no, partitioned by class so we can answer
+	// "is priority being starved".
+	RivianRateLimitBlocked *prometheus.CounterVec
 	// AI provider spend per user is intentionally NOT exposed here.
 	// User-id labels would blow up cardinality at 1000 vehicles. The
 	// existing internal/ai/usage.go writes per-user totals to
@@ -127,6 +130,13 @@ func New() *Metrics {
 			},
 			[]string{"reason"},
 		),
+		RivianRateLimitBlocked: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_rivian_ratelimit_blocked_total",
+				Help: "Outbound calls denied by the global token bucket, partitioned by class.",
+			},
+			[]string{"class"},
+		),
 		AIRequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_ai_requests_total",
@@ -143,6 +153,7 @@ func New() *Metrics {
 		m.SubscriptionLeases,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
+		m.RivianRateLimitBlocked,
 		m.AIRequestsTotal,
 	)
 	return m

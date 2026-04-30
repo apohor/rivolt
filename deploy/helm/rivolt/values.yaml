@@ -380,3 +380,16 @@ externalDatabase:
   # Optional: source DB_USER from the same Secret. CNPG's
   # `<cluster>-app` Secret carries `username` here.
   existingSecretUserKey: ""
+
+# ---------------------------------------------------------------------------
+# Global upstream rate limiter (Phase 2 #3)
+# ---------------------------------------------------------------------------
+#
+# Optional global token bucket against the Rivian GraphQL upstream,
+# shared across all rivolt pods via Redis. Empty `redis.addr`
+# disables it entirely (suitable for single-binary local dev and
+# any environment without a Redis to point at).
+ratelimit:
+  redis:
+    # host:port. e.g. "redis-master.redis.svc.cluster.local:6379"
+    addr: ""

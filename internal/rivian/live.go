@@ -76,6 +76,12 @@ type LiveClient struct {
 	// know about the other.
 	breaker *Breaker
 
+	// rateLimit, when non-nil, gates outbound calls on a global
+	// token bucket. Set via WithRateLimit. Built around an
+	// interface to keep this package free of internal/ratelimit
+	// imports — main.go does the wiring.
+	rateLimit RateLimiter
+
 	// reauthSink fires on classified UserAction errors so callers can
 	// persist users.needs_reauth. Best-effort; failures are not surfaced.
 	reauthSink func(ctx context.Context, reason string)
@@ -212,6 +218,36 @@ func (c *LiveClient) WithBreaker(b *Breaker) *LiveClient {
 	return c
 }
 
+// RateLimiter is the slice of ratelimit.Limiter the rivian package
+// uses. Lives here as an interface to keep this package import-free
+// of the limiter implementation (which depends on go-redis); main.go
+// does the wiring.
+//
+// Allow returns (true, 0) on grant and (false, retryAfter) when out
+// of budget. retryAfter feeds ErrRateLimited so callers can build a
+// Retry-After response.
+type RateLimiter interface {
+	Allow(ctx context.Context, class string) (bool, time.Duration)
+}
+
+// ErrRateLimited is returned by checkUpstream when the global
+// upstream token bucket is empty. Carries the retry-after so the
+// api layer can map it to a 503 Retry-After.
+type ErrRateLimited struct{ RetryAfter time.Duration }
+
+func (e *ErrRateLimited) Error() string {
+	return "rivian: rate limit exceeded; retry after " + e.RetryAfter.String()
+}
+
+// WithRateLimit attaches a global token-bucket gate. Calls
+// without an explicit class go through the "main" class; the
+// account-aware paths (Login, RefreshToken, getUserInformation)
+// can be promoted by the caller via doGraphQLPriority.
+func (c *LiveClient) WithRateLimit(rl RateLimiter) *LiveClient {
+	c.rateLimit = rl
+	return c
+}
+
 // WithReauthSink installs a callback fired on ClassUserAction errors.
 func (c *LiveClient) WithReauthSink(sink func(ctx context.Context, reason string)) *LiveClient {
 	c.reauthSink = sink
@@ -262,7 +298,38 @@ func (c *LiveClient) checkUpstream(ctx context.Context) error {
 			return err
 		}
 	}
+	if c.rateLimit != nil {
+		// Class is propagated via context; default is "main". The
+		// helper looks for the priority sentinel set by callers
+		// that handle user-blocking calls (Login, RefreshToken).
+		class := "main"
+		if priorityFromContext(ctx) {
+			class = "priority"
+		}
+		ok, retry := c.rateLimit.Allow(ctx, class)
+		if !ok {
+			return &ErrRateLimited{RetryAfter: retry}
+		}
+	}
 	return nil
+}
+
+// priorityCtxKey marks a context as "this call is user-blocking,
+// give it the priority bucket". Set with WithPriority; read by
+// checkUpstream.
+type priorityCtxKey struct{}
+
+// WithPriority returns a derived context that, when reached by
+// checkUpstream, draws from the priority token bucket instead of
+// the main one. Use for Login, RefreshToken, and any other call
+// the UI is blocked on.
+func WithPriority(ctx context.Context) context.Context {
+	return context.WithValue(ctx, priorityCtxKey{}, true)
+}
+
+func priorityFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(priorityCtxKey{}).(bool)
+	return v
 }
 
 // markNeedsReauth publishes the flag and fires the sink on the rising edge.
@@ -532,6 +599,11 @@ func (c *LiveClient) ensureCSRF(ctx context.Context) error {
 func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Login is user-blocking — the UI sits on the spinner. Promote
+	// to the priority token bucket so a reconnect storm in the
+	// main class can't lock new users out.
+	ctx = WithPriority(ctx)
 
 	if err := c.ensureCSRF(ctx); err != nil {
 		return err
