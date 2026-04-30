@@ -108,9 +108,31 @@ jobs:
       - name: go test
         run: go test ./...
 
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
+    # talks to over the default unix socket — no extra service: block
+    # needed.
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Pre-pull so the testcontainers run-time isn't dominated by the
+      # postgres image fetch. ~80MB, cached across runs by docker.
+      - name: Pull postgres image
+        run: docker pull postgres:16-alpine
+
+      - name: go test (integration)
+        run: go test -tags=integration -count=1 -timeout=5m ./internal/integration/...
+
   publish:
     name: publish
-    needs: [web, go]
+    needs: [web, go, integration]
     # Publish only on version tags or explicit manual dispatch. Pushes to
     # main run tests but don't produce an image — nothing consumes the
     # main/main-<sha> tags, and every merge re-publishing :latest-shaped
