@@ -434,26 +434,67 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				}
 			}
 			// Cold-start: when the user links Rivian *after* server
-			// boot, the monitor's cache is empty. Kick a best-effort
-			// refresh + subscription so the next /api/vehicles call
-			// returns image URLs and the recorder starts capturing
-			// drives without waiting for a /api/state click.
+			// boot, the monitor's cache is empty. Without this branch
+			// the first /api/vehicles call returns vehicles with no
+			// ImageURL, the frontend renders a placeholder, and only
+			// a manual reload (after the async refresh below
+			// completed) shows the real photo.
+			//
+			// Fix: on cold-start try the refresh synchronously with
+			// a tight budget (the request context already caps the
+			// upper bound). If it lands in time, re-enrich the
+			// response so first-load already has images. If it
+			// doesn't, fall back to the background path — the user
+			// still sees a placeholder this once, but at least the
+			// cache is warm for the next call.
 			if missingInfo {
-				go func() {
-					rctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-					defer cancel()
-					if err := mon.RefreshVehicleInfo(rctx); err != nil {
-						if logger != nil {
-							logger.Warn("post-login vehicle info refresh failed", "err", err.Error())
+				rctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+				err := mon.RefreshVehicleInfo(rctx)
+				cancel()
+				if err == nil {
+					for i := range vs {
+						if info := mon.VehicleInfo(vs[i].ID); info != nil {
+							if vs[i].ImageURL == "" {
+								vs[i].ImageURL = info.ImageURL
+							}
+							if len(vs[i].Images) == 0 {
+								vs[i].Images = info.Images
+							}
+							if vs[i].PackKWh == 0 {
+								vs[i].PackKWh = info.PackKWh
+							}
 						}
-						return
 					}
-					for _, v := range mon.AllVehicleInfo() {
-						if v.ID != "" {
-							mon.EnsureSubscribed(v.ID)
+					// Subscriptions are not on the response's
+					// critical path; fan them out async.
+					go func() {
+						for _, v := range mon.AllVehicleInfo() {
+							if v.ID != "" {
+								mon.EnsureSubscribed(v.ID)
+							}
 						}
+					}()
+				} else {
+					if logger != nil {
+						logger.Warn("post-login vehicle info refresh (sync) failed; falling back to async",
+							"err", err.Error())
 					}
-				}()
+					go func() {
+						bgctx, bgcancel := context.WithTimeout(context.Background(), 20*time.Second)
+						defer bgcancel()
+						if rerr := mon.RefreshVehicleInfo(bgctx); rerr != nil {
+							if logger != nil {
+								logger.Warn("post-login vehicle info refresh (async) failed", "err", rerr.Error())
+							}
+							return
+						}
+						for _, v := range mon.AllVehicleInfo() {
+							if v.ID != "" {
+								mon.EnsureSubscribed(v.ID)
+							}
+						}
+					}()
+				}
 			}
 		}
 		writeJSON(w, http.StatusOK, vs)
