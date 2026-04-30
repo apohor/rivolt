@@ -331,6 +331,16 @@ decisions 5–7, 10–12.
       of firing all at once. Telemetry:
       `rivolt_rivian_breaker_state` (0/1/2 gauge),
       `rivolt_rivian_breaker_trips_total{reason}` counter.
+- [ ] **Boot-to-record integration test.** End-to-end test that
+      stands up a testcontainers Postgres + the rivolt binary with
+      `RIVIAN_CLIENT=mock`, drives the mock through a state
+      transition, and asserts a row landed in `vehicle_state`.
+      Target the whole boot → leases → subscribe → recorder
+      pipeline as a single black box — the kind of test that would
+      have caught the v0.16.1 chicken-and-egg in CI instead of in
+      production. ~150 LOC of scaffolding + ~5–10s test runtime;
+      gate it behind `-tags integration` so the unit run stays
+      fast.
 - [ ] **Global upstream token bucket** in Redis, main + priority
       classes, Lua-scripted atomic check-and-decrement. See
       architecture decision 7.
