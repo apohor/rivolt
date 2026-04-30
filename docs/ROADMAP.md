@@ -301,10 +301,21 @@ decisions 5–7, 10–12.
       chart bumps from causing "no available server" but does NOT
       unblock steady-state replicaCount>1 — the three items below
       still gate that.
-- [ ] **Subscription lease reconciliation.** `subscription_leases`
-      table + consistent hashing across the pod set + 30s
-      reconciliation loop + 2-minute lease TTL. SIGTERM releases all
-      leases before exit. See architecture decision 5.
+- [x] **Subscription lease reconciliation.** Migration `0011`
+      adds a `subscription_leases (vehicle_id, pod_id, expires_at)`
+      table; `internal/leases.Coordinator` polls every 30s, calls
+      `INSERT … ON CONFLICT DO UPDATE WHERE expires_at < now() OR
+      pod_id = EXCLUDED.pod_id RETURNING pod_id` to opportunistically
+      claim unowned vehicles, renews held leases on every tick (TTL
+      2 min), and diffs Renew's returned set against its in-memory
+      `owned` to detect leases stolen by peers — firing
+      `StateMonitor.Unsubscribe` for losers and `EnsureSubscribed`
+      for new winners. SIGTERM calls `ReleaseAll` before HTTP
+      shutdown so peers pick the vehicles up while we drain. Pod
+      identity comes from `RIVOLT_POD_ID` (downward-API
+      `metadata.name` in the chart) with `os.Hostname()` as a
+      single-binary fallback. The `rivolt_subscription_leases`
+      gauge tracks the per-pod count.
 - [ ] **Reconnect-storm controls.** Jittered exponential backoff per
       subscription, 50ms startup stagger, global circuit breaker on
       Rivian 5xx/429. See architecture decision 6.

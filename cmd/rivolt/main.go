@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -335,6 +336,14 @@ func runServer() {
 		// and wired via SetStores — otherwise the initial REST seed
 		// fires before the recorder has anywhere to write.
 	}
+	// leaseCoordinator runs the multi-replica subscription
+	// reconciliation loop. nil when pgPool is nil (single-binary
+	// path) — the eager-subscribe fallback covers that case.
+	var leaseCoordinator *leases.Coordinator
+	// appMetrics owns the Prometheus registry. Built early so the
+	// lease coordinator can wire its count observer into the
+	// rivolt_subscription_leases gauge before Run() starts.
+	appMetrics := metrics.New()
 
 	vehiclesResolver := db.NewVehicleResolver(pgPool, currentUserID)
 
@@ -385,26 +394,96 @@ func runServer() {
 		// background. Best-effort — failure just means the SoC-delta
 		// fallback uses DefaultPackKWh (131) and the UI has no
 		// vehicle image to show. Don't block startup on Rivian's
-		// gateway being available. Once metadata lands, kick off a
-		// live-state subscription for every known vehicle so we
-		// capture drives that happen while no browser is open — the
-		// monitor used to only subscribe when /api/vehicles/{id}/state
-		// was hit, which meant a car driven overnight recorded no
-		// live samples.
+		// gateway being available.
 		go func() {
 			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
 			if err := stateMonitor.RefreshVehicleInfo(rctx); err != nil {
 				logger.Warn("vehicle info refresh failed", "err", err.Error())
-				return
-			}
-			for _, v := range stateMonitor.AllVehicleInfo() {
-				if v.ID == "" {
-					continue
-				}
-				stateMonitor.EnsureSubscribed(v.ID)
 			}
 		}()
+
+		// Subscription leases gate which vehicles THIS pod owns.
+		// Multi-replica steady state requires exactly one pod per
+		// vehicle; the leases.Coordinator polls Postgres every 30s,
+		// claims unowned vehicles, drops ones it loses, and fires
+		// EnsureSubscribed/Unsubscribe to keep the WS subscription
+		// set in sync.
+		//
+		// pod_id source: RIVOLT_POD_ID env (set via the k8s downward
+		// API in the Helm chart). Falls back to hostname so the
+		// docker-compose path works without extra config.
+		if pgPool != nil {
+			podID := os.Getenv("RIVOLT_POD_ID")
+			if podID == "" {
+				if h, err := os.Hostname(); err == nil && h != "" {
+					podID = h
+				} else {
+					// Last-resort identity. Two pods sharing this
+					// would silently disable coordination, so refuse
+					// to boot rather than corrupt the lease table.
+					logger.Error("cannot derive pod id; set RIVOLT_POD_ID")
+					os.Exit(1)
+				}
+			}
+			leaseStore, err := leases.NewStore(pgPool, podID)
+			if err != nil {
+				logger.Error("lease store", "err", err.Error())
+				os.Exit(1)
+			}
+			vehicleSource := func(qctx context.Context) ([]string, error) {
+				rows, err := pgPool.QueryContext(qctx,
+					`SELECT DISTINCT rivian_vehicle_id
+					   FROM vehicles
+					  WHERE rivian_vehicle_id <> ''`)
+				if err != nil {
+					return nil, err
+				}
+				defer rows.Close()
+				var out []string
+				for rows.Next() {
+					var v string
+					if err := rows.Scan(&v); err != nil {
+						return nil, err
+					}
+					out = append(out, v)
+				}
+				return out, rows.Err()
+			}
+			coord := leases.NewCoordinator(
+				leaseStore,
+				vehicleSource,
+				stateMonitor.EnsureSubscribed,
+				stateMonitor.Unsubscribe,
+				logger,
+			)
+			coord.SetCountObserver(func(n int) {
+				appMetrics.SubscriptionLeases.Set(float64(n))
+			})
+			go func() {
+				if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Warn("lease coordinator exited", "err", err.Error())
+				}
+			}()
+			// SIGTERM hook: hand leases over to surviving pods on
+			// graceful shutdown. Bounded so a Postgres blip can't
+			// block pod termination past terminationGracePeriodSeconds.
+			leaseCoordinator = coord
+		} else {
+			// Single-binary / docker-compose / tests: no DB → no
+			// coordination → eager-subscribe every vehicle the
+			// monitor knows about. Original behaviour preserved.
+			go func() {
+				// Wait for RefreshVehicleInfo to populate the cache.
+				time.Sleep(2 * time.Second)
+				for _, v := range stateMonitor.AllVehicleInfo() {
+					if v.ID == "" {
+						continue
+					}
+					stateMonitor.EnsureSubscribed(v.ID)
+				}
+			}()
+		}
 	}
 
 	// One-time migration: v0.1.7 and earlier keyed ElectraFi charge/drive
@@ -605,11 +684,6 @@ func runServer() {
 		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
-	// appMetrics owns the Prometheus registry. /metrics is mounted
-	// inside api.New when this is non-nil; kube-prometheus-stack
-	// scrapes it via the ServiceMonitor in deploy/helm/rivolt.
-	appMetrics := metrics.New()
-
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
 		RivianAccount: rivianAccount,
@@ -668,6 +742,15 @@ func runServer() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// Release leases BEFORE the HTTP server shuts down so peers
+	// can pick the vehicles up while we're still draining
+	// in-flight requests. ReleaseAll uses a short bounded context;
+	// a Postgres blip just delays acquisition until the TTL.
+	if leaseCoordinator != nil {
+		lctx, lcancel := context.WithTimeout(context.Background(), 3*time.Second)
+		leaseCoordinator.Shutdown(lctx)
+		lcancel()
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("shutdown error", "err", err.Error())
 	}
