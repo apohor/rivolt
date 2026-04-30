@@ -54,8 +54,8 @@ type Metrics struct {
 	// max_over_time != 0. Trips is a counter labelled by reason
 	// ("rate_limited" | "outage") so we can answer "what's making
 	// it open" in one PromQL.
-	RivianBreakerState  prometheus.Gauge
-	RivianBreakerTrips  *prometheus.CounterVec
+	RivianBreakerState prometheus.Gauge
+	RivianBreakerTrips *prometheus.CounterVec
 
 	// AI provider spend per user is intentionally NOT exposed here.
 	// User-id labels would blow up cardinality at 1000 vehicles. The
