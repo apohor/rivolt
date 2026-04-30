@@ -149,3 +149,112 @@ func TestNewStoreRejectsEmptyPodID(t *testing.T) {
 	// Can't easily test the empty-podID branch without a real *sql.DB;
 	// rely on integration coverage for that path.
 }
+
+// TestCoordinatorTriggerReconcile is the boot-trigger contract
+// test: a coordinator whose vehicle list is initially empty should
+// pick up newly-discovered vehicles within milliseconds of
+// TriggerReconcile, NOT wait the full reconcileInterval. Regression
+// test for the v0.16.1 fix where pod boot would wait ~30s for the
+// next tick before subscribing to anything.
+func TestCoordinatorTriggerReconcile(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	var (
+		mu       sync.Mutex
+		acquired []string
+		ready    bool
+	)
+	source := func(context.Context) ([]string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !ready {
+			return nil, nil
+		}
+		return []string{"v1"}, nil
+	}
+	c := newCoordinator(
+		fs,
+		source,
+		func(v string) {
+			mu.Lock()
+			acquired = append(acquired, v)
+			mu.Unlock()
+		},
+		func(string) {},
+		nil,
+		// Long interval — the test must succeed via the trigger,
+		// never via the ticker. If the trigger plumbing is broken
+		// this hangs and times out.
+		time.Hour,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		_ = c.Run(ctx)
+		close(done)
+	}()
+
+	// Wait for the immediate first reconcile (sees empty vehicle
+	// set), then flip the source and trigger.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		empty := len(acquired) == 0
+		mu.Unlock()
+		if empty {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	ready = true
+	mu.Unlock()
+	c.TriggerReconcile()
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := len(acquired)
+		mu.Unlock()
+		if got > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	mu.Lock()
+	if len(acquired) != 1 || acquired[0] != "v1" {
+		mu.Unlock()
+		t.Fatalf("expected v1 acquired via trigger, got %v", acquired)
+	}
+	mu.Unlock()
+
+	cancel()
+	<-done
+}
+
+// TestCoordinatorTriggerCoalesces verifies many simultaneous
+// TriggerReconcile calls don't pile up — the cap-1 channel
+// coalesces them into at most one extra reconcile beyond what's
+// in flight.
+func TestCoordinatorTriggerCoalesces(t *testing.T) {
+	t.Parallel()
+	c := newCoordinator(
+		newFakeStore(),
+		func(context.Context) ([]string, error) { return nil, nil },
+		func(string) {},
+		func(string) {},
+		nil,
+		time.Hour,
+	)
+	// 1000 triggers in a row — the channel should never block.
+	for i := 0; i < 1000; i++ {
+		c.TriggerReconcile()
+	}
+	// And it survives a nil receiver gracefully.
+	(*Coordinator)(nil).TriggerReconcile()
+}

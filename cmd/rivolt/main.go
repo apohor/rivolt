@@ -427,68 +427,30 @@ func runServer() {
 				logger.Error("lease store", "err", err.Error())
 				os.Exit(1)
 			}
-			vehicleSource := func(qctx context.Context) ([]string, error) {
-				// Source the vehicle set from THREE places, unioned:
-				//
-				//   1. stateMonitor.AllVehicleInfo() — the user's
-				//      vehicles per Rivian's getUserInformation REST
-				//      reply. This is the only source that's
-				//      populated BEFORE any subscription has run; the
-				//      vehicles table only gets rows once the
-				//      recorder writes a sample. Without this we
-				//      had a chicken-and-egg: no subscription → no
-				//      sample → no row → no subscription.
-				//
-				//   2. SELECT DISTINCT rivian_vehicle_id FROM
-				//      vehicles — picks up vehicles owned by users
-				//      who logged in on a peer pod but never on
-				//      this one. Required for true N>1 once that
-				//      lands; harmless overhead at N=1.
-				//
-				//   3. SELECT DISTINCT rivian_vehicle_id FROM
-				//      subscription_leases — covers the brief
-				//      window where a peer holds a lease for a
-				//      vehicle whose row hasn't been written yet
-				//      (just-logged-in user on a peer pod). The
-				//      coordinator's Acquire is a no-op for leases
-				//      already held elsewhere, so this only adds
-				//      visibility, never double-subscriptions.
-				seen := make(map[string]struct{})
-				if stateMonitor != nil {
-					for _, v := range stateMonitor.AllVehicleInfo() {
+			vehicleSource := leases.NewVehicleSource(
+				func() []string {
+					if stateMonitor == nil {
+						return nil
+					}
+					infos := stateMonitor.AllVehicleInfo()
+					out := make([]string, 0, len(infos))
+					for _, v := range infos {
 						if v.ID != "" {
-							seen[v.ID] = struct{}{}
+							out = append(out, v.ID)
 						}
 					}
-				}
-				queries := []string{
-					`SELECT DISTINCT rivian_vehicle_id FROM vehicles WHERE rivian_vehicle_id <> ''`,
-					`SELECT DISTINCT vehicle_id FROM subscription_leases WHERE vehicle_id <> ''`,
-				}
-				for _, q := range queries {
-					rows, err := pgPool.QueryContext(qctx, q)
-					if err != nil {
-						// Best-effort union: if one source fails,
-						// fall through to whatever we already have.
-						// Logging at debug level — the coordinator
-						// will retry next tick.
-						logger.Debug("vehicle source query", "err", err.Error())
-						continue
-					}
-					for rows.Next() {
-						var v string
-						if err := rows.Scan(&v); err == nil && v != "" {
-							seen[v] = struct{}{}
-						}
-					}
-					rows.Close()
-				}
-				out := make([]string, 0, len(seen))
-				for v := range seen {
-					out = append(out, v)
-				}
-				return out, nil
-			}
+					return out
+				},
+				logger,
+				func(qctx context.Context) ([]string, error) {
+					return leases.QueryStringColumn(qctx, pgPool,
+						`SELECT DISTINCT rivian_vehicle_id FROM vehicles WHERE rivian_vehicle_id <> ''`)
+				},
+				func(qctx context.Context) ([]string, error) {
+					return leases.QueryStringColumn(qctx, pgPool,
+						`SELECT DISTINCT vehicle_id FROM subscription_leases WHERE vehicle_id <> ''`)
+				},
+			)
 			coord := leases.NewCoordinator(
 				leaseStore,
 				vehicleSource,
