@@ -307,6 +307,8 @@ export type RivianStatus = {
   authenticated: boolean;
   mfa_pending: boolean;
   email?: string;
+  needs_reauth?: boolean;
+  needs_reauth_reason?: string;
 };
 
 // AIProvider enumerates the LLM backends Rivolt supports. Image/speech

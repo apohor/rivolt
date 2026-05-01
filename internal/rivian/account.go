@@ -24,6 +24,12 @@ type Account interface {
 	// Email returns the email the current session is authenticated
 	// as, or "" if no session is active.
 	Email() string
+	// NeedsReauth reports whether a runtime classifier (errclass /
+	// session expiry / WS auth failure) flagged the stored session
+	// as no longer usable. The user must run a fresh Login (likely
+	// with OTP) to clear it. The bool is the gate; the string is a
+	// human-readable reason for surfacing in the UI.
+	NeedsReauth() (bool, string)
 	// Snapshot returns a copy of the current session. Persisted as
 	// JSON by secrets.SaveRivianSession so a restart doesn't drop
 	// the login.

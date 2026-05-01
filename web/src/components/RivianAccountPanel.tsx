@@ -77,18 +77,35 @@ export function RivianAccountPanel() {
 
   if (s.authenticated) {
     return (
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm">
-          <div className="text-neutral-200">Connected as</div>
-          <div className="text-xs text-neutral-500">{s.email || "unknown"}</div>
+      <div className="space-y-3">
+        {s.needs_reauth && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <div className="font-medium text-amber-200">
+              Rivian session expired
+            </div>
+            <p className="mt-1 text-xs text-amber-100/80">
+              {s.needs_reauth_reason ||
+                "Rivian rejected our stored session token. Drives and live state may stop recording until you re-sign in."}
+            </p>
+            <p className="mt-1 text-xs text-amber-100/60">
+              Sign out below, then sign in again with your Rivian password (an
+              OTP email will follow).
+            </p>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm">
+            <div className="text-neutral-200">Connected as</div>
+            <div className="text-xs text-neutral-500">{s.email || "unknown"}</div>
+          </div>
+          <button
+            onClick={() => logout.mutate()}
+            disabled={logout.isPending}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-rose-500/50 hover:text-rose-300 disabled:opacity-50"
+          >
+            {logout.isPending ? "Signing out…" : "Sign out"}
+          </button>
         </div>
-        <button
-          onClick={() => logout.mutate()}
-          disabled={logout.isPending}
-          className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-rose-500/50 hover:text-rose-300 disabled:opacity-50"
-        >
-          {logout.isPending ? "Signing out…" : "Sign out"}
-        </button>
       </div>
     );
   }

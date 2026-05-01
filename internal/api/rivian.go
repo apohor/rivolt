@@ -19,6 +19,15 @@ type rivianStatusDTO struct {
 	Authenticated bool   `json:"authenticated"`
 	MFAPending    bool   `json:"mfa_pending"`
 	Email         string `json:"email,omitempty"`
+	// NeedsReauth signals that a stored session is structurally
+	// present (Authenticated=true) but a runtime classifier has
+	// flagged it as no longer usable — typically because Rivian's
+	// WS gateway is rejecting the userSessionToken even though the
+	// REST cache still hides the rot. UI surfaces a banner so the
+	// user knows to re-sign in instead of waiting for missing
+	// drives to tip them off.
+	NeedsReauth       bool   `json:"needs_reauth"`
+	NeedsReauthReason string `json:"needs_reauth_reason,omitempty"`
 }
 
 func handleRivianStatus(lc rivian.Account) http.HandlerFunc {
@@ -27,11 +36,14 @@ func handleRivianStatus(lc rivian.Account) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
 			return
 		}
+		needs, reason := lc.NeedsReauth()
 		writeJSON(w, http.StatusOK, rivianStatusDTO{
-			Enabled:       true,
-			Authenticated: lc.Authenticated(),
-			MFAPending:    lc.MFAPending(),
-			Email:         lc.Email(),
+			Enabled:           true,
+			Authenticated:     lc.Authenticated(),
+			MFAPending:        lc.MFAPending(),
+			Email:             lc.Email(),
+			NeedsReauth:       needs,
+			NeedsReauthReason: reason,
 		})
 	}
 }

@@ -211,6 +211,13 @@ func (c *MockClient) Email() string {
 	return c.email
 }
 
+// NeedsReauth is always (false, "") for the mock client — the mock
+// has no concept of server-side session expiry, and tests that
+// exercise the needs_reauth UI path drive the LiveClient directly.
+func (c *MockClient) NeedsReauth() (bool, string) {
+	return false, ""
+}
+
 // Logout clears every authenticated-session field.
 func (c *MockClient) Logout() {
 	c.mu.Lock()
