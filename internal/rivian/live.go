@@ -279,15 +279,6 @@ func (c *LiveClient) SetNeedsReauth(needs bool, reason string) {
 	c.reauthState.Store(&reauthSnapshot{needs: true, reason: reason})
 }
 
-// MarkNeedsReauth is the runtime variant: sets the flag AND fires the
-// sink on the rising edge so persistence wakes up. Use when something
-// outside doGraphQLAt observes session-level failure (e.g. the WS
-// stream silently parks because the session token expired
-// server-side). Idempotent if already needs-reauth.
-func (c *LiveClient) MarkNeedsReauth(ctx context.Context, reason string) {
-	c.markNeedsReauth(ctx, reason)
-}
-
 // checkUpstream runs the configured gate; nil gate allows.
 func (c *LiveClient) checkUpstream(ctx context.Context) error {
 	// Per-user re-auth takes precedence over the global gate.

@@ -366,21 +366,6 @@ func runServer() {
 	var stateMonitor *rivian.StateMonitor
 	if lc, ok := rivianClient.(*rivian.LiveClient); ok {
 		stateMonitor = rivian.NewStateMonitor(lc, logger)
-		// Wire the WS-zombie -> needs_reauth bridge. The monitor
-		// detects the case where Rivian's gateway silently parks a
-		// subscription whose userSessionToken has expired
-		// server-side (zero pushed frames over a long-running
-		// attempt). Without this hook the recorder retries
-		// forever; with it, after zombieReauthThreshold strikes we
-		// flip needs_reauth so the UI surfaces the re-login
-		// prompt and the user knows to act. There is no exposed
-		// Rivian "refreshTokens" mutation — verified against
-		// jrgutier/rivian-python-client and home-assistant-rivian,
-		// neither of which implements rotation — so re-login is
-		// the only recovery path.
-		stateMonitor.SetReauthHook(func(ctx context.Context, reason string) {
-			lc.MarkNeedsReauth(ctx, reason)
-		})
 		// Start is deferred until after the stores are opened below
 		// and wired via SetStores — otherwise the initial REST seed
 		// fires before the recorder has anywhere to write.

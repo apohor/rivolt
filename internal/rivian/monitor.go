@@ -62,14 +62,6 @@ type StateMonitor struct {
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
 
-	// zombieStreaks counts consecutive zero-frame WS attempts per
-	// vehicle. Reset to 0 on any subscribe that returns frames > 0
-	// or with a non-nil error. Guarded by sessMu. When a streak
-	// crosses zombieReauthThreshold, reauth (if non-nil) is fired
-	// to flip the rivolt-wide needs_reauth flag.
-	zombieStreaks map[string]int
-	reauth        func(ctx context.Context, reason string)
-
 	// startupStagger spaces out the first WS connect attempt of each
 	// run() goroutine so a coordinator-driven mass-acquire (or a
 	// pod restart with N existing leases) doesn't fire N parallel
@@ -103,42 +95,20 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	return &StateMonitor{
-		client:        client,
-		logger:        logger,
-		cache:         make(map[string]*State),
-		stamp:         make(map[string]time.Time),
-		active:        make(map[string]context.CancelFunc),
-		sessions:      make(map[string]*liveSessions),
-		lastSession:   make(map[string]*LiveSession),
-		vehicleInfo:   make(map[string]*Vehicle),
-		zombieStreaks: make(map[string]int),
+		client:      client,
+		logger:      logger,
+		cache:       make(map[string]*State),
+		stamp:       make(map[string]time.Time),
+		active:      make(map[string]context.CancelFunc),
+		sessions:    make(map[string]*liveSessions),
+		lastSession: make(map[string]*LiveSession),
+		vehicleInfo: make(map[string]*Vehicle),
 		// 50ms between WS subscribe attempts. With a 60-vehicle pod
 		// that's a 3-second cold-start spread, well below Rivian's
 		// observed rate-limit window.
 		staggerInterval: 50 * time.Millisecond,
 	}
 }
-
-// SetReauthHook installs a callback fired when a vehicle's WS
-// subscription has been a confirmed zombie (zero pushed frames per
-// long-running attempt) for zombieReauthThreshold consecutive runs.
-// The hook is expected to mark the rivolt session as needs_reauth
-// — typically `lc.MarkNeedsReauth` — so the UI surfaces the
-// re-login prompt instead of silently retrying forever.
-//
-// Optional: nil hook means "log only", which is fine for tests and
-// the mock client path.
-func (m *StateMonitor) SetReauthHook(fn func(ctx context.Context, reason string)) {
-	m.reauth = fn
-}
-
-// zombieReauthThreshold is how many consecutive zero-frame zombie
-// subscriptions we tolerate before tripping needs_reauth. With
-// wsStaleThreshold=10m the watchdog kills a zombie after ~10 min,
-// so threshold=3 means we wait ~30 min of confirmed zero-frame
-// streak before involving the human. Tuned so a single transient
-// gateway blip can't log the user out unnecessarily.
-const zombieReauthThreshold = 3
 
 // SetStores wires the recording stores. All three are optional — pass
 // nil to disable that particular writer. Safe to call before Start;
@@ -498,60 +468,38 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			// Zombie: Rivian's gateway stopped pushing telemetry —
 			// either it never started (frames == 0, classic
 			// stale-token-on-connect) or it went silent mid-session
-			// long enough for the watchdog to kill the WS. Both
-			// presentations are silent server-side failures and
-			// retrying without re-auth typically loops forever.
-			//
-			// Why we treat mid-session silence as a zombie even
-			// though frames > 0: the subscribe call only returns
-			// telemetry that Rivian chose to push. Once a session
-			// goes silent for 10 min the gateway has effectively
-			// dropped us, and re-subscribing on the same token
-			// puts us right back in the same state (we observed
-			// 4+ consecutive 10-min silence cycles in production
-			// before this branch existed).
+			// long enough for the watchdog to kill the WS. Logged
+			// loudly as a top-of-list dashboard signal, but we do
+			// NOT auto-flip needs_reauth:
+			//   1. Rivian exposes no public refreshTokens mutation
+			//      (verified against jrgutier/rivian-python-client
+			//      and home-assistant-rivian), so the only recovery
+			//      is full re-login + OTP — disruptive enough that
+			//      false positives are worse than false negatives.
+			//   2. A genuinely sleeping car or weak-LTE pocket can
+			//      produce 30+ min of legitimate silence on a still
+			//      valid token; the heartbeat assumption is not a
+			//      contract. Auto-tripping reauth on those would
+			//      OTP-spam the user.
+			// The user notices missing data and re-logs in manually
+			// — annoying but recoverable; ops still gets the signal
+			// via the ERROR log when investigating gaps.
 			reason := "frames=0 from connect"
 			if watchdogKilled {
 				reason = "watchdog: no push for wsStaleThreshold"
 			}
-			m.logger.Error("rivian ws zombie subscription, likely stale session token",
+			m.logger.Error("rivian ws zombie subscription",
 				"vehicle", vehicleID,
 				"session_dur", sessionDur.Round(time.Second).String(),
 				"frames", frames,
 				"reason", reason,
-				"hint", "user must re-login")
-
-			// Bump per-vehicle zombie counter; trip needs_reauth
-			// after zombieReauthThreshold consecutive zombies. One
-			// zombie isn't enough — could be a transient gateway
-			// hiccup. zombieReauthThreshold consecutive across
-			// >zombieReauthThreshold * (wsStaleThreshold/2) of
-			// wall-clock means the token is genuinely server-side
-			// dead, not a blip. Sets the rivolt-wide needs_reauth
-			// flag so the UI surfaces the re-login prompt and the
-			// recorder stops futilely retrying until the user
-			// fixes it.
-			m.sessMu.Lock()
-			m.zombieStreaks[vehicleID]++
-			streak := m.zombieStreaks[vehicleID]
-			m.sessMu.Unlock()
-			if streak >= zombieReauthThreshold && m.reauth != nil {
-				m.logger.Error("rivian ws zombie streak crossed threshold, marking needs_reauth",
-					"vehicle", vehicleID, "streak", streak)
-				m.reauth(ctx, "rivian ws zombie streak (stale session token)")
-			}
+				"hint", "if persistent, user re-login may be required")
 		case err != nil:
-			m.sessMu.Lock()
-			m.zombieStreaks[vehicleID] = 0
-			m.sessMu.Unlock()
 			m.logger.Warn("rivian ws subscribe ended, retrying",
 				"vehicle", vehicleID, "err", err.Error(),
 				"frames", frames, "session_dur", sessionDur.Round(time.Second).String(),
 				"backoff", backoff.String())
 		default:
-			m.sessMu.Lock()
-			m.zombieStreaks[vehicleID] = 0
-			m.sessMu.Unlock()
 			m.logger.Info("rivian ws subscribe returned cleanly, resubscribing",
 				"vehicle", vehicleID,
 				"frames", frames, "session_dur", sessionDur.Round(time.Second).String(),
