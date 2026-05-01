@@ -140,6 +140,67 @@ func TestHandleChargeLifecycle_NormalFrameKeepsSession(t *testing.T) {
 	}
 }
 
+// TestHandleChargeLifecycle_CloseUsesLatestFrameSoC reproduces the
+// 5/1 8861cda4 row: WS goes silent mid-charge, reconnects only after
+// the car has finished charging, and the very first post-gap frame
+// is already charging_complete + plug-disconnected. Without pulling
+// the latest frame's SoC into the row before persisting, the close
+// branch writes the pre-gap endSoC (76.6%) even though the car
+// charged all the way to 95%.
+//
+// We can't observe the persisted row directly without a real store,
+// so we hook the mutation by intercepting it via a sentinel inserted
+// before the close: drive an "ongoing" frame at 95% (still charging
+// + plugged) so handleChargeLifecycle stays on the ongoing branch
+// and we can read s.charge.endSoC, then do a separate close pass.
+// The close branch's job is to forward those same mutations when
+// the *first* post-gap frame is already terminal — which is what
+// the v0.17.5 fix added.
+func TestHandleChargeLifecycle_CloseUsesLatestFrameSoC(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 1, 1, 53, 0, 0, time.UTC)
+	_ = s.handleChargeLifecycle(chargingFrame(t0, 63.7), nil, m, ctx)
+	_ = s.handleChargeLifecycle(chargingFrame(t0.Add(2*time.Hour+26*time.Minute), 76.6), nil, m, ctx)
+	if s.charge == nil || s.charge.endSoC < 76.0 || s.charge.endSoC > 77.0 {
+		t.Fatalf("setup: charge endSoC should be ~76.6, got %+v", s.charge)
+	}
+	preGapEndSoC := s.charge.endSoC
+	preGapEndAt := s.charge.endAt
+
+	// 3.5h WS gap, then reconnect: first post-gap frame says the car
+	// is already done charging at 95%, plug disconnected. This frame
+	// must hit the close branch, not the ongoing branch.
+	postGap := &State{
+		VehicleID:       "vid-1",
+		At:              t0.Add(6 * time.Hour),
+		BatteryLevelPct: 95,
+		ChargerState:    "charging_complete",
+		ChargerStatus:   "chrgr_sts_disconnected",
+	}
+	// We can't read s.charge after the close (the branch nils it
+	// out). But the close branch is required to mutate s.charge in
+	// place BEFORE calling upsert. To verify, we tee a copy by
+	// calling handleChargeLifecycle in a goroutine-free way: stash
+	// a pointer alias before invocation, observe via the alias.
+	chargeRef := s.charge
+	_ = s.handleChargeLifecycle(postGap, nil, m, ctx)
+	if s.charge != nil {
+		t.Fatalf("close branch must clear in-memory charge accumulator")
+	}
+	if chargeRef.endSoC == preGapEndSoC {
+		t.Fatalf("close branch must advance endSoC from pre-gap value (%v); still got %v", preGapEndSoC, chargeRef.endSoC)
+	}
+	if chargeRef.endSoC < 94 {
+		t.Fatalf("close branch must adopt latest frame's 95%% SoC; got %v", chargeRef.endSoC)
+	}
+	if !chargeRef.endAt.After(preGapEndAt) {
+		t.Fatalf("close branch must advance endAt past pre-gap (%v); got %v", preGapEndAt, chargeRef.endAt)
+	}
+}
+
 // TestHandleDriveLifecycle_StaleGapForcesNewSession is the drive
 // analogue: a long frame gap with the gear still in D means the WS
 // almost certainly straddled two real drives.

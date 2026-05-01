@@ -404,6 +404,21 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 
 	// Close charge on terminal state.
 	if !charging && s.charge != nil {
+		// Pull the latest frame's SoC / timestamp / peak power into
+		// the row before closing. Without this, a WS that goes silent
+		// mid-session and reconnects only after the car has finished
+		// charging (so the very first post-gap frame is already
+		// charging_complete) closes the row with the pre-gap endSoC,
+		// producing rows where energy_added is correct but endSoC
+		// reflects the SoC from when the WS died, not the actual
+		// final state. Mirrors the "charge ongoing" branch above.
+		s.charge.endAt = curr.At
+		if curr.BatteryLevelPct > s.charge.endSoC {
+			s.charge.endSoC = curr.BatteryLevelPct
+		}
+		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
+			s.charge.maxPower = curr.ChargerPowerKW
+		}
 		s.charge.finalState = curr.ChargerState
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		n := s.charge.number

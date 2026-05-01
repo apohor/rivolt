@@ -33,8 +33,16 @@ type StateMonitor struct {
 	cache    map[string]*State
 	stamp    map[string]time.Time
 	active   map[string]context.CancelFunc
-	parent   context.Context //nolint:containedctx // outer ctx for spawned subscriptions
-	stopOnce sync.Once
+	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
+	// to non-owning goroutines (notably periodicRefresh) so a REST
+	// observation that the car just woke up can poke the WS to
+	// resubscribe — instead of waiting up to wsStaleThreshold for the
+	// watchdog to notice. Populated by run() before each Subscribe
+	// call and cleared on return; nil/missing entry means the
+	// supervisor is currently in backoff. Guarded by mu.
+	subCancel map[string]context.CancelCauseFunc
+	parent    context.Context //nolint:containedctx // outer ctx for spawned subscriptions
+	stopOnce  sync.Once
 
 	// Live recording stores (all optional — nil stores disable that
 	// particular writer). Samples captures every merged state update
@@ -100,6 +108,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		cache:       make(map[string]*State),
 		stamp:       make(map[string]time.Time),
 		active:      make(map[string]context.CancelFunc),
+		subCancel:   make(map[string]context.CancelCauseFunc),
 		sessions:    make(map[string]*liveSessions),
 		lastSession: make(map[string]*LiveSession),
 		vehicleInfo: make(map[string]*Vehicle),
@@ -418,6 +427,13 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// "TCP RST / network error" (= retry quietly), since both
 		// surface as `err = context canceled` once cancelSub fires.
 		subCtx, cancelSub := context.WithCancelCause(ctx)
+		// Publish the cancel handle so periodicRefresh can poke us
+		// when REST detects the car just woke up (otherwise we'd
+		// wait up to wsStaleThreshold for the watchdog). Cleared
+		// below on return.
+		m.mu.Lock()
+		m.subCancel[vehicleID] = cancelSub
+		m.mu.Unlock()
 		// Reset stamp cursor so the watchdog measures this attempt,
 		// not a stale value from a prior failed connection. Track
 		// connect time + frame count so we can distinguish three
@@ -453,6 +469,9 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			m.record(ctx, vehicleID, prev, merged)
 		})
 		cancelSub(nil)
+		m.mu.Lock()
+		delete(m.subCancel, vehicleID)
+		m.mu.Unlock()
 		if ctx.Err() != nil {
 			break
 		}
@@ -462,8 +481,20 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// still classifies. errStaleSubscription is the watchdog's
 		// signature.
 		watchdogKilled := errors.Is(context.Cause(subCtx), errStaleSubscription)
+		// Resubscribe nudge from periodicRefresh \u2014 not a fault, not
+		// a zombie, just a fast bounce so a freshly-woken car gets
+		// a clean WS without waiting for the watchdog window.
+		nudged := errors.Is(context.Cause(subCtx), errResubscribeRequested)
 
 		switch {
+		case nudged:
+			// Wake-up nudge from periodicRefresh. Reset backoff so
+			// the next Subscribe call fires immediately.
+			m.logger.Info("rivian ws resubscribe nudge",
+				"vehicle", vehicleID,
+				"session_dur", sessionDur.Round(time.Second).String(),
+				"frames", frames)
+			backoff = time.Second
 		case watchdogKilled || (frames == 0 && sessionDur > wsStaleThreshold/2):
 			// Zombie: Rivian's gateway stopped pushing telemetry —
 			// either it never started (frames == 0, classic
@@ -579,6 +610,31 @@ func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, 
 // observable via context.Cause(subCtx) after the call returns.
 var errStaleSubscription = errors.New("rivian ws stale, watchdog cancelled subscription")
 
+// errResubscribeRequested is the cancel cause stamped by the
+// resubscribe nudge path (periodicRefresh \u2192 kickResubscribe). Treated
+// as a clean reset by the supervise loop: no zombie warning, backoff
+// snaps to 1s so the next SubscribeVehicleState fires immediately.
+// Used when REST observes the car just woke up while the WS has been
+// quiet \u2014 we don't want to wait up to wsStaleThreshold for the
+// watchdog to discover what we already know.
+var errResubscribeRequested = errors.New("rivian ws resubscribe requested by wakeup nudge")
+
+// kickResubscribe cancels the active SubscribeVehicleState context
+// for vehicleID, if any, with errResubscribeRequested as the cause.
+// No-op if there is no active subscription (e.g. the supervisor is
+// in backoff between attempts). Caller must NOT hold m.mu.
+func (m *StateMonitor) kickResubscribe(vehicleID, reason string) {
+	m.mu.Lock()
+	cancel := m.subCancel[vehicleID]
+	m.mu.Unlock()
+	if cancel == nil {
+		return
+	}
+	m.logger.Info("rivian ws kicking resubscribe",
+		"vehicle", vehicleID, "reason", reason)
+	cancel(errResubscribeRequested)
+}
+
 // adaptiveRefreshInterval picks a REST refresh cadence based on the
 // cached power state. REST GetVehicleState is known to bump the
 // vehicle out of deep sleep in some firmwares (home-assistant-rivian
@@ -655,8 +711,49 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string) {
 		m.cache[vehicleID] = merged
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
+		// Resubscribe nudge: REST just observed an interesting
+		// transition (car woke up / plugged in / shifted into D /
+		// SoC moved meaningfully). Kick the supervise loop instead
+		// of waiting up to wsStaleThreshold for the watchdog to
+		// notice. No-op when no Subscribe is currently active.
+		if prev != nil && wakeWorthyTransition(prev, st) {
+			m.kickResubscribe(vehicleID, "rest detected wakeup transition")
+		}
 		m.record(ctx, vehicleID, prev, merged)
 	}
+}
+
+// wakeWorthyTransition returns true when the REST snapshot reveals
+// state that the cached frame doesn't show, in a way that means the
+// car is awake and likely emitting telemetry. We bias toward false
+// negatives (over-trigger is just an extra reconnect, but waking a
+// sleeping car for nothing is bad). Triggers on:
+//   - powerState moving out of sleep/empty into anything else
+//   - gear transitioning into a driving gear
+//   - chargerState transitioning into an active charging state
+//   - SoC delta > 1% (whatever happened, the BMS is awake)
+func wakeWorthyTransition(prev, curr *State) bool {
+	if prev == nil || curr == nil {
+		return false
+	}
+	prevPS := strings.ToLower(strings.TrimSpace(prev.PowerState))
+	currPS := strings.ToLower(strings.TrimSpace(curr.PowerState))
+	wasAsleep := prevPS == "" || prevPS == "sleep"
+	if wasAsleep && currPS != "" && currPS != "sleep" {
+		return true
+	}
+	if !isDrivingGear(prev.Gear) && isDrivingGear(curr.Gear) {
+		return true
+	}
+	prevCharging := isChargingCS(prev.ChargerState)
+	currCharging := isChargingCS(curr.ChargerState)
+	if !prevCharging && currCharging {
+		return true
+	}
+	if d := curr.BatteryLevelPct - prev.BatteryLevelPct; d > 1 || d < -1 {
+		return true
+	}
+	return false
 }
 
 // chargingSessionMetadataFetcher pulls session-immutable metadata
