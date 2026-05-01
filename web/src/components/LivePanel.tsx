@@ -526,15 +526,33 @@ function ParkedSummary({
 }) {
   // Pull the full lists — they're already cached by /drives and
   // /charges pages (same queryKey), so this is usually a free hit.
+  // While the live state shows an active session (driving OR
+  // charger pulling power), poll the lists every 5s so the
+  // "Last drive" / "Last charge" rows reflect the in-flight session
+  // within a frame cycle instead of waiting for tab focus. Otherwise
+  // these lists rarely change minute-to-minute and refetch on focus
+  // is plenty.
+  const sessionInFlight =
+    (state.speed_kph ?? 0) > 1 ||
+    state.gear === "Drive" ||
+    state.gear === "Reverse" ||
+    state.gear === "D" ||
+    state.gear === "R" ||
+    (state.charger_power_kw ?? 0) > 0.1 ||
+    state.charger_state === "charging_active" ||
+    state.charger_state === "charging_dc";
+  const listRefetch = sessionInFlight ? 5_000 : false;
   const drives = useQuery<Drive[]>({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
     staleTime: 60_000,
+    refetchInterval: listRefetch,
   });
   const charges = useQuery<Charge[]>({
     queryKey: ["charges", "all"],
     queryFn: () => backend.allCharges(),
     staleTime: 60_000,
+    refetchInterval: listRefetch,
   });
   const lastDrive = drives.data?.[0];
   const lastCharge = charges.data?.[0];
