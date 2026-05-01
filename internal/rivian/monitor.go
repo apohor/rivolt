@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
@@ -411,13 +412,25 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	for ctx.Err() == nil {
 		subCtx, cancelSub := context.WithCancel(ctx)
 		// Reset stamp cursor so the watchdog measures this attempt,
-		// not a stale value from a prior failed connection.
+		// not a stale value from a prior failed connection. Track
+		// connect time + frame count so we can distinguish three
+		// outcomes after the call returns:
+		//   1. healthy session that lasted long enough to be
+		//      considered "good" before going stale — reset backoff.
+		//   2. zombie: subscribed cleanly but received ZERO frames
+		//      before the watchdog killed it. Strong signal that
+		//      our session token is server-side stale even though
+		//      Rivian accepts the connection.
+		//   3. fast failure — apply backoff.
 		m.mu.Lock()
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
+		var frameCount int64
+		connectAt := time.Now()
 		go m.watchSubscription(subCtx, vehicleID, cancelSub)
 
 		err := m.client.SubscribeVehicleState(subCtx, vehicleID, func(st *State) {
+			atomic.AddInt64(&frameCount, 1)
 			m.mu.Lock()
 			// Rivian pushes deltas — each frame contains only the
 			// fields that changed. Merge non-zero/non-empty values
@@ -435,15 +448,50 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		if ctx.Err() != nil {
 			break
 		}
-		if err != nil {
-			m.logger.Warn("rivian ws subscribe ended, retrying", "vehicle", vehicleID, "err", err.Error(), "backoff", backoff.String())
-		} else {
-			m.logger.Info("rivian ws subscribe returned cleanly, resubscribing", "vehicle", vehicleID, "backoff", backoff.String())
+		sessionDur := time.Since(connectAt)
+		frames := atomic.LoadInt64(&frameCount)
+
+		switch {
+		case frames == 0 && sessionDur > wsStaleThreshold/2:
+			// Zombie: dial succeeded, GraphQL subscribe ack'd, but
+			// upstream sent zero frames before the watchdog killed
+			// it. Almost always means our userSessionToken is
+			// server-side expired — Rivian's gateway silently parks
+			// stale-token subscriptions instead of closing them.
+			// Log loudly so this is a top-of-list signal in any
+			// dashboard. NOT eligible for the long-session backoff
+			// reset below — until reauth happens, the next dial
+			// will hit the same wall.
+			m.logger.Error("rivian ws zombie subscription, likely stale session token",
+				"vehicle", vehicleID,
+				"session_dur", sessionDur.Round(time.Second).String(),
+				"frames", 0,
+				"hint", "user must re-login")
+		case err != nil:
+			m.logger.Warn("rivian ws subscribe ended, retrying",
+				"vehicle", vehicleID, "err", err.Error(),
+				"frames", frames, "session_dur", sessionDur.Round(time.Second).String(),
+				"backoff", backoff.String())
+		default:
+			m.logger.Info("rivian ws subscribe returned cleanly, resubscribing",
+				"vehicle", vehicleID,
+				"frames", frames, "session_dur", sessionDur.Round(time.Second).String(),
+				"backoff", backoff.String())
 		}
-		// Any successful session resets backoff; a fast failure
-		// escalates up to 60 s. Jitter the actual sleep ±50% so
-		// concurrent vehicles whose sessions died from the same
-		// upstream blip don't reconnect in lockstep.
+
+		// Long, healthy sessions that go stale are not faults — a
+		// car that drove for 2h then went to sleep shouldn't make
+		// us wait 64s before resubscribing. Reset the backoff
+		// staircase whenever the call returned after wsStaleThreshold,
+		// regardless of which "ended" branch we took, as long as we
+		// actually saw frames during the run (zombies don't count).
+		if frames > 0 && sessionDur >= wsStaleThreshold {
+			backoff = time.Second
+		}
+
+		// Jitter the actual sleep ±50% so concurrent vehicles whose
+		// sessions died from the same upstream blip don't reconnect
+		// in lockstep.
 		select {
 		case <-ctx.Done():
 		case <-time.After(jitter(backoff)):
