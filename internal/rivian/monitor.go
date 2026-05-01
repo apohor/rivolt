@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"strings"
@@ -440,17 +441,24 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// a 15-min heartbeat check.
 	backoff := time.Second
 	for ctx.Err() == nil {
-		subCtx, cancelSub := context.WithCancel(ctx)
+		// WithCancelCause so the watchdog can stamp the cancellation
+		// with errStaleSubscription. Without that we can't
+		// distinguish "Rivian gateway stopped pushing for 10m and we
+		// killed the WS" (= the symptom we want to escalate on) from
+		// "TCP RST / network error" (= retry quietly), since both
+		// surface as `err = context canceled` once cancelSub fires.
+		subCtx, cancelSub := context.WithCancelCause(ctx)
 		// Reset stamp cursor so the watchdog measures this attempt,
 		// not a stale value from a prior failed connection. Track
 		// connect time + frame count so we can distinguish three
 		// outcomes after the call returns:
 		//   1. healthy session that lasted long enough to be
 		//      considered "good" before going stale — reset backoff.
-		//   2. zombie: subscribed cleanly but received ZERO frames
-		//      before the watchdog killed it. Strong signal that
-		//      our session token is server-side stale even though
-		//      Rivian accepts the connection.
+		//   2. zombie: subscription went silent (watchdog fired)
+		//      OR received zero frames before the watchdog killed
+		//      it. Both are signals that Rivian's gateway has
+		//      stopped honoring the subscription, typically because
+		//      the userSessionToken expired server-side.
 		//   3. fast failure — apply backoff.
 		m.mu.Lock()
 		m.stamp[vehicleID] = time.Now()
@@ -474,28 +482,43 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			m.mu.Unlock()
 			m.record(ctx, vehicleID, prev, merged)
 		})
-		cancelSub()
+		cancelSub(nil)
 		if ctx.Err() != nil {
 			break
 		}
 		sessionDur := time.Since(connectAt)
 		frames := atomic.LoadInt64(&frameCount)
+		// errors.Is so any wrapped form (context.Cause may chain)
+		// still classifies. errStaleSubscription is the watchdog's
+		// signature.
+		watchdogKilled := errors.Is(context.Cause(subCtx), errStaleSubscription)
 
 		switch {
-		case frames == 0 && sessionDur > wsStaleThreshold/2:
-			// Zombie: dial succeeded, GraphQL subscribe ack'd, but
-			// upstream sent zero frames before the watchdog killed
-			// it. Almost always means our userSessionToken is
-			// server-side expired — Rivian's gateway silently parks
-			// stale-token subscriptions instead of closing them.
-			// Log loudly so this is a top-of-list signal in any
-			// dashboard. NOT eligible for the long-session backoff
-			// reset below — until reauth happens, the next dial
-			// will hit the same wall.
+		case watchdogKilled || (frames == 0 && sessionDur > wsStaleThreshold/2):
+			// Zombie: Rivian's gateway stopped pushing telemetry —
+			// either it never started (frames == 0, classic
+			// stale-token-on-connect) or it went silent mid-session
+			// long enough for the watchdog to kill the WS. Both
+			// presentations are silent server-side failures and
+			// retrying without re-auth typically loops forever.
+			//
+			// Why we treat mid-session silence as a zombie even
+			// though frames > 0: the subscribe call only returns
+			// telemetry that Rivian chose to push. Once a session
+			// goes silent for 10 min the gateway has effectively
+			// dropped us, and re-subscribing on the same token
+			// puts us right back in the same state (we observed
+			// 4+ consecutive 10-min silence cycles in production
+			// before this branch existed).
+			reason := "frames=0 from connect"
+			if watchdogKilled {
+				reason = "watchdog: no push for wsStaleThreshold"
+			}
 			m.logger.Error("rivian ws zombie subscription, likely stale session token",
 				"vehicle", vehicleID,
 				"session_dur", sessionDur.Round(time.Second).String(),
-				"frames", 0,
+				"frames", frames,
+				"reason", reason,
 				"hint", "user must re-login")
 
 			// Bump per-vehicle zombie counter; trip needs_reauth
@@ -540,8 +563,9 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// us wait 64s before resubscribing. Reset the backoff
 		// staircase whenever the call returned after wsStaleThreshold,
 		// regardless of which "ended" branch we took, as long as we
-		// actually saw frames during the run (zombies don't count).
-		if frames > 0 && sessionDur >= wsStaleThreshold {
+		// actually saw frames during the run AND it wasn't a
+		// watchdog kill (zombies don't deserve a fast retry).
+		if !watchdogKilled && frames > 0 && sessionDur >= wsStaleThreshold {
 			backoff = time.Second
 		}
 
@@ -576,8 +600,9 @@ const wsStaleThreshold = 10 * time.Minute
 // push has landed for wsStaleThreshold. Exits when its context is
 // cancelled by the subscribe loop (normal completion) or when it
 // fires the cancel itself (zombie detected). Safe to call cancel()
-// multiple times — context.CancelFunc is idempotent.
-func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, cancel context.CancelFunc) {
+// multiple times — context.CancelCauseFunc is idempotent (subsequent
+// calls are no-ops, the first cause wins).
+func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, cancel context.CancelCauseFunc) {
 	t := time.NewTicker(wsStaleThreshold / 2)
 	defer t.Stop()
 	for {
@@ -592,12 +617,19 @@ func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, 
 				m.logger.Warn("rivian ws stale, forcing resubscribe",
 					"vehicle", vehicleID,
 					"since_last_push", now.Sub(last).Round(time.Second).String())
-				cancel()
+				cancel(errStaleSubscription)
 				return
 			}
 		}
 	}
 }
+
+// errStaleSubscription is the cancel cause stamped by
+// watchSubscription so the resubscribe loop can tell a watchdog kill
+// (= zombie) apart from a normal network error or ctx-driven
+// shutdown. Never returned by SubscribeVehicleState directly; only
+// observable via context.Cause(subCtx) after the call returns.
+var errStaleSubscription = errors.New("rivian ws stale, watchdog cancelled subscription")
 
 // adaptiveRefreshInterval picks a REST refresh cadence based on the
 // cached power state. REST GetVehicleState is known to bump the
