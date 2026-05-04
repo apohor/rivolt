@@ -30,8 +30,22 @@ type rivianStatusDTO struct {
 	NeedsReauthReason string `json:"needs_reauth_reason,omitempty"`
 }
 
-func handleRivianStatus(lc rivian.Account) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+func handleRivianStatus(reg rivian.AccountRegistry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if reg == nil {
+			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
+			return
+		}
+		// Status is allowed without an authenticated context (e.g.
+		// the SPA polling on first paint before a session resolves);
+		// in that case we return the "live wired but no session yet"
+		// shape rather than 401 so the UI render path stays simple.
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: true})
+			return
+		}
+		lc := reg.For(uid)
 		if lc == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
 			return
@@ -53,15 +67,20 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
-func handleRivianLogin(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
+func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if lc == nil {
+		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		lc := reg.For(uid)
+		if lc == nil {
+			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		var req rivianLoginReq
@@ -102,15 +121,20 @@ type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
+func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if lc == nil {
+		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		lc := reg.For(uid)
+		if lc == nil {
+			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		if !lc.MFAPending() {
@@ -144,15 +168,20 @@ func handleRivianMFA(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
 	}
 }
 
-func handleRivianLogout(lc rivian.Account, store *secrets.Store) http.HandlerFunc {
+func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if lc == nil {
+		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		lc := reg.For(uid)
+		if lc == nil {
+			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
 		lc.Logout()

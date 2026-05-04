@@ -257,7 +257,7 @@ func runServer() {
 	}
 
 	var rivianClient rivian.Client
-	var rivianAccount rivian.Account
+	var accountRegistry rivian.AccountRegistry
 	// appMetrics owns the Prometheus registry. Built before the
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
@@ -265,53 +265,42 @@ func runServer() {
 	appMetrics := metrics.New()
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "mock":
-		mc := rivian.NewMock()
 		// Mock starts logged-out; the UI sign-in panel drives Login()
-		// just like the live client. Per-user session hydration from
-		// `secrets` happens lazily on the first authenticated request
-		// via rivianHydrateMW — see internal/api/rivian_hydrate.go.
-		// That keeps the boot path out of the per-user data plane,
-		// which is the precondition for multi-user / multi-replica.
+		// just like the live client. Per-user instances so two test
+		// users in the same dev session don't share authentication
+		// state.
+		accountRegistry = rivian.NewMockAccountRegistry(func(_ uuid.UUID) *rivian.MockClient {
+			return rivian.NewMock()
+		})
+		// REST surface (Vehicles/State) still wants a single client.
+		// Bind it to the legacy currentUserID so the StateMonitor
+		// recorder path keeps working until PR-5 user-keys it.
+		mc := accountRegistry.For(currentUserID).(*rivian.MockClient)
+		rivianClient = mc
 		if secretsStore == nil {
 			logger.Info("rivian client: mock (no secrets store; login state will not persist)")
 		} else {
 			logger.Info("rivian client: mock (awaiting login)")
 		}
-		rivianClient = mc
-		rivianAccount = mc
 	case "stub":
 		rivianClient = rivian.NewStub()
+		accountRegistry = rivian.NewNopAccountRegistry()
 		logger.Info("rivian client: stub (no network)")
 	default:
 		// Live is the default. Auth happens later via Settings; the
 		// server comes up fine without credentials, and Vehicles/State
 		// just return a 'not authenticated' error until the user logs
 		// in.
-		lc := rivian.NewLive().WithRivoltVersion(version)
-		if flagsStore != nil {
-			// Gate every outbound Rivian call on the kill switch.
-			// Cheap atomic load; returns ErrUpstreamPaused when
-			// the operator has flipped the flag.
-			lc.WithUpstreamGate(func(_ context.Context) error {
-				if ks := flagsStore.KillSwitch(); ks.Paused {
-					return rivian.ErrUpstreamPaused
-				}
-				return nil
-			})
-		}
-		// Failure-driven breaker: complements the operator kill
-		// switch by short-circuiting outbound calls automatically
-		// when Rivian returns a sustained 429 or 5xx burst. State
-		// transitions update the rivolt_rivian_breaker_state gauge
-		// and bump rivolt_rivian_breaker_trips_total so we can
-		// alert on a breaker that's been open for >5m.
+		//
+		// Per-user *LiveClient via AccountRegistry: each For(uid)
+		// constructs a fresh client wired with the same shared
+		// breaker / rate-limit / kill-switch / version stamp the
+		// pre-multi-user singleton received. Reauth-sink persistence
+		// is keyed by the user the closure was built for, so two
+		// concurrent users' needs_reauth flags can't clobber each
+		// other.
 		breaker := rivian.NewBreaker(rivian.DefaultBreakerConfig(), &breakerMetrics{m: appMetrics})
-		lc.WithBreaker(breaker)
-		// Global token bucket: optional. Off when RIVOLT_REDIS_ADDR
-		// is unset, which keeps single-binary / local dev working
-		// with no Redis around. When set, every outbound Rivian
-		// call goes through the limiter; main bucket for periodic
-		// pollers, priority bucket for user-blocking calls (Login).
+		var sharedLimiter *ratelimit.Limiter
 		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
 			rdb := redis.NewClient(&redis.Options{Addr: addr})
 			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -321,42 +310,99 @@ func runServer() {
 				logger.Warn("ratelimit: disabled (redis unreachable)", "addr", addr, "err", err.Error())
 				_ = rdb.Close()
 			} else {
-				lc.WithRateLimit(&rateLimitMetrics{l: limiter, m: appMetrics})
+				sharedLimiter = limiter
 				logger.Info("ratelimit: enabled", "addr", addr)
 			}
 		}
-		// Persist needs_reauth transitions to Postgres so the
-		// flag survives restarts and is visible to the Settings
-		// UI's "re-authenticate" banner. The sink runs off the
-		// hot path (only on the true→false edges); best-effort
-		// persistence — failure is logged but doesn't mask the
-		// original upstream error.
-		lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
-			if err := db.SetNeedsReauth(sinkCtx, pgPool, currentUserID, reason); err != nil {
-				logger.Warn("persist needs_reauth", "reason", reason, "err", err.Error())
+
+		buildLive := func(uid uuid.UUID) *rivian.LiveClient {
+			lc := rivian.NewLive().WithRivoltVersion(version)
+			if flagsStore != nil {
+				// Gate every outbound Rivian call on the kill switch.
+				// Cheap atomic load; returns ErrUpstreamPaused when
+				// the operator has flipped the flag.
+				lc.WithUpstreamGate(func(_ context.Context) error {
+					if ks := flagsStore.KillSwitch(); ks.Paused {
+						return rivian.ErrUpstreamPaused
+					}
+					return nil
+				})
 			}
-		})
-		// Prime the in-memory mirror from Postgres at startup so
-		// a crash-loop with stale creds doesn't briefly allow
-		// requests until the first classification lands.
-		if needs, reason, err := db.GetNeedsReauth(ctx, pgPool, currentUserID); err != nil {
-			logger.Warn("load needs_reauth", "err", err.Error())
-		} else if needs {
-			lc.SetNeedsReauth(true, reason)
-			logger.Info("rivian client: needs re-auth (from Postgres)", "reason", reason)
+			lc.WithBreaker(breaker)
+			if sharedLimiter != nil {
+				lc.WithRateLimit(&rateLimitMetrics{l: sharedLimiter, m: appMetrics})
+			}
+			// Persist needs_reauth transitions to Postgres so the
+			// flag survives restarts. Closure captures uid so each
+			// per-user client persists to its own row.
+			boundUID := uid
+			lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
+				if err := db.SetNeedsReauth(sinkCtx, pgPool, boundUID, reason); err != nil {
+					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
+				}
+			})
+			// Prime the in-memory mirror from Postgres so a crash
+			// loop with stale creds doesn't briefly allow requests
+			// until the first classification lands.
+			if needs, reason, err := db.GetNeedsReauth(ctx, pgPool, boundUID); err != nil {
+				logger.Warn("load needs_reauth", "user_id", boundUID.String(), "err", err.Error())
+			} else if needs {
+				lc.SetNeedsReauth(true, reason)
+				logger.Info("rivian client: needs re-auth (from Postgres)",
+					"user_id", boundUID.String(), "reason", reason)
+			}
+			return lc
 		}
+		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
+
+		// Pre-register the legacy currentUserID's client and use it
+		// as the single rivian.Client backing the read-only REST
+		// surface (Vehicles/State). The StateMonitor still consumes
+		// one *LiveClient until PR-5; pinning it to the boot user's
+		// instance keeps that path identical to v0.17.x while every
+		// per-request handler resolves through the registry.
+		legacyLC := accountRegistry.For(currentUserID).(*rivian.LiveClient)
+		rivianClient = legacyLC
+
+		// Boot-time multi-user hydrate sweep. Every user with a
+		// persisted rivian.session blob in user_secrets gets their
+		// own *LiveClient pre-built and Restore()'d before the
+		// StateMonitor goroutines or HTTP server start. A pod
+		// restart is therefore invisible to the data plane: the
+		// AuthReady channel on each user's client closes during
+		// boot, the WS subscriber proceeds straight into Subscribe,
+		// and no UI traffic is required to "wake up" recording.
+		//
+		// This is the fix for the v0.17.12 missed-drive incident:
+		// shared LiveClient + lazy hydrate via rivianHydrateMW
+		// meant pod restarts silently disabled telemetry until
+		// someone opened the SPA.
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
 		} else {
-			// Per-user Rivian session hydration is deferred to the
-			// data-plane refactor (per-user LiveClient cache); the
-			// current shared LiveClient cannot safely hold one
-			// user's tokens at boot without breaking the others.
-			// See docs/adr/0002-multi-user-rivian-data-plane.md.
-			logger.Info("rivian client: live (awaiting login)")
+			uids, err := db.ListUsersWithRivianSession(ctx, pgPool)
+			if err != nil {
+				logger.Warn("rivian boot hydrate: list users failed", "err", err.Error())
+			}
+			restored := 0
+			for _, uid := range uids {
+				sess, err := secrets.LoadRivianSession(ctx, secretsStore, uid)
+				if err != nil {
+					logger.Warn("rivian boot hydrate failed",
+						"user_id", uid.String(), "err", err.Error())
+					continue
+				}
+				if sess.UserSessionToken == "" {
+					continue
+				}
+				userLC := accountRegistry.For(uid).(*rivian.LiveClient)
+				userLC.Restore(sess)
+				restored++
+				logger.Info("rivian session restored",
+					"user_id", uid.String(), "email", sess.Email)
+			}
+			logger.Info("rivian client: live", "users_hydrated", restored)
 		}
-		rivianAccount = lc
-		rivianClient = lc
 	}
 
 	// StateMonitor keeps a websocket subscription open per vehicle so
@@ -729,7 +775,7 @@ func runServer() {
 
 	handler := api.New(api.Deps{
 		Rivian:        rivianClient,
-		RivianAccount: rivianAccount,
+		Accounts:      accountRegistry,
 		SettingsStore: settingsStore,
 		PushService:   pushSvc,
 		PushStore:     pushStore,

@@ -40,12 +40,13 @@ import (
 // small; avoid accumulating a "dependency soup" pattern.
 type Deps struct {
 	Rivian rivian.Client
-	// RivianAccount drives the /api/settings/rivian sign-in surface.
-	// Both *rivian.LiveClient and *rivian.MockClient satisfy it, so
-	// the UI sign-in flow works identically under RIVIAN_CLIENT=live
-	// and RIVIAN_CLIENT=mock. nil when the stub client is in use
+	// Accounts hands out per-user *rivian.LiveClient instances. The
+	// /api/settings/rivian sign-in surface resolves the request user
+	// to its private client via Accounts.For(uid), so concurrent
+	// Login/Restore from different sessions can no longer corrupt
+	// each other's tokens. nil when the stub client is in use
 	// (nothing to sign into).
-	RivianAccount rivian.Account
+	Accounts      rivian.AccountRegistry
 	SettingsStore *settings.Store
 	PushService   *push.Service
 	PushStore     *push.Store
@@ -193,16 +194,15 @@ func New(d Deps) http.Handler {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
 			}
-			// Lazily restore the request user's Rivian session into
-			// the in-memory Account on first authenticated hit. See
-			// internal/api/rivian_hydrate.go for the full rationale —
-			// short version: this replaces boot-time hydration so
-			// (a) replicas can start with no per-user state and
-			// (b) OIDC users with their own user_id work without
-			// being routed back through a legacy "local" identity.
-			if d.RivianAccount != nil && d.Secrets != nil {
-				r.Use(rivianHydrateMW(d.RivianAccount, d.Secrets, d.Logger))
-			}
+			// Per-user Rivian sessions are hydrated at boot via the
+			// AccountRegistry sweep in main.go (see runServer's call
+			// to rivian.NewLiveAccountRegistry + secrets.LoadRivianSession
+			// loop). The legacy rivianHydrateMW that lazily restored on
+			// the first authenticated request is gone — it shared a
+			// single LiveClient across all callers and was the root
+			// cause of the boot-restart-loses-drives bug + the
+			// last-write-wins multi-user data corruption.
+			//
 			// 30s is plenty for regular JSON endpoints; it keeps
 			// stuck Rivian calls from pinning a connection. Bulk
 			// data routes (import / backup / restore) live in a
@@ -245,10 +245,10 @@ func New(d Deps) http.Handler {
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
-				r.Get("/", handleRivianStatus(d.RivianAccount))
-				r.Post("/login", handleRivianLogin(d.RivianAccount, d.Secrets))
-				r.Post("/mfa", handleRivianMFA(d.RivianAccount, d.Secrets))
-				r.Post("/logout", handleRivianLogout(d.RivianAccount, d.Secrets))
+				r.Get("/", handleRivianStatus(d.Accounts))
+				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets))
+				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets))
+				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets))
 			})
 
 			// Home electricity cost settings, applied locally to estimate

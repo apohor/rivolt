@@ -42,20 +42,22 @@ type AccountRegistry interface {
 // session per user is negligible against the rate-limit headroom
 // LRU eviction would buy back.
 type liveAccountRegistry struct {
-	build func() *LiveClient
+	build func(uuid.UUID) *LiveClient
 
 	mu    sync.RWMutex
 	users map[uuid.UUID]*LiveClient
 }
 
 // NewLiveAccountRegistry returns a registry whose For(uid) calls
-// produce a fresh *LiveClient on first sight by invoking build().
+// produce a fresh *LiveClient on first sight by invoking build(uid).
 //
 // build is the operator-supplied factory (typically a closure over
 // rivian.NewLive().WithRivoltVersion(...).WithBreaker(...)... etc.)
 // so every per-user client gets the same breaker/limiter/kill-switch
-// wiring that the singleton in main.go used to receive.
-func NewLiveAccountRegistry(build func() *LiveClient) AccountRegistry {
+// wiring that the singleton in main.go used to receive. The uid
+// argument lets the closure thread it through user-scoped sinks
+// (e.g. WithReauthSink that persists needs_reauth keyed by user_id).
+func NewLiveAccountRegistry(build func(uuid.UUID) *LiveClient) AccountRegistry {
 	return &liveAccountRegistry{
 		build: build,
 		users: make(map[uuid.UUID]*LiveClient),
@@ -77,7 +79,7 @@ func (r *liveAccountRegistry) For(uid uuid.UUID) Account {
 	if c, ok := r.users[uid]; ok {
 		return c
 	}
-	c = r.build()
+	c = r.build(uid)
 	r.users[uid] = c
 	return c
 }
@@ -95,17 +97,17 @@ func (r *liveAccountRegistry) Loaded() []uuid.UUID {
 // mockAccountRegistry is the RIVIAN_CLIENT=mock equivalent: per-user
 // *MockClient. Tests instantiate this directly.
 type mockAccountRegistry struct {
-	build func() *MockClient
+	build func(uuid.UUID) *MockClient
 
 	mu    sync.RWMutex
 	users map[uuid.UUID]*MockClient
 }
 
 // NewMockAccountRegistry returns a registry that constructs a fresh
-// *MockClient per user via build(). Used under RIVIAN_CLIENT=mock so
-// the multi-user UI flow works in local dev without standing up real
-// Rivian credentials.
-func NewMockAccountRegistry(build func() *MockClient) AccountRegistry {
+// *MockClient per user via build(uid). Used under RIVIAN_CLIENT=mock
+// so the multi-user UI flow works in local dev without standing up
+// real Rivian credentials.
+func NewMockAccountRegistry(build func(uuid.UUID) *MockClient) AccountRegistry {
 	return &mockAccountRegistry{
 		build: build,
 		users: make(map[uuid.UUID]*MockClient),
@@ -124,7 +126,7 @@ func (r *mockAccountRegistry) For(uid uuid.UUID) Account {
 	if c, ok := r.users[uid]; ok {
 		return c
 	}
-	c = r.build()
+	c = r.build(uid)
 	r.users[uid] = c
 	return c
 }
@@ -148,8 +150,8 @@ type nopAccountRegistry struct{}
 // Used with the stub client.
 func NewNopAccountRegistry() AccountRegistry { return nopAccountRegistry{} }
 
-func (nopAccountRegistry) For(uuid.UUID) Account   { return nil }
-func (nopAccountRegistry) Loaded() []uuid.UUID     { return nil }
+func (nopAccountRegistry) For(uuid.UUID) Account { return nil }
+func (nopAccountRegistry) Loaded() []uuid.UUID   { return nil }
 
 // liveClientFromAccount returns the underlying *LiveClient if a is
 // one. Used by the StateMonitor to access live-only methods
