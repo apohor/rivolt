@@ -29,6 +29,7 @@ import (
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/authelia"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
@@ -754,6 +755,20 @@ func runServer() {
 		settingsMgr = mgr
 	}
 
+	// Authelia client — provisioning of file-backend users via
+	// Vault on POST /api/admin/users. Disabled (nil) when
+	// AUTHELIA_VAULT_ADDR is unset; the rivolt admin endpoint
+	// then only creates the rivolt DB row and the OIDC identity
+	// must be created out-of-band.
+	autheliaClient, err := authelia.NewFromEnv()
+	if err != nil {
+		logger.Error("authelia init", "err", err.Error())
+		os.Exit(1)
+	}
+	if autheliaClient.Enabled() {
+		logger.Info("authelia provisioning enabled")
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:       rivianClient,
 		Accounts:     accountRegistry,
@@ -775,6 +790,7 @@ func runServer() {
 		Flags:        flagsStore,
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
+		Authelia:     autheliaClient,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

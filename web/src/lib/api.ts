@@ -492,15 +492,23 @@ export const backend = {
   adminListUsers: () =>
     api.get<{ users: AdminUserRow[] }>("/api/admin/users"),
   // Pre-provision a user row. Auth is OIDC-only; this does NOT
-  // issue a password. When the named user later signs in via OIDC
-  // they pick up the pre-set role / email / display_name.
+  // issue a password unless the server has the Authelia integration
+  // configured — in which case the response also carries a
+  // one-time `password` field that the admin must deliver
+  // out-of-band before the next page reload (it is never
+  // persisted on the rivolt side).
   adminCreateUser: (input: {
     username: string;
     email?: string;
     display_name?: string;
     role: "user" | "admin";
     disabled?: boolean;
-  }) => api.post<{ id: string }>("/api/admin/users", input),
+  }) =>
+    api.post<{
+      id: string;
+      password?: string;
+      authelia_provisioned?: boolean;
+    }>("/api/admin/users", input),
   adminSetUserRole: (id: string, role: "user" | "admin") =>
     api.post<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/role`, {
       role,

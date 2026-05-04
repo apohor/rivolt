@@ -320,6 +320,28 @@ func LookupUsername(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, erro
 	return username.String, nil
 }
 
+// RawUsernameByID returns the raw username column for a user by id,
+// regardless of whether display_name is set. Used by the admin
+// delete path to identify the row in Authelia's file backend
+// (which is keyed on login id, not display name). Returns the
+// empty string for an unknown UUID.
+func RawUsernameByID(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, error) {
+	if uid == uuid.Nil {
+		return "", nil
+	}
+	var username sql.NullString
+	err := d.QueryRowContext(ctx,
+		`SELECT username FROM users WHERE id = $1`, uid,
+	).Scan(&username)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return username.String, nil
+}
+
 // Rebind rewrites `?` placeholders into Postgres `$N` style. Safe to
 // call on a query that has no placeholders. Ignores `?` inside
 // single- or double-quoted string literals so we don't clobber data.

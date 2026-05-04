@@ -9,9 +9,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/authelia"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -53,7 +55,16 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 // user has ever attempted to sign in (e.g. revoking access for a
 // departing employee whose IdP entry is still alive). The Middleware
 // disabled-gate refuses to mint a session for the row.
-func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
+//
+// When an Authelia client is wired in, the handler also provisions
+// the user in Authelia's file backend, generates a one-time random
+// password, and returns it in the 201 response under `password`.
+// The plaintext is shown to the admin once and never persisted on
+// rivolt's side — the admin is responsible for delivering it to
+// the user out-of-band. If Authelia provisioning fails AFTER the
+// rivolt row is created, we delete the rivolt row to avoid leaving
+// a half-provisioned account, then surface the error.
+func handleAdminUserCreate(d *sql.DB, ac *authelia.Client, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
@@ -91,7 +102,35 @@ func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
 				return
 			}
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"id": id.String()})
+		resp := map[string]any{"id": id.String()}
+		if ac.Enabled() {
+			pwd, err := ac.UpsertUser(r.Context(), body.Username, body.Email, body.DisplayName, body.Role)
+			if err != nil && pwd == "" {
+				// Vault write failed — roll the rivolt
+				// row back so the admin can retry without
+				// fighting an ErrUserExists.
+				if derr := db.DeleteUser(r.Context(), d, id); derr != nil && log != nil {
+					log.Error("admin: rollback after authelia upsert failed",
+						"id", id.String(), "err", derr.Error())
+				}
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+				return
+			}
+			if err != nil && log != nil {
+				// Vault write succeeded but the
+				// ExternalSecret bump didn't — the user
+				// will land within the 1h refresh
+				// interval. Surface as a warning, not a
+				// failure.
+				log.Warn("admin: authelia force-sync failed (user is in vault, will land on next refresh)",
+					"id", id.String(), "err", err.Error())
+			}
+			resp["password"] = pwd
+			resp["authelia_provisioned"] = true
+		} else {
+			resp["authelia_provisioned"] = false
+		}
+		writeJSON(w, http.StatusCreated, resp)
 	}
 }
 
@@ -218,7 +257,15 @@ func handleAdminUserSetRole(d *sql.DB) http.HandlerFunc {
 // Cascade-deletes the user via FK ON DELETE CASCADE. Refuses to
 // delete the caller (an admin can't suicide; ask a different
 // admin) and refuses to delete the last admin.
-func handleAdminUserDelete(d *sql.DB) http.HandlerFunc {
+//
+// Also removes the user from Authelia's file backend when an
+// Authelia client is wired in. Best-effort: if the rivolt-side
+// delete succeeds but Authelia removal fails, the operation
+// returns 200 — leaving an orphan IdP entry that no longer
+// matches a rivolt user (and therefore can't sign in past the
+// EnsureUser bootstrap gate). The error is logged so the admin
+// can clean up via the script.
+func handleAdminUserDelete(d *sql.DB, ac *authelia.Client, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
@@ -254,9 +301,27 @@ func handleAdminUserDelete(d *sql.DB) http.HandlerFunc {
 				return
 			}
 		}
+		// Resolve the username BEFORE the cascade delete so we
+		// can still tell Authelia who to drop after the rivolt
+		// row is gone.
+		var username string
+		if ac.Enabled() {
+			u, uerr := db.RawUsernameByID(r.Context(), d, target)
+			if uerr != nil && log != nil {
+				log.Warn("admin: lookup username for authelia delete failed",
+					"id", target.String(), "err", uerr.Error())
+			}
+			username = u
+		}
 		if err := db.DeleteUser(r.Context(), d, target); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
+		}
+		if ac.Enabled() && username != "" {
+			if err := ac.DeleteUser(r.Context(), username); err != nil && log != nil {
+				log.Warn("admin: authelia delete failed (rivolt row already removed)",
+					"username", username, "err", err.Error())
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}

@@ -49,6 +49,14 @@ function CreateUserForm() {
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
   const [disabled, setDisabled] = useState(false);
+  // One-time password surfaced when the server's Authelia
+  // integration is wired in. Cleared by the next form submit
+  // and on dismiss — never persisted, never refetched. Admin
+  // must copy it out before the dialog closes.
+  const [oneTimePassword, setOneTimePassword] = useState<{
+    username: string;
+    password: string;
+  } | null>(null);
 
   const create = useMutation({
     mutationFn: () =>
@@ -59,13 +67,17 @@ function CreateUserForm() {
         role,
         disabled: disabled || undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (resp) => {
+      const created = username.trim();
       setUsername("");
       setEmail("");
       setDisplayName("");
       setRole("user");
       setDisabled(false);
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      if (resp.password) {
+        setOneTimePassword({ username: created, password: resp.password });
+      }
     },
   });
 
@@ -137,6 +149,39 @@ function CreateUserForm() {
         <p className="col-span-full text-xs text-red-400">
           {String(create.error)}
         </p>
+      )}
+      {oneTimePassword && (
+        <div className="col-span-full rounded-md border border-amber-800 bg-amber-950/40 p-3 text-xs text-amber-100">
+          <p className="mb-2 font-medium">
+            One-time password for{" "}
+            <span className="font-mono">{oneTimePassword.username}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="select-all rounded bg-neutral-900 px-2 py-1 font-mono text-sm text-amber-200">
+              {oneTimePassword.password}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(oneTimePassword.password);
+              }}
+              className="rounded-md border border-amber-800 px-2 py-1 text-amber-200 hover:border-amber-700"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setOneTimePassword(null)}
+              className="ml-auto rounded-md border border-neutral-700 px-2 py-1 text-neutral-300 hover:border-neutral-500"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="mt-2 text-amber-200/80">
+            Send this to the user out-of-band. It is shown once and is
+            not stored. The user can change it after first sign-in.
+          </p>
+        </div>
       )}
     </form>
   );

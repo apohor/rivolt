@@ -405,6 +405,30 @@ decisions 5–7, 10–12.
       want an IdP. **GitHub** is not OIDC-native; pure OAuth2
       adapter is a follow-up using the same Service shape.
 
+- [ ] **Invite-token user provisioning end-to-end with the IdP.**
+      Today `POST /api/admin/users` only pre-provisions a rivolt
+      DB row keyed by UUIDv5(username) — the OIDC user must
+      already exist in the IdP (Authelia file backend in our
+      single-tenant deploy). The interim "generate password
+      once, return it in the 201 response, admin sends it
+      out-of-band" flow ships now and lets the admin endpoint
+      create the Authelia user via Vault + ExternalSecret
+      bump. Follow-up replaces that with first-class invites:
+        - new `user_invites` table (token_hash, user_id,
+          expires_at, consumed_at, created_by);
+        - `POST /api/admin/users` returns
+          `{id, invite_url, expires_at}` instead of a password;
+        - public `POST /api/invite/{token}/accept` validates
+          token, prompts for password (with complexity rules),
+          writes the Authelia user via Vault, marks invite
+          consumed, enables the rivolt user;
+        - admin "Regenerate invite" button for expired/lost
+          links;
+        - delete path also removes the Authelia entry.
+      Vault writes use KVv2 CAS to serialize concurrent admin
+      operations on `kv/authelia/users`. Argon2id hashing runs
+      in a serialized worker to bound CPU on the API path.
+
 ### Observability
 
 - [x] **Log shipping pipeline.** Loki + Promtail run cluster-wide
