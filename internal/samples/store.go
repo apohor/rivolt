@@ -153,9 +153,23 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 }
 
 // ListSince returns samples newer than since, up to limit, oldest first.
+//
+// Limit semantics:
+//   - <= 0 falls back to a reasonable default (1000).
+//   - Anything above the hard cap is clamped DOWN to the cap, not
+//     reset to the default. The previous "if limit > 10000 { limit
+//     = 1000 }" branch was a foot-gun: the UI asks for 20k samples
+//     so a 90-minute drive (~1.7k rows at the WS cadence) returns
+//     fully, but the store silently truncated to 1k → the route
+//     polyline ended halfway through the trip and the user reported
+//     "no GPS coordinates for the end of the route".
 func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sample, error) {
-	if limit <= 0 || limit > 10000 {
+	const maxLimit = 50000
+	if limit <= 0 {
 		limit = 1000
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.rivian_vehicle_id, vs.at,
