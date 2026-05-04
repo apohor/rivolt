@@ -12,8 +12,7 @@ import (
 )
 
 // rivianStatusDTO is the public view of the Rivian account state.
-// Email is returned as-is when authenticated — operators are the sole
-// audience of this local server, so there is nobody to hide it from.
+// Email is returned as-is for the authenticated caller's own session.
 type rivianStatusDTO struct {
 	Enabled       bool   `json:"enabled"` // true iff a live client is wired
 	Authenticated bool   `json:"authenticated"`
@@ -67,7 +66,7 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
-func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
+func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -110,6 +109,11 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store) http.Ha
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
+		// Start (or no-op resume of) this user's StateMonitor so
+		// the recorder + WS subscription run under their identity.
+		if monitors != nil {
+			monitors.Start(r.Context(), uid)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
@@ -121,7 +125,7 @@ type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
+func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -161,6 +165,9 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store) http.Hand
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
+		if monitors != nil {
+			monitors.Start(r.Context(), uid)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
@@ -168,7 +175,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store) http.Hand
 	}
 }
 
-func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store) http.HandlerFunc {
+func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -185,6 +192,9 @@ func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store) http.H
 			return
 		}
 		lc.Logout()
+		if monitors != nil {
+			monitors.Stop(uid)
+		}
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, rivian.Session{}); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return

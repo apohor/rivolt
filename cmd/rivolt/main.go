@@ -32,7 +32,6 @@ import (
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
-	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
@@ -57,13 +56,8 @@ import (
 var version = "dev"
 
 func main() {
-	// Subcommand dispatch. Keeping this stdlib-only to avoid dragging
-	// a dependency like cobra in for what is currently two commands.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "import":
-			runImport(os.Args[2:])
-			return
 		case "--help", "-h", "help":
 			printUsage()
 			return
@@ -76,17 +70,15 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `rivolt — self-hosted Rivian companion
 
 Usage:
-  rivolt                       Start the HTTP server (default)
-  rivolt import electrafi ...  Import TeslaFi/ElectraFi CSV dumps
-  rivolt --help                Show this help
+  rivolt          Start the HTTP server (default)
+  rivolt --help   Show this help
 
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
   RIVIAN_CLIENT=stub|live|mock   (default: stub)
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
-                                 current user on boot, then continue. Scoped
-                                 to the legacy "local" user; vehicles/settings/push
-                                 are preserved. Unset after the first boot.
+                                 legacy "local" user on boot, then continue.
+                                 Vehicles/settings/push are preserved.
 `)
 }
 
@@ -119,6 +111,16 @@ func runServer() {
 	anthropicKey := flag.String("anthropic-api-key", os.Getenv("ANTHROPIC_API_KEY"), "Anthropic API key (or ANTHROPIC_API_KEY env)")
 	geminiKey := flag.String("gemini-api-key", firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY")), "Google Gemini API key (or GEMINI_API_KEY / GOOGLE_API_KEY env)")
 	flag.Parse()
+	// AI provider keys are install-wide ("operator pays the bill"
+	// for all users on this rivolt). They were previously persisted
+	// in the legacy single-tenant settings_kv. v0.17.15 parks them
+	// pending the admin track that will store them in app_settings
+	// behind /api/admin/settings/ai. The flags remain accepted
+	// (so existing helm values don't break) but are not wired in
+	// until that lands.
+	_ = openAIKey
+	_ = anthropicKey
+	_ = geminiKey
 
 	logger.Info("rivolt starting",
 		"version", version,
@@ -158,7 +160,6 @@ func runServer() {
 	// holds auto-generated secrets (cookie_secret, VAPID keys) so
 	// the volume mount stays.
 	var pgPool *sql.DB
-	var currentUserID uuid.UUID
 	{
 		dsn := postgresDSN()
 		if dsn == "" {
@@ -178,23 +179,19 @@ func runServer() {
 			os.Exit(1)
 		}
 		pgPool = p
-		// Boot-time user-row seed for the legacy single-tenant
-		// identity "local". This is what scopes settings/data when
-		// no issuer (OIDC, trusted-proxy, bypass) is configured.
-		// OIDC sign-in upserts its own user via EnsureUserFull.
-		uid, err := db.EnsureUser(ctx, pgPool, "local")
-		if err != nil {
-			logger.Error("ensure user row failed", "err", err.Error())
-			os.Exit(1)
-		}
-		currentUserID = uid
-		logger.Info("postgres connected", "user_id", currentUserID.String())
+		logger.Info("postgres connected")
 	}
 
-	settingsStore, err := settings.OpenStore(pgPool, currentUserID)
-	if err != nil {
-		logger.Warn("settings store unavailable", "err", err.Error())
-	}
+	// Per-user data-plane factories. Each handler/recorder
+	// resolves f.For(uid) on demand so writes always land under
+	// the correct user_id. Factories are cheap; *Store
+	// instances are cached internally.
+	resolverFactory := db.NewVehicleResolverFactory(pgPool)
+	drivesFactory := drives.NewFactory(pgPool, resolverFactory)
+	chargesFactory := charges.NewFactory(pgPool, resolverFactory)
+	samplesFactory := samples.NewFactory(pgPool, resolverFactory)
+	settingsFactory := settings.NewFactory(pgPool)
+	pushFactory := push.NewFactory(pgPool)
 
 	// Envelope-encrypted secret store. Backs the rivian.Session
 	// blob (previously plaintext in settings_kv) and, later, AI
@@ -229,35 +226,32 @@ func runServer() {
 	if flagsStore != nil {
 		flagsStore.Start(ctx)
 	}
-	var settingsMgr *settings.Manager
-	if settingsStore != nil {
-		seed := settings.AIConfig{
-			OpenAIKey:    *openAIKey,
-			AnthropicKey: *anthropicKey,
-			GeminiKey:    *geminiKey,
-		}
-		settingsMgr, err = settings.NewManager(ctx, settingsStore, seed)
-		if err != nil {
-			logger.Warn("settings manager unavailable", "err", err.Error())
-		}
-	}
 
-	pushStore, err := push.OpenStore(pgPool, currentUserID)
-	if err != nil {
-		logger.Warn("push store unavailable", "err", err.Error())
-	}
+	// VAPID is server-wide (push_vapid is a single-row table).
+	// Subscriptions are per-user via pushFactory; the Service
+	// only needs the keypair to sign outbound notifications, so
+	// it's wired against a server-scoped store that can read/write
+	// VAPID without binding to a user. Per-user fan-out
+	// (digest sender) constructs its own service per request.
 	var pushSvc *push.Service
-	if pushStore != nil {
-		vapid, err := push.LoadOrGenerateVAPID(ctx, pushStore, *vapidPub, *vapidPriv, *vapidSubject)
-		if err != nil {
-			logger.Warn("VAPID setup failed", "err", err.Error())
+	if pgPool != nil {
+		serverPushStore := push.NewServerStore(pgPool)
+		vapid, verr := push.LoadOrGenerateVAPID(ctx, serverPushStore, *vapidPub, *vapidPriv, *vapidSubject)
+		if verr != nil {
+			logger.Warn("VAPID setup failed", "err", verr.Error())
 		} else {
-			pushSvc = push.NewService(pushStore, vapid, logger)
+			pushSvc = push.NewService(serverPushStore, vapid, logger)
 		}
 	}
 
 	var rivianClient rivian.Client
 	var accountRegistry rivian.AccountRegistry
+	// monitorRegistry holds one *StateMonitor per user with a live
+	// session, each wired to that user's per-user data-plane stores.
+	// Built unconditionally; live mode populates it from the boot
+	// hydrate sweep below, and Login/Logout drive the runtime
+	// lifecycle. Nil in stub mode.
+	var monitorRegistry *rivian.MonitorRegistry
 	// appMetrics owns the Prometheus registry. Built before the
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
@@ -272,11 +266,10 @@ func runServer() {
 		accountRegistry = rivian.NewMockAccountRegistry(func(_ uuid.UUID) *rivian.MockClient {
 			return rivian.NewMock()
 		})
-		// REST surface (Vehicles/State) still wants a single client.
-		// Bind it to the legacy currentUserID so the StateMonitor
-		// recorder path keeps working until PR-5 user-keys it.
-		mc := accountRegistry.For(currentUserID).(*rivian.MockClient)
-		rivianClient = mc
+		// Stub-shaped fallback for the global rivian.Client field.
+		// Live read paths (Vehicles/State) for mock users are
+		// resolved per-request via clientFor(d, uid) → registry.
+		rivianClient = rivian.NewStub()
 		if secretsStore == nil {
 			logger.Info("rivian client: mock (no secrets store; login state will not persist)")
 		} else {
@@ -354,29 +347,38 @@ func runServer() {
 			return lc
 		}
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
+		// Stub fallback for the unauthenticated stub-of-last-resort
+		// path. Per-user resolution at the handler layer always
+		// picks up the registry first (see clientFor in api).
+		rivianClient = rivian.NewStub()
+	}
 
-		// Pre-register the legacy currentUserID's client and use it
-		// as the single rivian.Client backing the read-only REST
-		// surface (Vehicles/State). The StateMonitor still consumes
-		// one *LiveClient until PR-5; pinning it to the boot user's
-		// instance keeps that path identical to v0.17.x while every
-		// per-request handler resolves through the registry.
-		legacyLC := accountRegistry.For(currentUserID).(*rivian.LiveClient)
-		rivianClient = legacyLC
+	// Build the monitor registry. In live/mock modes the registry
+	// is the only thing that owns *StateMonitor instances. Stub
+	// mode skips it (no recorder, no WS).
+	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" {
+		monitorRegistry = rivian.NewMonitorRegistry(
+			pgPool, accountRegistry,
+			drivesFactory, chargesFactory, samplesFactory, settingsFactory,
+			logger,
+		)
+		monitorRegistry.SetParent(ctx)
+	}
 
-		// Boot-time multi-user hydrate sweep. Every user with a
-		// persisted rivian.session blob in user_secrets gets their
-		// own *LiveClient pre-built and Restore()'d before the
-		// StateMonitor goroutines or HTTP server start. A pod
-		// restart is therefore invisible to the data plane: the
-		// AuthReady channel on each user's client closes during
-		// boot, the WS subscriber proceeds straight into Subscribe,
-		// and no UI traffic is required to "wake up" recording.
-		//
-		// This is the fix for the v0.17.12 missed-drive incident:
-		// shared LiveClient + lazy hydrate via rivianHydrateMW
-		// meant pod restarts silently disabled telemetry until
-		// someone opened the SPA.
+	// Boot-time multi-user hydrate sweep (live mode only). Every
+	// user with a persisted rivian.session blob in user_secrets
+	// gets their own *LiveClient pre-built and Restore()'d, then
+	// a StateMonitor started for them — before the HTTP server
+	// accepts traffic. A pod restart is therefore invisible to
+	// the data plane: AuthReady fires during boot, the WS
+	// subscriber proceeds straight into Subscribe, no UI traffic
+	// is required to "wake up" recording.
+	//
+	// Fix for the v0.17.12 missed-drive incident: shared
+	// LiveClient + lazy hydrate via rivianHydrateMW meant pod
+	// restarts silently disabled telemetry until someone opened
+	// the SPA.
+	if os.Getenv("RIVIAN_CLIENT") != "stub" && os.Getenv("RIVIAN_CLIENT") != "mock" {
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
 		} else {
@@ -397,6 +399,9 @@ func runServer() {
 				}
 				userLC := accountRegistry.For(uid).(*rivian.LiveClient)
 				userLC.Restore(sess)
+				if monitorRegistry != nil {
+					monitorRegistry.Start(ctx, uid)
+				}
 				restored++
 				logger.Info("rivian session restored",
 					"user_id", uid.String(), "email", sess.Email)
@@ -405,36 +410,11 @@ func runServer() {
 		}
 	}
 
-	// StateMonitor keeps a websocket subscription open per vehicle so
-	// /api/state/:id can serve from cache instead of hammering the
-	// GetVehicleState REST query. Only useful with the live client;
-	// mock/stub don't have a websocket to subscribe to.
-	var stateMonitor *rivian.StateMonitor
-	if lc, ok := rivianClient.(*rivian.LiveClient); ok {
-		stateMonitor = rivian.NewStateMonitor(lc, logger)
-		// Start is deferred until after the stores are opened below
-		// and wired via SetStores — otherwise the initial REST seed
-		// fires before the recorder has anywhere to write.
-	}
 	// leaseCoordinator runs the multi-replica subscription
 	// reconciliation loop. nil when pgPool is nil (single-binary
 	// path) — the eager-subscribe fallback covers that case.
 	var leaseCoordinator *leases.Coordinator
 
-	vehiclesResolver := db.NewVehicleResolver(pgPool, currentUserID)
-
-	drivesStore, err := drives.OpenStore(pgPool, currentUserID, vehiclesResolver)
-	if err != nil {
-		logger.Warn("drives store unavailable", "err", err.Error())
-	}
-	chargesStore, err := charges.OpenStore(pgPool, currentUserID, vehiclesResolver)
-	if err != nil {
-		logger.Warn("charges store unavailable", "err", err.Error())
-	}
-	samplesStore, err := samples.OpenStore(pgPool, currentUserID, vehiclesResolver)
-	if err != nil {
-		logger.Warn("samples store unavailable", "err", err.Error())
-	}
 	// Keep `vehicle_state` monthly partitions rolling. Without
 	// this a pod that runs past the last partition created at
 	// migration time would start rejecting live-recorder writes
@@ -446,153 +426,89 @@ func runServer() {
 		go partitionJanitor.Run(ctx)
 	}
 
-	// Wire the stores into the monitor so live WS/REST frames get
-	// persisted into vehicle_state / drives / charges. Without this
-	// call the monitor is pure in-memory cache and live data is lost
-	// on restart.
-	if stateMonitor != nil {
-		stateMonitor.SetStores(samplesStore, drivesStore, chargesStore)
-		// Snapshot the home $/kWh rate at charge-close time so rate
-		// edits don't retroactively rewrite billed history. Pulls
-		// from the same settings store the UI writes to.
-		if settingsStore != nil {
-			stateMonitor.SetPriceLookup(func() (float64, string) {
-				cfg, err := settings.GetChargingConfig(ctx, settingsStore)
-				if err != nil {
-					return 0, ""
-				}
-				return cfg.HomePricePerKWh, cfg.HomeCurrency
-			})
-		}
-		stateMonitor.Start(ctx)
-
-		// Subscription leases gate which vehicles THIS pod owns.
-		// Multi-replica steady state requires exactly one pod per
-		// vehicle; the leases.Coordinator polls Postgres every 30s,
-		// claims unowned vehicles, drops ones it loses, and fires
-		// EnsureSubscribed/Unsubscribe to keep the WS subscription
-		// set in sync.
-		//
-		// pod_id source: RIVOLT_POD_ID env (set via the k8s downward
-		// API in the Helm chart). Falls back to hostname so the
-		// docker-compose path works without extra config.
-		if pgPool != nil {
-			podID := os.Getenv("RIVOLT_POD_ID")
-			if podID == "" {
-				if h, err := os.Hostname(); err == nil && h != "" {
-					podID = h
-				} else {
-					// Last-resort identity. Two pods sharing this
-					// would silently disable coordination, so refuse
-					// to boot rather than corrupt the lease table.
-					logger.Error("cannot derive pod id; set RIVOLT_POD_ID")
-					os.Exit(1)
-				}
-			}
-			leaseStore, err := leases.NewStore(pgPool, podID)
-			if err != nil {
-				logger.Error("lease store", "err", err.Error())
+	// Subscription leases gate which vehicles THIS pod owns.
+	// Multi-replica steady state requires exactly one pod per
+	// vehicle; the leases.Coordinator polls Postgres every 30s,
+	// claims unowned vehicles, drops ones it loses, and fires
+	// EnsureSubscribed/Unsubscribe to keep the WS subscription
+	// set in sync. The monitor registry routes by
+	// rivian_vehicle_id → owner uid → that user's monitor.
+	//
+	// pod_id source: RIVOLT_POD_ID env (set via the k8s downward
+	// API in the Helm chart). Falls back to hostname so the
+	// docker-compose path works without extra config.
+	if monitorRegistry != nil && pgPool != nil {
+		podID := os.Getenv("RIVOLT_POD_ID")
+		if podID == "" {
+			if h, err := os.Hostname(); err == nil && h != "" {
+				podID = h
+			} else {
+				logger.Error("cannot derive pod id; set RIVOLT_POD_ID")
 				os.Exit(1)
 			}
-			vehicleSource := leases.NewVehicleSource(
-				func() []string {
-					if stateMonitor == nil {
-						return nil
-					}
-					infos := stateMonitor.AllVehicleInfo()
-					out := make([]string, 0, len(infos))
-					for _, v := range infos {
-						if v.ID != "" {
-							out = append(out, v.ID)
-						}
-					}
-					return out
-				},
-				logger,
-				func(qctx context.Context) ([]string, error) {
-					return leases.QueryStringColumn(qctx, pgPool,
-						`SELECT DISTINCT rivian_vehicle_id FROM vehicles WHERE rivian_vehicle_id <> ''`)
-				},
-				func(qctx context.Context) ([]string, error) {
-					return leases.QueryStringColumn(qctx, pgPool,
-						`SELECT DISTINCT vehicle_id FROM subscription_leases WHERE vehicle_id <> ''`)
-				},
-			)
-			coord := leases.NewCoordinator(
-				leaseStore,
-				vehicleSource,
-				stateMonitor.EnsureSubscribed,
-				stateMonitor.Unsubscribe,
-				logger,
-			)
-			coord.SetCountObserver(func(n int) {
-				appMetrics.SubscriptionLeases.Set(float64(n))
-			})
-			go func() {
-				if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					logger.Warn("lease coordinator exited", "err", err.Error())
-				}
-			}()
-			// Prime per-vehicle metadata in the background, then
-			// poke the coordinator so it reconciles immediately
-			// once AllVehicleInfo() is populated. Without the
-			// trigger, the first reconcile fires before the REST
-			// reply lands, sees an empty vehicle set, and waits a
-			// full reconcileInterval (~30s) before retrying — long
-			// enough to miss a short drive that started right after
-			// pod boot.
-			go func() {
-				rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				defer cancel()
-				if err := stateMonitor.RefreshVehicleInfo(rctx); err != nil {
-					logger.Warn("vehicle info refresh failed", "err", err.Error())
-					return
-				}
-				coord.TriggerReconcile()
-			}()
-			// SIGTERM hook: hand leases over to surviving pods on
-			// graceful shutdown. Bounded so a Postgres blip can't
-			// block pod termination past terminationGracePeriodSeconds.
-			leaseCoordinator = coord
-		} else {
-			// Single-binary / docker-compose / tests: no DB → no
-			// coordination → eager-subscribe every vehicle the
-			// monitor knows about. Original behaviour preserved.
-			go func() {
-				rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				defer cancel()
-				if err := stateMonitor.RefreshVehicleInfo(rctx); err != nil {
-					logger.Warn("vehicle info refresh failed", "err", err.Error())
-					return
-				}
-				for _, v := range stateMonitor.AllVehicleInfo() {
-					if v.ID == "" {
-						continue
-					}
-					stateMonitor.EnsureSubscribed(v.ID)
-				}
-			}()
 		}
-	}
-
-	// One-time migration: v0.1.7 and earlier keyed ElectraFi charge/drive
-	// rows by the CSV's chargeNumber/driveNumber counters, which reset
-	// per export — re-importing an overlapping date range produced
-	// duplicates. v0.1.8 switched to timestamp-based IDs; this pass
-	// collapses any historical dupes by (vehicle_id, started_at).
-	if drivesStore != nil {
-		if n, err := drivesStore.Dedupe(ctx); err != nil {
-			logger.Warn("drives dedupe failed", "err", err.Error())
-		} else if n > 0 {
-			logger.Info("drives dedupe", "removed", n)
+		leaseStore, err := leases.NewStore(pgPool, podID)
+		if err != nil {
+			logger.Error("lease store", "err", err.Error())
+			os.Exit(1)
 		}
-	}
-	if chargesStore != nil {
-		if n, err := chargesStore.Dedupe(ctx); err != nil {
-			logger.Warn("charges dedupe failed", "err", err.Error())
-		} else if n > 0 {
-			logger.Info("charges dedupe", "removed", n)
-		}
+		vehicleSource := leases.NewVehicleSource(
+			func() []string {
+				infos := monitorRegistry.AllVehicleInfo()
+				out := make([]string, 0, len(infos))
+				for _, v := range infos {
+					if v.ID != "" {
+						out = append(out, v.ID)
+					}
+				}
+				return out
+			},
+			logger,
+			func(qctx context.Context) ([]string, error) {
+				return leases.QueryStringColumn(qctx, pgPool,
+					`SELECT DISTINCT rivian_vehicle_id FROM vehicles WHERE rivian_vehicle_id <> ''`)
+			},
+			func(qctx context.Context) ([]string, error) {
+				return leases.QueryStringColumn(qctx, pgPool,
+					`SELECT DISTINCT vehicle_id FROM subscription_leases WHERE vehicle_id <> ''`)
+			},
+		)
+		coord := leases.NewCoordinator(
+			leaseStore,
+			vehicleSource,
+			monitorRegistry.EnsureSubscribed,
+			monitorRegistry.Unsubscribe,
+			logger,
+		)
+		coord.SetCountObserver(func(n int) {
+			appMetrics.SubscriptionLeases.Set(float64(n))
+		})
+		go func() {
+			if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Warn("lease coordinator exited", "err", err.Error())
+			}
+		}()
+		// Prime per-vehicle metadata across every running monitor,
+		// then poke the coordinator so it reconciles immediately
+		// once AllVehicleInfo() is populated.
+		go func() {
+			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			defer cancel()
+			// Refresh runs per-monitor inside RefreshAll; we just
+			// trigger it through each loaded user.
+			for _, uid := range accountRegistry.Loaded() {
+				m := monitorRegistry.For(uid)
+				if m == nil {
+					continue
+				}
+				if err := m.RefreshVehicleInfo(rctx); err != nil {
+					logger.Warn("vehicle info refresh failed",
+						"user_id", uid.String(), "err", err.Error())
+				}
+			}
+			coord.TriggerReconcile()
+		}()
+		leaseCoordinator = coord
 	}
 
 	webFS := web.Assets()
@@ -774,26 +690,25 @@ func runServer() {
 	}
 
 	handler := api.New(api.Deps{
-		Rivian:        rivianClient,
-		Accounts:      accountRegistry,
-		SettingsStore: settingsStore,
-		PushService:   pushSvc,
-		PushStore:     pushStore,
-		SettingsMgr:   settingsMgr,
-		Drives:        drivesStore,
-		Charges:       chargesStore,
-		Samples:       samplesStore,
-		StateMonitor:  stateMonitor,
-		Auth:          authSvc,
-		AuthEnforced:  authEnforced,
-		OIDC:          oidcSvc,
-		WebFS:         webFS,
-		Version:       version,
-		DB:            pgPool,
-		Logger:        logger,
-		Flags:         flagsStore,
-		Secrets:       secretsStore,
-		Metrics:       appMetrics,
+		Rivian:       rivianClient,
+		Accounts:     accountRegistry,
+		PushService:  pushSvc,
+		Drives:       drivesFactory,
+		Charges:      chargesFactory,
+		Samples:      samplesFactory,
+		Settings:     settingsFactory,
+		Push:         pushFactory,
+		Monitors:     monitorRegistry,
+		Auth:         authSvc,
+		AuthEnforced: authEnforced,
+		OIDC:         oidcSvc,
+		WebFS:        webFS,
+		Version:      version,
+		DB:           pgPool,
+		Logger:       logger,
+		Flags:        flagsStore,
+		Secrets:      secretsStore,
+		Metrics:      appMetrics,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span
@@ -842,21 +757,6 @@ func runServer() {
 	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("shutdown error", "err", err.Error())
-	}
-	if pushStore != nil {
-		_ = pushStore.Close()
-	}
-	if settingsStore != nil {
-		_ = settingsStore.Close()
-	}
-	if drivesStore != nil {
-		_ = drivesStore.Close()
-	}
-	if chargesStore != nil {
-		_ = chargesStore.Close()
-	}
-	if samplesStore != nil {
-		_ = samplesStore.Close()
 	}
 	if pgPool != nil {
 		_ = pgPool.Close()
@@ -994,107 +894,6 @@ func loadOrCreateCookieSecret(path string) ([]byte, error) {
 		return nil, fmt.Errorf("persist secret: %w", err)
 	}
 	return buf, nil
-}
-
-// runImport dispatches "rivolt import <kind> ..." subcommands.
-func runImport(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: rivolt import electrafi <file.csv> [<file.csv>...]")
-		os.Exit(2)
-	}
-	switch args[0] {
-	case "electrafi":
-		runImportElectraFi(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown import source %q\n", args[0])
-		os.Exit(2)
-	}
-}
-
-// runImportElectraFi imports one or more TeslaFi/ElectraFi CSV dumps.
-func runImportElectraFi(args []string) {
-	fs := flag.NewFlagSet("import electrafi", flag.ExitOnError)
-	vehicleID := fs.String("vehicle-id", envOr("RIVOLT_VEHICLE_ID", ""), "vehicle_id to attribute sessions to (default: derived from filename)")
-	packKWh := fs.Float64("pack-kwh", envFloat("RIVOLT_PACK_KWH", electrafi.DefaultPackKWh), "usable pack capacity in kWh; used to estimate energy when ElectraFi omits charger_power")
-	tz := fs.String("tz", envOr("RIVOLT_IMPORT_TZ", "Local"), "IANA timezone the CSV timestamps were recorded in (e.g. America/New_York); 'Local' uses the host's zone, 'UTC' keeps the pre-v0.4.2 behavior")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	files := fs.Args()
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: rivolt import electrafi <file.csv> [<file.csv>...]")
-		os.Exit(2)
-	}
-
-	dsn := postgresDSN()
-	if dsn == "" {
-		fmt.Fprintln(os.Stderr, "DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME) is required")
-		os.Exit(1)
-	}
-	ctx := context.Background()
-	pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	pool, err := db.Open(pctx, dsn)
-	cancel()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "postgres open: %v\n", err)
-		os.Exit(1)
-	}
-	defer pool.Close()
-	// Single-tenant identity. Imports always land on "local" \u2014
-	// override via RIVOLT_IMPORT_USER for multi-user setups.
-	username := strings.TrimSpace(os.Getenv("RIVOLT_IMPORT_USER"))
-	if username == "" {
-		username = "local"
-	}
-	uid, err := db.EnsureUser(ctx, pool, username)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ensure user: %v\n", err)
-		os.Exit(1)
-	}
-	resolver := db.NewVehicleResolver(pool, uid)
-
-	ds, err := drives.OpenStore(pool, uid, resolver)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "open drives: %v\n", err)
-		os.Exit(1)
-	}
-	defer ds.Close()
-	cs, err := charges.OpenStore(pool, uid, resolver)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "open charges: %v\n", err)
-		os.Exit(1)
-	}
-	defer cs.Close()
-	ss, err := samples.OpenStore(pool, uid, resolver)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "open samples: %v\n", err)
-		os.Exit(1)
-	}
-	defer ss.Close()
-
-	loc, err := time.LoadLocation(strings.TrimSpace(*tz))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid --tz %q: %v\n", *tz, err)
-		os.Exit(2)
-	}
-	imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss, VehicleID: *vehicleID, PackKWh: *packKWh, Location: loc}
-	var totalRows, totalSamples, totalDrives, totalCharges, totalSkipped int
-	for _, f := range files {
-		res, err := imp.Import(ctx, f)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "import %s: %v\n", f, err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s: rows=%d samples=%d drives=%d charges=%d skipped=%d\n",
-			f, res.Rows, res.Samples, res.Drives, res.Charges, res.SkippedRows)
-		totalRows += res.Rows
-		totalSamples += res.Samples
-		totalDrives += res.Drives
-		totalCharges += res.Charges
-		totalSkipped += res.SkippedRows
-	}
-	fmt.Printf("total: rows=%d samples=%d drives=%d charges=%d skipped=%d\n",
-		totalRows, totalSamples, totalDrives, totalCharges, totalSkipped)
 }
 
 // buildSealer resolves the envelope-encryption KEK source from the

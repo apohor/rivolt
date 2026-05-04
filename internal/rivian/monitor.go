@@ -89,7 +89,7 @@ type StateMonitor struct {
 	staggerLastSlot time.Time
 	staggerInterval time.Duration
 
-	// priceLookup returns the operator-configured home $/kWh rate
+	// priceLookup returns the user's configured home $/kWh rate
 	// and currency at the time of call. Consulted by the recorder
 	// when persisting a charge whose Rivian-reported price is absent
 	// (every home AC / L2 session). Nil means "don't snapshot a

@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/apohor/rivolt/internal/analytics"
@@ -38,6 +39,11 @@ import (
 
 // Deps is the bag of dependencies the API router needs. Keep this
 // small; avoid accumulating a "dependency soup" pattern.
+//
+// All per-user state (data-plane stores, Rivian client, monitor)
+// is reached through factories/registries keyed by the request
+// user's uid — there is no singleton "current user" anywhere in
+// the API surface.
 type Deps struct {
 	Rivian rivian.Client
 	// Accounts hands out per-user *rivian.LiveClient instances. The
@@ -46,19 +52,27 @@ type Deps struct {
 	// Login/Restore from different sessions can no longer corrupt
 	// each other's tokens. nil when the stub client is in use
 	// (nothing to sign into).
-	Accounts      rivian.AccountRegistry
-	SettingsStore *settings.Store
-	PushService   *push.Service
-	PushStore     *push.Store
-	SettingsMgr   *settings.Manager
-	Drives        *drives.Store
-	Charges       *charges.Store
-	Samples       *samples.Store
-	// StateMonitor, when set, backs /api/state/:id with a cached
-	// snapshot kept fresh by a websocket subscription. When nil the
-	// handler falls back to one-shot REST polls against Rivian's
-	// GetVehicleState query.
-	StateMonitor *rivian.StateMonitor
+	Accounts rivian.AccountRegistry
+	// Monitors hands out per-user *rivian.StateMonitor instances
+	// that own the websocket subscription + recorder for that user's
+	// vehicles. nil in mock/stub modes (no recorder needed there).
+	Monitors    *rivian.MonitorRegistry
+	PushService *push.Service
+	// Per-user data-plane factories. The router resolves req.user →
+	// uid → factory.For(uid) once per request, so handlers always
+	// see stores scoped to the caller. nil-safe: handlers gate on
+	// the resolved *Store being non-nil before reading.
+	Drives   *drives.Factory
+	Charges  *charges.Factory
+	Samples  *samples.Factory
+	Settings *settings.Factory
+	Push     *push.Factory
+	// SettingsMgr exposes install-wide AI provider config (keys,
+	// default models). Install-wide because the deployer pays the
+	// LLM bill for every user. v0.17.15 leaves this nil; the
+	// admin track will repopulate it from app_settings and gate
+	// the handlers behind requireAdmin.
+	SettingsMgr *settings.Manager
 	// Auth, when non-nil, gates /api/* behind a session cookie
 	// or trusted-proxy header. Whether unauthenticated requests
 	// are 401'd is governed by AuthEnforced below; with Auth
@@ -212,8 +226,12 @@ func New(d Deps) http.Handler {
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
-				r.Post("/subscribe", handlePushSubscribe(d.PushStore))
-				r.Post("/unsubscribe", handlePushUnsubscribe(d.PushStore))
+				r.Post("/subscribe", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushSubscribe(d.Push.For(uid))(w, r)
+				}))
+				r.Post("/unsubscribe", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushUnsubscribe(d.Push.For(uid))(w, r)
+				}))
 			})
 
 			// Rivian live endpoints. /api/vehicles returns [] when no real
@@ -232,36 +250,59 @@ func New(d Deps) http.Handler {
 			} else {
 				vehicleScoped = func(next http.Handler) http.Handler { return next }
 			}
-			r.Get("/vehicles", handleVehicles(d.Rivian, d.StateMonitor, d.DB, d.Logger))
-			r.With(vehicleScoped).Get("/state/{vehicleID}", handleVehicleState(d.Rivian, d.StateMonitor))
-			r.With(vehicleScoped).Get("/state/{vehicleID}/debug", handleVehicleStateDebug(d.Rivian))
-			r.With(vehicleScoped).Get("/state/{vehicleID}/fresh", handleVehicleStateFresh(d.Rivian))
-			r.With(vehicleScoped).Get("/live-session/{vehicleID}", handleLiveSession(d.Rivian, d.StateMonitor, d.SettingsStore))
-			r.With(vehicleScoped).Get("/live-drive/{vehicleID}", handleLiveDrive(d.StateMonitor))
-			r.Get("/charging-schema", handleChargingSchemaProbe(d.Rivian))
-			r.Get("/charging-field/{field}", handleChargingFieldProbe(d.Rivian))
-			r.Get("/charging-frames", handleChargingFrames(d.Rivian))
+			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger)(w, r)
+			}))
+			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
+			}))
+			r.With(vehicleScoped).Get("/state/{vehicleID}/debug", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicleStateDebug(clientFor(d, uid))(w, r)
+			}))
+			r.With(vehicleScoped).Get("/state/{vehicleID}/fresh", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicleStateFresh(clientFor(d, uid))(w, r)
+			}))
+			r.With(vehicleScoped).Get("/live-session/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleLiveSession(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid))(w, r)
+			}))
+			r.With(vehicleScoped).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleLiveDrive(monitorFor(d, uid))(w, r)
+			}))
+			r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargingSchemaProbe(clientFor(d, uid))(w, r)
+			}))
+			r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargingFieldProbe(clientFor(d, uid))(w, r)
+			}))
+			r.Get("/charging-frames", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargingFrames(clientFor(d, uid))(w, r)
+			}))
 
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
 				r.Get("/", handleRivianStatus(d.Accounts))
-				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets))
-				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets))
-				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets))
+				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors))
+				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors))
+				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets, d.Monitors))
 			})
 
 			// Home electricity cost settings, applied locally to estimate
 			// the price of sessions Rivian reports as free (home AC, L2,
 			// non-RAN public chargers).
 			r.Route("/settings/charging", func(r chi.Router) {
-				r.Get("/", handleChargingSettingsGet(d.SettingsStore))
-				r.Put("/", handleChargingSettingsPut(d.SettingsStore))
-				// Price book for fast/public charging networks: a flat
-				// list of {name, price_per_kwh, currency} rows the UI
-				// uses to one-click prefill the PricingCard.
-				r.Get("/networks", handleChargingNetworksGet(d.SettingsStore))
-				r.Put("/networks", handleChargingNetworksPut(d.SettingsStore))
+				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingSettingsGet(d.Settings.For(uid))(w, r)
+				}))
+				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingSettingsPut(d.Settings.For(uid))(w, r)
+				}))
+				r.Get("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingNetworksGet(d.Settings.For(uid))(w, r)
+				}))
+				r.Put("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingNetworksPut(d.Settings.For(uid))(w, r)
+				}))
 			})
 
 			// AI provider configuration (OpenAI / Anthropic / Gemini).
@@ -272,11 +313,6 @@ func New(d Deps) http.Handler {
 			r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 			r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
 			r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
-			// Smoke-test the currently configured provider. Sends a
-			// trivial prompt and echoes the reply + token usage +
-			// round-trip latency. Lets the Settings UI verify the
-			// key+model pair without waiting for a downstream AI
-			// feature (digest, anomaly, etc.) to exercise it.
 			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
 
 			// Operational admin surface. Today's only endpoint is the
@@ -292,26 +328,24 @@ func New(d Deps) http.Handler {
 
 			// Read-only session/telemetry endpoints. Populated by either the
 			// ElectraFi importer or the (future) live Rivian ingester.
-			r.Get("/drives", handleDrives(d.Drives, d.Charges, d.SettingsStore))
-			r.Get("/charges", handleCharges(d.Charges, d.SettingsStore))
-			// DELETE /charges/{id} removes a single charge row owned
-			// by the current user. Used by the UI's per-row "delete"
-			// affordance to clear obviously-broken sessions (e.g.
-			// pre-v0.10.7 phantom rows where SoC went down).
-			r.Delete("/charges/{id}", handleDeleteCharge(d.Charges))
-			// PATCH /charges/{id}/pricing lets the UI override cost /
-			// currency / price-per-kWh on a single row — useful for
-			// DCFC sessions paid outside the Rivian app, where we
-			// have no upstream price.
-			r.Patch("/charges/{id}/pricing", handlePatchChargePricing(d.Charges))
-			// Pure-local analysis over the stored charge set. Groups
-			// sessions into Home / Public / Fast buckets: peak-power
-			// >=50 kW is Fast (DCFC) regardless of where it happened,
-			// and the remaining slow sessions are DBSCAN-clustered on
-			// (lat, lon) with the largest cluster winning Home and
-			// everything else being Public. No external calls; no LLM.
-			r.Get("/charges/clusters", handleChargeClusters(d.Charges))
-			r.Get("/samples", handleSamples(d.Samples))
+			r.Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
+			r.Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleCharges(d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
+			r.Delete("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDeleteCharge(d.Charges.For(uid))(w, r)
+			}))
+			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handlePatchChargePricing(d.Charges.For(uid))(w, r)
+			}))
+			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleChargeClusters(d.Charges.For(uid))(w, r)
+			}))
+			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSamples(d.Samples.For(uid))(w, r)
+			}))
 		}) // end of timed authenticated /api group
 
 		// Bulk data routes. Identical auth, no 30s timeout — an
@@ -358,6 +392,46 @@ func handleHealth(version string) http.HandlerFunc {
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	}
+}
+
+// withUser adapts a uid-aware handler to chi. Resolves the request
+// user from auth context; 401s if none. Used by every per-user
+// route so handlers can be plain (uid, *Store, *Store, ...) closures
+// without having to repeat the auth resolution at every call site.
+func withUser(fn func(uid uuid.UUID, w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		fn(uid, w, r)
+	}
+}
+
+// clientFor resolves the per-user Rivian client. Falls back to the
+// shared d.Rivian (typically the stub) when no per-user account is
+// available — that path is what keeps the API alive in stub-only
+// installs that never sign anyone in.
+func clientFor(d Deps, uid uuid.UUID) rivian.Client {
+	if d.Accounts != nil {
+		if a := d.Accounts.For(uid); a != nil {
+			if c, ok := a.(rivian.Client); ok && c != nil {
+				return c
+			}
+		}
+	}
+	return d.Rivian
+}
+
+// monitorFor resolves the per-user StateMonitor. Returns nil when
+// no monitor is running for that user yet (login path will start
+// one once the user signs in to Rivian).
+func monitorFor(d Deps, uid uuid.UUID) *rivian.StateMonitor {
+	if d.Monitors == nil {
+		return nil
+	}
+	return d.Monitors.For(uid)
 }
 
 func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
@@ -599,7 +673,7 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 // zeroed payload for those sessions.
 //
 // The response is decorated with an estimated_cost field computed
-// from the operator-configured home $/kWh rate. For sessions Rivian
+// from the user's configured home $/kWh rate. For sessions Rivian
 // reports as free (home AC, L2 on non-RAN chargers) this is the
 // only signal of what the charge cost.
 func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *settings.Store) http.HandlerFunc {
@@ -658,7 +732,7 @@ func handleLiveDrive(mon *rivian.StateMonitor) http.HandlerFunc {
 
 // liveSessionResponse is the wire shape for /api/live-session/:id —
 // the base LiveSession plus locally-computed estimated cost when the
-// operator has set a home $/kWh rate and the Rivian-reported price
+// user has set a home $/kWh rate and the Rivian-reported price
 // is absent.
 type liveSessionResponse struct {
 	*rivian.LiveSession
@@ -840,7 +914,7 @@ func loadPricedCharges(ctx context.Context, store *charges.Store, cfg settings.C
 }
 
 // chargeRate picks the best $/kWh for a single charge row. Persisted
-// PricePerKWh (set when Rivian or the operator-configured home rate
+// PricePerKWh (set when Rivian or the user's configured home rate
 // stamped the row at close time) wins. If only Cost is set, derive
 // rate from Cost/Energy. Otherwise fall back to the current home
 // rate so legacy / unpriced rows still contribute a sensible value.
@@ -1015,7 +1089,7 @@ func handlePatchChargePricing(store *charges.Store) http.HandlerFunc {
 
 // chargeResponse is the wire shape for /api/charges: the stored
 // charge row plus a locally-computed estimated cost when the
-// operator has set a home $/kWh rate. Cost is only attached when
+// user has set a home $/kWh rate. Cost is only attached when
 // both the rate and the observed energy are non-zero.
 type chargeResponse struct {
 	charges.Charge
@@ -1077,7 +1151,15 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 func handleImportElectrafi(d Deps) http.HandlerFunc {
 	const maxUpload = 1 << 30 // 1 GiB
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		ds := d.Drives.For(uid)
+		cs := d.Charges.For(uid)
+		ss := d.Samples.For(uid)
+		if ds == nil || cs == nil || ss == nil {
 			http.Error(w, "import unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
@@ -1091,7 +1173,7 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			http.Error(w, "no files uploaded under field 'file'", http.StatusBadRequest)
 			return
 		}
-		imp := &electrafi.Importer{Drives: d.Drives, Charges: d.Charges, Samples: d.Samples}
+		imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss}
 		if v := r.FormValue("pack_kwh"); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 				imp.PackKWh = f
@@ -1182,28 +1264,36 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 
 // handleDataBackup streams a single JSON bundle containing every
 // drive, charge, and raw sample for the current user. Intended to
-// be paired with the reset endpoint so an operator can snapshot
+// be paired with the reset endpoint so a user can snapshot
 // their data before wiping it. The response is served with a
 // Content-Disposition attachment so browsers download it directly;
 // nothing is kept server-side.
 func handleDataBackup(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		ds := d.Drives.For(uid)
+		cs := d.Charges.For(uid)
+		ss := d.Samples.For(uid)
+		if ds == nil || cs == nil || ss == nil {
 			http.Error(w, "backup unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
 		ctx := r.Context()
-		drv, err := d.Drives.ListAll(ctx)
+		drv, err := ds.ListAll(ctx)
 		if err != nil {
 			http.Error(w, "list drives: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		chg, err := d.Charges.ListAll(ctx)
+		chg, err := cs.ListAll(ctx)
 		if err != nil {
 			http.Error(w, "list charges: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		smp, err := d.Samples.ListAll(ctx)
+		smp, err := ss.ListAll(ctx)
 		if err != nil {
 			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1234,7 +1324,15 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 // so this is the realistic ceiling.
 func handleDataRestore(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		ds := d.Drives.For(uid)
+		cs := d.Charges.For(uid)
+		ss := d.Samples.For(uid)
+		if ds == nil || cs == nil || ss == nil {
 			http.Error(w, "restore unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
@@ -1252,18 +1350,18 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		}
 		ctx := r.Context()
 		for _, drv := range bundle.Drives {
-			if err := d.Drives.Upsert(ctx, drv); err != nil {
+			if err := ds.Upsert(ctx, drv); err != nil {
 				http.Error(w, "upsert drive "+drv.ID+": "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 		for _, chg := range bundle.Charges {
-			if err := d.Charges.Upsert(ctx, chg); err != nil {
+			if err := cs.Upsert(ctx, chg); err != nil {
 				http.Error(w, "upsert charge "+chg.ID+": "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
-		if err := d.Samples.InsertBatch(ctx, bundle.Samples); err != nil {
+		if err := ss.InsertBatch(ctx, bundle.Samples); err != nil {
 			http.Error(w, "insert samples: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1284,24 +1382,32 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 // Pair with /data/backup to avoid losing work.
 func handleDataReset(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.Drives == nil || d.Charges == nil || d.Samples == nil {
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		ds := d.Drives.For(uid)
+		cs := d.Charges.For(uid)
+		ss := d.Samples.For(uid)
+		if ds == nil || cs == nil || ss == nil {
 			http.Error(w, "reset unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
 		ctx := r.Context()
 		// Wipe in an order that can't violate FKs; there are no
 		// cross-table FKs on user_id so order is cosmetic.
-		samplesN, err := d.Samples.Reset(ctx)
+		samplesN, err := ss.Reset(ctx)
 		if err != nil {
 			http.Error(w, "reset samples: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		drivesN, err := d.Drives.Reset(ctx)
+		drivesN, err := ds.Reset(ctx)
 		if err != nil {
 			http.Error(w, "reset drives: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		chargesN, err := d.Charges.Reset(ctx)
+		chargesN, err := cs.Reset(ctx)
 		if err != nil {
 			http.Error(w, "reset charges: "+err.Error(), http.StatusInternalServerError)
 			return

@@ -156,3 +156,10 @@ func (s *Store) SaveVAPID(ctx context.Context, v VAPID) error {
 	)
 	return err
 }
+
+// NewServerStore returns a *Store usable only for VAPID Get/Save.
+// Subscription ops will fail (userID is zero); that's by design —
+// VAPID is the only push state that's truly server-wide.
+func NewServerStore(db *sql.DB) *Store {
+	return &Store{db: db}
+}

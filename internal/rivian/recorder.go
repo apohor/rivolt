@@ -658,7 +658,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		row.ThermalKWh = &v
 	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
-	// (they're the real billed amount); otherwise use the operator's
+	// (they're the real billed amount); otherwise use the user's
 	// configured home $/kWh rate. Persisting means future rate
 	// changes don't retroactively rewrite history.
 	if liveSess != nil && liveSess.CurrentPrice != "" {

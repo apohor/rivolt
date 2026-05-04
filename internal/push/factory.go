@@ -49,3 +49,13 @@ func (f *Factory) For(userID uuid.UUID) *Store {
 	f.cache[userID] = s
 	return s
 }
+
+// DB exposes the shared pool. Used by main.go to load/generate the
+// global VAPID keypair, which lives at push_vapid.id=1 and isn't
+// scoped to any user.
+func (f *Factory) DB() *sql.DB {
+	if f == nil {
+		return nil
+	}
+	return f.db
+}
