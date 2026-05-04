@@ -128,6 +128,13 @@ type Deps struct {
 	// row is still created, callers must create the OIDC
 	// identity out-of-band. See internal/authelia.
 	Authelia *authelia.Client
+	// OSRMProxy, when non-nil, mounts a same-origin reverse
+	// proxy at /api/maps/osrm/* that forwards to a self-hosted
+	// OSRM (cluster Service typically). nil leaves the route
+	// unmounted; the SPA falls back to the public OSRM demo.
+	// /api/config advertises whether the proxy is mounted so the
+	// SPA picks the right base URL at boot.
+	OSRMProxy http.Handler
 }
 
 // New builds the root mux with all routes mounted.
@@ -199,6 +206,11 @@ func New(d Deps) http.Handler {
 		// Health + auth endpoints stay reachable without a session,
 		// otherwise the browser has no way to log in.
 		r.Get("/health", handleHealth(d.Version))
+		// /api/config advertises optional runtime knobs to the SPA
+		// (today: whether the OSRM same-origin proxy is mounted).
+		// Public so the SPA can fetch it before login as well as
+		// after; reveals no user-scoped data.
+		r.Get("/config", handleConfig(d.OSRMProxy != nil))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -231,6 +243,15 @@ func New(d Deps) http.Handler {
 			// second group below without this timeout — large CSV
 			// exports can take minutes.
 			r.Use(middleware.Timeout(30 * time.Second))
+
+			// Same-origin OSRM proxy. Mounted only when the operator
+			// configured RIVOLT_OSRM_BASE_URL — otherwise the route is
+			// absent entirely and the SPA falls back to the public
+			// demo. chi's Mount strips the prefix from r.URL.Path
+			// itself; the proxy.Director then forwards as-is.
+			if d.OSRMProxy != nil {
+				r.Mount("/maps/osrm", http.StripPrefix("/api/maps/osrm", d.OSRMProxy))
+			}
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
@@ -423,6 +444,29 @@ func handleHealth(version string) http.HandlerFunc {
 			"version": version,
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
+	}
+}
+
+// handleConfig advertises optional runtime knobs to the SPA. Today
+// it returns whether the same-origin OSRM proxy is mounted; the
+// SPA uses the path it returns as the base URL for /match and
+// /route, falling back to the public OSRM demo when the path is
+// empty. Public so the SPA can fetch it without a session.
+func handleConfig(osrmEnabled bool) http.HandlerFunc {
+	type osrmCfg struct {
+		// Path is the same-origin URL prefix the SPA should hit
+		// (empty when the proxy is not configured server-side).
+		Path string `json:"path,omitempty"`
+	}
+	type cfg struct {
+		OSRM osrmCfg `json:"osrm"`
+	}
+	c := cfg{}
+	if osrmEnabled {
+		c.OSRM.Path = "/api/maps/osrm"
+	}
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, c)
 	}
 }
 

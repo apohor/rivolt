@@ -9,6 +9,16 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { osrmBase, getConfig, ensureConfig } from "../lib/config";
+
+// hasSelfHostedOSRM is true when the server wired a same-origin
+// OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
+// public demo's 9-coord cap on /match (we run with
+// --max-matching-size 1000), so we can send the entire trace in
+// one request instead of walking overlapping chunks.
+function hasSelfHostedOSRM(): boolean {
+  return getConfig().osrm.path !== "";
+}
 
 // Snap raw GPS samples to actual roads using OSRM's map-matching
 // endpoint (/match). Map-matching is the right primitive for this:
@@ -35,8 +45,10 @@ import "leaflet/dist/leaflet.css";
 //   request — far below the 100-coord cap on /route. To use /match
 //   on a multi-mile drive we walk the trace in overlapping chunks
 //   of CHUNK_SIZE points (overlap of 1 keeps adjacent chunks
-//   geometrically continuous). Self-hosted OSRM lifts this cap, at
-//   which point the chunking is harmless overhead.
+//   geometrically continuous). Self-hosted OSRM (which we run with
+//   --max-matching-size 1000) lifts this cap, at which point the
+//   chunking becomes pure overhead — we send the whole trace in
+//   one shot instead.
 //
 // Trace requirements & tradeoffs:
 //   - We downsample to MAX_TRACE so the request count stays bounded
@@ -64,7 +76,7 @@ async function matchChunk(
   if (pts.length < 2) return null;
   const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
   const url =
-    `https://router.project-osrm.org/match/v1/driving/${coords}` +
+    `${osrmBase()}/match/v1/driving/${coords}` +
     `?geometries=geojson&overview=full&tidy=true`;
   try {
     const r = await fetch(url, { signal });
@@ -119,7 +131,7 @@ async function routeAll(
   if (pts.length < 2) return null;
   const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
   const url =
-    `https://router.project-osrm.org/route/v1/driving/${coords}` +
+    `${osrmBase()}/route/v1/driving/${coords}` +
     `?geometries=geojson&overview=full`;
   try {
     const r = await fetch(url, { signal });
@@ -143,6 +155,35 @@ async function snapToRoads(
   signal: AbortSignal,
 ): Promise<[number, number][] | null> {
   if (points.length < 2) return null;
+
+  // Make sure /api/config has resolved before we pick a base URL.
+  // The module-level kick-off usually wins this race; awaiting here
+  // guarantees the very first map render uses the configured proxy
+  // instead of falling back to the public demo by accident.
+  await ensureConfig();
+  if (signal.aborted) return null;
+
+  // Self-hosted OSRM: send the whole trace as a single /match.
+  // Cap at MAX_TRACE_SELFHOSTED for a defensive ceiling — our
+  // runtime is configured for max-matching-size=1000 but we also
+  // don't want to push 5000-point GPX imports through OSRM in
+  // one shot.
+  if (hasSelfHostedOSRM()) {
+    const MAX_TRACE_SELFHOSTED = 500;
+    let trace = points;
+    if (trace.length > MAX_TRACE_SELFHOSTED) {
+      const step = Math.ceil(trace.length / MAX_TRACE_SELFHOSTED);
+      const sampled = trace.filter((_, i) => i % step === 0);
+      if (sampled[sampled.length - 1] !== trace[trace.length - 1]) {
+        sampled.push(trace[trace.length - 1]);
+      }
+      trace = sampled;
+    }
+    const m = await matchChunk(trace, signal);
+    if (m && m.length > 1) return m;
+    // /match gave up on the whole trace — fall back to /route.
+    return await routeAll(trace, signal);
+  }
 
   const step = Math.max(1, Math.ceil(points.length / MAX_TRACE));
   const sampled = points.filter((_, i) => i % step === 0);

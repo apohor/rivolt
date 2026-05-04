@@ -294,20 +294,50 @@ decisions 5–7, 10–12.
       public OSRM demo (`router.project-osrm.org`). Both have
       no-uptime-SLA, hammered-by-the-internet rate limits — fine
       for a single-operator instance, hostile at multi-tenant
-      scale. Stand up:
-      - A self-hosted tile server (TileServer-GL or a
+      scale. Status:
+      - ✅ **Self-hosted OSRM**, Texas extract running on the
+        cluster (`apps/osrm/` in rivolt-infra). The rivolt API
+        reverse-proxies it at `/api/maps/osrm/*` when
+        `RIVOLT_OSRM_BASE_URL` is set (`maps.osrm.baseUrl` in
+        the chart) and `/api/config` advertises the path so the
+        SPA picks it at runtime — no rebuild per deploy. Drive
+        maps now send the whole trace as a single `/match`
+        instead of walking 9-coord chunks (runtime is configured
+        for `--max-matching-size 1000`). v0.17.24.
+      - [ ] **Self-hosted tile server** (TileServer-GL or a
         Protomaps-style PMTiles bundle on object storage with a
         `pmtiles://` viewer) — eliminates per-tile CDN calls and
         works offline for overland mode.
-      - A self-hosted OSRM (or Valhalla) container with a regional
-        OSM extract, exposed on the cluster network. Lifts the
-        9-coord `/match` cap that currently forces the frontend
-        to chunk traces, and removes the rate-limit dependency
-        from drive-route rendering.
-      The frontend already has the URLs centralized
-      (`addCartoDark` in `DriveMap.tsx`, the OSRM base URL in
-      `snapToRoads`); swap behind a runtime config flag so
-      self-hosters can pick public-CDN or self-hosted at deploy
+- [ ] **Scale OSRM beyond a single state extract.** Current
+      self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
+      to `texas-latest` because that's where every recorded
+      drive lives today. Going to full continental US (`us-latest`
+      or `north-america-latest`) is non-trivial because OSRM does
+      not support sharded / federated graphs — `osrm-extract`
+      runs a global edge-expansion that needs the whole graph in
+      RAM, and on the 32GB nuc11 it OOMs at ~32GB+ peak.
+      Worse, the runtime `osrm-routed` mmaps a single graph file,
+      so you can't run "north" + "south" pods and stitch results
+      at the edges (cross-shard `/match` is undefined).
+      Realistic paths:
+      - **Bigger build host.** Run `osrm-extract` once on a 64GB
+        cloud VM (Hetzner CPX51 ~€60/mo on-demand, or spot for
+        ~€10 for the 60-min build), copy the produced `.osrm*`
+        files onto the cluster's NFS, and run `osrm-routed`
+        locally. Runtime mmap is ~10GB which the nuc11 can host.
+      - **Regional shards + geo-router.** Run separate OSRM
+        instances per region (us-west / us-central / us-east),
+        write a tiny Go shim in `internal/osrm/` that picks the
+        backend based on the trace's bbox. Breaks cross-region
+        routes (rare in practice for EV drives but a real edge
+        case for road-trippers).
+      - **Switch to Valhalla.** Valhalla's tile-based architecture
+        natively supports regional shards and is built to be
+        rebuilt incrementally. Requires re-doing the chunking
+        logic in `snapToRoads` because the response shape is
+        different.
+      Tracking issue should capture the per-option cost +
+      runtime-RAM tradeoff and let the operator pick at deploy
       time.
 
 ### Runtime correctness at N > 1 pods

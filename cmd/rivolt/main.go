@@ -37,6 +37,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
@@ -769,6 +770,19 @@ func runServer() {
 		logger.Info("authelia provisioning enabled")
 	}
 
+	// OSRM same-origin proxy. RIVOLT_OSRM_BASE_URL points at the
+	// cluster Service (e.g. http://osrm.osrm.svc.cluster.local).
+	// Empty disables the feature; the SPA falls back to the public
+	// OSRM demo via /api/config advertising an empty path.
+	osrmProxy, err := maps.NewOSRMProxy(os.Getenv("RIVOLT_OSRM_BASE_URL"))
+	if err != nil {
+		logger.Error("osrm proxy init", "err", err.Error())
+		os.Exit(1)
+	}
+	if osrmProxy != nil {
+		logger.Info("osrm same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_OSRM_BASE_URL"))
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:       rivianClient,
 		Accounts:     accountRegistry,
@@ -791,6 +805,7 @@ func runServer() {
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
 		Authelia:     autheliaClient,
+		OSRMProxy:    osrmProxy,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

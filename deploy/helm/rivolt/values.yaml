@@ -409,6 +409,24 @@ ratelimit:
     addr: ""
 
 # ---------------------------------------------------------------------------
+# Maps: self-hosted OSRM same-origin proxy
+# ---------------------------------------------------------------------------
+#
+# When `osrm.baseUrl` is set, the rivolt API:
+#   - mounts /api/maps/osrm/* and reverse-proxies to this URL,
+#   - advertises that path on /api/config so the SPA uses it for
+#     /match and /route instead of the public OSRM demo.
+#
+# Typical value in-cluster: "http://osrm.osrm.svc.cluster.local"
+# (the apps/osrm/ chart in rivolt-infra exposes a Service on :80).
+# Empty disables the feature; the SPA falls back to
+# router.project-osrm.org with the public demo's 9-coord /match
+# cap and aggressive rate limits.
+maps:
+  osrm:
+    baseUrl: ""
+
+# ---------------------------------------------------------------------------
 # Authelia user provisioning (Phase 2)
 # ---------------------------------------------------------------------------
 #

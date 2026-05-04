@@ -87,6 +87,17 @@ spec:
               value: {{ .redis.addr | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.maps }}
+            {{- if .osrm.baseUrl }}
+            # Same-origin OSRM proxy. When set, the rivolt API
+            # mounts /api/maps/osrm/* and forwards to this URL,
+            # and /api/config advertises the path so the SPA
+            # uses it for /match and /route. Empty/unset falls
+            # back to the public OSRM demo at request time.
+            - name: RIVOLT_OSRM_BASE_URL
+              value: {{ .osrm.baseUrl | quote }}
+            {{- end }}
+            {{- end }}
             # DB_USER. CNPG: from the auto-generated <cluster>-app
             # Secret. External w/ existingSecret + UserKey: from
             # there. Otherwise the literal in externalDatabase.user.
