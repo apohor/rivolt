@@ -332,6 +332,7 @@ func New(d Deps) http.Handler {
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
+				r.Post("/users", handleAdminUserCreate(d.DB))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
 				r.Delete("/users/{id}", handleAdminUserDelete(d.DB))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))

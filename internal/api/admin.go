@@ -8,6 +8,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/apohor/rivolt/internal/auth"
@@ -36,6 +37,47 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 			users = []db.AdminUserRow{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	}
+}
+
+// handleAdminUserCreate — POST /api/admin/users
+// Body: {"username": "...", "email": "...", "display_name": "...", "role": "user"|"admin"}
+//
+// Pre-provisions a user row keyed by the deterministic UUIDv5 of
+// the username. Auth is OIDC-only — this does NOT issue a password.
+// When the user later signs in via OIDC with a matching
+// preferred_username, EnsureUserFull lands on this row and the
+// pre-set role/email/display_name survive.
+//
+// Username matching is case-insensitive: "Alice" and "alice" hash
+// to the same UUID, so the admin can pre-provision in any case
+// the IdP happens to use.
+func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
+			return
+		}
+		var body struct {
+			Username    string `json:"username"`
+			Email       string `json:"email"`
+			DisplayName string `json:"display_name"`
+			Role        string `json:"role"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
+			return
+		}
+		id, err := db.CreateUser(r.Context(), d, body.Username, body.Email, body.DisplayName, body.Role)
+		if err != nil {
+			if errors.Is(err, db.ErrUserExists) {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "user already exists"})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"id": id.String()})
 	}
 }
 

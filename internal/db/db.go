@@ -210,6 +210,51 @@ func CountAdmins(ctx context.Context, d *sql.DB) (int, error) {
 	return n, nil
 }
 
+// ErrUserExists is returned by CreateUser when the username is
+// already taken. Distinguished from a generic insert error so the
+// admin endpoint can surface a clean 409 instead of a 500.
+var ErrUserExists = fmt.Errorf("user already exists")
+
+// CreateUser pre-provisions a user row from the admin endpoint.
+// Auth is OIDC-only, so this does NOT issue a password — the row
+// just reserves the deterministic UUIDv5 for the username and
+// stamps role/email/display_name. When the user later signs in via
+// OIDC with the same preferred_username, EnsureUserFull's upsert
+// lands on this row and the pre-set role survives.
+//
+// Returns ErrUserExists if a row with the same id is already
+// present; callers should NOT silently turn that into an upsert,
+// because the admin's intent is "create new", not "edit existing".
+func CreateUser(ctx context.Context, d *sql.DB, username, email, displayName, role string) (uuid.UUID, error) {
+	u := strings.ToLower(strings.TrimSpace(username))
+	if u == "" {
+		return uuid.Nil, fmt.Errorf("username is required")
+	}
+	r := strings.ToLower(strings.TrimSpace(role))
+	if r == "" {
+		r = "user"
+	}
+	switch r {
+	case "user", "admin":
+	default:
+		return uuid.Nil, fmt.Errorf("invalid role %q", role)
+	}
+	id := UserIDFor(u)
+	res, err := d.ExecContext(ctx, `
+		INSERT INTO users (id, username, email, display_name, role)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5)
+		ON CONFLICT (id) DO NOTHING
+	`, id, u, strings.TrimSpace(email), strings.TrimSpace(displayName), r)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return uuid.Nil, ErrUserExists
+	}
+	return id, nil
+}
+
 // LookupUsername returns the display-friendly name for a user UUID,
 // preferring display_name (set by OIDC sign-in from the IdP's `name`
 // claim) and falling back to the bare username column. Returns the

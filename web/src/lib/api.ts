@@ -472,6 +472,15 @@ export const backend = {
   // Admin user management. Same gating as the AI endpoints.
   adminListUsers: () =>
     api.get<{ users: AdminUserRow[] }>("/api/admin/users"),
+  // Pre-provision a user row. Auth is OIDC-only; this does NOT
+  // issue a password. When the named user later signs in via OIDC
+  // they pick up the pre-set role / email / display_name.
+  adminCreateUser: (input: {
+    username: string;
+    email?: string;
+    display_name?: string;
+    role: "user" | "admin";
+  }) => api.post<{ id: string }>("/api/admin/users", input),
   adminSetUserRole: (id: string, role: "user" | "admin") =>
     api.post<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/role`, {
       role,

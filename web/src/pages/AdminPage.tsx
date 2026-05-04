@@ -32,12 +32,101 @@ export default function AdminPage() {
     <div className="space-y-4">
       <PageHeader title="Admin" />
       <Card title="Users">
+        <CreateUserForm />
         <UsersPanel currentUserID={me.data.user_id} />
       </Card>
       <Card title="AI providers">
         <AIProvidersPanel />
       </Card>
     </div>
+  );
+}
+
+function CreateUserForm() {
+  const qc = useQueryClient();
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [role, setRole] = useState<"user" | "admin">("user");
+
+  const create = useMutation({
+    mutationFn: () =>
+      backend.adminCreateUser({
+        username: username.trim(),
+        email: email.trim() || undefined,
+        display_name: displayName.trim() || undefined,
+        role,
+      }),
+    onSuccess: () => {
+      setUsername("");
+      setEmail("");
+      setDisplayName("");
+      setRole("user");
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
+  });
+
+  // Pre-provision: the row reserves the deterministic UUID for the
+  // username so when the user later signs in via OIDC with a
+  // matching preferred_username the existing row is reused. We
+  // surface this in the help text so it's not surprising.
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!username.trim()) return;
+        create.mutate();
+      }}
+      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-5"
+    >
+      <input
+        type="text"
+        required
+        placeholder="username"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+      />
+      <input
+        type="email"
+        placeholder="email (optional)"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+      />
+      <input
+        type="text"
+        placeholder="display name (optional)"
+        value={displayName}
+        onChange={(e) => setDisplayName(e.target.value)}
+        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+      />
+      <select
+        value={role}
+        onChange={(e) => setRole(e.target.value as "user" | "admin")}
+        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+      >
+        <option value="user">user</option>
+        <option value="admin">admin</option>
+      </select>
+      <button
+        type="submit"
+        disabled={!username.trim() || create.isPending}
+        className="rounded-md border border-emerald-800 bg-emerald-950 px-3 py-1 text-sm text-emerald-200 hover:border-emerald-700 hover:text-emerald-100 disabled:opacity-40"
+      >
+        {create.isPending ? "Creating…" : "Create user"}
+      </button>
+      <p className="col-span-full text-xs text-neutral-500">
+        Auth is OIDC-only — this pre-provisions the user row. When the
+        named user later signs in via OIDC with a matching
+        preferred_username, they pick up the pre-set role and details.
+      </p>
+      {create.error && (
+        <p className="col-span-full text-xs text-red-400">
+          {String(create.error)}
+        </p>
+      )}
+    </form>
   );
 }
 
