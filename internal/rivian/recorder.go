@@ -121,6 +121,22 @@ type liveCharge struct {
 // All store writes are best-effort: errors are logged and swallowed
 // so recording failures never break the live-state HTTP path.
 func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr *State) {
+	m.recordFrame(ctx, vehicleID, prev, curr, true /* lifecycle */)
+}
+
+// recordSampleOnly writes the sample row and updates the live-cache
+// counters but does NOT run drive/charge lifecycle handlers. Used by
+// the REST periodic refresh path: a stale REST snapshot can carry an
+// outdated gear/chargerState (the gateway replays its last cached
+// frame for cars in cellular dead-zones), and lifecycle decisions
+// driven from there fragment a single real drive into many 2-3 min
+// stub drives. Lifecycle should only be driven by the WS push and the
+// initial REST seed; subsequent REST is pure cache fill.
+func (m *StateMonitor) recordSampleOnly(ctx context.Context, vehicleID string, prev, curr *State) {
+	m.recordFrame(ctx, vehicleID, prev, curr, false /* lifecycle */)
+}
+
+func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, curr *State, lifecycle bool) {
 	if curr == nil {
 		return
 	}
@@ -157,19 +173,33 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 		m.sessions[vehicleID] = sess
 	}
 
-	// Physical-invariant guard: a car can't be driving and charging
-	// at the same time. If the current frame says it's doing one,
-	// any open accumulator for the OTHER must be stale (Rivian's
-	// charger fields stick across unplug + drive cycles, and the WS
-	// occasionally drops mid-session). Force-close it BEFORE the
-	// lifecycle handlers so the new gear/charge state opens a clean
-	// session instead of extending the wrong one.
-	sess.applyMutualExclusion(curr, m, wctx)
+	var driveNum, chargeNum int64
+	if lifecycle {
+		// Physical-invariant guard: a car can't be driving and
+		// charging at the same time. If the current frame says it's
+		// doing one, any open accumulator for the OTHER must be
+		// stale (Rivian's charger fields stick across unplug + drive
+		// cycles, and the WS occasionally drops mid-session).
+		// Force-close it BEFORE the lifecycle handlers so the new
+		// gear/charge state opens a clean session instead of
+		// extending the wrong one.
+		sess.applyMutualExclusion(curr, m, wctx)
 
-	// Handle session lifecycle so the sample row carries the right
-	// drive_number / charge_number for this frame.
-	driveNum := sess.handleDriveLifecycle(curr, prev, m, wctx)
-	chargeNum := sess.handleChargeLifecycle(curr, prev, m, wctx)
+		// Handle session lifecycle so the sample row carries the
+		// right drive_number / charge_number for this frame.
+		driveNum = sess.handleDriveLifecycle(curr, prev, m, wctx)
+		chargeNum = sess.handleChargeLifecycle(curr, prev, m, wctx)
+	} else {
+		// Sample-only path: don't open or close any session, but DO
+		// stamp the sample with whatever drive/charge is currently
+		// open so the row stitches into the right session in the UI.
+		if sess.drive != nil {
+			driveNum = sess.drive.number
+		}
+		if sess.charge != nil {
+			chargeNum = sess.charge.number
+		}
+	}
 	m.sessMu.Unlock()
 
 	// Sample insert: one row per cache update. WS pushes arrive only

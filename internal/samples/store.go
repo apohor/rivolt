@@ -205,7 +205,8 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		}
 		v.At = v.At.UTC()
 		if fixAt.Valid {
-			t := fixAt.Time.UTC(); v.LocationFixAt = &t
+			t := fixAt.Time.UTC()
+			v.LocationFixAt = &t
 		}
 		out = append(out, v)
 	}
@@ -250,7 +251,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		}
 		v.At = v.At.UTC()
 		if fixAt.Valid {
-			t := fixAt.Time.UTC(); v.LocationFixAt = &t
+			t := fixAt.Time.UTC()
+			v.LocationFixAt = &t
 		}
 		out = append(out, v)
 	}

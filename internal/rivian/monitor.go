@@ -719,7 +719,13 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string) {
 		if prev != nil && wakeWorthyTransition(prev, st) {
 			m.kickResubscribe(vehicleID, "rest detected wakeup transition")
 		}
-		m.record(ctx, vehicleID, prev, merged)
+		// Sample-only: REST snapshots can replay a stale frame for
+		// hours when the car is in a cellular dead-zone (gateway
+		// keeps serving its last known gear/lat/lon/speed). Letting
+		// that drive lifecycle decisions fragmented a single 3-hour
+		// drive into 40+ stub drives. Lifecycle is now WS-driven
+		// only; REST stays a pure cache backfill.
+		m.recordSampleOnly(ctx, vehicleID, prev, merged)
 	}
 }
 
