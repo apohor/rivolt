@@ -355,8 +355,15 @@ cnpg:
   # See https://cloudnative-pg.io/documentation/current/backup_recovery/
   backup:
     enabled: false
-    # barmanObjectStore: {}
+    # barmanObjectStore: { destinationPath: "s3://bucket/path", endpointURL: "...", s3Credentials: {...}, wal: {...}, data: {...} }
     # retentionPolicy: "30d"
+    scheduled:
+      enabled: true
+      # 02:30 UTC daily (CNPG cron is 6-field with seconds).
+      schedule: "0 30 2 * * *"
+      # Run once on first reconcile so a fresh install isn't
+      # without a base backup until the next scheduled fire.
+      immediate: true
 
 # ---------------------------------------------------------------------------
 # External database

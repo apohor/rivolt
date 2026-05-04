@@ -1,0 +1,24 @@
+{{- if and .Values.cnpg.enabled .Values.cnpg.backup.enabled .Values.cnpg.backup.scheduled.enabled }}
+# CNPG ScheduledBackup. Fires on a cron schedule against the
+# Cluster CR's barmanObjectStore. WAL archiving is continuous
+# (see cnpg-cluster.yaml backup.barmanObjectStore.wal); this
+# ScheduledBackup adds the periodic base backup that PITR needs
+# to bound recovery time — without one, restore would have to
+# replay every WAL since cluster bootstrap.
+#
+# `immediate: true` means a base backup runs once on first
+# reconcile (so a fresh install isn't blind until 3am).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ include "rivolt.cnpgClusterName" . }}-scheduled
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cnpg.backup.scheduled.schedule | quote }}
+  immediate: {{ .Values.cnpg.backup.scheduled.immediate }}
+  backupOwnerReference: self
+  cluster:
+    name: {{ include "rivolt.cnpgClusterName" . }}
+{{- end }}
