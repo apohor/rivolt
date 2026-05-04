@@ -184,6 +184,7 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 			OdometerMi:      curr.OdometerKm * kmToMi,
 			Lat:             curr.Latitude,
 			Lon:             curr.Longitude,
+			LocationFixAt:   curr.LocationFixAt,
 			SpeedMph:        curr.SpeedKph * kphToMi,
 			ShiftState:      curr.Gear,
 			ChargingState:   curr.ChargerState,

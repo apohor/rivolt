@@ -11,6 +11,7 @@ import {
   formatDateTime,
   formatDuration,
   isActiveCharge,
+  maxFixAgeSeconds,
   num,
   pct,
 } from "../lib/format";
@@ -352,7 +353,12 @@ export default function ChargeDetailPage() {
 
       {Number.isFinite(charge.Lat) && (charge.Lat !== 0 || charge.Lon !== 0) ? (
         <Card title="Location">
-          <ChargeMap lat={charge.Lat} lon={charge.Lon} height={260} />
+          <ChargeMap
+            lat={charge.Lat}
+            lon={charge.Lon}
+            height={260}
+            fixAgeSeconds={maxFixAgeSeconds(chargeSamples)}
+          />
         </Card>
       ) : null}
 

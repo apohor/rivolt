@@ -9,6 +9,7 @@ import {
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
+import { ChargesOverviewMap } from "../components/DriveMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
   durationSeconds,
@@ -21,6 +22,8 @@ import {
 
 export default function ChargesPage() {
   const [win, setWin] = useState<WindowKey>("30d");
+  const [view, setView] = useState<"table" | "map">("table");
+  const navigate = useNavigate();
   // categoryFilter narrows the table + summary to a single charging
   // bucket. "" means "all categories" (the default). Stored in
   // component state because the filter is purely a view concern;
@@ -70,7 +73,12 @@ export default function ChargesPage() {
             ? `${rows.length} of ${q.data.length} charging sessions`
             : undefined
         }
-        actions={<WindowPicker value={win} onChange={setWin} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <ViewToggle value={view} onChange={setView} />
+            <WindowPicker value={win} onChange={setWin} />
+          </div>
+        }
       />
       <Card>
         {q.isLoading ? (
@@ -91,12 +99,50 @@ export default function ChargesPage() {
               <p className="text-sm text-neutral-500">
                 No {categoryFilter} charges in this window.
               </p>
+            ) : view === "map" ? (
+              <ChargesOverviewMap
+                charges={rows}
+                onSelect={(id) => navigate(`/charges/${id}`)}
+                height={480}
+              />
             ) : (
               <ChargeTable charges={rows} labelByID={labelByID} />
             )}
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// ViewToggle is the small Table / Map pill switch in the page header.
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: "table" | "map";
+  onChange: (v: "table" | "map") => void;
+}) {
+  const opts: { v: "table" | "map"; label: string }[] = [
+    { v: "table", label: "Table" },
+    { v: "map", label: "Map" },
+  ];
+  return (
+    <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden text-xs">
+      {opts.map((o) => (
+        <button
+          key={o.v}
+          type="button"
+          onClick={() => onChange(o.v)}
+          className={`px-2.5 py-1 ${
+            value === o.v
+              ? "bg-emerald-900/40 text-emerald-200"
+              : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

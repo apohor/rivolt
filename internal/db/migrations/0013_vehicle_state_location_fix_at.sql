@@ -1,0 +1,30 @@
+-- 0013_vehicle_state_location_fix_at.sql
+--
+-- Adds `location_fix_at` to vehicle_state so the UI can distinguish
+-- "this row was written 5 s ago" from "this row was written 5 s ago
+-- but the GPS fix it carries is 47 minutes old".
+--
+-- # Why this column
+--
+-- Rivian's gateway publishes GNSS coordinates with a `timeStamp`
+-- field (separate from the WS message envelope timestamp). When the
+-- modem loses sky view — underground garage, dense canyon, or just
+-- a sleepy GNSS module — the gateway keeps re-emitting the last
+-- successful fix with its original `timeStamp`, while the message
+-- envelope keeps advancing. The recorder already extracts that
+-- gnssLocation timestamp into `state.LocationFixAt`; this migration
+-- gives the persistence layer somewhere to put it.
+--
+-- We saw this in the wild on 5/3 in Fort Stockton TX: an entire
+-- 47-minute charge session reported (29.27, -103.29) — Big Bend
+-- coordinates ~150 miles away — because the GNSS module had frozen
+-- at the previous DCFC stop and never re-acquired before the car
+-- plugged in again. With `location_fix_at` recorded we can paint a
+-- "stale fix" badge on the map instead of pretending the coords are
+-- live.
+--
+-- Nullable: legacy rows (everything before this migration) and
+-- imports that never carry a fix timestamp (ElectraFi CSV) get NULL.
+-- The UI treats NULL as "fix age unknown" rather than "fix age zero".
+ALTER TABLE vehicle_state
+    ADD COLUMN IF NOT EXISTS location_fix_at TIMESTAMPTZ;

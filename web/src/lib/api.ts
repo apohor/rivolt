@@ -290,6 +290,12 @@ export type Sample = {
   OdometerMi: number;
   Lat: number;
   Lon: number;
+  // ISO timestamp the GNSS module reported on the (Lat, Lon) fix.
+  // Differs from At when the modem replays a stale fix — the
+  // recorder splits these so the UI can paint a "GPS stale" badge
+  // instead of treating frozen coords as live. Absent on legacy
+  // rows and on imports that never carried a fix timestamp.
+  LocationFixAt?: string;
   SpeedMph: number;
   ShiftState: string;
   ChargingState: string;

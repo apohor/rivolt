@@ -22,6 +22,15 @@ type Sample struct {
 	RangeMi         float64
 	OdometerMi      float64
 	Lat, Lon        float64
+	// LocationFixAt is the timestamp Rivian's GNSS module reported on
+	// the (Lat, Lon) fix itself, NOT the wall-clock time the recorder
+	// observed it. Differs from At when the modem loses sky view and
+	// keeps replaying the last known fix — see migration 0013 for
+	// the field rationale and the Fort Stockton incident that
+	// motivated it. Zero on legacy rows and on imports that never
+	// carry a fix timestamp (ElectraFi CSV); zero is rendered as
+	// "fix age unknown" upstream rather than "fix age 0".
+	LocationFixAt   time.Time `json:",omitempty"`
 	SpeedMph        float64
 	ShiftState      string
 	ChargingState   string
@@ -99,21 +108,29 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		INSERT INTO vehicle_state (
 			user_id, vehicle_id, at,
 			battery_level_pct, range_mi, odometer_mi,
-			lat, lon, speed_mph, shift_state, charging_state,
+			lat, lon, location_fix_at,
+			speed_mph, shift_state, charging_state,
 			charger_power_kw, charge_limit_pct,
 			inside_temp_c, outside_temp_c,
 			drive_number, charge_number, source
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, v := range batch {
+		// Pass NULL for a zero LocationFixAt so legacy/imported rows
+		// stay distinguishable from "fix observed at the unix epoch".
+		var fixAt any
+		if !v.LocationFixAt.IsZero() {
+			fixAt = v.LocationFixAt.UTC()
+		}
 		if _, err := stmt.ExecContext(ctx,
 			s.userID, uuids[v.VehicleID], v.At.UTC(),
 			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
-			v.Lat, v.Lon, v.SpeedMph, v.ShiftState, v.ChargingState,
+			v.Lat, v.Lon, fixAt,
+			v.SpeedMph, v.ShiftState, v.ChargingState,
 			v.ChargerPowerKW, v.ChargeLimitPct,
 			v.InsideTempC, v.OutsideTempC,
 			v.DriveNumber, v.ChargeNumber, v.Source,
@@ -141,7 +158,8 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.rivian_vehicle_id, vs.at,
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
-		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), COALESCE(vs.speed_mph,0),
+		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
+		       COALESCE(vs.speed_mph,0),
 		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
@@ -158,9 +176,11 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 	var out []Sample
 	for rows.Next() {
 		var v Sample
+		var fixAt sql.NullTime
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
-			&v.Lat, &v.Lon, &v.SpeedMph, &v.ShiftState, &v.ChargingState,
+			&v.Lat, &v.Lon, &fixAt,
+			&v.SpeedMph, &v.ShiftState, &v.ChargingState,
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
@@ -168,6 +188,9 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 			return nil, err
 		}
 		v.At = v.At.UTC()
+		if fixAt.Valid {
+			v.LocationFixAt = fixAt.Time.UTC()
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()
@@ -181,7 +204,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.rivian_vehicle_id, vs.at,
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
-		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), COALESCE(vs.speed_mph,0),
+		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
+		       COALESCE(vs.speed_mph,0),
 		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
@@ -197,9 +221,11 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 	var out []Sample
 	for rows.Next() {
 		var v Sample
+		var fixAt sql.NullTime
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
-			&v.Lat, &v.Lon, &v.SpeedMph, &v.ShiftState, &v.ChargingState,
+			&v.Lat, &v.Lon, &fixAt,
+			&v.SpeedMph, &v.ShiftState, &v.ChargingState,
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
@@ -207,6 +233,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			return nil, err
 		}
 		v.At = v.At.UTC()
+		if fixAt.Valid {
+			v.LocationFixAt = fixAt.Time.UTC()
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()

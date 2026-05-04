@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { backend, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
+import { DrivesOverviewMap } from "../components/DriveMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import { collapseRoundTrips } from "../lib/drives";
 import { usePreferences } from "../lib/preferences";
@@ -17,6 +18,10 @@ import {
 
 export default function DrivesPage() {
   const [win, setWin] = useState<WindowKey>("30d");
+  // "table" is the default — numerical-first list — with "map" as a
+  // geography overlay for the same windowed/collapsed row set.
+  const [view, setView] = useState<"table" | "map">("table");
+  const navigate = useNavigate();
   const {
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -47,7 +52,12 @@ export default function DrivesPage() {
             ? `${rows.length} of ${q.data.length} drive sessions`
             : undefined
         }
-        actions={<WindowPicker value={win} onChange={setWin} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <ViewToggle value={view} onChange={setView} />
+            <WindowPicker value={win} onChange={setWin} />
+          </div>
+        }
       />
       <Card>
         {q.isLoading ? (
@@ -61,10 +71,52 @@ export default function DrivesPage() {
         ) : (
           <div className="space-y-3">
             <SummaryStrip totals={totals} />
-            <DriveTable drives={rows} />
+            {view === "map" ? (
+              <DrivesOverviewMap
+                drives={rows}
+                onSelect={(id) => navigate(`/drives/${id}`)}
+                height={480}
+              />
+            ) : (
+              <DriveTable drives={rows} />
+            )}
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// ViewToggle is the small Table / Map pill switch in the page header.
+// Kept local to each list page — it's a one-of-two binary so a shared
+// component would be over-engineered.
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: "table" | "map";
+  onChange: (v: "table" | "map") => void;
+}) {
+  const opts: { v: "table" | "map"; label: string }[] = [
+    { v: "table", label: "Table" },
+    { v: "map", label: "Map" },
+  ];
+  return (
+    <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden text-xs">
+      {opts.map((o) => (
+        <button
+          key={o.v}
+          type="button"
+          onClick={() => onChange(o.v)}
+          className={`px-2.5 py-1 ${
+            value === o.v
+              ? "bg-emerald-900/40 text-emerald-200"
+              : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -106,3 +106,26 @@ export function isActiveCharge(c: { FinalState: string; Source?: string }): bool
   if (!s.startsWith("charging_")) return false;
   return s !== "charging_complete" && s !== "charging_station_err";
 }
+
+// maxFixAgeSeconds returns the worst (largest) gap between a sample's
+// wall-clock timestamp and the GNSS fix timestamp it carries. Picking
+// the max rather than the mean is intentional: a single 50-minute
+// frozen-fix span across a 60-minute window tells the user the marker
+// is untrustworthy, even when most samples carried fresh fixes.
+// Returns null when no sample carries a fix timestamp (legacy rows,
+// imports) so the caller can render nothing instead of a misleading
+// "0s stale" badge.
+export function maxFixAgeSeconds(
+  samples: { At: string; LocationFixAt?: string }[],
+): number | null {
+  let worst: number | null = null;
+  for (const p of samples) {
+    if (!p.LocationFixAt) continue;
+    const ageMs =
+      new Date(p.At).getTime() - new Date(p.LocationFixAt).getTime();
+    if (!Number.isFinite(ageMs) || ageMs < 0) continue;
+    const ageS = ageMs / 1000;
+    if (worst == null || ageS > worst) worst = ageS;
+  }
+  return worst;
+}

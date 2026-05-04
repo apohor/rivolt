@@ -9,6 +9,7 @@ import {
   durationSeconds,
   formatDateTime,
   formatDuration,
+  maxFixAgeSeconds,
   num,
   pct,
 } from "../lib/format";
@@ -206,6 +207,10 @@ export default function DriveDetailPage() {
         // Unix seconds — OSRM /match needs a monotonic time axis,
         // and the cursor marker uses it to find the nearest sample.
         t: Math.floor(new Date(p.At).getTime() / 1000),
+        // Speed in mph for the speed-colored polyline. DriveMap
+        // segments the line by this value; absence falls back to
+        // a uniform emerald stroke.
+        s: p.SpeedMph,
       })),
     [mapPathSamples],
   );
@@ -537,6 +542,7 @@ export default function DriveDetailPage() {
             onCursorChange={(t) =>
               setCursorMs(t != null ? Math.round(t * 1000) : null)
             }
+            fixAgeSeconds={maxFixAgeSeconds(mapPathSamples)}
           />
         )}
       </Card>

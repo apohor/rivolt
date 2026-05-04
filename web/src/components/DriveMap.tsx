@@ -51,7 +51,7 @@ import "leaflet/dist/leaflet.css";
 //
 // For production scale you'd self-host OSRM (or use Mapbox/Valhalla)
 // instead of the public demo server, which is rate-limited.
-type SnapPoint = { lat: number; lon: number; t?: number };
+type SnapPoint = { lat: number; lon: number; t?: number; s?: number };
 
 const MATCH_CHUNK_SIZE = 9; // public OSRM demo cap per /match request
 const MATCH_CHUNK_OVERLAP = 1; // shared anchor point between chunks
@@ -218,10 +218,35 @@ function circleIcon(color: string): L.DivIcon {
   });
 }
 
+// Speed-bucket palette. Reads roughly as: gray crawl → cyan city →
+// emerald suburban → amber highway → rose interstate. Tuned for
+// US units (mph) with thresholds at common speed-limit boundaries.
+const SPEED_BUCKETS: { max: number; color: string; label: string }[] = [
+  { max: 5, color: "#6b7280", label: "<5" },
+  { max: 25, color: "#06b6d4", label: "5–25" },
+  { max: 50, color: "#34d399", label: "25–50" },
+  { max: 65, color: "#f59e0b", label: "50–65" },
+  { max: Infinity, color: "#f43f5e", label: "65+" },
+];
+
+function speedColor(mph: number | undefined): string {
+  if (mph == null || !Number.isFinite(mph)) return "#34d399";
+  for (const b of SPEED_BUCKETS) if (mph < b.max) return b.color;
+  return SPEED_BUCKETS[SPEED_BUCKETS.length - 1].color;
+}
+
 // drawRoute renders the polyline as a wide low-opacity glow underneath
-// a crisp main line, which reads much better on the dark basemap than
-// a single flat stroke.
-function drawRoute(map: L.Map, latlngs: [number, number][]): L.LayerGroup {
+// a crisp main line. When per-point speeds are supplied we segment the
+// crisp line by speed bucket so the route reads as a heatmap of pace —
+// gray for parking-lot crawls, rose for interstate. The glow stays a
+// single emerald wash so the line still reads as one continuous path
+// on the dark basemap. When speeds are absent we fall back to the
+// uniform emerald stroke.
+function drawRoute(
+  map: L.Map,
+  latlngs: [number, number][],
+  speeds?: (number | undefined)[],
+): L.LayerGroup {
   const group = L.layerGroup();
   L.polyline(latlngs, {
     color: "#10b981",
@@ -230,8 +255,42 @@ function drawRoute(map: L.Map, latlngs: [number, number][]): L.LayerGroup {
     lineCap: "round",
     lineJoin: "round",
   }).addTo(group);
-  L.polyline(latlngs, {
-    color: "#34d399",
+  const hasSpeeds =
+    !!speeds &&
+    speeds.length === latlngs.length &&
+    speeds.some((s) => s != null && Number.isFinite(s));
+  if (!hasSpeeds) {
+    L.polyline(latlngs, {
+      color: "#34d399",
+      weight: 3,
+      opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(group);
+    group.addTo(map);
+    return group;
+  }
+  // Walk the line and emit a sub-polyline whenever the speed bucket
+  // changes. Each segment shares an anchor point with the next so
+  // the line stays visually continuous (no gaps at transitions).
+  let segStart = 0;
+  let segColor = speedColor(speeds![0]);
+  for (let i = 1; i < latlngs.length; i++) {
+    const c = speedColor(speeds![i]);
+    if (c !== segColor) {
+      L.polyline(latlngs.slice(segStart, i + 1), {
+        color: segColor,
+        weight: 3,
+        opacity: 0.95,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(group);
+      segStart = i;
+      segColor = c;
+    }
+  }
+  L.polyline(latlngs.slice(segStart), {
+    color: segColor,
     weight: 3,
     opacity: 0.95,
     lineCap: "round",
@@ -241,7 +300,69 @@ function drawRoute(map: L.Map, latlngs: [number, number][]): L.LayerGroup {
   return group;
 }
 
-type Point = { lat: number; lon: number; t?: number };
+// addSpeedLegend adds a compact bottom-left swatch row showing what
+// each color band means. Pure DOM control, no Leaflet pane reflow.
+function addSpeedLegend(map: L.Map): L.Control {
+  const ctl = new L.Control({ position: "bottomleft" });
+  ctl.onAdd = () => {
+    const div = L.DomUtil.create("div", "rivolt-speed-legend");
+    div.style.cssText =
+      "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
+      "border-radius:6px;padding:4px 6px;display:flex;gap:6px;" +
+      "align-items:center;font:10px/1.1 ui-sans-serif,system-ui;" +
+      "color:#d4d4d4;backdrop-filter:blur(2px);";
+    div.innerHTML =
+      '<span style="color:#737373;margin-right:2px">mph</span>' +
+      SPEED_BUCKETS.map(
+        (b) =>
+          `<span style="display:inline-flex;align-items:center;gap:3px">` +
+          `<span style="display:inline-block;width:10px;height:3px;background:${b.color};border-radius:2px"></span>` +
+          `${b.label}</span>`,
+      ).join("");
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  ctl.addTo(map);
+  return ctl;
+}
+
+// stalenessBadge renders a top-right amber pill warning that the GPS
+// fix backing the visible position is older than wall-clock would
+// suggest. The pill is purely informational and click-through to the
+// map underneath. Shown only when fix age crosses a 5-minute
+// threshold; below that, normal poll cadence jitter is uninteresting.
+function stalenessBadge(map: L.Map, fixAgeSeconds: number): L.Control {
+  const ctl = new L.Control({ position: "topright" });
+  ctl.onAdd = () => {
+    const div = L.DomUtil.create("div", "rivolt-staleness-badge");
+    const ageMin = Math.round(fixAgeSeconds / 60);
+    // Format as "Hh Mm" past 60 min so an hours-long freeze stays
+    // legible rather than reading "147 min".
+    const label =
+      ageMin >= 60
+        ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m`
+        : `${ageMin} min`;
+    div.style.cssText =
+      "background:rgba(120,53,15,0.85);border:1px solid #b45309;" +
+      "border-radius:6px;padding:3px 7px;display:inline-flex;gap:4px;" +
+      "align-items:center;font:11px/1.1 ui-sans-serif,system-ui;" +
+      "color:#fde68a;backdrop-filter:blur(2px);" +
+      "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
+    div.title =
+      "The GNSS module reported this fix " +
+      label +
+      " before the wall-clock timestamp. The marker may be stale.";
+    div.innerHTML =
+      '<span style="color:#fbbf24">⚠</span>' +
+      `<span>GPS fix ${label} stale</span>`;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  ctl.addTo(map);
+  return ctl;
+}
+
+type Point = { lat: number; lon: number; t?: number; s?: number };
 
 export function DriveMap({
   points,
@@ -250,6 +371,7 @@ export function DriveMap({
   height = 320,
   cursorTime,
   onCursorChange,
+  fixAgeSeconds,
 }: {
   points: Point[];
   start?: Point;
@@ -265,6 +387,11 @@ export function DriveMap({
   // is close to the trace, in pixel space) and with `null` on
   // mouseout.
   onCursorChange?: (t: number | null) => void;
+  // Worst observed GNSS fix age across the drive's samples (seconds).
+  // When ≥ 5 min, a small "GPS fix N min stale" badge is overlaid in
+  // the top-right corner so the user knows the polyline may be
+  // built from frozen-fix coordinates.
+  fixAgeSeconds?: number | null;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -338,14 +465,37 @@ export function DriveMap({
     // connects to the pins (otherwise there's a dangling gap between
     // the first in-drive GPS fix and the start marker).
     const latlngs: [number, number][] = [];
-    if (start) latlngs.push([start.lat, start.lon]);
-    for (const p of valid) latlngs.push([p.lat, p.lon]);
-    if (end && !sameSpot) latlngs.push([end.lat, end.lon]);
+    const speeds: (number | undefined)[] = [];
+    if (start) {
+      latlngs.push([start.lat, start.lon]);
+      speeds.push(0); // parked
+    }
+    for (const p of valid) {
+      latlngs.push([p.lat, p.lon]);
+      speeds.push(p.s);
+    }
+    if (end && !sameSpot) {
+      latlngs.push([end.lat, end.lon]);
+      speeds.push(0); // parked
+    }
     let line: L.LayerGroup | null = null;
     if (latlngs.length > 1) {
-      line = drawRoute(map, latlngs);
+      line = drawRoute(map, latlngs, speeds);
       map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
     }
+    // Show the speed legend whenever we have any per-point speed data.
+    const hasSpeed = speeds.some((s) => s != null && Number.isFinite(s));
+    const legend = hasSpeed ? addSpeedLegend(map) : null;
+
+    // Optional GPS staleness badge for drives. Mounted alongside
+    // (not instead of) the speed legend; positions don't collide.
+    const STALE_THRESHOLD_S = 5 * 60;
+    const stale =
+      typeof fixAgeSeconds === "number" &&
+      Number.isFinite(fixAgeSeconds) &&
+      fixAgeSeconds >= STALE_THRESHOLD_S
+        ? stalenessBadge(map, fixAgeSeconds)
+        : null;
 
     // Best-effort: replace the straight-line polyline with a road-snapped
     // geometry from OSRM. If the request fails (rate limit, offline,
@@ -400,7 +550,30 @@ export function DriveMap({
       snapToRoads(tracePoints, ac.signal).then((matched) => {
         if (!matched || !mapRef.current) return;
         if (line) line.remove();
-        const snapped = drawRoute(map, matched);
+        // OSRM returns a denser geometry than the input trace, so
+        // we no longer have a 1:1 speed mapping. Project each
+        // returned coord to its nearest input point and steal
+        // that point's speed bucket. Cheap O(n*m) loop — m is
+        // capped at MAX_TRACE so this stays fast.
+        const matchedSpeeds: (number | undefined)[] = matched.map(
+          ([lat, lon]) => {
+            let bestI = 0;
+            let bestD = Infinity;
+            for (let i = 0; i < tracePoints.length; i++) {
+              const p = tracePoints[i];
+              const dy = (p.lat - lat) * 111111;
+              const dx =
+                (p.lon - lon) * 111111 * Math.cos((lat * Math.PI) / 180);
+              const d = dx * dx + dy * dy;
+              if (d < bestD) {
+                bestD = d;
+                bestI = i;
+              }
+            }
+            return tracePoints[bestI].s;
+          },
+        );
+        const snapped = drawRoute(map, matched, matchedSpeeds);
         map.fitBounds(L.latLngBounds(matched), { padding: [20, 20] });
         line = snapped;
       });
@@ -476,12 +649,14 @@ export function DriveMap({
       ac.abort();
       cancelAnimationFrame(rAF);
       ro.disconnect();
+      if (legend) legend.remove();
+      if (stale) stale.remove();
       map.remove();
       mapRef.current = null;
     };
     // points is an array derived upstream; re-run only when identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, start?.lat, start?.lon, end?.lat, end?.lon]);
+  }, [points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds]);
 
   // Sync the cursor marker on cursorTime changes without rebuilding
   // the map. We binary/linear-search the timed trace for the closest
@@ -530,14 +705,23 @@ export function DriveMap({
 }
 
 // ChargeMap is a single-pin variant for charge sessions.
+//
+// fixAgeSeconds is the maximum observed age of the GNSS fix across
+// the charge's samples (i.e. max(sample.At - sample.LocationFixAt)).
+// When supplied and large enough, we paint a small "GPS stale fix"
+// badge so the user knows the marker may not reflect the actual
+// charging location. Caller computes this so we don't have to thread
+// raw samples through.
 export function ChargeMap({
   lat,
   lon,
   height = 240,
+  fixAgeSeconds,
 }: {
   lat: number;
   lon: number;
   height?: number;
+  fixAgeSeconds?: number | null;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -564,6 +748,297 @@ export function ChargeMap({
     })
       .addTo(map)
       .bindTooltip("Charge location", { direction: "top" });
+
+    // GPS staleness badge. Threshold of 5 min separates "normal
+    // poll cadence jitter" (a 30-60s lag is typical and not worth
+    // alarming about) from "the modem stopped emitting fresh fixes"
+    // — the failure mode that produces the Big Bend / Fort
+    // Stockton phantom-coords class of bug.
+    const STALE_THRESHOLD_S = 5 * 60;
+    let staleCtl: L.Control | null = null;
+    if (
+      typeof fixAgeSeconds === "number" &&
+      Number.isFinite(fixAgeSeconds) &&
+      fixAgeSeconds >= STALE_THRESHOLD_S
+    ) {
+      staleCtl = stalenessBadge(map, fixAgeSeconds);
+    }
+
+    const invalidate = () => map.invalidateSize();
+    const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
+    const ro = new ResizeObserver(invalidate);
+    ro.observe(ref.current);
+    return () => {
+      cancelAnimationFrame(rAF);
+      ro.disconnect();
+      if (staleCtl) staleCtl.remove();
+      map.remove();
+    };
+  }, [lat, lon, fixAgeSeconds]);
+
+  return (
+    <div
+      ref={ref}
+      className="rounded-lg overflow-hidden border border-neutral-800"
+      style={{ height }}
+    />
+  );
+}
+
+// ChargeBucket categorizes a session for the overview map. Mirrors the
+// server-side cluster labels (Home/Public/Fast) but is computed from
+// max kW alone so callers don't have to plumb the cluster API through.
+//   - "fast": ≥ 30 kW peak (DCFC)
+//   - "l2":   3–30 kW peak (240 V AC, public or home)
+//   - "l1":   < 3 kW peak (110 V trickle / unknown)
+function chargeBucket(maxKW: number): "fast" | "l2" | "l1" {
+  if (!Number.isFinite(maxKW) || maxKW < 3) return "l1";
+  if (maxKW >= 30) return "fast";
+  return "l2";
+}
+
+const CHARGE_BUCKET_COLOR: Record<"fast" | "l2" | "l1", string> = {
+  fast: "#f43f5e",
+  l2: "#06b6d4",
+  l1: "#a3a3a3",
+};
+
+// dotIcon is a smaller no-ring marker for overview maps where many
+// pins sit in close proximity (e.g. dozens of home charges within
+// 10 m). Larger ringed icons collapse into a single ambiguous blob.
+function dotIcon(color: string): L.DivIcon {
+  return L.divIcon({
+    className: "rivolt-map-dot",
+    html: `<span style="display:block;width:10px;height:10px;border-radius:9999px;background:${color};border:1.5px solid #0a0a0a;box-shadow:0 0 0 1px ${color}66;"></span>`,
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+  });
+}
+
+// ChargesOverviewMap renders one pin per charge, colored by power
+// bucket, with a tooltip summarizing the session. Clicking a pin
+// invokes onSelect (typically used to navigate to the detail page).
+// Pins at the same physical spot (home charging) stack — Leaflet's
+// canvas renderer handles the overlap fine; we don't cluster.
+export function ChargesOverviewMap({
+  charges,
+  onSelect,
+  height = 360,
+}: {
+  charges: {
+    ID: string;
+    Lat: number;
+    Lon: number;
+    StartedAt: string;
+    EnergyAddedKWh: number;
+    MaxPowerKW: number;
+  }[];
+  onSelect?: (id: string) => void;
+  height?: number;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Stash the latest onSelect so click handlers don't go stale across
+  // renders (the map only mounts once per visible-charge set).
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  // Build a stable signature so we only rebuild the map when the
+  // visible set actually changes (not on every parent re-render).
+  const sig = charges
+    .map((c) => `${c.ID}:${c.Lat.toFixed(5)},${c.Lon.toFixed(5)}`)
+    .join("|");
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const valid = charges.filter(
+      (c) =>
+        Number.isFinite(c.Lat) &&
+        Number.isFinite(c.Lon) &&
+        (c.Lat !== 0 || c.Lon !== 0),
+    );
+    if (valid.length === 0) return;
+
+    const map = L.map(ref.current, {
+      zoomControl: true,
+      preferCanvas: true,
+      scrollWheelZoom: false,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 120,
+      fadeAnimation: true,
+    }).setView([valid[0].Lat, valid[0].Lon], 4);
+    map.on("click", () => map.scrollWheelZoom.enable());
+    map.on("mouseout", () => map.scrollWheelZoom.disable());
+    addCartoDark(map);
+
+    for (const c of valid) {
+      const bucket = chargeBucket(c.MaxPowerKW);
+      const m = L.marker([c.Lat, c.Lon], {
+        icon: dotIcon(CHARGE_BUCKET_COLOR[bucket]),
+      }).addTo(map);
+      const when = new Date(c.StartedAt).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      m.bindTooltip(
+        `<div style="font:11px/1.3 ui-sans-serif,system-ui">` +
+          `<div style="color:${CHARGE_BUCKET_COLOR[bucket]};font-weight:600">` +
+          `${bucket === "fast" ? "DCFC" : bucket === "l2" ? "L2" : "L1"} · ${c.MaxPowerKW.toFixed(1)} kW</div>` +
+          `<div style="color:#a3a3a3">${when}</div>` +
+          `<div style="color:#d4d4d4">${c.EnergyAddedKWh.toFixed(1)} kWh added</div>` +
+          `</div>`,
+        { direction: "top" },
+      );
+      m.on("click", () => onSelectRef.current?.(c.ID));
+    }
+    map.fitBounds(
+      L.latLngBounds(valid.map((c) => [c.Lat, c.Lon] as [number, number])),
+      { padding: [24, 24], maxZoom: 14 },
+    );
+
+    const legend = new L.Control({ position: "bottomleft" });
+    legend.onAdd = () => {
+      const div = L.DomUtil.create("div", "rivolt-charge-legend");
+      div.style.cssText =
+        "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
+        "border-radius:6px;padding:4px 6px;display:flex;gap:8px;" +
+        "align-items:center;font:10px/1.1 ui-sans-serif,system-ui;" +
+        "color:#d4d4d4;backdrop-filter:blur(2px);";
+      div.innerHTML = (
+        [
+          ["fast", "DCFC"],
+          ["l2", "L2"],
+          ["l1", "L1"],
+        ] as const
+      )
+        .map(
+          ([k, label]) =>
+            `<span style="display:inline-flex;align-items:center;gap:3px">` +
+            `<span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:${CHARGE_BUCKET_COLOR[k]}"></span>` +
+            `${label}</span>`,
+        )
+        .join("");
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    };
+    legend.addTo(map);
+
+    const invalidate = () => map.invalidateSize();
+    const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
+    const ro = new ResizeObserver(invalidate);
+    ro.observe(ref.current);
+    return () => {
+      cancelAnimationFrame(rAF);
+      ro.disconnect();
+      legend.remove();
+      map.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+
+  return (
+    <div
+      ref={ref}
+      className="rounded-lg overflow-hidden border border-neutral-800"
+      style={{ height }}
+    />
+  );
+}
+
+// DrivesOverviewMap renders every drive as a thin great-circle-ish
+// straight line between its start and end fix, with small dots at
+// each endpoint. We deliberately don't fetch per-drive samples — the
+// dataset has thousands of drives and the round-trip cost dwarfs the
+// fidelity benefit at fleet scale. Click a line or endpoint to open
+// the drive detail page (where the full road-snapped trace lives).
+export function DrivesOverviewMap({
+  drives,
+  onSelect,
+  height = 360,
+}: {
+  drives: {
+    ID: string;
+    StartLat: number;
+    StartLon: number;
+    EndLat: number;
+    EndLon: number;
+    StartedAt: string;
+    DistanceMi: number;
+  }[];
+  onSelect?: (id: string) => void;
+  height?: number;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const sig = drives.map((d) => d.ID).join("|");
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const valid = drives.filter(
+      (d) =>
+        Number.isFinite(d.StartLat) &&
+        Number.isFinite(d.StartLon) &&
+        Number.isFinite(d.EndLat) &&
+        Number.isFinite(d.EndLon) &&
+        (d.StartLat !== 0 || d.StartLon !== 0) &&
+        (d.EndLat !== 0 || d.EndLon !== 0),
+    );
+    if (valid.length === 0) return;
+
+    const map = L.map(ref.current, {
+      zoomControl: true,
+      preferCanvas: true,
+      scrollWheelZoom: false,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      wheelPxPerZoomLevel: 120,
+      fadeAnimation: true,
+    }).setView([valid[0].StartLat, valid[0].StartLon], 4);
+    map.on("click", () => map.scrollWheelZoom.enable());
+    map.on("mouseout", () => map.scrollWheelZoom.disable());
+    addCartoDark(map);
+
+    const allLatLngs: [number, number][] = [];
+    for (const d of valid) {
+      const start: [number, number] = [d.StartLat, d.StartLon];
+      const end: [number, number] = [d.EndLat, d.EndLon];
+      allLatLngs.push(start, end);
+      const when = new Date(d.StartedAt).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      const tooltip =
+        `<div style="font:11px/1.3 ui-sans-serif,system-ui">` +
+        `<div style="color:#34d399;font-weight:600">${d.DistanceMi.toFixed(1)} mi</div>` +
+        `<div style="color:#a3a3a3">${when}</div>` +
+        `</div>`;
+      const line = L.polyline([start, end], {
+        color: "#34d399",
+        weight: 1.5,
+        opacity: 0.5,
+      })
+        .addTo(map)
+        .bindTooltip(tooltip, { sticky: true });
+      line.on("click", () => onSelectRef.current?.(d.ID));
+      // Endpoint dots so heavy origins/destinations (home, work) read
+      // as bright clusters rather than tangles of line ends.
+      L.marker(start, { icon: dotIcon("#10b981") })
+        .addTo(map)
+        .on("click", () => onSelectRef.current?.(d.ID));
+      L.marker(end, { icon: dotIcon("#f43f5e") })
+        .addTo(map)
+        .on("click", () => onSelectRef.current?.(d.ID));
+    }
+    map.fitBounds(L.latLngBounds(allLatLngs), {
+      padding: [24, 24],
+      maxZoom: 14,
+    });
+
     const invalidate = () => map.invalidateSize();
     const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
     const ro = new ResizeObserver(invalidate);
@@ -573,7 +1048,8 @@ export function ChargeMap({
       ro.disconnect();
       map.remove();
     };
-  }, [lat, lon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
 
   return (
     <div
