@@ -55,7 +55,19 @@ type Vehicle struct {
 // State is a point-in-time snapshot of one vehicle. Units are metric at
 // the wire; the UI converts for display based on user preference.
 type State struct {
+	// At is wall-clock time when this snapshot was assembled by the
+	// recorder (REST or WS receive time). Always monotonic with the
+	// process clock. Use LocationFixAt for the actual GPS-fix age.
+	// Pre-v0.17.6 this was sourced from GNSSLocation.TimeStamp which
+	// could be hours stale (parking garage, sleeping car) and caused
+	// drive/charge sessions to fragment because lifecycle gap checks
+	// saw spurious 38h "gaps".
 	At              time.Time `json:"at"`
+	// LocationFixAt is the timestamp Rivian reports on the GNSS
+	// location field — i.e. when the GPS receiver last had a lock.
+	// Zero when not present in the payload. May lag At by hours
+	// when the car is parked indoors.
+	LocationFixAt   time.Time `json:"location_fix_at,omitempty"`
 	VehicleID       string    `json:"vehicle_id"`
 	BatteryLevelPct float64   `json:"battery_level_pct"` // 0..100
 	// BatteryCapacityKWh is the vehicle's self-reported usable pack

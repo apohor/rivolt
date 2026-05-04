@@ -244,13 +244,24 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 	// frame in a long time, the WS likely dropped and reconnected on
 	// a fresh drive — close the old in-memory session so we don't
 	// straddle two real drives.
-	if driving && s.drive != nil && curr.At.Sub(s.drive.endAt) > liveDriveMaxGap {
-		m.logger.Info("closing stale live drive",
-			"vehicle", curr.VehicleID,
-			"id", s.drive.id,
-			"gap", curr.At.Sub(s.drive.endAt).Round(time.Second))
-		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
-		s.drive = nil
+	//
+	// Gate on a strictly-forward clock delta: pre-v0.17.6 State.At
+	// could regress when a frame carried a stale GNSS timestamp
+	// (parking garage etc.), making this check fire 60+ times during
+	// one weekend's driving and fragmenting trips into 3-min stubs.
+	// State.At is now wall-clock so this should always be ≥0, but a
+	// defensive gap > 0 guard keeps us safe against future
+	// regressions and any out-of-order frame ordering bugs.
+	if driving && s.drive != nil {
+		gap := curr.At.Sub(s.drive.endAt)
+		if gap > liveDriveMaxGap {
+			m.logger.Info("closing stale live drive",
+				"vehicle", curr.VehicleID,
+				"id", s.drive.id,
+				"gap", gap.Round(time.Second))
+			m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+			s.drive = nil
+		}
 	}
 
 	// Open new drive on transition P/"" → D/R/N.
@@ -285,7 +296,12 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			s.drive.sumSpeed += mph
 			s.drive.speedN++
 		}
-		s.drive.endAt = curr.At
+		// endAt is monotonic-forward only. A regressed clock from
+		// any source must not pull the row's "ended_at" backwards
+		// (drove the v0.17.6 negative-duration rows on 2026-05-03).
+		if curr.At.After(s.drive.endAt) {
+			s.drive.endAt = curr.At
+		}
 		s.drive.endSoC = curr.BatteryLevelPct
 		if odoMi := curr.OdometerKm * kmToMi; odoMi > 0 {
 			s.drive.endOdoMi = odoMi
@@ -359,8 +375,12 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.chargeCounter++
 			s.charge.number = s.chargeCounter
 			// Update end-state to the current frame so the resurrected
-			// row advances forward on the next upsert.
-			s.charge.endAt = curr.At
+			// row advances forward on the next upsert. Monotonic-forward
+			// only — don't let the resumed row's persisted endAt be
+			// regressed by a stale-clock frame.
+			if curr.At.After(s.charge.endAt) {
+				s.charge.endAt = curr.At
+			}
 			s.charge.endSoC = curr.BatteryLevelPct
 			s.charge.finalState = curr.ChargerState
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
@@ -395,7 +415,11 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
-		s.charge.endAt = curr.At
+		// endAt is monotonic-forward only — see drive lifecycle for
+		// the v0.17.6 incident this guard prevents.
+		if curr.At.After(s.charge.endAt) {
+			s.charge.endAt = curr.At
+		}
 		s.charge.endSoC = curr.BatteryLevelPct
 		s.charge.finalState = curr.ChargerState
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
@@ -412,7 +436,11 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// producing rows where energy_added is correct but endSoC
 		// reflects the SoC from when the WS died, not the actual
 		// final state. Mirrors the "charge ongoing" branch above.
-		s.charge.endAt = curr.At
+		// endAt is monotonic-forward to defend against any
+		// regressed-clock close frame (see v0.17.6 incident).
+		if curr.At.After(s.charge.endAt) {
+			s.charge.endAt = curr.At
+		}
 		if curr.BatteryLevelPct > s.charge.endSoC {
 			s.charge.endSoC = curr.BatteryLevelPct
 		}

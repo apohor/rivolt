@@ -1,6 +1,46 @@
 package rivian
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+// TestParseGNSSFixTime: empty/garbage GPS timestamp returns the zero
+// time so callers can distinguish "no fix" from "fix at unix epoch".
+// parseTimeOrNow's old behavior of substituting time.Now() for empty
+// input was the v0.17.6 fragmentation incident.
+func TestParseGNSSFixTime(t *testing.T) {
+	if got := parseGNSSFixTime(""); !got.IsZero() {
+		t.Errorf("empty input must return zero time, got %v", got)
+	}
+	if got := parseGNSSFixTime("not a timestamp"); !got.IsZero() {
+		t.Errorf("garbage input must return zero time, got %v", got)
+	}
+	want := time.Date(2026, 5, 1, 12, 30, 0, 0, time.UTC)
+	if got := parseGNSSFixTime("2026-05-01T12:30:00Z"); !got.Equal(want) {
+		t.Errorf("RFC3339 input: got %v want %v", got, want)
+	}
+}
+
+// TestMergeStatePreservesLocationFixAt: a push delta without a
+// GNSSLocation block (fixAt zero) must NOT overwrite a known-good
+// prior fix in the cache.
+func TestMergeStatePreservesLocationFixAt(t *testing.T) {
+	prev := &State{LocationFixAt: time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)}
+	next := &State{} // delta without GNSSLocation
+	merged := mergeState(prev, next)
+	if !merged.LocationFixAt.Equal(prev.LocationFixAt) {
+		t.Errorf("zero LocationFixAt must not overwrite prior; got %v want %v",
+			merged.LocationFixAt, prev.LocationFixAt)
+	}
+	// Newer non-zero replaces older.
+	newer := time.Date(2026, 5, 4, 13, 0, 0, 0, time.UTC)
+	merged2 := mergeState(prev, &State{LocationFixAt: newer})
+	if !merged2.LocationFixAt.Equal(newer) {
+		t.Errorf("non-zero LocationFixAt must replace prior; got %v want %v",
+			merged2.LocationFixAt, newer)
+	}
+}
 
 // TestWakeWorthyTransition exercises the heuristic used by
 // periodicRefresh to decide when a fresh REST snapshot warrants

@@ -1172,10 +1172,16 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		return nil, fmt.Errorf("GetVehicleState: %w", err)
 	}
 	vs := data.VehicleState
-	at := parseTimeOrNow(vs.GNSSLocation.TimeStamp)
+	// At = wall clock when this snapshot was assembled. The GNSS
+	// timestamp is the GPS fix age (parking garage, sleeping car
+	// etc. can leave it hours stale) and is preserved separately
+	// in LocationFixAt for diagnostic use only.
+	at := time.Now().UTC()
+	fixAt := parseGNSSFixTime(vs.GNSSLocation.TimeStamp)
 	ps := func(s permissiveString) string { return string(s) }
 	return &State{
 		At:                 at,
+		LocationFixAt:      fixAt,
 		VehicleID:          vehicleID,
 		BatteryLevelPct:    vs.BatteryLevel.Value,
 		BatteryCapacityKWh: vs.BatteryCapacity.Value,
@@ -1289,6 +1295,23 @@ func parseTimeOrNow(s string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return time.Now().UTC()
+	}
+	return t.UTC()
+}
+
+// parseGNSSFixTime parses Rivian's GNSSLocation.TimeStamp into the
+// timestamp of the last GPS fix. Returns the zero time on empty or
+// malformed input \u2014 callers should check IsZero() before using it.
+// Distinct from parseTimeOrNow because we never want to substitute
+// time.Now() for a GPS fix age (a stale or missing fix is a real
+// signal, not "now").
+func parseGNSSFixTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
 	}
 	return t.UTC()
 }

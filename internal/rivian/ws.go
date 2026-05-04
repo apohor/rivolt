@@ -253,10 +253,14 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 // tire pressures (which REST can't query).
 func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 	vs := data.VehicleState
-	at := parseTimeOrNow(vs.GNSSLocation.TimeStamp)
+	// At = wall clock; LocationFixAt = GPS fix age. See live.go for
+	// the rationale and the v0.17.6 fragmentation incident.
+	at := time.Now().UTC()
+	fixAt := parseGNSSFixTime(vs.GNSSLocation.TimeStamp)
 	ps := func(s permissiveString) string { return string(s) }
 	return &State{
 		At:              at,
+		LocationFixAt:   fixAt,
 		VehicleID:       vehicleID,
 		BatteryLevelPct: vs.BatteryLevel.Value,
 		DistanceToEmpty: vs.DistanceToEmpty.Value,

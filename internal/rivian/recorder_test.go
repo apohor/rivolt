@@ -201,6 +201,98 @@ func TestHandleChargeLifecycle_CloseUsesLatestFrameSoC(t *testing.T) {
 	}
 }
 
+// TestHandleDriveLifecycle_StaleClockDoesNotFragment reproduces the
+// 2026-05-03 weekend incident: a single 90-min drive produced 60+
+// drive rows because Rivian's WS deltas alternate between including
+// a GNSSLocation block (carrying a stale 38h-old GPS fix timestamp,
+// which pre-v0.17.6 was assigned to State.At) and omitting it (in
+// which case parseTimeOrNow returned time.Now). Each fresh-At frame
+// after a stale-At frame saw curr.At - s.drive.endAt > 30min and
+// triggered the "closing stale live drive" path, fragmenting the
+// real drive into 3-min stubs. With State.At now sourced from wall
+// clock and a monotonic-forward endAt guard, alternating stale/fresh
+// inputs must produce ONE drive row.
+func TestHandleDriveLifecycle_StaleClockDoesNotFragment(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 3, 18, 1, 0, 0, time.UTC)
+	open := &State{VehicleID: "vid-1", At: t0, Gear: "D", BatteryLevelPct: 80, OdometerKm: 1000}
+	if got := s.handleDriveLifecycle(open, nil, m, ctx); got != 1 {
+		t.Fatalf("open: want driveNum=1, got %d", got)
+	}
+	firstID := s.drive.id
+
+	// Simulate 30 frames of an actual drive, alternating fresh wall
+	// clock (each 3 min later) with frames carrying a GPS fix from
+	// 38h ago (the v0.17.6 root cause).
+	staleGPS := t0.Add(-38 * time.Hour)
+	for i := 1; i <= 30; i++ {
+		var at time.Time
+		if i%2 == 0 {
+			at = staleGPS // would have regressed endAt pre-v0.17.6
+		} else {
+			at = t0.Add(time.Duration(i) * 3 * time.Minute)
+		}
+		f := &State{VehicleID: "vid-1", At: at, Gear: "D", BatteryLevelPct: 80 - float64(i)*0.5, OdometerKm: 1000 + float64(i)*2, SpeedKph: 100}
+		_ = s.handleDriveLifecycle(f, nil, m, ctx)
+		if s.drive == nil || s.drive.id != firstID {
+			t.Fatalf("frame %d (at=%v): drive must remain a single session id, got %+v", i, at, s.drive)
+		}
+		if s.drive.endAt.Before(t0) {
+			t.Fatalf("frame %d: endAt must never regress before drive open; got %v", i, s.drive.endAt)
+		}
+	}
+}
+
+// TestHandleDriveLifecycle_EndAtMonotonic: a single regressed-clock
+// frame (e.g. an out-of-order push) must not pull endAt backwards.
+func TestHandleDriveLifecycle_EndAtMonotonic(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 3, 18, 1, 0, 0, time.UTC)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "vid-1", At: t0, Gear: "D", BatteryLevelPct: 80}, nil, m, ctx)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "vid-1", At: t0.Add(10 * time.Minute), Gear: "D", BatteryLevelPct: 78}, nil, m, ctx)
+	advanced := s.drive.endAt
+	// Out-of-order frame at t0+5m must not regress endAt.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "vid-1", At: t0.Add(5 * time.Minute), Gear: "D", BatteryLevelPct: 79}, nil, m, ctx)
+	if !s.drive.endAt.Equal(advanced) {
+		t.Fatalf("endAt must be monotonic; want %v got %v", advanced, s.drive.endAt)
+	}
+}
+
+// TestHandleChargeLifecycle_EndAtMonotonic: same monotonic-forward
+// invariant for charges. A regressed-clock close frame must not
+// produce a row with ended_at < started_at (the 2026-05-03 incident).
+func TestHandleChargeLifecycle_EndAtMonotonic(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 3, 4, 0, 0, 0, time.UTC)
+	_ = s.handleChargeLifecycle(chargingFrame(t0, 50), nil, m, ctx)
+	_ = s.handleChargeLifecycle(chargingFrame(t0.Add(time.Hour), 60), nil, m, ctx)
+	advanced := s.charge.endAt
+	chargeRef := s.charge
+
+	// A close frame with a regressed clock (38h ago) must not leak
+	// into the persisted endAt.
+	close := &State{
+		VehicleID:       "vid-1",
+		At:              t0.Add(-38 * time.Hour),
+		BatteryLevelPct: 65,
+		ChargerState:    "charging_complete",
+		ChargerStatus:   "chrgr_sts_disconnected",
+	}
+	_ = s.handleChargeLifecycle(close, nil, m, ctx)
+	if chargeRef.endAt.Before(advanced) {
+		t.Fatalf("close branch leaked regressed clock into endAt: was %v, became %v", advanced, chargeRef.endAt)
+	}
+}
+
 // TestHandleDriveLifecycle_StaleGapForcesNewSession is the drive
 // analogue: a long frame gap with the gear still in D means the WS
 // almost certainly straddled two real drives.

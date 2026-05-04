@@ -29,10 +29,10 @@ type StateMonitor struct {
 	client *LiveClient
 	logger *slog.Logger
 
-	mu       sync.RWMutex
-	cache    map[string]*State
-	stamp    map[string]time.Time
-	active   map[string]context.CancelFunc
+	mu     sync.RWMutex
+	cache  map[string]*State
+	stamp  map[string]time.Time
+	active map[string]context.CancelFunc
 	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
 	// to non-owning goroutines (notably periodicRefresh) so a REST
 	// observation that the car just woke up can poke the WS to
@@ -1050,6 +1050,12 @@ func mergeState(prev, next *State) *State {
 	out := *prev
 	out.At = next.At
 	out.VehicleID = next.VehicleID
+	// LocationFixAt: take the newer non-zero value. Push deltas
+	// without a GNSSLocation block leave the field zero \u2014 don't
+	// overwrite a known-good prior fix with that.
+	if !next.LocationFixAt.IsZero() {
+		out.LocationFixAt = next.LocationFixAt
+	}
 
 	// Numerics: non-zero wins.
 	mergeFloat(&out.BatteryLevelPct, next.BatteryLevelPct)
