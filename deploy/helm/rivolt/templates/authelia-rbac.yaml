@@ -1,0 +1,43 @@
+{{- if .Values.authelia.enabled }}
+# RBAC granting the rivolt ServiceAccount permission to bump the
+# `authelia-users` ExternalSecret in the `authelia` namespace.
+#
+# Why: when an admin creates a user via POST /api/admin/users the
+# rivolt process patches the upstream Vault entry, then PATCHes a
+# `force-sync` annotation on the ExternalSecret so external-secrets
+# re-pulls the K8s Secret immediately instead of waiting for the
+# 1h refreshInterval. Without this Role the PATCH would 403 and the
+# new user would only become loginable after the next refresh.
+#
+# Scope is intentionally tight: one verb (patch), one resource type
+# (externalsecrets), one named object (authelia-users) in one
+# namespace. No get/list/watch — we don't need to read it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "rivolt.fullname" . }}-authelia-users-patcher
+  namespace: {{ .Values.authelia.kubeNamespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    resourceNames: [{{ .Values.authelia.externalSecretName | quote }}]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "rivolt.fullname" . }}-authelia-users-patcher
+  namespace: {{ .Values.authelia.kubeNamespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "rivolt.fullname" . }}-authelia-users-patcher
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "rivolt.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

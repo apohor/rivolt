@@ -67,6 +67,13 @@ serviceAccount:
   create: true
   annotations: {}
   name: ""
+  # Mount the projected SA token into the pod. Required when the
+  # Authelia user-provisioning integration is enabled — the rivolt
+  # process logs in to Vault via the kubernetes auth method and
+  # PATCHes ExternalSecrets in the authelia namespace, both of
+  # which need the in-cluster bearer token. Default: false (we
+  # don't want a token mounted unless something needs it).
+  automountToken: false
 
 podAnnotations: {}
 podLabels: {}
@@ -400,3 +407,42 @@ ratelimit:
   redis:
     # host:port. e.g. "redis-master.redis.svc.cluster.local:6379"
     addr: ""
+
+# ---------------------------------------------------------------------------
+# Authelia user provisioning (Phase 2)
+# ---------------------------------------------------------------------------
+#
+# When enabled, POST /api/admin/users also creates a matching user
+# in Authelia's file-backend (stored in Vault at kv/authelia/users)
+# and returns a one-time random password to the admin. This lets
+# the admin SPA actually onboard new identities without an operator
+# running bootstrap/authelia-add-user.sh by hand.
+#
+# The rivolt process authenticates to Vault via the kubernetes auth
+# method (no static token) — set `vaultRole` to a Vault role that's
+# bound to this chart's ServiceAccount and granted read+update on
+# `kv/data/authelia/users`. See bootstrap/seed-vault.sh in
+# rivolt-infra for the canonical role definition.
+#
+# When `enabled: false` the chart omits the env vars, the RBAC for
+# patching the upstream ExternalSecret, and the SA-token mount —
+# the integration is fully off and the admin endpoint behaves as
+# a pre-provision-only operation (no password in the response).
+authelia:
+  enabled: false
+  # Vault HTTP base URL. http://vault.vault.svc.cluster.local:8200
+  # is the canonical address inside the Lightning cluster.
+  vaultAddr: ""
+  # Vault kubernetes-auth role bound to this chart's SA.
+  vaultRole: rivolt-authelia-writer
+  # KVv2 path holding `users_database.yml`. Path uses the engine
+  # mount prefix, NOT the /v1/<mount>/data/... API path — the
+  # client inserts the `data/` segment when reading.
+  vaultPath: kv/authelia/users
+  # Namespace + name of the upstream ExternalSecret to bump after
+  # writing to Vault. The pod gets RBAC to PATCH this exact name.
+  kubeNamespace: authelia
+  externalSecretName: authelia-users
+  # rivolt role → Authelia groups mapping.
+  adminGroups: ["admins"]
+  userGroups:  ["users"]

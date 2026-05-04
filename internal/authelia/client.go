@@ -42,6 +42,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/argon2"
@@ -62,7 +63,20 @@ type Config struct {
 	// VaultToken authenticates rivolt to Vault. Loaded from
 	// AUTHELIA_VAULT_TOKEN. Issued by the operator with a policy
 	// scoped to read+update on `kv/data/authelia/users` only.
+	//
+	// Optional: when empty the client logs in via the Vault
+	// kubernetes auth method using the pod's projected SA token,
+	// which is the recommended deployment in-cluster.
 	VaultToken string
+	// VaultRole is the Vault kubernetes-auth role to log in as
+	// when VaultToken is empty. Loaded from AUTHELIA_VAULT_ROLE.
+	// The role must be bound to rivolt's ServiceAccount and
+	// mapped to a policy that grants read+update on the configured
+	// VaultPath.
+	VaultRole string
+	// VaultKubeAuthPath is the Vault kubernetes-auth mount path,
+	// without leading/trailing slashes. Default: "auth/kubernetes".
+	VaultKubeAuthPath string
 	// VaultPath is the KVv2 path containing the Authelia users
 	// blob. Default: "kv/authelia/users".
 	VaultPath string
@@ -90,7 +104,9 @@ type Config struct {
 // dev, self-host without an IdP).
 //
 //	AUTHELIA_VAULT_ADDR
-//	AUTHELIA_VAULT_TOKEN
+//	AUTHELIA_VAULT_TOKEN              (optional — when set, used as a static token)
+//	AUTHELIA_VAULT_ROLE               (k8s-auth role; required when token is empty)
+//	AUTHELIA_VAULT_KUBE_AUTH_PATH     (default "auth/kubernetes")
 //	AUTHELIA_VAULT_PATH               (default "kv/authelia/users")
 //	AUTHELIA_VAULT_DATA_KEY           (default "users_database.yml")
 //	AUTHELIA_KUBE_NAMESPACE           (default "authelia")
@@ -103,12 +119,15 @@ func NewFromEnv() (*Client, error) {
 		return nil, nil
 	}
 	token := strings.TrimSpace(os.Getenv("AUTHELIA_VAULT_TOKEN"))
-	if token == "" {
-		return nil, errors.New("AUTHELIA_VAULT_TOKEN must be set when AUTHELIA_VAULT_ADDR is set")
+	role := strings.TrimSpace(os.Getenv("AUTHELIA_VAULT_ROLE"))
+	if token == "" && role == "" {
+		return nil, errors.New("AUTHELIA_VAULT_TOKEN or AUTHELIA_VAULT_ROLE must be set when AUTHELIA_VAULT_ADDR is set")
 	}
 	cfg := Config{
 		VaultAddr:          addr,
 		VaultToken:         token,
+		VaultRole:          role,
+		VaultKubeAuthPath:  envOr("AUTHELIA_VAULT_KUBE_AUTH_PATH", "auth/kubernetes"),
 		VaultPath:          envOr("AUTHELIA_VAULT_PATH", "kv/authelia/users"),
 		DataKey:            envOr("AUTHELIA_VAULT_DATA_KEY", "users_database.yml"),
 		KubeNamespace:      envOr("AUTHELIA_KUBE_NAMESPACE", "authelia"),
@@ -125,6 +144,12 @@ func NewFromEnv() (*Client, error) {
 func New(cfg Config) (*Client, error) {
 	if cfg.VaultAddr == "" {
 		return nil, errors.New("authelia: VaultAddr is required")
+	}
+	if cfg.VaultToken == "" && cfg.VaultRole == "" {
+		return nil, errors.New("authelia: either VaultToken or VaultRole is required")
+	}
+	if cfg.VaultKubeAuthPath == "" {
+		cfg.VaultKubeAuthPath = "auth/kubernetes"
 	}
 	if cfg.VaultPath == "" {
 		cfg.VaultPath = "kv/authelia/users"
@@ -148,6 +173,14 @@ func New(cfg Config) (*Client, error) {
 // not usable; build via NewFromEnv or New.
 type Client struct {
 	cfg Config
+
+	// tokenMu guards cachedToken / cachedTokenExp. Vault tokens
+	// minted by the kubernetes auth method are short-lived (the
+	// role's TTL, typically 1h) so we cache and refresh ahead of
+	// expiry rather than logging in on every call.
+	tokenMu        sync.Mutex
+	cachedToken    string
+	cachedTokenExp time.Time
 }
 
 // Enabled reports whether the client is configured. Safe to call
@@ -275,6 +308,80 @@ func parseUsers(raw string) map[string]any {
 // the write because the version we read is no longer current.
 var errCASConflict = errors.New("vault CAS conflict")
 
+// vaultToken returns a valid Vault token, logging in via the
+// kubernetes auth method when needed. When VaultToken is set
+// statically, it's returned verbatim and never refreshed.
+func (c *Client) vaultToken(ctx context.Context) (string, error) {
+	if c.cfg.VaultToken != "" {
+		return c.cfg.VaultToken, nil
+	}
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	// Refresh when within 60s of expiry (well before the typical
+	// 1h role TTL elapses). time.Time zero is also "expired".
+	if c.cachedToken != "" && time.Until(c.cachedTokenExp) > time.Minute {
+		return c.cachedToken, nil
+	}
+	tok, ttl, err := c.vaultK8sLogin(ctx)
+	if err != nil {
+		return "", err
+	}
+	c.cachedToken = tok
+	c.cachedTokenExp = time.Now().Add(ttl)
+	return tok, nil
+}
+
+// vaultK8sLogin POSTs the pod's SA JWT to Vault's kubernetes auth
+// endpoint and returns (client_token, lease_duration).
+func (c *Client) vaultK8sLogin(ctx context.Context) (string, time.Duration, error) {
+	if c.cfg.VaultRole == "" {
+		return "", 0, errors.New("authelia: VaultRole is required for k8s-auth login")
+	}
+	const saTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	jwt, err := os.ReadFile(saTokenPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("authelia: read SA token for vault login: %w", err)
+	}
+	url := strings.TrimRight(c.cfg.VaultAddr, "/") + "/v1/" +
+		strings.Trim(c.cfg.VaultKubeAuthPath, "/") + "/login"
+	payload := map[string]string{
+		"role": c.cfg.VaultRole,
+		"jwt":  strings.TrimSpace(string(jwt)),
+	}
+	buf, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return "", 0, fmt.Errorf("authelia: vault k8s login: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, fmt.Errorf("authelia: vault k8s login %d: %s", resp.StatusCode, truncate(body, 256))
+	}
+	var out struct {
+		Auth struct {
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int    `json:"lease_duration"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", 0, fmt.Errorf("authelia: vault k8s login decode: %w", err)
+	}
+	if out.Auth.ClientToken == "" {
+		return "", 0, errors.New("authelia: vault k8s login returned empty client_token")
+	}
+	ttl := time.Duration(out.Auth.LeaseDuration) * time.Second
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	return out.Auth.ClientToken, ttl, nil
+}
+
 // vaultRead returns (data_key contents, current version) for the
 // configured KVv2 secret. A 404 returns ("", 0, nil) so the caller
 // can treat "no users yet" as an empty map.
@@ -284,7 +391,11 @@ func (c *Client) vaultRead(ctx context.Context) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	req.Header.Set("X-Vault-Token", c.cfg.VaultToken)
+	tok, err := c.vaultToken(ctx)
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("X-Vault-Token", tok)
 	resp, err := c.cfg.HTTPClient.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("authelia: vault read: %w", err)
@@ -329,7 +440,11 @@ func (c *Client) vaultWriteCAS(ctx context.Context, raw string, version int) err
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Vault-Token", c.cfg.VaultToken)
+	tok, err := c.vaultToken(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Vault-Token", tok)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.cfg.HTTPClient.Do(req)
 	if err != nil {
