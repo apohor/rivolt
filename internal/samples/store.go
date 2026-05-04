@@ -88,6 +88,26 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	if len(batch) == 0 {
 		return nil
 	}
+	// vehicle_state is RANGE-partitioned by month (migration 0007).
+	// The partition janitor only keeps current+future months hot;
+	// historical writes (ElectraFi imports, backfills) hit months
+	// the janitor never created, which surfaces as
+	//   "no partition of relation \"vehicle_state\" found for row".
+	// Ensure every distinct month present in the batch before the
+	// INSERT runs. The helper is idempotent and bounded — at most
+	// (months spanned by batch) calls, typically 1-2 per flush.
+	months := map[time.Time]struct{}{}
+	for _, v := range batch {
+		m := time.Date(v.At.UTC().Year(), v.At.UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+		months[m] = struct{}{}
+	}
+	for m := range months {
+		if _, err := s.db.ExecContext(ctx,
+			`SELECT rivolt_ensure_vehicle_state_partition($1)`, m,
+		); err != nil {
+			return fmt.Errorf("ensure partition for %s: %w", m.Format("2006-01"), err)
+		}
+	}
 	// Resolve every distinct Rivian id outside the tx so a new
 	// vehicle row is committed independently of the sample write.
 	uuids := make(map[string]uuid.UUID, len(batch))
