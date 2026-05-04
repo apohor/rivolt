@@ -258,17 +258,6 @@ func runServer() {
 
 	var rivianClient rivian.Client
 	var accountRegistry rivian.AccountRegistry
-	// operatorUserID is the user whose *LiveClient backs the legacy
-	// single-user surfaces (StateMonitor recorder + REST Vehicles/State).
-	// It defaults to currentUserID (the data-plane / drives owner) but
-	// is overridden during the live-client boot hydrate sweep to the
-	// first user who actually has a persisted Rivian session, so an
-	// install where the OIDC operator (e.g. anton@rivolt.dev) is
-	// distinct from the legacy data-plane user ("local") still drives
-	// telemetry off the credentialled client. currentUserID continues
-	// to own the recorded drives/charges/samples so historical data
-	// stays visible without a migration.
-	operatorUserID := currentUserID
 	// appMetrics owns the Prometheus registry. Built before the
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
@@ -284,9 +273,9 @@ func runServer() {
 			return rivian.NewMock()
 		})
 		// REST surface (Vehicles/State) still wants a single client.
-		// Bind it to the operator user (= currentUserID under mock,
-		// since there's no session-sweep concept).
-		mc := accountRegistry.For(operatorUserID).(*rivian.MockClient)
+		// Bind it to the legacy currentUserID so the StateMonitor
+		// recorder path keeps working until PR-5 user-keys it.
+		mc := accountRegistry.For(currentUserID).(*rivian.MockClient)
 		rivianClient = mc
 		if secretsStore == nil {
 			logger.Info("rivian client: mock (no secrets store; login state will not persist)")
@@ -366,6 +355,15 @@ func runServer() {
 		}
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
 
+		// Pre-register the legacy currentUserID's client and use it
+		// as the single rivian.Client backing the read-only REST
+		// surface (Vehicles/State). The StateMonitor still consumes
+		// one *LiveClient until PR-5; pinning it to the boot user's
+		// instance keeps that path identical to v0.17.x while every
+		// per-request handler resolves through the registry.
+		legacyLC := accountRegistry.For(currentUserID).(*rivian.LiveClient)
+		rivianClient = legacyLC
+
 		// Boot-time multi-user hydrate sweep. Every user with a
 		// persisted rivian.session blob in user_secrets gets their
 		// own *LiveClient pre-built and Restore()'d before the
@@ -379,13 +377,6 @@ func runServer() {
 		// shared LiveClient + lazy hydrate via rivianHydrateMW
 		// meant pod restarts silently disabled telemetry until
 		// someone opened the SPA.
-		//
-		// The first hydrated user becomes operatorUserID (the
-		// *LiveClient backing StateMonitor + REST). On installs
-		// where the OIDC operator is distinct from the legacy
-		// "local" data-plane user this is essential: "local" has
-		// no session, so binding StateMonitor to it would leave
-		// the WS subscriber permanently blocked on AuthReady.
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
 		} else {
@@ -406,24 +397,12 @@ func runServer() {
 				}
 				userLC := accountRegistry.For(uid).(*rivian.LiveClient)
 				userLC.Restore(sess)
-				if restored == 0 {
-					operatorUserID = uid
-				}
 				restored++
 				logger.Info("rivian session restored",
 					"user_id", uid.String(), "email", sess.Email)
 			}
-			logger.Info("rivian client: live",
-				"users_hydrated", restored,
-				"operator_user_id", operatorUserID.String())
+			logger.Info("rivian client: live", "users_hydrated", restored)
 		}
-
-		// REST + StateMonitor consume the operator's *LiveClient.
-		// Pre-registering via For() guarantees a client exists for
-		// operatorUserID even when no session was loaded (cold install,
-		// pre-login boot) — callers get the unauthenticated client and
-		// the WS subscriber blocks on AuthReady until first Login.
-		rivianClient = accountRegistry.For(operatorUserID).(*rivian.LiveClient)
 	}
 
 	// StateMonitor keeps a websocket subscription open per vehicle so
