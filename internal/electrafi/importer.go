@@ -132,7 +132,14 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 
 	vehicleID := i.VehicleID
 	if vehicleID == "" {
-		vehicleID = deriveVehicleID(name)
+		// Multi-user rivolt requires every imported drive/charge/sample
+		// to land under a real, user-owned vehicle. The historical
+		// `electrafi-<hash>` synthetic-id path created phantom vehicle
+		// rows that leaked into the lease coordinator and made the
+		// data plane try to subscribe to non-existent Rivian VINs.
+		// Callers must now pass a vehicle id explicitly (the HTTP
+		// endpoint validates it against the user's owned vehicles).
+		return Result{}, fmt.Errorf("electrafi: vehicle id is required")
 	}
 
 	var (
@@ -513,9 +520,12 @@ func isChargingState(s string) bool {
 	return false
 }
 
-// deriveVehicleID synthesizes a stable ID from the file path when the
-// operator didn't pass --vehicle-id. Hash first so that re-imports from
-// the same file produce the same vehicle_id.
+// deriveVehicleID is retained for the CLI legacy code path / tests
+// that exercise the hash function shape. Production imports through
+// the HTTP endpoint always provide a real vehicle id.
+//
+//nolint:unused // kept for documentation; may be reintroduced if a
+// CLI-side --vehicle-id default is needed again.
 func deriveVehicleID(path string) string {
 	h := sha1.Sum([]byte(path))
 	return "electrafi-" + hex.EncodeToString(h[:])[:12]

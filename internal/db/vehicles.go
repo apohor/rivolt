@@ -109,3 +109,56 @@ func OwnsRivianID(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID str
 	}
 	return true, nil
 }
+
+// VehicleSummary is the per-user vehicle metadata exposed to
+// /api/vehicles/owned (the import-picker source). It deliberately
+// omits operational fields (created_at, updated_at) the SPA doesn't
+// need — keeping the wire shape narrow makes the picker dropdown
+// trivially serialisable.
+type VehicleSummary struct {
+	ID              uuid.UUID `json:"id"`
+	RivianVehicleID string    `json:"rivian_vehicle_id"`
+	VIN             string    `json:"vin,omitempty"`
+	DisplayName     string    `json:"display_name,omitempty"`
+	Model           string    `json:"model,omitempty"`
+	ModelYear       int       `json:"model_year,omitempty"`
+	PackKWh         float64   `json:"pack_kwh,omitempty"`
+}
+
+// ListUserVehicles returns every real vehicle row owned by userID,
+// excluding the legacy `electrafi-<hash>` synthetic rows that the
+// pre-v0.17.21 importer used to create. Synthetic rows linger in
+// existing installs because their drives/charges/samples still
+// reference them; we hide them from the picker so a fresh import
+// can only land on a Rivian-linked vehicle.
+func ListUserVehicles(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]VehicleSummary, error) {
+	if d == nil || userID == uuid.Nil {
+		return nil, nil
+	}
+	rows, err := d.QueryContext(ctx, `
+		SELECT id,
+		       COALESCE(rivian_vehicle_id, ''),
+		       COALESCE(vin, ''),
+		       COALESCE(display_name, ''),
+		       COALESCE(model, ''),
+		       COALESCE(model_year, 0),
+		       COALESCE(pack_kwh, 0)
+		  FROM vehicles
+		 WHERE user_id = $1
+		   AND rivian_vehicle_id NOT LIKE 'electrafi-%'
+		 ORDER BY display_name NULLS LAST, rivian_vehicle_id
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user vehicles: %w", err)
+	}
+	defer rows.Close()
+	var out []VehicleSummary
+	for rows.Next() {
+		var v VehicleSummary
+		if err := rows.Scan(&v.ID, &v.RivianVehicleID, &v.VIN, &v.DisplayName, &v.Model, &v.ModelYear, &v.PackKWh); err != nil {
+			return nil, fmt.Errorf("scan user vehicle: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

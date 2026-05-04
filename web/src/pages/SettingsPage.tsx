@@ -484,11 +484,28 @@ function ImportPanel() {
   // Standard override here.
   const [packKWh, setPackKWh] = useState<string>("");
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  // Picker source. Imports require a real, user-owned vehicle so we
+  // never create the legacy `electrafi-<hash>` synthetic rows that
+  // used to leak into the lease coordinator.
+  const vehiclesQ = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: () => backend.listOwnedVehicles(),
+  });
+  const ownedVehicles = vehiclesQ.data?.vehicles ?? [];
+  const [vehicleID, setVehicleID] = useState<string>("");
+  // Default the picker to the first available vehicle once the list
+  // loads, so the common single-vehicle case needs zero clicks.
+  useEffect(() => {
+    if (!vehicleID && ownedVehicles.length > 0) {
+      setVehicleID(ownedVehicles[0].rivian_vehicle_id);
+    }
+  }, [ownedVehicles, vehicleID]);
 
   const mut = useMutation({
     mutationFn: (files: File[]) =>
       backend.importElectrafi(
         files,
+        vehicleID,
         Number(packKWh) || undefined,
         undefined,
         (p) => setProgress(p),
@@ -504,6 +521,7 @@ function ImportPanel() {
 
   const handleFiles = (fl: FileList | null) => {
     if (!fl || fl.length === 0) return;
+    if (!vehicleID) return;
     const files = Array.from(fl).filter((f) => /\.csv$/i.test(f.name));
     if (files.length === 0) return;
     mut.mutate(files);
@@ -513,9 +531,39 @@ function ImportPanel() {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-col gap-1">
+        <label htmlFor="import-vehicle" className="text-xs text-neutral-400">
+          Import into vehicle
+        </label>
+        <select
+          id="import-vehicle"
+          value={vehicleID}
+          onChange={(e) => setVehicleID(e.target.value)}
+          disabled={vehiclesQ.isLoading || ownedVehicles.length === 0}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 disabled:opacity-50"
+        >
+          {ownedVehicles.length === 0 ? (
+            <option value="">No vehicles — link Rivian first</option>
+          ) : (
+            ownedVehicles.map((v) => (
+              <option key={v.rivian_vehicle_id} value={v.rivian_vehicle_id}>
+                {v.display_name || v.vin || v.rivian_vehicle_id}
+                {v.model_year ? ` · ${v.model_year}` : ""}
+                {v.model ? ` ${v.model}` : ""}
+              </option>
+            ))
+          )}
+        </select>
+        {vehiclesQ.isError && (
+          <span className="text-xs text-red-400">
+            Failed to load vehicles: {String(vehiclesQ.error)}
+          </span>
+        )}
+      </div>
       <div
         onDragOver={(e) => {
           e.preventDefault();
+          if (!vehicleID) return;
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
@@ -524,11 +572,16 @@ function ImportPanel() {
           setDragging(false);
           handleFiles(e.dataTransfer.files);
         }}
-        onClick={() => inputRef.current?.click()}
-        className={`rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
-          dragging
-            ? "border-emerald-400 bg-emerald-500/5"
-            : "border-neutral-700 hover:border-neutral-600"
+        onClick={() => {
+          if (!vehicleID) return;
+          inputRef.current?.click();
+        }}
+        className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+          !vehicleID
+            ? "border-neutral-800 bg-neutral-900/40 opacity-60 cursor-not-allowed"
+            : dragging
+            ? "border-emerald-400 bg-emerald-500/5 cursor-pointer"
+            : "border-neutral-700 hover:border-neutral-600 cursor-pointer"
         }`}
       >
         <input

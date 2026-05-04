@@ -254,6 +254,15 @@ func New(d Deps) http.Handler {
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger)(w, r)
 			}))
+			// /api/vehicles/owned reads straight from the local
+			// vehicles table — used by the import picker so the
+			// user can pick a target vehicle even when Rivian is
+			// momentarily unreachable. Excludes the legacy
+			// electrafi-* synthetic rows so they can't be picked
+			// again as import targets.
+			r.Get("/vehicles/owned", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleOwnedVehicles(d.DB)(uid, w, r)
+			}))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
 			}))
@@ -448,6 +457,29 @@ func monitorFor(d Deps, uid uuid.UUID) *rivian.StateMonitor {
 		return nil
 	}
 	return d.Monitors.For(uid)
+}
+
+// handleOwnedVehicles returns the calling user's vehicles straight
+// from the local DB. Used by the SPA's import picker so the user can
+// always see their existing vehicles, even when Rivian's gateway is
+// unreachable. Returns {vehicles: [...]} so the wire shape can grow
+// metadata fields without breaking existing clients.
+func handleOwnedVehicles(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		if sqlDB == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"vehicles": []any{}})
+			return
+		}
+		vs, err := db.ListUserVehicles(r.Context(), sqlDB, uid)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		if vs == nil {
+			vs = []db.VehicleSummary{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"vehicles": vs})
+	}
 }
 
 func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
@@ -1184,12 +1216,36 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			http.Error(w, "parse upload: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		// vehicle_id is the rivian-gateway id the user picked in the
+		// SPA. We validate ownership server-side so a crafted upload
+		// can't land samples under another user's vehicle.
+		rivianVehicleID := strings.TrimSpace(r.FormValue("vehicle_id"))
+		if rivianVehicleID == "" {
+			http.Error(w, "vehicle_id form field is required", http.StatusBadRequest)
+			return
+		}
+		owns, oerr := db.OwnsRivianID(r.Context(), d.DB, uid, rivianVehicleID)
+		if oerr != nil {
+			http.Error(w, "vehicle ownership check: "+oerr.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !owns {
+			// 404 (not 403) so an attacker probing vehicle ids can't
+			// confirm whether a given id belongs to someone else.
+			http.Error(w, "vehicle not found", http.StatusNotFound)
+			return
+		}
 		files := r.MultipartForm.File["file"]
 		if len(files) == 0 {
 			http.Error(w, "no files uploaded under field 'file'", http.StatusBadRequest)
 			return
 		}
-		imp := &electrafi.Importer{Drives: ds, Charges: cs, Samples: ss}
+		imp := &electrafi.Importer{
+			Drives:    ds,
+			Charges:   cs,
+			Samples:   ss,
+			VehicleID: rivianVehicleID,
+		}
 		if v := r.FormValue("pack_kwh"); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 				imp.PackKWh = f

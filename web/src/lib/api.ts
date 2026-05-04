@@ -106,6 +106,19 @@ export type Vehicle = {
   images?: VehicleImage[];
 };
 
+// OwnedVehicle is the DB-backed shape returned by /api/vehicles/owned.
+// Narrower than Vehicle (no trim/image fields) — picker only needs
+// enough to render an option label and submit the rivian_vehicle_id.
+export type OwnedVehicle = {
+  id: string;
+  rivian_vehicle_id: string;
+  vin?: string;
+  display_name?: string;
+  model?: string;
+  model_year?: number;
+  pack_kwh?: number;
+};
+
 // LiveSession mirrors internal/rivian.LiveSession — the snapshot
 // pulled from Rivian's chrg/user/graphql endpoint during an active
 // charging session. All zero/empty when no session is active.
@@ -406,6 +419,12 @@ export const backend = {
     }
   },
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
+  // listOwnedVehicles is the DB-backed listing used by the import
+  // picker. Always returns the calling user's vehicles, even when the
+  // Rivian gateway is unreachable (unlike /api/vehicles which proxies
+  // upstream). Excludes legacy electrafi-* synthetic rows.
+  listOwnedVehicles: () =>
+    api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   liveSession: (vehicleID: string) =>
@@ -541,12 +560,14 @@ export const backend = {
   // live "row N of file.csv" status during long imports.
   importElectrafi: async (
     files: File[],
+    vehicleID: string,
     packKWh?: number,
     tz?: string,
     onProgress?: (p: ImportProgress) => void,
   ) => {
     const fd = new FormData();
     for (const f of files) fd.append("file", f, f.name);
+    fd.append("vehicle_id", vehicleID);
     if (packKWh && packKWh > 0) fd.append("pack_kwh", String(packKWh));
     // ElectraFi timestamps are local-without-zone. Default to the
     // browser's IANA zone so imports land on the date the user

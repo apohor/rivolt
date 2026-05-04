@@ -467,12 +467,20 @@ func runServer() {
 			},
 			logger,
 			func(qctx context.Context) ([]string, error) {
+				// Skip the legacy electrafi-<hash> synthetic vehicle
+				// rows that the pre-v0.17.21 importer used to create.
+				// They aren't real Rivian VINs, so leasing them only
+				// burns subscription slots on dead WS streams.
 				return leases.QueryStringColumn(qctx, pgPool,
-					`SELECT DISTINCT rivian_vehicle_id FROM vehicles WHERE rivian_vehicle_id <> ''`)
+					`SELECT DISTINCT rivian_vehicle_id FROM vehicles
+					   WHERE rivian_vehicle_id <> ''
+					     AND rivian_vehicle_id NOT LIKE 'electrafi-%'`)
 			},
 			func(qctx context.Context) ([]string, error) {
 				return leases.QueryStringColumn(qctx, pgPool,
-					`SELECT DISTINCT vehicle_id FROM subscription_leases WHERE vehicle_id <> ''`)
+					`SELECT DISTINCT vehicle_id FROM subscription_leases
+					   WHERE vehicle_id <> ''
+					     AND vehicle_id NOT LIKE 'electrafi-%'`)
 			},
 		)
 		coord := leases.NewCoordinator(
