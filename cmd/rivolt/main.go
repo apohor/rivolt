@@ -624,6 +624,12 @@ func runServer() {
 			}
 			return db.RoleFor(ctx, pgPool, uid)
 		},
+		DisabledFor: func(ctx context.Context, uid uuid.UUID) (bool, error) {
+			if pgPool == nil {
+				return false, nil
+			}
+			return db.IsDisabled(ctx, pgPool, uid)
+		},
 		BypassUserID: bypassUserID,
 	})
 	if err != nil {
@@ -664,7 +670,24 @@ func runServer() {
 		svc, oerr := oidc.New(ctx, oidc.Config{
 			IssueSession: authSvc.IssueSession,
 			EnsureUser: func(ctx context.Context, username, email, displayName string) (uuid.UUID, error) {
-				return db.EnsureUserFull(ctx, pgPool, username, email, displayName)
+				uid, err := db.EnsureUserFull(ctx, pgPool, username, email, displayName)
+				if err != nil {
+					return uuid.Nil, err
+				}
+				// Refuse to mint a session for an admin-
+				// disabled row. The Middleware path catches
+				// this on every subsequent request too, but
+				// blocking here keeps the UX honest: the user
+				// gets an immediate 403 from the IdP
+				// callback, not a redirect-loop into /login.
+				disabled, derr := db.IsDisabled(ctx, pgPool, uid)
+				if derr != nil {
+					return uuid.Nil, derr
+				}
+				if disabled {
+					return uuid.Nil, oidc.ErrUserForbidden
+				}
+				return uid, nil
 			},
 			UserIDFor:    db.UserIDFor,
 			PostLoginURL: "/",

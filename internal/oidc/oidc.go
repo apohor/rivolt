@@ -117,6 +117,12 @@ type ProviderConfig struct {
 	Scopes []string
 }
 
+// ErrUserForbidden is the sentinel main returns from EnsureUser
+// when the resolved user row exists but has been admin-disabled.
+// The callback handler maps it to a 403 with a user-facing
+// message; any other error becomes a generic 500.
+var ErrUserForbidden = errors.New("oidc: user forbidden")
+
 // Service is the OIDC handler set, registered under
 // /api/auth/oidc by api.go. Multiple providers live in one
 // Service.
@@ -498,6 +504,16 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	uid, err := s.ensureUser(r.Context(), username, email, display)
 	if err != nil {
+		// ErrUserForbidden lets main signal "this row exists but
+		// has been admin-disabled" without leaking the column
+		// name into the error string. Anything else is treated
+		// as a transient infrastructure failure.
+		if errors.Is(err, ErrUserForbidden) {
+			s.log.Warn("oidc: sign-in refused", "username", username)
+			s.clearStateCookie(w)
+			http.Error(w, "this account has been disabled", http.StatusForbidden)
+			return
+		}
 		s.log.Error("oidc: ensure user", "err", err)
 		s.clearStateCookie(w)
 		http.Error(w, "ensure user", http.StatusInternalServerError)

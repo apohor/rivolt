@@ -41,7 +41,7 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 }
 
 // handleAdminUserCreate — POST /api/admin/users
-// Body: {"username": "...", "email": "...", "display_name": "...", "role": "user"|"admin"}
+// Body: {"username": "...", "email": "...", "display_name": "...", "role": "user"|"admin", "disabled": bool}
 //
 // Pre-provisions a user row keyed by the deterministic UUIDv5 of
 // the username. Auth is OIDC-only — this does NOT issue a password.
@@ -49,9 +49,10 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 // preferred_username, EnsureUserFull lands on this row and the
 // pre-set role/email/display_name survive.
 //
-// Username matching is case-insensitive: "Alice" and "alice" hash
-// to the same UUID, so the admin can pre-provision in any case
-// the IdP happens to use.
+// `disabled: true` lets an admin pre-block a username before the
+// user has ever attempted to sign in (e.g. revoking access for a
+// departing employee whose IdP entry is still alive). The Middleware
+// disabled-gate refuses to mint a session for the row.
 func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
@@ -63,6 +64,7 @@ func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
 			Email       string `json:"email"`
 			DisplayName string `json:"display_name"`
 			Role        string `json:"role"`
+			Disabled    bool   `json:"disabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
@@ -77,7 +79,82 @@ func handleAdminUserCreate(d *sql.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		// Apply the optional disabled flag in a follow-up
+		// UPDATE. CreateUser intentionally doesn't take it as
+		// a parameter so the bootstrap-admin trigger can't see
+		// the column on INSERT — keeping the create path
+		// minimal makes the trigger logic easier to reason
+		// about.
+		if body.Disabled {
+			if err := db.SetDisabled(r.Context(), d, id, true); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
+		}
 		writeJSON(w, http.StatusCreated, map[string]any{"id": id.String()})
+	}
+}
+
+// handleAdminUserSetDisabled — POST /api/admin/users/{id}/disabled
+// Body: {"disabled": bool}
+//
+// Disabling a user revokes every existing session on the next
+// request (the auth Middleware re-checks on each call). Refuses
+// to disable the caller (an admin can't lock themselves out;
+// ask another admin) and refuses to disable the last admin
+// (would orphan the install). Same guards as the role demote /
+// delete endpoints, on purpose — these are three flavours of
+// the same "remove privilege" operation.
+func handleAdminUserSetDisabled(d *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
+			return
+		}
+		target, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid user id"})
+			return
+		}
+		var body struct {
+			Disabled bool `json:"disabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
+			return
+		}
+		caller, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+		if body.Disabled && caller == target {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "cannot disable your own account"})
+			return
+		}
+		if body.Disabled {
+			role, err := db.RoleFor(r.Context(), d, target)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
+			if role == "admin" {
+				n, err := db.CountAdmins(r.Context(), d)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+					return
+				}
+				if n <= 1 {
+					writeJSON(w, http.StatusConflict, map[string]any{"error": "cannot disable the last admin"})
+					return
+				}
+			}
+		}
+		if err := db.SetDisabled(r.Context(), d, target, body.Disabled); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 

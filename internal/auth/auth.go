@@ -114,6 +114,16 @@ type Config struct {
 	// without an extra round-trip.
 	RoleFor func(ctx context.Context, uid uuid.UUID) (string, error)
 
+	// DisabledFor reports whether a user has been admin-disabled.
+	// Optional — when nil the gate is open. Wired by main to
+	// db.IsDisabled so a flipped flag invalidates every in-flight
+	// session on the next request without needing to revoke each
+	// session row by hand. A non-nil error is treated as "fail
+	// closed": better to bounce the user to /login on a transient
+	// DB blip than to honor a session for someone who may have
+	// just been disabled.
+	DisabledFor func(ctx context.Context, uid uuid.UUID) (bool, error)
+
 	// BypassUserID, when non-zero, makes Middleware inject this
 	// user on every request that doesn't already have an identity
 	// resolved by header or cookie. Debug / local-dev only —
@@ -137,6 +147,7 @@ type Service struct {
 	userIDFor    func(string) uuid.UUID
 	usernameFor  func(ctx context.Context, uid uuid.UUID) (string, error)
 	roleFor      func(ctx context.Context, uid uuid.UUID) (string, error)
+	disabledFor  func(ctx context.Context, uid uuid.UUID) (bool, error)
 	bypassUserID uuid.UUID
 
 	// sessionStore, when non-nil, is the source of truth for
@@ -221,6 +232,7 @@ func New(cfg Config) (*Service, error) {
 		userIDFor:    cfg.UserIDFor,
 		usernameFor:  cfg.UsernameFor,
 		roleFor:      cfg.RoleFor,
+		disabledFor:  cfg.DisabledFor,
 		bypassUserID: cfg.BypassUserID,
 	}, nil
 }
@@ -362,7 +374,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if uid, ok := s.identityFromHeader(r); ok {
-			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), uid)))
+			s.serveAsUser(next, w, r, uid, false)
 			return
 		}
 		c, err := r.Cookie(s.cookieName)
@@ -382,7 +394,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				s.maybeBypass(next, w, r)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), info.UserID)))
+			s.serveAsUser(next, w, r, info.UserID, true)
 			return
 		}
 		// Legacy HMAC-signed-cookie path. Kept so tests and
@@ -395,8 +407,30 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			s.maybeBypass(next, w, r)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), t.UserID)))
+		s.serveAsUser(next, w, r, t.UserID, true)
 	})
+}
+
+// serveAsUser is the single chokepoint that turns a resolved
+// uid into a request-scoped identity. It enforces the disabled
+// flag — if the user has been admin-disabled, drop the cookie
+// and continue unauthenticated (or as the bypass user). clearCookie
+// is gated on cookieAuth because header-authenticated requests
+// don't have one to clear.
+func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.Request, uid uuid.UUID, cookieAuth bool) {
+	if s.disabledFor != nil && uid != uuid.Nil {
+		disabled, err := s.disabledFor(r.Context(), uid)
+		// Fail closed on lookup errors so a transient DB blip
+		// can't honour a session for a freshly-disabled user.
+		if err != nil || disabled {
+			if cookieAuth {
+				s.clearCookie(w)
+			}
+			s.maybeBypass(next, w, r)
+			return
+		}
+	}
+	next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), uid)))
 }
 
 // maybeBypass injects the configured bypass user into the request

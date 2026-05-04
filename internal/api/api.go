@@ -334,6 +334,7 @@ func New(d Deps) http.Handler {
 				r.Get("/users", handleAdminUsersList(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
+				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
 				r.Delete("/users/{id}", handleAdminUserDelete(d.DB))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))

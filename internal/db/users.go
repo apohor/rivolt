@@ -19,6 +19,7 @@ type AdminUserRow struct {
 	Email       string    `json:"email,omitempty"`
 	DisplayName string    `json:"display_name,omitempty"`
 	Role        string    `json:"role"`
+	Disabled    bool      `json:"disabled"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -32,7 +33,7 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		return nil, nil
 	}
 	rows, err := d.QueryContext(ctx, `
-		SELECT id, username, COALESCE(email, ''), COALESCE(display_name, ''), role, created_at
+		SELECT id, username, COALESCE(email, ''), COALESCE(display_name, ''), role, disabled, created_at
 		FROM users
 		ORDER BY created_at ASC
 	`)
@@ -43,7 +44,7 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		if err := rows.Scan(&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("list users for admin scan: %w", err)
 		}
 		out = append(out, r)

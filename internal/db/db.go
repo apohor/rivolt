@@ -215,6 +215,46 @@ func CountAdmins(ctx context.Context, d *sql.DB) (int, error) {
 // admin endpoint can surface a clean 409 instead of a 500.
 var ErrUserExists = fmt.Errorf("user already exists")
 
+// IsDisabled reports whether the user has been marked disabled by
+// an admin. Used by the auth middleware to refuse to honor a
+// session cookie / OIDC sub for a disabled row, and by the admin
+// endpoint to short-circuit role/delete operations against
+// already-disabled users.
+//
+// Returns (false, nil) for an unknown UUID — callers handling that
+// path are already treating it as "no row, no privileges", so
+// surfacing a sentinel error here would just bloat the call sites.
+func IsDisabled(ctx context.Context, d *sql.DB, uid uuid.UUID) (bool, error) {
+	if d == nil || uid == uuid.Nil {
+		return false, nil
+	}
+	var disabled bool
+	err := d.QueryRowContext(ctx,
+		`SELECT disabled FROM users WHERE id = $1`, uid,
+	).Scan(&disabled)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return disabled, nil
+}
+
+// SetDisabled flips the disabled flag. The admin endpoint enforces
+// the "can't disable the last admin / yourself" guards before
+// calling this — keeping the SQL function dumb means tests can
+// assert on the guard logic in isolation.
+func SetDisabled(ctx context.Context, d *sql.DB, uid uuid.UUID, disabled bool) error {
+	if d == nil || uid == uuid.Nil {
+		return fmt.Errorf("nil db or user id")
+	}
+	_, err := d.ExecContext(ctx,
+		`UPDATE users SET disabled = $1 WHERE id = $2`, disabled, uid,
+	)
+	return err
+}
+
 // CreateUser pre-provisions a user row from the admin endpoint.
 // Auth is OIDC-only, so this does NOT issue a password — the row
 // just reserves the deterministic UUIDv5 for the username and

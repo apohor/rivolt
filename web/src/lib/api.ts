@@ -480,11 +480,20 @@ export const backend = {
     email?: string;
     display_name?: string;
     role: "user" | "admin";
+    disabled?: boolean;
   }) => api.post<{ id: string }>("/api/admin/users", input),
   adminSetUserRole: (id: string, role: "user" | "admin") =>
     api.post<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/role`, {
       role,
     }),
+  // Toggles the per-user disabled flag. Disabling clears every
+  // existing session on the next request (the auth middleware re-
+  // checks). Server enforces last-admin / self-disable guards.
+  adminSetUserDisabled: (id: string, disabled: boolean) =>
+    api.post<{ ok: true }>(
+      `/api/admin/users/${encodeURIComponent(id)}/disabled`,
+      { disabled },
+    ),
   adminDeleteUser: (id: string) =>
     fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -702,6 +711,7 @@ export type AdminUserRow = {
   email?: string;
   display_name?: string;
   role: "user" | "admin";
+  disabled: boolean;
   created_at: string;
 };
 

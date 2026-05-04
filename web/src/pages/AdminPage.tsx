@@ -48,6 +48,7 @@ function CreateUserForm() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
+  const [disabled, setDisabled] = useState(false);
 
   const create = useMutation({
     mutationFn: () =>
@@ -56,12 +57,14 @@ function CreateUserForm() {
         email: email.trim() || undefined,
         display_name: displayName.trim() || undefined,
         role,
+        disabled: disabled || undefined,
       }),
     onSuccess: () => {
       setUsername("");
       setEmail("");
       setDisplayName("");
       setRole("user");
+      setDisabled(false);
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
     },
   });
@@ -77,7 +80,7 @@ function CreateUserForm() {
         if (!username.trim()) return;
         create.mutate();
       }}
-      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-5"
+      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-6"
     >
       <input
         type="text"
@@ -109,6 +112,15 @@ function CreateUserForm() {
         <option value="user">user</option>
         <option value="admin">admin</option>
       </select>
+      <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-300">
+        <input
+          type="checkbox"
+          checked={disabled}
+          onChange={(e) => setDisabled(e.target.checked)}
+          className="h-3.5 w-3.5"
+        />
+        disabled
+      </label>
       <button
         type="submit"
         disabled={!username.trim() || create.isPending}
@@ -145,13 +157,18 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
     mutationFn: (id: string) => backend.adminDeleteUser(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
   });
+  const setDisabled = useMutation({
+    mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) =>
+      backend.adminSetUserDisabled(id, disabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
 
   const rows: AdminUserRow[] = useMemo(() => q.data?.users ?? [], [q.data]);
   const [busyID, setBusyID] = useState<string | null>(null);
   // The "demote / delete the last admin" guard exists server-side
   // (returns 409). The client mirrors it as a button disable so
   // the destructive action doesn't even appear clickable.
-  const adminCount = rows.filter((u) => u.role === "admin").length;
+  const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
 
   if (q.isLoading) return <Spinner />;
   if (q.isError)
@@ -193,6 +210,11 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                   >
                     {u.role}
                   </span>
+                  {u.disabled && (
+                    <span className="ml-2 rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
+                      disabled
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 pr-3 text-neutral-500">
                   {new Date(u.created_at).toLocaleDateString()}
@@ -233,6 +255,41 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                         Demote
                       </button>
                     )}
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        (!u.disabled && isSelf) ||
+                        (!u.disabled && u.role === "admin" && isLastAdmin)
+                      }
+                      title={
+                        !u.disabled && isSelf
+                          ? "Cannot disable your own account"
+                          : !u.disabled && u.role === "admin" && isLastAdmin
+                          ? "Cannot disable the last admin"
+                          : u.disabled
+                          ? "Re-enable sign-in for this user"
+                          : "Block this user from minting new sessions"
+                      }
+                      onClick={async () => {
+                        setBusyID(u.id);
+                        try {
+                          await setDisabled.mutateAsync({
+                            id: u.id,
+                            disabled: !u.disabled,
+                          });
+                        } finally {
+                          setBusyID(null);
+                        }
+                      }}
+                      className={`rounded-md border px-2 py-1 text-xs disabled:opacity-40 ${
+                        u.disabled
+                          ? "border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:border-emerald-700 hover:text-emerald-200"
+                          : "border-amber-900 bg-amber-950/40 text-amber-300 hover:border-amber-800 hover:text-amber-200"
+                      }`}
+                    >
+                      {u.disabled ? "Enable" : "Disable"}
+                    </button>
                     <button
                       type="button"
                       disabled={busy || isSelf || isLastAdmin}
