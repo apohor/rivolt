@@ -127,3 +127,35 @@ func TestOpenStoreValidation(t *testing.T) {
 		t.Errorf("store userID = %v, want %v", s.userID, uid)
 	}
 }
+
+// TestIsOpenLiveFinalState pins down the whitelist of charges.final_state
+// values treated as "physically still in progress" by LatestOpenLive,
+// CloseStaleOpenLive, and the janitor sweep. v0.17.7 incident: this
+// list previously was "charging_*" minus charging_complete and
+// charging_station_err, which incorrectly included transient terminal
+// states like charging_user_stopped and charging_station_stopped —
+// so resumeOpenCharge would reattach to a just-closed row and absorb
+// every subsequent physical session.
+func TestIsOpenLiveFinalState(t *testing.T) {
+	open := []string{"charging_active", "charging_ready", "charging_connecting", "waiting_on_charger"}
+	for _, s := range open {
+		if !IsOpenLiveFinalState(s) {
+			t.Errorf("IsOpenLiveFinalState(%q) = false, want true", s)
+		}
+	}
+	terminal := []string{
+		"charging_user_stopped",    // driver-initiated stop (v0.17.7)
+		"charging_station_stopped", // station-initiated stop (v0.17.7)
+		"charging_complete",
+		"charging_station_err",
+		"charger_disconnected",
+		"abandoned",
+		"",
+		"charging_unknown_future_state", // unknown -> treat as terminal
+	}
+	for _, s := range terminal {
+		if IsOpenLiveFinalState(s) {
+			t.Errorf("IsOpenLiveFinalState(%q) = true, want false", s)
+		}
+	}
+}

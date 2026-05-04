@@ -62,7 +62,7 @@ type State struct {
 	// could be hours stale (parking garage, sleeping car) and caused
 	// drive/charge sessions to fragment because lifecycle gap checks
 	// saw spurious 38h "gaps".
-	At              time.Time `json:"at"`
+	At time.Time `json:"at"`
 	// LocationFixAt is the timestamp Rivian reports on the GNSS
 	// location field — i.e. when the GPS receiver last had a lock.
 	// Zero when not present in the payload. May lag At by hours

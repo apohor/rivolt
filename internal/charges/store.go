@@ -12,6 +12,42 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 )
 
+// openLiveFinalStates is the canonical whitelist of charges.final_state
+// values that mean "physically still in the middle of a session".
+// Anything not in this set is terminal and must NOT be resumed by
+// resumeOpenCharge / janitor predicates.
+//
+// Notable terminal-but-not-error states deliberately excluded:
+//   - charging_user_stopped     (driver pressed stop on the gun)
+//   - charging_station_stopped  (station ended the session)
+//   - charging_complete         (target SoC reached)
+//   - charging_station_err      (hardware fault)
+//   - charger_disconnected      (cable pulled)
+//   - abandoned                 (recorder janitor closure)
+//
+// v0.17.7 incident: a brief charging_user_stopped frame between two
+// physical sessions was being treated as open, so the next
+// charging_active frame reattached to the just-closed row and
+// absorbed every subsequent drive + charge into one absorber row.
+var openLiveFinalStates = []string{
+	"charging_active",
+	"charging_ready",
+	"charging_connecting",
+	"waiting_on_charger",
+}
+
+// IsOpenLiveFinalState reports whether s names a charges.final_state
+// value that means the session is physically still in progress. Kept
+// in sync with the inline IN-list in LatestOpenLive et al.
+func IsOpenLiveFinalState(s string) bool {
+	for _, v := range openLiveFinalStates {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 // Charge is a single charging session. ID is the stable external id
 // ("live_<vid>_c_<unix>", "electrafi_<vid>_c_<unix>") and maps to the
 // charges.external_id column. VehicleID is the Rivian gateway string.
@@ -247,9 +283,15 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
-		  AND c.final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND c.final_state <> 'charging_complete'
-		  AND c.final_state <> 'charging_station_err'
+		  -- Whitelist of states that mean "physically still in the middle of
+		  -- a session". Anything else (charging_user_stopped,
+		  -- charging_station_stopped, charging_complete, charging_station_err,
+		  -- abandoned, charger_disconnected, blank) is terminal and must NOT
+		  -- be resumed. v0.17.7 incident: a brief charging_user_stopped frame
+		  -- between two physical sessions was being treated as open here, so
+		  -- the next charging_active frame reattached to the just-closed row
+		  -- and absorbed every subsequent drive + charge into one absorber.
+		  AND c.final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')
 		ORDER BY c.started_at DESC
 		LIMIT 1`, s.userID, rivianVehicleID, vid)
 	var c Charge
@@ -285,9 +327,8 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 		WHERE user_id = $1 AND vehicle_id = $2
 		  AND source = 'live'
 		  AND external_id <> $3
-		  AND final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND final_state <> 'charging_complete'
-		  AND final_state <> 'charging_station_err'`,
+		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, vid, keepID)
 	if err != nil {
 		return 0, err
@@ -308,9 +349,8 @@ func (s *Store) CloseStaleOpenLiveBefore(ctx context.Context, before time.Time) 
 		WHERE user_id = $1
 		  AND source = 'live'
 		  AND ended_at < $2
-		  AND final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND final_state <> 'charging_complete'
-		  AND final_state <> 'charging_station_err'`,
+		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, before.UTC())
 	if err != nil {
 		return 0, err
@@ -346,9 +386,8 @@ func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]Stal
 		WHERE c.user_id = $1
 		  AND c.source = 'live'
 		  AND c.ended_at < $2
-		  AND c.final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND c.final_state <> 'charging_complete'
-		  AND c.final_state <> 'charging_station_err'`,
+		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  AND c.final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, before.UTC())
 	if err != nil {
 		return nil, err
@@ -382,9 +421,8 @@ func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState stri
 		WHERE user_id = $1
 		  AND external_id = $2
 		  AND source = 'live'
-		  AND final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND final_state <> 'charging_complete'
-		  AND final_state <> 'charging_station_err'`,
+		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, externalID, finalState)
 	if err != nil {
 		return 0, err
@@ -406,9 +444,8 @@ func (s *Store) AbandonOpenLive(ctx context.Context, externalID string) (int, er
 		WHERE user_id = $1
 		  AND external_id = $2
 		  AND source = 'live'
-		  AND final_state LIKE 'charging\_%' ESCAPE '\'
-		  AND final_state <> 'charging_complete'
-		  AND final_state <> 'charging_station_err'`,
+		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, externalID)
 	if err != nil {
 		return 0, err
