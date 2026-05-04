@@ -115,14 +115,23 @@ export function isActiveCharge(c: { FinalState: string; Source?: string }): bool
 // Returns null when no sample carries a fix timestamp (legacy rows,
 // imports) so the caller can render nothing instead of a misleading
 // "0s stale" badge.
+//
+// Bogus timestamps from older Go zero-time serialization
+// ("0001-01-01T00:00:00Z") are filtered out: any fix that pre-dates
+// 2010 cannot be a real Rivian GNSS reading (the company was founded
+// in 2009, its first vehicles shipped in 2021), and a 2000-year fix
+// age is unambiguously a serialization artifact rather than a stuck
+// modem.
 export function maxFixAgeSeconds(
   samples: { At: string; LocationFixAt?: string }[],
 ): number | null {
+  const MIN_PLAUSIBLE_MS = Date.UTC(2010, 0, 1);
   let worst: number | null = null;
   for (const p of samples) {
     if (!p.LocationFixAt) continue;
-    const ageMs =
-      new Date(p.At).getTime() - new Date(p.LocationFixAt).getTime();
+    const fixMs = new Date(p.LocationFixAt).getTime();
+    if (!Number.isFinite(fixMs) || fixMs < MIN_PLAUSIBLE_MS) continue;
+    const ageMs = new Date(p.At).getTime() - fixMs;
     if (!Number.isFinite(ageMs) || ageMs < 0) continue;
     const ageS = ageMs / 1000;
     if (worst == null || ageS > worst) worst = ageS;

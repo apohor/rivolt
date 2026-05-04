@@ -184,7 +184,6 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 			OdometerMi:      curr.OdometerKm * kmToMi,
 			Lat:             curr.Latitude,
 			Lon:             curr.Longitude,
-			LocationFixAt:   curr.LocationFixAt,
 			SpeedMph:        curr.SpeedKph * kphToMi,
 			ShiftState:      curr.Gear,
 			ChargingState:   curr.ChargerState,
@@ -195,6 +194,16 @@ func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr 
 			DriveNumber:     driveNum,
 			ChargeNumber:    chargeNum,
 			Source:          "live",
+		}
+		// Only attach a fix timestamp when the gateway actually
+		// reported one. The Rivian client zeros LocationFixAt
+		// when the GNSS @defer slice is missing from the WS
+		// frame; persisting that zero would later read back as
+		// an epoch fix and the UI would render an ~17M-hour
+		// "stale fix" badge.
+		if !curr.LocationFixAt.IsZero() {
+			fix := curr.LocationFixAt
+			s.LocationFixAt = &fix
 		}
 		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent

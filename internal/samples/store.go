@@ -27,20 +27,22 @@ type Sample struct {
 	// observed it. Differs from At when the modem loses sky view and
 	// keeps replaying the last known fix — see migration 0013 for
 	// the field rationale and the Fort Stockton incident that
-	// motivated it. Zero on legacy rows and on imports that never
-	// carry a fix timestamp (ElectraFi CSV); zero is rendered as
-	// "fix age unknown" upstream rather than "fix age 0".
-	LocationFixAt   time.Time `json:",omitempty"`
-	SpeedMph        float64
-	ShiftState      string
-	ChargingState   string
-	ChargerPowerKW  float64
-	ChargeLimitPct  float64
-	InsideTempC     float64
-	OutsideTempC    float64
-	DriveNumber     int64
-	ChargeNumber    int64
-	Source          string // "live" | "electrafi_import"
+	// motivated it. Pointer (rather than time.Time + omitempty)
+	// because Go's encoding/json doesn't honor omitempty on struct
+	// types: a zero time.Time would serialize as "0001-01-01T00:00:00Z"
+	// and the frontend would compute a 2000-year fix age. nil
+	// renders as "fix age unknown" upstream.
+	LocationFixAt  *time.Time `json:",omitempty"`
+	SpeedMph       float64
+	ShiftState     string
+	ChargingState  string
+	ChargerPowerKW float64
+	ChargeLimitPct float64
+	InsideTempC    float64
+	OutsideTempC   float64
+	DriveNumber    int64
+	ChargeNumber   int64
+	Source         string // "live" | "electrafi_import"
 }
 
 // Store wraps the vehicle_state table, scoped to one user.
@@ -120,10 +122,10 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	}
 	defer stmt.Close()
 	for _, v := range batch {
-		// Pass NULL for a zero LocationFixAt so legacy/imported rows
+		// Pass NULL for a missing LocationFixAt so legacy/imported rows
 		// stay distinguishable from "fix observed at the unix epoch".
 		var fixAt any
-		if !v.LocationFixAt.IsZero() {
+		if v.LocationFixAt != nil && !v.LocationFixAt.IsZero() {
 			fixAt = v.LocationFixAt.UTC()
 		}
 		if _, err := stmt.ExecContext(ctx,
@@ -189,7 +191,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		}
 		v.At = v.At.UTC()
 		if fixAt.Valid {
-			v.LocationFixAt = fixAt.Time.UTC()
+			t := fixAt.Time.UTC(); v.LocationFixAt = &t
 		}
 		out = append(out, v)
 	}
@@ -234,7 +236,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		}
 		v.At = v.At.UTC()
 		if fixAt.Valid {
-			v.LocationFixAt = fixAt.Time.UTC()
+			t := fixAt.Time.UTC(); v.LocationFixAt = &t
 		}
 		out = append(out, v)
 	}
