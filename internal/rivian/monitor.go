@@ -32,6 +32,15 @@ type StateMonitor struct {
 	mu     sync.RWMutex
 	cache  map[string]*State
 	stamp  map[string]time.Time
+	// wsSeen[vehicleID] is true once we've received at least one WS
+	// frame for that vehicle in this process's lifetime. Until then
+	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
+	// pod that booted while the car was already driving can detect
+	// the in-progress trip via REST instead of waiting up to 30 min
+	// for the cached "charging_complete" PowerState to time out.
+	// Cleared on Unsubscribe; survives WS reconnects within a single
+	// process. Guarded by mu.
+	wsSeen map[string]bool
 	active map[string]context.CancelFunc
 	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
 	// to non-owning goroutines (notably periodicRefresh) so a REST
@@ -107,6 +116,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger:      logger,
 		cache:       make(map[string]*State),
 		stamp:       make(map[string]time.Time),
+		wsSeen:      make(map[string]bool),
 		active:      make(map[string]context.CancelFunc),
 		subCancel:   make(map[string]context.CancelCauseFunc),
 		sessions:    make(map[string]*liveSessions),
@@ -331,6 +341,9 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		// re-acquired lease (acquired → released → reacquired in
 		// quick succession) doesn't see a stale cancel func.
 		delete(m.active, vehicleID)
+		// Reset cold-start tracking: a re-acquired lease starts
+		// fresh and should poll fast until its first WS frame.
+		delete(m.wsSeen, vehicleID)
 	}
 	m.mu.Unlock()
 	if ok && cancel != nil {
@@ -465,6 +478,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			merged := mergeState(prev, st)
 			m.cache[vehicleID] = merged
 			m.stamp[vehicleID] = time.Now()
+			// Cold-start guard: any real WS frame proves the
+			// subscription is delivering, so adaptiveRefreshInterval
+			// can return to PowerState-driven cadence.
+			m.wsSeen[vehicleID] = true
 			m.mu.Unlock()
 			m.record(ctx, vehicleID, prev, merged)
 		})
@@ -646,10 +663,22 @@ func (m *StateMonitor) kickResubscribe(vehicleID, reason string) {
 //	asleep / no cache: 30 min — minimal wake pressure, we have WS
 //	standby / ready:   10 min — car is awake anyway
 //	go / charging:      2 min — driving or charging, we want freshness
+//
+// Cold-start exception: until we've received our first WS frame for
+// this vehicle, poll at the 2-min cadence regardless of cached
+// PowerState. A pod that booted while a trip was already underway
+// (or while the gateway's cached frame was stale) needs fast REST to
+// detect the in-progress state — we'd otherwise sit on a stale
+// "charging_complete" cache for 30 min and miss the start of a
+// drive entirely (observed: 2026-05-01 home→Junction, 8.5 h gap).
 func (m *StateMonitor) adaptiveRefreshInterval(vehicleID string) time.Duration {
 	m.mu.RLock()
 	st := m.cache[vehicleID]
+	wsSeen := m.wsSeen[vehicleID]
 	m.mu.RUnlock()
+	if !wsSeen {
+		return 2 * time.Minute
+	}
 	if st == nil {
 		return 30 * time.Minute
 	}
