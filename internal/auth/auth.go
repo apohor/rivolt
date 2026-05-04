@@ -107,6 +107,13 @@ type Config struct {
 	// lookup so OIDC sessions surface the IdP's display name.
 	UsernameFor func(ctx context.Context, uid uuid.UUID) (string, error)
 
+	// RoleFor resolves a user UUID to its role string
+	// ("user" / "admin"). Optional — when nil, Me omits the
+	// `role` field, which the SPA treats as "user". main wires
+	// this to db.RoleFor so /api/admin/* visibility flips on
+	// without an extra round-trip.
+	RoleFor func(ctx context.Context, uid uuid.UUID) (string, error)
+
 	// BypassUserID, when non-zero, makes Middleware inject this
 	// user on every request that doesn't already have an identity
 	// resolved by header or cookie. Debug / local-dev only —
@@ -129,6 +136,7 @@ type Service struct {
 	hdrEmail     string
 	userIDFor    func(string) uuid.UUID
 	usernameFor  func(ctx context.Context, uid uuid.UUID) (string, error)
+	roleFor      func(ctx context.Context, uid uuid.UUID) (string, error)
 	bypassUserID uuid.UUID
 
 	// sessionStore, when non-nil, is the source of truth for
@@ -212,6 +220,7 @@ func New(cfg Config) (*Service, error) {
 		hdrEmail:     cfg.HeaderEmail,
 		userIDFor:    cfg.UserIDFor,
 		usernameFor:  cfg.UsernameFor,
+		roleFor:      cfg.RoleFor,
 		bypassUserID: cfg.BypassUserID,
 	}, nil
 }
@@ -574,10 +583,20 @@ func (s *Service) Me(w http.ResponseWriter, r *http.Request) {
 			username = name
 		}
 	}
+	var role string
+	if s.roleFor != nil {
+		if r2, err := s.roleFor(r.Context(), uid); err == nil {
+			role = r2
+		}
+	}
+	if role == "" {
+		role = "user"
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user_id":  uid.String(),
 		"username": username,
+		"role":     role,
 	})
 }
 

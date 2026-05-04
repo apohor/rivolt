@@ -60,10 +60,6 @@ export default function SettingsPage() {
         <ChargingNetworksPanel />
       </Card>
 
-      <Card title="AI providers">
-        <AIProvidersPanel />
-      </Card>
-
       <Card title="Import ElectraFi CSV">
         <ImportPanel />
       </Card>
@@ -652,7 +648,7 @@ const AI_PROVIDERS: { id: AIProvider; label: string; hint: string }[] = [
   },
 ];
 
-function AIProvidersPanel() {
+export function AIProvidersPanel() {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["ai-settings"],

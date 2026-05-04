@@ -134,10 +134,22 @@ type ProInfo struct {
 	HasKey bool   `json:"has_key"`
 }
 
+// KV is the minimal key/value backing store the Manager needs.
+// Both the per-user *Store in this package and the install-wide
+// *appsettings.Store satisfy it. The Manager itself doesn't care
+// which it talks to — but in practice Rivolt wires it to
+// appsettings (AI keys are an install concern: the operator pays
+// the LLM bill).
+type KV interface {
+	GetAll(ctx context.Context) (map[string]string, error)
+	Set(ctx context.Context, key, value string) error
+	Delete(ctx context.Context, key string) error
+}
+
 // Manager owns the current AI configuration and the corresponding Analyzer.
 // It is concurrency-safe; handlers call Analyzer() on every request.
 type Manager struct {
-	store *Store
+	store KV
 
 	mu       sync.RWMutex
 	cfg      AIConfig
@@ -148,7 +160,7 @@ type Manager struct {
 // NewManager loads any persisted config and builds the initial Analyzer.
 // envSeed is merged in for values that are not yet stored, so first-boot
 // behaviour matches the previous env-only configuration.
-func NewManager(ctx context.Context, store *Store, envSeed AIConfig) (*Manager, error) {
+func NewManager(ctx context.Context, store KV, envSeed AIConfig) (*Manager, error) {
 	m := &Manager{store: store}
 	if err := m.load(ctx, envSeed); err != nil {
 		return nil, err

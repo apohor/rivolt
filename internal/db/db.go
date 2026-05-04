@@ -30,6 +30,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -106,6 +107,13 @@ func EnsureUser(ctx context.Context, d *sql.DB, username string) (uuid.UUID, err
 // that does carry them will fill the columns in, but a sign-in that
 // doesn't (e.g. an IdP misconfigured to omit `name`) won't blank
 // out a previously-good value.
+//
+// Admin promotion: on first-ever insert (table empty) the
+// 0015_users_role bootstrap trigger flips role to 'admin'. After
+// that, RIVOLT_BOOTSTRAP_ADMIN_EMAIL — if set — promotes any user
+// whose email matches it to admin on every sign-in. This makes it
+// safe to set the env up-front: an IdP user with that email always
+// becomes admin without any seed-time coordination.
 func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName string) (uuid.UUID, error) {
 	u := strings.ToLower(strings.TrimSpace(username))
 	if u == "" {
@@ -127,7 +135,79 @@ func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName
 	if err != nil {
 		return uuid.Nil, err
 	}
+	// Env-driven admin promotion: idempotent UPDATE that no-ops
+	// when the user is already admin or when the email doesn't
+	// match. Done outside the upsert so the bootstrap trigger
+	// (which runs only on INSERT) stays the source of truth for
+	// "first user becomes admin".
+	if bootstrapEmail := strings.ToLower(strings.TrimSpace(os.Getenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL"))); bootstrapEmail != "" {
+		em := strings.ToLower(strings.TrimSpace(email))
+		if em != "" && em == bootstrapEmail {
+			if _, err := d.ExecContext(ctx,
+				`UPDATE users SET role = 'admin' WHERE id = $1 AND role <> 'admin'`,
+				id,
+			); err != nil {
+				return uuid.Nil, fmt.Errorf("promote bootstrap admin: %w", err)
+			}
+		}
+	}
 	return id, nil
+}
+
+// RoleFor returns the role for a user UUID ("user" or "admin").
+// Returns the empty string for an unknown UUID; callers treat
+// that as "not authorized" rather than as an error.
+func RoleFor(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, error) {
+	if d == nil || uid == uuid.Nil {
+		return "", nil
+	}
+	var role string
+	err := d.QueryRowContext(ctx,
+		`SELECT role FROM users WHERE id = $1`, uid,
+	).Scan(&role)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return role, nil
+}
+
+// SetRole updates the role on an existing user row. Used by the
+// admin endpoint POST /api/admin/users/:id/role. Refuses to set
+// anything other than 'user' / 'admin'; the CHECK constraint in
+// 0015_users_role would catch it anyway, this just gives a
+// friendlier error.
+func SetRole(ctx context.Context, d *sql.DB, uid uuid.UUID, role string) error {
+	r := strings.ToLower(strings.TrimSpace(role))
+	switch r {
+	case "user", "admin":
+	default:
+		return fmt.Errorf("invalid role %q", role)
+	}
+	if _, err := d.ExecContext(ctx,
+		`UPDATE users SET role = $1 WHERE id = $2`, r, uid,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CountAdmins returns the number of users with role='admin'. Used
+// by the admin endpoint to refuse demoting / deleting the last
+// admin (which would lock the install out of /api/admin/*).
+func CountAdmins(ctx context.Context, d *sql.DB) (int, error) {
+	if d == nil {
+		return 0, nil
+	}
+	var n int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE role = 'admin'`,
+	).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // LookupUsername returns the display-friendly name for a user UUID,

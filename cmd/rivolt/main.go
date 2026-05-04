@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/api"
+	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
@@ -112,15 +113,14 @@ func runServer() {
 	geminiKey := flag.String("gemini-api-key", firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY")), "Google Gemini API key (or GEMINI_API_KEY / GOOGLE_API_KEY env)")
 	flag.Parse()
 	// AI provider keys are install-wide ("operator pays the bill"
-	// for all users on this rivolt). They were previously persisted
-	// in the legacy single-tenant settings_kv. v0.17.15 parks them
-	// pending the admin track that will store them in app_settings
-	// behind /api/admin/settings/ai. The flags remain accepted
-	// (so existing helm values don't break) but are not wired in
-	// until that lands.
-	_ = openAIKey
-	_ = anthropicKey
-	_ = geminiKey
+	// for all users on this rivolt). They are persisted in the
+	// app_settings table (envelope-encrypted via crypto.Sealer)
+	// and managed through /api/admin/settings/ai. The CLI flags /
+	// env vars remain accepted as a one-time seed for first boot
+	// — once a value is in app_settings, the stored row wins,
+	// so rotating a key from the admin UI takes effect even if
+	// the helm chart still has the old one in env. See
+	// internal/settings.NewManager + internal/appsettings.
 
 	logger.Info("rivolt starting",
 		"version", version,
@@ -204,12 +204,14 @@ func runServer() {
 	// deliberately long and ugly so it never ends up in a helm
 	// chart or compose file.
 	var secretsStore *secrets.Store
+	var sealer rivoltcrypto.Sealer
 	if pgPool != nil {
-		sealer, serr := buildSealer(logger)
+		s, serr := buildSealer(logger)
 		if serr != nil {
 			logger.Error("sealer setup failed — refusing to start", "err", serr.Error())
 			os.Exit(1)
 		}
+		sealer = s
 		secretsStore = secrets.New(pgPool, sealer)
 		logger.Info("secret store ready", "kek_id", sealer.KEKID())
 	}
@@ -616,6 +618,12 @@ func runServer() {
 			}
 			return db.LookupUsername(ctx, pgPool, uid)
 		},
+		RoleFor: func(ctx context.Context, uid uuid.UUID) (string, error) {
+			if pgPool == nil {
+				return "", nil
+			}
+			return db.RoleFor(ctx, pgPool, uid)
+		},
 		BypassUserID: bypassUserID,
 	})
 	if err != nil {
@@ -689,6 +697,32 @@ func runServer() {
 		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
+	// Install-wide settings manager (AI provider keys + models).
+	// Backed by the app_settings table, sealed with the same KEK
+	// the rest of the secrets pipeline uses. Env-seeded on first
+	// boot so a freshly deployed install with OPENAI_API_KEY in
+	// helm values comes up already configured; once a row is in
+	// app_settings, the stored value wins (the admin can rotate
+	// from the UI without re-deploying).
+	var settingsMgr *settings.Manager
+	if pgPool != nil && sealer != nil {
+		appKV, err := appsettings.New(pgPool, sealer)
+		if err != nil {
+			logger.Error("appsettings init", "err", err.Error())
+			os.Exit(1)
+		}
+		mgr, err := settings.NewManager(ctx, appKV, settings.AIConfig{
+			OpenAIKey:    *openAIKey,
+			AnthropicKey: *anthropicKey,
+			GeminiKey:    *geminiKey,
+		})
+		if err != nil {
+			logger.Error("settings manager init", "err", err.Error())
+			os.Exit(1)
+		}
+		settingsMgr = mgr
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:       rivianClient,
 		Accounts:     accountRegistry,
@@ -699,6 +733,7 @@ func runServer() {
 		Settings:     settingsFactory,
 		Push:         pushFactory,
 		Monitors:     monitorRegistry,
+		SettingsMgr:  settingsMgr,
 		Auth:         authSvc,
 		AuthEnforced: authEnforced,
 		OIDC:         oidcSvc,

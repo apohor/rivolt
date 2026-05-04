@@ -4,9 +4,66 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+// AdminUserRow is the projection /api/admin/users serves. The
+// shape is deliberately small — the admin page is for "see who
+// is on this install / promote / delete", not a full user
+// dashboard. Add fields here as the SPA grows them.
+type AdminUserRow struct {
+	ID          uuid.UUID `json:"id"`
+	Username    string    `json:"username"`
+	Email       string    `json:"email,omitempty"`
+	DisplayName string    `json:"display_name,omitempty"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ListUsersForAdmin returns every user row, role-stamped and
+// ordered by created_at so the admin page is stable across
+// reloads. No paging — a self-hosted install will not have
+// enough users to need it. If that ever stops being true,
+// add LIMIT/OFFSET parameters.
+func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
+	if d == nil {
+		return nil, nil
+	}
+	rows, err := d.QueryContext(ctx, `
+		SELECT id, username, COALESCE(email, ''), COALESCE(display_name, ''), role, created_at
+		FROM users
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list users for admin: %w", err)
+	}
+	defer rows.Close()
+	var out []AdminUserRow
+	for rows.Next() {
+		var r AdminUserRow
+		if err := rows.Scan(&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("list users for admin scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUser removes a user row. ON DELETE CASCADE on every
+// dependent table (vehicles, drives, charges, samples,
+// user_settings, user_secrets, sessions, push_subscriptions, …)
+// means this is sufficient to fully evict the tenant; the admin
+// endpoint relies on that contract instead of a hand-rolled
+// transactional sweep.
+func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
+	if d == nil || uid == uuid.Nil {
+		return nil
+	}
+	_, err := d.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
+	return err
+}
 
 // ListUsersWithRivianSession returns every user_id that currently has
 // a persisted rivian.session blob in user_secrets. The boot path

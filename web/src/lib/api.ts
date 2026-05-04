@@ -449,22 +449,42 @@ export const backend = {
     api.get<ChargingNetwork[]>("/api/settings/charging/networks"),
   setChargingNetworks: (networks: ChargingNetwork[]) =>
     api.put<ChargingNetwork[]>("/api/settings/charging/networks", networks),
-  // AI provider configuration. GET returns the redacted view; PUT takes
-  // a partial patch (nil = leave alone, "" = clear).
-  getAISettings: () => api.get<AISettings>("/api/settings/ai"),
+  // AI provider configuration is admin-only — the keys are install-
+  // wide and the operator pays the LLM bill. Routes were under
+  // /api/settings/ai before v0.17.17; they moved to /api/admin/* in
+  // v0.17.17 along with the requireAdminMW gate. Non-admins get a
+  // 403 from these calls; the SPA hides the /admin route behind
+  // me().role === "admin" so they don't even render the buttons.
+  getAISettings: () => api.get<AISettings>("/api/admin/settings/ai"),
   updateAISettings: (patch: AISettingsUpdate) =>
-    api.put<AISettings>("/api/settings/ai", patch),
+    api.put<AISettings>("/api/admin/settings/ai", patch),
   // Fetch the provider's own model catalogue via its list endpoint,
   // proxied server-side so the API key never hits the browser.
   listAIModels: (provider: AIProvider) =>
     api.get<{ models: string[] }>(
-      `/api/settings/ai/models/${encodeURIComponent(provider)}`,
+      `/api/admin/settings/ai/models/${encodeURIComponent(provider)}`,
     ),
   // Smoke-test the currently configured AI provider. Sends a trivial
   // prompt and returns the reply + token usage + round-trip latency,
-  // so the Settings UI can confirm key/model validity without waiting
+  // so the admin UI can confirm key/model validity without waiting
   // for a downstream feature to exercise the integration.
-  pingAI: () => api.post<AIPingResult>("/api/ai/ping", {}),
+  pingAI: () => api.post<AIPingResult>("/api/admin/ai/ping", {}),
+  // Admin user management. Same gating as the AI endpoints.
+  adminListUsers: () =>
+    api.get<{ users: AdminUserRow[] }>("/api/admin/users"),
+  adminSetUserRole: (id: string, role: "user" | "admin") =>
+    api.post<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/role`, {
+      role,
+    }),
+  adminDeleteUser: (id: string) =>
+    fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).then(async (res) => {
+      const text = await res.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, parsed);
+      return parsed as { ok: true };
+    }),
   // Local DBSCAN clustering of charge locations. Returns one row per
   // cluster, largest-first, with "Home" / "Public" / "Fast" labels.
   chargeClusters: () =>
@@ -657,12 +677,23 @@ export type ImportProgress = {
   result?: ImportResult;
 };
 
-// AuthUser is whatever /api/auth/me returns — today a user_id plus
-// the display username. When OIDC lands we'll add email/name; the
-// contract stays backward-compatible.
+// AuthUser is whatever /api/auth/me returns — user_id, the
+// display username, and the role flag the SPA uses to decide
+// whether to render the /admin route + nav link.
 export type AuthUser = {
   user_id: string;
   username: string;
+  role: "user" | "admin";
+};
+
+// AdminUserRow is one entry from GET /api/admin/users.
+export type AdminUserRow = {
+  id: string;
+  username: string;
+  email?: string;
+  display_name?: string;
+  role: "user" | "admin";
+  created_at: string;
 };
 
 // OIDCProvider is one entry in /api/auth/oidc/. The SPA renders

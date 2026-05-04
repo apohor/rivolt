@@ -3,12 +3,19 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import Logo from "../components/Logo";
 
-const nav = [
+const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Overview", end: true },
   { to: "/live", label: "Live" },
   { to: "/drives", label: "Drives" },
   { to: "/charges", label: "Charges" },
   { to: "/settings", label: "Settings" },
+];
+
+// adminNav is appended to nav at render-time when whoami() reports
+// role === "admin". Kept as a separate const so the role check
+// lives in exactly one place.
+const adminNav: { to: string; label: string; end?: boolean }[] = [
+  { to: "/admin", label: "Admin" },
 ];
 
 // StatusPill reflects the Rivian connection state, since that's what
@@ -97,6 +104,12 @@ function SignOutButton() {
 }
 
 export default function AppLayout() {
+  const me = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: () => backend.whoami(),
+    staleTime: 5 * 60_000,
+  });
+  const navItems = me.data?.role === "admin" ? [...nav, ...adminNav] : nav;
   return (
     <div className="min-h-full flex flex-col">
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-[1100] app-safe-top">
@@ -114,7 +127,7 @@ export default function AppLayout() {
           </div>
           <nav className="order-last w-full sm:order-none sm:w-auto" aria-label="Primary">
             <ul className="flex items-center justify-between gap-0.5 sm:justify-start sm:gap-1">
-              {nav.map((n) => (
+              {navItems.map((n) => (
                 <li key={n.to}>
                   <NavLink
                     to={n.to}

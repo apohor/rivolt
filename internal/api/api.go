@@ -24,6 +24,7 @@ import (
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
@@ -305,25 +306,38 @@ func New(d Deps) http.Handler {
 				}))
 			})
 
-			// AI provider configuration (OpenAI / Anthropic / Gemini).
-			// GET returns the redacted public view (api keys reported as
-			// has_key only); PUT accepts a partial patch. The /models
-			// endpoint proxies the provider's catalogue API so the UI can
-			// populate a dropdown instead of asking users to memorise IDs.
-			r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
-			r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
-			r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
-			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
+			// AI provider configuration moved to /api/admin/settings/ai.
+			// AI keys are install-wide (operator pays the bill); only
+			// admins can read or rotate them. The SPA's /admin page
+			// is gated on me().role === "admin" before rendering the
+			// AI card, so non-admin users never see the route.
 
-			// Operational admin surface. Today's only endpoint is the
-			// Rivian-upstream kill switch (ARCHITECTURE decision 6 /
-			// ROADMAP Phase 1). GET returns the cached flag state;
-			// PUT flips it and refreshes the local snapshot
-			// immediately. Remote pods see the change on their next
-			// poll (~10s) — decision 6 sizes that delay explicitly.
+			// Admin surface. Gated by requireAdminMW (role='admin' on
+			// the users row). The role check is layered ON TOP of the
+			// requireUserMW that already runs at the parent group, so
+			// an unauthenticated request gets a 401 before we even
+			// resolve the role; an authenticated non-admin gets a 403.
+			//
+			// Endpoints:
+			//   - kill-switch: Rivian upstream pause (decision 6)
+			//   - users:       list / promote / delete users
+			//   - settings/ai: install-wide AI provider config
 			r.Route("/admin", func(r chi.Router) {
+				r.Use(requireAdminMW(func(ctx context.Context, uid uuid.UUID) (string, error) {
+					if d.DB == nil {
+						return "", nil
+					}
+					return db.RoleFor(ctx, d.DB, uid)
+				}))
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
+				r.Get("/users", handleAdminUsersList(d.DB))
+				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
+				r.Delete("/users/{id}", handleAdminUserDelete(d.DB))
+				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
+				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
+				r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
+				r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the

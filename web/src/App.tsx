@@ -7,6 +7,7 @@ import ChargesPage from "./pages/ChargesPage";
 import ChargeDetailPage from "./pages/ChargeDetailPage";
 import LivePage from "./pages/LivePage";
 import SettingsPage from "./pages/SettingsPage";
+import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="charges/:id" element={<ChargeDetailPage />} />
         <Route path="live" element={<LivePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
