@@ -348,12 +348,34 @@ func runServer() {
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
 		} else {
-			// Per-user Rivian session hydration is deferred to the first
-			// authenticated request — see rivianHydrateMW. Booting without
-			// a hydrated client is the right default for multi-user /
-			// multi-replica: each replica lazy-loads from `user_secrets`
-			// on demand, no coordination required.
-			logger.Info("rivian client: live (awaiting login)")
+			// Boot-time hydration for the configured currentUserID.
+			// Without this, the StateMonitor goroutines start before
+			// any HTTP request hits rivianHydrateMW, every WS Subscribe
+			// fails with ErrNotAuthenticated, and telemetry collection
+			// is silently gated on someone opening the UI. With it, a
+			// pod restart is invisible to the data plane: the live
+			// client comes up already holding the last persisted
+			// session, AuthReady is closed, and the monitor proceeds
+			// straight into Subscribe.
+			//
+			// Only the single configured user is hydrated here; lazy
+			// hydration via rivianHydrateMW still covers any other
+			// users that get added later, and the multi-user data
+			// plane refactor (per-user client cache) supersedes both
+			// paths.
+			if currentUserID != uuid.Nil {
+				if sess, err := secrets.LoadRivianSession(ctx, secretsStore, currentUserID); err != nil {
+					logger.Warn("rivian session boot hydrate failed", "err", err.Error())
+				} else if sess.UserSessionToken != "" {
+					lc.Restore(sess)
+					logger.Info("rivian client: live (session restored from secrets store)",
+						"email", sess.Email)
+				} else {
+					logger.Info("rivian client: live (awaiting login)")
+				}
+			} else {
+				logger.Info("rivian client: live (awaiting login)")
+			}
 		}
 		rivianAccount = lc
 		rivianClient = lc

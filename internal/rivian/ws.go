@@ -121,7 +121,7 @@ func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string
 	userTok := c.userSessionToken
 	c.mu.Unlock()
 	if userTok == "" {
-		return errors.New("rivian: not authenticated; call Login first")
+		return ErrNotAuthenticated
 	}
 	if vehicleID == "" {
 		return errors.New("rivian: vehicleID is required")

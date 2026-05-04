@@ -97,6 +97,13 @@ type LiveClient struct {
 	pendingOTPEmail  string
 	authenticatedAt  time.Time
 
+	// authReady is closed when the client holds a non-empty
+	// userSessionToken. Replaced with a fresh open channel by
+	// Logout so a future re-login produces a new ready signal.
+	// Mutated only under c.mu via signalAuthReadyLocked /
+	// resetAuthReadyLocked.
+	authReady chan struct{}
+
 	// reauthState is an atomic mirror of needs_reauth read on every outbound
 	// call; lock-free so doGraphQL can flip it without deadlocking c.mu.
 	reauthState atomic.Pointer[reauthSnapshot]
@@ -183,7 +190,37 @@ func NewLive() *LiveClient {
 		clientName:    DefaultClientName,
 		clientVersion: DefaultClientVersion,
 		rivoltVersion: "dev",
+		authReady:     make(chan struct{}),
 	}
+}
+
+// AuthReady returns a channel closed once the client has a usable
+// session. See Account.AuthReady. Replaced on Logout.
+func (c *LiveClient) AuthReady() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.authReady
+}
+
+// signalAuthReadyLocked closes the current authReady channel if it
+// is still open. Caller must hold c.mu.
+func (c *LiveClient) signalAuthReadyLocked() {
+	if c.authReady == nil {
+		c.authReady = make(chan struct{})
+	}
+	select {
+	case <-c.authReady:
+		// already closed; nothing to do
+	default:
+		close(c.authReady)
+	}
+}
+
+// resetAuthReadyLocked replaces authReady with a fresh open channel
+// so a Logout invalidates the previous ready signal. Caller must
+// hold c.mu.
+func (c *LiveClient) resetAuthReadyLocked() {
+	c.authReady = make(chan struct{})
 }
 
 // WithRivoltVersion stamps the build version into X-Rivolt-Version.
@@ -640,6 +677,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.pendingOTPToken = ""
 		c.pendingOTPEmail = ""
 		c.authenticatedAt = time.Now()
+		c.signalAuthReadyLocked()
 		c.clearNeedsReauth(ctx)
 		return nil
 	}
@@ -672,6 +710,7 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 		c.userSessionToken = data.Login.UserSessionToken
 		c.email = creds.Email
 		c.authenticatedAt = time.Now()
+		c.signalAuthReadyLocked()
 		c.clearNeedsReauth(ctx)
 		return nil
 	case "MobileMFALoginResponse":
@@ -751,7 +790,7 @@ func (c *LiveClient) Vehicles(ctx context.Context) ([]Vehicle, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	data, err := doGraphQL[userData](ctx, c, graphQLRequest{
 		OperationName: "getUserInfo",
@@ -928,7 +967,7 @@ func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	if vehicleID == "" {
 		return nil, errors.New("rivian: vehicleID is required")
@@ -1003,7 +1042,7 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	if vehicleID == "" {
 		return nil, errors.New("rivian: vehicleID is required")
@@ -1076,7 +1115,7 @@ func (c *LiveClient) ChargingSchemaProbe(ctx context.Context) (map[string]any, e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	const q = `query __Introspect {
   __schema {
@@ -1112,7 +1151,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	if field == "" {
 		return nil, errors.New("field required")
@@ -1158,7 +1197,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	if vehicleID == "" {
 		return nil, errors.New("rivian: vehicleID is required")
@@ -1358,6 +1397,9 @@ func (c *LiveClient) Restore(s Session) {
 	c.email = s.Email
 	c.pendingOTPEmail = ""
 	c.pendingOTPToken = ""
+	if c.userSessionToken != "" {
+		c.signalAuthReadyLocked()
+	}
 }
 
 // Authenticated reports whether a userSessionToken is set locally.
@@ -1392,4 +1434,5 @@ func (c *LiveClient) Logout() {
 	c.pendingOTPToken = ""
 	c.pendingOTPEmail = ""
 	c.authenticatedAt = time.Time{}
+	c.resetAuthReadyLocked()
 }

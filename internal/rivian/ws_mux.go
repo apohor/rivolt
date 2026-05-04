@@ -67,7 +67,7 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 	userTok := c.userSessionToken
 	c.mu.Unlock()
 	if userTok == "" {
-		return nil, errors.New("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 
 	c.muxMu.Lock()

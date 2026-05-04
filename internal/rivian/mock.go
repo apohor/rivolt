@@ -36,6 +36,9 @@ type MockClient struct {
 	vehicles        []Vehicle
 	states          map[string]State
 	LoginReturnErr  error // if non-nil, Login returns this error
+
+	// authReady mirrors LiveClient.authReady; closed once email != "".
+	authReady chan struct{}
 }
 
 // NewMock returns a MockClient primed with one fake vehicle. The
@@ -45,6 +48,7 @@ type MockClient struct {
 func NewMock() *MockClient {
 	id := "mock-vehicle-1"
 	return &MockClient{
+		authReady: make(chan struct{}),
 		vehicles: []Vehicle{{
 			ID:    id,
 			VIN:   "7FCTGAAL5NN000000",
@@ -138,6 +142,7 @@ func (c *MockClient) Login(_ context.Context, cr Credentials) error {
 		c.email = c.pendingOTPEmail
 		c.pendingOTPEmail = ""
 		c.authenticatedAt = time.Now().UTC()
+		c.signalAuthReadyLocked()
 		return nil
 	}
 	// First leg: email + password.
@@ -156,6 +161,7 @@ func (c *MockClient) Login(_ context.Context, cr Credentials) error {
 	c.email = email
 	c.pendingOTPEmail = ""
 	c.authenticatedAt = time.Now().UTC()
+	c.signalAuthReadyLocked()
 	return nil
 }
 
@@ -225,6 +231,7 @@ func (c *MockClient) Logout() {
 	c.email = ""
 	c.pendingOTPEmail = ""
 	c.authenticatedAt = time.Time{}
+	c.resetAuthReadyLocked()
 }
 
 // Snapshot returns a serialisable copy of the current session so
@@ -256,6 +263,31 @@ func (c *MockClient) Restore(s Session) {
 	c.email = s.Email
 	c.authenticatedAt = s.AuthenticatedAt
 	c.pendingOTPEmail = ""
+	c.signalAuthReadyLocked()
+}
+
+// AuthReady returns a channel closed when the mock has a logged-in
+// session. Replaced by Logout so callers see a fresh signal after
+// the next sign-in.
+func (c *MockClient) AuthReady() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.authReady
+}
+
+func (c *MockClient) signalAuthReadyLocked() {
+	if c.authReady == nil {
+		c.authReady = make(chan struct{})
+	}
+	select {
+	case <-c.authReady:
+	default:
+		close(c.authReady)
+	}
+}
+
+func (c *MockClient) resetAuthReadyLocked() {
+	c.authReady = make(chan struct{})
 }
 
 // Compile-time assertion: MockClient satisfies Client.

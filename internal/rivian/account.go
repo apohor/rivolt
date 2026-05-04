@@ -36,6 +36,16 @@ type Account interface {
 	Snapshot() Session
 	// Restore hydrates the client from a prior Snapshot. No I/O.
 	Restore(s Session)
+	// AuthReady returns a channel that is closed once the client
+	// holds usable session material. Background workers (the WS
+	// monitor in particular) select on it to avoid busy-looping
+	// against an unauthenticated client until a user happens to
+	// open the UI.
+	//
+	// On Logout the channel is replaced with a fresh open one, so
+	// receivers that took the closed signal previously will not see
+	// false positives after the next sign-in.
+	AuthReady() <-chan struct{}
 }
 
 // Compile-time assertions keep the interface honest.

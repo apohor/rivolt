@@ -85,7 +85,7 @@ func (c *LiveClient) SubscribeChargingSession(ctx context.Context, vehicleID str
 	userTok := c.userSessionToken
 	c.mu.Unlock()
 	if userTok == "" {
-		return errors.New("rivian: not authenticated; call Login first")
+		return ErrNotAuthenticated
 	}
 	if vehicleID == "" {
 		return errors.New("rivian: vehicleID is required")

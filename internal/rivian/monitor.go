@@ -29,9 +29,9 @@ type StateMonitor struct {
 	client *LiveClient
 	logger *slog.Logger
 
-	mu     sync.RWMutex
-	cache  map[string]*State
-	stamp  map[string]time.Time
+	mu    sync.RWMutex
+	cache map[string]*State
+	stamp map[string]time.Time
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -369,6 +369,18 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		return
 	}
 
+	// Block until the client holds a usable session. Without this
+	// gate every per-vehicle goroutine spins through Subscribe →
+	// ErrNotAuthenticated → 1m backoff forever when the pod boots
+	// before any user has logged in (or before secrets-store
+	// hydration has populated the live client). The auth-ready
+	// channel is closed by Login / LoginWithOTP / Restore on the
+	// LiveClient and replaced on Logout, so Logout-then-Login does
+	// the right thing.
+	if !m.waitAuthReady(ctx, vehicleID) {
+		return
+	}
+
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
 
 	// Seed the cache from REST before the subscription starts
@@ -433,6 +445,16 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// a 15-min heartbeat check.
 	backoff := time.Second
 	for ctx.Err() == nil {
+		// Re-gate on auth between resubscribes. If the upstream
+		// rejected our session mid-flight (Logout, server-side
+		// expiry that produced an ErrNotAuthenticated return) we
+		// must not spin tight on Subscribe; wait for the next
+		// successful Login/Restore to close authReady.
+		if !m.client.Authenticated() {
+			if !m.waitAuthReady(ctx, vehicleID) {
+				break
+			}
+		}
 		// WithCancelCause so the watchdog can stamp the cancellation
 		// with errStaleSubscription. Without that we can't
 		// distinguish "Rivian gateway stopped pushing for 10m and we
@@ -1447,10 +1469,38 @@ func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
 	m.vehicleInfo[vehicleID] = &cp
 }
 
+// waitAuthReady blocks until the wrapped client reports it has a
+// usable session, ctx is cancelled, or the active goroutine entry
+// for vehicleID has been removed (Unsubscribe). Returns true when
+// the caller may proceed to subscribe; false means tear-down.
+//
+// This replaces the prior tight-loop behavior where every per-vehicle
+// goroutine called SubscribeVehicleState → got ErrNotAuthenticated →
+// slept ~backoff → repeat, indefinitely, until a UI request happened
+// to trigger the lazy hydrate middleware. After a pod restart the
+// outcome was: telemetry collection silently parked until someone
+// opened the app.
+func (m *StateMonitor) waitAuthReady(ctx context.Context, vehicleID string) bool {
+	if m.client == nil {
+		return ctx.Err() == nil
+	}
+	if m.client.Authenticated() {
+		return true
+	}
+	ready := m.client.AuthReady()
+	m.logger.Info("rivian ws subscribe blocked: awaiting auth", "vehicle", vehicleID)
+	select {
+	case <-ctx.Done():
+		m.mu.Lock()
+		delete(m.active, vehicleID)
+		m.mu.Unlock()
+		return false
+	case <-ready:
+		return true
+	}
+}
+
 // waitStaggerSlot blocks until at least staggerInterval has passed
-// since the last admitted run() goroutine, returning early if ctx
-// is cancelled. The reservation is made under the lock so two
-// concurrent goroutines never collapse onto the same slot.
 func (m *StateMonitor) waitStaggerSlot(ctx context.Context) {
 	if m.staggerInterval <= 0 {
 		return

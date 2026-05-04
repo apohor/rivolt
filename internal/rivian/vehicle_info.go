@@ -129,7 +129,7 @@ func (c *LiveClient) VehicleImages(ctx context.Context) ([]VehicleImage, error) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
-		return nil, fmt.Errorf("rivian: not authenticated; call Login first")
+		return nil, ErrNotAuthenticated
 	}
 	data, err := doGraphQL[vehicleImagesData](ctx, c, graphQLRequest{
 		OperationName: "getVehicleImages",
