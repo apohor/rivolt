@@ -73,6 +73,19 @@ type StateMonitor struct {
 	// alongside the state cache.
 	lastSession map[string]*LiveSession
 
+	// Per-vehicle bond between the WS-derived lastSession cache and
+	// the recorder's currently-open liveCharge. Set to s.charge.id
+	// when the recorder opens a new charge; cleared (empty string)
+	// when it closes one. applyLiveSession stamps incoming pushes
+	// with the bond active at the time of the push, and
+	// upsertLiveCharge refuses to consume a cached LiveSession whose
+	// stamp doesn't match the current charge -- closing the
+	// "stale Parallax replay between sessions leaks energy into the
+	// next session" hole that produced the v0.17.x phantom-charge
+	// incident. Guarded by mu alongside lastSession.
+	chargeBond     map[string]string
+	lastSessionFor map[string]string
+
 	// Per-vehicle metadata (model/trim/pack/image), fetched once at
 	// startup via RefreshVehicleInfo. Consulted by the recorder to
 	// pick an accurate pack size for the SoC-delta energy fallback.
@@ -119,9 +132,11 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		wsSeen:      make(map[string]bool),
 		active:      make(map[string]context.CancelFunc),
 		subCancel:   make(map[string]context.CancelCauseFunc),
-		sessions:    make(map[string]*liveSessions),
-		lastSession: make(map[string]*LiveSession),
-		vehicleInfo: make(map[string]*Vehicle),
+		sessions:       make(map[string]*liveSessions),
+		lastSession:    make(map[string]*LiveSession),
+		chargeBond:     make(map[string]string),
+		lastSessionFor: make(map[string]string),
+		vehicleInfo:    make(map[string]*Vehicle),
 		// 50ms between WS subscribe attempts. With a 60-vehicle pod
 		// that's a 3-second cold-start spread, well below Rivian's
 		// observed rate-limit window.
@@ -998,6 +1013,18 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 	}
 }
 
+// bondCharge stamps the recorder's currently-open liveCharge id so
+// the next applyLiveSession push gets bonded to it. Called by the
+// recorder on charge-open, paired with delete(m.chargeBond, ...) on
+// close. Without a bond, upsertLiveCharge refuses to credit cached
+// LiveSession energy/power fields to the row -- closing the
+// "between-sessions Parallax replay leaks energy" hole.
+func (m *StateMonitor) bondCharge(vehicleID, chargeID string) {
+	m.mu.Lock()
+	m.chargeBond[vehicleID] = chargeID
+	m.mu.Unlock()
+}
+
 // applyLiveSession merges a pushed LiveSession into m.lastSession
 // (preserving non-zero fields from the previous snapshot so
 // concurrent ChargingSession + Parallax subscribers don't clobber
@@ -1073,6 +1100,13 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		}
 	}
 	m.lastSession[vehicleID] = sess
+	// Bond this cached session to whichever liveCharge the recorder
+	// currently has open. Empty bond means "no charge open right now"
+	// -- a stale Parallax replay arriving between sessions still
+	// updates lastSession (other code paths consume it), but
+	// upsertLiveCharge will refuse to credit its energy / power
+	// fields to a future session that opens with a different bond.
+	m.lastSessionFor[vehicleID] = m.chargeBond[vehicleID]
 	prev := m.cache[vehicleID]
 	var merged *State
 	if prev != nil {

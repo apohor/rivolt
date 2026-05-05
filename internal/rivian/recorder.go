@@ -261,6 +261,8 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		s.charge = nil
 		m.mu.Lock()
 		delete(m.lastSession, curr.VehicleID)
+		delete(m.chargeBond, curr.VehicleID)
+		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
 	}
 	if chargingNow && s.drive != nil {
@@ -399,6 +401,8 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge = nil
 			m.mu.Lock()
 			delete(m.lastSession, curr.VehicleID)
+			delete(m.chargeBond, curr.VehicleID)
+			delete(m.lastSessionFor, curr.VehicleID)
 			m.mu.Unlock()
 		}
 	}
@@ -416,7 +420,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.number = s.chargeCounter
 			// Update end-state to the current frame so the resurrected
 			// row advances forward on the next upsert. Monotonic-forward
-			// only — don't let the resumed row's persisted endAt be
+			// only -- don't let the resumed row's persisted endAt be
 			// regressed by a stale-clock frame.
 			if curr.At.After(s.charge.endAt) {
 				s.charge.endAt = curr.At
@@ -426,6 +430,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
+			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
 			return s.charge.number
@@ -445,6 +450,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
 		return s.charge.number
@@ -501,6 +507,8 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// session's 25 kWh total and Active=true flag.
 		m.mu.Lock()
 		delete(m.lastSession, curr.VehicleID)
+		delete(m.chargeBond, curr.VehicleID)
+		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
 		return n
 	}
@@ -576,21 +584,23 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 	// starting.
 	m.mu.RLock()
 	liveSess := m.lastSession[vehicleID]
+	bondedTo := m.lastSessionFor[vehicleID]
 	m.mu.RUnlock()
 
-	// Stale-cache filter. If lastSession was repopulated by the WS /
-	// REST feeders between sessions (they only gate on chargerState,
-	// not plug status), its StartTime can predate the current row's
-	// startedAt. Trust only a cached session that started at or after
-	// this row started — anything older belongs to a previous charge
-	// and would otherwise leak its TotalChargedEnergyKWh / RangeAddedKm
-	// / PowerKW into the current row. tolerance: 60s of clock skew.
-	if liveSess != nil {
-		if t, err := time.Parse(time.RFC3339, liveSess.StartTime); err == nil && !t.IsZero() {
-			if t.Before(c.startedAt.Add(-60 * time.Second)) {
-				liveSess = nil
-			}
-		}
+	// Bond check. The cached LiveSession is only credited to this
+	// charge when applyLiveSession stamped it with this charge's id
+	// at the time of the push. Anything else -- a stale Parallax
+	// replay arriving between sessions, a frame received before
+	// chargeBond was set on session open, or a frame from a previous
+	// charge that lingered in the cache -- gets dropped here so its
+	// TotalChargedEnergyKWh / RangeAddedKm / PowerKW can't leak into
+	// the wrong row. Replaces an earlier StartTime-proximity filter
+	// that silently passed empty/invalid StartTime values from the
+	// Parallax feed (root cause of the v0.17.x phantom charge
+	// incident: stale 4.10 kWh inherited by a 3.5s chargerState
+	// glitch session).
+	if liveSess != nil && bondedTo != c.id {
+		liveSess = nil
 	}
 
 	var energy, milesAdded, maxPower float64
