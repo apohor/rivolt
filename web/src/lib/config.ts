@@ -16,7 +16,7 @@
 // the fallback shape until then. Drive maps render the polyline
 // from raw GPS first anyway and overlay snapped roads when the
 // match call returns; a one-tick delay on first render is invisible.
-
+import { useEffect, useState } from "react";
 export type RuntimeConfig = {
   osrm: {
     // path is the same-origin URL prefix to use for /match, /route,
@@ -126,11 +126,35 @@ export function chargersPMTilesURL(): string {
 // aiEnabled mirrors the server-side `ai.enabled` config flag. The
 // SPA gates AI-powered cards (trip recap today; weekly digest etc.
 // later) on this so a fresh install with no provider key configured
-// renders no dead buttons. Snapshot value -- consumers don't need
-// to await ensureConfig() because the worst case is a one-render
-// flash of the AI card before the fetch resolves.
+// renders no dead buttons.
+//
+// Returns the synchronous snapshot. WARNING: this is `false` until
+// ensureConfig() resolves and the module-level cache is populated.
+// React components must use the `useAIEnabled` hook below so they
+// re-render when the fetch completes -- a plain call to aiEnabled()
+// from a component that mounts before the config resolves will
+// permanently see `false` (no state subscription).
 export function aiEnabled(): boolean {
   return cached.ai.enabled;
+}
+
+// useAIEnabled is the React-friendly variant of aiEnabled(). It
+// awaits ensureConfig() once on mount and re-renders the caller
+// when the flag flips. Use this from components -- the bare
+// aiEnabled() will permanently return false in components that
+// mount before the /api/config fetch resolves.
+export function useAIEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(cached.ai.enabled);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(c.ai.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
 }
 
 // Kick off the config fetch as soon as this module is imported so

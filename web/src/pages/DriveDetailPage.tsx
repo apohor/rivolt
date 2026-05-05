@@ -16,7 +16,7 @@ import {
 import { smoothGaussianTime } from "../lib/smooth";
 import { collapseRoundTrips } from "../lib/drives";
 import { usePreferences, formatTemperature } from "../lib/preferences";
-import { aiEnabled } from "../lib/config";
+import { useAIEnabled } from "../lib/config";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -720,7 +720,7 @@ function ChartPanel({
 // uses mutations and pulling the dep in for one place would be
 // inconsistent with the rest of the data layer.
 function TripRecapCard({ driveId }: { driveId: string }) {
-  const enabled = aiEnabled();
+  const enabled = useAIEnabled();
   const cached = useQuery({
     queryKey: ["drive-recap", driveId],
     enabled,
