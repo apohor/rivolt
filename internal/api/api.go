@@ -2358,16 +2358,16 @@ func handleDriveWeatherGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
 // Matches the SPA-facing units of driveWeatherResponse so the chart
 // renderer doesn't carry conversion logic.
 type driveWeatherSamplePoint struct {
-	At              time.Time `json:"at"`
-	CadenceMinutes  int       `json:"cadence_minutes"`
-	TempF           *float64  `json:"temp_f,omitempty"`
-	ApparentF       *float64  `json:"feels_like_f,omitempty"`
-	WindMPH         *float64  `json:"wind_mph,omitempty"`
-	WindFromDeg     *float64  `json:"wind_from_deg,omitempty"`
-	HeadwindMPH     *float64  `json:"headwind_mph,omitempty"`
-	PrecipIn        *float64  `json:"precip_in,omitempty"`
-	HumidityPct     *float64  `json:"humidity_pct,omitempty"`
-	Conditions      string    `json:"conditions,omitempty"`
+	At             time.Time `json:"at"`
+	CadenceMinutes int       `json:"cadence_minutes"`
+	TempF          *float64  `json:"temp_f,omitempty"`
+	ApparentF      *float64  `json:"feels_like_f,omitempty"`
+	WindMPH        *float64  `json:"wind_mph,omitempty"`
+	WindFromDeg    *float64  `json:"wind_from_deg,omitempty"`
+	HeadwindMPH    *float64  `json:"headwind_mph,omitempty"`
+	PrecipIn       *float64  `json:"precip_in,omitempty"`
+	HumidityPct    *float64  `json:"humidity_pct,omitempty"`
+	Conditions     string    `json:"conditions,omitempty"`
 }
 
 type driveWeatherSeriesResponse struct {

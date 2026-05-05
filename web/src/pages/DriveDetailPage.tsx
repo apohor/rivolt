@@ -365,8 +365,12 @@ export default function DriveDetailPage() {
       x: new Date(p.at).getTime(),
       y: p.precip_in as number,
     }));
-  const hasMeteoPrecip =
-    meteoPrecipPts.length > 1 && meteoPrecipPts.some((p) => p.y > 0);
+  // Always render the precipitation overlay when we have any data
+  // points: a flat zero baseline with the right-axis "0″" tick is
+  // a clear "no rain in this window" answer, while hiding it
+  // entirely is indistinguishable from "feature broken". One point
+  // can't draw a line, so we still need at least two.
+  const hasMeteoPrecip = meteoPrecipPts.length > 1;
 
   // Combined weather panel picks one temperature trace. Preference:
   //   1. real outside-temp sensor samples (best resolution).
@@ -526,11 +530,19 @@ export default function DriveDetailPage() {
             // and the synced cursor lands on the same moment in each
             // chart. Pulled from the widest series we render (speed
             // includes the synthetic 0-mph anchor at the tail).
+            // Shared x-domain so all stacked panels align tick-for-tick
+            // and the synced cursor lands on the same moment in each
+            // chart. Anchored to the drive's actual sample coverage
+            // (speed/SoC come from the same telemetry rows, plus the
+            // synthetic 0-mph anchor at the tail). Weather points are
+            // intentionally excluded: they're padded ±1 cadence step
+            // around the drive to give the renderer anchors at both
+            // edges, and including them would shrink the speed/SoC
+            // chart on short drives so the actual driving sits in
+            // the middle with empty pre/post-drive gutters.
             const allX = [
               ...speedPts.map((p) => p.x),
               ...socPts.map((p) => p.x),
-              ...(tempTrace?.points.map((p) => p.x) ?? []),
-              ...meteoPrecipPts.map((p) => p.x),
               ...elevPts.map((p) => p.x),
             ];
             const xDomain: [number, number] | undefined =
@@ -657,19 +669,40 @@ export default function DriveDetailPage() {
                       ]}
                       height={80}
                       xDomain={xDomain}
+                      // Pad the temperature y-domain so a drive
+                      // where the value never moves (Open-Meteo
+                      // returns whole-degree resolution) doesn't
+                      // collapse the axis to a single repeated
+                      // tick. Pad in display units; the chart's
+                      // own auto-domain logic handles the multi-
+                      // value case so we only override on the
+                      // degenerate flat-line case.
+                      yDomain={(() => {
+                        const ys = tempTrace.points.map((p) => p.y);
+                        if (ys.length === 0) return undefined;
+                        const lo = Math.min(...ys);
+                        const hi = Math.max(...ys);
+                        if (hi - lo < (tempUnit === "f" ? 2 : 1)) {
+                          const pad = tempUnit === "f" ? 2 : 1;
+                          return [lo - pad, hi + pad] as [number, number];
+                        }
+                        return undefined;
+                      })()}
                       formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
                       formatY2={
                         hasMeteoPrecip ? (v) => `${v.toFixed(2)}″` : undefined
                       }
                       // Anchor the precip axis at zero so a flat run
                       // of dry hours doesn't paint a misleading
-                      // mid-axis baseline. Top is data-driven.
+                      // mid-axis baseline. Top is data-driven, with
+                      // a small floor so the axis still shows ticks
+                      // on bone-dry drives where every sample is 0.
                       y2Domain={
                         hasMeteoPrecip
                           ? [
                               0,
                               Math.max(
-                                0.05,
+                                0.1,
                                 ...meteoPrecipPts.map((p) => p.y),
                               ),
                             ]

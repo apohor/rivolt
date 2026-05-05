@@ -568,8 +568,8 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 	// (`hourly` vs `minutely_15`). Decode into a generic map so we
 	// can switch on blockName without two structs.
 	var raw struct {
-		Hourly      map[string]json.RawMessage `json:"hourly"`
-		Minutely15  map[string]json.RawMessage `json:"minutely_15"`
+		Hourly     map[string]json.RawMessage `json:"hourly"`
+		Minutely15 map[string]json.RawMessage `json:"minutely_15"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("weather: decode: %w", err)
