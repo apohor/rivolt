@@ -43,6 +43,14 @@ type Sample struct {
 	DriveNumber    int64
 	ChargeNumber   int64
 	Source         string // "live" | "electrafi_import"
+	// AltitudeM is the elevation above sea level (meters) at
+	// (Lat, Lon), looked up by the live recorder against the
+	// Mapzen Terrarium DEM at sample-write time. Pointer because
+	// it's nullable: NULL on legacy rows written before migration
+	// 0019, on samples without a GPS fix, on ElectraFi imports,
+	// and on cold-cache misses where the tile fetch was kicked
+	// off async (the next sample on that tile will hit the cache).
+	AltitudeM *float64 `json:"altitude_m,omitempty"`
 }
 
 // Store wraps the vehicle_state table, scoped to one user.
@@ -134,8 +142,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			speed_mph, shift_state, charging_state,
 			charger_power_kw, charge_limit_pct,
 			inside_temp_c, outside_temp_c,
-			drive_number, charge_number, source
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			drive_number, charge_number, source,
+			altitude_m
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -148,6 +157,10 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		if v.LocationFixAt != nil && !v.LocationFixAt.IsZero() {
 			fixAt = v.LocationFixAt.UTC()
 		}
+		var alt any
+		if v.AltitudeM != nil {
+			alt = *v.AltitudeM
+		}
 		if _, err := stmt.ExecContext(ctx,
 			s.userID, uuids[v.VehicleID], v.At.UTC(),
 			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
@@ -156,6 +169,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			v.ChargerPowerKW, v.ChargeLimitPct,
 			v.InsideTempC, v.OutsideTempC,
 			v.DriveNumber, v.ChargeNumber, v.Source,
+			alt,
 		); err != nil {
 			return err
 		}
@@ -199,7 +213,8 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
-		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source
+		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
+		       vs.altitude_m
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1 AND vs.at > $2
@@ -213,6 +228,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 	for rows.Next() {
 		var v Sample
 		var fixAt sql.NullTime
+		var alt sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -220,6 +236,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
+			&alt,
 		); err != nil {
 			return nil, err
 		}
@@ -227,6 +244,10 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		if fixAt.Valid {
 			t := fixAt.Time.UTC()
 			v.LocationFixAt = &t
+		}
+		if alt.Valid {
+			f := alt.Float64
+			v.AltitudeM = &f
 		}
 		out = append(out, v)
 	}
@@ -246,7 +267,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
-		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source
+		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
+		       vs.altitude_m
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1
@@ -259,6 +281,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 	for rows.Next() {
 		var v Sample
 		var fixAt sql.NullTime
+		var alt sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -266,6 +289,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
+			&alt,
 		); err != nil {
 			return nil, err
 		}
@@ -273,6 +297,10 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		if fixAt.Valid {
 			t := fixAt.Time.UTC()
 			v.LocationFixAt = &t
+		}
+		if alt.Valid {
+			f := alt.Float64
+			v.AltitudeM = &f
 		}
 		out = append(out, v)
 	}

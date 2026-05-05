@@ -263,6 +263,22 @@ export default function DriveDetailPage() {
     return [...speedPtsRaw, { x: last.x + 1000, y: 0 }];
   })();
   const socPts = smoothGaussianTime(socPtsRaw, 30_000);
+
+  // Elevation series. Sourced from the Mapzen Terrarium DEM lookup
+  // the recorder runs at sample-write time (samples.altitude_m). The
+  // rest of this page is imperial (mph, mi, °F-or-°C) so render the
+  // y axis in feet for consistency with speed/range. Light smoothing
+  // irons out the ~1 m quantisation noise from the DEM's int16
+  // encoding without flattening real grade. When every sample in the
+  // window lacks altitude (legacy drives, ElectraFi imports, recorder
+  // offline, cold-cache misses) the panel hides itself.
+  const elevPtsRaw = driveSamples
+    .filter((p) => typeof p.altitude_m === "number" && Number.isFinite(p.altitude_m))
+    .map((p) => ({
+      x: new Date(p.At).getTime(),
+      y: (p.altitude_m as number) * 3.28084,
+    }));
+  const elevPts = smoothGaussianTime(elevPtsRaw, 15_000);
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
 
   // Temperature series. Convert to the user's chosen unit at the
@@ -430,14 +446,18 @@ export default function DriveDetailPage() {
               ...speedPts.map((p) => p.x),
               ...socPts.map((p) => p.x),
               ...(ambientTempSeries?.points.map((p) => p.x) ?? []),
+              ...elevPts.map((p) => p.x),
             ];
             const xDomain: [number, number] | undefined =
               allX.length > 0
                 ? [Math.min(...allX), Math.max(...allX)]
                 : undefined;
-            // Top/middle panels suppress x ticks; only the bottom
-            // panel (battery if no temp, otherwise temp) draws them.
+            // Bottom panel of the stack draws x-axis ticks; everything
+            // above suppresses them. Order is speed → battery → temp
+            // → elevation, so each panel only shows ticks when no
+            // panel below it is rendered for this drive.
             const hasTemp = !!ambientTempSeries;
+            const hasElev = elevPts.length > 1;
             return (
               <div className="space-y-3">
                 {speedPts.length > 0 ? (
@@ -483,7 +503,7 @@ export default function DriveDetailPage() {
                       ]}
                       formatY={(v) => `${v.toFixed(0)}%`}
                       formatX={xTimeFmt}
-                      xTicks={hasTemp ? 0 : 4}
+                      xTicks={hasTemp || hasElev ? 0 : 4}
                       cursorX={cursorMs}
                       onCursorChange={setCursorMs}
                     />
@@ -511,6 +531,33 @@ export default function DriveDetailPage() {
                       formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
                       formatX={xTimeFmt}
                       yTicks={2}
+                      xTicks={hasElev ? 0 : 4}
+                      cursorX={cursorMs}
+                      onCursorChange={setCursorMs}
+                    />
+                  </ChartPanel>
+                ) : null}
+                {hasElev ? (
+                  <ChartPanel label="Elevation" colorClass="bg-amber-400">
+                    <LineChart
+                      series={[
+                        {
+                          points: elevPts,
+                          color: "#f59e0b",
+                          strokeWidth: 1.3,
+                          area: true,
+                          curve: "monotone",
+                          label: "Elevation",
+                          formatCursor: (v: number) =>
+                            `${v.toFixed(0)} ft`,
+                        },
+                      ]}
+                      height={80}
+                      xDomain={xDomain}
+                      formatY={(v) => `${v.toFixed(0)} ft`}
+                      formatX={xTimeFmt}
+                      yTicks={2}
+                      xTicks={4}
                       cursorX={cursorMs}
                       onCursorChange={setCursorMs}
                     />

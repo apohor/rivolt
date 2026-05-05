@@ -325,6 +325,13 @@ export type Sample = {
   DriveNumber: number;
   ChargeNumber: number;
   Source: string;
+  // Elevation above sea level in meters at (Lat, Lon), looked up
+  // by the live recorder against the Mapzen Terrarium DEM. Absent
+  // on legacy rows (pre-migration 0019), ElectraFi imports, samples
+  // without a GPS fix, and cold-cache misses where the tile fetch
+  // landed too late. The drive-detail Elevation chart hides itself
+  // when every sample in the window is missing this field.
+  altitude_m?: number;
 };
 
 export type RivianStatus = {

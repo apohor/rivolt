@@ -38,13 +38,14 @@ import (
 // The registry is wired only in live mode. Mock and stub paths
 // don't have a recorder, so they don't need this layer.
 type MonitorRegistry struct {
-	pool     *sql.DB
-	accounts AccountRegistry
-	drives   *drives.Factory
-	charges  *charges.Factory
-	samples  *samples.Factory
-	settings *settings.Factory
-	logger   *slog.Logger
+	pool      *sql.DB
+	accounts  AccountRegistry
+	drives    *drives.Factory
+	charges   *charges.Factory
+	samples   *samples.Factory
+	settings  *settings.Factory
+	elevation ElevationLookup
+	logger    *slog.Logger
 
 	mu       sync.RWMutex
 	monitors map[uuid.UUID]*monitorEntry
@@ -91,6 +92,17 @@ func (r *MonitorRegistry) SetParent(ctx context.Context) {
 	r.mu.Unlock()
 }
 
+// SetElevationLookup wires an optional elevation resolver shared
+// across every per-user monitor the registry spawns. Safe to call at
+// boot before any Start, idempotent thereafter (the resolver itself
+// is stateless w.r.t. user identity -- altitude is a pure function
+// of lat/lon, not a per-user query).
+func (r *MonitorRegistry) SetElevationLookup(e ElevationLookup) {
+	r.mu.Lock()
+	r.elevation = e
+	r.mu.Unlock()
+}
+
 // Start launches a monitor for uid if one is not already running.
 // Returns the monitor (existing or new). Returns nil only when the
 // account registry hands back a non-LiveClient (mock/stub paths
@@ -134,6 +146,9 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		r.drives.For(uid),
 		r.charges.For(uid),
 	)
+	if r.elevation != nil {
+		mon.SetElevationLookup(r.elevation)
+	}
 	if r.settings != nil {
 		ss := r.settings.For(uid)
 		if ss != nil {

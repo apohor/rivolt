@@ -61,6 +61,13 @@ type StateMonitor struct {
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
 
+	// elevation answers (lat, lon) -> meters lookups against an
+	// in-memory tile cache backed by Mapzen Terrarium PNGs. Optional;
+	// when nil the recorder writes NULL for altitude_m on every
+	// sample. Cache misses are non-blocking (the resolver kicks off
+	// async tile fetches) so this never slows the WS hot path.
+	elevation ElevationLookup
+
 	// Per-vehicle in-flight session accumulators, keyed by vehicleID.
 	// Access guarded by sessMu. Separate from mu so recorder work
 	// doesn't serialize behind cache reads.
@@ -117,6 +124,16 @@ type StateMonitor struct {
 // show up as a misleading $0.00 in history.
 type PriceLookup func() (ratePerKWh float64, currency string)
 
+// ElevationLookup is the minimal contract the recorder needs from
+// an elevation resolver. Returns the altitude in meters, or ok=false
+// when the tile is not (yet) cached -- the recorder writes NULL in
+// that case rather than blocking on a network fetch. Implemented by
+// *elevation.Resolver; abstracted here so the rivian package stays
+// dep-free at the type-graph level and tests can stub it trivially.
+type ElevationLookup interface {
+	Lookup(lat, lon float64) (float64, bool)
+}
+
 // NewStateMonitor wraps a live client. Pass a logger (usually from
 // main.go's structured logger). nil is allowed; events will be
 // discarded.
@@ -151,6 +168,13 @@ func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drive
 	m.samplesStore = samplesStore
 	m.drivesStore = drivesStore
 	m.chargesStore = chargesStore
+}
+
+// SetElevationLookup wires an optional elevation resolver. nil
+// disables altitude annotation; samples will be written with NULL
+// altitude_m. Safe to call before Start; racy after.
+func (m *StateMonitor) SetElevationLookup(e ElevationLookup) {
+	m.elevation = e
 }
 
 // SetPriceLookup wires a callback the recorder uses to stamp each

@@ -34,6 +34,7 @@ import (
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
@@ -367,6 +368,24 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Elevation lookup is opt-out: ELEVATION_DISABLED=1 turns it
+		// off entirely (e.g. air-gapped deployments). ELEVATION_TILES_URL
+		// overrides the default Mapzen Terrarium endpoint for self-hosted
+		// tile mirrors. Recorder writes NULL altitude_m when disabled
+		// or on cache misses; the frontend hides the chart in that case.
+		if os.Getenv("ELEVATION_DISABLED") != "1" {
+			elevResolver := elevation.New(
+				os.Getenv("ELEVATION_TILES_URL"),
+				0, // default zoom (12)
+				0, // default cache size (256 tiles)
+				nil,
+				logger.With("component", "elevation"),
+			)
+			monitorRegistry.SetElevationLookup(elevResolver)
+			logger.Info("elevation lookup enabled", "source", "mapzen-terrarium")
+		} else {
+			logger.Info("elevation lookup disabled", "reason", "ELEVATION_DISABLED=1")
+		}
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every

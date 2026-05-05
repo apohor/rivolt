@@ -246,6 +246,16 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			fix := curr.LocationFixAt
 			s.LocationFixAt = &fix
 		}
+		// Elevation lookup is best-effort: cache hits return in
+		// microseconds, misses kick off an async tile fetch and
+		// return ok=false so the column lands NULL. The next sample
+		// on the now-warm tile gets a real altitude. We never block
+		// the WS hot path on a network round trip.
+		if m.elevation != nil && (curr.Latitude != 0 || curr.Longitude != 0) {
+			if alt, ok := m.elevation.Lookup(curr.Latitude, curr.Longitude); ok {
+				s.AltitudeM = &alt
+			}
+		}
 		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
