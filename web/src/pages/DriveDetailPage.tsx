@@ -539,12 +539,12 @@ export default function DriveDetailPage() {
                   </ChartPanel>
                 ) : null}
                 {hasElev ? (
-                  <ChartPanel label="Elevation" colorClass="bg-amber-400">
+                  <ChartPanel label="Elevation" colorClass="bg-violet-400">
                     <LineChart
                       series={[
                         {
                           points: elevPts,
-                          color: "#f59e0b",
+                          color: "#a78bfa",
                           strokeWidth: 1.3,
                           area: true,
                           curve: "monotone",

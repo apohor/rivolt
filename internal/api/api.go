@@ -1911,6 +1911,24 @@ func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Collapse round trips before resolving the drive ID. The SPA
+		// renders the detail page from a collapsed view (gym -> home
+		// shows as one trip with the outbound leg's ID and the merged
+		// totals), and the recap needs to reflect the same shape or
+		// the headline numbers won't match the page. Defaults track
+		// web/src/lib/preferences.ts DEFAULT_PREFERENCES.
+		//
+		// We don't have the user's roundTrip preferences server-side
+		// today; the SPA owns that toggle. Using the defaults is
+		// correct for the common case (toggle on, default thresholds);
+		// users who tightened the radius will see a slight mismatch on
+		// edge cases. A future revision can pass the prefs in the POST
+		// body if that ever becomes a real complaint.
+		const (
+			roundTripRadiusM = 200.0
+			roundTripMaxGap  = 60 * time.Minute
+		)
+		ds = drives.CollapseRoundTrips(ds, roundTripRadiusM, roundTripMaxGap)
 		var drv *drives.Drive
 		for i := range ds {
 			if ds[i].ID == driveID {
