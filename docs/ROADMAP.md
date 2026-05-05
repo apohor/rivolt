@@ -314,6 +314,26 @@ decisions 5–7, 10–12.
         `protomaps-leaflet` with the built-in dark flavor when
         `/api/config` advertises a `tiles.url` — eliminates
         per-tile CDN calls and works offline. v0.17.25.
+- [ ] **Self-hosted elevation tiles.** v0.17.36 added per-sample
+      altitude (`vehicle_state.altitude_m`) sourced from the
+      Mapzen Terrarium DEM on AWS Open Data
+      (`s3.amazonaws.com/elevation-tiles-prod/terrarium/...`).
+      Same off-LAN-by-default footgun the CARTO/OSRM items above
+      were closing. Mitigation already in tree:
+      - ✅ **Opt-in.** `ELEVATION_ENABLED=1` required to start the
+        resolver; default leaves `altitude_m` NULL and hides the
+        Elevation chart panel. `ELEVATION_TILES_URL` accepts a
+        self-hosted Terrarium mirror. v0.17.37 (next cut).
+      Still open:
+      - [ ] **Same-origin proxy** at `/api/maps/elevation/{z}/{x}/{y}.png`
+        with a server-side disk LRU, mirroring the OSRM/PMTiles
+        proxy pattern. Recorder points at the proxy; coordinate
+        tile requests leave the cluster only on cold tiles, only
+        from the server.
+      - [ ] **Bundled DEM archive.** Pre-build a regional Terrarium
+        PMTiles/MBTiles (state extract ~hundreds of MB) served by
+        the same unprivileged-nginx Deployment as the basemap
+        PMTiles. Fully offline, no AWS dependency at runtime.
 - [ ] **Scale OSRM beyond a single state extract.** Current
       self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
       to `texas-latest` because that's where every recorded

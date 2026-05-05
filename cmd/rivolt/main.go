@@ -368,23 +368,31 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
-		// Elevation lookup is opt-out: ELEVATION_DISABLED=1 turns it
-		// off entirely (e.g. air-gapped deployments). ELEVATION_TILES_URL
-		// overrides the default Mapzen Terrarium endpoint for self-hosted
-		// tile mirrors. Recorder writes NULL altitude_m when disabled
-		// or on cache misses; the frontend hides the chart in that case.
-		if os.Getenv("ELEVATION_DISABLED") != "1" {
+		// Elevation lookup is opt-in: a self-hosted instance never
+		// phones an off-LAN tile server unless the operator says so.
+		// ELEVATION_ENABLED=1 turns it on; ELEVATION_TILES_URL points
+		// at a self-hosted Terrarium mirror (defaults to Mapzen's AWS
+		// Open Data endpoint, which is convenient but leaks per-tile
+		// coordinates off-LAN — see ROADMAP "Self-hosted elevation").
+		// Recorder writes NULL altitude_m when disabled or on cache
+		// misses; the frontend hides the chart when no samples carry it.
+		if os.Getenv("ELEVATION_ENABLED") == "1" {
+			tileURL := os.Getenv("ELEVATION_TILES_URL")
+			source := "self-hosted"
+			if tileURL == "" {
+				source = "mapzen-terrarium (off-LAN)"
+			}
 			elevResolver := elevation.New(
-				os.Getenv("ELEVATION_TILES_URL"),
+				tileURL,
 				0, // default zoom (12)
 				0, // default cache size (256 tiles)
 				nil,
 				logger.With("component", "elevation"),
 			)
 			monitorRegistry.SetElevationLookup(elevResolver)
-			logger.Info("elevation lookup enabled", "source", "mapzen-terrarium")
+			logger.Info("elevation lookup enabled", "source", source)
 		} else {
-			logger.Info("elevation lookup disabled", "reason", "ELEVATION_DISABLED=1")
+			logger.Info("elevation lookup disabled", "reason", "ELEVATION_ENABLED!=1 (opt-in)")
 		}
 	}
 
