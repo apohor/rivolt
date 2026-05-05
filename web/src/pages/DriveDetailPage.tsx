@@ -84,6 +84,24 @@ export default function DriveDetailPage() {
     },
   });
 
+  // Standalone weather snapshot for the drive. Independent of the
+  // recap query so the temperature chart can render the outside-temp
+  // line on un-narrated drives. 404 means the drive was never
+  // backfilled; we just don't draw the line.
+  const driveWeather = useQuery({
+    queryKey: ["drive-weather", drive?.ID],
+    enabled: !!drive,
+    queryFn: async (): Promise<DriveWeather | null> => {
+      try {
+        return await backend.driveWeatherGet(drive!.ID);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    staleTime: 60_000,
+  });
+
   const driveSamples = useMemo(() => {
     if (!drive || !samples.data) return [] as Sample[];
     const s = new Date(drive.StartedAt).getTime();
@@ -312,18 +330,44 @@ export default function DriveDetailPage() {
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
   const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
   // The combined chart can only fit one extra dotted line, so pick
-  // whichever temperature signal we actually have. Rivian's live WS
-  // feed only exposes cabin temp (outside is hardcoded to 0 in
-  // internal/rivian/live.go); ElectraFi historical imports carry
-  // outside but not cabin. Prefer outside when available — it's the
-  // ambient driver of range — and fall back to cabin so a live
-  // session still shows something rather than nothing.
+  // whichever ambient signal we have. Preference order:
+  //   1. real outside-temp sensor samples (live ingester or
+  //      ElectraFi historical) -- best resolution.
+  //   2. Open-Meteo snapshot for the drive's start hour -- one
+  //      coarse value, rendered as a flat reference line. Cabin
+  //      temp is not a useful proxy for ambient (it tracks HVAC
+  //      setpoint), so we fall back to weather over cabin even
+  //      though the live WS feed exposes cabin and not outside.
+  //   3. cabin temp -- last resort so a fresh live session still
+  //      shows *something* before any backfill.
+  // The weather snapshot is in F (server already converted), so we
+  // round-trip through C only when the user pref is C.
+  const weatherTempUnit =
+    driveWeather.data && driveWeather.data.temp_f != null
+      ? tempUnit === "f"
+        ? driveWeather.data.temp_f
+        : (driveWeather.data.temp_f - 32) / 1.8
+      : null;
+  const weatherTempSeries =
+    weatherTempUnit != null && drive
+      ? (() => {
+          const startMs = new Date(drive.StartedAt).getTime();
+          const endMs = new Date(drive.EndedAt).getTime();
+          // Two endpoints render as a flat line on the time axis.
+          return [
+            { x: startMs, y: weatherTempUnit },
+            { x: endMs, y: weatherTempUnit },
+          ];
+        })()
+      : null;
   const ambientTempSeries =
     outsideTempSmoothed.length > 1
       ? { points: outsideTempSmoothed, label: "Outside temp" }
-      : insideTempSmoothed.length > 1
-        ? { points: insideTempSmoothed, label: "Cabin temp" }
-        : null;
+      : weatherTempSeries
+        ? { points: weatherTempSeries, label: "Outside temp (Open-Meteo)" }
+        : insideTempSmoothed.length > 1
+          ? { points: insideTempSmoothed, label: "Cabin temp" }
+          : null;
 
   // Resolve the sample closest to the synced cursor for the
   // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples

@@ -678,6 +678,12 @@ export const backend = {
       `/api/drives/${encodeURIComponent(id)}/recap${force ? "?force=1" : ""}`,
       {},
     ),
+  // Standalone weather snapshot for a drive. Returns the same DTO
+  // attached to recap responses, but works independently of whether
+  // an AI recap was ever generated -- so the detail-page chart can
+  // render the outside-temp line even on un-narrated drives.
+  driveWeatherGet: (id: string) =>
+    api.get<DriveWeather>(`/api/drives/${encodeURIComponent(id)}/weather`),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON

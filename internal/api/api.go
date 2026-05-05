@@ -411,6 +411,15 @@ func New(d Deps) http.Handler {
 			r.Post("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveRecapPost(d, uid)(w, r)
 			}))
+			// Standalone weather snapshot for a drive. Independent of
+			// the recap path so the detail-page chart can render the
+			// outside-temp line even when no AI recap was generated
+			// (e.g. operator never configured an LLM, or the drive
+			// is too short to be worth narrating). 404 = no row,
+			// regardless of whether the toggle is currently on.
+			r.Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveWeatherGet(d.DB, uid)(w, r)
+			}))
 			// Bulk weather backfill for historical drives. Each call
 			// processes up to a fixed batch (see handler) so a slow
 			// upstream can't lock up a worker; the SPA polls until
@@ -2276,6 +2285,35 @@ WHERE user_id = $1 AND drive_id = $2
 		resp.Weather = w
 	}
 	return resp, true, nil
+}
+
+// handleDriveWeatherGet returns the persisted weather snapshot for
+// (uid, driveID), or 404 when no row exists. Lightweight read off
+// the drive_weather cache; never calls Open-Meteo. Independent of
+// the recap path so the detail-page chart can render even when no
+// AI recap was generated for this drive.
+func handleDriveWeatherGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pool == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		snap, err := loadDriveWeather(r.Context(), pool, uid, driveID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if snap == nil {
+			http.Error(w, "no weather cached for this drive", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, snap)
+	}
 }
 
 // loadDriveWeather returns the persisted weather snapshot for
