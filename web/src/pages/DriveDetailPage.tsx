@@ -522,7 +522,23 @@ export default function DriveDetailPage() {
         )}
       </Card>
 
-      <Card title="Route">
+      <Card
+        title="Route"
+        actions={
+          hasEndpointPair(drive) ? (
+            <a
+              href={googleRouteURL(drive)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
+              title="Open route in Google Maps"
+            >
+              Google Maps
+              <span aria-hidden>↗</span>
+            </a>
+          ) : null
+        }
+      >
         {samples.isLoading ? (
           <Spinner />
         ) : mapPathSamples.length === 0 ? (
@@ -540,26 +556,6 @@ export default function DriveDetailPage() {
             fixAgeSeconds={maxFixAgeSeconds(mapPathSamples)}
           />
         )}
-      </Card>
-
-      <Card title="Endpoints">
-        <div className="grid grid-cols-2 gap-4 text-sm text-neutral-300">
-          <Endpoint label="Start" lat={drive.StartLat} lon={drive.StartLon} />
-          <Endpoint label="End" lat={drive.EndLat} lon={drive.EndLon} />
-        </div>
-        {hasEndpointPair(drive) ? (
-          <div className="mt-4 border-t border-neutral-800 pt-3">
-            <a
-              href={googleRouteURL(drive)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
-            >
-              Open route in Google Maps
-              <span aria-hidden>↗</span>
-            </a>
-          </div>
-        ) : null}
       </Card>
 
       {samples.isError ? (
@@ -621,30 +617,6 @@ function Stat({
       {hint ? (
         <div className="mt-1 text-[10px] text-neutral-500">{hint}</div>
       ) : null}
-    </div>
-  );
-}
-
-function Endpoint({ label, lat, lon }: { label: string; lat: number; lon: number }) {
-  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0);
-  const href = hasCoords
-    ? `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`
-    : undefined;
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      {hasCoords ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 inline-block font-mono text-emerald-400 hover:underline"
-        >
-          {lat.toFixed(4)}, {lon.toFixed(4)}
-        </a>
-      ) : (
-        <div className="mt-1 text-neutral-500">—</div>
-      )}
     </div>
   );
 }
