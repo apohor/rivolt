@@ -63,7 +63,7 @@ function CreateUserForm() {
       backend.adminCreateUser({
         username: username.trim(),
         email: email.trim() || undefined,
-        display_name: displayName.trim() || undefined,
+        display_name: displayName.trim(),
         role,
         disabled: disabled || undefined,
       }),
@@ -111,7 +111,8 @@ function CreateUserForm() {
       />
       <input
         type="text"
-        placeholder="display name (optional)"
+        required
+        placeholder="display name"
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
         className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"

@@ -72,6 +72,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -156,8 +157,15 @@ type Service struct {
 	// log is the structured logger; defaults to slog.Default().
 	log *slog.Logger
 
-	// providers indexed by Name. Built once at New time; never
-	// mutated, so reads are lock-free.
+	// mu guards providers. Most reads happen on the hot path
+	// (every /api/auth/oidc/* request), so the RWMutex pays for
+	// itself even though writes are rare (only at bootstrap and
+	// background retry).
+	mu sync.RWMutex
+
+	// providers indexed by Name. Initially populated by New;
+	// subsequently mutated by the retry goroutine when an IdP
+	// that was unreachable at startup becomes available.
 	providers map[string]*provider
 }
 
@@ -181,10 +189,12 @@ type Config struct {
 }
 
 // New builds a Service. Providers that fail to bootstrap (DNS
-// failure, invalid issuer URL, malformed redirect) are logged at
-// WARN and skipped — the rest still come up. That's the right
-// posture for a homelab where one IdP being temporarily down
-// shouldn't take the whole login page offline.
+// failure, transient discovery error, invalid issuer URL) are
+// logged at WARN and retried in the background with exponential
+// backoff — the rest still come up. That's the right posture for
+// a homelab where Rivolt and its IdP (e.g. Authelia) might race
+// at boot: the provider becomes available without an operator
+// restart once discovery succeeds.
 func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.IssueSession == nil {
 		return nil, errors.New("oidc.New: IssueSession is required")
@@ -209,17 +219,67 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		log:          log,
 		providers:    make(map[string]*provider),
 	}
+	var pending []ProviderConfig
 	for _, pc := range cfg.Providers {
 		p, err := buildProvider(ctx, pc)
 		if err != nil {
-			log.Warn("oidc: provider bootstrap failed; skipping",
+			log.Warn("oidc: provider bootstrap failed; will retry in background",
 				"provider", pc.Name, "issuer", pc.IssuerURL, "err", err)
+			pending = append(pending, pc)
 			continue
 		}
 		s.providers[pc.Name] = p
 		log.Info("oidc: provider ready", "provider", pc.Name, "issuer", pc.IssuerURL)
 	}
+	if len(pending) > 0 {
+		go s.retryPending(ctx, pending)
+	}
 	return s, nil
+}
+
+// retryPending re-attempts discovery for providers that failed at
+// startup. Backoff doubles from 5s up to a 5m cap; ctx
+// cancellation stops the loop. Once a provider succeeds it's
+// dropped from the pending list and added to the live map under
+// the write lock.
+func (s *Service) retryPending(ctx context.Context, pending []ProviderConfig) {
+	const (
+		minDelay = 5 * time.Second
+		maxDelay = 5 * time.Minute
+	)
+	delay := minDelay
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		var still []ProviderConfig
+		for _, pc := range pending {
+			p, err := buildProvider(ctx, pc)
+			if err != nil {
+				s.log.Debug("oidc: provider retry failed",
+					"provider", pc.Name, "issuer", pc.IssuerURL, "err", err)
+				still = append(still, pc)
+				continue
+			}
+			s.mu.Lock()
+			s.providers[pc.Name] = p
+			s.mu.Unlock()
+			s.log.Info("oidc: provider ready (after retry)",
+				"provider", pc.Name, "issuer", pc.IssuerURL)
+		}
+		if len(still) == 0 {
+			return
+		}
+		pending = still
+		if delay < maxDelay {
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+	}
 }
 
 func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
@@ -290,6 +350,8 @@ func (s *Service) Providers() []ProviderListing {
 	if s == nil {
 		return nil
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]ProviderListing, 0, len(s.providers))
 	for _, p := range s.providers {
 		display := p.cfg.DisplayName
@@ -343,7 +405,9 @@ type flowState struct {
 
 func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "provider")
+	s.mu.RLock()
 	p, ok := s.providers[name]
+	s.mu.RUnlock()
 	if !ok {
 		http.Error(w, "unknown provider", http.StatusNotFound)
 		return
@@ -405,7 +469,9 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "provider")
+	s.mu.RLock()
 	p, ok := s.providers[name]
+	s.mu.RUnlock()
 	if !ok {
 		http.Error(w, "unknown provider", http.StatusNotFound)
 		return

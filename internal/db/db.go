@@ -270,6 +270,16 @@ func CreateUser(ctx context.Context, d *sql.DB, username, email, displayName, ro
 	if u == "" {
 		return uuid.Nil, fmt.Errorf("username is required")
 	}
+	// Display name is required because Authelia 4.39 made it a
+	// non-empty field in the file backend schema; provisioning a
+	// user with an empty displayname would land a record in the
+	// users_database.yml that crashes Authelia at startup. Catch
+	// it at the rivolt boundary so a half-broken row never gets
+	// pushed to Vault.
+	dn := strings.TrimSpace(displayName)
+	if dn == "" {
+		return uuid.Nil, fmt.Errorf("display name is required")
+	}
 	r := strings.ToLower(strings.TrimSpace(role))
 	if r == "" {
 		r = "user"
@@ -284,7 +294,7 @@ func CreateUser(ctx context.Context, d *sql.DB, username, email, displayName, ro
 		INSERT INTO users (id, username, email, display_name, role)
 		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5)
 		ON CONFLICT (id) DO NOTHING
-	`, id, u, strings.TrimSpace(email), strings.TrimSpace(displayName), r)
+	`, id, u, strings.TrimSpace(email), dn, r)
 	if err != nil {
 		return uuid.Nil, err
 	}

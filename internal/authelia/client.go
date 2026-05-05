@@ -202,6 +202,13 @@ func (c *Client) UpsertUser(ctx context.Context, username, email, displayName, r
 	if username == "" {
 		return "", errors.New("authelia: username required")
 	}
+	// Authelia 4.39 rejects users with an empty displayname at
+	// startup ("Users.<name>.users: non zero value required"),
+	// which crashloops the whole pod. Refuse to write the record
+	// rather than poison the YAML.
+	if strings.TrimSpace(displayName) == "" {
+		return "", errors.New("authelia: display name required")
+	}
 	pwd, err := generatePassword()
 	if err != nil {
 		return "", fmt.Errorf("authelia: gen password: %w", err)
