@@ -216,6 +216,12 @@ export type Drive = {
   // and on imports where --pack-kwh wasn't set.
   EnergyUsedKWh: number;
   Source: string;
+  // Encoded GPS trace for the drive (Google polyline algorithm,
+  // precision 5). Set by the live recorder going forward; legacy
+  // ElectraFi imports and any drive that closed before migration
+  // 0018 leave it empty, in which case the overview map falls back
+  // to a straight start → end line.
+  RoutePolyline?: string;
   // Locally-computed cost. The backend bills each drive at the
   // rate of the most recent charge that ended before it started
   // (RAN, home, or manual override), falling back to a blended

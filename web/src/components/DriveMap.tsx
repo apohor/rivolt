@@ -1414,12 +1414,54 @@ export function ChargesOverviewMap({
   );
 }
 
-// DrivesOverviewMap renders every drive as a thin great-circle-ish
-// straight line between its start and end fix, with small dots at
-// each endpoint. We deliberately don't fetch per-drive samples — the
-// dataset has thousands of drives and the round-trip cost dwarfs the
-// fidelity benefit at fleet scale. Click a line or endpoint to open
-// the drive detail page (where the full road-snapped trace lives).
+// decodePolyline decodes a Google-format encoded polyline (precision
+// 5) into [lat, lon] pairs. Matches the encoder in
+// internal/rivian/polyline.go on the backend. Returns an empty array
+// for empty / nullish / malformed input so callers can do a simple
+// length check and fall back to a straight start→end line.
+function decodePolyline(s: string | undefined | null): [number, number][] {
+  if (!s) return [];
+  const out: [number, number][] = [];
+  let lat = 0;
+  let lon = 0;
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    let result = 0;
+    let shift = 0;
+    let b: number;
+    do {
+      if (i >= n) return out;
+      b = s.charCodeAt(i++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+    lat += dlat;
+
+    result = 0;
+    shift = 0;
+    do {
+      if (i >= n) return out;
+      b = s.charCodeAt(i++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlon = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+    lon += dlon;
+
+    out.push([lat * 1e-5, lon * 1e-5]);
+  }
+  return out;
+}
+
+// DrivesOverviewMap renders every drive's route on a single map. When
+// a drive has a stored RoutePolyline (live recorder, post-migration
+// 0018) it renders the real on-road trace; older drives without a
+// polyline fall back to a straight start→end line. Endpoint dots mark
+// origins / destinations so heavy clusters (home, work) read clearly.
+// Click a line or dot to open the drive detail page (which carries
+// the road-snapped, OSRM-matched trace).
 export function DrivesOverviewMap({
   drives,
   onSelect,
@@ -1433,6 +1475,11 @@ export function DrivesOverviewMap({
     EndLon: number;
     StartedAt: string;
     DistanceMi: number;
+    // Encoded GPS trace for the drive (Google polyline algorithm,
+    // precision 5). Populated by the live recorder; legacy ElectraFi
+    // imports and pre-migration drives leave it empty, in which case
+    // we fall back to a straight start → end line.
+    RoutePolyline?: string;
   }[];
   onSelect?: (id: string) => void;
   height?: number;
@@ -1472,7 +1519,14 @@ export function DrivesOverviewMap({
     for (const d of valid) {
       const start: [number, number] = [d.StartLat, d.StartLon];
       const end: [number, number] = [d.EndLat, d.EndLon];
-      allLatLngs.push(start, end);
+      // If the recorder captured a real GPS trace for this drive,
+      // render the polyline so the overview shows on-road routes
+      // instead of a straight crow-flight chord. Legacy drives
+      // (ElectraFi imports, anything from before migration 0018)
+      // have no polyline and fall back to start → end.
+      const trace = decodePolyline(d.RoutePolyline);
+      const path: [number, number][] = trace.length >= 2 ? trace : [start, end];
+      for (const p of path) allLatLngs.push(p);
       const when = new Date(d.StartedAt).toLocaleString(undefined, {
         month: "short",
         day: "numeric",
@@ -1484,7 +1538,7 @@ export function DrivesOverviewMap({
         `<div style="color:#34d399;font-weight:600">${d.DistanceMi.toFixed(1)} mi</div>` +
         `<div style="color:#a3a3a3">${when}</div>` +
         `</div>`;
-      const line = L.polyline([start, end], {
+      const line = L.polyline(path, {
         color: "#34d399",
         weight: 1.5,
         opacity: 0.5,

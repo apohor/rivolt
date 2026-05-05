@@ -85,6 +85,17 @@ type liveDrive struct {
 	endOdoMi float64
 	endLat   float64
 	endLon   float64
+
+	// path is the accumulated GPS trace for this drive, one [lat, lon]
+	// pair per frame that carried a usable fix. Encoded with the
+	// Google polyline algorithm and persisted on every upsert so a
+	// crash mid-drive still leaves a real route on the row, not a
+	// straight line. We deliberately do NOT thin / Douglas-Peucker the
+	// path here -- the recorder's own frame cadence (∼one every few
+	// seconds, throttled by Rivian's WS push frequency) already keeps
+	// the trace short, and we'd rather store the raw points and
+	// simplify in the renderer if it ever becomes a problem.
+	path [][2]float64
 }
 
 type liveCharge struct {
@@ -324,6 +335,9 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			endLat:     curr.Latitude,
 			endLon:     curr.Longitude,
 		}
+		if curr.Latitude != 0 || curr.Longitude != 0 {
+			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		return s.drive.number
 	}
@@ -351,6 +365,15 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		if curr.Latitude != 0 || curr.Longitude != 0 {
 			s.drive.endLat = curr.Latitude
 			s.drive.endLon = curr.Longitude
+			// Append to the path, but skip duplicate consecutive
+			// points -- Rivian sometimes replays the last cached fix
+			// for several frames when the car is parked at a charger
+			// at the start/end of a drive, and we don't want a thousand
+			// copies of the same coordinate in the encoded polyline.
+			n := len(s.drive.path)
+			if n == 0 || s.drive.path[n-1][0] != curr.Latitude || s.drive.path[n-1][1] != curr.Longitude {
+				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+			}
 		}
 		// Periodically re-upsert so a crash preserves the latest
 		// state. Cheap: single-row upsert against a sub-1k-row table.
@@ -553,6 +576,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 		AvgSpeedMph:     avg,
 		EnergyUsedKWh:   energy,
 		Source:          "live",
+		RoutePolyline:   encodePolyline(d.path),
 	}
 	if err := m.drivesStore.Upsert(ctx, row); err != nil {
 		m.logger.Debug("live drive upsert failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())

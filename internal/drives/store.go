@@ -35,6 +35,12 @@ type Drive struct {
 	// Zero on legacy rows imported before migration 0002.
 	EnergyUsedKWh float64
 	Source        string
+	// RoutePolyline is the drive's GPS path encoded with the
+	// Google polyline algorithm at precision 5 (~1m resolution).
+	// Empty for legacy ElectraFi imports and pre-migration live
+	// drives -- consumers fall back to a straight start->end
+	// line when this is empty.
+	RoutePolyline string
 }
 
 // Store wraps the drives table.
@@ -91,8 +97,9 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			start_soc_pct, end_soc_pct,
 			start_odometer_mi, end_odometer_mi, distance_mi,
 			start_lat, start_lon, end_lat, end_lon,
-			max_speed_mph, avg_speed_mph, energy_used_kwh, source
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+			max_speed_mph, avg_speed_mph, energy_used_kwh, source,
+			route_polyline
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at        = EXCLUDED.started_at,
 			ended_at          = EXCLUDED.ended_at,
@@ -109,6 +116,10 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 			avg_speed_mph     = EXCLUDED.avg_speed_mph,
 			energy_used_kwh   = EXCLUDED.energy_used_kwh,
 			source            = EXCLUDED.source,
+			-- Only overwrite route_polyline when the new row carries
+			-- one. ElectraFi re-imports of a row that the live
+			-- recorder already populated shouldn't erase the polyline.
+			route_polyline    = COALESCE(EXCLUDED.route_polyline, drives.route_polyline),
 			updated_at        = NOW()`,
 		s.userID, vid, d.ID,
 		d.StartedAt.UTC(), d.EndedAt.UTC(),
@@ -118,7 +129,8 @@ func (s *Store) Upsert(ctx context.Context, d Drive) error {
 		nullIfZero(d.EndLat), nullIfZero(d.EndLon),
 		nullIfZero(d.MaxSpeedMph), nullIfZero(d.AvgSpeedMph),
 		nullIfZero(d.EnergyUsedKWh),
-		d.Source)
+		d.Source,
+		nullIfEmpty(d.RoutePolyline))
 	return err
 }
 
@@ -145,7 +157,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
-		       COALESCE(d.energy_used_kwh,0), d.source
+		       COALESCE(d.energy_used_kwh,0), d.source,
+		       COALESCE(d.route_polyline,'')
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -164,6 +177,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Drive, error) {
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
+			&d.RoutePolyline,
 		); err != nil {
 			return nil, err
 		}
@@ -191,7 +205,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
 		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
 		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
-		       COALESCE(d.energy_used_kwh,0), d.source
+		       COALESCE(d.energy_used_kwh,0), d.source,
+		       COALESCE(d.route_polyline,'')
 		FROM drives d
 		JOIN vehicles v ON v.id = d.vehicle_id
 		WHERE d.user_id = $1
@@ -209,6 +224,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 			&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
 			&d.MaxSpeedMph, &d.AvgSpeedMph,
 			&d.EnergyUsedKWh, &d.Source,
+			&d.RoutePolyline,
 		); err != nil {
 			return nil, err
 		}
@@ -224,4 +240,11 @@ func nullIfZero(f float64) sql.NullFloat64 {
 		return sql.NullFloat64{}
 	}
 	return sql.NullFloat64{Float64: f, Valid: true}
+}
+
+func nullIfEmpty(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
