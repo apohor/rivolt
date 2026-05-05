@@ -374,23 +374,30 @@ func runServer() {
 		// at a self-hosted Terrarium mirror (defaults to Mapzen's AWS
 		// Open Data endpoint, which is convenient but leaks per-tile
 		// coordinates off-LAN — see ROADMAP "Self-hosted elevation").
+		// ELEVATION_CACHE_DIR persists fetched PNGs to disk so a
+		// pod restart doesn't re-fetch every tile, and so the operator
+		// can rsync a pre-built Terrarium dump there for fully-offline
+		// runs (point ELEVATION_TILES_URL at a blackholed/in-cluster
+		// upstream and let the disk cache do the work).
 		// Recorder writes NULL altitude_m when disabled or on cache
 		// misses; the frontend hides the chart when no samples carry it.
 		if os.Getenv("ELEVATION_ENABLED") == "1" {
 			tileURL := os.Getenv("ELEVATION_TILES_URL")
+			cacheDir := os.Getenv("ELEVATION_CACHE_DIR")
 			source := "self-hosted"
 			if tileURL == "" {
 				source = "mapzen-terrarium (off-LAN)"
 			}
-			elevResolver := elevation.New(
-				tileURL,
-				0, // default zoom (12)
-				0, // default cache size (256 tiles)
-				nil,
-				logger.With("component", "elevation"),
-			)
+			elevResolver := elevation.New(elevation.Config{
+				TileURL:  tileURL,
+				CacheDir: cacheDir,
+				Logger:   logger.With("component", "elevation"),
+			})
 			monitorRegistry.SetElevationLookup(elevResolver)
-			logger.Info("elevation lookup enabled", "source", source)
+			logger.Info("elevation lookup enabled",
+				"source", source,
+				"cache_dir", cacheDir,
+			)
 		} else {
 			logger.Info("elevation lookup disabled", "reason", "ELEVATION_ENABLED!=1 (opt-in)")
 		}

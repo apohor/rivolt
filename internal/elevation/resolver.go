@@ -24,11 +24,13 @@ package elevation
 import (
 	"context"
 	"container/list"
+	"errors"
 	"fmt"
-	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -42,6 +44,10 @@ const (
 
 	// DefaultTileURL is Mapzen's public Terrarium endpoint hosted on
 	// AWS Open Data. Free, no key, no rate-limit (within reason).
+	// NOTE: this leaks per-tile coordinates off-LAN; the recorder is
+	// opt-in (ELEVATION_ENABLED=1) and operators are expected to
+	// either point ELEVATION_TILES_URL at an in-cluster mirror or
+	// run with a pre-warmed disk cache so tiles only fetch once.
 	DefaultTileURL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
 
 	// DefaultCacheSize bounds in-memory tile retention. Each tile is
@@ -57,9 +63,12 @@ const (
 
 // Resolver answers (lat, lon) -> altitude lookups against a tile
 // server, with a bounded LRU of decoded tile grids in front to keep
-// the hot path lock-free on warm tiles.
+// the hot path lock-free on warm tiles. An optional disk cache
+// (cacheDir) survives pod restarts and can be pre-warmed by the
+// operator (rsync from a Terrarium dump) for fully-offline operation.
 type Resolver struct {
 	tileURL  string
+	cacheDir string
 	zoom     int
 	client   *http.Client
 	logger   *slog.Logger
@@ -91,27 +100,54 @@ type tile struct {
 	data []int16
 }
 
-// New constructs a Resolver. Pass nil for httpClient to use a
-// 10-second-timeout default. Pass empty tileURL to use Mapzen's
-// public endpoint. Zero maxTiles falls back to DefaultCacheSize.
-func New(tileURL string, zoom, maxTiles int, httpClient *http.Client, logger *slog.Logger) *Resolver {
+// Config bundles all Resolver knobs. Zero values fall back to
+// package defaults; the empty CacheDir disables disk persistence.
+type Config struct {
+	// TileURL is the Terrarium tile template. Empty -> DefaultTileURL
+	// (Mapzen on AWS Open Data, off-LAN).
+	TileURL string
+	// CacheDir, if non-empty, persists fetched PNGs to disk under
+	// {dir}/{z}/{x}/{y}.png. Used both as a read-through cache (avoids
+	// re-fetching after a pod restart) and as a self-hosted offline
+	// store: an operator can rsync a pre-built Terrarium tile dump
+	// here and leave TileURL empty/blackholed for fully-offline runs.
+	CacheDir string
+	// Zoom: 0 -> DefaultZoom (12).
+	Zoom int
+	// MaxTiles bounds the in-memory LRU. 0 -> DefaultCacheSize.
+	MaxTiles int
+	// HTTPClient: nil -> http.Client with 10s timeout.
+	HTTPClient *http.Client
+	// Logger: nil -> slog.Default().
+	Logger *slog.Logger
+}
+
+// New constructs a Resolver from a Config. See Config field docs for
+// per-field defaults.
+func New(cfg Config) *Resolver {
+	tileURL := cfg.TileURL
 	if tileURL == "" {
 		tileURL = DefaultTileURL
 	}
+	zoom := cfg.Zoom
 	if zoom <= 0 || zoom > 15 {
 		zoom = DefaultZoom
 	}
+	maxTiles := cfg.MaxTiles
 	if maxTiles <= 0 {
 		maxTiles = DefaultCacheSize
 	}
+	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
+	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Resolver{
 		tileURL:  tileURL,
+		cacheDir: cfg.CacheDir,
 		zoom:     zoom,
 		client:   httpClient,
 		logger:   logger,
@@ -161,11 +197,12 @@ func (r *Resolver) Lookup(lat, lon float64) (float64, bool) {
 	return 0, false
 }
 
-// fetchTile downloads the PNG, decodes it, and stores the result in
-// the cache. Errors are logged and dropped: a missing tile (404 over
-// open ocean, or a server hiccup) just means future Lookups for that
-// tile keep returning ok=false. The inflight guard prevents
-// duplicate concurrent fetches of the same tile.
+// fetchTile resolves a tile via (1) disk cache, then (2) HTTP, and
+// stores the decoded result in the in-memory cache. Errors are logged
+// and dropped: a missing tile (404 over open ocean, server hiccup,
+// disk read error) just means future Lookups for that tile keep
+// returning ok=false. The inflight guard prevents duplicate concurrent
+// fetches.
 func (r *Resolver) fetchTile(key tileKey) {
 	defer func() {
 		r.mu.Lock()
@@ -173,39 +210,126 @@ func (r *Resolver) fetchTile(key tileKey) {
 		r.mu.Unlock()
 	}()
 
+	if t, ok := r.readDisk(key); ok {
+		r.store(key, t)
+		return
+	}
+
+	body, err := r.fetchHTTP(key)
+	if err != nil {
+		r.logger.Debug("elevation: fetch failed", "key", key, "err", err.Error())
+		return
+	}
+	t, err := decodePNGBytes(body)
+	if err != nil {
+		r.logger.Debug("elevation: png decode failed", "key", key, "err", err.Error())
+		return
+	}
+	if t == nil {
+		// 1x1 placeholder over open ocean etc. -- not worth caching
+		// to disk.
+		return
+	}
+	r.writeDisk(key, body)
+	r.store(key, t)
+}
+
+// fetchHTTP performs the upstream tile GET and returns the raw PNG
+// bytes (so we can persist the exact server response to disk before
+// decoding).
+func (r *Resolver) fetchHTTP(key tileKey) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
 
 	url := buildTileURL(r.tileURL, key.z, key.x, key.y)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		r.logger.Debug("elevation: build request failed", "url", url, "err", err.Error())
-		return
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "image/png")
 	req.Header.Set("User-Agent", "rivolt/elevation")
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		r.logger.Debug("elevation: fetch failed", "url", url, "err", err.Error())
-		return
+		return nil, err
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		r.logger.Debug("elevation: non-200", "url", url, "status", resp.StatusCode)
-		return
+		return nil, fmt.Errorf("non-200: %d", resp.StatusCode)
 	}
+	// Cap at 1 MB; a 256x256 Terrarium PNG is ~150 KB.
+	const maxBytes = 1 << 20
+	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+}
 
-	img, err := png.Decode(resp.Body)
+// readDisk loads a previously-cached tile. Returns ok=false on any
+// error (cache disabled, file missing, decode failure) -- callers
+// fall back to HTTP. We never propagate disk errors: a corrupt file
+// just gets re-fetched.
+func (r *Resolver) readDisk(key tileKey) (*tile, bool) {
+	if r.cacheDir == "" {
+		return nil, false
+	}
+	path := r.diskPath(key)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		r.logger.Debug("elevation: png decode failed", "url", url, "err", err.Error())
+		if !errors.Is(err, os.ErrNotExist) {
+			r.logger.Debug("elevation: disk read failed", "path", path, "err", err.Error())
+		}
+		return nil, false
+	}
+	t, err := decodePNGBytes(data)
+	if err != nil || t == nil {
+		// Stale / corrupt file -- delete so the HTTP fallback can
+		// repopulate cleanly.
+		_ = os.Remove(path)
+		return nil, false
+	}
+	return t, true
+}
+
+// writeDisk persists raw PNG bytes to {cacheDir}/{z}/{x}/{y}.png via
+// a temp-file-and-rename so a crash can't leave a half-written file
+// that readDisk would later treat as poisonous.
+func (r *Resolver) writeDisk(key tileKey, data []byte) {
+	if r.cacheDir == "" || len(data) == 0 {
 		return
 	}
-	t := decodeTerrarium(img)
-	if t == nil {
+	path := r.diskPath(key)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		r.logger.Debug("elevation: mkdir failed", "path", path, "err", err.Error())
 		return
 	}
-	r.store(key, t)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tile-*.png")
+	if err != nil {
+		r.logger.Debug("elevation: tempfile failed", "path", path, "err", err.Error())
+		return
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		r.logger.Debug("elevation: temp write failed", "path", path, "err", err.Error())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		r.logger.Debug("elevation: temp close failed", "path", path, "err", err.Error())
+		return
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		r.logger.Debug("elevation: rename failed", "path", path, "err", err.Error())
+	}
+}
+
+func (r *Resolver) diskPath(key tileKey) string {
+	return filepath.Join(
+		r.cacheDir,
+		fmt.Sprintf("%d", key.z),
+		fmt.Sprintf("%d", key.x),
+		fmt.Sprintf("%d.png", key.y),
+	)
 }
 
 // store inserts/updates the cache entry and enforces the LRU bound.

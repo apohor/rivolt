@@ -108,6 +108,27 @@ spec:
               value: {{ .tiles.baseUrl | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.elevation }}
+            {{- if .enabled }}
+            # Elevation lookup is opt-in. ELEVATION_ENABLED gates the
+            # whole feature; ELEVATION_TILES_URL points at a self-
+            # hosted Terrarium mirror (empty -> Mapzen on AWS Open
+            # Data, which is off-LAN); ELEVATION_CACHE_DIR persists
+            # fetched PNGs to disk so pod restarts don't re-fetch
+            # and so a pre-built dump can be rsynced in for fully
+            # offline operation. See values.yaml for the full story.
+            - name: ELEVATION_ENABLED
+              value: "1"
+            {{- if .tilesUrl }}
+            - name: ELEVATION_TILES_URL
+              value: {{ .tilesUrl | quote }}
+            {{- end }}
+            {{- if .cacheDir }}
+            - name: ELEVATION_CACHE_DIR
+              value: {{ .cacheDir | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             # DB_USER. CNPG: from the auto-generated <cluster>-app
             # Secret. External w/ existingSecret + UserKey: from
             # there. Otherwise the literal in externalDatabase.user.

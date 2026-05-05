@@ -433,6 +433,45 @@ maps:
     baseUrl: ""
 
 # ---------------------------------------------------------------------------
+# Elevation: per-sample altitude lookup
+# ---------------------------------------------------------------------------
+#
+# Off by default. When `enabled: true`, the recorder annotates every
+# vehicle_state row with altitude_m sourced from a Mapzen Terrarium
+# DEM tile server. The drive-detail page renders an Elevation chart
+# panel when at least one sample in the window has a reading.
+#
+# The default upstream is Mapzen on AWS Open Data
+# (s3.amazonaws.com/elevation-tiles-prod/terrarium/...). That works
+# but leaks per-tile coordinates off-LAN — counter to the rest of
+# Phase 2 self-hosting. Two ways to keep tile traffic in-cluster:
+#
+#   1. `tilesUrl` -> a self-hosted Terrarium mirror (e.g. an
+#      unprivileged-nginx Deployment serving a pre-built tile dump
+#      from the cluster NFS PVC, mirroring the basemap PMTiles
+#      pattern). Format: "{scheme}://{host}/{z}/{x}/{y}.png".
+#
+#   2. `cacheDir` -> a path on a PVC. Fetched PNGs are persisted
+#      there, so a pod restart never refetches and an operator can
+#      rsync a pre-built dump in for fully-offline operation. Pair
+#      with `persistence.enabled: true` and an emptyDir or PVC
+#      mounted at that path.
+#
+# Recorder writes NULL altitude_m on cache misses; the frontend hides
+# the Elevation panel when fewer than two samples carry altitude, so
+# leaving this off (or unmounted) is invisible to existing drives.
+elevation:
+  enabled: false
+  # Terrarium tile template. Empty -> Mapzen on AWS Open Data
+  # (off-LAN). Set to an in-cluster Service URL to keep tile traffic
+  # inside the cluster. Must include {z}, {x}, {y} placeholders.
+  tilesUrl: ""
+  # Filesystem path for the read-through PNG cache. Empty disables
+  # disk persistence (mem-only LRU). Typical value: "/data/elevation"
+  # paired with persistence.enabled=true.
+  cacheDir: ""
+
+# ---------------------------------------------------------------------------
 # Authelia user provisioning (Phase 2)
 # ---------------------------------------------------------------------------
 #

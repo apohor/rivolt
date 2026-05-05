@@ -1,9 +1,24 @@
 package elevation
 
 import (
+	"bytes"
 	"image"
+	"image/png"
 	"math"
 )
+
+// decodePNGBytes is a small convenience wrapper that decodes a PNG
+// from a byte slice and runs decodeTerrarium on the result. Returns
+// (nil, nil) for an unexpected tile size (1x1 ocean placeholder etc.)
+// so the caller can distinguish "decode failed" from "decoded but no
+// useful elevation data".
+func decodePNGBytes(data []byte) (*tile, error) {
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	return decodeTerrarium(img), nil
+}
 
 // validLatLon rejects NaN / out-of-range coordinates and the (0, 0)
 // "no GPS fix" sentinel the recorder writes when the gateway hasn't

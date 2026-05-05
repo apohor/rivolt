@@ -319,21 +319,32 @@ decisions 5–7, 10–12.
       Mapzen Terrarium DEM on AWS Open Data
       (`s3.amazonaws.com/elevation-tiles-prod/terrarium/...`).
       Same off-LAN-by-default footgun the CARTO/OSRM items above
-      were closing. Mitigation already in tree:
+      were closing. Mitigation in tree:
       - ✅ **Opt-in.** `ELEVATION_ENABLED=1` required to start the
         resolver; default leaves `altitude_m` NULL and hides the
-        Elevation chart panel. `ELEVATION_TILES_URL` accepts a
-        self-hosted Terrarium mirror. v0.17.37 (next cut).
+        Elevation chart panel. v0.17.37.
+      - ✅ **Self-hosted upstream URL.** `ELEVATION_TILES_URL`
+        accepts an in-cluster Terrarium mirror (template:
+        `{scheme}://{host}/{z}/{x}/{y}.png`). Chart wires
+        `elevation.tilesUrl`. v0.17.37.
+      - ✅ **Disk-backed read-through cache.** `ELEVATION_CACHE_DIR`
+        persists fetched PNGs to a PVC-mounted path
+        (`{dir}/{z}/{x}/{y}.png`, atomic temp-rename writes). Pod
+        restarts don't re-fetch; an operator can rsync a pre-built
+        Terrarium dump there for fully-offline operation, no
+        upstream needed at runtime. Chart wires `elevation.cacheDir`.
+        Tests in `internal/elevation/resolver_test.go`. v0.17.37.
       Still open:
-      - [ ] **Same-origin proxy** at `/api/maps/elevation/{z}/{x}/{y}.png`
-        with a server-side disk LRU, mirroring the OSRM/PMTiles
-        proxy pattern. Recorder points at the proxy; coordinate
-        tile requests leave the cluster only on cold tiles, only
-        from the server.
-      - [ ] **Bundled DEM archive.** Pre-build a regional Terrarium
-        PMTiles/MBTiles (state extract ~hundreds of MB) served by
-        the same unprivileged-nginx Deployment as the basemap
-        PMTiles. Fully offline, no AWS dependency at runtime.
+      - [ ] **In-cluster tile mirror Deployment.** rivolt-infra:
+        an unprivileged-nginx Deployment serving a regional
+        Terrarium tile dump from the same NFS PVC pattern as the
+        basemap PMTiles tile server (`apps/elevation/`). The chart
+        side is already done — operator just stands up the upstream
+        and points `elevation.tilesUrl` at it. Tracking issue
+        should capture the dump source (e.g. `joerd` rebuild vs
+        a one-time `aws s3 sync` of the regional prefix from the
+        public bucket) and the storage budget (z=12 Texas extract
+        is on the order of ~1 GB).
 - [ ] **Scale OSRM beyond a single state extract.** Current
       self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
       to `texas-latest` because that's where every recorded
