@@ -125,13 +125,13 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	return &StateMonitor{
-		client:      client,
-		logger:      logger,
-		cache:       make(map[string]*State),
-		stamp:       make(map[string]time.Time),
-		wsSeen:      make(map[string]bool),
-		active:      make(map[string]context.CancelFunc),
-		subCancel:   make(map[string]context.CancelCauseFunc),
+		client:         client,
+		logger:         logger,
+		cache:          make(map[string]*State),
+		stamp:          make(map[string]time.Time),
+		wsSeen:         make(map[string]bool),
+		active:         make(map[string]context.CancelFunc),
+		subCancel:      make(map[string]context.CancelCauseFunc),
 		sessions:       make(map[string]*liveSessions),
 		lastSession:    make(map[string]*LiveSession),
 		chargeBond:     make(map[string]string),

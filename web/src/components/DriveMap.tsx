@@ -10,7 +10,8 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { osrmBase, getConfig, ensureConfig, tilesPMTilesURL } from "../lib/config";
-import { leafletLayer } from "protomaps-leaflet";
+import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
+import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
@@ -454,6 +455,74 @@ function flavorControl(map: L.Map): L.Control {
   return ctl;
 }
 
+// boostContrast returns a copy of a named protomaps flavor with
+// building / POI / landuse colors lifted so they actually read
+// against the earth color at street zoom. The shipped named
+// flavors are tuned for "minimal" cartography -- DARK puts
+// buildings at #111 over an earth of #1f1f1f at 50% opacity,
+// which composites to roughly the same gray and erases building
+// footprints visually. Same story in LIGHT (buildings = #ccc on
+// earth = #e2dfda) and BLACK / WHITE.
+//
+// We only override fields where the shipped value visually
+// merges with earth; other fields (roads, water, labels) are
+// left untouched so the overall theme still feels right.
+function boostContrast(name: Flavor, base: PMFlavor): PMFlavor {
+  switch (name) {
+    case "dark":
+      return {
+        ...base,
+        // Buildings need to be clearly above earth (#1f1f1f).
+        // #555 at 0.5 opacity composites to ~#3a -- visible but
+        // not loud.
+        buildings: "#555555",
+        // Parks / wood / pedestrian areas: lift the green tint
+        // so a city park reads as "this is a park," not "this
+        // is slightly different gray."
+        park_a: "#1d3527",
+        park_b: "#1d3527",
+        wood_a: "#1d2d24",
+        wood_b: "#1d2d24",
+        pedestrian: "#2a2a2a",
+        // Industrial / commercial / school landuse: subtle
+        // warm-gray so big-box parking lots stop looking like
+        // empty earth.
+        industrial: "#2c2a26",
+        school: "#2c2828",
+        hospital: "#2c2828",
+      };
+    case "light":
+      return {
+        ...base,
+        // LIGHT ships buildings = #cccccc over earth = #e2dfda
+        // at 0.5 opacity -- fully invisible. Drop to a clearly
+        // darker tone.
+        buildings: "#a8a8a8",
+        park_a: "#cfe5cf",
+        park_b: "#cfe5cf",
+        pedestrian: "#dad7d2",
+      };
+    case "black":
+      return {
+        ...base,
+        // BLACK earth = #141414, buildings = #0a -- invisible.
+        buildings: "#3a3a3a",
+        park_a: "#19261d",
+        park_b: "#19261d",
+        wood_a: "#19211c",
+        wood_b: "#19211c",
+        pedestrian: "#202020",
+      };
+    case "white":
+      return {
+        ...base,
+        // WHITE earth = #fff, buildings = #efefef -- subtle but
+        // present. Bump it just a touch.
+        buildings: "#cfcfcf",
+      };
+  }
+}
+
 // addBasemap picks between the self-hosted PMTiles vector layer
 // (when the tile server is wired via /api/config) and the legacy
 // CARTO raster split-label setup. The vector path renders labels
@@ -471,8 +540,25 @@ function addBasemap(map: L.Map) {
   // protomaps-leaflet's leafletLayer returns its own LeafletLayer
   // class which extends L.GridLayer at runtime but isn't typed as
   // a Leaflet Layer in the published .d.ts. Cast at the boundary.
-  const mkLayer = (f: Flavor) =>
-    leafletLayer({ url, flavor: f, attribution: PROTOMAPS_ATTRIB }) as unknown as L.Layer;
+  //
+  // We don't pass `flavor: f` directly: protomaps-leaflet's named
+  // flavors (especially `dark` and `light`) ship with building /
+  // POI / landuse colors so close to the earth color that
+  // buildings effectively disappear at street zoom. We compute
+  // paintRules/labelRules ourselves from a contrast-boosted copy
+  // of the named flavor so building footprints, parks, and
+  // service-area landuse all read clearly at z16+.
+  const mkLayer = (f: Flavor) => {
+    const base = namedFlavor(f);
+    const boosted = boostContrast(f, base);
+    return leafletLayer({
+      url,
+      paintRules: paintRules(boosted),
+      labelRules: labelRules(boosted, "en"),
+      backgroundColor: boosted.background,
+      attribution: PROTOMAPS_ATTRIB,
+    }) as unknown as L.Layer;
+  };
   let current = mkLayer(getFlavor());
   current.addTo(map);
   const onChange = (e: Event) => {
