@@ -345,48 +345,68 @@ export default function DriveDetailPage() {
       x: new Date(p.at).getTime(),
       y: tempUnit === "f" ? (p.temp_f as number) : ((p.temp_f as number) - 32) / 1.8,
     }));
-  const meteoFeelsLikePts = weatherPts
-    .filter((p) => p.feels_like_f != null)
+  // Headwind component (signed mph). Positive = into the wind
+  // (drag, costs Wh/mi); negative = tailwind (free range). The
+  // server already projected wind direction onto the drive's
+  // bearing so we can render it as a single signed line, the
+  // efficiency-relevant view rather than a raw wind speed.
+  const meteoHeadwindPts = weatherPts
+    .filter((p) => p.headwind_mph != null)
     .map((p) => ({
       x: new Date(p.at).getTime(),
-      y:
-        tempUnit === "f"
-          ? (p.feels_like_f as number)
-          : ((p.feels_like_f as number) - 32) / 1.8,
+      y: p.headwind_mph as number,
     }));
-  // Precipitation accumulation per cadence step (inches). Almost
-  // always 0; rendered as a faint area on a separate y-axis below
-  // the temperature line so a non-zero hour is visible without
-  // distorting the temperature scale. We never plot mm -- imperial
-  // matches the rest of the SPA.
-  const meteoPrecipPts = weatherPts
-    .filter((p) => p.precip_in != null)
-    .map((p) => ({
-      x: new Date(p.at).getTime(),
-      y: p.precip_in as number,
-    }));
-  // Always render the precipitation overlay when we have any data
-  // points: a flat zero baseline with the right-axis "0″" tick is
-  // a clear "no rain in this window" answer, while hiding it
-  // entirely is indistinguishable from "feature broken". One point
-  // can't draw a line, so we still need at least two.
-  const hasMeteoPrecip = meteoPrecipPts.length > 1;
+  const hasHeadwind = meteoHeadwindPts.length > 1;
+  // Precipitation-type bands: any sample where it's actually
+  // precipitating (non-zero accumulation OR a precip-y WMO label).
+  // Each band runs from the sample's timestamp to one cadence step
+  // later so a contiguous shower paints as a single ribbon. We
+  // never merge across condition boundaries -- a switch from
+  // drizzle to snow stays visible as two adjoining colors.
+  const precipColor = (cond: string | undefined): string | null => {
+    switch (cond) {
+      case "rain":
+        return "#3b82f6"; // blue
+      case "drizzle":
+        return "#93c5fd"; // light blue
+      case "snow":
+        return "#e0f2fe"; // near-white
+      case "freezing rain":
+        return "#a855f7"; // purple
+      case "thunderstorm":
+        return "#ef4444"; // red
+      default:
+        return null;
+    }
+  };
+  const precipBands = weatherPts
+    .map((p) => {
+      const cond = p.conditions;
+      const wet = (p.precip_in ?? 0) > 0 || precipColor(cond) != null;
+      if (!wet) return null;
+      const color = precipColor(cond) ?? "#3b82f6";
+      const x0 = new Date(p.at).getTime();
+      const x1 = x0 + (p.cadence_minutes || 60) * 60_000;
+      const amt = p.precip_in ?? 0;
+      const label =
+        amt > 0
+          ? `${cond ?? "precipitation"} (${amt.toFixed(2)}″)`
+          : (cond ?? "precipitation");
+      return { x0, x1, color, label };
+    })
+    .filter((b): b is { x0: number; x1: number; color: string; label: string } => b != null);
+  const hasPrecipBands = precipBands.length > 0;
 
   // Combined weather panel picks one temperature trace. Preference:
   //   1. real outside-temp sensor samples (best resolution).
   //   2. Open-Meteo time series (15- or 60-min cadence).
   //   3. cabin temp -- last resort so a fresh live session that
   //      hasn't been backfilled still shows *something*.
-  // The "feels like" line only renders when we're already on the
-  // Open-Meteo trace AND the value diverges meaningfully from
-  // the dry-bulb reading; that's the only case where it adds
-  // information rather than noise.
   type TempTraceSource = "sensor" | "meteo" | "cabin";
   const tempTrace: {
     source: TempTraceSource;
     points: { x: number; y: number }[];
     label: string;
-    feelsLike?: { x: number; y: number }[];
   } | null =
     outsideTempSmoothed.length > 1
       ? {
@@ -399,14 +419,6 @@ export default function DriveDetailPage() {
             source: "meteo",
             points: meteoTempPts,
             label: "Outside temp (Open-Meteo)",
-            feelsLike:
-              meteoFeelsLikePts.length > 1 &&
-              meteoFeelsLikePts.some(
-                (p, i) =>
-                  Math.abs(p.y - (meteoTempPts[i]?.y ?? p.y)) >= (tempUnit === "f" ? 3 : 2),
-              )
-                ? meteoFeelsLikePts
-                : undefined,
           }
         : insideTempSmoothed.length > 1
           ? { source: "cabin", points: insideTempSmoothed, label: "Cabin temp" }
@@ -608,34 +620,16 @@ export default function DriveDetailPage() {
                 ) : null}
                 {hasTemp ? (
                   <ChartPanel
-                    label={
-                      hasMeteoPrecip
-                        ? `${tempTrace.label} + precipitation`
-                        : tempTrace.label
-                    }
+                    label={(() => {
+                      const parts = [tempTrace.label];
+                      if (hasHeadwind) parts.push("headwind");
+                      if (hasPrecipBands) parts.push("precipitation");
+                      return parts.join(" + ");
+                    })()}
                     colorClass="bg-orange-400"
                   >
                     <LineChart
                       series={[
-                        // Optional "feels like" trace -- only present
-                        // for the Open-Meteo source AND only when it
-                        // diverges meaningfully from the dry-bulb
-                        // line, so we don't draw two overlapping
-                        // strokes for nothing.
-                        ...(tempTrace.feelsLike
-                          ? [
-                              {
-                                points: tempTrace.feelsLike,
-                                color: "#fdba74",
-                                strokeWidth: 1.0,
-                                dash: "3 3",
-                                curve: "monotone" as const,
-                                label: "Feels like",
-                                formatCursor: (v: number) =>
-                                  `${v.toFixed(0)}${tempUnitSuffix} (feels)`,
-                              },
-                            ]
-                          : []),
                         {
                           points: tempTrace.points,
                           color: "#fb923c",
@@ -645,28 +639,36 @@ export default function DriveDetailPage() {
                           formatCursor: (v: number) =>
                             `${v.toFixed(0)}${tempUnitSuffix}`,
                         },
-                        // Precipitation overlay rides the right axis
-                        // so a non-zero hour shows up without
-                        // distorting the temperature scale. Faint
-                        // area fill so it reads as a background
-                        // ribbon rather than competing with the
-                        // temperature line.
-                        ...(hasMeteoPrecip
+                        // Headwind on the right axis. Signed so a
+                        // tailwind dips below zero -- the sign is
+                        // the whole point for efficiency. Linear
+                        // interpolation between cadence steps;
+                        // wind is choppy enough that monotone
+                        // smoothing would imply detail we don't
+                        // have.
+                        ...(hasHeadwind
                           ? [
                               {
-                                points: meteoPrecipPts,
-                                color: "#60a5fa",
+                                points: meteoHeadwindPts,
+                                color: "#22d3ee",
                                 strokeWidth: 1.0,
-                                area: true,
                                 curve: "linear" as const,
                                 axis: "right" as const,
-                                label: "Precipitation",
+                                label: "Headwind",
                                 formatCursor: (v: number) =>
-                                  `${v.toFixed(2)}″ precip`,
+                                  v >= 0
+                                    ? `+${v.toFixed(0)} mph head`
+                                    : `${v.toFixed(0)} mph tail`,
                               },
                             ]
                           : []),
                       ]}
+                      // Precipitation type bands (rain/snow/etc) as
+                      // a colored ribbon along the bottom of the
+                      // plot area. Doesn't consume an axis -- the
+                      // value (intensity) lives in the tooltip;
+                      // the visual is "did it rain, what kind".
+                      bands={hasPrecipBands ? precipBands : undefined}
                       height={80}
                       xDomain={xDomain}
                       // Pad the temperature y-domain so a drive
@@ -690,24 +692,24 @@ export default function DriveDetailPage() {
                       })()}
                       formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
                       formatY2={
-                        hasMeteoPrecip ? (v) => `${v.toFixed(2)}″` : undefined
-                      }
-                      // Anchor the precip axis at zero so a flat run
-                      // of dry hours doesn't paint a misleading
-                      // mid-axis baseline. Top is data-driven, with
-                      // a small floor so the axis still shows ticks
-                      // on bone-dry drives where every sample is 0.
-                      y2Domain={
-                        hasMeteoPrecip
-                          ? [
-                              0,
-                              Math.max(
-                                0.1,
-                                ...meteoPrecipPts.map((p) => p.y),
-                              ),
-                            ]
+                        hasHeadwind
+                          ? (v) =>
+                              v > 0
+                                ? `+${v.toFixed(0)}`
+                                : v.toFixed(0)
                           : undefined
                       }
+                      // Symmetric headwind axis around 0 so head vs
+                      // tail are visually equal; min span of ±5 mph
+                      // keeps a calm drive from collapsing the axis.
+                      y2Domain={(() => {
+                        if (!hasHeadwind) return undefined;
+                        const max = Math.max(
+                          5,
+                          ...meteoHeadwindPts.map((p) => Math.abs(p.y)),
+                        );
+                        return [-max, max] as [number, number];
+                      })()}
                       formatX={xTimeFmt}
                       yTicks={2}
                       xTicks={hasElev ? 0 : 4}

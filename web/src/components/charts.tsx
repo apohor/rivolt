@@ -48,6 +48,7 @@ export function LineChart({
   onCursorChange,
   y2Domain,
   formatY2,
+  bands,
 }: {
   series: LineSeries[];
   height?: number;
@@ -72,6 +73,13 @@ export function LineChart({
   // sets `axis: "right"`. Shares the X-axis with the primary axis.
   y2Domain?: [number, number];
   formatY2?: (y: number) => string;
+  // Optional colored bands rendered as a thin strip along the
+  // bottom of the chart area. Used to annotate intervals on the
+  // x-axis without consuming a y-axis slot (e.g. precipitation
+  // type segments under a temperature/wind chart). The strip is
+  // ~4px tall and clips to the chart's x-domain. Each band may
+  // include a `label` shown as a native SVG <title> tooltip.
+  bands?: Array<{ x0: number; x1: number; color: string; label?: string }>;
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
   const padL = 52;
@@ -250,6 +258,32 @@ export function LineChart({
             {formatY2 ? formatY2(yv) : yv.toFixed(0)}
           </text>
         ))}
+      {/* x-axis bands: thin colored strip at the bottom of the
+          plotting area for interval annotations (e.g.
+          precipitation type segments). Drawn before series so the
+          data line stays visible on top. Each band clips to the
+          visible x-domain so out-of-range bands disappear cleanly
+          when the user pans/zooms in the future. */}
+      {bands?.map((b, i) => {
+        const bx0 = Math.max(sx(b.x0), padL);
+        const bx1 = Math.min(sx(b.x1), width - padR);
+        if (bx1 <= bx0) return null;
+        const stripH = 4;
+        const stripY = padT + innerH - stripH;
+        return (
+          <rect
+            key={`band-${i}`}
+            x={bx0}
+            y={stripY}
+            width={bx1 - bx0}
+            height={stripH}
+            fill={b.color}
+            opacity={0.85}
+          >
+            {b.label ? <title>{b.label}</title> : null}
+          </rect>
+        );
+      })}
       {/* series */}
       {series.map((s, i) => {
         const ys2 = syFor(s);
