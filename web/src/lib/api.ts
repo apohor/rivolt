@@ -367,6 +367,29 @@ export type DriveWeather = {
   conditions?: string;
 };
 
+// DriveWeatherSamplePoint is one entry in the per-drive weather time
+// series. Cadence is 15 minutes for drives recent enough to hit
+// Open-Meteo's forecast endpoint, 60 minutes for older drives that
+// fall back to the archive endpoint. Same imperial units as
+// DriveWeather; nullable fields use the same convention (omitted =
+// upstream didn't supply that metric for this sample).
+export type DriveWeatherSamplePoint = {
+  at: string;
+  cadence_minutes: number;
+  temp_f?: number | null;
+  feels_like_f?: number | null;
+  wind_mph?: number | null;
+  wind_from_deg?: number | null;
+  headwind_mph?: number | null;
+  precip_in?: number | null;
+  humidity_pct?: number | null;
+  conditions?: string;
+};
+
+export type DriveWeatherSeries = {
+  points: DriveWeatherSamplePoint[];
+};
+
 export type DriveRecap = {
   recap: string;
   headline?: string;
@@ -684,6 +707,13 @@ export const backend = {
   // render the outside-temp line even on un-narrated drives.
   driveWeatherGet: (id: string) =>
     api.get<DriveWeather>(`/api/drives/${encodeURIComponent(id)}/weather`),
+  // Time-series sibling of driveWeatherGet. Returns an empty array
+  // (not 404) when the drive was never enriched, so the SPA can
+  // render a "backfill needed" affordance without a special branch.
+  driveWeatherSeries: (id: string) =>
+    api.get<DriveWeatherSeries>(
+      `/api/drives/${encodeURIComponent(id)}/weather/series`,
+    ),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON

@@ -420,6 +420,15 @@ func New(d Deps) http.Handler {
 			r.Get("/drives/{id}/weather", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveWeatherGet(d.DB, uid)(w, r)
 			}))
+			// Time-series sibling of the start-hour snapshot. Returns
+			// an array of samples (15-min cadence for recent drives
+			// from Open-Meteo's forecast endpoint, hourly for older
+			// drives from the archive endpoint). Empty array when
+			// the drive was never enriched. Drives the temperature
+			// + precipitation panel on the drive detail page.
+			r.Get("/drives/{id}/weather/series", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveWeatherSeriesGet(d.DB, uid)(w, r)
+			}))
 			// Bulk weather backfill for historical drives. Each call
 			// processes up to a fixed batch (see handler) so a slow
 			// upstream can't lock up a worker; the SPA polls until
@@ -2082,22 +2091,10 @@ func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			cache := weather.NewCache(d.DB)
 			snap, _ := cache.Get(r.Context(), uid, drv.ID)
 			if snap == nil {
-				client := weather.NewClient()
-				bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
-				hasBearing := drv.EndLat != 0 || drv.EndLon != 0
-				fetchCtx, fcancel := context.WithTimeout(r.Context(), 8*time.Second)
-				fetched, sampledAt, err := client.FetchHour(fetchCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
-				fcancel()
-				if err != nil {
-					if d.Logger != nil {
-						d.Logger.Warn("weather fetch failed", "err", err.Error(), "drive_id", drv.ID)
-					}
-				} else if fetched != nil {
-					clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
-					if perr := cache.Put(r.Context(), uid, drv.ID, clat, clon, sampledAt, fetched); perr != nil && d.Logger != nil {
-						d.Logger.Warn("weather cache write failed", "err", perr.Error(), "drive_id", drv.ID)
-					}
+				if fetched, ferr := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); ferr == nil && fetched != nil {
 					snap = fetched
+				} else if ferr != nil && d.Logger != nil {
+					d.Logger.Warn("weather fetch failed", "err", ferr.Error(), "drive_id", drv.ID)
 				}
 			}
 			if snap != nil {
@@ -2207,7 +2204,6 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 		// install sees their recent drives enriched first; ListAll is
 		// already sorted by start time descending.
 		cache := weather.NewCache(d.DB)
-		client := weather.NewClient()
 		resp := driveWeatherBackfillResponse{}
 		for i := range ds {
 			drv := &ds[i]
@@ -2217,7 +2213,12 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 			if drv.StartLat == 0 && drv.StartLon == 0 {
 				continue
 			}
-			if snap, _ := cache.Get(r.Context(), uid, drv.ID); snap != nil {
+			// "Done" means the time-series rows are populated.
+			// Checking the snapshot alone would skip drives that
+			// were enriched before the series feature shipped, so
+			// users who already ran backfill once would never get
+			// their graphs filled in.
+			if existing, _ := cache.GetSeries(r.Context(), uid, drv.ID); len(existing) > 0 {
 				continue
 			}
 			if resp.Processed >= weatherBackfillBatch {
@@ -2225,23 +2226,10 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 				continue
 			}
 			resp.Processed++
-			bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
-			hasBearing := drv.EndLat != 0 || drv.EndLon != 0
-			fetchCtx, fcancel := context.WithTimeout(r.Context(), 8*time.Second)
-			fetched, sampledAt, err := client.FetchHour(fetchCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
-			fcancel()
-			if err != nil || fetched == nil {
-				resp.Failed++
-				if err != nil && d.Logger != nil {
-					d.Logger.Warn("weather backfill fetch failed", "err", err.Error(), "drive_id", drv.ID)
-				}
-				continue
-			}
-			clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
-			if perr := cache.Put(r.Context(), uid, drv.ID, clat, clon, sampledAt, fetched); perr != nil {
+			if _, err := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); err != nil {
 				resp.Failed++
 				if d.Logger != nil {
-					d.Logger.Warn("weather backfill cache write failed", "err", perr.Error(), "drive_id", drv.ID)
+					d.Logger.Warn("weather backfill fetch failed", "err", err.Error(), "drive_id", drv.ID)
 				}
 				continue
 			}
@@ -2249,6 +2237,56 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// fetchAndCacheDriveWeather populates both the start-hour snapshot
+// (drive_weather, used by the recap prompt and the start-strip)
+// and the per-cadence time series (drive_weather_series, used by
+// the drive-detail weather panel). Returns the snapshot so the
+// recap path can render it inline; returns (nil, nil) when the
+// drive has no usable start fix.
+//
+// Each upstream call is given its own bounded timeout so a slow
+// provider can't lock up the request. A series fetch failure
+// after a successful snapshot fetch is logged at the call site
+// but does not roll back the snapshot -- the recap can still
+// render with start-hour data while the chart stays empty.
+func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uuid.UUID, drv *drives.Drive) (*weather.Snapshot, error) {
+	if drv == nil || (drv.StartLat == 0 && drv.StartLon == 0) {
+		return nil, nil
+	}
+	client := weather.NewClient()
+	bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
+	hasBearing := drv.EndLat != 0 || drv.EndLon != 0
+	clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
+
+	// Snapshot covers the start hour and feeds the LLM prompt + the
+	// at-a-glance strip. Treated as required: if it fails we abort
+	// so the drive still counts as "remaining" on a future retry.
+	snapCtx, snapCancel := context.WithTimeout(ctx, 8*time.Second)
+	snap, sampledAt, err := client.FetchHour(snapCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
+	snapCancel()
+	if err != nil {
+		return nil, err
+	}
+	if snap != nil {
+		if perr := cache.Put(ctx, uid, drv.ID, clat, clon, sampledAt, snap); perr != nil {
+			return nil, perr
+		}
+	}
+
+	// Series covers the full drive window at 15-min cadence (recent
+	// drives, forecast endpoint) or 60-min (older drives, archive).
+	// Failure here is non-fatal -- we already persisted the snapshot,
+	// and a missing series surfaces as a chart-less detail page,
+	// not a broken recap.
+	rangeCtx, rangeCancel := context.WithTimeout(ctx, 12*time.Second)
+	rows, rerr := client.FetchRange(rangeCtx, drv.StartLat, drv.StartLon, drv.StartedAt, drv.EndedAt, bearing, hasBearing)
+	rangeCancel()
+	if rerr == nil && len(rows) > 0 {
+		_ = cache.PutSeries(ctx, uid, drv.ID, clat, clon, rows)
+	}
+	return snap, nil
 }
 
 // loadCachedRecap returns the persisted recap row for (uid, driveID).
@@ -2313,6 +2351,86 @@ func handleDriveWeatherGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, snap)
+	}
+}
+
+// driveWeatherSamplePoint is one entry in the time-series response.
+// Matches the SPA-facing units of driveWeatherResponse so the chart
+// renderer doesn't carry conversion logic.
+type driveWeatherSamplePoint struct {
+	At              time.Time `json:"at"`
+	CadenceMinutes  int       `json:"cadence_minutes"`
+	TempF           *float64  `json:"temp_f,omitempty"`
+	ApparentF       *float64  `json:"feels_like_f,omitempty"`
+	WindMPH         *float64  `json:"wind_mph,omitempty"`
+	WindFromDeg     *float64  `json:"wind_from_deg,omitempty"`
+	HeadwindMPH     *float64  `json:"headwind_mph,omitempty"`
+	PrecipIn        *float64  `json:"precip_in,omitempty"`
+	HumidityPct     *float64  `json:"humidity_pct,omitempty"`
+	Conditions      string    `json:"conditions,omitempty"`
+}
+
+type driveWeatherSeriesResponse struct {
+	Points []driveWeatherSamplePoint `json:"points"`
+}
+
+// handleDriveWeatherSeriesGet returns the cached time series for
+// (uid, driveID). Returns 200 with an empty `points` array (not 404)
+// when no rows exist so the SPA can render a "no chart data" affordance
+// instead of treating the missing series as an error -- the start-hour
+// snapshot endpoint already handles the not-found case.
+func handleDriveWeatherSeriesGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pool == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		cache := weather.NewCache(pool)
+		rows, err := cache.GetSeries(r.Context(), uid, driveID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out := driveWeatherSeriesResponse{Points: make([]driveWeatherSamplePoint, 0, len(rows))}
+		for _, row := range rows {
+			p := driveWeatherSamplePoint{At: row.SampledAt, CadenceMinutes: row.CadenceMinutes}
+			if row.HasTemp {
+				v := row.TempC*1.8 + 32
+				p.TempF = &v
+			}
+			if row.HasApparent {
+				v := row.ApparentTempC*1.8 + 32
+				p.ApparentF = &v
+			}
+			if row.HasWind {
+				v := row.WindKPH * 0.621371
+				p.WindMPH = &v
+				wd := row.WindDirDeg
+				p.WindFromDeg = &wd
+			}
+			if row.HasHeadwind {
+				v := row.HeadwindKPH * 0.621371
+				p.HeadwindMPH = &v
+			}
+			if row.HasPrecip {
+				v := row.PrecipMM * 0.0393701
+				p.PrecipIn = &v
+			}
+			if row.HasHumidity {
+				v := row.HumidityPct
+				p.HumidityPct = &v
+			}
+			if row.HasConditions {
+				p.Conditions = row.Conditions
+			}
+			out.Points = append(out.Points, p)
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

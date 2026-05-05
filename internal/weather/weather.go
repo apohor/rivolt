@@ -235,6 +235,145 @@ ON CONFLICT (user_id, drive_id) DO UPDATE SET
 	return err
 }
 
+// SeriesRow is one sample of weather along a drive. Used to back
+// the temperature + precipitation graph on the drive detail page.
+// Same metric base units as Snapshot. CadenceMinutes is 15 (forecast
+// API minutely_15) or 60 (archive API hourly), set by the fetcher.
+type SeriesRow struct {
+	SampledAt      time.Time
+	CadenceMinutes int
+	TempC          float64
+	ApparentTempC  float64
+	WindKPH        float64
+	WindDirDeg     float64
+	HeadwindKPH    float64
+	PrecipMM       float64
+	HumidityPct    float64
+	Conditions     string
+	HasTemp        bool
+	HasApparent    bool
+	HasWind        bool
+	HasHeadwind    bool
+	HasPrecip      bool
+	HasHumidity    bool
+	HasConditions  bool
+}
+
+// GetSeries returns the cached time-series rows for (uid, driveID),
+// ordered by sampled_at. (nil, nil) when no rows exist.
+func (c *Cache) GetSeries(ctx context.Context, uid uuid.UUID, driveID string) ([]SeriesRow, error) {
+	if c == nil {
+		return nil, nil
+	}
+	rows, err := c.db.QueryContext(ctx, `
+SELECT sampled_at, cadence_minutes, temp_c, apparent_temp_c, wind_kph, wind_dir_deg, headwind_kph,
+       precip_mm, humidity_pct, conditions
+FROM drive_weather_series
+WHERE user_id = $1 AND drive_id = $2
+ORDER BY sampled_at ASC
+`, uid, driveID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SeriesRow
+	for rows.Next() {
+		var (
+			sa                       time.Time
+			cad                      int16
+			t, at_, w, wd, hw, p, hu sql.NullFloat64
+			cond                     sql.NullString
+		)
+		if err := rows.Scan(&sa, &cad, &t, &at_, &w, &wd, &hw, &p, &hu, &cond); err != nil {
+			return nil, err
+		}
+		row := SeriesRow{SampledAt: sa, CadenceMinutes: int(cad)}
+		if t.Valid {
+			row.TempC = t.Float64
+			row.HasTemp = true
+		}
+		if at_.Valid {
+			row.ApparentTempC = at_.Float64
+			row.HasApparent = true
+		}
+		if w.Valid {
+			row.WindKPH = w.Float64
+			row.HasWind = true
+		}
+		if wd.Valid {
+			row.WindDirDeg = wd.Float64
+		}
+		if hw.Valid {
+			row.HeadwindKPH = hw.Float64
+			row.HasHeadwind = true
+		}
+		if p.Valid {
+			row.PrecipMM = p.Float64
+			row.HasPrecip = true
+		}
+		if hu.Valid {
+			row.HumidityPct = hu.Float64
+			row.HasHumidity = true
+		}
+		if cond.Valid {
+			row.Conditions = cond.String
+			row.HasConditions = cond.String != ""
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// PutSeries persists rows for (uid, driveID). Replaces any existing
+// rows for that drive in a single transaction so a partial re-fetch
+// can never leave a torn series.
+func (c *Cache) PutSeries(ctx context.Context, uid uuid.UUID, driveID string, lat, lon float64, rows []SeriesRow) error {
+	if c == nil || len(rows) == 0 {
+		return nil
+	}
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM drive_weather_series WHERE user_id = $1 AND drive_id = $2`, uid, driveID); err != nil {
+		return err
+	}
+	nf := func(ok bool, v float64) any {
+		if !ok {
+			return nil
+		}
+		return v
+	}
+	ns := func(ok bool, v string) any {
+		if !ok {
+			return nil
+		}
+		return v
+	}
+	for _, r := range rows {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO drive_weather_series (
+    user_id, drive_id, sampled_at, cadence_minutes, coarse_lat, coarse_lon, provider,
+    temp_c, apparent_temp_c, wind_kph, wind_dir_deg, headwind_kph,
+    precip_mm, humidity_pct, conditions
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+`, uid, driveID, r.SampledAt.UTC(), r.CadenceMinutes, lat, lon, Provider,
+			nf(r.HasTemp, r.TempC),
+			nf(r.HasApparent, r.ApparentTempC),
+			nf(r.HasWind, r.WindKPH),
+			nf(r.HasWind, r.WindDirDeg),
+			nf(r.HasHeadwind, r.HeadwindKPH),
+			nf(r.HasPrecip, r.PrecipMM),
+			nf(r.HasHumidity, r.HumidityPct),
+			ns(r.HasConditions, r.Conditions),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Client fetches an hourly snapshot from Open-Meteo's archive API.
 // Stateless; safe to share.
 type Client struct {
@@ -351,6 +490,201 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 		s.HasHeadwind = true
 	}
 	return s, hour, nil
+}
+
+// forecastWindowDays is the cutoff (in days from now) below which we
+// use the forecast endpoint with minutely_15 cadence. Open-Meteo
+// supports past_days up to 92 on the forecast API; we leave a small
+// margin so a drive on the boundary still resolves.
+const forecastWindowDays = 80
+
+// FetchRange returns one weather sample per cadence step covering
+// [start, end] at the rounded (lat, lon). Picks 15-minute cadence
+// from the forecast endpoint when the drive is within the past
+// forecastWindowDays, otherwise falls back to hourly archive data.
+//
+// tripBearingDeg + hasBearing are used to project wind onto a
+// per-sample headwind component the same way FetchHour does for
+// the start-hour snapshot.
+//
+// The returned slice is empty (not nil) on a successful upstream
+// call that yielded zero usable rows; nil + non-nil error means a
+// transport / decode failure that the caller should log.
+func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end time.Time, tripBearingDeg float64, hasBearing bool) ([]SeriesRow, error) {
+	if !end.After(start) {
+		return nil, fmt.Errorf("weather: empty time range")
+	}
+	clat, clon := Coarsen(lat, lon)
+	useForecast := time.Since(start) < forecastWindowDays*24*time.Hour
+	q := url.Values{}
+	q.Set("latitude", strconv.FormatFloat(clat, 'f', 4, 64))
+	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
+	q.Set("wind_speed_unit", "kmh")
+	q.Set("temperature_unit", "celsius")
+	q.Set("precipitation_unit", "mm")
+	q.Set("timezone", "UTC")
+	vars := []string{
+		"temperature_2m", "apparent_temperature",
+		"wind_speed_10m", "wind_direction_10m",
+		"precipitation", "relative_humidity_2m",
+		"weather_code",
+	}
+	var endpoint, blockName string
+	var cadence int
+	if useForecast {
+		blockName = "minutely_15"
+		cadence = 15
+		// Pad start back to the previous 15-min boundary and end up
+		// to the next so the response brackets the drive cleanly.
+		s := start.UTC().Truncate(15 * time.Minute)
+		e := end.UTC().Add(15*time.Minute - 1).Truncate(15 * time.Minute)
+		q.Set("start_date", s.Format("2006-01-02"))
+		q.Set("end_date", e.Format("2006-01-02"))
+		q.Set("minutely_15", strings.Join(vars, ","))
+		endpoint = "https://api.open-meteo.com/v1/forecast?" + q.Encode()
+	} else {
+		blockName = "hourly"
+		cadence = 60
+		s := start.UTC().Truncate(time.Hour)
+		e := end.UTC().Add(time.Hour - 1).Truncate(time.Hour)
+		q.Set("start_date", s.Format("2006-01-02"))
+		q.Set("end_date", e.Format("2006-01-02"))
+		q.Set("hourly", strings.Join(vars, ","))
+		endpoint = strings.TrimRight(c.BaseURL, "/") + "/v1/archive?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("weather: upstream %s", resp.Status)
+	}
+	// Both endpoints emit the same shape under different block keys
+	// (`hourly` vs `minutely_15`). Decode into a generic map so we
+	// can switch on blockName without two structs.
+	var raw struct {
+		Hourly      map[string]json.RawMessage `json:"hourly"`
+		Minutely15  map[string]json.RawMessage `json:"minutely_15"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("weather: decode: %w", err)
+	}
+	block := raw.Hourly
+	if blockName == "minutely_15" {
+		block = raw.Minutely15
+	}
+	if block == nil {
+		return nil, fmt.Errorf("weather: missing %s block", blockName)
+	}
+	var times []string
+	if err := json.Unmarshal(block["time"], &times); err != nil {
+		return nil, fmt.Errorf("weather: decode time: %w", err)
+	}
+	dec := func(key string) []float64 {
+		v, ok := block[key]
+		if !ok {
+			return nil
+		}
+		// Open-Meteo emits null entries inside the array for missing
+		// metrics; decode through *float64 then collapse.
+		var nullable []*float64
+		if err := json.Unmarshal(v, &nullable); err != nil {
+			return nil
+		}
+		out := make([]float64, len(nullable))
+		for i, p := range nullable {
+			if p != nil {
+				out[i] = *p
+			}
+		}
+		return out
+	}
+	temp := dec("temperature_2m")
+	app := dec("apparent_temperature")
+	wsp := dec("wind_speed_10m")
+	wdr := dec("wind_direction_10m")
+	prc := dec("precipitation")
+	hum := dec("relative_humidity_2m")
+	code := dec("weather_code")
+	// Track which entries were null so we don't surface zeros as
+	// real values. Re-decode once into *float64 form for presence.
+	pres := func(key string) []bool {
+		v, ok := block[key]
+		if !ok {
+			return nil
+		}
+		var nullable []*float64
+		if err := json.Unmarshal(v, &nullable); err != nil {
+			return nil
+		}
+		out := make([]bool, len(nullable))
+		for i, p := range nullable {
+			out[i] = p != nil
+		}
+		return out
+	}
+	tempP := pres("temperature_2m")
+	appP := pres("apparent_temperature")
+	wspP := pres("wind_speed_10m")
+	wdrP := pres("wind_direction_10m")
+	prcP := pres("precipitation")
+	humP := pres("relative_humidity_2m")
+	codeP := pres("weather_code")
+
+	rows := make([]SeriesRow, 0, len(times))
+	for i, ts := range times {
+		// Open-Meteo timestamps are unzoned ISO when timezone=UTC,
+		// e.g. "2026-04-12T13:00". Parse as UTC.
+		sa, perr := time.Parse("2006-01-02T15:04", ts)
+		if perr != nil {
+			continue
+		}
+		// Filter to the drive window. We expand by a single cadence
+		// step on each side so the chart has anchors at both edges.
+		stepPad := time.Duration(cadence) * time.Minute
+		if sa.Before(start.Add(-stepPad)) || sa.After(end.Add(stepPad)) {
+			continue
+		}
+		r := SeriesRow{SampledAt: sa, CadenceMinutes: cadence}
+		if i < len(tempP) && tempP[i] {
+			r.TempC = temp[i]
+			r.HasTemp = true
+		}
+		if i < len(appP) && appP[i] {
+			r.ApparentTempC = app[i]
+			r.HasApparent = true
+		}
+		if i < len(wspP) && wspP[i] {
+			r.WindKPH = wsp[i]
+			r.HasWind = true
+		}
+		if i < len(wdrP) && wdrP[i] {
+			r.WindDirDeg = wdr[i]
+		}
+		if i < len(prcP) && prcP[i] {
+			r.PrecipMM = prc[i]
+			r.HasPrecip = true
+		}
+		if i < len(humP) && humP[i] {
+			r.HumidityPct = hum[i]
+			r.HasHumidity = true
+		}
+		if i < len(codeP) && codeP[i] {
+			r.Conditions = wmoLabel(int(code[i]))
+			r.HasConditions = r.Conditions != ""
+		}
+		if hasBearing && r.HasWind {
+			r.HeadwindKPH = Headwind(r.WindKPH, r.WindDirDeg, tripBearingDeg)
+			r.HasHeadwind = true
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
 }
 
 // wmoLabel maps the WMO weather interpretation code Open-Meteo emits

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { backend, ApiError, type DriveRecap, type DriveWeather, type Sample } from "../lib/api";
+import { backend, ApiError, type DriveRecap, type DriveWeather, type DriveWeatherSeries, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
 import { DriveMap } from "../components/DriveMap";
@@ -84,18 +84,20 @@ export default function DriveDetailPage() {
     },
   });
 
-  // Standalone weather snapshot for the drive. Independent of the
-  // recap query so the temperature chart can render the outside-temp
-  // line on un-narrated drives. 404 means the drive was never
-  // backfilled; we just don't draw the line.
-  const driveWeather = useQuery({
-    queryKey: ["drive-weather", drive?.ID],
+  // Time series for the weather panel (temperature line +
+  // precipitation overlay). Returns an empty `points` array when the
+  // drive has never been backfilled, so we don't have to special-case
+  // the 404 path.
+  const driveWeatherSeries = useQuery({
+    queryKey: ["drive-weather-series", drive?.ID],
     enabled: !!drive,
-    queryFn: async (): Promise<DriveWeather | null> => {
+    queryFn: async (): Promise<DriveWeatherSeries> => {
       try {
-        return await backend.driveWeatherGet(drive!.ID);
+        return await backend.driveWeatherSeries(drive!.ID);
       } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
+        if (e instanceof ApiError && e.status === 404) {
+          return { points: [] };
+        }
         throw e;
       }
     },
@@ -329,44 +331,81 @@ export default function DriveDetailPage() {
   // without flattening real ramps when driving in/out of sun.
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
   const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
-  // The combined chart can only fit one extra dotted line, so pick
-  // whichever ambient signal we have. Preference order:
-  //   1. real outside-temp sensor samples (live ingester or
-  //      ElectraFi historical) -- best resolution.
-  //   2. Open-Meteo snapshot for the drive's start hour -- one
-  //      coarse value, rendered as a flat reference line. Cabin
-  //      temp is not a useful proxy for ambient (it tracks HVAC
-  //      setpoint), so we fall back to weather over cabin even
-  //      though the live WS feed exposes cabin and not outside.
-  //   3. cabin temp -- last resort so a fresh live session still
-  //      shows *something* before any backfill.
-  // The weather snapshot is in F (server already converted), so we
-  // round-trip through C only when the user pref is C.
-  const weatherTempUnit =
-    driveWeather.data && driveWeather.data.temp_f != null
-      ? tempUnit === "f"
-        ? driveWeather.data.temp_f
-        : (driveWeather.data.temp_f - 32) / 1.8
-      : null;
-  const weatherTempSeries =
-    weatherTempUnit != null && drive
-      ? (() => {
-          const startMs = new Date(drive.StartedAt).getTime();
-          const endMs = new Date(drive.EndedAt).getTime();
-          // Two endpoints render as a flat line on the time axis.
-          return [
-            { x: startMs, y: weatherTempUnit },
-            { x: endMs, y: weatherTempUnit },
-          ];
-        })()
-      : null;
-  const ambientTempSeries =
+
+  // Open-Meteo time series. 15-min cadence for drives within the
+  // forecast window, 60-min for older drives. The renderer treats
+  // both as plain (x, y) points -- the visual smoothing handles
+  // the cadence difference cleanly enough that we don't need a
+  // step plot for temperature. Server already converted to F; we
+  // only round-trip to C if the user's pref is metric.
+  const weatherPts = driveWeatherSeries.data?.points ?? [];
+  const meteoTempPts = weatherPts
+    .filter((p) => p.temp_f != null)
+    .map((p) => ({
+      x: new Date(p.at).getTime(),
+      y: tempUnit === "f" ? (p.temp_f as number) : ((p.temp_f as number) - 32) / 1.8,
+    }));
+  const meteoFeelsLikePts = weatherPts
+    .filter((p) => p.feels_like_f != null)
+    .map((p) => ({
+      x: new Date(p.at).getTime(),
+      y:
+        tempUnit === "f"
+          ? (p.feels_like_f as number)
+          : ((p.feels_like_f as number) - 32) / 1.8,
+    }));
+  // Precipitation accumulation per cadence step (inches). Almost
+  // always 0; rendered as a faint area on a separate y-axis below
+  // the temperature line so a non-zero hour is visible without
+  // distorting the temperature scale. We never plot mm -- imperial
+  // matches the rest of the SPA.
+  const meteoPrecipPts = weatherPts
+    .filter((p) => p.precip_in != null)
+    .map((p) => ({
+      x: new Date(p.at).getTime(),
+      y: p.precip_in as number,
+    }));
+  const hasMeteoPrecip =
+    meteoPrecipPts.length > 1 && meteoPrecipPts.some((p) => p.y > 0);
+
+  // Combined weather panel picks one temperature trace. Preference:
+  //   1. real outside-temp sensor samples (best resolution).
+  //   2. Open-Meteo time series (15- or 60-min cadence).
+  //   3. cabin temp -- last resort so a fresh live session that
+  //      hasn't been backfilled still shows *something*.
+  // The "feels like" line only renders when we're already on the
+  // Open-Meteo trace AND the value diverges meaningfully from
+  // the dry-bulb reading; that's the only case where it adds
+  // information rather than noise.
+  type TempTraceSource = "sensor" | "meteo" | "cabin";
+  const tempTrace: {
+    source: TempTraceSource;
+    points: { x: number; y: number }[];
+    label: string;
+    feelsLike?: { x: number; y: number }[];
+  } | null =
     outsideTempSmoothed.length > 1
-      ? { points: outsideTempSmoothed, label: "Outside temp" }
-      : weatherTempSeries
-        ? { points: weatherTempSeries, label: "Outside temp (Open-Meteo)" }
+      ? {
+          source: "sensor",
+          points: outsideTempSmoothed,
+          label: "Outside temp",
+        }
+      : meteoTempPts.length > 1
+        ? {
+            source: "meteo",
+            points: meteoTempPts,
+            label: "Outside temp (Open-Meteo)",
+            feelsLike:
+              meteoFeelsLikePts.length > 1 &&
+              meteoFeelsLikePts.some(
+                (p, i) =>
+                  Math.abs(p.y - (meteoTempPts[i]?.y ?? p.y)) >= (tempUnit === "f" ? 3 : 2),
+              )
+                ? meteoFeelsLikePts
+                : undefined,
+          }
         : insideTempSmoothed.length > 1
-          ? { points: insideTempSmoothed, label: "Cabin temp" }
+          ? { source: "cabin", points: insideTempSmoothed, label: "Cabin temp" }
           : null;
 
   // Resolve the sample closest to the synced cursor for the
@@ -490,7 +529,8 @@ export default function DriveDetailPage() {
             const allX = [
               ...speedPts.map((p) => p.x),
               ...socPts.map((p) => p.x),
-              ...(ambientTempSeries?.points.map((p) => p.x) ?? []),
+              ...(tempTrace?.points.map((p) => p.x) ?? []),
+              ...meteoPrecipPts.map((p) => p.x),
               ...elevPts.map((p) => p.x),
             ];
             const xDomain: [number, number] | undefined =
@@ -498,10 +538,10 @@ export default function DriveDetailPage() {
                 ? [Math.min(...allX), Math.max(...allX)]
                 : undefined;
             // Bottom panel of the stack draws x-axis ticks; everything
-            // above suppresses them. Order is speed → battery → temp
-            // → elevation, so each panel only shows ticks when no
-            // panel below it is rendered for this drive.
-            const hasTemp = !!ambientTempSeries;
+            // above suppresses them. Order is speed → battery →
+            // weather → elevation, so each panel only shows ticks
+            // when no panel below it is rendered for this drive.
+            const hasTemp = !!tempTrace;
             const hasElev = elevPts.length > 1;
             return (
               <div className="space-y-3">
@@ -556,24 +596,85 @@ export default function DriveDetailPage() {
                 ) : null}
                 {hasTemp ? (
                   <ChartPanel
-                    label={ambientTempSeries.label}
+                    label={
+                      hasMeteoPrecip
+                        ? `${tempTrace.label} + precipitation`
+                        : tempTrace.label
+                    }
                     colorClass="bg-orange-400"
                   >
                     <LineChart
                       series={[
+                        // Optional "feels like" trace -- only present
+                        // for the Open-Meteo source AND only when it
+                        // diverges meaningfully from the dry-bulb
+                        // line, so we don't draw two overlapping
+                        // strokes for nothing.
+                        ...(tempTrace.feelsLike
+                          ? [
+                              {
+                                points: tempTrace.feelsLike,
+                                color: "#fdba74",
+                                strokeWidth: 1.0,
+                                dash: "3 3",
+                                curve: "monotone" as const,
+                                label: "Feels like",
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(0)}${tempUnitSuffix} (feels)`,
+                              },
+                            ]
+                          : []),
                         {
-                          points: ambientTempSeries.points,
+                          points: tempTrace.points,
                           color: "#fb923c",
-                          strokeWidth: 1.2,
+                          strokeWidth: 1.4,
                           curve: "monotone",
-                          label: ambientTempSeries.label,
+                          label: tempTrace.label,
                           formatCursor: (v: number) =>
                             `${v.toFixed(0)}${tempUnitSuffix}`,
                         },
+                        // Precipitation overlay rides the right axis
+                        // so a non-zero hour shows up without
+                        // distorting the temperature scale. Faint
+                        // area fill so it reads as a background
+                        // ribbon rather than competing with the
+                        // temperature line.
+                        ...(hasMeteoPrecip
+                          ? [
+                              {
+                                points: meteoPrecipPts,
+                                color: "#60a5fa",
+                                strokeWidth: 1.0,
+                                area: true,
+                                curve: "linear" as const,
+                                axis: "right" as const,
+                                label: "Precipitation",
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(2)}″ precip`,
+                              },
+                            ]
+                          : []),
                       ]}
-                      height={70}
+                      height={80}
                       xDomain={xDomain}
                       formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
+                      formatY2={
+                        hasMeteoPrecip ? (v) => `${v.toFixed(2)}″` : undefined
+                      }
+                      // Anchor the precip axis at zero so a flat run
+                      // of dry hours doesn't paint a misleading
+                      // mid-axis baseline. Top is data-driven.
+                      y2Domain={
+                        hasMeteoPrecip
+                          ? [
+                              0,
+                              Math.max(
+                                0.05,
+                                ...meteoPrecipPts.map((p) => p.y),
+                              ),
+                            ]
+                          : undefined
+                      }
                       formatX={xTimeFmt}
                       yTicks={2}
                       xTicks={hasElev ? 0 : 4}
