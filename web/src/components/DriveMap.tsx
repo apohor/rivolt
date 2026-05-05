@@ -11,6 +11,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { osrmBase, getConfig, ensureConfig, tilesPMTilesURL } from "../lib/config";
 import { leafletLayer } from "protomaps-leaflet";
+import { findNearestCharger, type POI } from "../lib/poi";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
 // OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
@@ -252,6 +253,24 @@ function addCartoDark(map: L.Map) {
 // extracts we slice from at build time.
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
+
+// Minimal HTML-entity escape for the few places we inject untrusted
+// strings (OSM POI names) into innerHTML / popup content. Just the
+// five XML-spec essentials; we never inject inside script or URL
+// contexts so this is sufficient.
+function escapeHTML(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    c === "&"
+      ? "&amp;"
+      : c === "<"
+      ? "&lt;"
+      : c === ">"
+      ? "&gt;"
+      : c === '"'
+      ? "&quot;"
+      : "&#39;",
+  );
+}
 
 // Basemap flavor toggle. protomaps-leaflet ships four named flavors
 // out of the box (dark/light/black/white); we expose all four and
@@ -915,16 +934,122 @@ export function ChargeMap({
       zoomDelta: 0.5,
       wheelPxPerZoomLevel: 120,
       fadeAnimation: true,
-    }).setView([lat, lon], 15);
+    }).setView([lat, lon], 16);
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
     addBasemap(map);
-    L.marker([lat, lon], {
+
+    // Layered marker model:
+    //   - Always show the recorded GPS position (where the vehicle
+    //     actually pinged from). Starts as the prominent amber pin.
+    //   - Async query the basemap pmtiles for the nearest OSM
+    //     charging_station POI within 250 m. If found, demote the
+    //     recorded-GPS pin to a small muted dot, draw a dashed
+    //     connector, and paint a labeled charger pin at the OSM
+    //     coords. The label is the OSM `name` tag.
+    //
+    // We can't determine "which physical charger" deterministically
+    // from a single GPS sample (parking lots routinely host several
+    // stations within 50 m of each other), so we pick the closest
+    // and show the user the snap so they can sanity-check it.
+    const recordedMarker = L.marker([lat, lon], {
       icon: circleIcon("#f59e0b"),
       zIndexOffset: 1000,
     })
       .addTo(map)
       .bindTooltip("Charge location", { direction: "top" });
+
+    let chargerMarker: L.Marker | null = null;
+    let connector: L.Polyline | null = null;
+    let cancelled = false;
+
+    // Only attempt the snap when the self-hosted vector basemap is
+    // wired — the CARTO raster fallback path has no POI data.
+    if (tilesPMTilesURL()) {
+      void findNearestCharger(lat, lon, 250).then((poi) => {
+        if (cancelled || !poi) return;
+        applyChargerSnap(poi);
+      });
+    }
+
+    function applyChargerSnap(poi: POI) {
+      // Demote recorded-GPS to a muted dot with a clarifying
+      // tooltip. Keeping it visible (rather than removing it)
+      // surfaces the snap distance for the user.
+      recordedMarker.setIcon(
+        L.divIcon({
+          className: "rivolt-map-recorded-gps",
+          html:
+            '<span style="display:block;width:8px;height:8px;border-radius:9999px;' +
+            'background:#737373;border:1.5px solid #0a0a0a;opacity:0.85;"></span>',
+          iconSize: [8, 8],
+          iconAnchor: [4, 4],
+        }),
+      );
+      recordedMarker.setZIndexOffset(500);
+      recordedMarker.unbindTooltip();
+      recordedMarker.bindTooltip(
+        `Recorded GPS · ${Math.round(poi.distanceM)} m from charger`,
+        { direction: "top" },
+      );
+
+      // Dashed connector from recorded GPS to the snapped charger
+      // so the user immediately sees the relationship between the
+      // two pins.
+      connector = L.polyline(
+        [
+          [lat, lon],
+          [poi.lat, poi.lon],
+        ],
+        {
+          color: "#f59e0b",
+          weight: 1.5,
+          opacity: 0.6,
+          dashArray: "4 4",
+          interactive: false,
+        },
+      ).addTo(map);
+
+      // The snapped charger pin: amber bolt-styled square with the
+      // OSM name as a permanent label so the charger identifies
+      // itself without requiring a click.
+      const labelText = poi.name ?? "Charging station";
+      chargerMarker = L.marker([poi.lat, poi.lon], {
+        icon: L.divIcon({
+          className: "rivolt-charger-pin",
+          html:
+            '<span style="display:inline-flex;align-items:center;justify-content:center;' +
+            "width:22px;height:22px;border-radius:6px;background:#f59e0b;" +
+            'border:2px solid #0a0a0a;box-shadow:0 0 0 2px #f59e0b33;' +
+            'color:#0a0a0a;font:700 13px/1 ui-sans-serif,system-ui;">⚡</span>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        }),
+        zIndexOffset: 2000,
+      })
+        .addTo(map)
+        .bindTooltip(escapeHTML(labelText), {
+          direction: "top",
+          permanent: true,
+          offset: [0, -10],
+          className: "rivolt-charger-label",
+        })
+        .bindPopup(
+          '<div style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:180px">' +
+            `<div style="font-weight:600;margin-bottom:2px">${escapeHTML(labelText)}</div>` +
+            '<div style="color:#a3a3a3;font-size:11px">' +
+            `Snapped from <a href="https://www.openstreetmap.org/?mlat=${poi.lat}&mlon=${poi.lon}#map=19/${poi.lat}/${poi.lon}" target="_blank" rel="noopener" style="color:#f59e0b;text-decoration:underline">OpenStreetMap</a> · ${Math.round(poi.distanceM)} m from recorded GPS` +
+            "</div></div>",
+        );
+
+      // Re-center on the snapped charger if it falls within the
+      // current viewport bounds; otherwise leave the view alone so
+      // we don't pan unexpectedly far when the snap distance is
+      // close to the radius limit.
+      if (map.getBounds().contains([poi.lat, poi.lon])) {
+        map.panTo([poi.lat, poi.lon], { animate: true });
+      }
+    }
 
     // GPS staleness badge. Threshold of 5 min separates "normal
     // poll cadence jitter" (a 30-60s lag is typical and not worth
@@ -946,9 +1071,12 @@ export function ChargeMap({
     const ro = new ResizeObserver(invalidate);
     ro.observe(ref.current);
     return () => {
+      cancelled = true;
       cancelAnimationFrame(rAF);
       ro.disconnect();
       if (staleCtl) staleCtl.remove();
+      if (chargerMarker) chargerMarker.remove();
+      if (connector) connector.remove();
       map.remove();
     };
   }, [lat, lon, fixAgeSeconds]);
