@@ -30,10 +30,20 @@ export type RuntimeConfig = {
     // reads. Empty means no self-hosted tile server is wired and
     // the SPA falls back to CARTO's public dark raster basemap.
     url: string;
+    // chargersUrl is the same-origin URL of the chargers POI
+    // .pmtiles archive (built from Geofabrik North America data
+    // with full OSM tags preserved). Empty means the archive
+    // isn't deployed and findNearestCharger falls back to the
+    // basemap pois layer (less accurate, no operator/network/kW
+    // info).
+    chargersUrl: string;
   };
 };
 
-const fallback: RuntimeConfig = { osrm: { path: "" }, tiles: { url: "" } };
+const fallback: RuntimeConfig = {
+  osrm: { path: "" },
+  tiles: { url: "", chargersUrl: "" },
+};
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
 
@@ -41,10 +51,16 @@ async function loadConfig(): Promise<RuntimeConfig> {
   try {
     const r = await fetch("/api/config", { credentials: "same-origin" });
     if (!r.ok) return fallback;
-    const j = (await r.json()) as Partial<RuntimeConfig> | null;
+    const j = (await r.json()) as {
+      osrm?: { path?: string };
+      tiles?: { url?: string; chargers_url?: string };
+    } | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
-      tiles: { url: j?.tiles?.url ?? "" },
+      tiles: {
+        url: j?.tiles?.url ?? "",
+        chargersUrl: j?.tiles?.chargers_url ?? "",
+      },
     };
   } catch {
     return fallback;
@@ -86,6 +102,14 @@ export function osrmBase(): string {
 // the legacy CARTO raster path.
 export function tilesPMTilesURL(): string {
   return cached.tiles.url;
+}
+
+// chargersPMTilesURL returns the same-origin URL of the chargers
+// POI archive, or "" when not deployed. Used by lib/poi to query
+// chargers with full OSM tags (operator, network, max kW, socket
+// types) instead of the basemap's stripped-down POIs.
+export function chargersPMTilesURL(): string {
+  return cached.tiles.chargersUrl;
 }
 
 // Kick off the config fetch as soon as this module is imported so

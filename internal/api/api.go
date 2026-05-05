@@ -469,10 +469,19 @@ func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
 		Path string `json:"path,omitempty"`
 	}
 	type tilesCfg struct {
-		// URL is the full same-origin URL of the served .pmtiles
-		// file (empty when not configured). protomaps-leaflet
+		// URL is the full same-origin URL of the served basemap
+		// .pmtiles file (empty when not configured). protomaps-leaflet
 		// fetches this with byte-range reads.
 		URL string `json:"url,omitempty"`
+		// ChargersURL is the same-origin URL of the chargers POI
+		// .pmtiles archive (built from Geofabrik North America +
+		// osmium + tippecanoe -- see apps/tiles/manifests/
+		// chargers.yaml in rivolt-infra). Empty when the chargers
+		// archive isn't deployed; the SPA then falls back to the
+		// basemap pois layer for nearest-charger lookup, which is
+		// less accurate (planet build strips POI tags down to
+		// name/kind/min_zoom).
+		ChargersURL string `json:"chargers_url,omitempty"`
 	}
 	type cfg struct {
 		OSRM  osrmCfg  `json:"osrm"`
@@ -484,6 +493,12 @@ func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
 	}
 	if tilesEnabled {
 		c.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
+		// chargers.pmtiles lives next to texas.pmtiles on the same
+		// PVC and is served by the same nginx, so its presence is
+		// gated on the same flag. If the chargers Job hasn't run
+		// yet, the URL still resolves; the SPA's PMTiles client
+		// will see a 404 on the file root and gracefully fall back.
+		c.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, c)

@@ -1,31 +1,31 @@
-// POI lookup against the self-hosted PMTiles vector basemap.
+// POI lookup against self-hosted PMTiles archives.
 //
-// Why query the basemap pmtiles directly instead of e.g. Overpass API
-// or a server-side endpoint:
-//   - Same origin already (the rivolt API proxies the .pmtiles file
-//     at /api/maps/tiles/* with byte-range support), so authn is
-//     automatic via the session cookie.
-//   - PMTiles + @mapbox/vector-tile are already in the SPA bundle as
-//     transitive deps of protomaps-leaflet; using them directly costs
-//     nothing extra at runtime.
-//   - No backend dependency on Go pmtiles libs or Overpass uptime.
+// We query two archives, in priority order:
 //
-// What we actually get from the protomaps planet build:
-//   - The `pois` data layer is populated up to the archive's max zoom
-//     (z=15 for the planet build; charging stations have an OSM-tag
-//     min_zoom hint of 16 but the data points are placed in z15 tiles
-//     and rendered with overzoom). A single z15 tile covers ~1.2 km
-//     across in TX latitudes, so a single tile lookup is enough for
-//     any reasonable "nearest charger" radius.
-//   - Tags are heavily stripped in the planet build: only `name`,
-//     `kind`, and `min_zoom` survive on charging_station POIs.
-//     Operator/network/socket info is NOT available; if we want it
-//     later we'd build our own POI tiles from raw OSM.
+//   1. /api/maps/tiles/chargers.pmtiles (when configured) — a
+//      dedicated archive built from a North America Geofabrik
+//      extract via osmium tags-filter + tippecanoe with the full
+//      OSM tag bag preserved. This gives us operator, network,
+//      brand, capacity, socket types, max kW, fee, and
+//      opening_hours per charger — the things charge-detail
+//      popups actually need.
+//
+//   2. /api/maps/tiles/texas.pmtiles (the basemap archive) — used
+//      as a fallback when the chargers archive isn't deployed.
+//      The protomaps planet build strips POI tags down to just
+//      name/kind/min_zoom, so we get a snap point but no
+//      operator/network/kW info.
+//
+// Both archives are reached through the rivolt API's same-origin
+// /api/maps/tiles proxy, so authn is automatic via the session
+// cookie. PMTiles + @mapbox/vector-tile are already in the SPA
+// bundle as transitive deps of protomaps-leaflet, so reading the
+// raw tile bytes costs nothing extra at runtime.
 
 import Pbf from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
-import { tilesPMTilesURL } from "./config";
+import { tilesPMTilesURL, chargersPMTilesURL } from "./config";
 
 export type POI = {
   // Snapped coords from the OSM POI node.
@@ -37,27 +37,48 @@ export type POI = {
   kind: string;
   // Distance in meters from the query point.
   distanceM: number;
+
+  // Charger-specific tags. Only populated when the result came
+  // from the chargers archive (full tag bag). Undefined when the
+  // basemap fallback was used.
+  operator?: string;
+  network?: string;
+  brand?: string;
+  capacity?: number;
+  socketTypes?: string[];
+  maxPowerKW?: number;
+  fee?: string;
+  openingHours?: string;
+  // OSM canonical id (`node/12345`) when known. Lets the popup
+  // link out to https://www.openstreetmap.org/node/<id> for the
+  // user to check / fix tags upstream.
+  osmId?: string;
+  // Marker that this came from the rich chargers archive — UI can
+  // use it to decide whether to render the spec-list table.
+  source: "chargers" | "basemap";
 };
 
-let pmCache: PMTiles | null = null;
-let pmCacheURL = "";
+type ArchiveCache = {
+  url: string;
+  pm: PMTiles;
+};
 
-function getPM(): PMTiles | null {
-  const url = tilesPMTilesURL();
+let chargersCache: ArchiveCache | null = null;
+let basemapCache: ArchiveCache | null = null;
+
+function getArchive(url: string, slot: "chargers" | "basemap"): PMTiles | null {
   if (!url) return null;
-  // Reset the cached archive if config flipped to a different URL
-  // (won't happen in practice today but cheap to handle).
-  if (pmCache && pmCacheURL === url) return pmCache;
-  // Default fetch credentials are "same-origin", so the rivolt API
+  const cache = slot === "chargers" ? chargersCache : basemapCache;
+  if (cache && cache.url === url) return cache.pm;
+  // Default fetch credentials are "same-origin", so the rivolt
   // session cookie rides along to /api/maps/tiles/* automatically.
-  // No custom Headers needed.
-  pmCache = new PMTiles(new FetchSource(url));
-  pmCacheURL = url;
-  return pmCache;
+  const pm = new PMTiles(new FetchSource(url));
+  if (slot === "chargers") chargersCache = { url, pm };
+  else basemapCache = { url, pm };
+  return pm;
 }
 
-// Standard XYZ tile math. Floors so the returned (x,y) is the tile
-// that contains the given lat/lon at zoom z.
+// Standard XYZ tile math.
 function lonToTileX(lon: number, z: number): number {
   return Math.floor(((lon + 180) / 360) * (1 << z));
 }
@@ -69,8 +90,6 @@ function latToTileY(lat: number, z: number): number {
   );
 }
 
-// Haversine distance in meters. Cheap enough to call inside the
-// per-feature loop; we only iterate features in a single tile.
 function haversineMeters(
   la1: number,
   lo1: number,
@@ -88,48 +107,165 @@ function haversineMeters(
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-// Module-level memo keyed on (rounded lat,lon,kind,radius). Charge
-// detail pages remount on tab switch; without a cache that triggers
-// repeated tile fetches for the same query.
+// Module-level memo keyed on (slot, rounded lat, rounded lon, kind, radius).
+// 5 decimal places ~= 1.1m precision. Charge GPS is much noisier than that
+// so rounding here is fine and avoids redundant tile fetches when the user
+// flips between charge-detail tabs.
 const memo = new Map<string, POI | null>();
 function memoKey(
+  slot: string,
   lat: number,
   lon: number,
   kind: string,
   radiusM: number,
 ): string {
-  // 5 decimal places ~= 1.1m precision. Rounding here is fine since
-  // recorded charge GPS is much noisier than that.
-  return `${kind}|${lat.toFixed(5)}|${lon.toFixed(5)}|${radiusM}`;
+  return `${slot}|${kind}|${lat.toFixed(5)}|${lon.toFixed(5)}|${radiusM}`;
 }
 
-// findNearestPOI scans a 3x3 block of z15 data tiles centered on the
-// query point and returns the closest feature whose `kind` is in the
-// allow-list, or null when nothing is within radiusM. The 3x3 block
-// is overkill for radiusM <= 250 but tile reads are byte-range +
-// HTTP-cached, so it's effectively free after the first hit.
-export async function findNearestPOI(
+// Tag readers. Tippecanoe preserves OSM tag values as strings;
+// numeric tags occasionally come through typed when tippecanoe
+// auto-detects, hence the dual handling.
+function strProp(p: Record<string, unknown>, k: string): string | undefined {
+  const v = p[k];
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+function intProp(p: Record<string, unknown>, k: string): number | undefined {
+  const v = p[k];
+  if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
+  if (typeof v === "string") {
+    const n = parseInt(v.trim(), 10);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
+// Parse OSM power-output strings like "150 kW", "22kW", "11000 W".
+// Returns kW; undefined when the string isn't recognized.
+function parsePowerKW(v: unknown): number | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim().toLowerCase().replace(/,/g, "");
+  if (!s) return undefined;
+  let unit: "kw" | "w" = "kw";
+  let num = s;
+  if (s.endsWith("kw")) num = s.slice(0, -2).trim();
+  else if (s.endsWith("w")) {
+    unit = "w";
+    num = s.slice(0, -1).trim();
+  }
+  const n = parseFloat(num);
+  if (!Number.isFinite(n)) return undefined;
+  return unit === "w" ? n / 1000 : n;
+}
+
+// extractSocketTypes returns the set of `socket:*` keys whose
+// presence/value implies the connector type is supported. OSM
+// convention uses keys like socket:type2_combo=4, socket:chademo=2.
+// We ignore `socket:*:output` (those are power, not type) and
+// values like "no" / "0" / "" which mean the connector isn't
+// actually present.
+function extractSocketTypes(
+  props: Record<string, unknown>,
+): string[] | undefined {
+  const out: string[] = [];
+  for (const [k, raw] of Object.entries(props)) {
+    if (!k.startsWith("socket:")) continue;
+    const rest = k.slice(7);
+    if (rest.includes(":")) continue;
+    if (!rest) continue;
+    const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (v === "" || v === "no" || v === "0") continue;
+    out.push(rest);
+  }
+  if (out.length === 0) return undefined;
+  out.sort();
+  return out;
+}
+
+function extractMaxPowerKW(
+  props: Record<string, unknown>,
+): number | undefined {
+  let best: number | undefined;
+  const consider = (v: unknown) => {
+    const kw = parsePowerKW(v);
+    if (kw != null && (best == null || kw > best)) best = kw;
+  };
+  consider(props["charging:output"]);
+  consider(props["maxpower"]);
+  consider(props["maxpower:output"]);
+  for (const [k, v] of Object.entries(props)) {
+    if (k.startsWith("socket:") && k.endsWith(":output")) consider(v);
+  }
+  return best;
+}
+
+// extractOSMId reads the canonical OSM identifier when tippecanoe
+// preserved it. Used by popups to link out to openstreetmap.org.
+function extractOSMId(props: Record<string, unknown>): string | undefined {
+  const at = strProp(props, "@id");
+  if (at) return at;
+  const id = props["id"];
+  if (typeof id === "number") return `node/${id}`;
+  if (typeof id === "string" && id.length > 0) return id;
+  return undefined;
+}
+
+type LookupConfig = {
+  // PMTiles archive zoom to query. The chargers archive is built at
+  // z14; the basemap archive at z15. A 3x3 block at the archive's
+  // max zoom comfortably covers radiusM <= 1km.
+  z: number;
+  // Vector-tile layer name to scan.
+  layer: string;
+  // Property bag → POI shape converter. Distinct paths for the rich
+  // chargers archive vs the stripped basemap archive.
+  toPOI: (
+    p: Record<string, unknown>,
+    base: Omit<POI, "source">,
+  ) => POI;
+};
+
+const chargersLookup: LookupConfig = {
+  z: 14,
+  layer: "chargers",
+  toPOI: (p, base) => ({
+    ...base,
+    source: "chargers",
+    name: strProp(p, "name") ?? base.name,
+    operator: strProp(p, "operator"),
+    network: strProp(p, "network"),
+    brand: strProp(p, "brand"),
+    capacity: intProp(p, "capacity"),
+    socketTypes: extractSocketTypes(p),
+    maxPowerKW: extractMaxPowerKW(p),
+    fee: strProp(p, "fee"),
+    openingHours: strProp(p, "opening_hours"),
+    osmId: extractOSMId(p),
+  }),
+};
+
+const basemapLookup: LookupConfig = {
+  z: 15,
+  layer: "pois",
+  toPOI: (p, base) => ({
+    ...base,
+    source: "basemap",
+    name: strProp(p, "name") ?? base.name,
+  }),
+};
+
+async function findInArchive(
+  pm: PMTiles,
+  cfg: LookupConfig,
   lat: number,
   lon: number,
-  kinds: readonly string[],
-  radiusM = 250,
+  kinds: readonly string[] | null,
+  radiusM: number,
 ): Promise<POI | null> {
-  const pm = getPM();
-  if (!pm) return null;
-
-  const key = memoKey(lat, lon, kinds.join(","), radiusM);
-  if (memo.has(key)) return memo.get(key) ?? null;
-
-  // Use the archive's actual max zoom — z=15 for the protomaps
-  // planet build. If we ever swap to a custom build with z=16,
-  // bumping this constant is the only required change.
-  const z = 15;
+  const z = cfg.z;
   const cx = lonToTileX(lon, z);
   const cy = latToTileY(lat, z);
 
   let best: POI | null = null;
-  // 3x3 block. Each tile fetch is independent so we kick them off
-  // in parallel; the FetchSource will share connections.
   const offsets: [number, number][] = [];
   for (let dx = -1; dx <= 1; dx++) {
     for (let dy = -1; dy <= 1; dy++) offsets.push([dx, dy]);
@@ -142,49 +278,91 @@ export async function findNearestPOI(
         const result = await pm.getZxy(z, tx, ty);
         if (!result) return;
         const tile = new VectorTile(new Pbf(result.data as ArrayBuffer));
-        const layer = tile.layers["pois"];
+        const layer = tile.layers[cfg.layer];
         if (!layer) return;
         for (let i = 0; i < layer.length; i++) {
           const f = layer.feature(i);
-          const k = f.properties.kind;
-          if (typeof k !== "string" || !kinds.includes(k)) continue;
-          // toGeoJSON projects MVT-local coords back to lng/lat.
+          // Only filter by `kind` for the basemap archive — the
+          // chargers archive is already pre-filtered to charging
+          // stations at build time (osmium tags-filter), so every
+          // feature in the layer is a charger.
+          if (kinds) {
+            const k = f.properties.kind;
+            if (typeof k !== "string" || !kinds.includes(k)) continue;
+          }
           const gj = f.toGeoJSON(tx, ty, z);
           if (gj.geometry.type !== "Point") continue;
           const [flon, flat] = gj.geometry.coordinates as [number, number];
           const dist = haversineMeters(lat, lon, flat, flon);
           if (dist > radiusM) continue;
-          if (!best || dist < best.distanceM) {
-            const nameProp = f.properties.name;
-            best = {
-              lat: flat,
-              lon: flon,
-              name: typeof nameProp === "string" ? nameProp : undefined,
-              kind: k,
-              distanceM: dist,
-            };
-          }
+          if (best && dist >= best.distanceM) continue;
+          const props = f.properties as Record<string, unknown>;
+          best = cfg.toPOI(props, {
+            lat: flat,
+            lon: flon,
+            kind: "charging_station",
+            distanceM: dist,
+          });
         }
       } catch {
         // Missing tile (gap in the bbox extract), 4xx/5xx, or a
         // corrupted MVT payload — treat as no-data and let the
-        // caller fall back to the recorded GPS dot.
+        // caller fall back to the next archive.
       }
     }),
   );
-
-  memo.set(key, best);
   return best;
 }
 
-// findNearestCharger is a thin wrapper for the most common case.
-// 250m default radius matches typical "I parked near this thing"
-// GPS noise on a phone — within a parking lot but not across a
-// freeway.
+// findNearestCharger queries the chargers archive first; on miss
+// (no archive configured, or no feature within radius), falls back
+// to the basemap pois layer. 250m default radius matches typical
+// "I parked near this thing" GPS noise — within a parking lot but
+// not across a freeway.
 export async function findNearestCharger(
   lat: number,
   lon: number,
   radiusM = 250,
 ): Promise<POI | null> {
-  return findNearestPOI(lat, lon, ["charging_station"], radiusM);
+  // Prefer the rich chargers archive.
+  const chargersURL = chargersPMTilesURL();
+  const chargersKey = memoKey("chargers", lat, lon, "charging_station", radiusM);
+  if (chargersURL) {
+    let hit: POI | null | undefined;
+    if (memo.has(chargersKey)) {
+      hit = memo.get(chargersKey) ?? null;
+    } else {
+      const pm = getArchive(chargersURL, "chargers");
+      if (pm) {
+        hit = await findInArchive(
+          pm,
+          chargersLookup,
+          lat,
+          lon,
+          null,
+          radiusM,
+        );
+        memo.set(chargersKey, hit);
+      }
+    }
+    if (hit) return hit;
+  }
+
+  // Basemap fallback: low-fidelity but better than recorded GPS.
+  const basemapURL = tilesPMTilesURL();
+  if (!basemapURL) return null;
+  const basemapKey = memoKey("basemap", lat, lon, "charging_station", radiusM);
+  if (memo.has(basemapKey)) return memo.get(basemapKey) ?? null;
+  const pm = getArchive(basemapURL, "basemap");
+  if (!pm) return null;
+  const hit = await findInArchive(
+    pm,
+    basemapLookup,
+    lat,
+    lon,
+    ["charging_station"],
+    radiusM,
+  );
+  memo.set(basemapKey, hit);
+  return hit;
 }
