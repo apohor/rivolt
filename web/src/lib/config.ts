@@ -38,11 +38,20 @@ export type RuntimeConfig = {
     // info).
     chargersUrl: string;
   };
+  ai: {
+    // enabled is true when the install has at least one AI provider
+    // configured with a working key+model. Snapshot at /api/config
+    // request time -- changing settings flips this on the next page
+    // reload. Used to gate AI-powered features (trip recap, future
+    // weekly digest, etc.) so we don't render dead buttons.
+    enabled: boolean;
+  };
 };
 
 const fallback: RuntimeConfig = {
   osrm: { path: "" },
   tiles: { url: "", chargersUrl: "" },
+  ai: { enabled: false },
 };
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
@@ -54,6 +63,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
     const j = (await r.json()) as {
       osrm?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
+      ai?: { enabled?: boolean };
     } | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
@@ -61,6 +71,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         url: j?.tiles?.url ?? "",
         chargersUrl: j?.tiles?.chargers_url ?? "",
       },
+      ai: { enabled: !!j?.ai?.enabled },
     };
   } catch {
     return fallback;
@@ -110,6 +121,16 @@ export function tilesPMTilesURL(): string {
 // types) instead of the basemap's stripped-down POIs.
 export function chargersPMTilesURL(): string {
   return cached.tiles.chargersUrl;
+}
+
+// aiEnabled mirrors the server-side `ai.enabled` config flag. The
+// SPA gates AI-powered cards (trip recap today; weekly digest etc.
+// later) on this so a fresh install with no provider key configured
+// renders no dead buttons. Snapshot value -- consumers don't need
+// to await ensureConfig() because the worst case is a one-render
+// flash of the AI card before the fetch resolves.
+export function aiEnabled(): boolean {
+  return cached.ai.enabled;
 }
 
 // Kick off the config fetch as soon as this module is imported so

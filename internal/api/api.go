@@ -33,6 +33,7 @@ import (
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/push"
+	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -216,7 +217,7 @@ func New(d Deps) http.Handler {
 		// (today: whether the OSRM same-origin proxy is mounted).
 		// Public so the SPA can fetch it before login as well as
 		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil))
+		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -393,6 +394,16 @@ func New(d Deps) http.Handler {
 			r.Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
+			// Trip recap: AI-generated 2-3 sentence narration of a
+			// drive. Cached per (user, drive) in drive_recaps; GET
+			// returns the cached row (404 if none), POST generates
+			// (and replaces any existing cached row).
+			r.Get("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveRecapGet(d.DB, uid)(w, r)
+			}))
+			r.Post("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveRecapPost(d, uid)(w, r)
+			}))
 			r.Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
@@ -462,7 +473,7 @@ func handleHealth(version string) http.HandlerFunc {
 // /route) and PMTiles (drive map basemap), falling back to the
 // public demos when a path is empty. Public so the SPA can fetch
 // it without a session.
-func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
+func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool) http.HandlerFunc {
 	type osrmCfg struct {
 		// Path is the same-origin URL prefix the SPA should hit
 		// (empty when the proxy is not configured server-side).
@@ -483,9 +494,20 @@ func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
 		// name/kind/min_zoom).
 		ChargersURL string `json:"chargers_url,omitempty"`
 	}
+	type aiCfg struct {
+		// Enabled is true when the install has at least one
+		// AI provider configured with a working key+model. The
+		// SPA reads it to gate AI-powered features (trip recap,
+		// future weekly digest, etc.) so we don't render dead
+		// buttons. Snapshot at /api/config request time -- a
+		// follow-up Settings save flips this on the next page
+		// reload.
+		Enabled bool `json:"enabled"`
+	}
 	type cfg struct {
 		OSRM  osrmCfg  `json:"osrm"`
 		Tiles tilesCfg `json:"tiles"`
+		AI    aiCfg    `json:"ai"`
 	}
 	c := cfg{}
 	if osrmEnabled {
@@ -500,6 +522,7 @@ func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
 		// will see a 404 on the file root and gracefully fall back.
 		c.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
+	c.AI.Enabled = aiEnabled
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, c)
 	}
@@ -1779,4 +1802,228 @@ func otelTraceRoute(next http.Handler) http.Handler {
 			span.SetName("HTTP " + r.Method + " " + pattern)
 		}
 	})
+}
+
+// driveRecapResponse is the JSON shape returned by both GET and POST
+// /api/drives/{id}/recap. Token counts are surfaced so power users
+// can see what each call cost; the operator pays the LLM bill, so
+// transparency matters.
+type driveRecapResponse struct {
+	Recap        string    `json:"recap"`
+	Model        string    `json:"model"`
+	GeneratedAt  time.Time `json:"generated_at"`
+	InputTokens  int64     `json:"input_tokens,omitempty"`
+	OutputTokens int64     `json:"output_tokens,omitempty"`
+	// Cached is true when the response came straight from the
+	// drive_recaps row and no LLM call was made. Lets the SPA
+	// distinguish "fresh paid generation" from "free cache hit"
+	// without paying attention to timestamps.
+	Cached bool `json:"cached"`
+}
+
+// handleDriveRecapGet returns the cached recap for (uid, driveID),
+// or 404 when no cache row exists. Never invokes the LLM. Cheap.
+func handleDriveRecapGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pool == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		resp, ok, err := loadCachedRecap(r.Context(), pool, uid, driveID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "no recap cached for this drive", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// handleDriveRecapPost generates a recap on demand and persists it.
+// Idempotent: if a cache row already exists and ?force=1 is NOT set,
+// returns the cached row instead of paying for a fresh LLM call.
+//
+// Pulls samples and adjacent charges through the user-scoped stores
+// so RLS / per-user filtering stays load-bearing — a malicious
+// driveID belonging to another user will resolve to zero rows here
+// even though we don't enforce ownership at the SQL level.
+func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if d.SettingsMgr == nil {
+			http.Error(w, "ai settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		analyzer := d.SettingsMgr.Analyzer()
+		if analyzer == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "no AI provider configured — add an API key in Settings → AI providers",
+			})
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		force := r.URL.Query().Get("force") == "1"
+		if !force {
+			if cached, ok, err := loadCachedRecap(r.Context(), d.DB, uid, driveID); err == nil && ok {
+				writeJSON(w, http.StatusOK, cached)
+				return
+			}
+		}
+
+		drivesStore := d.Drives.For(uid)
+		samplesStore := d.Samples.For(uid)
+		chargesStore := d.Charges.For(uid)
+		if drivesStore == nil || samplesStore == nil || chargesStore == nil {
+			http.Error(w, "user stores unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		// Fetch the user's drives and locate the requested one. We
+		// don't have a per-id store method; ListAll is fine for the
+		// drive count we expect (single-digit thousands at the
+		// outer end). Keeps the recap path one round-trip.
+		ds, err := drivesStore.ListAll(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var drv *drives.Drive
+		for i := range ds {
+			if ds[i].ID == driveID {
+				drv = &ds[i]
+				break
+			}
+		}
+		if drv == nil {
+			http.Error(w, "drive not found", http.StatusNotFound)
+			return
+		}
+		// Pull samples covering the drive window plus a small pad so
+		// the elevation profile catches the start/end ramps. We use
+		// ListSince and filter in memory rather than adding a new
+		// time-bounded query method; the drive-window count is
+		// bounded (a 6-hour drive at 5s cadence is ~4300 rows).
+		// Pad: 3 min before, 3 min after.
+		since := drv.StartedAt.Add(-3 * time.Minute)
+		end := drv.EndedAt.Add(3 * time.Minute)
+		allSamples, err := samplesStore.ListSince(r.Context(), since, 100_000)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		windowed := make([]samples.Sample, 0, len(allSamples))
+		for _, s := range allSamples {
+			if s.At.Before(since) || s.At.After(end) {
+				continue
+			}
+			windowed = append(windowed, s)
+		}
+		// Adjacent charges: anything that started or ended within
+		// 30 min of the drive window. Walk ListAll once.
+		const adjacencyWindow = 30 * time.Minute
+		allCharges, _ := chargesStore.ListAll(r.Context())
+		adjacent := make([]charges.Charge, 0, 4)
+		driveStart := drv.StartedAt
+		driveEnd := drv.EndedAt
+		for _, c := range allCharges {
+			if !c.EndedAt.IsZero() &&
+				!c.EndedAt.Before(driveStart.Add(-adjacencyWindow)) &&
+				c.EndedAt.Before(driveStart) {
+				adjacent = append(adjacent, c)
+				continue
+			}
+			if !c.StartedAt.IsZero() &&
+				c.StartedAt.After(driveEnd) &&
+				c.StartedAt.Before(driveEnd.Add(adjacencyWindow)) {
+				adjacent = append(adjacent, c)
+				continue
+			}
+			// Charges that span the drive (rare — would mean the
+			// car was driven mid-charge, e.g. ElectraFi importer
+			// glitches) we treat as "during".
+			if !c.StartedAt.IsZero() && !c.EndedAt.IsZero() &&
+				c.StartedAt.Before(driveEnd) && c.EndedAt.After(driveStart) {
+				adjacent = append(adjacent, c)
+			}
+		}
+
+		// Imperial output to match the rest of the app surface;
+		// revisit when a metric distance pref ships.
+		const useFahrenheit = true
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		res, err := recap.Generate(ctx, analyzer, recap.Inputs{
+			Drive:           *drv,
+			Samples:         windowed,
+			AdjacentCharges: adjacent,
+			UseFahrenheit:   useFahrenheit,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": err.Error(),
+				"model": analyzer.ModelName(),
+			})
+			return
+		}
+		// Persist; failures here log but don't block the response —
+		// the user has a valid recap in hand, the worst case is they
+		// pay again on next regenerate.
+		now := time.Now()
+		if _, err := d.DB.ExecContext(r.Context(), `
+INSERT INTO drive_recaps (user_id, drive_id, model, recap, input_tokens, output_tokens, generated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (user_id, drive_id) DO UPDATE SET
+    model = EXCLUDED.model,
+    recap = EXCLUDED.recap,
+    input_tokens = EXCLUDED.input_tokens,
+    output_tokens = EXCLUDED.output_tokens,
+    generated_at = EXCLUDED.generated_at
+`, uid, driveID, res.Model, res.Recap, res.InputTokens, res.OutputTokens, now); err != nil {
+			if d.Logger != nil {
+				d.Logger.Warn("drive recap cache write failed", "err", err.Error(), "drive_id", driveID)
+			}
+		}
+		writeJSON(w, http.StatusOK, driveRecapResponse{
+			Recap:        res.Recap,
+			Model:        res.Model,
+			GeneratedAt:  now,
+			InputTokens:  res.InputTokens,
+			OutputTokens: res.OutputTokens,
+			Cached:       false,
+		})
+	}
+}
+
+// loadCachedRecap returns the persisted recap row for (uid, driveID).
+// (resp, false, nil) means "no row"; (resp, true, nil) means "hit".
+// Errors are propagated so the caller can decide between 404 and 500.
+func loadCachedRecap(ctx context.Context, pool *sql.DB, uid uuid.UUID, driveID string) (driveRecapResponse, bool, error) {
+	var resp driveRecapResponse
+	resp.Cached = true
+	err := pool.QueryRowContext(ctx, `
+SELECT recap, model, generated_at, input_tokens, output_tokens
+FROM drive_recaps
+WHERE user_id = $1 AND drive_id = $2
+`, uid, driveID).Scan(&resp.Recap, &resp.Model, &resp.GeneratedAt, &resp.InputTokens, &resp.OutputTokens)
+	if errors.Is(err, sql.ErrNoRows) {
+		return driveRecapResponse{}, false, nil
+	}
+	if err != nil {
+		return driveRecapResponse{}, false, err
+	}
+	return resp, true, nil
 }

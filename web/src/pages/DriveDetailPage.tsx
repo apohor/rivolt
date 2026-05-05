@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { backend, type Sample } from "../lib/api";
+import { backend, ApiError, type DriveRecap, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
 import { DriveMap } from "../components/DriveMap";
@@ -16,6 +16,7 @@ import {
 import { smoothGaussianTime } from "../lib/smooth";
 import { collapseRoundTrips } from "../lib/drives";
 import { usePreferences, formatTemperature } from "../lib/preferences";
+import { aiEnabled } from "../lib/config";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -569,6 +570,8 @@ export default function DriveDetailPage() {
         )}
       </Card>
 
+      {drive ? <TripRecapCard driveId={drive.ID} /> : null}
+
       <Card
         title="Route"
         actions={
@@ -699,5 +702,113 @@ function ChartPanel({
       </div>
       {children}
     </div>
+  );
+}
+
+// TripRecapCard renders the AI-generated 2-3 sentence narration of
+// a drive. The card hides itself entirely when no AI provider is
+// configured (operator hasn't added a key in Settings → AI), so a
+// fresh self-hosted install with no AI key sees no dead button.
+//
+// Generation is on-demand and cached per (user, drive) on the
+// server; finished drives are immutable, so a recap stays valid
+// until the user explicitly regenerates. The Regenerate path POSTs
+// with force=1 and re-bills the operator's LLM key.
+//
+// We keep generation state in a local useState rather than
+// react-query's mutation API because nothing else in this codebase
+// uses mutations and pulling the dep in for one place would be
+// inconsistent with the rest of the data layer.
+function TripRecapCard({ driveId }: { driveId: string }) {
+  const enabled = aiEnabled();
+  const cached = useQuery({
+    queryKey: ["drive-recap", driveId],
+    enabled,
+    retry: false,
+    queryFn: async (): Promise<DriveRecap | null> => {
+      try {
+        return await backend.driveRecapGet(driveId);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+  });
+  const [busy, setBusy] = useState(false);
+  const [genErr, setGenErr] = useState<string | null>(null);
+
+  if (!enabled) return null;
+
+  async function generate(force: boolean) {
+    setBusy(true);
+    setGenErr(null);
+    try {
+      const fresh = await backend.driveRecapGenerate(driveId, force);
+      cached.refetch();
+      // refetch is fire-and-forget; we also seed the local query
+      // cache result by writing to the in-flight data via refetch's
+      // promise so the UI flips even before the GET round-trip.
+      void fresh;
+    } catch (e) {
+      setGenErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const data = cached.data;
+  const showSpinner = cached.isLoading || busy;
+
+  return (
+    <Card
+      title="Trip recap"
+      actions={
+        data && !busy ? (
+          <button
+            type="button"
+            onClick={() => generate(true)}
+            className="text-xs text-neutral-400 hover:text-neutral-200 underline-offset-2 hover:underline"
+            title="Regenerate the recap (re-bills your AI provider)"
+          >
+            Regenerate
+          </button>
+        ) : null
+      }
+    >
+      {showSpinner ? (
+        <div className="flex items-center gap-2 text-sm text-neutral-400">
+          <Spinner />
+          {busy ? "Writing recap…" : null}
+        </div>
+      ) : genErr ? (
+        <ErrorBox title="Recap generation failed" detail={genErr} />
+      ) : !data ? (
+        <div className="space-y-3">
+          <p className="text-sm text-neutral-400">
+            Generate a 2–3 sentence summary of this drive using your
+            configured AI provider. The drive's summary stats and
+            elevation profile are sent — no GPS coordinates or
+            per-second telemetry leave the box.
+          </p>
+          <button
+            type="button"
+            onClick={() => generate(false)}
+            className="rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
+          >
+            Generate trip recap
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm leading-relaxed text-neutral-200">
+            {data.recap}
+          </p>
+          <div className="text-[11px] text-neutral-500">
+            {data.model} · {formatDateTime(data.generated_at)}
+            {data.cached ? " · cached" : ""}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

@@ -334,6 +334,20 @@ export type Sample = {
   altitude_m?: number;
 };
 
+// DriveRecap is the response shape from /api/drives/{id}/recap on
+// both GET (cache hit) and POST (fresh generation). `cached` lets
+// the UI distinguish a free read from a paid generation; the SPA
+// only surfaces it as a tooltip today but it's load-bearing for
+// future cost analytics.
+export type DriveRecap = {
+  recap: string;
+  model: string;
+  generated_at: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cached: boolean;
+};
+
 export type RivianStatus = {
   enabled: boolean;
   authenticated: boolean;
@@ -573,6 +587,18 @@ export const backend = {
   samples: (since: Date, limit = 1000) =>
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
+    ),
+  // Trip recap: AI-generated 2-3 sentence narration of a single
+  // drive. GET returns the cached row or 404; POST generates a new
+  // recap (and replaces the cached row). force=true re-bills the
+  // operator's LLM key even when a cached recap exists -- the
+  // SPA's "Regenerate" button.
+  driveRecapGet: (id: string) =>
+    api.get<DriveRecap>(`/api/drives/${encodeURIComponent(id)}/recap`),
+  driveRecapGenerate: (id: string, force = false) =>
+    api.post<DriveRecap>(
+      `/api/drives/${encodeURIComponent(id)}/recap${force ? "?force=1" : ""}`,
+      {},
     ),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
