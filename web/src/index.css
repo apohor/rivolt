@@ -40,6 +40,28 @@ body {
   color: #10b981 !important;
 }
 
+/* Leaflet popups default to white-on-white -- our charger popup
+   content is light text (color:#fafafa) so we need a dark popup
+   shell to match the rest of the dark map UI. The tip (the small
+   triangle pointing at the marker) gets the same treatment, plus
+   we recolor the close button so it doesn't disappear. */
+.leaflet-popup-content-wrapper {
+  background: #171717 !important;
+  color: #fafafa !important;
+  border: 1px solid #262626;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+.leaflet-popup-tip {
+  background: #171717 !important;
+  border: 1px solid #262626;
+}
+.leaflet-popup-close-button {
+  color: #a3a3a3 !important;
+}
+.leaflet-popup-close-button:hover {
+  color: #fafafa !important;
+}
+
 @layer components {
   .input {
     @apply block w-full rounded-md border border-neutral-700 bg-neutral-950 px-2.5 py-1.5 text-sm text-neutral-100 shadow-sm placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600;
