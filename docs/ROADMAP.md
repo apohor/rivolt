@@ -288,7 +288,7 @@ decisions 5–7, 10–12.
       chart repo + SBOM/cosign signing remain — chart is
       consumed today via raw git path from rivolt-infra, which
       works but doesn't give a versioned dependency surface.
-- [ ] **Self-hosted map tiles + routing.** Today the drive/charge
+- [x] **Self-hosted map tiles + routing.** Today the drive/charge
       maps fetch raster tiles from CARTO's free CDN
       (`*.basemaps.cartocdn.com`) and snap GPS traces with the
       public OSRM demo (`router.project-osrm.org`). Both have
@@ -304,7 +304,7 @@ decisions 5–7, 10–12.
         maps now send the whole trace as a single `/match`
         instead of walking 9-coord chunks (runtime is configured
         for `--max-matching-size 1000`). v0.17.24.
-      - [ ] **Self-hosted tile server.** PMTiles bundle (Texas
+      - ✅ **Self-hosted tile server.** PMTiles bundle (Texas
         extract built from `build.protomaps.com` daily planet
         via HTTP range reads, ~500 MB) served by an
         unprivileged-nginx Deployment from the cluster NFS
@@ -314,6 +314,16 @@ decisions 5–7, 10–12.
         `protomaps-leaflet` with the built-in dark flavor when
         `/api/config` advertises a `tiles.url` — eliminates
         per-tile CDN calls and works offline. v0.17.25.
+      - ✅ **Real GPS routes on the drives overview map.** Live
+        recorder accumulates per-frame `(lat, lon)` into a
+        Google-encoded polyline column on `drives` (migration
+        0018, `route_polyline TEXT`); upsert path uses
+        `COALESCE(EXCLUDED.route_polyline, drives.route_polyline)`
+        so an ElectraFi re-import never blanks a recorded trace.
+        `DrivesOverviewMap` decodes and draws the real route per
+        drive when present, falls back to a straight start→end
+        segment for legacy / imported drives that have no
+        polyline. v0.17.34.
 - [x] **Self-hosted elevation tiles.** v0.17.36 added per-sample
       altitude (`vehicle_state.altitude_m`) sourced from the
       Mapzen Terrarium DEM on AWS Open Data
