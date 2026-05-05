@@ -60,6 +60,28 @@ function mergePair(a: Drive, b: Drive): Drive {
     total > 0
       ? (a.AvgSpeedMph * d1 + b.AvgSpeedMph * d2) / total
       : a.AvgSpeedMph;
+  // Sum pack-side energy across both legs. Spreading `...a` was
+  // carrying forward only leg A's EnergyUsedKWh, which combined with
+  // the summed DistanceMi overstated efficiency on round trips by
+  // ~2x. A missing-energy leg collapses the pair to zero so the row
+  // matches the per-leg "unknown" semantics rather than silently
+  // halving the trip.
+  const energy =
+    a.EnergyUsedKWh > 0 && b.EnergyUsedKWh > 0
+      ? a.EnergyUsedKWh + b.EnergyUsedKWh
+      : 0;
+  // Cost: sum legs that have an estimate; rate is the energy-weighted
+  // mean so the merged rate stays meaningful when both legs were
+  // billed at slightly different prices (rare, but possible across a
+  // home-charge boundary that we don't gate on here).
+  let cost: number | undefined;
+  let rate: number | undefined;
+  let cur: string | undefined;
+  if (a.estimated_cost && b.estimated_cost) {
+    cost = a.estimated_cost + b.estimated_cost;
+    cur = a.estimated_currency || b.estimated_currency;
+    if (energy > 0) rate = cost / energy;
+  }
   return {
     ...a,
     EndedAt: b.EndedAt,
@@ -70,6 +92,10 @@ function mergePair(a: Drive, b: Drive): Drive {
     DistanceMi: a.DistanceMi + b.DistanceMi,
     MaxSpeedMph: Math.max(a.MaxSpeedMph, b.MaxSpeedMph),
     AvgSpeedMph: avg,
+    EnergyUsedKWh: energy,
+    estimated_cost: cost,
+    estimated_currency: cur,
+    estimated_price_per_kwh: rate,
   };
 }
 

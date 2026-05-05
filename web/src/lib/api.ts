@@ -339,8 +339,23 @@ export type Sample = {
 // the UI distinguish a free read from a paid generation; the SPA
 // only surfaces it as a tooltip today but it's load-bearing for
 // future cost analytics.
+//
+// `recap` is always present (the raw model reply). `headline`,
+// `body`, `highlights`, and `mood` are populated when the model
+// returned the structured JSON shape introduced in v0.17.42; older
+// cached rows return only `recap` and the SPA falls back to
+// rendering it as plain prose.
+export type DriveRecapHighlight = {
+  label: string;
+  value: string;
+};
+
 export type DriveRecap = {
   recap: string;
+  headline?: string;
+  body?: string;
+  highlights?: DriveRecapHighlight[];
+  mood?: string;
   model: string;
   generated_at: string;
   input_tokens?: number;

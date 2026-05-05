@@ -22,6 +22,7 @@ package recap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -33,9 +34,37 @@ import (
 	"github.com/apohor/rivolt/internal/samples"
 )
 
+// Highlight is one badge-sized stat the SPA renders next to the
+// prose. The model picks 2-4 per recap; we re-derive ours from the
+// drive on the server so callers can rely on a non-empty list even
+// when the model omits the field.
+type Highlight struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// Parsed is the structured shape the model emits when it follows
+// the JSON instructions. Callers should treat every field as
+// optional and fall back to the raw Recap text on parse failure.
+type Parsed struct {
+	Headline   string      `json:"headline,omitempty"`
+	Body       string      `json:"body,omitempty"`
+	Highlights []Highlight `json:"highlights,omitempty"`
+	// Mood is one of: commute, errand, road-trip, mountain, city,
+	// scenic, quick-trip. Free-form on the wire so the SPA can
+	// gracefully render unknown values as a neutral chip rather than
+	// dropping them, but the prompt asks for the closed set above.
+	Mood string `json:"mood,omitempty"`
+}
+
 // Result is what the generator returns to the handler.
 type Result struct {
+	// Recap is the raw model reply, persisted as-is in drive_recaps
+	// so reads can re-parse without paying the LLM. For new recaps
+	// this is a JSON object matching Parsed; for legacy rows it's
+	// the original 60-word paragraph.
 	Recap        string
+	Parsed       *Parsed
 	Model        string
 	InputTokens  int64
 	OutputTokens int64
@@ -56,11 +85,25 @@ type Inputs struct {
 	// Distance is always miles + feet because the app surface is
 	// imperial everywhere; revisit if a metric pref ever lands.
 	UseFahrenheit bool
+	// BaselineMiPerKWh is the user's energy efficiency over the
+	// trailing BaselineDays before this drive (drives with a known
+	// EnergyUsedKWh only). Zero when there's not enough history. The
+	// prompt uses this so the model can ground comments like "3.1
+	// mi/kWh, well above your 2.7 mi/kWh average" instead of making
+	// up the comparison.
+	BaselineMiPerKWh float64
+	BaselineDays     int
 }
 
-// Generate calls the LLM and returns a 2-3 sentence recap. Caller
+// Generate calls the LLM and returns a structured recap. Caller
 // (handler) owns the cache. The analyzer must be non-nil; the
 // handler 503s before reaching here when AI is unconfigured.
+//
+// The model is asked for strict JSON, but providers occasionally
+// wrap it in a code fence or prefix it with chatter. ParseRecap is
+// tolerant: it strips the most common framings and falls back to a
+// {body: <text>} shape if all parse attempts fail, so the SPA still
+// has something to render.
 func Generate(ctx context.Context, a *ai.Analyzer, in Inputs) (Result, error) {
 	if a == nil {
 		return Result{}, fmt.Errorf("recap: analyzer is nil")
@@ -70,12 +113,48 @@ func Generate(ctx context.Context, a *ai.Analyzer, in Inputs) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	raw := strings.TrimSpace(reply)
+	parsed := ParseRecap(raw)
 	return Result{
-		Recap:        strings.TrimSpace(reply),
+		Recap:        raw,
+		Parsed:       parsed,
 		Model:        a.ModelName(),
 		InputTokens:  usage.InputTokens,
 		OutputTokens: usage.OutputTokens,
 	}, nil
+}
+
+// ParseRecap extracts the structured shape from a model reply.
+// Tries (in order):
+//  1. Direct json.Unmarshal of the whole string.
+//  2. The substring between the first "{" and the last "}".
+//  3. nil — caller falls back to plain prose.
+//
+// Safe to call on legacy plain-text recaps: returns nil, no error.
+func ParseRecap(s string) *Parsed {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	// Strip a ```json ... ``` fence if present.
+	if strings.HasPrefix(s, "```") {
+		if i := strings.IndexByte(s, '\n'); i > 0 {
+			s = s[i+1:]
+		}
+		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+		s = strings.TrimSpace(s)
+	}
+	var p Parsed
+	if err := json.Unmarshal([]byte(s), &p); err == nil && (p.Headline != "" || p.Body != "" || len(p.Highlights) > 0) {
+		return &p
+	}
+	// Fallback: locate the outermost JSON object.
+	if i, j := strings.IndexByte(s, '{'), strings.LastIndexByte(s, '}'); i >= 0 && j > i {
+		if err := json.Unmarshal([]byte(s[i:j+1]), &p); err == nil && (p.Headline != "" || p.Body != "" || len(p.Highlights) > 0) {
+			return &p
+		}
+	}
+	return nil
 }
 
 // buildPrompt is the deterministic, side-effect-free core of the
@@ -90,16 +169,40 @@ func Generate(ctx context.Context, a *ai.Analyzer, in Inputs) (Result, error) {
 // disk.
 func buildPrompt(in Inputs) (string, string) {
 	const system = `You are the Rivolt trip-recap writer. ` +
-		`Produce 2-3 short sentences (max ~60 words total) summarizing ` +
-		`a single Rivian drive in a friendly, factual tone -- like a ` +
-		`car-enthusiast friend describing the trip. Lead with the ` +
-		`headline numbers (distance, efficiency, cost if known). ` +
-		`Mention notable details only when they matter: significant ` +
-		`elevation gain/loss, unusually high or low efficiency, an ` +
-		`adjacent charge stop, weather extremes. Do not invent ` +
-		`information. Do not include emoji, hashtags, or marketing ` +
-		`language. Output the recap text only -- no preamble, no ` +
-		`bullet points, no markdown.`
+		`Summarize a single Rivian drive in a friendly, factual tone -- ` +
+		`like a car-enthusiast friend describing the trip. Lead with the ` +
+		`headline numbers (distance, efficiency, cost if known). Mention ` +
+		`notable details only when they matter: significant elevation ` +
+		`gain/loss, unusually high or low efficiency relative to the ` +
+		`driver's baseline, an adjacent charge stop, weather extremes. ` +
+		`Do not invent information. Do not include emoji, hashtags, or ` +
+		`marketing language.
+
+` +
+		`Respond as a single JSON object, nothing before or after, with ` +
+		`this exact shape:
+` +
+		"```\n" +
+		`{
+` +
+		`  "headline": "<3 to 8 word punchy lead, no period>",
+` +
+		`  "body": "<1-2 sentence narration, max ~50 words>",
+` +
+		`  "highlights": [
+` +
+		`    {"label": "<short label>", "value": "<short value with units>"}
+` +
+		`  ],
+` +
+		`  "mood": "<one of: commute, errand, road-trip, mountain, city, scenic, quick-trip>"
+` +
+		`}
+` +
+		"```\n" +
+		`Pick 2 to 4 highlights from the actual stats below (e.g. ` +
+		`Distance, Efficiency, Climb, Cost, Avg speed, Outside temp, ` +
+		`Charged after). Output JSON only.`
 
 	d := in.Drive
 	dur := d.EndedAt.Sub(d.StartedAt)
@@ -147,6 +250,13 @@ func buildPrompt(in Inputs) (string, string) {
 	if miPerKWh > 0 {
 		fmt.Fprintf(&sb, "  efficiency_mi_per_kwh: %.2f\n", miPerKWh)
 	}
+	if in.BaselineMiPerKWh > 0 && in.BaselineDays > 0 {
+		fmt.Fprintf(&sb, "  baseline_mi_per_kwh_last_%dd: %.2f\n", in.BaselineDays, in.BaselineMiPerKWh)
+		if miPerKWh > 0 {
+			delta := (miPerKWh - in.BaselineMiPerKWh) / in.BaselineMiPerKWh * 100.0
+			fmt.Fprintf(&sb, "  efficiency_delta_pct_vs_baseline: %+.0f\n", delta)
+		}
+	}
 	fmt.Fprintf(&sb, "  start_soc_pct: %.0f\n", d.StartSoCPct)
 	fmt.Fprintf(&sb, "  end_soc_pct: %.0f\n", d.EndSoCPct)
 
@@ -178,7 +288,7 @@ func buildPrompt(in Inputs) (string, string) {
 	}
 
 	fmt.Fprintln(&sb)
-	fmt.Fprintln(&sb, "Write the recap now.")
+	fmt.Fprintln(&sb, "Respond with the JSON now.")
 	return system, sb.String()
 }
 

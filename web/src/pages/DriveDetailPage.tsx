@@ -570,8 +570,6 @@ export default function DriveDetailPage() {
         )}
       </Card>
 
-      {drive ? <TripRecapCard driveId={drive.ID} /> : null}
-
       <Card
         title="Route"
         actions={
@@ -614,6 +612,8 @@ export default function DriveDetailPage() {
           detail={String(samples.error)}
         />
       ) : null}
+
+      {drive ? <TripRecapCard driveId={drive.ID} /> : null}
     </div>
   );
 }
@@ -799,16 +799,69 @@ function TripRecapCard({ driveId }: { driveId: string }) {
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
-          <p className="text-sm leading-relaxed text-neutral-200">
-            {data.recap}
-          </p>
-          <div className="text-[11px] text-neutral-500">
-            {data.model} · {formatDateTime(data.generated_at)}
-            {data.cached ? " · cached" : ""}
-          </div>
-        </div>
+        <RecapBody data={data} />
       )}
     </Card>
+  );
+}
+
+// RecapBody renders the structured shape (headline + body + highlight
+// chips + mood chip) when the backend returned it, and falls back to
+// the legacy plain-prose layout when only `recap` is present (older
+// cached rows pre-dating the JSON migration). Keeping both paths in
+// one component means the card never flickers between layouts when a
+// user re-generates a stale row.
+function RecapBody({ data }: { data: DriveRecap }) {
+  const hasStructured =
+    !!data.headline ||
+    !!data.body ||
+    (data.highlights && data.highlights.length > 0);
+  return (
+    <div className="space-y-3">
+      {hasStructured ? (
+        <>
+          {data.headline ? (
+            <p className="text-base font-semibold leading-snug text-neutral-100">
+              {data.headline}
+            </p>
+          ) : null}
+          {data.body ? (
+            <p className="text-sm leading-relaxed text-neutral-300">
+              {data.body}
+            </p>
+          ) : null}
+          {data.highlights && data.highlights.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {data.highlights.map((h, i) => (
+                <div
+                  key={`${h.label}-${i}`}
+                  className="rounded-md border border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-[11px]"
+                >
+                  <span className="text-neutral-500">{h.label}</span>
+                  <span className="ml-1.5 font-medium tabular-nums text-neutral-200">
+                    {h.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-sm leading-relaxed text-neutral-200">
+          {data.recap}
+        </p>
+      )}
+      <div className="text-[11px] text-neutral-500 flex flex-wrap items-center gap-x-2">
+        {data.mood ? (
+          <span className="rounded-full border border-emerald-800/60 bg-emerald-900/20 px-2 py-0.5 text-emerald-300/90">
+            {data.mood}
+          </span>
+        ) : null}
+        <span>
+          {data.model} · {formatDateTime(data.generated_at)}
+          {data.cached ? " · cached" : ""}
+        </span>
+      </div>
+    </div>
   );
 }

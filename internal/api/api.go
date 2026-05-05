@@ -1808,12 +1808,22 @@ func otelTraceRoute(next http.Handler) http.Handler {
 // /api/drives/{id}/recap. Token counts are surfaced so power users
 // can see what each call cost; the operator pays the LLM bill, so
 // transparency matters.
+//
+// Recap is always set; it's the raw model reply (modern recaps are
+// JSON, legacy rows are plain prose). The structured fields
+// (Headline / Body / Highlights / Mood) are populated when the
+// reply parsed cleanly. The SPA prefers them when present and
+// falls back to Recap otherwise.
 type driveRecapResponse struct {
-	Recap        string    `json:"recap"`
-	Model        string    `json:"model"`
-	GeneratedAt  time.Time `json:"generated_at"`
-	InputTokens  int64     `json:"input_tokens,omitempty"`
-	OutputTokens int64     `json:"output_tokens,omitempty"`
+	Recap        string            `json:"recap"`
+	Headline     string            `json:"headline,omitempty"`
+	Body         string            `json:"body,omitempty"`
+	Highlights   []recap.Highlight `json:"highlights,omitempty"`
+	Mood         string            `json:"mood,omitempty"`
+	Model        string            `json:"model"`
+	GeneratedAt  time.Time         `json:"generated_at"`
+	InputTokens  int64             `json:"input_tokens,omitempty"`
+	OutputTokens int64             `json:"output_tokens,omitempty"`
 	// Cached is true when the response came straight from the
 	// drive_recaps row and no LLM call was made. Lets the SPA
 	// distinguish "fresh paid generation" from "free cache hit"
@@ -2024,6 +2034,15 @@ WHERE user_id = $1 AND drive_id = $2
 	}
 	if err != nil {
 		return driveRecapResponse{}, false, err
+	}
+	// Re-parse the stored reply so structured fields land in the
+	// response on cache hits too. Legacy plain-text rows return nil
+	// here and the SPA falls back to rendering Recap as prose.
+	if p := recap.ParseRecap(resp.Recap); p != nil {
+		resp.Headline = p.Headline
+		resp.Body = p.Body
+		resp.Highlights = p.Highlights
+		resp.Mood = p.Mood
 	}
 	return resp, true, nil
 }

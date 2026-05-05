@@ -66,6 +66,17 @@ func mergePair(a, b Drive) Drive {
 	m.EndLat = b.EndLat
 	m.EndLon = b.EndLon
 	m.DistanceMi = a.DistanceMi + b.DistanceMi
+	// Sum pack-side energy across both legs. Without this the merged
+	// row carries only leg A's energy (m := a), which combined with the
+	// summed distance overstated efficiency on round trips by ~2x. A
+	// missing-energy leg (legacy / unimported pack size) collapses the
+	// pair to zero, matching the per-leg "unknown" semantics rather
+	// than silently halving the trip.
+	if a.EnergyUsedKWh > 0 && b.EnergyUsedKWh > 0 {
+		m.EnergyUsedKWh = a.EnergyUsedKWh + b.EnergyUsedKWh
+	} else {
+		m.EnergyUsedKWh = 0
+	}
 	if b.MaxSpeedMph > m.MaxSpeedMph {
 		m.MaxSpeedMph = b.MaxSpeedMph
 	}
