@@ -314,7 +314,7 @@ decisions 5–7, 10–12.
         `protomaps-leaflet` with the built-in dark flavor when
         `/api/config` advertises a `tiles.url` — eliminates
         per-tile CDN calls and works offline. v0.17.25.
-- [ ] **Self-hosted elevation tiles.** v0.17.36 added per-sample
+- [x] **Self-hosted elevation tiles.** v0.17.36 added per-sample
       altitude (`vehicle_state.altitude_m`) sourced from the
       Mapzen Terrarium DEM on AWS Open Data
       (`s3.amazonaws.com/elevation-tiles-prod/terrarium/...`).
@@ -334,17 +334,19 @@ decisions 5–7, 10–12.
         Terrarium dump there for fully-offline operation, no
         upstream needed at runtime. Chart wires `elevation.cacheDir`.
         Tests in `internal/elevation/resolver_test.go`. v0.17.37.
-      Still open:
-      - [ ] **In-cluster tile mirror Deployment.** rivolt-infra:
-        an unprivileged-nginx Deployment serving a regional
-        Terrarium tile dump from the same NFS PVC pattern as the
-        basemap PMTiles tile server (`apps/elevation/`). The chart
-        side is already done — operator just stands up the upstream
-        and points `elevation.tilesUrl` at it. Tracking issue
-        should capture the dump source (e.g. `joerd` rebuild vs
-        a one-time `aws s3 sync` of the regional prefix from the
-        public bucket) and the storage budget (z=12 Texas extract
-        is on the order of ~1 GB).
+      - ✅ **In-cluster tile mirror Deployment.** rivolt-infra
+        `apps/maps/elevation/` (grouped with `osrm` and `tiles`
+        under `apps/maps/`): NFS-backed PVC, a one-shot build
+        Job that pulls the z=12 Texas Terrarium extract
+        (x=834..984, y=1601..1743 = 21,593 tiles, ~1 GB) from
+        the AWS public bucket via 20-way parallel curl, and an
+        unprivileged-nginx Deployment serving
+        `http://elevation.elevation.svc.cluster.local/{z}/{x}/{y}.png`.
+        rivolt's `elevation.tilesUrl` in `apps/rivolt/values.yaml`
+        points at it; the recorder's `/data/elevation/` PVC
+        populates from the LAN with zero AWS egress at
+        request time. Future region expansion = bump
+        `ELEV_X/Y_MIN/MAX` env on the build Job and re-run.
 - [ ] **Scale OSRM beyond a single state extract.** Current
       self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
       to `texas-latest` because that's where every recorded
