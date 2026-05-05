@@ -533,7 +533,8 @@ function EmptyChart({ height }: { height: number }) {
 
 // "Nice" tick values across [a, b].
 function tickValues(a: number, b: number, n: number): number[] {
-  if (n <= 0 || !Number.isFinite(a) || !Number.isFinite(b) || a === b) {
+  if (n <= 0) return [];
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) {
     return [a];
   }
   const step = (b - a) / (n - 1);

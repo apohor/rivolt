@@ -415,115 +415,110 @@ export default function DriveDetailPage() {
         )}
       </div>
 
-      <Card
-        title={
-          ambientTempSeries
-            ? `Speed, battery & ${ambientTempSeries.label.toLowerCase()}`
-            : "Speed & battery"
-        }
-      >
+      <Card title="Telemetry">
         {samples.isLoading ? (
           <Spinner />
         ) : speedPts.length === 0 && socPts.length === 0 ? (
           <NoSamples />
         ) : (
-          <>
-            <LineChart
-              series={[
-                ...(speedPts.length > 0
-                  ? [
-                      {
-                        points: speedPts,
-                        color: "#38bdf8",
-                        strokeWidth: 1.4,
-                        area: true,
-                        curve: "monotone" as const,
-                        label: "Speed",
-                      },
-                    ]
-                  : []),
-                ...(socPts.length > 0
-                  ? [
-                      {
-                        points: socPts,
-                        color: "#10b981",
-                        strokeWidth: 1.4,
-                        label: "Battery",
-                        axis: "right" as const,
-                      },
-                    ]
-                  : []),
-                // Ambient-temperature overlay. Picks outside or
-                // cabin depending on which signal exists for this
-                // session (see ambientTempSeries). Temp has nothing
-                // to do with mph or %; we stretch it linearly into
-                // the right-axis range so the dotted line stays
-                // inside the chart, and use `formatCursor` to invert
-                // the mapping so the cursor readout still shows the
-                // real °F/°C. Pure visual aid — the right axis
-                // labels remain battery %.
-                ...(() => {
-                  if (!ambientTempSeries) return [];
-                  const ys = ambientTempSeries.points.map((p) => p.y);
-                  const tMin = Math.min(...ys);
-                  const tMax = Math.max(...ys);
-                  const span = Math.max(1, tMax - tMin);
-                  const lo2 = Math.max(0, drive.EndSoCPct - 5);
-                  const hi2 = Math.min(100, drive.StartSoCPct + 5);
-                  const pad = (hi2 - lo2) * 0.05;
-                  const lo = lo2 + pad;
-                  const hi = hi2 - pad;
-                  const map = (t: number) =>
-                    lo + ((t - tMin) / span) * (hi - lo);
-                  const inv = (m: number) =>
-                    tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
-                  return [
-                    {
-                      points: ambientTempSeries.points.map((p) => ({
-                        x: p.x,
-                        y: map(p.y),
-                      })),
-                      color: "#fb923c",
-                      strokeWidth: 1,
-                      curve: "monotone" as const,
-                      dash: "3 3",
-                      axis: "right" as const,
-                      label: ambientTempSeries.label,
-                      formatCursor: (m: number) =>
-                        `${inv(m).toFixed(0)}${tempUnitSuffix}`,
-                    },
-                  ];
-                })(),
-              ]}
-              height={200}
-              yDomain={[0, Math.max(50, drive.MaxSpeedMph + 5)]}
-              y2Domain={[
-                Math.max(0, drive.EndSoCPct - 5),
-                Math.min(100, drive.StartSoCPct + 5),
-              ]}
-              formatY={(v) => `${v.toFixed(0)} mph`}
-              formatY2={(v) => `${v.toFixed(0)}%`}
-              formatX={xTimeFmt}
-              cursorX={cursorMs}
-              onCursorChange={setCursorMs}
-            />
-            <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-sky-400" />
-                Speed (left)
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
-                Battery (right)
-              </span>
-              {ambientTempSeries ? (
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-[2px] border-t border-dashed border-orange-400" />
-                  {ambientTempSeries.label} ({tempUnitSuffix})
-                </span>
-              ) : null}
-            </div>
-          </>
+          (() => {
+            // Shared x-domain so all stacked panels align tick-for-tick
+            // and the synced cursor lands on the same moment in each
+            // chart. Pulled from the widest series we render (speed
+            // includes the synthetic 0-mph anchor at the tail).
+            const allX = [
+              ...speedPts.map((p) => p.x),
+              ...socPts.map((p) => p.x),
+              ...(ambientTempSeries?.points.map((p) => p.x) ?? []),
+            ];
+            const xDomain: [number, number] | undefined =
+              allX.length > 0
+                ? [Math.min(...allX), Math.max(...allX)]
+                : undefined;
+            // Top/middle panels suppress x ticks; only the bottom
+            // panel (battery if no temp, otherwise temp) draws them.
+            const hasTemp = !!ambientTempSeries;
+            return (
+              <div className="space-y-3">
+                {speedPts.length > 0 ? (
+                  <ChartPanel label="Speed" colorClass="bg-sky-400">
+                    <LineChart
+                      series={[
+                        {
+                          points: speedPts,
+                          color: "#38bdf8",
+                          strokeWidth: 1.4,
+                          area: true,
+                          curve: "monotone",
+                          label: "Speed",
+                        },
+                      ]}
+                      height={100}
+                      xDomain={xDomain}
+                      yDomain={[0, Math.max(50, drive.MaxSpeedMph + 5)]}
+                      formatY={(v) => `${v.toFixed(0)} mph`}
+                      formatX={xTimeFmt}
+                      xTicks={0}
+                      cursorX={cursorMs}
+                      onCursorChange={setCursorMs}
+                    />
+                  </ChartPanel>
+                ) : null}
+                {socPts.length > 0 ? (
+                  <ChartPanel label="Battery" colorClass="bg-emerald-500">
+                    <LineChart
+                      series={[
+                        {
+                          points: socPts,
+                          color: "#10b981",
+                          strokeWidth: 1.4,
+                          label: "Battery",
+                        },
+                      ]}
+                      height={90}
+                      xDomain={xDomain}
+                      yDomain={[
+                        Math.max(0, drive.EndSoCPct - 5),
+                        Math.min(100, drive.StartSoCPct + 5),
+                      ]}
+                      formatY={(v) => `${v.toFixed(0)}%`}
+                      formatX={xTimeFmt}
+                      xTicks={hasTemp ? 0 : 4}
+                      cursorX={cursorMs}
+                      onCursorChange={setCursorMs}
+                    />
+                  </ChartPanel>
+                ) : null}
+                {hasTemp ? (
+                  <ChartPanel
+                    label={ambientTempSeries.label}
+                    colorClass="bg-orange-400"
+                  >
+                    <LineChart
+                      series={[
+                        {
+                          points: ambientTempSeries.points,
+                          color: "#fb923c",
+                          strokeWidth: 1.2,
+                          curve: "monotone",
+                          label: ambientTempSeries.label,
+                          formatCursor: (v: number) =>
+                            `${v.toFixed(0)}${tempUnitSuffix}`,
+                        },
+                      ]}
+                      height={70}
+                      xDomain={xDomain}
+                      formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
+                      formatX={xTimeFmt}
+                      yTicks={2}
+                      cursorX={cursorMs}
+                      onCursorChange={setCursorMs}
+                    />
+                  </ChartPanel>
+                ) : null}
+              </div>
+            );
+          })()
         )}
       </Card>
 
@@ -661,5 +656,29 @@ function NoSamples() {
       wired yet; ElectraFi samples only land in the <code>samples</code>{" "}
       table for runs after the importer was added.
     </p>
+  );
+}
+
+// One row of the synced telemetry stack: a small label header above
+// a fixed-height LineChart. Kept here (not in components/charts.tsx)
+// because so far DriveDetailPage is the only caller; promote when a
+// second page wants the same treatment.
+function ChartPanel({
+  label,
+  colorClass,
+  children,
+}: {
+  label: string;
+  colorClass: string;
+  children: import("react").ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-neutral-400">
+        <span className={`inline-block w-2 h-2 rounded-sm ${colorClass}`} />
+        {label}
+      </div>
+      {children}
+    </div>
   );
 }
