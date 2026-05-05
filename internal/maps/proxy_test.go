@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-func TestNewOSRMProxy_emptyURLReturnsNil(t *testing.T) {
+func TestNewProxy_emptyURLReturnsNil(t *testing.T) {
 	t.Parallel()
-	h, err := NewOSRMProxy("")
+	h, err := NewProxy("")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -20,14 +20,14 @@ func TestNewOSRMProxy_emptyURLReturnsNil(t *testing.T) {
 	}
 }
 
-func TestNewOSRMProxy_invalidURLRejected(t *testing.T) {
+func TestNewProxy_invalidURLRejected(t *testing.T) {
 	t.Parallel()
-	if _, err := NewOSRMProxy("nohost"); !errors.Is(err, ErrInvalidURL) {
+	if _, err := NewProxy("nohost"); !errors.Is(err, ErrInvalidURL) {
 		t.Fatalf("want ErrInvalidURL, got %v", err)
 	}
 }
 
-func TestOSRMProxy_forwardsAndStripsCreds(t *testing.T) {
+func TestProxy_forwardsAndStripsCreds(t *testing.T) {
 	t.Parallel()
 
 	var gotPath, gotCookie, gotAuth string
@@ -39,9 +39,9 @@ func TestOSRMProxy_forwardsAndStripsCreds(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	h, err := NewOSRMProxy(upstream.URL)
+	h, err := NewProxy(upstream.URL)
 	if err != nil {
-		t.Fatalf("NewOSRMProxy: %v", err)
+		t.Fatalf("NewProxy: %v", err)
 	}
 
 	// Mounted at /api/maps/osrm, path stripped before reaching us.

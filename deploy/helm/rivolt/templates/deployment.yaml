@@ -97,6 +97,16 @@ spec:
             - name: RIVOLT_OSRM_BASE_URL
               value: {{ .osrm.baseUrl | quote }}
             {{- end }}
+            {{- if .tiles.baseUrl }}
+            # Same-origin PMTiles proxy. When set, the rivolt API
+            # mounts /api/maps/tiles/* and forwards to this URL,
+            # and /api/config advertises the .pmtiles file so the
+            # SPA's protomaps-leaflet layer fetches it via
+            # byte-range reads. Empty/unset falls back to CARTO's
+            # public dark raster basemap.
+            - name: RIVOLT_TILES_BASE_URL
+              value: {{ .tiles.baseUrl | quote }}
+            {{- end }}
             {{- end }}
             # DB_USER. CNPG: from the auto-generated <cluster>-app
             # Secret. External w/ existingSecret + UserKey: from

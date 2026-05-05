@@ -774,13 +774,26 @@ func runServer() {
 	// cluster Service (e.g. http://osrm.osrm.svc.cluster.local).
 	// Empty disables the feature; the SPA falls back to the public
 	// OSRM demo via /api/config advertising an empty path.
-	osrmProxy, err := maps.NewOSRMProxy(os.Getenv("RIVOLT_OSRM_BASE_URL"))
+	osrmProxy, err := maps.NewProxy(os.Getenv("RIVOLT_OSRM_BASE_URL"))
 	if err != nil {
 		logger.Error("osrm proxy init", "err", err.Error())
 		os.Exit(1)
 	}
 	if osrmProxy != nil {
 		logger.Info("osrm same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_OSRM_BASE_URL"))
+	}
+
+	// Tiles same-origin proxy. RIVOLT_TILES_BASE_URL points at the
+	// cluster Service serving the .pmtiles bundle (nginx in front
+	// of an NFS PVC, typically). Empty disables the feature; the
+	// SPA falls back to CARTO's public dark raster basemap.
+	tilesProxy, err := maps.NewProxy(os.Getenv("RIVOLT_TILES_BASE_URL"))
+	if err != nil {
+		logger.Error("tiles proxy init", "err", err.Error())
+		os.Exit(1)
+	}
+	if tilesProxy != nil {
+		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
 	}
 
 	handler := api.New(api.Deps{
@@ -806,6 +819,7 @@ func runServer() {
 		Metrics:      appMetrics,
 		Authelia:     autheliaClient,
 		OSRMProxy:    osrmProxy,
+		TilesProxy:   tilesProxy,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

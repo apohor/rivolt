@@ -409,21 +409,27 @@ ratelimit:
     addr: ""
 
 # ---------------------------------------------------------------------------
-# Maps: self-hosted OSRM same-origin proxy
+# Maps: self-hosted OSRM + PMTiles same-origin proxies
 # ---------------------------------------------------------------------------
 #
 # When `osrm.baseUrl` is set, the rivolt API:
 #   - mounts /api/maps/osrm/* and reverse-proxies to this URL,
 #   - advertises that path on /api/config so the SPA uses it for
 #     /match and /route instead of the public OSRM demo.
+# Typical in-cluster value: "http://osrm.osrm.svc.cluster.local".
+# Empty falls back to router.project-osrm.org.
 #
-# Typical value in-cluster: "http://osrm.osrm.svc.cluster.local"
-# (the apps/osrm/ chart in rivolt-infra exposes a Service on :80).
-# Empty disables the feature; the SPA falls back to
-# router.project-osrm.org with the public demo's 9-coord /match
-# cap and aggressive rate limits.
+# When `tiles.baseUrl` is set, the rivolt API:
+#   - mounts /api/maps/tiles/* and reverse-proxies to this URL,
+#   - advertises /api/maps/tiles/texas.pmtiles on /api/config so
+#     the SPA's protomaps-leaflet layer pulls vector tiles from
+#     the cluster (via byte-range reads on the .pmtiles file).
+# Typical in-cluster value: "http://tiles.tiles.svc.cluster.local".
+# Empty falls back to CARTO's public dark raster basemap.
 maps:
   osrm:
+    baseUrl: ""
+  tiles:
     baseUrl: ""
 
 # ---------------------------------------------------------------------------

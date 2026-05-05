@@ -24,9 +24,16 @@ export type RuntimeConfig = {
     // SPA falls back to the public OSRM demo.
     path: string;
   };
+  tiles: {
+    // url is the same-origin URL of the served .pmtiles bundle.
+    // protomaps-leaflet pulls tiles out of it via HTTP byte-range
+    // reads. Empty means no self-hosted tile server is wired and
+    // the SPA falls back to CARTO's public dark raster basemap.
+    url: string;
+  };
 };
 
-const fallback: RuntimeConfig = { osrm: { path: "" } };
+const fallback: RuntimeConfig = { osrm: { path: "" }, tiles: { url: "" } };
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
 
@@ -37,6 +44,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
     const j = (await r.json()) as Partial<RuntimeConfig> | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
+      tiles: { url: j?.tiles?.url ?? "" },
     };
   } catch {
     return fallback;
@@ -69,6 +77,15 @@ export function getConfig(): RuntimeConfig {
 // are appended by the caller.
 export function osrmBase(): string {
   return cached.osrm.path || "https://router.project-osrm.org";
+}
+
+// tilesPMTilesURL returns the same-origin URL of the .pmtiles
+// bundle, or "" when no self-hosted tile server is wired. The
+// caller picks a basemap based on this: non-empty switches the
+// drive map to a vector basemap via protomaps-leaflet; empty keeps
+// the legacy CARTO raster path.
+export function tilesPMTilesURL(): string {
+  return cached.tiles.url;
 }
 
 // Kick off the config fetch as soon as this module is imported so

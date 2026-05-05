@@ -135,6 +135,12 @@ type Deps struct {
 	// /api/config advertises whether the proxy is mounted so the
 	// SPA picks the right base URL at boot.
 	OSRMProxy http.Handler
+	// TilesProxy, when non-nil, mounts a same-origin reverse
+	// proxy at /api/maps/tiles/* that forwards to a self-hosted
+	// PMTiles file server (nginx serving the .pmtiles bundle
+	// with byte-range support). nil leaves the route unmounted;
+	// the SPA falls back to CARTO's public dark raster basemap.
+	TilesProxy http.Handler
 }
 
 // New builds the root mux with all routes mounted.
@@ -210,7 +216,7 @@ func New(d Deps) http.Handler {
 		// (today: whether the OSRM same-origin proxy is mounted).
 		// Public so the SPA can fetch it before login as well as
 		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil))
+		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -251,6 +257,9 @@ func New(d Deps) http.Handler {
 			// itself; the proxy.Director then forwards as-is.
 			if d.OSRMProxy != nil {
 				r.Mount("/maps/osrm", http.StripPrefix("/api/maps/osrm", d.OSRMProxy))
+			}
+			if d.TilesProxy != nil {
+				r.Mount("/maps/tiles", http.StripPrefix("/api/maps/tiles", d.TilesProxy))
 			}
 
 			r.Route("/push", func(r chi.Router) {
@@ -448,22 +457,33 @@ func handleHealth(version string) http.HandlerFunc {
 }
 
 // handleConfig advertises optional runtime knobs to the SPA. Today
-// it returns whether the same-origin OSRM proxy is mounted; the
-// SPA uses the path it returns as the base URL for /match and
-// /route, falling back to the public OSRM demo when the path is
-// empty. Public so the SPA can fetch it without a session.
-func handleConfig(osrmEnabled bool) http.HandlerFunc {
+// it returns whether the same-origin map proxies are mounted; the
+// SPA uses the paths it returns as base URLs for OSRM (/match,
+// /route) and PMTiles (drive map basemap), falling back to the
+// public demos when a path is empty. Public so the SPA can fetch
+// it without a session.
+func handleConfig(osrmEnabled, tilesEnabled bool) http.HandlerFunc {
 	type osrmCfg struct {
 		// Path is the same-origin URL prefix the SPA should hit
 		// (empty when the proxy is not configured server-side).
 		Path string `json:"path,omitempty"`
 	}
+	type tilesCfg struct {
+		// URL is the full same-origin URL of the served .pmtiles
+		// file (empty when not configured). protomaps-leaflet
+		// fetches this with byte-range reads.
+		URL string `json:"url,omitempty"`
+	}
 	type cfg struct {
-		OSRM osrmCfg `json:"osrm"`
+		OSRM  osrmCfg  `json:"osrm"`
+		Tiles tilesCfg `json:"tiles"`
 	}
 	c := cfg{}
 	if osrmEnabled {
 		c.OSRM.Path = "/api/maps/osrm"
+	}
+	if tilesEnabled {
+		c.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, c)

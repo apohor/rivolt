@@ -304,10 +304,16 @@ decisions 5–7, 10–12.
         maps now send the whole trace as a single `/match`
         instead of walking 9-coord chunks (runtime is configured
         for `--max-matching-size 1000`). v0.17.24.
-      - [ ] **Self-hosted tile server** (TileServer-GL or a
-        Protomaps-style PMTiles bundle on object storage with a
-        `pmtiles://` viewer) — eliminates per-tile CDN calls and
-        works offline for overland mode.
+      - [ ] **Self-hosted tile server.** PMTiles bundle (Texas
+        extract built from `build.protomaps.com` daily planet
+        via HTTP range reads, ~500 MB) served by an
+        unprivileged-nginx Deployment from the cluster NFS
+        PVC, behind a same-origin proxy at `/api/maps/tiles/*`
+        wired by `RIVOLT_TILES_BASE_URL` (`maps.tiles.baseUrl`
+        in the chart). The SPA renders it via
+        `protomaps-leaflet` with the built-in dark flavor when
+        `/api/config` advertises a `tiles.url` — eliminates
+        per-tile CDN calls and works offline. v0.17.25.
 - [ ] **Scale OSRM beyond a single state extract.** Current
       self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
       to `texas-latest` because that's where every recorded

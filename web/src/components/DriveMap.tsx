@@ -9,7 +9,8 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { osrmBase, getConfig, ensureConfig } from "../lib/config";
+import { osrmBase, getConfig, ensureConfig, tilesPMTilesURL } from "../lib/config";
+import { leafletLayer } from "protomaps-leaflet";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
 // OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
@@ -246,6 +247,29 @@ function addCartoDark(map: L.Map) {
   ).addTo(map);
 }
 
+// Vector attribution for the self-hosted Protomaps basemap. OSM is
+// the data source; Protomaps builds and hosts the daily planet
+// extracts we slice from at build time.
+const PROTOMAPS_ATTRIB =
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
+
+// addBasemap picks between the self-hosted PMTiles vector layer
+// (when the tile server is wired via /api/config) and the legacy
+// CARTO raster split-label setup. The vector path renders labels
+// inline with the basemap; the route polyline draws on top.
+function addBasemap(map: L.Map) {
+  const url = tilesPMTilesURL();
+  if (!url) {
+    addCartoDark(map);
+    return;
+  }
+  leafletLayer({
+    url,
+    flavor: "dark",
+    attribution: PROTOMAPS_ATTRIB,
+  }).addTo(map);
+}
+
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
 // an inline DOM marker so we don't need bundler asset plumbing.
 // Emerald for start, rose for end, amber for charge. A thin dark ring
@@ -480,7 +504,7 @@ export function DriveMap({
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
 
-    addCartoDark(map);
+    addBasemap(map);
 
     // Pick start/end markers. Prefer caller-supplied start/end (the
     // page can derive these from parked samples flanking the drive,
@@ -782,7 +806,7 @@ export function ChargeMap({
     }).setView([lat, lon], 15);
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    addCartoDark(map);
+    addBasemap(map);
     L.marker([lat, lon], {
       icon: circleIcon("#f59e0b"),
       zIndexOffset: 1000,
@@ -910,7 +934,7 @@ export function ChargesOverviewMap({
     }).setView([valid[0].Lat, valid[0].Lon], 4);
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    addCartoDark(map);
+    addBasemap(map);
 
     for (const c of valid) {
       const bucket = chargeBucket(c.MaxPowerKW);
@@ -1040,7 +1064,7 @@ export function DrivesOverviewMap({
     }).setView([valid[0].StartLat, valid[0].StartLon], 4);
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    addCartoDark(map);
+    addBasemap(map);
 
     const allLatLngs: [number, number][] = [];
     for (const d of valid) {
