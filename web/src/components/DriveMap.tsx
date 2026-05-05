@@ -362,13 +362,17 @@ function chargerSpecListHTML(poi: POI): string {
 }
 
 // Basemap flavor toggle. protomaps-leaflet ships four named flavors
-// out of the box (dark/light/black/white); we expose all four and
-// persist the choice in localStorage so it survives reloads. A
-// custom event keeps all maps on the same page in sync — switching
-// flavor on the drive details page also updates the inline mini-map
-// in the sidebar (or any other map that's mounted concurrently).
-type Flavor = "dark" | "light" | "black" | "white";
-const FLAVORS: Flavor[] = ["dark", "light", "black", "white"];
+// Basemap flavor toggle. @protomaps/basemaps ships four named
+// flavors (dark / light / black / white) but black is a marginal
+// variant of dark and white is a marginal variant of light --
+// not enough difference to justify four buttons in the UI. We
+// expose just dark and light. Persist the choice in localStorage
+// so it survives reloads. A custom event keeps all maps on the
+// page in sync -- switching flavor on the drive details page
+// also updates the inline mini-map in the sidebar (or any other
+// map mounted concurrently).
+type Flavor = "dark" | "light";
+const FLAVORS: Flavor[] = ["dark", "light"];
 const FLAVOR_LS_KEY = "rivolt:basemap-flavor";
 const FLAVOR_EVENT = "rivolt:flavor-change";
 
@@ -392,11 +396,12 @@ function setFlavor(f: Flavor): void {
   window.dispatchEvent(new CustomEvent<Flavor>(FLAVOR_EVENT, { detail: f }));
 }
 
-// flavorControl renders a 4-button picker in the top-right corner
-// for swapping between the named protomaps-leaflet flavors. Click
-// dispatches the FLAVOR_EVENT so every mounted map swaps its layer
-// in unison; the active button is highlighted on the next event
-// dispatch (initial paint and subsequent changes alike).
+// flavorControl renders a two-button picker in the top-right
+// corner for swapping between dark and light basemap flavors.
+// Click dispatches the FLAVOR_EVENT so every mounted map swaps
+// its layer in unison; the active button is highlighted on the
+// next event dispatch (initial paint and subsequent changes
+// alike).
 function flavorControl(map: L.Map): L.Control {
   const ctl = new L.Control({ position: "topright" });
   ctl.onAdd = () => {
@@ -501,24 +506,6 @@ function boostContrast(name: Flavor, base: PMFlavor): PMFlavor {
         park_a: "#cfe5cf",
         park_b: "#cfe5cf",
         pedestrian: "#dad7d2",
-      };
-    case "black":
-      return {
-        ...base,
-        // BLACK earth = #141414, buildings = #0a -- invisible.
-        buildings: "#3a3a3a",
-        park_a: "#19261d",
-        park_b: "#19261d",
-        wood_a: "#19211c",
-        wood_b: "#19211c",
-        pedestrian: "#202020",
-      };
-    case "white":
-      return {
-        ...base,
-        // WHITE earth = #fff, buildings = #efefef -- subtle but
-        // present. Bump it just a touch.
-        buildings: "#cfcfcf",
       };
   }
 }
