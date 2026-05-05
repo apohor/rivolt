@@ -253,21 +253,133 @@ function addCartoDark(map: L.Map) {
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
 
+// Basemap flavor toggle. protomaps-leaflet ships four named flavors
+// out of the box (dark/light/black/white); we expose all four and
+// persist the choice in localStorage so it survives reloads. A
+// custom event keeps all maps on the same page in sync — switching
+// flavor on the drive details page also updates the inline mini-map
+// in the sidebar (or any other map that's mounted concurrently).
+type Flavor = "dark" | "light" | "black" | "white";
+const FLAVORS: Flavor[] = ["dark", "light", "black", "white"];
+const FLAVOR_LS_KEY = "rivolt:basemap-flavor";
+const FLAVOR_EVENT = "rivolt:flavor-change";
+
+function getFlavor(): Flavor {
+  try {
+    const v = localStorage.getItem(FLAVOR_LS_KEY);
+    if (v && (FLAVORS as string[]).includes(v)) return v as Flavor;
+  } catch {
+    // localStorage can throw in private mode / disabled storage;
+    // fall through to the default.
+  }
+  return "dark";
+}
+
+function setFlavor(f: Flavor): void {
+  try {
+    localStorage.setItem(FLAVOR_LS_KEY, f);
+  } catch {
+    // see getFlavor — non-fatal.
+  }
+  window.dispatchEvent(new CustomEvent<Flavor>(FLAVOR_EVENT, { detail: f }));
+}
+
+// flavorControl renders a 4-button picker in the top-right corner
+// for swapping between the named protomaps-leaflet flavors. Click
+// dispatches the FLAVOR_EVENT so every mounted map swaps its layer
+// in unison; the active button is highlighted on the next event
+// dispatch (initial paint and subsequent changes alike).
+function flavorControl(map: L.Map): L.Control {
+  const ctl = new L.Control({ position: "topright" });
+  ctl.onAdd = () => {
+    const div = L.DomUtil.create("div", "rivolt-flavor-control");
+    div.style.cssText =
+      "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
+      "border-radius:6px;padding:2px;display:inline-flex;gap:2px;" +
+      "font:10px/1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);" +
+      "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
+    const buttons: Record<Flavor, HTMLButtonElement> = {} as Record<
+      Flavor,
+      HTMLButtonElement
+    >;
+    for (const f of FLAVORS) {
+      const btn = L.DomUtil.create("button", "", div) as HTMLButtonElement;
+      btn.type = "button";
+      btn.textContent = f[0].toUpperCase();
+      btn.title = `${f[0].toUpperCase()}${f.slice(1)} basemap`;
+      btn.style.cssText =
+        "width:20px;height:20px;border:1px solid transparent;" +
+        "border-radius:4px;background:transparent;color:#a3a3a3;" +
+        "cursor:pointer;padding:0;font:inherit;font-weight:600;";
+      L.DomEvent.on(btn, "click", (e) => {
+        L.DomEvent.stop(e);
+        setFlavor(f);
+      });
+      buttons[f] = btn;
+    }
+    const refresh = (active: Flavor) => {
+      for (const f of FLAVORS) {
+        const b = buttons[f];
+        if (f === active) {
+          b.style.background = "#262626";
+          b.style.color = "#fafafa";
+          b.style.borderColor = "#404040";
+        } else {
+          b.style.background = "transparent";
+          b.style.color = "#a3a3a3";
+          b.style.borderColor = "transparent";
+        }
+      }
+    };
+    refresh(getFlavor());
+    const onChange = (e: Event) => {
+      refresh((e as CustomEvent<Flavor>).detail);
+    };
+    window.addEventListener(FLAVOR_EVENT, onChange);
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    map.once("unload", () => {
+      window.removeEventListener(FLAVOR_EVENT, onChange);
+    });
+    return div;
+  };
+  ctl.addTo(map);
+  return ctl;
+}
+
 // addBasemap picks between the self-hosted PMTiles vector layer
 // (when the tile server is wired via /api/config) and the legacy
 // CARTO raster split-label setup. The vector path renders labels
 // inline with the basemap; the route polyline draws on top.
+//
+// When the vector path is active, the layer is swapped on
+// FLAVOR_EVENT so every map on the page stays in sync with the
+// flavor picker. Listener is removed on map unload.
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
   if (!url) {
     addCartoDark(map);
     return;
   }
-  leafletLayer({
-    url,
-    flavor: "dark",
-    attribution: PROTOMAPS_ATTRIB,
-  }).addTo(map);
+  // protomaps-leaflet's leafletLayer returns its own LeafletLayer
+  // class which extends L.GridLayer at runtime but isn't typed as
+  // a Leaflet Layer in the published .d.ts. Cast at the boundary.
+  const mkLayer = (f: Flavor) =>
+    leafletLayer({ url, flavor: f, attribution: PROTOMAPS_ATTRIB }) as unknown as L.Layer;
+  let current = mkLayer(getFlavor());
+  current.addTo(map);
+  const onChange = (e: Event) => {
+    const next = (e as CustomEvent<Flavor>).detail;
+    const replacement = mkLayer(next);
+    replacement.addTo(map);
+    map.removeLayer(current);
+    current = replacement;
+  };
+  window.addEventListener(FLAVOR_EVENT, onChange);
+  map.once("unload", () => {
+    window.removeEventListener(FLAVOR_EVENT, onChange);
+  });
+  flavorControl(map);
 }
 
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
