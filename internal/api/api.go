@@ -38,6 +38,7 @@ import (
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
 // Deps is the bag of dependencies the API router needs. Keep this
@@ -1829,6 +1830,29 @@ type driveRecapResponse struct {
 	// distinguish "fresh paid generation" from "free cache hit"
 	// without paying attention to timestamps.
 	Cached bool `json:"cached"`
+
+	// Weather is the optional snapshot the recap handler fetched
+	// for this drive when the operator opted in (Settings -> AI ->
+	// Recap weather). Populated alongside POST and on cache-hit
+	// reads. Nil when the toggle is off or no row exists yet.
+	Weather *driveWeatherResponse `json:"weather,omitempty"`
+}
+
+// driveWeatherResponse mirrors the persisted drive_weather row in the
+// units the SPA renders. We keep this DTO instead of leaking
+// internal/weather.Snapshot directly so the SPA contract stays stable
+// even if we swap the upstream provider.
+type driveWeatherResponse struct {
+	TempF       *float64 `json:"temp_f,omitempty"`
+	ApparentF   *float64 `json:"feels_like_f,omitempty"`
+	WindMPH     *float64 `json:"wind_mph,omitempty"`
+	WindFromDeg *float64 `json:"wind_from_deg,omitempty"`
+	// HeadwindMPH is signed: positive = headwind, negative =
+	// tailwind. The SPA does its own pretty-print.
+	HeadwindMPH *float64 `json:"headwind_mph,omitempty"`
+	PrecipIn    *float64 `json:"precip_in,omitempty"`
+	HumidityPct *float64 `json:"humidity_pct,omitempty"`
+	Conditions  string   `json:"conditions,omitempty"`
 }
 
 // handleDriveRecapGet returns the cached recap for (uid, driveID),
@@ -1992,6 +2016,41 @@ func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		// Imperial output to match the rest of the app surface;
 		// revisit when a metric distance pref ships.
 		const useFahrenheit = true
+
+		// Optional weather enrichment. Gated on the operator pref so
+		// we never disclose coords without explicit opt-in. Failures
+		// are non-fatal: the recap still generates without weather,
+		// and the next regenerate will retry the fetch.
+		var recapWeather *recap.Weather
+		var responseWeather *driveWeatherResponse
+		if d.SettingsMgr.RecapWeatherEnabled() && drv.StartLat != 0 && drv.StartLon != 0 {
+			cache := weather.NewCache(d.DB)
+			snap, _ := cache.Get(r.Context(), uid, drv.ID)
+			if snap == nil {
+				client := weather.NewClient()
+				bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
+				hasBearing := drv.EndLat != 0 || drv.EndLon != 0
+				fetchCtx, fcancel := context.WithTimeout(r.Context(), 8*time.Second)
+				fetched, sampledAt, err := client.FetchHour(fetchCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
+				fcancel()
+				if err != nil {
+					if d.Logger != nil {
+						d.Logger.Warn("weather fetch failed", "err", err.Error(), "drive_id", drv.ID)
+					}
+				} else if fetched != nil {
+					clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
+					if perr := cache.Put(r.Context(), uid, drv.ID, clat, clon, sampledAt, fetched); perr != nil && d.Logger != nil {
+						d.Logger.Warn("weather cache write failed", "err", perr.Error(), "drive_id", drv.ID)
+					}
+					snap = fetched
+				}
+			}
+			if snap != nil {
+				recapWeather = snapshotToRecapWeather(snap)
+				responseWeather = snapshotToResponseWeather(snap)
+			}
+		}
+
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		res, err := recap.Generate(ctx, analyzer, recap.Inputs{
@@ -1999,6 +2058,7 @@ func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			Samples:         windowed,
 			AdjacentCharges: adjacent,
 			UseFahrenheit:   useFahrenheit,
+			Weather:         recapWeather,
 		})
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{
@@ -2032,6 +2092,11 @@ ON CONFLICT (user_id, drive_id) DO UPDATE SET
 			InputTokens:  res.InputTokens,
 			OutputTokens: res.OutputTokens,
 			Cached:       false,
+			Headline:     headlineOf(res.Parsed),
+			Body:         bodyOf(res.Parsed),
+			Highlights:   highlightsOf(res.Parsed),
+			Mood:         moodOf(res.Parsed),
+			Weather:      responseWeather,
 		})
 	}
 }
@@ -2062,5 +2127,161 @@ WHERE user_id = $1 AND drive_id = $2
 		resp.Highlights = p.Highlights
 		resp.Mood = p.Mood
 	}
+	// Pull any cached weather snapshot for this drive. Independent of
+	// the recap toggle: once a row exists we can keep showing it on
+	// the detail page even if the operator later disables the
+	// feature, since the disclosure already happened.
+	if w, werr := loadDriveWeather(ctx, pool, uid, driveID); werr == nil && w != nil {
+		resp.Weather = w
+	}
 	return resp, true, nil
+}
+
+// loadDriveWeather returns the persisted weather snapshot for
+// (uid, driveID) in the SPA's units (F, mph, in). Returns (nil, nil)
+// when no row exists.
+func loadDriveWeather(ctx context.Context, pool *sql.DB, uid uuid.UUID, driveID string) (*driveWeatherResponse, error) {
+	if pool == nil {
+		return nil, nil
+	}
+	var (
+		tC, atC, wKPH, wDir, hwKPH, pMM, hPct sql.NullFloat64
+		cond                                  sql.NullString
+	)
+	err := pool.QueryRowContext(ctx, `
+SELECT temp_c, apparent_temp_c, wind_kph, wind_dir_deg, headwind_kph,
+       precip_mm, humidity_pct, conditions
+FROM drive_weather
+WHERE user_id = $1 AND drive_id = $2
+`, uid, driveID).Scan(&tC, &atC, &wKPH, &wDir, &hwKPH, &pMM, &hPct, &cond)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := &driveWeatherResponse{}
+	if tC.Valid {
+		v := tC.Float64*1.8 + 32
+		out.TempF = &v
+	}
+	if atC.Valid {
+		v := atC.Float64*1.8 + 32
+		out.ApparentF = &v
+	}
+	if wKPH.Valid {
+		v := wKPH.Float64 * 0.621371
+		out.WindMPH = &v
+	}
+	if wDir.Valid {
+		v := wDir.Float64
+		out.WindFromDeg = &v
+	}
+	if hwKPH.Valid {
+		v := hwKPH.Float64 * 0.621371
+		out.HeadwindMPH = &v
+	}
+	if pMM.Valid {
+		v := pMM.Float64 * 0.0393701
+		out.PrecipIn = &v
+	}
+	if hPct.Valid {
+		v := hPct.Float64
+		out.HumidityPct = &v
+	}
+	if cond.Valid {
+		out.Conditions = cond.String
+	}
+	return out, nil
+}
+
+// snapshotToRecapWeather lifts an internal/weather.Snapshot into the
+// recap.Weather DTO the prompt builder consumes. Both shapes have the
+// same field names; the conversion is mechanical.
+func snapshotToRecapWeather(s *weather.Snapshot) *recap.Weather {
+	if s == nil {
+		return nil
+	}
+	return &recap.Weather{
+		TempC:         s.TempC,
+		ApparentTempC: s.ApparentTempC,
+		WindKPH:       s.WindKPH,
+		WindDirDeg:    s.WindDirDeg,
+		HeadwindKPH:   s.HeadwindKPH,
+		PrecipMM:      s.PrecipMM,
+		HumidityPct:   s.HumidityPct,
+		Conditions:    s.Conditions,
+		HasTemp:       s.HasTemp,
+		HasApparent:   s.HasApparent,
+		HasWind:       s.HasWind,
+		HasHeadwind:   s.HasHeadwind,
+		HasPrecip:     s.HasPrecip,
+		HasHumidity:   s.HasHumidity,
+		HasConditions: s.HasConditions,
+	}
+}
+
+// snapshotToResponseWeather converts the metric-base snapshot to the
+// imperial DTO the SPA expects. The cache always stores metric so the
+// conversion lives at the API boundary.
+func snapshotToResponseWeather(s *weather.Snapshot) *driveWeatherResponse {
+	if s == nil {
+		return nil
+	}
+	out := &driveWeatherResponse{Conditions: s.Conditions}
+	if s.HasTemp {
+		v := s.TempC*1.8 + 32
+		out.TempF = &v
+	}
+	if s.HasApparent {
+		v := s.ApparentTempC*1.8 + 32
+		out.ApparentF = &v
+	}
+	if s.HasWind {
+		v := s.WindKPH * 0.621371
+		out.WindMPH = &v
+		dir := s.WindDirDeg
+		out.WindFromDeg = &dir
+	}
+	if s.HasHeadwind {
+		v := s.HeadwindKPH * 0.621371
+		out.HeadwindMPH = &v
+	}
+	if s.HasPrecip {
+		v := s.PrecipMM * 0.0393701
+		out.PrecipIn = &v
+	}
+	if s.HasHumidity {
+		v := s.HumidityPct
+		out.HumidityPct = &v
+	}
+	return out
+}
+
+// headlineOf / bodyOf / highlightsOf / moodOf are nil-safe accessors
+// for recap.Parsed so the POST-write call site doesn't have to repeat
+// the nil check around every field.
+func headlineOf(p *recap.Parsed) string {
+	if p == nil {
+		return ""
+	}
+	return p.Headline
+}
+func bodyOf(p *recap.Parsed) string {
+	if p == nil {
+		return ""
+	}
+	return p.Body
+}
+func highlightsOf(p *recap.Parsed) []recap.Highlight {
+	if p == nil {
+		return nil
+	}
+	return p.Highlights
+}
+func moodOf(p *recap.Parsed) string {
+	if p == nil {
+		return ""
+	}
+	return p.Mood
 }

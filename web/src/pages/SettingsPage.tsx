@@ -790,6 +790,31 @@ export function AIProvidersPanel() {
           </span>
           {data.ready ? <AIPingButton /> : null}
         </div>
+        {/* Recap weather enrichment opt-in. The backend will hit
+            Open-Meteo with the trip's coarse start coords (rounded
+            to 0.1 deg, ~11 km) when this is enabled, so the recap
+            can attribute efficiency swings to actual conditions. */}
+        <label className="flex items-start gap-2 text-sm text-neutral-300 max-w-xl">
+          <input
+            type="checkbox"
+            className="mt-1 accent-emerald-500"
+            checked={data.recap_weather_enabled}
+            disabled={mut.isPending}
+            onChange={(e) =>
+              mut.mutate({ recap_weather_enabled: e.target.checked })
+            }
+          />
+          <span>
+            <span className="font-medium text-neutral-200">
+              Enrich recaps with weather
+            </span>
+            <span className="block text-xs text-neutral-500">
+              Sends each trip's start coordinates (rounded to ~11 km) and
+              hour to Open-Meteo so the recap can mention temperature,
+              wind, and precipitation. Off by default.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">

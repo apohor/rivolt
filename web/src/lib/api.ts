@@ -350,6 +350,23 @@ export type DriveRecapHighlight = {
   value: string;
 };
 
+// DriveWeather is the optional weather snapshot the backend captured
+// for a drive's start (only populated when the operator opted in).
+// Numbers are imperial (F, mph, in) to match the rest of the SPA;
+// every field except `conditions` is nullable so the UI can render
+// only what the upstream returned.
+export type DriveWeather = {
+  temp_f?: number | null;
+  feels_like_f?: number | null;
+  wind_mph?: number | null;
+  wind_from_deg?: number | null;
+  // Signed: positive = headwind, negative = tailwind.
+  headwind_mph?: number | null;
+  precip_in?: number | null;
+  humidity_pct?: number | null;
+  conditions?: string;
+};
+
 export type DriveRecap = {
   recap: string;
   headline?: string;
@@ -361,6 +378,7 @@ export type DriveRecap = {
   input_tokens?: number;
   output_tokens?: number;
   cached: boolean;
+  weather?: DriveWeather | null;
 };
 
 export type RivianStatus = {
@@ -388,6 +406,11 @@ export type AISettings = {
   effective_model?: string;
   providers: Record<AIProvider, { model: string; has_key: boolean }>;
   ready: boolean;
+  // Opt-in toggle for the recap weather enrichment. When true, the
+  // backend hits an external weather provider (Open-Meteo) with
+  // coarse start coordinates while generating a recap. Default
+  // false — the disclosure must be opted into.
+  recap_weather_enabled: boolean;
 };
 
 // Partial patch for PUT /api/settings/ai. Omitted fields are left alone;
@@ -400,6 +423,8 @@ export type AISettingsUpdate = {
   anthropic_api_key?: string;
   gemini_model?: string;
   gemini_api_key?: string;
+  // Opt-in toggle for the recap weather enrichment. Off by default.
+  recap_weather_enabled?: boolean;
 };
 
 // AIPingResult is what POST /api/ai/ping returns. The backend sends

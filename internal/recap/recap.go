@@ -93,6 +93,37 @@ type Inputs struct {
 	// up the comparison.
 	BaselineMiPerKWh float64
 	BaselineDays     int
+
+	// Weather is the optional weather snapshot at the trip's start.
+	// Nil when the operator hasn't enabled the recap weather toggle
+	// (Settings -> AI), or when the upstream lookup failed. The
+	// prompt builder skips its block cleanly on nil so a fetch
+	// failure never poisons the recap.
+	Weather *Weather
+}
+
+// Weather is the prompt-ready view of weather conditions at a drive's
+// start. The recap handler populates this from internal/weather; the
+// recap package has no dependency on the upstream provider, so swapping
+// providers stays a one-package change. Numeric fields are zero when
+// the upstream omitted the metric; callers should set the matching Has
+// flag to disambiguate (only WindDirDeg has 0.0 as a valid value).
+type Weather struct {
+	TempC         float64
+	ApparentTempC float64
+	WindKPH       float64
+	WindDirDeg    float64
+	HeadwindKPH   float64
+	PrecipMM      float64
+	HumidityPct   float64
+	Conditions    string
+	HasTemp       bool
+	HasApparent   bool
+	HasWind       bool
+	HasHeadwind   bool
+	HasPrecip     bool
+	HasHumidity   bool
+	HasConditions bool
 }
 
 // Generate calls the LLM and returns a structured recap. Caller
@@ -273,6 +304,59 @@ func buildPrompt(in Inputs) (string, string) {
 			fmt.Fprintf(&sb, "  outside_temp_f: %.0f\n", *outsideC*1.8+32)
 		} else {
 			fmt.Fprintf(&sb, "  outside_temp_c: %.0f\n", *outsideC)
+		}
+	}
+
+	if w := in.Weather; w != nil {
+		fmt.Fprintln(&sb, "Weather at start (external lookup, hourly grid):")
+		if w.HasTemp {
+			if in.UseFahrenheit {
+				fmt.Fprintf(&sb, "  temp_f: %.0f\n", w.TempC*1.8+32)
+			} else {
+				fmt.Fprintf(&sb, "  temp_c: %.0f\n", w.TempC)
+			}
+		}
+		if w.HasApparent {
+			if in.UseFahrenheit {
+				fmt.Fprintf(&sb, "  feels_like_f: %.0f\n", w.ApparentTempC*1.8+32)
+			} else {
+				fmt.Fprintf(&sb, "  feels_like_c: %.0f\n", w.ApparentTempC)
+			}
+		}
+		if w.HasWind {
+			if in.UseFahrenheit {
+				fmt.Fprintf(&sb, "  wind_mph: %.0f\n", w.WindKPH*0.621371)
+			} else {
+				fmt.Fprintf(&sb, "  wind_kph: %.0f\n", w.WindKPH)
+			}
+			fmt.Fprintf(&sb, "  wind_from_deg: %.0f\n", w.WindDirDeg)
+		}
+		if w.HasHeadwind {
+			// Sign convention: positive = headwind, negative = tailwind.
+			label := "headwind"
+			val := w.HeadwindKPH
+			if val < 0 {
+				label = "tailwind"
+				val = -val
+			}
+			if in.UseFahrenheit {
+				fmt.Fprintf(&sb, "  %s_mph: %.0f\n", label, val*0.621371)
+			} else {
+				fmt.Fprintf(&sb, "  %s_kph: %.0f\n", label, val)
+			}
+		}
+		if w.HasPrecip && w.PrecipMM > 0 {
+			if in.UseFahrenheit {
+				fmt.Fprintf(&sb, "  precip_in: %.2f\n", w.PrecipMM*0.0393701)
+			} else {
+				fmt.Fprintf(&sb, "  precip_mm: %.1f\n", w.PrecipMM)
+			}
+		}
+		if w.HasHumidity {
+			fmt.Fprintf(&sb, "  humidity_pct: %.0f\n", w.HumidityPct)
+		}
+		if w.HasConditions {
+			fmt.Fprintf(&sb, "  conditions: %s\n", w.Conditions)
 		}
 	}
 

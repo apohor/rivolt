@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { backend, ApiError, type DriveRecap, type Sample } from "../lib/api";
+import { backend, ApiError, type DriveRecap, type DriveWeather, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
 import { DriveMap } from "../components/DriveMap";
@@ -818,6 +818,7 @@ function RecapBody({ data }: { data: DriveRecap }) {
     (data.highlights && data.highlights.length > 0);
   return (
     <div className="space-y-3">
+      {data.weather ? <WeatherStrip weather={data.weather} /> : null}
       {hasStructured ? (
         <>
           {data.headline ? (
@@ -864,4 +865,59 @@ function RecapBody({ data }: { data: DriveRecap }) {
       </div>
     </div>
   );
+}
+
+// WeatherStrip renders a one-line summary of the captured weather at
+// the trip's start above the recap text. Kept compact — temp,
+// conditions, and wind (with headwind/tailwind annotation) — because
+// the structured recap chips already break out anything the model
+// thought was notable. Hidden when the snapshot has no usable
+// fields, so a half-empty upstream response degrades cleanly.
+function WeatherStrip({ weather }: { weather: DriveWeather }) {
+  const parts: string[] = [];
+  if (weather.temp_f != null) {
+    if (weather.feels_like_f != null && Math.abs(weather.feels_like_f - weather.temp_f) >= 3) {
+      parts.push(`${Math.round(weather.temp_f)}°F (feels ${Math.round(weather.feels_like_f)}°F)`);
+    } else {
+      parts.push(`${Math.round(weather.temp_f)}°F`);
+    }
+  }
+  if (weather.conditions) parts.push(weather.conditions);
+  if (weather.wind_mph != null && weather.wind_mph >= 1) {
+    const dir =
+      weather.wind_from_deg != null
+        ? compass(weather.wind_from_deg)
+        : "";
+    let s = `${Math.round(weather.wind_mph)} mph wind${dir ? ` ${dir}` : ""}`;
+    if (weather.headwind_mph != null && Math.abs(weather.headwind_mph) >= 3) {
+      s += weather.headwind_mph > 0
+        ? ` (${Math.round(weather.headwind_mph)} mph head)`
+        : ` (${Math.round(-weather.headwind_mph)} mph tail)`;
+    }
+    parts.push(s);
+  }
+  if (weather.precip_in != null && weather.precip_in >= 0.01) {
+    parts.push(`${weather.precip_in.toFixed(2)}" precip`);
+  }
+  if (parts.length === 0) return null;
+  return (
+    <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+      Weather at start
+      <span className="ml-2 normal-case tracking-normal text-neutral-300">
+        {parts.join(" · ")}
+      </span>
+    </div>
+  );
+}
+
+// compass converts a degree heading (where the wind is coming FROM)
+// to a 16-point compass label so users don't have to mentally map
+// "270" to "W". Matches Open-Meteo's convention.
+function compass(deg: number): string {
+  const dirs = [
+    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
+  ];
+  const i = Math.round(((deg % 360) / 22.5)) % 16;
+  return dirs[i];
 }

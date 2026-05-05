@@ -38,6 +38,12 @@ const (
 	keyAISpeechProvider    = "ai.speech.provider"
 	keyAISpeechOpenAIModel = "ai.speech.openai.model"
 	keyAISpeechGeminiModel = "ai.speech.gemini.model"
+
+	// Recap weather enrichment toggle. Stored as "true"/"false";
+	// any other value is treated as off. Default is off because the
+	// feature discloses coarse trip coordinates to a third party
+	// (Open-Meteo). See internal/weather for the privacy posture.
+	keyRecapWeatherEnabled = "recap.weather_enabled"
 )
 
 // Defaults used when nothing is stored and no env override is present.
@@ -90,6 +96,11 @@ type AIConfig struct {
 	SpeechProvider    string // "", "openai", "gemini"
 	SpeechOpenAIModel string
 	SpeechGeminiModel string
+
+	// RecapWeatherEnabled toggles the optional weather lookup that
+	// runs during trip recap generation. Off by default; the feature
+	// hits an external HTTP API (Open-Meteo) so it must be opt-in.
+	RecapWeatherEnabled bool
 }
 
 // AIPublic is the redacted view returned to the UI. Keys are reported only
@@ -105,6 +116,11 @@ type AIPublic struct {
 	Image AIImagePublic `json:"image"`
 	// Speech is the public view of the voice-transcription configuration.
 	Speech AISpeechPublic `json:"speech"`
+
+	// RecapWeatherEnabled mirrors AIConfig.RecapWeatherEnabled. Surfaced
+	// as a flat boolean so the Settings UI can render a checkbox
+	// without crawling a nested namespace.
+	RecapWeatherEnabled bool `json:"recap_weather_enabled"`
 }
 
 // AIImagePublic is the subset surfaced to the Settings UI. Per-provider
@@ -271,6 +287,8 @@ func (m *Manager) Public() AIPublic {
 		},
 		Image:  imagePublic(m.cfg),
 		Speech: speechPublic(m.cfg),
+
+		RecapWeatherEnabled: m.cfg.RecapWeatherEnabled,
 	}
 	if m.analyzer != nil {
 		out.Ready = true
@@ -380,6 +398,9 @@ type AIUpdate struct {
 	SpeechProvider    *string `json:"speech_provider,omitempty"`
 	SpeechOpenAIModel *string `json:"speech_openai_model,omitempty"`
 	SpeechGeminiModel *string `json:"speech_gemini_model,omitempty"`
+
+	// RecapWeatherEnabled toggles the recap weather enrichment.
+	RecapWeatherEnabled *bool `json:"recap_weather_enabled,omitempty"`
 }
 
 // Update applies the patch, persists it, and rebuilds the analyzer. Returns
@@ -429,6 +450,10 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 	applyStr(&cfg.SpeechOpenAIModel, patch.SpeechOpenAIModel)
 	applyStr(&cfg.SpeechGeminiModel, patch.SpeechGeminiModel)
 
+	if patch.RecapWeatherEnabled != nil {
+		cfg.RecapWeatherEnabled = *patch.RecapWeatherEnabled
+	}
+
 	// Persist. We write every field so "clear" also survives restart.
 	writes := []struct{ k, v string }{
 		{keyAIProvider, cfg.Provider},
@@ -444,6 +469,7 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 		{keyAISpeechProvider, cfg.SpeechProvider},
 		{keyAISpeechOpenAIModel, cfg.SpeechOpenAIModel},
 		{keyAISpeechGeminiModel, cfg.SpeechGeminiModel},
+		{keyRecapWeatherEnabled, boolToStr(cfg.RecapWeatherEnabled)},
 	}
 	for _, w := range writes {
 		if err := m.store.Set(ctx, w.k, w.v); err != nil {
@@ -463,6 +489,8 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 		},
 		Image:  imagePublic(m.cfg),
 		Speech: speechPublic(m.cfg),
+
+		RecapWeatherEnabled: m.cfg.RecapWeatherEnabled,
 	}
 	if m.analyzer != nil {
 		pub.Ready = true
@@ -476,6 +504,26 @@ func applyStr(dst *string, src *string) {
 	if src != nil {
 		*dst = *src
 	}
+}
+
+// boolToStr / parseBool are the persistence form for boolean prefs in
+// the flat string KV. "" is treated as false so an unset row matches
+// the documented default.
+func boolToStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func parseBool(s string) bool { return s == "true" }
+
+// RecapWeatherEnabled returns the current value of the recap weather
+// enrichment toggle. Cheap; safe to call per request.
+func (m *Manager) RecapWeatherEnabled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg.RecapWeatherEnabled
 }
 
 // ListModels fetches the catalogue of usable models for a provider, using
@@ -527,6 +575,8 @@ func (m *Manager) load(ctx context.Context, env AIConfig) error {
 		SpeechProvider:    pick(keyAISpeechProvider, env.SpeechProvider, ""),
 		SpeechOpenAIModel: pick(keyAISpeechOpenAIModel, env.SpeechOpenAIModel, ""),
 		SpeechGeminiModel: pick(keyAISpeechGeminiModel, env.SpeechGeminiModel, ""),
+
+		RecapWeatherEnabled: parseBool(pick(keyRecapWeatherEnabled, boolToStr(env.RecapWeatherEnabled), "")),
 	}
 	return nil
 }
