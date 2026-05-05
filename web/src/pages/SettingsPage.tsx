@@ -7,8 +7,10 @@ import {
   type AISettingsUpdate,
   type AIPingResult,
   type ChargingNetwork,
+  type DriveWeatherBackfillResult,
   type ImportResult,
   type ImportProgress,
+  type RecapSettingsUpdate,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
@@ -790,31 +792,6 @@ export function AIProvidersPanel() {
           </span>
           {data.ready ? <AIPingButton /> : null}
         </div>
-        {/* Recap weather enrichment opt-in. The backend will hit
-            Open-Meteo with the trip's coarse start coords (rounded
-            to 0.1 deg, ~11 km) when this is enabled, so the recap
-            can attribute efficiency swings to actual conditions. */}
-        <label className="flex items-start gap-2 text-sm text-neutral-300 max-w-xl">
-          <input
-            type="checkbox"
-            className="mt-1 accent-emerald-500"
-            checked={data.recap_weather_enabled}
-            disabled={mut.isPending}
-            onChange={(e) =>
-              mut.mutate({ recap_weather_enabled: e.target.checked })
-            }
-          />
-          <span>
-            <span className="font-medium text-neutral-200">
-              Enrich recaps with weather
-            </span>
-            <span className="block text-xs text-neutral-500">
-              Sends each trip's start coordinates (rounded to ~11 km) and
-              hour to Open-Meteo so the recap can mention temperature,
-              wind, and precipitation. Off by default.
-            </span>
-          </span>
-        </label>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -844,6 +821,208 @@ export function AIProvidersPanel() {
             saving={mut.isPending}
           />
         ))}
+      </div>
+
+      {mut.isError && (
+        <ErrorBox title="Save failed" detail={String(mut.error)} />
+      )}
+    </div>
+  );
+}
+
+// RecapWeatherPanel owns the single opt-in toggle that lets the
+// recap path (and the bulk backfill button below it) hit Open-Meteo
+// with each trip's coarse start coords. Lives on its own
+// /api/admin/settings/recap surface so it can't be confused for an
+// AI-provider config knob.
+//
+// The backfill button is gated on the toggle: enabling it doesn't
+// auto-enrich existing drives, so without an explicit one-shot the
+// archive would stay weatherless until each drive's recap is
+// (re)generated. Polls the backfill endpoint, which processes a
+// bounded batch per call, until `remaining === 0`.
+export function RecapWeatherPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["recap-settings"],
+    queryFn: () => backend.getRecapSettings(),
+  });
+  const mut = useMutation({
+    mutationFn: (patch: RecapSettingsUpdate) =>
+      backend.updateRecapSettings(patch),
+    onSuccess: (fresh) => qc.setQueryData(["recap-settings"], fresh),
+  });
+
+  // Backfill progress accumulates across polls. We keep the totals
+  // in component state rather than a query because the backfill is
+  // a sequence of POSTs, not a single fetch — react-query's normal
+  // caching shape doesn't fit.
+  const [backfill, setBackfill] = useState<{
+    running: boolean;
+    processed: number;
+    succeeded: number;
+    failed: number;
+    remaining: number | null;
+    error: string | null;
+    done: boolean;
+  }>({
+    running: false,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+    remaining: null,
+    error: null,
+    done: false,
+  });
+  // Cancel flag so a click on "Stop" interrupts the loop without
+  // awaiting whatever request is currently in flight.
+  const cancelRef = useRef(false);
+
+  async function runBackfill() {
+    cancelRef.current = false;
+    setBackfill({
+      running: true,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      remaining: null,
+      error: null,
+      done: false,
+    });
+    try {
+      // Hard ceiling on iterations so a runaway loop (server bug,
+      // misreporting `remaining`) can't hammer Open-Meteo forever.
+      // Server batch is 25, ceiling = 200 iterations -> 5000 drives.
+      // Past that the user can click again.
+      for (let i = 0; i < 200; i++) {
+        if (cancelRef.current) break;
+        const res: DriveWeatherBackfillResult =
+          await backend.backfillDriveWeather();
+        if (res.disabled) {
+          setBackfill((prev) => ({
+            ...prev,
+            running: false,
+            done: true,
+            error:
+              "Recap weather is disabled. Enable the toggle above and try again.",
+          }));
+          return;
+        }
+        setBackfill((prev) => ({
+          ...prev,
+          processed: prev.processed + res.processed,
+          succeeded: prev.succeeded + res.succeeded,
+          failed: prev.failed + res.failed,
+          remaining: res.remaining,
+        }));
+        if (res.remaining === 0 || res.processed === 0) break;
+      }
+      setBackfill((prev) => ({ ...prev, running: false, done: true }));
+    } catch (err) {
+      setBackfill((prev) => ({
+        ...prev,
+        running: false,
+        error: String(err),
+      }));
+    }
+  }
+
+  if (q.isLoading) return <Spinner />;
+  if (q.isError)
+    return (
+      <ErrorBox
+        title="Failed to load recap settings"
+        detail={String(q.error)}
+      />
+    );
+  if (!q.data) return null;
+
+  const enabled = q.data.weather_enabled;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-neutral-400 max-w-2xl">
+        Trip recaps can include the temperature, wind, and precipitation at
+        each drive's start so the model can attribute efficiency swings to
+        weather instead of inventing the comparison. Enabling this sends
+        each drive's start coordinates (rounded to ~11&nbsp;km) and the
+        starting hour to Open-Meteo. Off by default.
+      </p>
+      <label className="flex items-start gap-2 text-sm text-neutral-300 max-w-xl">
+        <input
+          type="checkbox"
+          className="mt-1 accent-emerald-500"
+          checked={enabled}
+          disabled={mut.isPending}
+          onChange={(e) =>
+            mut.mutate({ weather_enabled: e.target.checked })
+          }
+        />
+        <span>
+          <span className="font-medium text-neutral-200">
+            Enrich recaps with weather
+          </span>
+          <span className="block text-xs text-neutral-500">
+            Per-trip lookup happens lazily when a recap is generated. Use
+            the backfill below to enrich the existing archive in one go.
+          </span>
+        </span>
+      </label>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={runBackfill}
+            disabled={!enabled || backfill.running}
+            className="text-sm px-3 py-1 rounded border border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {backfill.running
+              ? "Backfilling…"
+              : "Backfill weather for historical drives"}
+          </button>
+          {backfill.running && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelRef.current = true;
+              }}
+              className="text-xs px-2 py-0.5 rounded-full border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+            >
+              Stop
+            </button>
+          )}
+        </div>
+        {!enabled && (
+          <p className="text-xs text-neutral-500">
+            Enable the toggle first; backfill calls the same Open-Meteo
+            endpoint and is blocked while the feature is off.
+          </p>
+        )}
+        {(backfill.running || backfill.done || backfill.error) && (
+          <div className="text-xs text-neutral-400 space-y-0.5">
+            <div>
+              Processed: {backfill.processed} · Succeeded:{" "}
+              <span className="text-emerald-400">{backfill.succeeded}</span>
+              {backfill.failed > 0 ? (
+                <>
+                  {" "}
+                  · Failed:{" "}
+                  <span className="text-amber-400">{backfill.failed}</span>
+                </>
+              ) : null}
+              {backfill.remaining !== null ? (
+                <> · Remaining: {backfill.remaining}</>
+              ) : null}
+            </div>
+            {backfill.done && !backfill.error && (
+              <div className="text-emerald-400">Backfill complete.</div>
+            )}
+            {backfill.error && (
+              <div className="text-amber-400">{backfill.error}</div>
+            )}
+          </div>
+        )}
       </div>
 
       {mut.isError && (

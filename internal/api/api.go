@@ -388,6 +388,12 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
 				r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
 				r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
+				// Recap settings live on their own surface (not under
+				// /settings/ai) because the toggles here are
+				// data-egress switches — disabling AI shouldn't
+				// imply disabling external lookups, and vice versa.
+				r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
+				r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -404,6 +410,14 @@ func New(d Deps) http.Handler {
 			}))
 			r.Post("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveRecapPost(d, uid)(w, r)
+			}))
+			// Bulk weather backfill for historical drives. Each call
+			// processes up to a fixed batch (see handler) so a slow
+			// upstream can't lock up a worker; the SPA polls until
+			// `remaining == 0`. Gated on the same RecapWeatherEnabled
+			// pref the per-drive recap fetch consults.
+			r.Post("/drives/weather/backfill", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveWeatherBackfill(d, uid)(w, r)
 			}))
 			r.Get("/charges", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleCharges(d.Charges.For(uid), d.Settings.For(uid))(w, r)
@@ -1704,6 +1718,38 @@ func handleAISettingsPut(mgr *settings.Manager) http.HandlerFunc {
 	}
 }
 
+// handleRecapSettingsGet returns the redacted recap configuration.
+func handleRecapSettingsGet(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, mgr.RecapPublic())
+	}
+}
+
+// handleRecapSettingsPut applies a partial patch to the recap config.
+func handleRecapSettingsPut(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		var patch settings.RecapUpdate
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+			return
+		}
+		pub, err := mgr.UpdateRecap(r.Context(), patch)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, pub)
+	}
+}
+
 // handleAIModelsList proxies the provider's catalogue endpoint using the
 // stored API key so the UI can offer a live dropdown instead of asking
 // users to remember model IDs that drift across releases.
@@ -2098,6 +2144,101 @@ ON CONFLICT (user_id, drive_id) DO UPDATE SET
 			Mood:         moodOf(res.Parsed),
 			Weather:      responseWeather,
 		})
+	}
+}
+
+// driveWeatherBackfillResponse is the JSON the SPA polls. Counts are
+// cumulative for the single call; remaining is recomputed at the end
+// so the client can stop polling when it hits zero.
+type driveWeatherBackfillResponse struct {
+	Disabled  bool `json:"disabled"`
+	Processed int  `json:"processed"`
+	Succeeded int  `json:"succeeded"`
+	Failed    int  `json:"failed"`
+	Remaining int  `json:"remaining"`
+}
+
+// handleDriveWeatherBackfill enriches historical drives with weather
+// snapshots. Each call processes at most weatherBackfillBatch drives
+// that don't yet have a cache row, so a slow upstream can't lock up
+// a worker; the SPA polls until remaining == 0.
+//
+// Gated on RecapWeatherEnabled — backfill is the same data egress
+// the per-recap fetch performs, just amortised across the archive.
+// If the pref is off we return 200 with disabled=true so the UI can
+// short-circuit instead of guessing from a 4xx.
+func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
+	// Bounded so one click can't spin a worker for minutes. Open-Meteo
+	// is fast (~150ms) but we still want a hard ceiling per request.
+	const weatherBackfillBatch = 25
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if d.SettingsMgr == nil {
+			http.Error(w, "settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !d.SettingsMgr.RecapWeatherEnabled() {
+			writeJSON(w, http.StatusOK, driveWeatherBackfillResponse{Disabled: true})
+			return
+		}
+		drivesStore := d.Drives.For(uid)
+		if drivesStore == nil {
+			http.Error(w, "user stores unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		ds, err := drivesStore.ListAll(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Walk newest-first so a user kicking off backfill on a fresh
+		// install sees their recent drives enriched first; ListAll is
+		// already sorted by start time descending.
+		cache := weather.NewCache(d.DB)
+		client := weather.NewClient()
+		resp := driveWeatherBackfillResponse{}
+		for i := range ds {
+			drv := &ds[i]
+			// Skip drives without a usable start fix — we can't ask
+			// Open-Meteo "what was the weather at (0,0)" usefully,
+			// and these rows would otherwise stay "remaining" forever.
+			if drv.StartLat == 0 && drv.StartLon == 0 {
+				continue
+			}
+			if snap, _ := cache.Get(r.Context(), uid, drv.ID); snap != nil {
+				continue
+			}
+			if resp.Processed >= weatherBackfillBatch {
+				resp.Remaining++
+				continue
+			}
+			resp.Processed++
+			bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
+			hasBearing := drv.EndLat != 0 || drv.EndLon != 0
+			fetchCtx, fcancel := context.WithTimeout(r.Context(), 8*time.Second)
+			fetched, sampledAt, err := client.FetchHour(fetchCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
+			fcancel()
+			if err != nil || fetched == nil {
+				resp.Failed++
+				if err != nil && d.Logger != nil {
+					d.Logger.Warn("weather backfill fetch failed", "err", err.Error(), "drive_id", drv.ID)
+				}
+				continue
+			}
+			clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
+			if perr := cache.Put(r.Context(), uid, drv.ID, clat, clon, sampledAt, fetched); perr != nil {
+				resp.Failed++
+				if d.Logger != nil {
+					d.Logger.Warn("weather backfill cache write failed", "err", perr.Error(), "drive_id", drv.ID)
+				}
+				continue
+			}
+			resp.Succeeded++
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

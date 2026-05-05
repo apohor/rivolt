@@ -406,11 +406,35 @@ export type AISettings = {
   effective_model?: string;
   providers: Record<AIProvider, { model: string; has_key: boolean }>;
   ready: boolean;
-  // Opt-in toggle for the recap weather enrichment. When true, the
-  // backend hits an external weather provider (Open-Meteo) with
-  // coarse start coordinates while generating a recap. Default
-  // false — the disclosure must be opted into.
-  recap_weather_enabled: boolean;
+};
+
+// RecapSettings is the redacted view returned by GET
+// /api/admin/settings/recap. Lives on its own surface (not under
+// AI) because the toggle here is a data-egress switch — disabling
+// AI shouldn't imply disabling external weather lookups, and vice
+// versa. Default false: the disclosure must be opted into.
+export type RecapSettings = {
+  weather_enabled: boolean;
+};
+
+// RecapSettingsUpdate is the partial patch for PUT
+// /api/admin/settings/recap. Omitted fields are left alone.
+export type RecapSettingsUpdate = {
+  weather_enabled?: boolean;
+};
+
+// DriveWeatherBackfillResult is one tick of progress returned by
+// POST /api/drives/weather/backfill. Each call processes a bounded
+// batch and reports `remaining` so the SPA can poll until zero.
+// `disabled: true` means the operator hasn't opted into the
+// recap weather enrichment yet — the SPA short-circuits without
+// re-issuing the call.
+export type DriveWeatherBackfillResult = {
+  disabled: boolean;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  remaining: number;
 };
 
 // Partial patch for PUT /api/settings/ai. Omitted fields are left alone;
@@ -423,8 +447,6 @@ export type AISettingsUpdate = {
   anthropic_api_key?: string;
   gemini_model?: string;
   gemini_api_key?: string;
-  // Opt-in toggle for the recap weather enrichment. Off by default.
-  recap_weather_enabled?: boolean;
 };
 
 // AIPingResult is what POST /api/ai/ping returns. The backend sends
@@ -555,6 +577,22 @@ export const backend = {
   // so the admin UI can confirm key/model validity without waiting
   // for a downstream feature to exercise the integration.
   pingAI: () => api.post<AIPingResult>("/api/admin/ai/ping", {}),
+  // Recap settings live on a separate surface from AI provider
+  // config (see RecapSettings). Same admin gating as the AI
+  // endpoints because the toggle controls install-wide data egress.
+  getRecapSettings: () =>
+    api.get<RecapSettings>("/api/admin/settings/recap"),
+  updateRecapSettings: (patch: RecapSettingsUpdate) =>
+    api.put<RecapSettings>("/api/admin/settings/recap", patch),
+  // Bulk-enrich historical drives with weather snapshots. The
+  // server processes a bounded batch per call so a slow upstream
+  // can't lock up a worker; callers should poll until
+  // `remaining === 0` (or `disabled === true`).
+  backfillDriveWeather: () =>
+    api.post<DriveWeatherBackfillResult>(
+      "/api/drives/weather/backfill",
+      {},
+    ),
   // Admin user management. Same gating as the AI endpoints.
   adminListUsers: () =>
     api.get<{ users: AdminUserRow[] }>("/api/admin/users"),

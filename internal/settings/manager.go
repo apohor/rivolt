@@ -116,11 +116,22 @@ type AIPublic struct {
 	Image AIImagePublic `json:"image"`
 	// Speech is the public view of the voice-transcription configuration.
 	Speech AISpeechPublic `json:"speech"`
+}
 
-	// RecapWeatherEnabled mirrors AIConfig.RecapWeatherEnabled. Surfaced
-	// as a flat boolean so the Settings UI can render a checkbox
-	// without crawling a nested namespace.
-	RecapWeatherEnabled bool `json:"recap_weather_enabled"`
+// RecapPublic is the redacted view of the install-wide recap config
+// returned to the UI. Lives in its own DTO (and on its own endpoint)
+// because the recap toggle isn't an AI configuration knob — it's a
+// data-egress switch (Open-Meteo, see internal/weather) that happens
+// to be consumed by an AI feature. Surfacing it under "AI" sent the
+// wrong signal about what disabling AI does/doesn't hide.
+type RecapPublic struct {
+	WeatherEnabled bool `json:"weather_enabled"`
+}
+
+// RecapUpdate is the JSON body accepted by PUT /api/settings/recap.
+// Same nil-pointer-means-untouched contract as AIUpdate.
+type RecapUpdate struct {
+	WeatherEnabled *bool `json:"weather_enabled,omitempty"`
 }
 
 // AIImagePublic is the subset surfaced to the Settings UI. Per-provider
@@ -287,8 +298,6 @@ func (m *Manager) Public() AIPublic {
 		},
 		Image:  imagePublic(m.cfg),
 		Speech: speechPublic(m.cfg),
-
-		RecapWeatherEnabled: m.cfg.RecapWeatherEnabled,
 	}
 	if m.analyzer != nil {
 		out.Ready = true
@@ -398,9 +407,6 @@ type AIUpdate struct {
 	SpeechProvider    *string `json:"speech_provider,omitempty"`
 	SpeechOpenAIModel *string `json:"speech_openai_model,omitempty"`
 	SpeechGeminiModel *string `json:"speech_gemini_model,omitempty"`
-
-	// RecapWeatherEnabled toggles the recap weather enrichment.
-	RecapWeatherEnabled *bool `json:"recap_weather_enabled,omitempty"`
 }
 
 // Update applies the patch, persists it, and rebuilds the analyzer. Returns
@@ -450,10 +456,6 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 	applyStr(&cfg.SpeechOpenAIModel, patch.SpeechOpenAIModel)
 	applyStr(&cfg.SpeechGeminiModel, patch.SpeechGeminiModel)
 
-	if patch.RecapWeatherEnabled != nil {
-		cfg.RecapWeatherEnabled = *patch.RecapWeatherEnabled
-	}
-
 	// Persist. We write every field so "clear" also survives restart.
 	writes := []struct{ k, v string }{
 		{keyAIProvider, cfg.Provider},
@@ -469,7 +471,6 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 		{keyAISpeechProvider, cfg.SpeechProvider},
 		{keyAISpeechOpenAIModel, cfg.SpeechOpenAIModel},
 		{keyAISpeechGeminiModel, cfg.SpeechGeminiModel},
-		{keyRecapWeatherEnabled, boolToStr(cfg.RecapWeatherEnabled)},
 	}
 	for _, w := range writes {
 		if err := m.store.Set(ctx, w.k, w.v); err != nil {
@@ -489,8 +490,6 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 		},
 		Image:  imagePublic(m.cfg),
 		Speech: speechPublic(m.cfg),
-
-		RecapWeatherEnabled: m.cfg.RecapWeatherEnabled,
 	}
 	if m.analyzer != nil {
 		pub.Ready = true
@@ -524,6 +523,29 @@ func (m *Manager) RecapWeatherEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cfg.RecapWeatherEnabled
+}
+
+// RecapPublic returns the redacted recap settings DTO.
+func (m *Manager) RecapPublic() RecapPublic {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return RecapPublic{WeatherEnabled: m.cfg.RecapWeatherEnabled}
+}
+
+// UpdateRecap applies the patch and persists. Doesn't touch the AI
+// analyzer because recap settings are orthogonal to provider config.
+func (m *Manager) UpdateRecap(ctx context.Context, patch RecapUpdate) (RecapPublic, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cfg := m.cfg
+	if patch.WeatherEnabled != nil {
+		cfg.RecapWeatherEnabled = *patch.WeatherEnabled
+	}
+	if err := m.store.Set(ctx, keyRecapWeatherEnabled, boolToStr(cfg.RecapWeatherEnabled)); err != nil {
+		return RecapPublic{}, fmt.Errorf("persist %s: %w", keyRecapWeatherEnabled, err)
+	}
+	m.cfg = cfg
+	return RecapPublic{WeatherEnabled: cfg.RecapWeatherEnabled}, nil
 }
 
 // ListModels fetches the catalogue of usable models for a provider, using
