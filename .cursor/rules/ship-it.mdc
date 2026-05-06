@@ -8,14 +8,23 @@ alwaysApply: false
 When the user says "ship it" (or asks to release / deploy), run these steps **in order**:
 
 ## 1. Commit & tag in `rivolt`
+
+First bump `deploy/helm/rivolt/Chart.yaml` — both fields must match the new version:
+```yaml
+version: 0.8.Y        # patch-bumps in sync with appVersion
+appVersion: "0.X.Y"   # must equal the git tag — this is the image tag the pod pulls
 ```
-git add <changed files>
+
+Then commit everything together and tag:
+```
+git add <changed files> deploy/helm/rivolt/Chart.yaml
 git commit -m "v0.X.Y: <short summary>\n\n<detail lines>"
 git tag v0.X.Y
 git push --follow-tags
 ```
 Follow the existing `v0.X.Y: <title>` commit message convention.
-`--follow-tags` pushes the commit and any reachable annotated/lightweight tags in one shot.
+`--follow-tags` pushes the commit and the tag in one shot; CI publishes
+`ghcr.io/apohor/rivolt:0.X.Y` only on tag pushes.
 
 ## 2. Bump the infra chart in `rivolt-infra`
 File: `apps/rivolt/app.yaml` — update the `version` field:
