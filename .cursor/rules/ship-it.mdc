@@ -1,0 +1,41 @@
+---
+description: Ship-it checklist — commit, bump infra chart, push, tag
+alwaysApply: false
+---
+
+# Ship-it Process
+
+When the user says "ship it" (or asks to release / deploy), run these steps **in order**:
+
+## 1. Commit in `rivolt`
+```
+git add <changed files>
+git commit -m "v0.X.Y: <short summary>\n\n<detail lines>"
+git push
+```
+Follow the existing `v0.X.Y: <title>` commit message convention.
+
+## 2. Bump the infra chart in `rivolt-infra`
+File: `apps/rivolt/app.yaml` — update the `version` field:
+```yaml
+chart:
+  version: v0.X.Y   # bump from previous tag
+```
+Then:
+```
+cd rivolt-infra
+git add apps/rivolt/app.yaml
+git commit -m "rivolt: bump to v0.X.Y"
+git push
+```
+
+## 3. Tag the release in `rivolt`
+```
+cd rivolt
+git tag v0.X.Y
+git push origin v0.X.Y
+```
+
+## Version numbering
+- Patch bump (`0.X.Y+1`) for fixes and small features (the usual case).
+- Check `git log --oneline -1` for the last version to determine the next one.
