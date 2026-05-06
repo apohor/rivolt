@@ -107,34 +107,10 @@ export function isActiveCharge(c: { FinalState: string; Source?: string }): bool
   return s !== "charging_complete" && s !== "charging_station_err";
 }
 
-// maxFixAgeSeconds returns the worst (largest) gap between a sample's
-// wall-clock timestamp and the GNSS fix timestamp it carries. Picking
-// the max rather than the mean is intentional: a single 50-minute
-// frozen-fix span across a 60-minute window tells the user the marker
-// is untrustworthy, even when most samples carried fresh fixes.
-// Returns null when no sample carries a fix timestamp (legacy rows,
-// imports) so the caller can render nothing instead of a misleading
-// "0s stale" badge.
-//
-// Bogus timestamps from older Go zero-time serialization
-// ("0001-01-01T00:00:00Z") are filtered out: any fix that pre-dates
-// 2010 cannot be a real Rivian GNSS reading (the company was founded
-// in 2009, its first vehicles shipped in 2021), and a 2000-year fix
-// age is unambiguously a serialization artifact rather than a stuck
-// modem.
-export function maxFixAgeSeconds(
-  samples: { At: string; LocationFixAt?: string }[],
-): number | null {
-  const MIN_PLAUSIBLE_MS = Date.UTC(2010, 0, 1);
-  let worst: number | null = null;
-  for (const p of samples) {
-    if (!p.LocationFixAt) continue;
-    const fixMs = new Date(p.LocationFixAt).getTime();
-    if (!Number.isFinite(fixMs) || fixMs < MIN_PLAUSIBLE_MS) continue;
-    const ageMs = new Date(p.At).getTime() - fixMs;
-    if (!Number.isFinite(ageMs) || ageMs < 0) continue;
-    const ageS = ageMs / 1000;
-    if (worst == null || ageS > worst) worst = ageS;
-  }
-  return worst;
-}
+// maxFixAgeSeconds removed in v0.17.75 alongside the staleness badge
+// on ChargeMap. The badge fired routinely on parked vehicles (the
+// modem stops urgently re-fixing when there's no movement) without
+// telling the user anything actionable. The drive-side staleness
+// signal lives in DriveDetailPage's "Low GPS accuracy" header pill,
+// which checks fix freshness AND sample-to-sample distance jumps —
+// a stricter test than any single max-fix-age value.

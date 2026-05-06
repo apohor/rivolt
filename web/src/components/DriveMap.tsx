@@ -1063,22 +1063,21 @@ export function DriveMap({
 
 // ChargeMap is a single-pin variant for charge sessions.
 //
-// fixAgeSeconds is the maximum observed age of the GNSS fix across
-// the charge's samples (i.e. max(sample.At - sample.LocationFixAt)).
-// When supplied and large enough, we paint a small "GPS stale fix"
-// badge so the user knows the marker may not reflect the actual
-// charging location. Caller computes this so we don't have to thread
-// raw samples through.
+// No GPS-staleness badge here. The badge on DriveMap warns that a
+// moving polyline may be miles off from where the vehicle actually
+// drove; on a parked car the recorded charge marker is fine even if
+// the modem stopped emitting fresh fixes during the session — and
+// parked vehicles produce stale fixes routinely (no movement → the
+// modem stops urgently re-fixing). The badge fired on most charges
+// with zero actionable signal, so we removed the prop entirely.
 export function ChargeMap({
   lat,
   lon,
   height = 240,
-  fixAgeSeconds,
 }: {
   lat: number;
   lon: number;
   height?: number;
-  fixAgeSeconds?: number | null;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -1213,21 +1212,6 @@ export function ChargeMap({
       }
     }
 
-    // GPS staleness badge. Threshold of 5 min separates "normal
-    // poll cadence jitter" (a 30-60s lag is typical and not worth
-    // alarming about) from "the modem stopped emitting fresh fixes"
-    // — the failure mode that produces the Big Bend / Fort
-    // Stockton phantom-coords class of bug.
-    const STALE_THRESHOLD_S = 5 * 60;
-    let staleCtl: L.Control | null = null;
-    if (
-      typeof fixAgeSeconds === "number" &&
-      Number.isFinite(fixAgeSeconds) &&
-      fixAgeSeconds >= STALE_THRESHOLD_S
-    ) {
-      staleCtl = stalenessBadge(map, fixAgeSeconds);
-    }
-
     const invalidate = () => map.invalidateSize();
     const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
     const ro = new ResizeObserver(invalidate);
@@ -1236,12 +1220,11 @@ export function ChargeMap({
       cancelled = true;
       cancelAnimationFrame(rAF);
       ro.disconnect();
-      if (staleCtl) staleCtl.remove();
       if (chargerMarker) chargerMarker.remove();
       if (connector) connector.remove();
       map.remove();
     };
-  }, [lat, lon, fixAgeSeconds]);
+  }, [lat, lon]);
 
   return (
     <div

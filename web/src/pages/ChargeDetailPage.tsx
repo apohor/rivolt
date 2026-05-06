@@ -11,7 +11,6 @@ import {
   formatDateTime,
   formatDuration,
   isActiveCharge,
-  maxFixAgeSeconds,
   num,
   pct,
 } from "../lib/format";
@@ -353,11 +352,16 @@ export default function ChargeDetailPage() {
 
       {Number.isFinite(charge.Lat) && (charge.Lat !== 0 || charge.Lon !== 0) ? (
         <Card title="Location">
+          {/* No GPS-staleness badge on charges. The badge means
+              "the polyline may be miles off from where you actually
+              drove" on a moving vehicle; on a parked car the marker
+              is fine even if the modem stopped re-fixing — and
+              parked vehicles produce stale fixes by design. The
+              badge fired routinely on charges with zero signal. */}
           <ChargeMap
             lat={charge.Lat}
             lon={charge.Lon}
             height={260}
-            fixAgeSeconds={maxFixAgeSeconds(chargeSamples)}
           />
         </Card>
       ) : null}
