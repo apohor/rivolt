@@ -269,12 +269,17 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 		}
 	}
 
-	// Stops & idle time. City vs highway shows up here independently
-	// of the speed distribution above; long highway trips can have
-	// zero stops while short urban hops hit double digits.
+	// Stops + low-speed time. City vs highway shows up here
+	// independently of the speed distribution above; long highway
+	// trips have zero stops while short urban hops hit double
+	// digits. We label the duration "time below 5 mph" rather than
+	// "idle time" — EVs don't idle the way ICE cars do (zero
+	// powertrain draw when stationary), so the fleet-telemetry term
+	// would be slightly misleading both to the LLM and to anyone
+	// reading the prompt.
 	if st := Stops(in.Samples); st.HasSignal {
-		idleMin := st.IdleSec / 60
-		fmt.Fprintf(&b, "Stops: %d (idle time %.1f min)\n", st.Count, idleMin)
+		lowMin := st.IdleSec / 60
+		fmt.Fprintf(&b, "Stops: %d (time below 5 mph %.1f min)\n", st.Count, lowMin)
 	}
 
 	// Drive mode share by time, not just the set of modes seen.
