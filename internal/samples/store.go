@@ -35,6 +35,7 @@ type Sample struct {
 	LocationFixAt  *time.Time `json:",omitempty"`
 	SpeedMph       float64
 	ShiftState     string
+	DriveMode      string `json:"drive_mode,omitempty"` // "everyday", "sport", "all-terrain", etc.; nullable in DB for legacy samples
 	ChargingState  string
 	ChargerPowerKW float64
 	ChargeLimitPct float64
@@ -139,12 +140,12 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			user_id, vehicle_id, at,
 			battery_level_pct, range_mi, odometer_mi,
 			lat, lon, location_fix_at,
-			speed_mph, shift_state, charging_state,
+			speed_mph, shift_state, drive_mode, charging_state,
 			charger_power_kw, charge_limit_pct,
 			inside_temp_c, outside_temp_c,
 			drive_number, charge_number, source,
 			altitude_m
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -165,7 +166,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			s.userID, uuids[v.VehicleID], v.At.UTC(),
 			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
 			v.Lat, v.Lon, fixAt,
-			v.SpeedMph, v.ShiftState, v.ChargingState,
+			v.SpeedMph, v.ShiftState, v.DriveMode, v.ChargingState,
 			v.ChargerPowerKW, v.ChargeLimitPct,
 			v.InsideTempC, v.OutsideTempC,
 			v.DriveNumber, v.ChargeNumber, v.Source,
@@ -210,7 +211,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
 		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
 		       COALESCE(vs.speed_mph,0),
-		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
+		       COALESCE(vs.shift_state,''), COALESCE(vs.drive_mode,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
@@ -232,7 +233,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
-			&v.SpeedMph, &v.ShiftState, &v.ChargingState,
+			&v.SpeedMph, &v.ShiftState, &v.DriveMode, &v.ChargingState,
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
@@ -264,7 +265,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
 		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
 		       COALESCE(vs.speed_mph,0),
-		       COALESCE(vs.shift_state,''), COALESCE(vs.charging_state,''),
+		       COALESCE(vs.shift_state,''), COALESCE(vs.drive_mode,''), COALESCE(vs.charging_state,''),
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
@@ -285,7 +286,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
-			&v.SpeedMph, &v.ShiftState, &v.ChargingState,
+			&v.SpeedMph, &v.ShiftState, &v.DriveMode, &v.ChargingState,
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
