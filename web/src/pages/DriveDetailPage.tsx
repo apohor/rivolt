@@ -758,7 +758,12 @@ export default function DriveDetailPage() {
                           ]
                         : []),
                       ...(hasModeBands
-                        ? [{ label: "Mode/Gear", color: "#a3a3a3" }]
+                        ? [
+                            { label: "D", color: "#38bdf8" },
+                            { label: "R", color: "#f97316" },
+                            { label: "P", color: "#22c55e" },
+                            { label: "N", color: "#a3a3a3" },
+                          ]
                         : []),
                     ]}
                   >
@@ -835,38 +840,6 @@ export default function DriveDetailPage() {
                       onCursorChange={setCursorMs}
                     />
                   </ChartPanel>
-                ) : null}
-                {hasModeBands ? (
-                  <div className="flex flex-wrap gap-4 text-xs text-neutral-400 px-1">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2.5 h-2.5 rounded-sm"
-                        style={{ backgroundColor: "#38bdf8" }}
-                      />
-                      <span>Drive (D)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2.5 h-2.5 rounded-sm"
-                        style={{ backgroundColor: "#f97316" }}
-                      />
-                      <span>Reverse (R)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2.5 h-2.5 rounded-sm"
-                        style={{ backgroundColor: "#22c55e" }}
-                      />
-                      <span>Park (P)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-2.5 h-2.5 rounded-sm"
-                        style={{ backgroundColor: "#a3a3a3" }}
-                      />
-                      <span>Neutral (N)</span>
-                    </div>
-                  </div>
                 ) : null}
                 {hasAnyEnvironmentSignal ? (
                   <ChartPanel
@@ -1024,6 +997,11 @@ export default function DriveDetailPage() {
                     />
                   </ChartPanel>
                 ) : null}
+                {hasSpeed || hasSoC || hasAnyEnvironmentSignal ? (
+                  <div className="text-center text-[10px] uppercase tracking-wide text-neutral-500">
+                    Time (shared across panels)
+                  </div>
+                ) : null}
               </div>
             );
           })()
@@ -1033,18 +1011,29 @@ export default function DriveDetailPage() {
       <Card
         title="Route"
         actions={
-          hasEndpointPair(drive) ? (
-            <a
-              href={googleRouteURL(drive)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
-              title="Open route in Google Maps"
-            >
-              Google Maps
-              <span aria-hidden>↗</span>
-            </a>
-          ) : null
+          <div className="flex items-center gap-2">
+            {gpsAccuracyLow ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-amber-700/50 bg-amber-900/20 px-2 py-0.5 text-[11px] font-medium text-amber-300"
+                title="Low GPS accuracy: dropouts, stale fixes, or signal loss detected during this drive. The plotted route may not reflect the actual path."
+              >
+                <span aria-hidden>⚠</span>
+                Low GPS accuracy
+              </span>
+            ) : null}
+            {hasEndpointPair(drive) ? (
+              <a
+                href={googleRouteURL(drive)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-700/60 bg-emerald-900/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
+                title="Open route in Google Maps"
+              >
+                Google Maps
+                <span aria-hidden>↗</span>
+              </a>
+            ) : null}
+          </div>
         }
       >
         {samples.isLoading ? (
@@ -1065,13 +1054,6 @@ export default function DriveDetailPage() {
           />
         )}
       </Card>
-
-      {gpsAccuracyLow ? (
-        <ErrorBox
-          title="GPS accuracy"
-          detail="This drive has low GPS accuracy — dropouts, stale fixes, or signal loss detected. The route may not reflect the actual path."
-        />
-      ) : null}
 
       {samples.isError ? (
         <ErrorBox

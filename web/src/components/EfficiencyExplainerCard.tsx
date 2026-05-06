@@ -70,8 +70,8 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
       ) : err ? (
         <ErrorBox title="Analysis failed" detail={err} />
       ) : !data ? (
-        <div className="space-y-3">
-          <p className="text-sm text-neutral-400">
+        <div className="space-y-3 text-sm">
+          <p className="text-xs text-neutral-500">
             Get an AI-driven breakdown of what drove this trip's
             efficiency — weather, terrain, driving style, climate
             control, tire pressure — with a single concrete
@@ -79,37 +79,47 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
             elevation profile are sent; no GPS coordinates leave the
             box.
           </p>
-          <div className="flex flex-wrap items-end gap-3 rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2">
-            <label className="flex flex-col gap-1 text-xs text-neutral-400">
-              <span>Extra load this trip (lb)</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={5000}
-                placeholder="0"
-                value={extraLoadLb}
-                onChange={(e) => setExtraLoadLb(e.target.value)}
-                className="w-28 rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm text-neutral-100 focus:border-emerald-700 focus:outline-none"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-neutral-300 pb-1.5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label
+                htmlFor="eff-extra-load"
+                className="block text-xs text-neutral-400 mb-1"
+              >
+                Extra load this trip
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  id="eff-extra-load"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={5000}
+                  step={10}
+                  placeholder="0"
+                  value={extraLoadLb}
+                  onChange={(e) => setExtraLoadLb(e.target.value)}
+                  className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+                />
+                <span className="text-xs text-neutral-500">lb</span>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 pb-1.5 text-neutral-300">
               <input
                 type="checkbox"
                 checked={towing}
                 onChange={(e) => setTowing(e.target.checked)}
-                className="h-4 w-4 accent-emerald-500"
+                className="h-3.5 w-3.5 accent-emerald-500"
               />
-              <span>Towing this trip</span>
+              Towing this trip
             </label>
+            <button
+              type="button"
+              onClick={generate}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+            >
+              Analyze efficiency
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={generate}
-            className="rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
-          >
-            Analyze efficiency
-          </button>
         </div>
       ) : (
         <EfficiencyBody data={data} />

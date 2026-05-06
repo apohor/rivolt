@@ -7,10 +7,6 @@ import { ErrorBox, Spinner } from "./ui";
 // efficiency analyzer factors into its breakdown: tire type, wheel
 // size, accessories, default extra load, frequently_tows. Stored in
 // vehicles.metadata.profile via PUT /api/vehicles/{id}/profile.
-//
-// Form state is local; we don't reach for react-query mutations here
-// because the rest of the codebase doesn't either, and the save path
-// is a single fire-and-forget PUT.
 
 const ACCESSORY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "roof_rack", label: "Roof rack" },
@@ -58,7 +54,7 @@ export function VehicleProfilePanel() {
   }
   if (vehicles.length === 0) {
     return (
-      <p className="text-sm text-neutral-400">
+      <p className="text-xs text-neutral-500">
         Sign in to your Rivian account first — the picker fills once
         Rivolt has seen at least one vehicle.
       </p>
@@ -66,14 +62,20 @@ export function VehicleProfilePanel() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4 text-sm">
       {vehicles.length > 1 ? (
-        <label className="flex items-center gap-2 text-xs text-neutral-400">
-          Vehicle
+        <div>
+          <label
+            htmlFor="profile-vehicle"
+            className="block text-xs text-neutral-400 mb-1"
+          >
+            Vehicle
+          </label>
           <select
+            id="profile-vehicle"
             value={vehicleID}
             onChange={(e) => setVehicleID(e.target.value)}
-            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm text-neutral-100"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
           >
             {vehicles.map((v) => (
               <option key={v.rivian_vehicle_id} value={v.rivian_vehicle_id}>
@@ -81,7 +83,7 @@ export function VehicleProfilePanel() {
               </option>
             ))}
           </select>
-        </label>
+        </div>
       ) : null}
       {vehicleID ? <ProfileForm key={vehicleID} vehicleID={vehicleID} /> : null}
     </div>
@@ -134,7 +136,8 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
         tire_type: tireType || undefined,
         wheel_inches: wheelInches || undefined,
         accessories: accessories.length > 0 ? accessories : undefined,
-        default_extra_load_lb: Number(extraLoadLb) > 0 ? Number(extraLoadLb) : undefined,
+        default_extra_load_lb:
+          Number(extraLoadLb) > 0 ? Number(extraLoadLb) : undefined,
         frequently_tows: frequentlyTows || undefined,
       };
       await backend.vehicleProfilePut(vehicleID, body);
@@ -149,26 +152,41 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
   if (profileQ.isLoading) return <Spinner />;
   if (profileQ.isError) {
     return (
-      <ErrorBox title="Couldn't load profile" detail={String(profileQ.error)} />
+      <ErrorBox
+        title="Couldn't load profile"
+        detail={String(profileQ.error)}
+      />
     );
   }
 
   return (
-    <div className="space-y-4 text-sm">
-      <p className="text-xs text-neutral-400">
+    <form
+      className="space-y-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <p className="text-xs text-neutral-500">
         These settings tell the efficiency analyzer about your vehicle's
         rolling resistance, drag, and typical load. They affect every
         future analysis. Per-trip overrides (towing this trip, extra
         cargo) are entered on the drive detail page.
       </p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-neutral-400">Tire type</span>
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label
+            htmlFor="profile-tire-type"
+            className="block text-xs text-neutral-400 mb-1"
+          >
+            Tire type
+          </label>
           <select
+            id="profile-tire-type"
             value={tireType}
             onChange={(e) => setTireType(e.target.value as VehicleTireType)}
-            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
+            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
           >
             {TIRE_OPTIONS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -176,13 +194,19 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
               </option>
             ))}
           </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-neutral-400">Wheel size (in)</span>
+        </div>
+        <div>
+          <label
+            htmlFor="profile-wheel"
+            className="block text-xs text-neutral-400 mb-1"
+          >
+            Wheel size
+          </label>
           <select
+            id="profile-wheel"
             value={wheelInches}
             onChange={(e) => setWheelInches(Number(e.target.value))}
-            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
+            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
           >
             {WHEEL_OPTIONS.map((n) => (
               <option key={n} value={n}>
@@ -190,58 +214,71 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
               </option>
             ))}
           </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-neutral-400">
-            Default extra load (lb)
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={5000}
-            placeholder="0"
-            value={extraLoadLb}
-            onChange={(e) => setExtraLoadLb(e.target.value)}
-            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
-          />
-        </label>
-        <label className="flex items-center gap-2 pt-5">
+        </div>
+        <div>
+          <label
+            htmlFor="profile-extra-load"
+            className="block text-xs text-neutral-400 mb-1"
+          >
+            Default extra load
+          </label>
+          <div className="flex items-center gap-1">
+            <input
+              id="profile-extra-load"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={5000}
+              step={10}
+              placeholder="0"
+              value={extraLoadLb}
+              onChange={(e) => setExtraLoadLb(e.target.value)}
+              className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+            />
+            <span className="text-xs text-neutral-500">lb</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="flex items-center gap-2 text-neutral-300">
           <input
             type="checkbox"
             checked={frequentlyTows}
             onChange={(e) => setFrequentlyTows(e.target.checked)}
-            className="h-4 w-4 accent-emerald-500"
+            className="h-3.5 w-3.5 accent-emerald-500"
           />
-          <span>Frequently tows</span>
+          Frequently tows
         </label>
       </div>
 
-      <fieldset>
-        <legend className="text-xs text-neutral-400">Accessories</legend>
-        <div className="mt-1 grid grid-cols-2 gap-y-1 sm:grid-cols-3">
+      <div>
+        <div className="text-xs text-neutral-400 mb-1">Accessories</div>
+        <div className="grid grid-cols-2 gap-y-1 sm:grid-cols-3">
           {ACCESSORY_OPTIONS.map((a) => (
-            <label key={a.value} className="flex items-center gap-2">
+            <label
+              key={a.value}
+              className="flex items-center gap-2 text-neutral-300"
+            >
               <input
                 type="checkbox"
                 checked={accessories.includes(a.value)}
                 onChange={() => toggleAccessory(a.value)}
-                className="h-4 w-4 accent-emerald-500"
+                className="h-3.5 w-3.5 accent-emerald-500"
               />
-              <span>{a.label}</span>
+              {a.label}
             </label>
           ))}
         </div>
-      </fieldset>
+      </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pt-1">
         <button
-          type="button"
-          onClick={save}
+          type="submit"
           disabled={busy}
-          className="rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 disabled:opacity-50"
+          className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
         >
-          {busy ? "Saving…" : "Save profile"}
+          {busy ? "Saving…" : "Save"}
         </button>
         {savedAt ? (
           <span className="text-xs text-neutral-500">Saved.</span>
@@ -249,6 +286,6 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
       </div>
 
       {err ? <ErrorBox title="Save failed" detail={err} /> : null}
-    </div>
+    </form>
   );
 }
