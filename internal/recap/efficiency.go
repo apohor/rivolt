@@ -270,7 +270,7 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 		trip = append(trip, fmt.Sprintf("extra load %.0f lb (this trip)", in.ExtraLoadLb))
 	}
 	if in.Towing {
-		trip = append(trip, "towing this trip")
+		trip = append(trip, "towing this trip (detected from drive mode)")
 	}
 	if len(trip) > 0 {
 		fmt.Fprintf(&b, "Trip context: %s\n", strings.Join(trip, "; "))

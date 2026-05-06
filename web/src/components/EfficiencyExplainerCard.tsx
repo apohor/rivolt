@@ -5,7 +5,7 @@ import {
   type EfficiencyFactor,
 } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
-import { Card, ErrorBox, Spinner, Toggle } from "./ui";
+import { Card, ErrorBox, Spinner } from "./ui";
 import { formatDateTime } from "../lib/format";
 
 // EfficiencyExplainerCard renders an AI-driven breakdown of why a
@@ -20,12 +20,12 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
   const [data, setData] = useState<DriveEfficiency | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Per-trip transient context. Not persisted -- the user fills these
-  // in (or leaves blank) before each Analyze click. Persistent
-  // per-vehicle settings (tire type, wheel size) come from
-  // /api/vehicles/{id}/profile and are merged in by the backend.
+  // Per-trip transient context. Not persisted -- the user fills it
+  // in (or leaves blank) before each Analyze click. Towing isn't a
+  // form field: the backend infers it from the persisted driveMode
+  // samples (Rivian's 'tow' / 'towing' drive mode), which the
+  // efficiency analyzer already lists in the prompt.
   const [extraLoadLb, setExtraLoadLb] = useState<string>("");
-  const [towing, setTowing] = useState(false);
 
   if (!enabled) return null;
 
@@ -33,10 +33,9 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
     setBusy(true);
     setErr(null);
     try {
-      const body: { extra_load_lb?: number; towing?: boolean } = {};
+      const body: { extra_load_lb?: number } = {};
       const n = Number(extraLoadLb);
       if (Number.isFinite(n) && n > 0) body.extra_load_lb = n;
-      if (towing) body.towing = true;
       const fresh = await backend.driveEfficiencyGenerate(driveId, body);
       setData(fresh);
     } catch (e) {
@@ -103,10 +102,6 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
                 <span className="text-xs text-neutral-500">lb</span>
               </div>
             </div>
-            <label className="flex items-center gap-2 pb-1.5 text-neutral-300">
-              <Toggle checked={towing} onChange={setTowing} />
-              Towing this trip
-            </label>
             <button
               type="button"
               onClick={generate}

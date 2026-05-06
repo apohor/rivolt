@@ -699,11 +699,12 @@ export const backend = {
   // Efficiency analysis: AI-driven breakdown of what drove efficiency
   // variance for a drive, with actionable recommendations. Generated
   // on-demand (not cached), so each call bills the LLM account. The
-  // optional body carries per-trip transient context (towing, extra
-  // cargo) that the SPA captures from the form on the analysis card.
+  // optional body carries per-trip transient context (extra cargo)
+  // that the SPA captures from the form on the analysis card. Towing
+  // is auto-detected server-side from the persisted driveMode samples.
   driveEfficiencyGenerate: (
     id: string,
-    body?: { extra_load_lb?: number; towing?: boolean },
+    body?: { extra_load_lb?: number },
   ) =>
     api.post<DriveEfficiency>(
       `/api/drives/${encodeURIComponent(id)}/efficiency`,

@@ -2327,14 +2327,14 @@ type driveEfficiencyResponse struct {
 // handleDriveEfficiencyPost generates an AI-driven efficiency analysis
 // on demand. Not cached: each call bills the operator's LLM account,
 // so the SPA only triggers it from a "Generate" button. The optional
-// JSON body carries per-trip transient context (towing, extra load)
-// the SPA captures via the form on the analysis card; persisted
-// per-vehicle settings (tire type, wheel size, accessories) are
-// pulled from vehicles.metadata regardless of body shape.
+// JSON body carries per-trip transient context (extra load) the SPA
+// captures via the form on the analysis card; persisted per-vehicle
+// settings (tire type, wheel size, accessories) are pulled from
+// vehicles.metadata regardless of body shape. Towing is auto-detected
+// from the persisted driveMode samples (Rivian 'tow' / 'towing' mode).
 func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 	type efficiencyReq struct {
 		ExtraLoadLb float64 `json:"extra_load_lb,omitempty"`
-		Towing      bool    `json:"towing,omitempty"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d.DB == nil {
@@ -2486,7 +2486,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			Weather:          effWeather,
 			VehicleProfile:   profile,
 			ExtraLoadLb:      req.ExtraLoadLb,
-			Towing:           req.Towing,
+			Towing:           detectTowingFromSamples(windowed),
 		})
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{
@@ -2509,6 +2509,22 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			OutputTokens:   res.OutputTokens,
 		})
 	}
+}
+
+// detectTowingFromSamples returns true when any persisted sample
+// reports Rivian's tow drive mode. Cheap O(n) scan; matches case-
+// insensitively against any mode containing "tow" so we catch
+// "tow", "towing", and any future Rivian-side renames.
+func detectTowingFromSamples(ss []samples.Sample) bool {
+	for _, s := range ss {
+		if s.DriveMode == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(s.DriveMode), "tow") {
+			return true
+		}
+	}
+	return false
 }
 
 // Nil-safe accessors for *recap.EfficiencyParsed.
