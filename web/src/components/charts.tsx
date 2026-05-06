@@ -49,6 +49,7 @@ export function LineChart({
   y2Domain,
   formatY2,
   bands,
+  bandRows,
   backdrop,
 }: {
   series: LineSeries[];
@@ -81,6 +82,14 @@ export function LineChart({
   // ~4px tall and clips to the chart's x-domain. Each band may
   // include a `label` shown as a native SVG <title> tooltip.
   bands?: Array<{ x0: number; x1: number; color: string; label?: string }>;
+  // Optional multi-row interval bands. Each row renders as its own
+  // thin strip near the bottom of the chart. Useful for stacking
+  // categorical timelines (for example drive mode + precipitation)
+  // without needing a separate chart.
+  bandRows?: Array<{
+    label?: string;
+    bands: Array<{ x0: number; x1: number; color: string; label?: string }>;
+  }>;
   // Optional faint context layer drawn behind the main series.
   // Auto-fits to its own min/max (independent of left/right
   // axes), draws no axis labels, and renders as a low-opacity
@@ -107,8 +116,17 @@ export function LineChart({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  const resolvedBandRows =
+    bandRows && bandRows.length > 0
+      ? bandRows
+      : bands && bands.length > 0
+        ? [{ bands }]
+        : [];
+
   const all = series.flatMap((s) => s.points);
-  if (all.length === 0) {
+  const hasBackdrop = (backdrop?.points.length ?? 0) > 1;
+  const hasBands = resolvedBandRows.some((r) => r.bands.length > 0);
+  if (all.length === 0 && !hasBackdrop && !hasBands) {
     return <EmptyChart height={height} />;
   }
 
@@ -123,12 +141,24 @@ export function LineChart({
     .filter((s) => s.axis === "right")
     .flatMap((s) => s.points);
 
-  const xs = all.map((p) => p.x);
+  const xs = [
+    ...all.map((p) => p.x),
+    ...(backdrop?.points.map((p) => p.x) ?? []),
+    ...resolvedBandRows.flatMap((row) =>
+      row.bands.flatMap((b) => [b.x0, b.x1]),
+    ),
+  ];
+  if (xs.length === 0) {
+    return <EmptyChart height={height} />;
+  }
   const x0 = xDomain?.[0] ?? Math.min(...xs);
   const x1 = xDomain?.[1] ?? Math.max(...xs);
   const xSpan = Math.max(1e-9, x1 - x0);
 
-  const leftYs = (leftAll.length > 0 ? leftAll : all).map((p) => p.y);
+  const leftYs =
+    (leftAll.length > 0 ? leftAll : all).length > 0
+      ? (leftAll.length > 0 ? leftAll : all).map((p) => p.y)
+      : (backdrop?.points.map((p) => p.y) ?? [0, 1]);
   const y0 = yDomain?.[0] ?? Math.min(...leftYs);
   const y1 = yDomain?.[1] ?? Math.max(...leftYs);
   const ySpan = Math.max(1e-9, y1 - y0);
@@ -277,26 +307,33 @@ export function LineChart({
           data line stays visible on top. Each band clips to the
           visible x-domain so out-of-range bands disappear cleanly
           when the user pans/zooms in the future. */}
-      {bands?.map((b, i) => {
-        const bx0 = Math.max(sx(b.x0), padL);
-        const bx1 = Math.min(sx(b.x1), width - padR);
-        if (bx1 <= bx0) return null;
-        const stripH = 4;
-        const stripY = padT + innerH - stripH;
-        return (
-          <rect
-            key={`band-${i}`}
-            x={bx0}
-            y={stripY}
-            width={bx1 - bx0}
-            height={stripH}
-            fill={b.color}
-            opacity={0.85}
-          >
-            {b.label ? <title>{b.label}</title> : null}
-          </rect>
-        );
-      })}
+      {resolvedBandRows.map((row, rowIdx) =>
+        row.bands.map((b, i) => {
+          const bx0 = Math.max(sx(b.x0), padL);
+          const bx1 = Math.min(sx(b.x1), width - padR);
+          if (bx1 <= bx0) return null;
+          const stripH = 4;
+          const stripGap = 2;
+          const stripY =
+            padT +
+            innerH -
+            stripH -
+            rowIdx * (stripH + stripGap);
+          return (
+            <rect
+              key={`band-${rowIdx}-${i}`}
+              x={bx0}
+              y={stripY}
+              width={bx1 - bx0}
+              height={stripH}
+              fill={b.color}
+              opacity={0.85}
+            >
+              {b.label ? <title>{b.label}</title> : null}
+            </rect>
+          );
+        }),
+      )}
       {/* backdrop: faint context area drawn behind primary series.
           Has its own y-scale (min..max of its own points) confined
           to ~70% of the inner height so the main chart breathes,

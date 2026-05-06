@@ -320,10 +320,20 @@ export default function DriveDetailPage() {
       x: new Date(p.At).getTime(),
       y: cToUnit(p.OutsideTempC),
     }));
+  const cabinTempPts = driveSamples
+    .filter((p) => Number.isFinite(p.InsideTempC) && p.InsideTempC !== 0)
+    .map((p) => ({
+      x: new Date(p.At).getTime(),
+      y: cToUnit(p.InsideTempC),
+    }));
   // Outdoor temperature changes slowly (minutes, not seconds), so a
   // wide smoothing window cleans the typical ~1 °C sensor jitter
   // without flattening real ramps when driving in/out of sun.
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
+  // Cabin temp has similar noise characteristics to outside temp.
+  // Use the same smoothing window so both traces are visually
+  // comparable when overlaid.
+  const cabinTempSmoothed = smoothGaussianTime(cabinTempPts, 60_000);
 
   // Open-Meteo time series. 15-min cadence for drives within the
   // forecast window, 60-min for older drives. The renderer treats
@@ -417,7 +427,13 @@ export default function DriveDetailPage() {
         return null;
     }
   };
-  const precipBands = weatherPts
+  type ChartBand = {
+    x0: number;
+    x1: number;
+    color: string;
+    label: string;
+  };
+  const precipBands: ChartBand[] = weatherPts
     .map((p) => {
       const cond = p.conditions;
       const wet = (p.precip_in ?? 0) > 0 || precipColor(cond) != null;
@@ -436,37 +452,84 @@ export default function DriveDetailPage() {
           : (cond ?? "precipitation");
       return { x0, x1, color, label };
     })
-    .filter((b): b is { x0: number; x1: number; color: string; label: string } => b != null);
+    .filter((b): b is ChartBand => b != null);
   const hasPrecipBands = precipBands.length > 0;
 
-  // Combined weather panel picks one outside-temperature source.
-  // Preference:
-  //   1. real outside-temp sensor samples (best resolution).
-  //   2. Open-Meteo time series (15- or 60-min cadence).
-  // Cabin temp is intentionally not used as a fallback here -- it
-  // tracks HVAC and occupant comfort, not the environment, and
-  // labelling it as "Outside temp" would mislead. Drives with no
-  // outside source simply omit the temp line; the panel still
-  // carries elevation/headwind/precipitation if those exist.
-  type TempTraceSource = "sensor" | "meteo";
-  const tempTrace: {
-    source: TempTraceSource;
-    points: { x: number; y: number }[];
-    label: string;
-  } | null =
+  // Outside temp picks one source: onboard sensor first, then
+  // Open-Meteo. Cabin is a separate first-class trace when present.
+  const outsideTempTrace:
+    | {
+        source: "sensor" | "meteo";
+        points: { x: number; y: number }[];
+      }
+    | null =
     outsideTempSmoothed.length > 1
       ? {
           source: "sensor",
           points: outsideTempSmoothed,
-          label: "Outside temp",
         }
       : meteoTempPts.length > 1
         ? {
             source: "meteo",
             points: meteoTempPts,
-            label: "Outside temp",
           }
         : null;
+  const cabinTempTrace =
+    cabinTempSmoothed.length > 1
+      ? {
+          points: cabinTempSmoothed,
+        }
+      : null;
+
+  // Mode/gear timeline bands. Prefer drive mode if samples carry it;
+  // otherwise fall back to gear so the lane still has navigational
+  // value on historical data.
+  const modeBands: ChartBand[] = (() => {
+    if (driveSamples.length === 0) return [];
+    const out: ChartBand[] = [];
+    for (let i = 0; i < driveSamples.length; i++) {
+      const cur = driveSamples[i];
+      const curMs = new Date(cur.At).getTime();
+      const nextMs =
+        i + 1 < driveSamples.length
+          ? new Date(driveSamples[i + 1].At).getTime()
+          : driveEndMs;
+      if (!Number.isFinite(curMs) || !Number.isFinite(nextMs) || nextMs <= curMs) {
+        continue;
+      }
+      const rawMode = cur.drive_mode;
+      const mode = normalizeDriveMode(rawMode);
+      const gear = normalizeGear(cur.ShiftState);
+      const label = mode || (gear ? `Gear ${gear}` : "");
+      if (!label) continue;
+      const band: ChartBand = {
+        x0: Math.max(curMs, driveStartMs),
+        x1: Math.min(nextMs, driveEndMs),
+        color: mode ? driveModeColor(mode) : gearColor(gear),
+        label,
+      };
+      if (band.x1 <= band.x0) continue;
+      const prev = out[out.length - 1];
+      if (
+        prev &&
+        prev.label === band.label &&
+        prev.color === band.color &&
+        Math.abs(prev.x1 - band.x0) <= 1000
+      ) {
+        prev.x1 = band.x1;
+      } else {
+        out.push(band);
+      }
+    }
+    return out;
+  })();
+  const hasModeBands = modeBands.length > 0;
+  const telemetryBandRows = [
+    ...(hasModeBands ? [{ label: "Mode", bands: modeBands }] : []),
+  ];
+  const envBandRows = [
+    ...(hasPrecipBands ? [{ label: "Precipitation", bands: precipBands }] : []),
+  ];
 
   // Resolve the sample closest to the synced cursor for the
   // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
@@ -605,14 +668,25 @@ export default function DriveDetailPage() {
               allX.length > 0
                 ? [Math.min(...allX), Math.max(...allX)]
                 : undefined;
-            const hasTemp = !!tempTrace;
+            const hasOutsideTemp = !!outsideTempTrace;
+            const hasCabinTemp = !!cabinTempTrace;
+            const hasTemp = hasOutsideTemp || hasCabinTemp;
             const hasElev = elevPts.length > 1;
             const hasSpeed = speedPts.length > 0;
             const hasSoC = socPts.length > 0;
+            const hasAnyEnvironmentSignal =
+              hasTemp ||
+              hasElev ||
+              hasHeadwind ||
+              hasPrecipBands;
+            const tempYValues = [
+              ...(outsideTempTrace?.points.map((p) => p.y) ?? []),
+              ...(cabinTempTrace?.points.map((p) => p.y) ?? []),
+            ];
             // Bottom-most rendered panel draws x-axis ticks; the
             // top panel suppresses them so the two-panel stack
             // looks like one continuous time axis.
-            const topPanelHasTicks = !(hasTemp || hasElev);
+            const topPanelHasTicks = !hasAnyEnvironmentSignal;
             return (
               <div className="space-y-3">
                 {hasSpeed || hasSoC ? (
@@ -630,6 +704,9 @@ export default function DriveDetailPage() {
                               dashed: true,
                             },
                           ]
+                        : []),
+                      ...(hasModeBands
+                        ? [{ label: "Mode/Gear", color: "#f97316" }]
                         : []),
                     ]}
                   >
@@ -695,6 +772,11 @@ export default function DriveDetailPage() {
                       formatY2={
                         hasSoC ? (v) => `${v.toFixed(0)}%` : undefined
                       }
+                      bandRows={
+                        telemetryBandRows.length > 0
+                          ? telemetryBandRows
+                          : undefined
+                      }
                       formatX={xTimeFmt}
                       xTicks={topPanelHasTicks ? 4 : 0}
                       cursorX={cursorMs}
@@ -702,12 +784,21 @@ export default function DriveDetailPage() {
                     />
                   </ChartPanel>
                 ) : null}
-                {hasTemp || hasElev ? (
+                {hasAnyEnvironmentSignal ? (
                   <ChartPanel
                     label="Environment"
                     legend={[
-                      ...(hasTemp
+                      ...(hasOutsideTemp
                         ? [{ label: "Outside temp", color: "#fb923c" }]
+                        : []),
+                      ...(hasCabinTemp
+                        ? [
+                            {
+                              label: "Cabin temp",
+                              color: "#fbbf24",
+                              dashed: true,
+                            },
+                          ]
                         : []),
                       ...(hasElev
                         ? [{ label: "Elevation", color: "#a78bfa" }]
@@ -722,14 +813,28 @@ export default function DriveDetailPage() {
                   >
                     <LineChart
                       series={[
-                        ...(hasTemp
+                        ...(hasOutsideTemp
                           ? [
                               {
-                                points: tempTrace.points,
+                                points: outsideTempTrace.points,
                                 color: "#fb923c",
                                 strokeWidth: 1.4,
                                 curve: "monotone" as const,
-                                label: tempTrace.label,
+                                label: "Outside temp",
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(0)}${tempUnitSuffix}`,
+                              },
+                            ]
+                          : []),
+                        ...(hasCabinTemp
+                          ? [
+                              {
+                                points: cabinTempTrace.points,
+                                color: "#fbbf24",
+                                strokeWidth: 1.2,
+                                curve: "monotone" as const,
+                                dash: "4 3",
+                                label: "Cabin temp",
                                 formatCursor: (v: number) =>
                                   `${v.toFixed(0)}${tempUnitSuffix}`,
                               },
@@ -768,16 +873,15 @@ export default function DriveDetailPage() {
                             }
                           : undefined
                       }
-                      bands={hasPrecipBands ? precipBands : undefined}
+                      bandRows={envBandRows.length > 0 ? envBandRows : undefined}
                       height={150}
                       xDomain={xDomain}
                       yDomain={
                         hasTemp
                           ? (() => {
-                              const ys = tempTrace.points.map((p) => p.y);
-                              if (ys.length === 0) return undefined;
-                              const lo = Math.min(...ys);
-                              const hi = Math.max(...ys);
+                              if (tempYValues.length === 0) return undefined;
+                              const lo = Math.min(...tempYValues);
+                              const hi = Math.max(...tempYValues);
                               // Generous temp axis: headroom is the
                               // larger of the value span itself or
                               // a fixed floor (8°F / 4°C). On a
@@ -1240,4 +1344,46 @@ function compass(deg: number): string {
   ];
   const i = Math.round(((deg % 360) / 22.5)) % 16;
   return dirs[i];
+}
+
+function normalizeDriveMode(raw: string | undefined): string {
+  if (!raw) return "";
+  const s = raw.trim();
+  if (!s) return "";
+  const words = s
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function normalizeGear(raw: string | undefined): string {
+  if (!raw) return "";
+  const g = raw.trim().toUpperCase();
+  if (g === "DRIVE") return "D";
+  if (g === "REVERSE") return "R";
+  if (g === "PARK") return "P";
+  if (g === "NEUTRAL") return "N";
+  return g;
+}
+
+function driveModeColor(mode: string): string {
+  const key = mode.toLowerCase();
+  if (key.includes("sport")) return "#ef4444";
+  if (key.includes("snow") || key.includes("off road")) return "#06b6d4";
+  if (key.includes("conserve") || key.includes("eco")) return "#22c55e";
+  if (key.includes("all purpose") || key.includes("everyday")) return "#f97316";
+  if (key.includes("tow")) return "#a855f7";
+  return "#f59e0b";
+}
+
+function gearColor(gear: string): string {
+  if (gear === "D") return "#38bdf8";
+  if (gear === "R") return "#f97316";
+  if (gear === "N") return "#a3a3a3";
+  if (gear === "P") return "#22c55e";
+  return "#78716c";
 }

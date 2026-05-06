@@ -318,6 +318,7 @@ export type Sample = {
   SpeedMph: number;
   ShiftState: string;
   ChargingState: string;
+  drive_mode?: string;
   ChargerPowerKW: number;
   ChargeLimitPct: number;
   InsideTempC: number;
