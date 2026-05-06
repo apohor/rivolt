@@ -622,6 +622,7 @@ export default function DriveDetailPage() {
               <div className="space-y-3">
                 {hasSpeed || hasSoC ? (
                   <ChartPanel
+                    label="Telemetry"
                     legend={[
                       ...(hasSpeed
                         ? [{ label: "Speed", color: "#38bdf8" }]
