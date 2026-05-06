@@ -573,14 +573,22 @@ export default function DriveDetailPage() {
               <div className="space-y-3">
                 {hasSpeed || hasSoC ? (
                   <ChartPanel
-                    label={
-                      hasSpeed && hasSoC
-                        ? "Speed + Battery"
-                        : hasSpeed
-                          ? "Speed"
-                          : "Battery"
-                    }
+                    label="Telemetry"
                     colorClass="bg-sky-400"
+                    legend={[
+                      ...(hasSpeed
+                        ? [{ label: "Speed", color: "#38bdf8" }]
+                        : []),
+                      ...(hasSoC
+                        ? [
+                            {
+                              label: "Battery",
+                              color: "#10b981",
+                              dashed: true,
+                            },
+                          ]
+                        : []),
+                    ]}
                   >
                     <LineChart
                       series={[
@@ -616,6 +624,7 @@ export default function DriveDetailPage() {
                                   | "right"
                                   | "left",
                                 label: "Battery",
+                                dash: "4 3",
                                 formatCursor: (v: number) =>
                                   `${v.toFixed(0)}%`,
                               },
@@ -652,15 +661,22 @@ export default function DriveDetailPage() {
                 ) : null}
                 {hasTemp || hasElev ? (
                   <ChartPanel
-                    label={(() => {
-                      const parts: string[] = [];
-                      if (hasTemp) parts.push(tempTrace.label);
-                      if (hasElev) parts.push("elevation");
-                      if (hasHeadwind) parts.push("headwind");
-                      if (hasPrecipBands) parts.push("precipitation");
-                      return parts.join(" + ");
-                    })()}
+                    label="Environment"
                     colorClass="bg-orange-400"
+                    legend={[
+                      ...(hasTemp
+                        ? [{ label: "Outside temp", color: "#fb923c" }]
+                        : []),
+                      ...(hasElev
+                        ? [{ label: "Elevation", color: "#a78bfa" }]
+                        : []),
+                      ...(hasHeadwind
+                        ? [{ label: "Headwind", color: "#22d3ee" }]
+                        : []),
+                      ...(hasPrecipBands
+                        ? [{ label: "Precipitation", color: "#3b82f6" }]
+                        : []),
+                    ]}
                   >
                     <LineChart
                       series={[
@@ -720,14 +736,25 @@ export default function DriveDetailPage() {
                               if (ys.length === 0) return undefined;
                               const lo = Math.min(...ys);
                               const hi = Math.max(...ys);
-                              if (hi - lo < (tempUnit === "f" ? 2 : 1)) {
-                                const pad = tempUnit === "f" ? 2 : 1;
+                              // Always pad the temp axis so the line
+                              // never sits flush against the chart
+                              // edge. Open-Meteo's whole-degree
+                              // resolution makes flush-edge lines
+                              // very common for short drives.
+                              const minSpan = tempUnit === "f" ? 6 : 3;
+                              const span = hi - lo;
+                              if (span < minSpan) {
+                                const pad = (minSpan - span) / 2;
                                 return [lo - pad, hi + pad] as [
                                   number,
                                   number,
                                 ];
                               }
-                              return undefined;
+                              const headroom = span * 0.15;
+                              return [lo - headroom, hi + headroom] as [
+                                number,
+                                number,
+                              ];
                             })()
                           : undefined
                       }
@@ -739,12 +766,16 @@ export default function DriveDetailPage() {
                       formatY2={
                         hasHeadwind
                           ? (v) =>
-                              v > 0 ? `+${v.toFixed(0)}` : v.toFixed(0)
+                              v > 0
+                                ? `+${v.toFixed(0)} mph`
+                                : `${v.toFixed(0)} mph`
                           : undefined
                       }
                       // Symmetric headwind axis around 0 so head vs
                       // tail are visually equal; min span of ±5 mph
-                      // keeps a calm drive from collapsing the axis.
+                      // keeps a calm drive from collapsing the axis,
+                      // and a 20% headroom multiplier keeps the line
+                      // from clipping the chart's top/bottom edge.
                       y2Domain={
                         hasHeadwind
                           ? (() => {
@@ -754,7 +785,8 @@ export default function DriveDetailPage() {
                                   Math.abs(p.y),
                                 ),
                               );
-                              return [-max, max] as [number, number];
+                              const padded = max * 1.2;
+                              return [-padded, padded] as [number, number];
                             })()
                           : undefined
                       }
@@ -890,17 +922,67 @@ function NoSamples() {
 function ChartPanel({
   label,
   colorClass,
+  legend,
   children,
 }: {
   label: string;
   colorClass: string;
+  // Optional per-series legend rendered inline next to the panel
+  // label. Each entry shows a small swatch in `color` (any CSS
+  // color or tailwind bg-* class via `colorClass`) followed by
+  // the legend text. Use this when a panel co-plots multiple
+  // signals so each color is explained, not just the first.
+  legend?: Array<{
+    label: string;
+    color?: string;
+    colorClass?: string;
+    dashed?: boolean;
+  }>;
   children: import("react").ReactNode;
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-neutral-400">
-        <span className={`inline-block w-2 h-2 rounded-sm ${colorClass}`} />
-        {label}
+      <div className="mb-1 flex items-center gap-3 text-[10px] uppercase tracking-wide text-neutral-400">
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-block w-2 h-2 rounded-sm ${colorClass}`} />
+          {label}
+        </span>
+        {legend && legend.length > 0 ? (
+          <span className="flex items-center gap-3 normal-case tracking-normal text-neutral-500">
+            {legend.map((item, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {item.dashed ? (
+                  <svg
+                    width={12}
+                    height={2}
+                    aria-hidden
+                    style={{ display: "inline-block" }}
+                  >
+                    <line
+                      x1={0}
+                      y1={1}
+                      x2={12}
+                      y2={1}
+                      stroke={item.color ?? "currentColor"}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 3"
+                    />
+                  </svg>
+                ) : (
+                  <span
+                    className={`inline-block w-2 h-2 rounded-sm ${item.colorClass ?? ""}`}
+                    style={
+                      item.colorClass
+                        ? undefined
+                        : { backgroundColor: item.color ?? "currentColor" }
+                    }
+                  />
+                )}
+                {item.label}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </div>
       {children}
     </div>
