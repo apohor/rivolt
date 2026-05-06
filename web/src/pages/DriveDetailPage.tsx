@@ -574,7 +574,6 @@ export default function DriveDetailPage() {
                 {hasSpeed || hasSoC ? (
                   <ChartPanel
                     label="Telemetry"
-                    colorClass="bg-sky-400"
                     legend={[
                       ...(hasSpeed
                         ? [{ label: "Speed", color: "#38bdf8" }]
@@ -662,7 +661,6 @@ export default function DriveDetailPage() {
                 {hasTemp || hasElev ? (
                   <ChartPanel
                     label="Environment"
-                    colorClass="bg-orange-400"
                     legend={[
                       ...(hasTemp
                         ? [{ label: "Outside temp", color: "#fb923c" }]
@@ -738,23 +736,21 @@ export default function DriveDetailPage() {
                               const hi = Math.max(...ys);
                               // Always pad the temp axis so the line
                               // never sits flush against the chart
-                              // edge. Open-Meteo's whole-degree
-                              // resolution makes flush-edge lines
-                              // very common for short drives.
-                              const minSpan = tempUnit === "f" ? 6 : 3;
-                              const span = hi - lo;
-                              if (span < minSpan) {
-                                const pad = (minSpan - span) / 2;
-                                return [lo - pad, hi + pad] as [
-                                  number,
-                                  number,
-                                ];
-                              }
-                              const headroom = span * 0.15;
-                              return [lo - headroom, hi + headroom] as [
-                                number,
-                                number,
-                              ];
+                              // edge. Headroom is the larger of
+                              // 30% of the value span or a fixed
+                              // floor (8°F / 4°C) so even a flat
+                              // drive at whole-degree resolution
+                              // shows the line in the middle band.
+                              const span = Math.max(0, hi - lo);
+                              const floor = tempUnit === "f" ? 4 : 2;
+                              const headroom = Math.max(
+                                floor,
+                                span * 0.3,
+                              );
+                              return [
+                                lo - headroom,
+                                hi + headroom,
+                              ] as [number, number];
                             })()
                           : undefined
                       }
@@ -772,20 +768,20 @@ export default function DriveDetailPage() {
                           : undefined
                       }
                       // Symmetric headwind axis around 0 so head vs
-                      // tail are visually equal; min span of ±5 mph
+                      // tail are visually equal; min span of ±10 mph
                       // keeps a calm drive from collapsing the axis,
-                      // and a 20% headroom multiplier keeps the line
-                      // from clipping the chart's top/bottom edge.
+                      // and a 50% headroom multiplier keeps the line
+                      // well clear of the chart's top/bottom edge.
                       y2Domain={
                         hasHeadwind
                           ? (() => {
                               const max = Math.max(
-                                5,
+                                10,
                                 ...meteoHeadwindPts.map((p) =>
                                   Math.abs(p.y),
                                 ),
                               );
-                              const padded = max * 1.2;
+                              const padded = max * 1.5;
                               return [-padded, padded] as [number, number];
                             })()
                           : undefined
@@ -921,12 +917,10 @@ function NoSamples() {
 // second page wants the same treatment.
 function ChartPanel({
   label,
-  colorClass,
   legend,
   children,
 }: {
   label: string;
-  colorClass: string;
   // Optional per-series legend rendered inline next to the panel
   // label. Each entry shows a small swatch in `color` (any CSS
   // color or tailwind bg-* class via `colorClass`) followed by
@@ -943,10 +937,7 @@ function ChartPanel({
   return (
     <div>
       <div className="mb-1 flex items-center gap-3 text-[10px] uppercase tracking-wide text-neutral-400">
-        <span className="flex items-center gap-1.5">
-          <span className={`inline-block w-2 h-2 rounded-sm ${colorClass}`} />
-          {label}
-        </span>
+        <span>{label}</span>
         {legend && legend.length > 0 ? (
           <span className="flex items-center gap-3 normal-case tracking-normal text-neutral-500">
             {legend.map((item, i) => (
