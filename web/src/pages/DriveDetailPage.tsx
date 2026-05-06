@@ -525,7 +525,7 @@ export default function DriveDetailPage() {
   })();
   const hasModeBands = modeBands.length > 0;
   const telemetryBandRows = [
-    ...(hasModeBands ? [{ label: "Mode", bands: modeBands }] : []),
+    ...(hasModeBands ? [{ label: "Mode/Gear", bands: modeBands }] : []),
   ];
   const envBandRows = [
     ...(hasPrecipBands ? [{ label: "Precipitation", bands: precipBands }] : []),
@@ -706,7 +706,7 @@ export default function DriveDetailPage() {
                           ]
                         : []),
                       ...(hasModeBands
-                        ? [{ label: "Mode/Gear", color: "#f97316" }]
+                        ? [{ label: "Mode/Gear", color: "#a3a3a3" }]
                         : []),
                     ]}
                   >
