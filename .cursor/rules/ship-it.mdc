@@ -1,5 +1,5 @@
 ---
-description: Ship-it checklist — commit, bump infra chart, push, tag
+description: Ship-it checklist — commit, bump Chart.yaml, push, tag, bump infra
 alwaysApply: false
 ---
 
@@ -7,39 +7,42 @@ alwaysApply: false
 
 When the user says "ship it" (or asks to release / deploy), run these steps **in order**:
 
-## 1. Commit & tag in `rivolt`
+## 1. Determine the next version
+```
+git log --oneline -1   # read the last vX.Y.Z to derive the next patch
+```
 
-First bump `deploy/helm/rivolt/Chart.yaml` — both fields must match the new version:
+## 2. Bump `deploy/helm/rivolt/Chart.yaml`
+Both fields must be updated together — they must equal the new git tag:
 ```yaml
 version: 0.8.Y        # patch-bumps in sync with appVersion
-appVersion: "0.X.Y"   # must equal the git tag — this is the image tag the pod pulls
+appVersion: "0.X.Y"   # pod image tag — MUST match the git tag
 ```
 
-Then commit everything together and tag:
+## 3. Commit, tag & push in `rivolt`
 ```
 git add <changed files> deploy/helm/rivolt/Chart.yaml
-git commit -m "v0.X.Y: <short summary>\n\n<detail lines>"
+git commit -m "v0.X.Y: <short summary>"
 git tag v0.X.Y
 git push --follow-tags
 ```
-Follow the existing `v0.X.Y: <title>` commit message convention.
-`--follow-tags` pushes the commit and the tag in one shot; CI publishes
-`ghcr.io/apohor/rivolt:0.X.Y` only on tag pushes.
+`--follow-tags` ships the commit and the tag together.
+CI publishes `ghcr.io/apohor/rivolt:0.X.Y` on tag push only — wait
+for the Actions run to go green before bumping infra.
 
-## 2. Bump the infra chart in `rivolt-infra`
-File: `apps/rivolt/app.yaml` — update the `version` field:
-```yaml
-chart:
-  version: v0.X.Y   # bump from previous tag
+## 4. Bump the infra chart in `rivolt-infra`
+**Only after CI is green** — ArgoCD will immediately try to pull the image.
 ```
-Then:
-```
-cd rivolt-infra
+# in rivolt-infra:
+# apps/rivolt/app.yaml → chart.version: v0.X.Y
 git add apps/rivolt/app.yaml
 git commit -m "rivolt: bump to v0.X.Y"
 git push
 ```
 
-## Version numbering
-- Patch bump (`0.X.Y+1`) for fixes and small features (the usual case).
-- Check `git log --oneline -1` for the last version to determine the next one.
+## Checklist
+- [ ] `Chart.yaml` `version` + `appVersion` bumped
+- [ ] `git push --follow-tags` done
+- [ ] CI green (Actions tab on GitHub)
+- [ ] `rivolt-infra` `app.yaml` bumped & pushed
+- [ ] ArgoCD synced, pod on new version (`kubectl -n rivolt get pods`)
