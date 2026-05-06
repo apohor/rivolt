@@ -734,19 +734,16 @@ export default function DriveDetailPage() {
                               if (ys.length === 0) return undefined;
                               const lo = Math.min(...ys);
                               const hi = Math.max(...ys);
-                              // Always pad the temp axis so the line
-                              // never sits flush against the chart
-                              // edge. Headroom is the larger of
-                              // 30% of the value span or a fixed
-                              // floor (8°F / 4°C) so even a flat
-                              // drive at whole-degree resolution
-                              // shows the line in the middle band.
+                              // Generous temp axis: headroom is the
+                              // larger of the value span itself or
+                              // a fixed floor (8°F / 4°C). On a
+                              // 1° drive that means padding ~8× the
+                              // actual range, on a 10° drive 1×.
+                              // The floor guarantees the line never
+                              // sits flush against an edge.
                               const span = Math.max(0, hi - lo);
-                              const floor = tempUnit === "f" ? 4 : 2;
-                              const headroom = Math.max(
-                                floor,
-                                span * 0.3,
-                              );
+                              const floor = tempUnit === "f" ? 8 : 4;
+                              const headroom = Math.max(floor, span);
                               return [
                                 lo - headroom,
                                 hi + headroom,
@@ -767,22 +764,23 @@ export default function DriveDetailPage() {
                                 : `${v.toFixed(0)} mph`
                           : undefined
                       }
-                      // Symmetric headwind axis around 0 so head vs
-                      // tail are visually equal; min span of ±10 mph
-                      // keeps a calm drive from collapsing the axis,
-                      // and a 50% headroom multiplier keeps the line
-                      // well clear of the chart's top/bottom edge.
+                      // Headwind axis is intentionally generous:
+                      // 3x the data peak with a ±20 mph floor.
+                      // The actual peak is what the user cares
+                      // about, so we want the line clearly inside
+                      // the plot area, not flush against the top
+                      // or bottom grid. Symmetric around 0 so head
+                      // vs tail are visually equal.
                       y2Domain={
                         hasHeadwind
                           ? (() => {
-                              const max = Math.max(
-                                10,
+                              const peak = Math.max(
                                 ...meteoHeadwindPts.map((p) =>
                                   Math.abs(p.y),
                                 ),
                               );
-                              const padded = max * 1.5;
-                              return [-padded, padded] as [number, number];
+                              const max = Math.max(20, peak * 3);
+                              return [-max, max] as [number, number];
                             })()
                           : undefined
                       }
