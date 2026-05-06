@@ -81,9 +81,9 @@ function mergeChain(chain: Drive[]): Drive {
     if (d.DistanceMi > 0.1) {
       if (d.EnergyUsedKWh > 0) totalEnergy += d.EnergyUsedKWh;
       else allHaveEnergy = false;
+      if (d.estimated_cost != null) totalCost += d.estimated_cost;
+      else hasCost = false;
     }
-    if (d.estimated_cost != null) totalCost += d.estimated_cost;
-    else hasCost = false;
   }
 
   const energy = allHaveEnergy ? totalEnergy : 0;
