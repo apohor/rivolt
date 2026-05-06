@@ -83,6 +83,9 @@ export function DriveTimeline({
   onViewWindowChange,
   tempUnit,
 }: DriveTimelineProps) {
+  // Track whether the user last interacted via touch so we can keep
+  // the cursor alive after the finger lifts (touch has no "hover").
+  const [isTouch, setIsTouch] = useState(false);
   const driveStartMs = new Date(drive.StartedAt).getTime();
   const driveEndMs = new Date(drive.EndedAt).getTime();
 
@@ -185,6 +188,8 @@ export function DriveTimeline({
         cursorMs={cursorMs}
         onCursorChange={onCursorChange}
         onViewWindowChange={onViewWindowChange}
+        onPointerTypeChange={setIsTouch}
+        isTouch={isTouch}
         cursorSample={cursorSample}
         cursorPower={cursorPower}
         cursorSoc={cursorSoc}
@@ -195,6 +200,23 @@ export function DriveTimeline({
         startSoC={drive.StartSoCPct}
         endSoC={drive.EndSoCPct}
       />
+
+      {/* HTML cursor readout — always readable regardless of SVG scale.
+          On desktop it mirrors the floating tooltip; on touch it's the
+          primary way to inspect a sample (no hover on mobile). Hidden
+          when no cursor is active. */}
+      {cursorSample ? (
+        <CursorReadout
+          cursorSample={cursorSample}
+          cursorPower={cursorPower}
+          cursorSoc={cursorSoc}
+          cursorElev={cursorElev}
+          cursorHeadwind={cursorHeadwind}
+          tempUnit={tempUnit}
+          onDismiss={isTouch ? () => onCursorChange(null) : undefined}
+        />
+      ) : null}
+
       <div className="flex items-center justify-between gap-3">
         {moments.length > 0 ? (
           <MomentChips
@@ -223,8 +245,8 @@ export function DriveTimeline({
             Reset zoom
           </button>
         ) : (
-          <span className="text-[10px] text-neutral-600">
-            Drag across the chart to zoom — release to commit, double-click to reset.
+          <span className="hidden text-[10px] text-neutral-600 sm:inline">
+            Drag to zoom · double-click to reset
           </span>
         )}
       </div>
@@ -243,11 +265,11 @@ const PAD_R = 14;
 const PLOT_W = VIEW_W - PAD_L - PAD_R;
 
 const RIBBON_TOP = 8;
-const RIBBON_H = 8;
+const RIBBON_H = 10;
 const SPEED_TOP = RIBBON_TOP + RIBBON_H + 4;
-const SPEED_H = 96;
-const BATT_TOP = SPEED_TOP + SPEED_H + 10;
-const BATT_H = 76;
+const SPEED_H = 130;
+const BATT_TOP = SPEED_TOP + SPEED_H + 12;
+const BATT_H = 100;
 const PRECIP_TOP = BATT_TOP + BATT_H + 8;
 const PRECIP_H = 12;
 const MODE_STRIP_TOP = PRECIP_TOP + PRECIP_H + 3;
@@ -283,6 +305,11 @@ function TimelineSVG(props: {
   cursorMs: number | null;
   onCursorChange: (ms: number | null) => void;
   onViewWindowChange: (window: [number, number] | null) => void;
+  // Called with true when a touch pointer is first detected, false
+  // when the user switches back to mouse. DriveTimeline uses this to
+  // decide whether to show the HTML readout dismiss button.
+  onPointerTypeChange: (isTouch: boolean) => void;
+  isTouch: boolean;
   cursorSample: Sample | null;
   cursorPower: number | null;
   cursorSoc: number | null;
@@ -306,6 +333,8 @@ function TimelineSVG(props: {
     cursorMs,
     onCursorChange,
     onViewWindowChange,
+    onPointerTypeChange,
+    isTouch,
     cursorSample,
     cursorPower,
     cursorSoc,
@@ -371,7 +400,7 @@ function TimelineSVG(props: {
   return (
     <svg
       viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
-      className="w-full"
+      className="w-full min-h-[240px]"
       preserveAspectRatio="none"
       role="img"
       aria-label="Drive timeline"
@@ -675,12 +704,11 @@ function TimelineSVG(props: {
         </g>
       ) : null}
 
-      {/* ---- Floating tooltip ------------------------------------- */}
-      {/* Tooltip stays unclipped so it can flip to the left of the
-          plot when the cursor is near the right edge. Only renders
-          when the cursor is inside the visible window — otherwise
-          the persistent readout above the chart is the only display. */}
-      {cursorVisible && cursorSample ? (
+      {/* ---- Floating tooltip (mouse only) ------------------------- */}
+      {/* Shown for mouse/trackpad only. On touch the SVG scales down
+          to unreadable sizes and the HTML CursorReadout below the
+          chart is the primary data display instead. */}
+      {!isTouch && cursorVisible && cursorSample ? (
         <FloatingTooltip
           x={sx(cursorMs!)}
           cursorSample={cursorSample}
@@ -742,6 +770,8 @@ function TimelineSVG(props: {
           // Only respond to the primary button. Ignore right-clicks
           // and middle-clicks so context menus / autoscroll still work.
           if (e.button !== 0) return;
+          const touch = e.pointerType === "touch" || e.pointerType === "pen";
+          onPointerTypeChange(touch);
           const t = eventToDataMs(e);
           if (t == null) return;
           (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -758,12 +788,18 @@ function TimelineSVG(props: {
             if (t == null) return;
             // Promote a click to a drag once the pointer has actually
             // moved a few px on screen — below that threshold we treat
-            // mouseup as a regular click and fall through to setting
-            // the cursor at that x.
+            // pointerup as a tap and fall through to setting the cursor.
+            // Use a larger threshold for touch (8 px) to absorb finger
+            // jitter on press.
+            const touchDrag =
+              e.pointerType === "touch" || e.pointerType === "pen";
+            const threshold = touchDrag ? 8 : 4;
             const moved =
-              drag.moved || Math.abs(e.clientX - drag.startScreenX) > 4;
+              drag.moved || Math.abs(e.clientX - drag.startScreenX) > threshold;
             setDrag({ ...drag, endMs: t, moved });
           } else {
+            // Mouse-only: update cursor continuously while hovering.
+            if (e.pointerType !== "mouse") return;
             const t = eventToDataMs(e);
             if (t == null) return;
             onCursorChange(snapToSample(t, speedPts));
@@ -782,15 +818,19 @@ function TimelineSVG(props: {
               onViewWindowChange([lo, hi]);
             }
           } else {
-            // No movement → treat as a regular click that sets the
-            // cursor at the press location.
+            // No movement → treat as a tap that sets the cursor at the
+            // press location (works for both mouse click and touch tap).
             onCursorChange(snapToSample(drag.startMs, speedPts));
           }
           setDrag(null);
         }}
         onPointerCancel={() => setDrag(null)}
-        onPointerLeave={() => {
-          if (!drag) onCursorChange(null);
+        onPointerLeave={(e) => {
+          // For mouse: clear the cursor so the readout disappears when
+          // the pointer exits the chart. For touch/pen: keep the cursor
+          // alive so the HTML readout stays visible after the finger
+          // lifts — the user can dismiss it explicitly.
+          if (!drag && e.pointerType === "mouse") onCursorChange(null);
         }}
         onDoubleClick={() => {
           // Reset zoom on a double-click anywhere over the chart.
@@ -1212,6 +1252,119 @@ function MomentChips({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// CursorReadout — HTML alternative to the SVG floating tooltip.
+// Renders as a compact pill-grid below the chart so it's readable at
+// any SVG zoom level. On touch devices the SVG tooltip is hidden and
+// this becomes the primary way to inspect a data point.
+// `onDismiss` is only provided on touch (no dismiss button for mouse —
+// the cursor clears automatically when the pointer leaves the chart).
+function CursorReadout({
+  cursorSample,
+  cursorPower,
+  cursorSoc,
+  cursorElev,
+  cursorHeadwind,
+  tempUnit,
+  onDismiss,
+}: {
+  cursorSample: Sample;
+  cursorPower: number | null;
+  cursorSoc: number | null;
+  cursorElev: number | null;
+  cursorHeadwind: number | null;
+  tempUnit: "f" | "c";
+  onDismiss?: () => void;
+}) {
+  const items: { color: string; label: string; value: string }[] = [
+    {
+      color: SERIES.speed,
+      label: "Speed",
+      value: `${(cursorSample.SpeedMph || 0).toFixed(0)} mph`,
+    },
+  ];
+  if (cursorPower != null) {
+    items.push({
+      color: cursorPower >= 0 ? SERIES.draw : SERIES.regen,
+      label: "Power",
+      value:
+        cursorPower >= 0
+          ? `+${cursorPower.toFixed(0)} kW`
+          : `${cursorPower.toFixed(0)} kW`,
+    });
+  }
+  if (cursorSoc != null) {
+    items.push({
+      color: SERIES.battery,
+      label: "SoC",
+      value: `${cursorSoc.toFixed(1)} %`,
+    });
+  }
+  if (cursorElev != null) {
+    items.push({
+      color: SERIES.elevation,
+      label: "Elev",
+      value: `${cursorElev.toFixed(0)} ft`,
+    });
+  }
+  if (cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0) {
+    items.push({
+      color: "#fb923c",
+      label: "Outside",
+      value: fmtTemp(cursorSample.OutsideTempC, tempUnit),
+    });
+  }
+  if (cursorSample.InsideTempC && cursorSample.InsideTempC !== 0) {
+    items.push({
+      color: "#f472b6",
+      label: "Cabin",
+      value: fmtTemp(cursorSample.InsideTempC, tempUnit),
+    });
+  }
+  if (cursorHeadwind != null) {
+    items.push({
+      color: "#0891b2",
+      label: "Wind",
+      value:
+        cursorHeadwind >= 0
+          ? `+${cursorHeadwind.toFixed(0)} mph head`
+          : `${Math.abs(cursorHeadwind).toFixed(0)} mph tail`,
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <span className="mr-1 font-mono text-[11px] tabular-nums text-neutral-400">
+        {fmtClockSec(new Date(cursorSample.At).getTime())}
+      </span>
+      {items.map((item) => (
+        <span
+          key={item.label}
+          className="inline-flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-[11px]"
+        >
+          <span
+            className="inline-block h-2 w-2 shrink-0 rounded-sm"
+            style={{ background: item.color }}
+          />
+          <span className="text-neutral-500">{item.label}</span>
+          <span className="font-medium tabular-nums text-neutral-200">
+            {item.value}
+          </span>
+        </span>
+      ))}
+      {onDismiss ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="ml-auto rounded-full border border-neutral-800 px-2 py-0.5 text-[11px] text-neutral-500 hover:border-neutral-700 hover:text-neutral-300"
+          aria-label="Clear cursor"
+        >
+          ✕
+        </button>
+      ) : null}
     </div>
   );
 }

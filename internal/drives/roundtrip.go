@@ -5,22 +5,38 @@ import (
 	"time"
 )
 
-// CollapseRoundTrips merges consecutive drive pairs that form an
-// out-and-back round trip into a single row: two drives where the
-// second ends within radiusMeters of the first's start point, and
-// the park-gap between them is under maxGap. Motivating case: drive
-// to the gym, park for 20 minutes, drive home — today that records
-// as two separate drives. With this pass the dashboard shows a
-// single logical trip that starts and ends at home.
+// CollapseRoundTrips merges consecutive drives that form a multi-leg
+// round trip into a single row. Two drives qualify when the second
+// ends within radiusMeters of the first's start point and the
+// park-gap between them is under maxGap. Motivating case: drive to
+// the gym, park for 20 minutes, drive home — today that records as
+// two separate drives. With this pass the dashboard shows a single
+// logical trip that starts and ends at home.
+//
+// Multi-leg chains (A→B→C→A, etc.) are handled by iterating the
+// single-pass collapse until the output stabilises (fixed point).
+// Each pass reduces the drive count by at least one when any pair
+// qualifies, so the loop is bounded by the initial drive count.
 //
 // Operates on the slice returned by Store.ListRecent (descending by
 // StartedAt) and returns a new slice in the same order, with pairs
 // collapsed. Pure function — DB rows are never mutated, so raw data
 // is preserved and the pairing rule can be tuned / replayed at will.
-//
-// Scope: pairs only. 3-stop chains (A→B→C→A) aren't folded in one
-// pass; if the dataset warrants it we can iterate until fixed point.
 func CollapseRoundTrips(ds []Drive, radiusMeters float64, maxGap time.Duration) []Drive {
+	current := ds
+	for {
+		next := collapseOnce(current, radiusMeters, maxGap)
+		if len(next) == len(current) {
+			return next
+		}
+		current = next
+	}
+}
+
+// collapseOnce performs a single left-to-right greedy pass over the
+// drive slice, merging the first qualifying consecutive pair it finds
+// before advancing past both. Returns a new DESC-ordered slice.
+func collapseOnce(ds []Drive, radiusMeters float64, maxGap time.Duration) []Drive {
 	if len(ds) < 2 {
 		out := make([]Drive, len(ds))
 		copy(out, ds)

@@ -1,18 +1,32 @@
 import type { Drive } from "./api";
 
-// collapseRoundTrips merges consecutive drive pairs that form an
-// out-and-back round trip into a single row: two drives where the
-// second ends within `radiusMeters` of the first's start point, and
-// the park-gap between them is at most `maxGapMinutes`. Motivation:
-// drive to the gym, park for 20 minutes, drive home — today this
-// records as two separate drives. With the merge the list shows a
-// single trip starting and ending at home.
+// collapseRoundTrips merges consecutive drives that form a multi-leg
+// round trip into a single row. Two drives qualify when the second
+// ends within `radiusMeters` of the first's start point and the
+// park-gap is at most `maxGapMinutes`. Motivation: drive to the gym,
+// park for 20 minutes, drive home — today this records as two
+// separate drives. With the merge the list shows a single trip
+// starting and ending at home.
+//
+// Multi-leg chains (A→B→C→A, etc.) are handled by iterating the
+// single-pass collapse until the output stabilises (fixed point).
 //
 // Pure: the input (assumed DESC by StartedAt, i.e. the ListRecent
-// contract) is not mutated. Only pairs are folded; a 3-stop chain
-// (A→B→C→A) won't fully collapse in one pass — good enough for the
-// dashboard and avoids surprising rewrites.
+// contract) is not mutated.
 export function collapseRoundTrips(
+  ds: Drive[],
+  radiusMeters: number,
+  maxGapMinutes: number,
+): Drive[] {
+  let current = ds;
+  for (;;) {
+    const next = collapseOnce(current, radiusMeters, maxGapMinutes);
+    if (next.length === current.length) return next;
+    current = next;
+  }
+}
+
+function collapseOnce(
   ds: Drive[],
   radiusMeters: number,
   maxGapMinutes: number,
