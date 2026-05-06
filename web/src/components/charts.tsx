@@ -49,6 +49,7 @@ export function LineChart({
   y2Domain,
   formatY2,
   bands,
+  backdrop,
 }: {
   series: LineSeries[];
   height?: number;
@@ -80,6 +81,18 @@ export function LineChart({
   // ~4px tall and clips to the chart's x-domain. Each band may
   // include a `label` shown as a native SVG <title> tooltip.
   bands?: Array<{ x0: number; x1: number; color: string; label?: string }>;
+  // Optional faint context layer drawn behind the main series.
+  // Auto-fits to its own min/max (independent of left/right
+  // axes), draws no axis labels, and renders as a low-opacity
+  // area. Use for "third signal as backdrop" — e.g. elevation
+  // behind a weather chart so the climb context is visible
+  // without crowding the legible axes.
+  backdrop?: {
+    points: Point[];
+    color?: string;
+    label?: string;
+    formatCursor?: (y: number) => string;
+  };
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
   const padL = 52;
@@ -284,6 +297,45 @@ export function LineChart({
           </rect>
         );
       })}
+      {/* backdrop: faint context area drawn behind primary series.
+          Has its own y-scale (min..max of its own points) confined
+          to ~70% of the inner height so the main chart breathes,
+          and contributes no axis labels. */}
+      {(() => {
+        if (!backdrop || backdrop.points.length < 2) return null;
+        const ys = backdrop.points.map((p) => p.y);
+        const lo = Math.min(...ys);
+        const hi = Math.max(...ys);
+        const span = Math.max(1e-9, hi - lo);
+        const bandH = innerH * 0.7;
+        const baseY = padT + innerH;
+        const syB = (y: number) => baseY - ((y - lo) / span) * bandH;
+        const proj = backdrop.points.map((p) => ({
+          x: sx(p.x),
+          y: syB(p.y),
+        }));
+        const path = monotonePath(proj);
+        const last = proj[proj.length - 1];
+        const first = proj[0];
+        const color = backdrop.color ?? "#a78bfa";
+        return (
+          <g>
+            <path
+              d={`${path} L ${last.x.toFixed(2)},${baseY.toFixed(2)} L ${first.x.toFixed(2)},${baseY.toFixed(2)} Z`}
+              fill={color}
+              opacity={0.10}
+            />
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth={1}
+              opacity={0.35}
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        );
+      })()}
       {/* series */}
       {series.map((s, i) => {
         const ys2 = syFor(s);

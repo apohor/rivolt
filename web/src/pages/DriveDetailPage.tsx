@@ -561,67 +561,101 @@ export default function DriveDetailPage() {
               allX.length > 0
                 ? [Math.min(...allX), Math.max(...allX)]
                 : undefined;
-            // Bottom panel of the stack draws x-axis ticks; everything
-            // above suppresses them. Order is speed → battery →
-            // weather → elevation, so each panel only shows ticks
-            // when no panel below it is rendered for this drive.
             const hasTemp = !!tempTrace;
             const hasElev = elevPts.length > 1;
+            const hasSpeed = speedPts.length > 0;
+            const hasSoC = socPts.length > 0;
+            // Bottom-most rendered panel draws x-axis ticks; the
+            // top panel suppresses them so the two-panel stack
+            // looks like one continuous time axis.
+            const topPanelHasTicks = !(hasTemp || hasElev);
             return (
               <div className="space-y-3">
-                {speedPts.length > 0 ? (
-                  <ChartPanel label="Speed" colorClass="bg-sky-400">
+                {hasSpeed || hasSoC ? (
+                  <ChartPanel
+                    label={
+                      hasSpeed && hasSoC
+                        ? "Speed + Battery"
+                        : hasSpeed
+                          ? "Speed"
+                          : "Battery"
+                    }
+                    colorClass="bg-sky-400"
+                  >
                     <LineChart
                       series={[
-                        {
-                          points: speedPts,
-                          color: "#38bdf8",
-                          strokeWidth: 1.4,
-                          area: true,
-                          curve: "monotone",
-                          label: "Speed",
-                        },
+                        ...(hasSpeed
+                          ? [
+                              {
+                                points: speedPts,
+                                color: "#38bdf8",
+                                strokeWidth: 1.4,
+                                area: true,
+                                curve: "monotone" as const,
+                                label: "Speed",
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(0)} mph`,
+                              },
+                            ]
+                          : []),
+                        // Battery on the right axis -- different unit
+                        // (%) and a much smaller dynamic range than
+                        // speed, so co-plotting both on one axis
+                        // would squash one into a flatline. When
+                        // speed is missing entirely, battery
+                        // promotes to the left axis so the chart
+                        // doesn't render with an empty left side.
+                        ...(hasSoC
+                          ? [
+                              {
+                                points: socPts,
+                                color: "#10b981",
+                                strokeWidth: 1.4,
+                                curve: "monotone" as const,
+                                axis: (hasSpeed ? "right" : "left") as
+                                  | "right"
+                                  | "left",
+                                label: "Battery",
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(0)}%`,
+                              },
+                            ]
+                          : []),
                       ]}
-                      height={100}
+                      height={150}
                       xDomain={xDomain}
-                      yDomain={[0, Math.max(50, drive.MaxSpeedMph + 5)]}
-                      formatY={(v) => `${v.toFixed(0)} mph`}
+                      yDomain={
+                        hasSpeed
+                          ? [0, Math.max(50, drive.MaxSpeedMph + 5)]
+                          : undefined
+                      }
+                      formatY={
+                        hasSpeed ? (v) => `${v.toFixed(0)} mph` : undefined
+                      }
+                      y2Domain={
+                        hasSoC
+                          ? [
+                              Math.max(0, drive.EndSoCPct - 5),
+                              Math.min(100, drive.StartSoCPct + 5),
+                            ]
+                          : undefined
+                      }
+                      formatY2={
+                        hasSoC ? (v) => `${v.toFixed(0)}%` : undefined
+                      }
                       formatX={xTimeFmt}
-                      xTicks={0}
+                      xTicks={topPanelHasTicks ? 4 : 0}
                       cursorX={cursorMs}
                       onCursorChange={setCursorMs}
                     />
                   </ChartPanel>
                 ) : null}
-                {socPts.length > 0 ? (
-                  <ChartPanel label="Battery" colorClass="bg-emerald-500">
-                    <LineChart
-                      series={[
-                        {
-                          points: socPts,
-                          color: "#10b981",
-                          strokeWidth: 1.4,
-                          label: "Battery",
-                        },
-                      ]}
-                      height={90}
-                      xDomain={xDomain}
-                      yDomain={[
-                        Math.max(0, drive.EndSoCPct - 5),
-                        Math.min(100, drive.StartSoCPct + 5),
-                      ]}
-                      formatY={(v) => `${v.toFixed(0)}%`}
-                      formatX={xTimeFmt}
-                      xTicks={hasTemp || hasElev ? 0 : 4}
-                      cursorX={cursorMs}
-                      onCursorChange={setCursorMs}
-                    />
-                  </ChartPanel>
-                ) : null}
-                {hasTemp ? (
+                {hasTemp || hasElev ? (
                   <ChartPanel
                     label={(() => {
-                      const parts = [tempTrace.label];
+                      const parts: string[] = [];
+                      if (hasTemp) parts.push(tempTrace.label);
+                      if (hasElev) parts.push("elevation");
                       if (hasHeadwind) parts.push("headwind");
                       if (hasPrecipBands) parts.push("precipitation");
                       return parts.join(" + ");
@@ -630,22 +664,22 @@ export default function DriveDetailPage() {
                   >
                     <LineChart
                       series={[
-                        {
-                          points: tempTrace.points,
-                          color: "#fb923c",
-                          strokeWidth: 1.4,
-                          curve: "monotone",
-                          label: tempTrace.label,
-                          formatCursor: (v: number) =>
-                            `${v.toFixed(0)}${tempUnitSuffix}`,
-                        },
+                        ...(hasTemp
+                          ? [
+                              {
+                                points: tempTrace.points,
+                                color: "#fb923c",
+                                strokeWidth: 1.4,
+                                curve: "monotone" as const,
+                                label: tempTrace.label,
+                                formatCursor: (v: number) =>
+                                  `${v.toFixed(0)}${tempUnitSuffix}`,
+                              },
+                            ]
+                          : []),
                         // Headwind on the right axis. Signed so a
                         // tailwind dips below zero -- the sign is
-                        // the whole point for efficiency. Linear
-                        // interpolation between cadence steps;
-                        // wind is choppy enough that monotone
-                        // smoothing would imply detail we don't
-                        // have.
+                        // the whole point for efficiency.
                         ...(hasHeadwind
                           ? [
                               {
@@ -663,81 +697,69 @@ export default function DriveDetailPage() {
                             ]
                           : []),
                       ]}
-                      // Precipitation type bands (rain/snow/etc) as
-                      // a colored ribbon along the bottom of the
-                      // plot area. Doesn't consume an axis -- the
-                      // value (intensity) lives in the tooltip;
-                      // the visual is "did it rain, what kind".
+                      // Elevation as a faint backdrop so altitude
+                      // context is visible without crowding the
+                      // weather axes. Auto-fit y-scale, no axis
+                      // labels of its own.
+                      backdrop={
+                        hasElev
+                          ? {
+                              points: elevPts,
+                              color: "#a78bfa",
+                              label: "Elevation",
+                            }
+                          : undefined
+                      }
                       bands={hasPrecipBands ? precipBands : undefined}
-                      height={80}
+                      height={150}
                       xDomain={xDomain}
-                      // Pad the temperature y-domain so a drive
-                      // where the value never moves (Open-Meteo
-                      // returns whole-degree resolution) doesn't
-                      // collapse the axis to a single repeated
-                      // tick. Pad in display units; the chart's
-                      // own auto-domain logic handles the multi-
-                      // value case so we only override on the
-                      // degenerate flat-line case.
-                      yDomain={(() => {
-                        const ys = tempTrace.points.map((p) => p.y);
-                        if (ys.length === 0) return undefined;
-                        const lo = Math.min(...ys);
-                        const hi = Math.max(...ys);
-                        if (hi - lo < (tempUnit === "f" ? 2 : 1)) {
-                          const pad = tempUnit === "f" ? 2 : 1;
-                          return [lo - pad, hi + pad] as [number, number];
-                        }
-                        return undefined;
-                      })()}
-                      formatY={(v) => `${v.toFixed(0)}${tempUnitSuffix}`}
+                      yDomain={
+                        hasTemp
+                          ? (() => {
+                              const ys = tempTrace.points.map((p) => p.y);
+                              if (ys.length === 0) return undefined;
+                              const lo = Math.min(...ys);
+                              const hi = Math.max(...ys);
+                              if (hi - lo < (tempUnit === "f" ? 2 : 1)) {
+                                const pad = tempUnit === "f" ? 2 : 1;
+                                return [lo - pad, hi + pad] as [
+                                  number,
+                                  number,
+                                ];
+                              }
+                              return undefined;
+                            })()
+                          : undefined
+                      }
+                      formatY={
+                        hasTemp
+                          ? (v) => `${v.toFixed(0)}${tempUnitSuffix}`
+                          : undefined
+                      }
                       formatY2={
                         hasHeadwind
                           ? (v) =>
-                              v > 0
-                                ? `+${v.toFixed(0)}`
-                                : v.toFixed(0)
+                              v > 0 ? `+${v.toFixed(0)}` : v.toFixed(0)
                           : undefined
                       }
                       // Symmetric headwind axis around 0 so head vs
                       // tail are visually equal; min span of ±5 mph
                       // keeps a calm drive from collapsing the axis.
-                      y2Domain={(() => {
-                        if (!hasHeadwind) return undefined;
-                        const max = Math.max(
-                          5,
-                          ...meteoHeadwindPts.map((p) => Math.abs(p.y)),
-                        );
-                        return [-max, max] as [number, number];
-                      })()}
+                      y2Domain={
+                        hasHeadwind
+                          ? (() => {
+                              const max = Math.max(
+                                5,
+                                ...meteoHeadwindPts.map((p) =>
+                                  Math.abs(p.y),
+                                ),
+                              );
+                              return [-max, max] as [number, number];
+                            })()
+                          : undefined
+                      }
                       formatX={xTimeFmt}
-                      yTicks={2}
-                      xTicks={hasElev ? 0 : 4}
-                      cursorX={cursorMs}
-                      onCursorChange={setCursorMs}
-                    />
-                  </ChartPanel>
-                ) : null}
-                {hasElev ? (
-                  <ChartPanel label="Elevation" colorClass="bg-violet-400">
-                    <LineChart
-                      series={[
-                        {
-                          points: elevPts,
-                          color: "#a78bfa",
-                          strokeWidth: 1.3,
-                          area: true,
-                          curve: "monotone",
-                          label: "Elevation",
-                          formatCursor: (v: number) =>
-                            `${v.toFixed(0)} ft`,
-                        },
-                      ]}
-                      height={80}
-                      xDomain={xDomain}
-                      formatY={(v) => `${v.toFixed(0)} ft`}
-                      formatX={xTimeFmt}
-                      yTicks={2}
+                      yTicks={3}
                       xTicks={4}
                       cursorX={cursorMs}
                       onCursorChange={setCursorMs}
