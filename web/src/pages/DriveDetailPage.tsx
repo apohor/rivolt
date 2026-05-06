@@ -9,7 +9,6 @@ import {
   durationSeconds,
   formatDateTime,
   formatDuration,
-  maxFixAgeSeconds,
   num,
   pct,
 } from "../lib/format";
@@ -531,6 +530,59 @@ export default function DriveDetailPage() {
     ...(hasPrecipBands ? [{ label: "Precipitation", bands: precipBands }] : []),
   ];
 
+  // Estimate GPS accuracy during the drive by checking fix freshness
+  // and sample continuity. Returns true if accuracy is likely low.
+  const gpsAccuracyLow = (() => {
+    if (driveSamples.length === 0) return false;
+    
+    // Check 1: Percentage of samples with missing fix timestamps
+    const samplesWithoutFix = driveSamples.filter(
+      (s) => !s.LocationFixAt
+    ).length;
+    const missingFixRatio = samplesWithoutFix / driveSamples.length;
+    if (missingFixRatio > 0.2) return true; // >20% missing = low accuracy
+    
+    // Check 2: Max fix age during the drive (when a sample's
+    // LocationFixAt is much older than its wall-clock At)
+    let maxFixAgeS = 0;
+    for (const s of driveSamples) {
+      if (s.LocationFixAt) {
+        const fixMs = new Date(s.LocationFixAt).getTime();
+        const nowMs = new Date(s.At).getTime();
+        const ageS = (nowMs - fixMs) / 1000;
+        if (ageS > maxFixAgeS) maxFixAgeS = ageS;
+      }
+    }
+    if (maxFixAgeS > 120) return true; // >2 min stale fix = low accuracy
+    
+    // Check 3: Spatial jumps suggesting dropouts. Compare consecutive
+    // valid samples; if they jump >0.5 mi with minimal time, GPS
+    // likely re-locked after a dropout.
+    const JUMP_THRESHOLD_MI = 0.5;
+    for (let i = 1; i < driveSamples.length; i++) {
+      const prev = driveSamples[i - 1];
+      const curr = driveSamples[i];
+      if (
+        (prev.Lat !== 0 || prev.Lon !== 0) &&
+        (curr.Lat !== 0 || curr.Lon !== 0)
+      ) {
+        const dy = (curr.Lat - prev.Lat) * 69; // miles per degree latitude
+        const dx =
+          (curr.Lon - prev.Lon) *
+          69 *
+          Math.cos(((prev.Lat + curr.Lat) / 2) * (Math.PI / 180));
+        const distMi = Math.hypot(dx, dy);
+        const timeMs =
+          new Date(curr.At).getTime() - new Date(prev.At).getTime();
+        const speedMph = (distMi / (timeMs / 3600000)) || 0;
+        // Reasonable speed cap for a car (~150 mph); jumps above this
+        // suggest GPS lost-then-found.
+        if (distMi > JUMP_THRESHOLD_MI && speedMph > 150) return true;
+      }
+    }
+    return false;
+  })();
+
   // Resolve the sample closest to the synced cursor for the
   // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
   // so the lat/lon stays exact (smoothing is a chart-only concern).
@@ -784,6 +836,38 @@ export default function DriveDetailPage() {
                     />
                   </ChartPanel>
                 ) : null}
+                {hasModeBands ? (
+                  <div className="flex flex-wrap gap-4 text-xs text-neutral-400 px-1">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-sm"
+                        style={{ backgroundColor: "#38bdf8" }}
+                      />
+                      <span>Drive (D)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-sm"
+                        style={{ backgroundColor: "#f97316" }}
+                      />
+                      <span>Reverse (R)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-sm"
+                        style={{ backgroundColor: "#22c55e" }}
+                      />
+                      <span>Park (P)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-sm"
+                        style={{ backgroundColor: "#a3a3a3" }}
+                      />
+                      <span>Neutral (N)</span>
+                    </div>
+                  </div>
+                ) : null}
                 {hasAnyEnvironmentSignal ? (
                   <ChartPanel
                     label="Environment"
@@ -977,10 +1061,17 @@ export default function DriveDetailPage() {
             onCursorChange={(t) =>
               setCursorMs(t != null ? Math.round(t * 1000) : null)
             }
-            fixAgeSeconds={maxFixAgeSeconds(mapPathSamples)}
+            fixAgeSeconds={null}
           />
         )}
       </Card>
+
+      {gpsAccuracyLow ? (
+        <ErrorBox
+          title="GPS accuracy"
+          detail="This drive has low GPS accuracy — dropouts, stale fixes, or signal loss detected. The route may not reflect the actual path."
+        />
+      ) : null}
 
       {samples.isError ? (
         <ErrorBox
