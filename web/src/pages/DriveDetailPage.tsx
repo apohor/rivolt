@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { backend, ApiError, type DriveRecap, type DriveWeather, type DriveWeatherSeries, type Sample } from "../lib/api";
+import { backend, ApiError, type DriveWeatherSeries, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
 import { DriveMap } from "../components/DriveMap";
+import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
   durationSeconds,
   formatDateTime,
@@ -15,7 +16,6 @@ import {
 import { smoothGaussianTime } from "../lib/smooth";
 import { collapseRoundTrips } from "../lib/drives";
 import { usePreferences, formatTemperature } from "../lib/preferences";
-import { useAIEnabled } from "../lib/config";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -1080,7 +1080,7 @@ export default function DriveDetailPage() {
         />
       ) : null}
 
-      {drive ? <TripRecapCard driveId={drive.ID} /> : null}
+      {drive ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>
   );
 }
@@ -1220,222 +1220,8 @@ function ChartPanel({
   );
 }
 
-// TripRecapCard renders the AI-generated 2-3 sentence narration of
-// a drive. The card hides itself entirely when no AI provider is
-// configured (operator hasn't added a key in Settings → AI), so a
-// fresh self-hosted install with no AI key sees no dead button.
-//
-// Generation is on-demand and cached per (user, drive) on the
-// server; finished drives are immutable, so a recap stays valid
-// until the user explicitly regenerates. The Regenerate path POSTs
-// with force=1 and re-bills the operator's LLM key.
-//
-// We keep generation state in a local useState rather than
-// react-query's mutation API because nothing else in this codebase
-// uses mutations and pulling the dep in for one place would be
-// inconsistent with the rest of the data layer.
-function TripRecapCard({ driveId }: { driveId: string }) {
-  const enabled = useAIEnabled();
-  const cached = useQuery({
-    queryKey: ["drive-recap", driveId],
-    enabled,
-    retry: false,
-    queryFn: async (): Promise<DriveRecap | null> => {
-      try {
-        return await backend.driveRecapGet(driveId);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
-  });
-  const [busy, setBusy] = useState(false);
-  const [genErr, setGenErr] = useState<string | null>(null);
-
-  if (!enabled) return null;
-
-  async function generate(force: boolean) {
-    setBusy(true);
-    setGenErr(null);
-    try {
-      const fresh = await backend.driveRecapGenerate(driveId, force);
-      cached.refetch();
-      // refetch is fire-and-forget; we also seed the local query
-      // cache result by writing to the in-flight data via refetch's
-      // promise so the UI flips even before the GET round-trip.
-      void fresh;
-    } catch (e) {
-      setGenErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const data = cached.data;
-  const showSpinner = cached.isLoading || busy;
-
-  return (
-    <Card
-      title="Trip recap"
-      actions={
-        data && !busy ? (
-          <button
-            type="button"
-            onClick={() => generate(true)}
-            className="text-xs text-neutral-400 hover:text-neutral-200 underline-offset-2 hover:underline"
-            title="Regenerate the recap (re-bills your AI provider)"
-          >
-            Regenerate
-          </button>
-        ) : null
-      }
-    >
-      {showSpinner ? (
-        <div className="flex items-center gap-2 text-sm text-neutral-400">
-          <Spinner />
-          {busy ? "Writing recap…" : null}
-        </div>
-      ) : genErr ? (
-        <ErrorBox title="Recap generation failed" detail={genErr} />
-      ) : !data ? (
-        <div className="space-y-3">
-          <p className="text-sm text-neutral-400">
-            Generate a 2–3 sentence summary of this drive using your
-            configured AI provider. The drive's summary stats and
-            elevation profile are sent — no GPS coordinates or
-            per-second telemetry leave the box.
-          </p>
-          <button
-            type="button"
-            onClick={() => generate(false)}
-            className="rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200"
-          >
-            Generate trip recap
-          </button>
-        </div>
-      ) : (
-        <RecapBody data={data} />
-      )}
-    </Card>
-  );
-}
-
-// RecapBody renders the structured shape (headline + body + highlight
-// chips + mood chip) when the backend returned it, and falls back to
-// the legacy plain-prose layout when only `recap` is present (older
-// cached rows pre-dating the JSON migration). Keeping both paths in
-// one component means the card never flickers between layouts when a
-// user re-generates a stale row.
-function RecapBody({ data }: { data: DriveRecap }) {
-  const hasStructured =
-    !!data.headline ||
-    !!data.body ||
-    (data.highlights && data.highlights.length > 0);
-  return (
-    <div className="space-y-3">
-      {data.weather ? <WeatherStrip weather={data.weather} /> : null}
-      {hasStructured ? (
-        <>
-          {data.headline ? (
-            <p className="text-base font-semibold leading-snug text-neutral-100">
-              {data.headline}
-            </p>
-          ) : null}
-          {data.body ? (
-            <p className="text-sm leading-relaxed text-neutral-300">
-              {data.body}
-            </p>
-          ) : null}
-          {data.highlights && data.highlights.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {data.highlights.map((h, i) => (
-                <div
-                  key={`${h.label}-${i}`}
-                  className="rounded-md border border-neutral-800 bg-neutral-900/60 px-2.5 py-1 text-[11px]"
-                >
-                  <span className="text-neutral-500">{h.label}</span>
-                  <span className="ml-1.5 font-medium tabular-nums text-neutral-200">
-                    {h.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <p className="text-sm leading-relaxed text-neutral-200">
-          {data.recap}
-        </p>
-      )}
-      <div className="text-[11px] text-neutral-500 flex flex-wrap items-center gap-x-2">
-        {data.mood ? (
-          <span className="rounded-full border border-emerald-800/60 bg-emerald-900/20 px-2 py-0.5 text-emerald-300/90">
-            {data.mood}
-          </span>
-        ) : null}
-        <span>
-          {data.model} · {formatDateTime(data.generated_at)}
-          {data.cached ? " · cached" : ""}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// WeatherStrip renders a one-line summary of the captured weather at
-// the trip's start above the recap text. Kept compact — temp,
-// conditions, and wind (with headwind/tailwind annotation) — because
-// the structured recap chips already break out anything the model
-// thought was notable. Hidden when the snapshot has no usable
-// fields, so a half-empty upstream response degrades cleanly.
-function WeatherStrip({ weather }: { weather: DriveWeather }) {
-  const parts: string[] = [];
-  if (weather.temp_f != null) {
-    if (weather.feels_like_f != null && Math.abs(weather.feels_like_f - weather.temp_f) >= 3) {
-      parts.push(`${Math.round(weather.temp_f)}°F (feels ${Math.round(weather.feels_like_f)}°F)`);
-    } else {
-      parts.push(`${Math.round(weather.temp_f)}°F`);
-    }
-  }
-  if (weather.conditions) parts.push(weather.conditions);
-  if (weather.wind_mph != null && weather.wind_mph >= 1) {
-    const dir =
-      weather.wind_from_deg != null
-        ? compass(weather.wind_from_deg)
-        : "";
-    let s = `${Math.round(weather.wind_mph)} mph wind${dir ? ` ${dir}` : ""}`;
-    if (weather.headwind_mph != null && Math.abs(weather.headwind_mph) >= 3) {
-      s += weather.headwind_mph > 0
-        ? ` (${Math.round(weather.headwind_mph)} mph head)`
-        : ` (${Math.round(-weather.headwind_mph)} mph tail)`;
-    }
-    parts.push(s);
-  }
-  if (weather.precip_in != null && weather.precip_in >= 0.01) {
-    parts.push(`${weather.precip_in.toFixed(2)}" precip`);
-  }
-  if (parts.length === 0) return null;
-  return (
-    <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-      Weather at start
-      <span className="ml-2 normal-case tracking-normal text-neutral-300">
-        {parts.join(" · ")}
-      </span>
-    </div>
-  );
-}
-
-// compass converts a degree heading (where the wind is coming FROM)
-// to a 16-point compass label so users don't have to mentally map
-// "270" to "W". Matches Open-Meteo's convention.
-function compass(deg: number): string {
-  const dirs = [
-    "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-  ];
-  const i = Math.round(((deg % 360) / 22.5)) % 16;
-  return dirs[i];
-}
+// TripRecapCard, RecapBody, and WeatherStrip removed in v0.17.64 —
+// replaced with per-drive efficiency analysis.
 
 function normalizeDriveMode(raw: string | undefined): string {
   if (!raw) return "";

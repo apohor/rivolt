@@ -257,6 +257,15 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 				s.AltitudeM = &alt
 			}
 		}
+		// Tire pressure: persist the minimum of the four corners
+		// (in bar). Drop zeros — the gateway emits 0 when the
+		// TPMS sensor hasn't been polled recently or after a
+		// long park. Need at least one non-zero corner to record
+		// anything; otherwise leave NULL.
+		if minBar := minNonZero4(curr.TirePressureFLBar, curr.TirePressureFRBar, curr.TirePressureRLBar, curr.TirePressureRRBar); minBar > 0 {
+			b := minBar
+			s.TirePressureMinBar = &b
+		}
 		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
@@ -843,4 +852,22 @@ func (m *StateMonitor) closeStaleOpenCharges(ctx context.Context, vehicleID, kee
 	if n > 0 {
 		m.logger.Info("closed stale open charges", "vehicle", vehicleID, "count", n, "kept", keepID)
 	}
+}
+
+// minNonZero4 returns the smallest of the four arguments, ignoring
+// zeros. Returns 0 only if all four are zero (sensor outage / sample
+// taken before any TPMS reading has cycled). Used by the live
+// recorder to compress the four tire-pressure corners into a single
+// "worst tire" value persisted to vehicle_state.
+func minNonZero4(a, b, c, d float64) float64 {
+	min := 0.0
+	for _, v := range [4]float64{a, b, c, d} {
+		if v <= 0 {
+			continue
+		}
+		if min == 0 || v < min {
+			min = v
+		}
+	}
+	return min
 }

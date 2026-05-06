@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -161,4 +162,87 @@ func ListUserVehicles(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]Vehic
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// VehicleProfile is the user-editable per-vehicle context the
+// efficiency analyzer factors into its breakdown. Persisted as
+// the "profile" sub-key of the vehicles.metadata JSONB column;
+// chosen over typed columns so future fields (e.g. windshield
+// state, modified suspension) don't need migrations.
+//
+// Field semantics:
+//   - TireType: "all_season" | "all_terrain" | "winter" | "summer".
+//     Empty string means "unset" — the analyzer ignores it.
+//   - WheelInches: 0 means unset. Rivian R1 ships 20/21/22.
+//   - Accessories: free-form list ("roof_rack", "bike_rack",
+//     "rooftop_tent", "ski_box", etc.). Order is not significant.
+//   - DefaultExtraLoadLb: persistent extra cargo carried on most
+//     drives (e.g. tools, child seat). The per-drive form on the
+//     efficiency card adds to this for trip-specific cargo.
+//   - FrequentlyTows: hint that the vehicle is regularly used to
+//     tow. Doesn't affect the per-drive towing flag, which the
+//     analyzer reads independently.
+type VehicleProfile struct {
+	TireType           string   `json:"tire_type,omitempty"`
+	WheelInches        int      `json:"wheel_inches,omitempty"`
+	Accessories        []string `json:"accessories,omitempty"`
+	DefaultExtraLoadLb float64  `json:"default_extra_load_lb,omitempty"`
+	FrequentlyTows     bool     `json:"frequently_tows,omitempty"`
+}
+
+// GetVehicleProfile reads the "profile" sub-key from the given
+// vehicle's metadata JSONB. Returns a zero VehicleProfile (not nil)
+// when the key is missing or the row has no metadata — callers can
+// treat the zero value as "unset" without nil-checking each field.
+//
+// userID-scoped: a row owned by a different user returns sql.ErrNoRows
+// to the caller, which the API layer translates to 404.
+func GetVehicleProfile(ctx context.Context, d *sql.DB, userID, vehicleID uuid.UUID) (VehicleProfile, error) {
+	var p VehicleProfile
+	if d == nil || userID == uuid.Nil || vehicleID == uuid.Nil {
+		return p, sql.ErrNoRows
+	}
+	var raw []byte
+	err := d.QueryRowContext(ctx, `
+		SELECT COALESCE(metadata->'profile', '{}'::jsonb)::text
+		  FROM vehicles
+		 WHERE id = $1 AND user_id = $2
+	`, vehicleID, userID).Scan(&raw)
+	if err != nil {
+		return p, err
+	}
+	if len(raw) == 0 || string(raw) == "{}" {
+		return p, nil
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return p, fmt.Errorf("vehicle profile decode: %w", err)
+	}
+	return p, nil
+}
+
+// SetVehicleProfile writes the profile struct into the
+// vehicles.metadata JSONB at the "profile" key, preserving any
+// other top-level metadata fields the row may hold.
+func SetVehicleProfile(ctx context.Context, d *sql.DB, userID, vehicleID uuid.UUID, p VehicleProfile) error {
+	if d == nil || userID == uuid.Nil || vehicleID == uuid.Nil {
+		return sql.ErrNoRows
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("vehicle profile encode: %w", err)
+	}
+	res, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('profile', $3::jsonb),
+		       updated_at = NOW()
+		 WHERE id = $1 AND user_id = $2
+	`, vehicleID, userID, string(raw))
+	if err != nil {
+		return fmt.Errorf("vehicle profile update: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

@@ -335,22 +335,6 @@ export type Sample = {
   altitude_m?: number;
 };
 
-// DriveRecap is the response shape from /api/drives/{id}/recap on
-// both GET (cache hit) and POST (fresh generation). `cached` lets
-// the UI distinguish a free read from a paid generation; the SPA
-// only surfaces it as a tooltip today but it's load-bearing for
-// future cost analytics.
-//
-// `recap` is always present (the raw model reply). `headline`,
-// `body`, `highlights`, and `mood` are populated when the model
-// returned the structured JSON shape introduced in v0.17.42; older
-// cached rows return only `recap` and the SPA falls back to
-// rendering it as plain prose.
-export type DriveRecapHighlight = {
-  label: string;
-  value: string;
-};
-
 // DriveWeather is the optional weather snapshot the backend captured
 // for a drive's start (only populated when the operator opted in).
 // Numbers are imperial (F, mph, in) to match the rest of the SPA;
@@ -391,18 +375,40 @@ export type DriveWeatherSeries = {
   points: DriveWeatherSamplePoint[];
 };
 
-export type DriveRecap = {
-  recap: string;
-  headline?: string;
-  body?: string;
-  highlights?: DriveRecapHighlight[];
-  mood?: string;
+export type EfficiencyFactor = {
+  name: string;
+  impact_estimate_pct: number; // Negative = hurt efficiency, positive = helped
+  confidence_0_to_100: number;
+};
+
+export type DriveEfficiency = {
+  analysis: string;
+  factors?: EfficiencyFactor[];
+  recommendation?: string;
+  forecast?: string;
+  summary?: string;
   model: string;
   generated_at: string;
   input_tokens?: number;
   output_tokens?: number;
-  cached: boolean;
-  weather?: DriveWeather | null;
+};
+
+// VehicleProfile is the per-vehicle context the efficiency analyzer
+// factors into its breakdown. Stored in vehicles.metadata.profile
+// JSONB; all fields optional so an empty object means "unset" and
+// the analyzer silently omits them from the prompt.
+export type VehicleTireType =
+  | ""
+  | "all_season"
+  | "all_terrain"
+  | "winter"
+  | "summer";
+export type VehicleProfile = {
+  tire_type?: VehicleTireType;
+  wheel_inches?: number;
+  accessories?: string[];
+  default_extra_load_lb?: number;
+  frequently_tows?: boolean;
 };
 
 export type RivianStatus = {
@@ -690,17 +696,31 @@ export const backend = {
     api.get<Sample[]>(
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
     ),
-  // Trip recap: AI-generated 2-3 sentence narration of a single
-  // drive. GET returns the cached row or 404; POST generates a new
-  // recap (and replaces the cached row). force=true re-bills the
-  // operator's LLM key even when a cached recap exists -- the
-  // SPA's "Regenerate" button.
-  driveRecapGet: (id: string) =>
-    api.get<DriveRecap>(`/api/drives/${encodeURIComponent(id)}/recap`),
-  driveRecapGenerate: (id: string, force = false) =>
-    api.post<DriveRecap>(
-      `/api/drives/${encodeURIComponent(id)}/recap${force ? "?force=1" : ""}`,
-      {},
+  // Efficiency analysis: AI-driven breakdown of what drove efficiency
+  // variance for a drive, with actionable recommendations. Generated
+  // on-demand (not cached), so each call bills the LLM account. The
+  // optional body carries per-trip transient context (towing, extra
+  // cargo) that the SPA captures from the form on the analysis card.
+  driveEfficiencyGenerate: (
+    id: string,
+    body?: { extra_load_lb?: number; towing?: boolean },
+  ) =>
+    api.post<DriveEfficiency>(
+      `/api/drives/${encodeURIComponent(id)}/efficiency`,
+      body ?? {},
+    ),
+  // Per-vehicle profile (tire type, wheel size, accessories, default
+  // extra load, frequently_tows). Persisted in vehicles.metadata.profile;
+  // pulled into every efficiency analysis. The path param is the
+  // Rivian gateway vehicle id.
+  vehicleProfileGet: (vehicleID: string) =>
+    api.get<VehicleProfile>(
+      `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
+    ),
+  vehicleProfilePut: (vehicleID: string, profile: VehicleProfile) =>
+    api.put<VehicleProfile>(
+      `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
+      profile,
     ),
   // Standalone weather snapshot for a drive. Returns the same DTO
   // attached to recap responses, but works independently of whether

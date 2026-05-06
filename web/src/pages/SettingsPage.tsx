@@ -13,6 +13,7 @@ import {
   type RecapSettingsUpdate,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import {
   setTemperatureUnit,
@@ -64,6 +65,10 @@ export default function SettingsPage() {
 
       <Card title="Import ElectraFi CSV">
         <ImportPanel />
+      </Card>
+
+      <Card title="Vehicle profile">
+        <VehicleProfilePanel />
       </Card>
 
       <Card title="Notifications">

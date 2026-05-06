@@ -302,6 +302,18 @@ func New(d Deps) http.Handler {
 			r.Get("/vehicles/owned", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleOwnedVehicles(d.DB)(uid, w, r)
 			}))
+			// Per-vehicle profile (tire type, wheel size, accessories,
+			// default extra load, frequently_tows). Stored in
+			// vehicles.metadata.profile JSONB; consumed by the
+			// efficiency analyzer. Path param is the Rivian gateway
+			// id; the handler resolves it to the internal UUID and
+			// scopes the read/write by user.
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicleProfileGet(d.DB)(uid, w, r)
+			}))
+			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleVehicleProfilePut(d.DB)(uid, w, r)
+			}))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
 			}))
@@ -388,12 +400,6 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
 				r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
 				r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
-				// Recap settings live on their own surface (not under
-				// /settings/ai) because the toggles here are
-				// data-egress switches — disabling AI shouldn't
-				// imply disabling external lookups, and vice versa.
-				r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
-				r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -401,15 +407,12 @@ func New(d Deps) http.Handler {
 			r.Get("/drives", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDrives(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
-			// Trip recap: AI-generated 2-3 sentence narration of a
-			// drive. Cached per (user, drive) in drive_recaps; GET
-			// returns the cached row (404 if none), POST generates
-			// (and replaces any existing cached row).
-			r.Get("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleDriveRecapGet(d.DB, uid)(w, r)
-			}))
-			r.Post("/drives/{id}/recap", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleDriveRecapPost(d, uid)(w, r)
+			// Efficiency analysis: AI-driven breakdown of what drove
+			// efficiency variance for a drive, with actionable
+			// recommendations. Generated on-demand (no cache), so each
+			// call bills the operator's LLM account.
+			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
 			// Standalone weather snapshot for a drive. Independent of
 			// the recap path so the detail-page chart can render the
@@ -621,6 +624,89 @@ func handleOwnedVehicles(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 			vs = []db.VehicleSummary{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"vehicles": vs})
+	}
+}
+
+// handleVehicleProfileGet returns the per-vehicle profile JSON for
+// the path-param vehicle (Rivian gateway id). Always returns 200 with
+// a (possibly empty) profile object so the SPA settings form can bind
+// without nil-checking — empty fields render as unset placeholders.
+func handleVehicleProfileGet(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		if sqlDB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		rivianID := chi.URLParam(r, "vehicleID")
+		if rivianID == "" {
+			http.Error(w, "missing vehicle id", http.StatusBadRequest)
+			return
+		}
+		// Ownership middleware (vehicleScoped) has already checked
+		// that uid owns rivianID. Resolve to the internal UUID
+		// without upserting a new row — the vehicle must exist or
+		// ownership wouldn't have passed.
+		var vid uuid.UUID
+		if err := sqlDB.QueryRowContext(r.Context(), `
+			SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+		`, uid, rivianID).Scan(&vid); err != nil {
+			http.Error(w, "vehicle not found", http.StatusNotFound)
+			return
+		}
+		p, err := db.GetVehicleProfile(r.Context(), sqlDB, uid, vid)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// handleVehicleProfilePut writes the per-vehicle profile JSON into
+// vehicles.metadata.profile. The full profile object replaces the
+// stored value (no field-level merge): the SPA settings form sends
+// the complete current state on every save.
+func handleVehicleProfilePut(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		if sqlDB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		rivianID := chi.URLParam(r, "vehicleID")
+		if rivianID == "" {
+			http.Error(w, "missing vehicle id", http.StatusBadRequest)
+			return
+		}
+		var p db.VehicleProfile
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		// Light validation: clamp wheel size to plausible Rivian
+		// fitments; reject implausible loads to keep prompt
+		// numerically sane. These aren't security checks (the
+		// fields go into a prompt, not an exec path) -- they keep
+		// the model from anchoring on absurd values.
+		if p.WheelInches != 0 && (p.WheelInches < 18 || p.WheelInches > 24) {
+			http.Error(w, "wheel_inches out of range", http.StatusBadRequest)
+			return
+		}
+		if p.DefaultExtraLoadLb < 0 || p.DefaultExtraLoadLb > 5000 {
+			http.Error(w, "default_extra_load_lb out of range", http.StatusBadRequest)
+			return
+		}
+		var vid uuid.UUID
+		if err := sqlDB.QueryRowContext(r.Context(), `
+			SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+		`, uid, rivianID).Scan(&vid); err != nil {
+			http.Error(w, "vehicle not found", http.StatusNotFound)
+			return
+		}
+		if err := db.SetVehicleProfile(r.Context(), sqlDB, uid, vid, p); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
 	}
 }
 
@@ -1736,37 +1822,7 @@ func handleAISettingsPut(mgr *settings.Manager) http.HandlerFunc {
 	}
 }
 
-// handleRecapSettingsGet returns the redacted recap configuration.
-func handleRecapSettingsGet(mgr *settings.Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		if mgr == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
-			return
-		}
-		writeJSON(w, http.StatusOK, mgr.RecapPublic())
-	}
-}
-
-// handleRecapSettingsPut applies a partial patch to the recap config.
-func handleRecapSettingsPut(mgr *settings.Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if mgr == nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
-			return
-		}
-		var patch settings.RecapUpdate
-		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
-			return
-		}
-		pub, err := mgr.UpdateRecap(r.Context(), patch)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, pub)
-	}
-}
+// Recap settings handlers removed in v0.17.64
 
 // handleAIModelsList proxies the provider's catalogue endpoint using the
 // stored API key so the UI can offer a live dropdown instead of asking
@@ -1869,39 +1925,6 @@ func otelTraceRoute(next http.Handler) http.Handler {
 	})
 }
 
-// driveRecapResponse is the JSON shape returned by both GET and POST
-// /api/drives/{id}/recap. Token counts are surfaced so power users
-// can see what each call cost; the operator pays the LLM bill, so
-// transparency matters.
-//
-// Recap is always set; it's the raw model reply (modern recaps are
-// JSON, legacy rows are plain prose). The structured fields
-// (Headline / Body / Highlights / Mood) are populated when the
-// reply parsed cleanly. The SPA prefers them when present and
-// falls back to Recap otherwise.
-type driveRecapResponse struct {
-	Recap        string            `json:"recap"`
-	Headline     string            `json:"headline,omitempty"`
-	Body         string            `json:"body,omitempty"`
-	Highlights   []recap.Highlight `json:"highlights,omitempty"`
-	Mood         string            `json:"mood,omitempty"`
-	Model        string            `json:"model"`
-	GeneratedAt  time.Time         `json:"generated_at"`
-	InputTokens  int64             `json:"input_tokens,omitempty"`
-	OutputTokens int64             `json:"output_tokens,omitempty"`
-	// Cached is true when the response came straight from the
-	// drive_recaps row and no LLM call was made. Lets the SPA
-	// distinguish "fresh paid generation" from "free cache hit"
-	// without paying attention to timestamps.
-	Cached bool `json:"cached"`
-
-	// Weather is the optional snapshot the recap handler fetched
-	// for this drive when the operator opted in (Settings -> AI ->
-	// Recap weather). Populated alongside POST and on cache-hit
-	// reads. Nil when the toggle is off or no row exists yet.
-	Weather *driveWeatherResponse `json:"weather,omitempty"`
-}
-
 // driveWeatherResponse mirrors the persisted drive_weather row in the
 // units the SPA renders. We keep this DTO instead of leaking
 // internal/weather.Snapshot directly so the SPA contract stays stable
@@ -1917,240 +1940,6 @@ type driveWeatherResponse struct {
 	PrecipIn    *float64 `json:"precip_in,omitempty"`
 	HumidityPct *float64 `json:"humidity_pct,omitempty"`
 	Conditions  string   `json:"conditions,omitempty"`
-}
-
-// handleDriveRecapGet returns the cached recap for (uid, driveID),
-// or 404 when no cache row exists. Never invokes the LLM. Cheap.
-func handleDriveRecapGet(pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if pool == nil {
-			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		driveID := chi.URLParam(r, "id")
-		if driveID == "" {
-			http.Error(w, "missing drive id", http.StatusBadRequest)
-			return
-		}
-		resp, ok, err := loadCachedRecap(r.Context(), pool, uid, driveID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if !ok {
-			http.Error(w, "no recap cached for this drive", http.StatusNotFound)
-			return
-		}
-		writeJSON(w, http.StatusOK, resp)
-	}
-}
-
-// handleDriveRecapPost generates a recap on demand and persists it.
-// Idempotent: if a cache row already exists and ?force=1 is NOT set,
-// returns the cached row instead of paying for a fresh LLM call.
-//
-// Pulls samples and adjacent charges through the user-scoped stores
-// so RLS / per-user filtering stays load-bearing — a malicious
-// driveID belonging to another user will resolve to zero rows here
-// even though we don't enforce ownership at the SQL level.
-func handleDriveRecapPost(d Deps, uid uuid.UUID) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if d.DB == nil {
-			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if d.SettingsMgr == nil {
-			http.Error(w, "ai settings unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		analyzer := d.SettingsMgr.Analyzer()
-		if analyzer == nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "no AI provider configured — add an API key in Settings → AI providers",
-			})
-			return
-		}
-		driveID := chi.URLParam(r, "id")
-		if driveID == "" {
-			http.Error(w, "missing drive id", http.StatusBadRequest)
-			return
-		}
-		force := r.URL.Query().Get("force") == "1"
-		if !force {
-			if cached, ok, err := loadCachedRecap(r.Context(), d.DB, uid, driveID); err == nil && ok {
-				writeJSON(w, http.StatusOK, cached)
-				return
-			}
-		}
-
-		drivesStore := d.Drives.For(uid)
-		samplesStore := d.Samples.For(uid)
-		chargesStore := d.Charges.For(uid)
-		if drivesStore == nil || samplesStore == nil || chargesStore == nil {
-			http.Error(w, "user stores unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		// Fetch the user's drives and locate the requested one. We
-		// don't have a per-id store method; ListAll is fine for the
-		// drive count we expect (single-digit thousands at the
-		// outer end). Keeps the recap path one round-trip.
-		ds, err := drivesStore.ListAll(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Collapse round trips before resolving the drive ID. The SPA
-		// renders the detail page from a collapsed view (gym -> home
-		// shows as one trip with the outbound leg's ID and the merged
-		// totals), and the recap needs to reflect the same shape or
-		// the headline numbers won't match the page. Defaults track
-		// web/src/lib/preferences.ts DEFAULT_PREFERENCES.
-		//
-		// We don't have the user's roundTrip preferences server-side
-		// today; the SPA owns that toggle. Using the defaults is
-		// correct for the common case (toggle on, default thresholds);
-		// users who tightened the radius will see a slight mismatch on
-		// edge cases. A future revision can pass the prefs in the POST
-		// body if that ever becomes a real complaint.
-		const (
-			roundTripRadiusM = 200.0
-			roundTripMaxGap  = 60 * time.Minute
-		)
-		ds = drives.CollapseRoundTrips(ds, roundTripRadiusM, roundTripMaxGap)
-		var drv *drives.Drive
-		for i := range ds {
-			if ds[i].ID == driveID {
-				drv = &ds[i]
-				break
-			}
-		}
-		if drv == nil {
-			http.Error(w, "drive not found", http.StatusNotFound)
-			return
-		}
-		// Pull samples covering the drive window plus a small pad so
-		// the elevation profile catches the start/end ramps. We use
-		// ListSince and filter in memory rather than adding a new
-		// time-bounded query method; the drive-window count is
-		// bounded (a 6-hour drive at 5s cadence is ~4300 rows).
-		// Pad: 3 min before, 3 min after.
-		since := drv.StartedAt.Add(-3 * time.Minute)
-		end := drv.EndedAt.Add(3 * time.Minute)
-		allSamples, err := samplesStore.ListSince(r.Context(), since, 100_000)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		windowed := make([]samples.Sample, 0, len(allSamples))
-		for _, s := range allSamples {
-			if s.At.Before(since) || s.At.After(end) {
-				continue
-			}
-			windowed = append(windowed, s)
-		}
-		// Adjacent charges: anything that started or ended within
-		// 30 min of the drive window. Walk ListAll once.
-		const adjacencyWindow = 30 * time.Minute
-		allCharges, _ := chargesStore.ListAll(r.Context())
-		adjacent := make([]charges.Charge, 0, 4)
-		driveStart := drv.StartedAt
-		driveEnd := drv.EndedAt
-		for _, c := range allCharges {
-			if !c.EndedAt.IsZero() &&
-				!c.EndedAt.Before(driveStart.Add(-adjacencyWindow)) &&
-				c.EndedAt.Before(driveStart) {
-				adjacent = append(adjacent, c)
-				continue
-			}
-			if !c.StartedAt.IsZero() &&
-				c.StartedAt.After(driveEnd) &&
-				c.StartedAt.Before(driveEnd.Add(adjacencyWindow)) {
-				adjacent = append(adjacent, c)
-				continue
-			}
-			// Charges that span the drive (rare — would mean the
-			// car was driven mid-charge, e.g. ElectraFi importer
-			// glitches) we treat as "during".
-			if !c.StartedAt.IsZero() && !c.EndedAt.IsZero() &&
-				c.StartedAt.Before(driveEnd) && c.EndedAt.After(driveStart) {
-				adjacent = append(adjacent, c)
-			}
-		}
-
-		// Imperial output to match the rest of the app surface;
-		// revisit when a metric distance pref ships.
-		const useFahrenheit = true
-
-		// Optional weather enrichment. Gated on the operator pref so
-		// we never disclose coords without explicit opt-in. Failures
-		// are non-fatal: the recap still generates without weather,
-		// and the next regenerate will retry the fetch.
-		var recapWeather *recap.Weather
-		var responseWeather *driveWeatherResponse
-		if d.SettingsMgr.RecapWeatherEnabled() && drv.StartLat != 0 && drv.StartLon != 0 {
-			cache := weather.NewCache(d.DB)
-			snap, _ := cache.Get(r.Context(), uid, drv.ID)
-			if snap == nil {
-				if fetched, ferr := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); ferr == nil && fetched != nil {
-					snap = fetched
-				} else if ferr != nil && d.Logger != nil {
-					d.Logger.Warn("weather fetch failed", "err", ferr.Error(), "drive_id", drv.ID)
-				}
-			}
-			if snap != nil {
-				recapWeather = snapshotToRecapWeather(snap)
-				responseWeather = snapshotToResponseWeather(snap)
-			}
-		}
-
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
-		res, err := recap.Generate(ctx, analyzer, recap.Inputs{
-			Drive:           *drv,
-			Samples:         windowed,
-			AdjacentCharges: adjacent,
-			UseFahrenheit:   useFahrenheit,
-			Weather:         recapWeather,
-		})
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{
-				"error": err.Error(),
-				"model": analyzer.ModelName(),
-			})
-			return
-		}
-		// Persist; failures here log but don't block the response —
-		// the user has a valid recap in hand, the worst case is they
-		// pay again on next regenerate.
-		now := time.Now()
-		if _, err := d.DB.ExecContext(r.Context(), `
-INSERT INTO drive_recaps (user_id, drive_id, model, recap, input_tokens, output_tokens, generated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (user_id, drive_id) DO UPDATE SET
-    model = EXCLUDED.model,
-    recap = EXCLUDED.recap,
-    input_tokens = EXCLUDED.input_tokens,
-    output_tokens = EXCLUDED.output_tokens,
-    generated_at = EXCLUDED.generated_at
-`, uid, driveID, res.Model, res.Recap, res.InputTokens, res.OutputTokens, now); err != nil {
-			if d.Logger != nil {
-				d.Logger.Warn("drive recap cache write failed", "err", err.Error(), "drive_id", driveID)
-			}
-		}
-		writeJSON(w, http.StatusOK, driveRecapResponse{
-			Recap:        res.Recap,
-			Model:        res.Model,
-			GeneratedAt:  now,
-			InputTokens:  res.InputTokens,
-			OutputTokens: res.OutputTokens,
-			Cached:       false,
-			Headline:     headlineOf(res.Parsed),
-			Body:         bodyOf(res.Parsed),
-			Highlights:   highlightsOf(res.Parsed),
-			Mood:         moodOf(res.Parsed),
-			Weather:      responseWeather,
-		})
-	}
 }
 
 // driveWeatherBackfillResponse is the JSON the SPA polls. Counts are
@@ -2289,41 +2078,7 @@ func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uu
 	return snap, nil
 }
 
-// loadCachedRecap returns the persisted recap row for (uid, driveID).
-// (resp, false, nil) means "no row"; (resp, true, nil) means "hit".
-// Errors are propagated so the caller can decide between 404 and 500.
-func loadCachedRecap(ctx context.Context, pool *sql.DB, uid uuid.UUID, driveID string) (driveRecapResponse, bool, error) {
-	var resp driveRecapResponse
-	resp.Cached = true
-	err := pool.QueryRowContext(ctx, `
-SELECT recap, model, generated_at, input_tokens, output_tokens
-FROM drive_recaps
-WHERE user_id = $1 AND drive_id = $2
-`, uid, driveID).Scan(&resp.Recap, &resp.Model, &resp.GeneratedAt, &resp.InputTokens, &resp.OutputTokens)
-	if errors.Is(err, sql.ErrNoRows) {
-		return driveRecapResponse{}, false, nil
-	}
-	if err != nil {
-		return driveRecapResponse{}, false, err
-	}
-	// Re-parse the stored reply so structured fields land in the
-	// response on cache hits too. Legacy plain-text rows return nil
-	// here and the SPA falls back to rendering Recap as prose.
-	if p := recap.ParseRecap(resp.Recap); p != nil {
-		resp.Headline = p.Headline
-		resp.Body = p.Body
-		resp.Highlights = p.Highlights
-		resp.Mood = p.Mood
-	}
-	// Pull any cached weather snapshot for this drive. Independent of
-	// the recap toggle: once a row exists we can keep showing it on
-	// the detail page even if the operator later disables the
-	// feature, since the disclosure already happened.
-	if w, werr := loadDriveWeather(ctx, pool, uid, driveID); werr == nil && w != nil {
-		resp.Weather = w
-	}
-	return resp, true, nil
-}
+// loadCachedRecap removed in v0.17.64 with drive recap feature
 
 // handleDriveWeatherGet returns the persisted weather snapshot for
 // (uid, driveID), or 404 when no row exists. Lightweight read off
@@ -2492,32 +2247,6 @@ WHERE user_id = $1 AND drive_id = $2
 	return out, nil
 }
 
-// snapshotToRecapWeather lifts an internal/weather.Snapshot into the
-// recap.Weather DTO the prompt builder consumes. Both shapes have the
-// same field names; the conversion is mechanical.
-func snapshotToRecapWeather(s *weather.Snapshot) *recap.Weather {
-	if s == nil {
-		return nil
-	}
-	return &recap.Weather{
-		TempC:         s.TempC,
-		ApparentTempC: s.ApparentTempC,
-		WindKPH:       s.WindKPH,
-		WindDirDeg:    s.WindDirDeg,
-		HeadwindKPH:   s.HeadwindKPH,
-		PrecipMM:      s.PrecipMM,
-		HumidityPct:   s.HumidityPct,
-		Conditions:    s.Conditions,
-		HasTemp:       s.HasTemp,
-		HasApparent:   s.HasApparent,
-		HasWind:       s.HasWind,
-		HasHeadwind:   s.HasHeadwind,
-		HasPrecip:     s.HasPrecip,
-		HasHumidity:   s.HasHumidity,
-		HasConditions: s.HasConditions,
-	}
-}
-
 // snapshotToResponseWeather converts the metric-base snapshot to the
 // imperial DTO the SPA expects. The cache always stores metric so the
 // conversion lives at the API boundary.
@@ -2555,30 +2284,255 @@ func snapshotToResponseWeather(s *weather.Snapshot) *driveWeatherResponse {
 	return out
 }
 
-// headlineOf / bodyOf / highlightsOf / moodOf are nil-safe accessors
-// for recap.Parsed so the POST-write call site doesn't have to repeat
-// the nil check around every field.
-func headlineOf(p *recap.Parsed) string {
-	if p == nil {
-		return ""
+// snapshotToRecapWeather lifts an internal/weather.Snapshot into the
+// recap.Weather DTO the prompt builder consumes. Both shapes have the
+// same field names; the conversion is mechanical.
+func snapshotToRecapWeather(s *weather.Snapshot) *recap.Weather {
+	if s == nil {
+		return nil
 	}
-	return p.Headline
-}
-func bodyOf(p *recap.Parsed) string {
-	if p == nil {
-		return ""
+	return &recap.Weather{
+		TempC:         s.TempC,
+		ApparentTempC: s.ApparentTempC,
+		WindKPH:       s.WindKPH,
+		WindDirDeg:    s.WindDirDeg,
+		HeadwindKPH:   s.HeadwindKPH,
+		PrecipMM:      s.PrecipMM,
+		HumidityPct:   s.HumidityPct,
+		Conditions:    s.Conditions,
+		HasTemp:       s.HasTemp,
+		HasApparent:   s.HasApparent,
+		HasWind:       s.HasWind,
+		HasHeadwind:   s.HasHeadwind,
+		HasPrecip:     s.HasPrecip,
+		HasHumidity:   s.HasHumidity,
+		HasConditions: s.HasConditions,
 	}
-	return p.Body
 }
-func highlightsOf(p *recap.Parsed) []recap.Highlight {
+
+// driveEfficiencyResponse is the JSON shape returned by POST
+// /api/drives/{id}/efficiency.
+type driveEfficiencyResponse struct {
+	Analysis       string                   `json:"analysis"`
+	Factors        []recap.EfficiencyFactor `json:"factors,omitempty"`
+	Recommendation string                   `json:"recommendation,omitempty"`
+	Forecast       string                   `json:"forecast,omitempty"`
+	Summary        string                   `json:"summary,omitempty"`
+	Model          string                   `json:"model"`
+	GeneratedAt    time.Time                `json:"generated_at"`
+	InputTokens    int64                    `json:"input_tokens,omitempty"`
+	OutputTokens   int64                    `json:"output_tokens,omitempty"`
+}
+
+// handleDriveEfficiencyPost generates an AI-driven efficiency analysis
+// on demand. Not cached: each call bills the operator's LLM account,
+// so the SPA only triggers it from a "Generate" button. The optional
+// JSON body carries per-trip transient context (towing, extra load)
+// the SPA captures via the form on the analysis card; persisted
+// per-vehicle settings (tire type, wheel size, accessories) are
+// pulled from vehicles.metadata regardless of body shape.
+func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
+	type efficiencyReq struct {
+		ExtraLoadLb float64 `json:"extra_load_lb,omitempty"`
+		Towing      bool    `json:"towing,omitempty"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if d.SettingsMgr == nil {
+			http.Error(w, "ai settings unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		analyzer := d.SettingsMgr.Analyzer()
+		if analyzer == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "no AI provider configured -- add an API key in Settings -> AI providers",
+			})
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+
+		drivesStore := d.Drives.For(uid)
+		samplesStore := d.Samples.For(uid)
+		if drivesStore == nil || samplesStore == nil {
+			http.Error(w, "user stores unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Locate the (collapsed) drive.
+		ds, err := drivesStore.ListAll(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		const (
+			roundTripRadiusM = 200.0
+			roundTripMaxGap  = 60 * time.Minute
+		)
+		ds = drives.CollapseRoundTrips(ds, roundTripRadiusM, roundTripMaxGap)
+		var drv *drives.Drive
+		for i := range ds {
+			if ds[i].ID == driveID {
+				drv = &ds[i]
+				break
+			}
+		}
+		if drv == nil {
+			http.Error(w, "drive not found", http.StatusNotFound)
+			return
+		}
+
+		// Sample window: trip +/- 3 min pad.
+		since := drv.StartedAt.Add(-3 * time.Minute)
+		end := drv.EndedAt.Add(3 * time.Minute)
+		allSamples, err := samplesStore.ListSince(r.Context(), since, 100_000)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		windowed := make([]samples.Sample, 0, len(allSamples))
+		for _, s := range allSamples {
+			if s.At.Before(since) || s.At.After(end) {
+				continue
+			}
+			windowed = append(windowed, s)
+		}
+
+		// Optional weather (same gate as the recap path used).
+		var effWeather *recap.Weather
+		if d.SettingsMgr.RecapWeatherEnabled() && drv.StartLat != 0 && drv.StartLon != 0 {
+			cache := weather.NewCache(d.DB)
+			snap, _ := cache.Get(r.Context(), uid, drv.ID)
+			if snap == nil {
+				if fetched, ferr := fetchAndCacheDriveWeather(r.Context(), cache, uid, drv); ferr == nil && fetched != nil {
+					snap = fetched
+				}
+			}
+			if snap != nil {
+				effWeather = snapshotToRecapWeather(snap)
+			}
+		}
+
+		// Baseline efficiency from the user's recent drives (last
+		// 90 days, drives ending before this trip's start). Direct
+		// computation off drives.ListAll keeps this independent of
+		// the analytics package.
+		baseMiPerKWh, baseDays := 0.0, 90
+		{
+			cutoff := drv.StartedAt.Add(-90 * 24 * time.Hour)
+			var miles, energy float64
+			for _, x := range ds {
+				if x.ID == drv.ID {
+					continue
+				}
+				if !x.EndedAt.Before(drv.StartedAt) {
+					continue
+				}
+				if x.EndedAt.Before(cutoff) {
+					continue
+				}
+				if x.EnergyUsedKWh <= 0 || x.DistanceMi <= 0 {
+					continue
+				}
+				miles += x.DistanceMi
+				energy += x.EnergyUsedKWh
+			}
+			if energy > 0 {
+				baseMiPerKWh = miles / energy
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		// Per-trip transient context from the request body. Tolerate
+		// an empty body (curl, legacy SPA).
+		var req efficiencyReq
+		if r.ContentLength > 0 {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+
+		// Per-vehicle profile from vehicles.metadata. Best-effort:
+		// if the resolve or read fails, the prompt just omits the
+		// profile block — the analysis still runs.
+		var profile *recap.VehicleProfile
+		if drv.VehicleID != "" {
+			resolver := db.NewVehicleResolver(d.DB, uid)
+			if vid, err := resolver.Resolve(ctx, drv.VehicleID); err == nil {
+				if dbProfile, err := db.GetVehicleProfile(ctx, d.DB, uid, vid); err == nil {
+					profile = &recap.VehicleProfile{
+						TireType:           dbProfile.TireType,
+						WheelInches:        dbProfile.WheelInches,
+						Accessories:        dbProfile.Accessories,
+						DefaultExtraLoadLb: dbProfile.DefaultExtraLoadLb,
+						FrequentlyTows:     dbProfile.FrequentlyTows,
+					}
+				}
+			}
+		}
+
+		res, err := recap.GenerateEfficiency(ctx, analyzer, recap.EfficiencyInputs{
+			Drive:            *drv,
+			Samples:          windowed,
+			UseFahrenheit:    true,
+			BaselineMiPerKWh: baseMiPerKWh,
+			BaselineDays:     baseDays,
+			Weather:          effWeather,
+			VehicleProfile:   profile,
+			ExtraLoadLb:      req.ExtraLoadLb,
+			Towing:           req.Towing,
+		})
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": err.Error(),
+				"model": analyzer.ModelName(),
+			})
+			return
+		}
+
+		now := time.Now()
+		writeJSON(w, http.StatusOK, driveEfficiencyResponse{
+			Analysis:       res.Analysis,
+			Factors:        effFactorsOf(res.Parsed),
+			Recommendation: effRecommendationOf(res.Parsed),
+			Forecast:       effForecastOf(res.Parsed),
+			Summary:        effSummaryOf(res.Parsed),
+			Model:          res.Model,
+			GeneratedAt:    now,
+			InputTokens:    res.InputTokens,
+			OutputTokens:   res.OutputTokens,
+		})
+	}
+}
+
+// Nil-safe accessors for *recap.EfficiencyParsed.
+func effFactorsOf(p *recap.EfficiencyParsed) []recap.EfficiencyFactor {
 	if p == nil {
 		return nil
 	}
-	return p.Highlights
+	return p.Factors
 }
-func moodOf(p *recap.Parsed) string {
+func effRecommendationOf(p *recap.EfficiencyParsed) string {
 	if p == nil {
 		return ""
 	}
-	return p.Mood
+	return p.Recommendation
+}
+func effForecastOf(p *recap.EfficiencyParsed) string {
+	if p == nil {
+		return ""
+	}
+	return p.Forecast
+}
+func effSummaryOf(p *recap.EfficiencyParsed) string {
+	if p == nil {
+		return ""
+	}
+	return p.Summary
 }

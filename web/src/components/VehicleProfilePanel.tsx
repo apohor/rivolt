@@ -1,0 +1,254 @@
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { backend, type VehicleProfile, type VehicleTireType } from "../lib/api";
+import { ErrorBox, Spinner } from "./ui";
+
+// VehicleProfilePanel lets the user persist per-vehicle context the
+// efficiency analyzer factors into its breakdown: tire type, wheel
+// size, accessories, default extra load, frequently_tows. Stored in
+// vehicles.metadata.profile via PUT /api/vehicles/{id}/profile.
+//
+// Form state is local; we don't reach for react-query mutations here
+// because the rest of the codebase doesn't either, and the save path
+// is a single fire-and-forget PUT.
+
+const ACCESSORY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "roof_rack", label: "Roof rack" },
+  { value: "cargo_box", label: "Cargo box" },
+  { value: "bike_rack", label: "Bike rack" },
+  { value: "rooftop_tent", label: "Rooftop tent" },
+  { value: "ski_box", label: "Ski / cargo box (winter)" },
+  { value: "running_boards", label: "Running boards" },
+];
+
+const TIRE_OPTIONS: ReadonlyArray<{ value: VehicleTireType; label: string }> = [
+  { value: "", label: "Unset" },
+  { value: "all_season", label: "All-season" },
+  { value: "all_terrain", label: "All-terrain" },
+  { value: "winter", label: "Winter" },
+  { value: "summer", label: "Summer" },
+];
+
+const WHEEL_OPTIONS = [0, 20, 21, 22] as const;
+
+export function VehicleProfilePanel() {
+  const vehiclesQ = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: () => backend.listOwnedVehicles(),
+  });
+  const vehicles = useMemo(
+    () => vehiclesQ.data?.vehicles ?? [],
+    [vehiclesQ.data],
+  );
+  const [vehicleID, setVehicleID] = useState("");
+  useEffect(() => {
+    if (!vehicleID && vehicles.length > 0) {
+      setVehicleID(vehicles[0].rivian_vehicle_id);
+    }
+  }, [vehicles, vehicleID]);
+
+  if (vehiclesQ.isLoading) return <Spinner />;
+  if (vehiclesQ.isError) {
+    return (
+      <ErrorBox
+        title="Couldn't load vehicles"
+        detail={String(vehiclesQ.error)}
+      />
+    );
+  }
+  if (vehicles.length === 0) {
+    return (
+      <p className="text-sm text-neutral-400">
+        Sign in to your Rivian account first — the picker fills once
+        Rivolt has seen at least one vehicle.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {vehicles.length > 1 ? (
+        <label className="flex items-center gap-2 text-xs text-neutral-400">
+          Vehicle
+          <select
+            value={vehicleID}
+            onChange={(e) => setVehicleID(e.target.value)}
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm text-neutral-100"
+          >
+            {vehicles.map((v) => (
+              <option key={v.rivian_vehicle_id} value={v.rivian_vehicle_id}>
+                {v.display_name || v.model || v.rivian_vehicle_id}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {vehicleID ? <ProfileForm key={vehicleID} vehicleID={vehicleID} /> : null}
+    </div>
+  );
+}
+
+function ProfileForm({ vehicleID }: { vehicleID: string }) {
+  const profileQ = useQuery({
+    queryKey: ["vehicle", vehicleID, "profile"],
+    queryFn: () => backend.vehicleProfileGet(vehicleID),
+  });
+
+  const [tireType, setTireType] = useState<VehicleTireType>("");
+  const [wheelInches, setWheelInches] = useState<number>(0);
+  const [accessories, setAccessories] = useState<string[]>([]);
+  const [extraLoadLb, setExtraLoadLb] = useState("");
+  const [frequentlyTows, setFrequentlyTows] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Hydrate form state from the GET once it lands.
+  useEffect(() => {
+    const p = profileQ.data;
+    if (!p) return;
+    setTireType((p.tire_type ?? "") as VehicleTireType);
+    setWheelInches(p.wheel_inches ?? 0);
+    setAccessories(p.accessories ?? []);
+    setExtraLoadLb(
+      p.default_extra_load_lb && p.default_extra_load_lb > 0
+        ? String(p.default_extra_load_lb)
+        : "",
+    );
+    setFrequentlyTows(!!p.frequently_tows);
+  }, [profileQ.data]);
+
+  function toggleAccessory(value: string) {
+    setAccessories((prev) =>
+      prev.includes(value)
+        ? prev.filter((v) => v !== value)
+        : [...prev, value],
+    );
+  }
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const body: VehicleProfile = {
+        tire_type: tireType || undefined,
+        wheel_inches: wheelInches || undefined,
+        accessories: accessories.length > 0 ? accessories : undefined,
+        default_extra_load_lb: Number(extraLoadLb) > 0 ? Number(extraLoadLb) : undefined,
+        frequently_tows: frequentlyTows || undefined,
+      };
+      await backend.vehicleProfilePut(vehicleID, body);
+      setSavedAt(Date.now());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (profileQ.isLoading) return <Spinner />;
+  if (profileQ.isError) {
+    return (
+      <ErrorBox title="Couldn't load profile" detail={String(profileQ.error)} />
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      <p className="text-xs text-neutral-400">
+        These settings tell the efficiency analyzer about your vehicle's
+        rolling resistance, drag, and typical load. They affect every
+        future analysis. Per-trip overrides (towing this trip, extra
+        cargo) are entered on the drive detail page.
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-neutral-400">Tire type</span>
+          <select
+            value={tireType}
+            onChange={(e) => setTireType(e.target.value as VehicleTireType)}
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
+          >
+            {TIRE_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-neutral-400">Wheel size (in)</span>
+          <select
+            value={wheelInches}
+            onChange={(e) => setWheelInches(Number(e.target.value))}
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
+          >
+            {WHEEL_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "Unset" : `${n}"`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-neutral-400">
+            Default extra load (lb)
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={5000}
+            placeholder="0"
+            value={extraLoadLb}
+            onChange={(e) => setExtraLoadLb(e.target.value)}
+            className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-neutral-100"
+          />
+        </label>
+        <label className="flex items-center gap-2 pt-5">
+          <input
+            type="checkbox"
+            checked={frequentlyTows}
+            onChange={(e) => setFrequentlyTows(e.target.checked)}
+            className="h-4 w-4 accent-emerald-500"
+          />
+          <span>Frequently tows</span>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend className="text-xs text-neutral-400">Accessories</legend>
+        <div className="mt-1 grid grid-cols-2 gap-y-1 sm:grid-cols-3">
+          {ACCESSORY_OPTIONS.map((a) => (
+            <label key={a.value} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={accessories.includes(a.value)}
+                onChange={() => toggleAccessory(a.value)}
+                className="h-4 w-4 accent-emerald-500"
+              />
+              <span>{a.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className="rounded-md border border-emerald-700/60 bg-emerald-900/30 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/50 hover:text-emerald-200 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save profile"}
+        </button>
+        {savedAt ? (
+          <span className="text-xs text-neutral-500">Saved.</span>
+        ) : null}
+      </div>
+
+      {err ? <ErrorBox title="Save failed" detail={err} /> : null}
+    </div>
+  );
+}

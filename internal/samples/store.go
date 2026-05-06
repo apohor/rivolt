@@ -52,6 +52,15 @@ type Sample struct {
 	// and on cold-cache misses where the tile fetch was kicked
 	// off async (the next sample on that tile will hit the cache).
 	AltitudeM *float64 `json:"altitude_m,omitempty"`
+	// TirePressureMinBar is the minimum of the four corner pressures
+	// at sample time, in bar. Pointer because nullable: NULL on
+	// legacy rows pre-migration 0024, ElectraFi imports, and live
+	// rows where Rivian reported zero on all four corners (sensor
+	// outage / vehicle parked w/ no recent reading). The efficiency
+	// analyzer pulls the median across a drive's samples; min-of-4
+	// keeps the worst tire (the one that actually hurts efficiency)
+	// dominant without bloating the schema with all four corners.
+	TirePressureMinBar *float64 `json:"tire_pressure_min_bar,omitempty"`
 }
 
 // Store wraps the vehicle_state table, scoped to one user.
@@ -144,8 +153,8 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			charger_power_kw, charge_limit_pct,
 			inside_temp_c, outside_temp_c,
 			drive_number, charge_number, source,
-			altitude_m
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+			altitude_m, tire_pressure_min_bar
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -162,6 +171,10 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		if v.AltitudeM != nil {
 			alt = *v.AltitudeM
 		}
+		var tirePsi any
+		if v.TirePressureMinBar != nil {
+			tirePsi = *v.TirePressureMinBar
+		}
 		if _, err := stmt.ExecContext(ctx,
 			s.userID, uuids[v.VehicleID], v.At.UTC(),
 			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
@@ -170,7 +183,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			v.ChargerPowerKW, v.ChargeLimitPct,
 			v.InsideTempC, v.OutsideTempC,
 			v.DriveNumber, v.ChargeNumber, v.Source,
-			alt,
+			alt, tirePsi,
 		); err != nil {
 			return err
 		}
@@ -215,7 +228,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
-		       vs.altitude_m
+		       vs.altitude_m, vs.tire_pressure_min_bar
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1 AND vs.at > $2
@@ -230,6 +243,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		var v Sample
 		var fixAt sql.NullTime
 		var alt sql.NullFloat64
+		var tirePsi sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -237,7 +251,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
-			&alt,
+			&alt, &tirePsi,
 		); err != nil {
 			return nil, err
 		}
@@ -249,6 +263,10 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		if alt.Valid {
 			f := alt.Float64
 			v.AltitudeM = &f
+		}
+		if tirePsi.Valid {
+			f := tirePsi.Float64
+			v.TirePressureMinBar = &f
 		}
 		out = append(out, v)
 	}
@@ -269,7 +287,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
-		       vs.altitude_m
+		       vs.altitude_m, vs.tire_pressure_min_bar
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1
@@ -283,6 +301,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		var v Sample
 		var fixAt sql.NullTime
 		var alt sql.NullFloat64
+		var tirePsi sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -290,7 +309,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
-			&alt,
+			&alt, &tirePsi,
 		); err != nil {
 			return nil, err
 		}
@@ -302,6 +321,10 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		if alt.Valid {
 			f := alt.Float64
 			v.AltitudeM = &f
+		}
+		if tirePsi.Valid {
+			f := tirePsi.Float64
+			v.TirePressureMinBar = &f
 		}
 		out = append(out, v)
 	}
