@@ -254,6 +254,22 @@ export default function DriveDetailPage() {
     [mapPathSamples],
   );
 
+  // Physics-based power totals — share the same model the timeline
+  // ribbon uses so the "Regen recovered" stat tile and the chart's
+  // green/red pixels are computed from one source of truth. Returns
+  // null until the drive resolves so this hook can sit above the
+  // early-return paths below — Rules of Hooks: every hook must run
+  // in the same order on every render, and we used to break that by
+  // declaring this useMemo *after* the `if (!drive) return …` block.
+  // On a cold drive query (hard refresh), render 1 short-circuited
+  // before the memo and render 2 added it back, which unmounts the
+  // whole tree with "Rendered more hooks than during the previous
+  // render" → blank page.
+  const powerAnalysis = useMemo(() => {
+    if (!drive) return null;
+    return analyzeDrivePower(driveSamples, drive);
+  }, [driveSamples, drive]);
+
   if (drives.isLoading) {
     return (
       <div>
@@ -281,17 +297,6 @@ export default function DriveDetailPage() {
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
   const tempUnit = prefs.temperatureUnit;
   const weatherPts = driveWeatherSeries.data?.points ?? [];
-  // Physics-based power totals — share the same model the timeline
-  // ribbon uses so the "Regen recovered" stat tile and the chart's
-  // green/red pixels are computed from one source of truth. Memoized
-  // on driveSamples + drive's energy total; drives without
-  // EnergyUsedKWh (legacy ElectraFi imports) fall back to an
-  // un-calibrated physics estimate, which is still directionally
-  // correct for the regen-vs-draw ratio.
-  const powerAnalysis = useMemo(
-    () => analyzeDrivePower(driveSamples, drive),
-    [driveSamples, drive],
-  );
 
   // Estimate GPS accuracy during the drive by checking fix freshness
   // and sample continuity. Returns true if accuracy is likely low.
@@ -396,12 +401,14 @@ export default function DriveDetailPage() {
         <Stat
           label="Regen recovered"
           value={
-            powerAnalysis.regenKwh >= 0.05
+            powerAnalysis && powerAnalysis.regenKwh >= 0.05
               ? num(powerAnalysis.regenKwh, 2, "kWh")
               : "—"
           }
           hint={
-            powerAnalysis.regenKwh >= 0.05 && powerAnalysis.regenPct > 0
+            powerAnalysis &&
+            powerAnalysis.regenKwh >= 0.05 &&
+            powerAnalysis.regenPct > 0
               ? `${powerAnalysis.regenPct.toFixed(0)}% of consumption`
               : undefined
           }
