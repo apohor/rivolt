@@ -339,30 +339,75 @@ export default function DriveDetailPage() {
   // step plot for temperature. Server already converted to F; we
   // only round-trip to C if the user's pref is metric.
   const weatherPts = driveWeatherSeries.data?.points ?? [];
-  const meteoTempPts = weatherPts
-    .filter((p) => p.temp_f != null)
-    .map((p) => ({
-      x: new Date(p.at).getTime(),
-      y: tempUnit === "f" ? (p.temp_f as number) : ((p.temp_f as number) - 32) / 1.8,
-    }));
+  // Open-Meteo's cadence (15- or 60-min) means the first sample
+  // typically lands before drive start and the last sample lands
+  // before drive end. Naive plotting leaves both ends of the
+  // weather lines floating mid-chart. Clamp every series to the
+  // drive's [start, end] window: drop samples outside, then add
+  // anchor points at the boundaries carrying the nearest sample's
+  // value. Open-Meteo values are valid for the cadence interval
+  // they cover, so a step-extension is faithful to the data.
+  const driveStartMs = new Date(drive.StartedAt).getTime();
+  const driveEndMs = new Date(drive.EndedAt).getTime();
+  const clampToDrive = <T extends { x: number; y: number }>(
+    pts: T[],
+  ): T[] => {
+    if (pts.length === 0) return pts;
+    // Sample value to use at a boundary: the nearest in-range
+    // point if any, otherwise the nearest pre/post-drive sample.
+    const inRange = pts.filter(
+      (p) => p.x >= driveStartMs && p.x <= driveEndMs,
+    );
+    const before = pts.filter((p) => p.x < driveStartMs);
+    const after = pts.filter((p) => p.x > driveEndMs);
+    const startY =
+      inRange[0]?.y ?? before[before.length - 1]?.y ?? after[0]?.y;
+    const endY =
+      inRange[inRange.length - 1]?.y ??
+      after[0]?.y ??
+      before[before.length - 1]?.y;
+    if (startY == null || endY == null) return [];
+    const out: T[] = [];
+    out.push({ ...pts[0], x: driveStartMs, y: startY });
+    for (const p of inRange) {
+      if (p.x > driveStartMs && p.x < driveEndMs) out.push(p);
+    }
+    out.push({ ...pts[0], x: driveEndMs, y: endY });
+    return out;
+  };
+  const meteoTempPts = clampToDrive(
+    weatherPts
+      .filter((p) => p.temp_f != null)
+      .map((p) => ({
+        x: new Date(p.at).getTime(),
+        y:
+          tempUnit === "f"
+            ? (p.temp_f as number)
+            : ((p.temp_f as number) - 32) / 1.8,
+      })),
+  );
   // Headwind component (signed mph). Positive = into the wind
   // (drag, costs Wh/mi); negative = tailwind (free range). The
   // server already projected wind direction onto the drive's
   // bearing so we can render it as a single signed line, the
   // efficiency-relevant view rather than a raw wind speed.
-  const meteoHeadwindPts = weatherPts
-    .filter((p) => p.headwind_mph != null)
-    .map((p) => ({
-      x: new Date(p.at).getTime(),
-      y: p.headwind_mph as number,
-    }));
+  const meteoHeadwindPts = clampToDrive(
+    weatherPts
+      .filter((p) => p.headwind_mph != null)
+      .map((p) => ({
+        x: new Date(p.at).getTime(),
+        y: p.headwind_mph as number,
+      })),
+  );
   const hasHeadwind = meteoHeadwindPts.length > 1;
   // Precipitation-type bands: any sample where it's actually
   // precipitating (non-zero accumulation OR a precip-y WMO label).
   // Each band runs from the sample's timestamp to one cadence step
   // later so a contiguous shower paints as a single ribbon. We
   // never merge across condition boundaries -- a switch from
-  // drizzle to snow stays visible as two adjoining colors.
+  // drizzle to snow stays visible as two adjoining colors. Clip
+  // the band edges to the drive window so they don't extend past
+  // the visible chart area.
   const precipColor = (cond: string | undefined): string | null => {
     switch (cond) {
       case "rain":
@@ -385,8 +430,12 @@ export default function DriveDetailPage() {
       const wet = (p.precip_in ?? 0) > 0 || precipColor(cond) != null;
       if (!wet) return null;
       const color = precipColor(cond) ?? "#3b82f6";
-      const x0 = new Date(p.at).getTime();
-      const x1 = x0 + (p.cadence_minutes || 60) * 60_000;
+      const sampleStart = new Date(p.at).getTime();
+      const sampleEnd =
+        sampleStart + (p.cadence_minutes || 60) * 60_000;
+      const x0 = Math.max(sampleStart, driveStartMs);
+      const x1 = Math.min(sampleEnd, driveEndMs);
+      if (x1 <= x0) return null;
       const amt = p.precip_in ?? 0;
       const label =
         amt > 0
