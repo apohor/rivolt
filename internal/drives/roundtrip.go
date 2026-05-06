@@ -5,38 +5,23 @@ import (
 	"time"
 )
 
-// CollapseRoundTrips merges consecutive drives that form a multi-leg
-// round trip into a single row. Two drives qualify when the second
-// ends within radiusMeters of the first's start point and the
-// park-gap between them is under maxGap. Motivating case: drive to
-// the gym, park for 20 minutes, drive home — today that records as
-// two separate drives. With this pass the dashboard shows a single
-// logical trip that starts and ends at home.
+// CollapseRoundTrips merges chains of consecutive drives that form a
+// closed loop into a single row. A chain [D1 … Dn] qualifies when:
+//   - every consecutive gap (Di.EndedAt → Di+1.StartedAt) ≤ maxGap, and
+//   - the chain's last drive ends within radiusMeters of the first
+//     drive's start point.
 //
-// Multi-leg chains (A→B→C→A, etc.) are handled by iterating the
-// single-pass collapse until the output stabilises (fixed point).
-// Each pass reduces the drive count by at least one when any pair
-// qualifies, so the loop is bounded by the initial drive count.
+// The greedy algorithm scans ascending and, at each position i, extends
+// the chain as far as the gap constraint allows, then picks the farthest
+// j for which the endpoint lands within radius of D[i].Start. This
+// handles 2-leg round trips (gym-and-back), 3-leg chains (A→B→C→A), and
+// arbitrary multi-stop trips in a single O(n²) pass — no iteration
+// needed. The input is expected in DESC order (ListRecent contract) and
+// the output preserves that order.
 //
-// Operates on the slice returned by Store.ListRecent (descending by
-// StartedAt) and returns a new slice in the same order, with pairs
-// collapsed. Pure function — DB rows are never mutated, so raw data
-// is preserved and the pairing rule can be tuned / replayed at will.
+// Pure function — DB rows are never mutated, so raw data is preserved
+// and the pairing rule can be tuned / replayed at will.
 func CollapseRoundTrips(ds []Drive, radiusMeters float64, maxGap time.Duration) []Drive {
-	current := ds
-	for {
-		next := collapseOnce(current, radiusMeters, maxGap)
-		if len(next) == len(current) {
-			return next
-		}
-		current = next
-	}
-}
-
-// collapseOnce performs a single left-to-right greedy pass over the
-// drive slice, merging the first qualifying consecutive pair it finds
-// before advancing past both. Returns a new DESC-ordered slice.
-func collapseOnce(ds []Drive, radiusMeters float64, maxGap time.Duration) []Drive {
 	if len(ds) < 2 {
 		out := make([]Drive, len(ds))
 		copy(out, ds)
@@ -48,24 +33,32 @@ func collapseOnce(ds []Drive, radiusMeters float64, maxGap time.Duration) []Driv
 	for i, d := range ds {
 		asc[len(ds)-1-i] = d
 	}
+
 	merged := make([]Drive, 0, len(asc))
 	i := 0
 	for i < len(asc) {
-		cur := asc[i]
-		if i+1 < len(asc) {
-			nxt := asc[i+1]
-			gap := nxt.StartedAt.Sub(cur.EndedAt)
-			if cur.VehicleID == nxt.VehicleID &&
-				gap >= 0 && gap <= maxGap &&
-				haversineMeters(cur.StartLat, cur.StartLon, nxt.EndLat, nxt.EndLon) <= radiusMeters {
-				merged = append(merged, mergePair(cur, nxt))
-				i += 2
-				continue
+		// Extend the candidate chain as far as the gap constraint
+		// allows, recording the farthest j whose endpoint lands
+		// within radius of asc[i].Start.
+		best := i
+		for j := i + 1; j < len(asc); j++ {
+			gap := asc[j].StartedAt.Sub(asc[j-1].EndedAt)
+			if gap < 0 || gap > maxGap {
+				break
+			}
+			if haversineMeters(asc[i].StartLat, asc[i].StartLon,
+				asc[j].EndLat, asc[j].EndLon) <= radiusMeters {
+				best = j
 			}
 		}
-		merged = append(merged, cur)
-		i++
+		if best > i {
+			merged = append(merged, mergeChain(asc[i:best+1]))
+		} else {
+			merged = append(merged, asc[i])
+		}
+		i = best + 1
 	}
+
 	// Re-descend to match ListRecent's contract.
 	out := make([]Drive, len(merged))
 	for i, d := range merged {
@@ -74,34 +67,61 @@ func collapseOnce(ds []Drive, radiusMeters float64, maxGap time.Duration) []Driv
 	return out
 }
 
-func mergePair(a, b Drive) Drive {
-	m := a
-	m.EndedAt = b.EndedAt
-	m.EndSoCPct = b.EndSoCPct
-	m.EndOdometerMi = b.EndOdometerMi
-	m.EndLat = b.EndLat
-	m.EndLon = b.EndLon
-	m.DistanceMi = a.DistanceMi + b.DistanceMi
-	// Sum pack-side energy across both legs. Without this the merged
-	// row carries only leg A's energy (m := a), which combined with the
-	// summed distance overstated efficiency on round trips by ~2x. A
-	// missing-energy leg (legacy / unimported pack size) collapses the
-	// pair to zero, matching the per-leg "unknown" semantics rather
-	// than silently halving the trip.
-	if a.EnergyUsedKWh > 0 && b.EnergyUsedKWh > 0 {
-		m.EnergyUsedKWh = a.EnergyUsedKWh + b.EnergyUsedKWh
+// mergeChain folds an ordered slice of drives into one aggregate row.
+// The result inherits the first drive's ID and start fields; the last
+// drive's end fields close it out. Distance, energy, and speed are
+// accumulated across all legs.
+//
+// Energy rule: only sum pack-side energy when every leg with meaningful
+// distance (> 0.01 mi) carries a non-zero EnergyUsedKWh. Phantom stubs
+// (sub-second gear bounces with ~0 distance) are excluded from this
+// gate so they don't zero out an otherwise complete merged row.
+func mergeChain(chain []Drive) Drive {
+	if len(chain) == 1 {
+		return chain[0]
+	}
+	last := chain[len(chain)-1]
+	m := chain[0]
+	m.EndedAt = last.EndedAt
+	m.EndSoCPct = last.EndSoCPct
+	m.EndOdometerMi = last.EndOdometerMi
+	m.EndLat = last.EndLat
+	m.EndLon = last.EndLon
+
+	var totalDist, maxSpd float64
+	var wSpd, wDur float64
+	var totalEnergy float64
+	allHaveEnergy := true
+
+	for _, d := range chain {
+		totalDist += d.DistanceMi
+		if d.MaxSpeedMph > maxSpd {
+			maxSpd = d.MaxSpeedMph
+		}
+		dur := d.EndedAt.Sub(d.StartedAt).Seconds()
+		if dur > 0 {
+			wSpd += d.AvgSpeedMph * dur
+			wDur += dur
+		}
+		// Exclude phantom stubs from the energy gate.
+		if d.DistanceMi > 0.01 {
+			if d.EnergyUsedKWh > 0 {
+				totalEnergy += d.EnergyUsedKWh
+			} else {
+				allHaveEnergy = false
+			}
+		}
+	}
+
+	m.DistanceMi = totalDist
+	m.MaxSpeedMph = maxSpd
+	if wDur > 0 {
+		m.AvgSpeedMph = wSpd / wDur
+	}
+	if allHaveEnergy {
+		m.EnergyUsedKWh = totalEnergy
 	} else {
 		m.EnergyUsedKWh = 0
-	}
-	if b.MaxSpeedMph > m.MaxSpeedMph {
-		m.MaxSpeedMph = b.MaxSpeedMph
-	}
-	// Duration-weighted avg: a 3-minute crawl shouldn't drag the mean
-	// as much as an hour of steady-state cruising.
-	d1 := a.EndedAt.Sub(a.StartedAt).Seconds()
-	d2 := b.EndedAt.Sub(b.StartedAt).Seconds()
-	if total := d1 + d2; total > 0 {
-		m.AvgSpeedMph = (a.AvgSpeedMph*d1 + b.AvgSpeedMph*d2) / total
 	}
 	return m
 }
