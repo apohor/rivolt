@@ -580,7 +580,7 @@ export default function DriveDetailPage() {
         )}
       </div>
 
-      <Card title="Telemetry">
+      <Card title="Drive timeline">
         {samples.isLoading ? (
           <Spinner />
         ) : speedPts.length === 0 && socPts.length === 0 ? (
