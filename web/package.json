@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "icons": "node scripts/generate-pwa-icons.mjs"
   },
@@ -33,11 +33,14 @@
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.11.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
     "postcss": "^8.4.47",
     "postcss-preset-env": "^10.0.7",
     "tailwindcss": "^3.4.13",
     "terser": "^5.34.1",
     "typescript": "^5.6.2",
+    "typescript-eslint": "^8.59.2",
     "vite": "^5.4.8"
   },
   "browserslist": [

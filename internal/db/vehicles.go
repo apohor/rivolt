@@ -182,12 +182,19 @@ func ListUserVehicles(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]Vehic
 //   - FrequentlyTows: hint that the vehicle is regularly used to
 //     tow. Doesn't affect the per-drive towing flag, which the
 //     analyzer reads independently.
+//   - TirePlacardPSI: door-jamb placard pressure in psi. Optional
+//     (0 = unset). When supplied, the efficiency prompt cites the
+//     delta between current and placard so the model can confidently
+//     attribute a "Low tire pressure" factor instead of guessing the
+//     placard from generic priors. The user reads this off their
+//     door-jamb sticker once.
 type VehicleProfile struct {
 	TireType           string   `json:"tire_type,omitempty"`
 	WheelInches        int      `json:"wheel_inches,omitempty"`
 	Accessories        []string `json:"accessories,omitempty"`
 	DefaultExtraLoadLb float64  `json:"default_extra_load_lb,omitempty"`
 	FrequentlyTows     bool     `json:"frequently_tows,omitempty"`
+	TirePlacardPSI     float64  `json:"tire_placard_psi,omitempty"`
 }
 
 // GetVehicleProfile reads the "profile" sub-key from the given

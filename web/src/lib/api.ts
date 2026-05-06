@@ -420,6 +420,11 @@ export type VehicleProfile = {
   accessories?: string[];
   default_extra_load_lb?: number;
   frequently_tows?: boolean;
+  // Door-jamb cold-fill placard pressure (psi). Optional; when set,
+  // the efficiency analyzer cites the delta between current and
+  // placard so it can attribute "Low tire pressure" against ground
+  // truth instead of guessing the placard from R1S/R1T priors.
+  tire_placard_psi?: number;
 };
 
 export type RivianStatus = {

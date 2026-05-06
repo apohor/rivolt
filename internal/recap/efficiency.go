@@ -84,6 +84,10 @@ type VehicleProfile struct {
 	Accessories        []string
 	DefaultExtraLoadLb float64
 	FrequentlyTows     bool
+	// TirePlacardPSI is the user-set door-jamb cold-fill pressure.
+	// Zero means unset — the prompt then sends raw psi and lets the
+	// model use its training-data prior for placard.
+	TirePlacardPSI float64
 }
 
 // GenerateEfficiency calls the analyzer with a system+user prompt and
@@ -373,8 +377,35 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 
 	// Tire pressure (median of windowed samples). Min-of-4 is what
 	// got persisted, so this is "median worst tire across the drive".
+	//
+	// Two enrichments when we have the data:
+	//   1. Placard delta. When the vehicle profile carries a
+	//      TirePlacardPSI (door-jamb cold-fill), we cite the gap
+	//      explicitly so the model attributes "Low tire pressure"
+	//      against ground truth instead of guessing the placard
+	//      from generic priors (which gets R1S 22" wrong).
+	//   2. Temperature compensation note. Tire pressure drops
+	//      ~1 psi per 10 F below the placard fill temp. Without
+	//      the note, every cold-weather drive trips a "Low tire
+	//      pressure" factor when nothing is actually wrong.
 	if psi := medianTirePressurePSI(in.Samples); psi > 0 {
-		fmt.Fprintf(&b, "Tire pressure (median min corner): %.0f psi\n", psi)
+		var bits []string
+		bits = append(bits, fmt.Sprintf("%.0f psi (median min corner)", psi))
+		if vp := in.VehicleProfile; vp != nil && vp.TirePlacardPSI > 0 {
+			delta := psi - vp.TirePlacardPSI
+			bits = append(bits, fmt.Sprintf(
+				"placard %.0f psi, %+.0f psi vs placard",
+				vp.TirePlacardPSI, delta,
+			))
+		}
+		if t := medianNonZeroOutsideTempC(in.Samples); t != nil {
+			// Always include the temp-comp reminder when we
+			// have an outside-temp value, regardless of
+			// placard. Saves the model from over-attributing
+			// underinflation on cold drives.
+			bits = append(bits, "tire pressure drops ~1 psi per 10 F below the placard fill temp")
+		}
+		fmt.Fprintf(&b, "Tire pressure: %s\n", strings.Join(bits, "; "))
 	}
 
 	// Per-vehicle profile (set in Settings).

@@ -2493,6 +2493,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 						Accessories:        dbProfile.Accessories,
 						DefaultExtraLoadLb: dbProfile.DefaultExtraLoadLb,
 						FrequentlyTows:     dbProfile.FrequentlyTows,
+						TirePlacardPSI:     dbProfile.TirePlacardPSI,
 					}
 				}
 			}

@@ -117,6 +117,27 @@ export function DriveTimeline({
     [speedPts, socPts, powerPts, headwindPts],
   );
 
+  // cursorSample lives BEFORE the empty-samples early return so all
+  // hooks fire in the same order on every render. Same Rules-of-Hooks
+  // class of bug as v0.17.72/v0.17.77 — even though the parent guards
+  // driveSamples > 0 so this branch never fires in practice today,
+  // the linter (correctly) sees the structural violation and flags
+  // it, and a future caller passing empty samples would trigger it
+  // at runtime.
+  const cursorSample = useMemo(() => {
+    if (cursorMs == null || samples.length === 0) return null;
+    let best = samples[0];
+    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
+    for (let i = 1; i < samples.length; i++) {
+      const d = Math.abs(new Date(samples[i].At).getTime() - cursorMs);
+      if (d < bestD) {
+        bestD = d;
+        best = samples[i];
+      }
+    }
+    return best;
+  }, [cursorMs, samples]);
+
   if (speedPts.length === 0 && socPts.length === 0) {
     return <NoSamples />;
   }
@@ -143,20 +164,6 @@ export function DriveTimeline({
     ? Math.min(fullXMax, Math.max(viewWindow[0], viewWindow[1]))
     : fullXMax;
   const isZoomed = viewWindow != null;
-
-  const cursorSample = useMemo(() => {
-    if (cursorMs == null || samples.length === 0) return null;
-    let best = samples[0];
-    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
-    for (let i = 1; i < samples.length; i++) {
-      const d = Math.abs(new Date(samples[i].At).getTime() - cursorMs);
-      if (d < bestD) {
-        bestD = d;
-        best = samples[i];
-      }
-    }
-    return best;
-  }, [cursorMs, samples]);
 
   const cursorPower = nearestY(powerPts, cursorMs);
   const cursorSoc = nearestY(socPts, cursorMs);

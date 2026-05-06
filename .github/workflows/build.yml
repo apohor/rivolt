@@ -79,6 +79,15 @@ jobs:
         working-directory: web
         run: npx tsc --noEmit
 
+      # Lint is intentionally separate from typecheck — typecheck
+      # passed on v0.17.72 even though we shipped a Rules of Hooks
+      # violation that blanked the page on hard refresh. ESLint with
+      # react-hooks/rules-of-hooks catches that class of bug at CI
+      # time so the next regression fails the build, not the user.
+      - name: Lint web
+        working-directory: web
+        run: npm run lint
+
       - name: Build web
         working-directory: web
         run: npm run build

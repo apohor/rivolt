@@ -101,6 +101,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
   const [accessories, setAccessories] = useState<string[]>([]);
   const [extraLoadLb, setExtraLoadLb] = useState("");
   const [frequentlyTows, setFrequentlyTows] = useState(false);
+  const [tirePlacardPsi, setTirePlacardPsi] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -118,6 +119,11 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
         : "",
     );
     setFrequentlyTows(!!p.frequently_tows);
+    setTirePlacardPsi(
+      p.tire_placard_psi && p.tire_placard_psi > 0
+        ? String(p.tire_placard_psi)
+        : "",
+    );
   }, [profileQ.data]);
 
   function toggleAccessory(value: string) {
@@ -139,6 +145,8 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
         default_extra_load_lb:
           Number(extraLoadLb) > 0 ? Number(extraLoadLb) : undefined,
         frequently_tows: frequentlyTows || undefined,
+        tire_placard_psi:
+          Number(tirePlacardPsi) > 0 ? Number(tirePlacardPsi) : undefined,
       };
       await backend.vehicleProfilePut(vehicleID, body);
       setSavedAt(Date.now());
@@ -238,7 +246,37 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
             <span className="text-xs text-neutral-500">lb</span>
           </div>
         </div>
+        <div>
+          <label
+            htmlFor="profile-tire-placard"
+            className="block text-xs text-neutral-400 mb-1"
+            title={'Cold-fill pressure listed on your driver-door jamb sticker. R1S 22" road is 42 psi front / 44 psi rear; check yours.'}
+          >
+            Tire placard PSI
+          </label>
+          <div className="flex items-center gap-1">
+            <input
+              id="profile-tire-placard"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={80}
+              step={1}
+              placeholder="42"
+              value={tirePlacardPsi}
+              onChange={(e) => setTirePlacardPsi(e.target.value)}
+              className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+            />
+            <span className="text-xs text-neutral-500">psi</span>
+          </div>
+        </div>
       </div>
+      <p className="text-[11px] text-neutral-500 -mt-1">
+        Tire placard PSI is the cold-fill pressure on the driver-door
+        jamb sticker. The efficiency analyzer uses this to compute
+        underinflation against ground truth instead of guessing the
+        placard from generic priors. Leave 0 to skip.
+      </p>
 
       <div>
         <label
