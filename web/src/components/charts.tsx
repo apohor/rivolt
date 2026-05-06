@@ -347,7 +347,14 @@ export function LineChart({
               s.formatCursor ??
               (s.axis === "right" ? formatY2 ?? formatY : formatY);
             const label = fmt ? fmt(sample.y) : sample.y.toFixed(0);
-            const labelX = cx + 8;
+            // Flip the label to the left of the dot when the
+            // cursor is near the right edge so it doesn't clip
+            // through the right-axis tick labels (or the chart's
+            // SVG bounds when there's no right axis).
+            const rightEdge = width - padR;
+            const flipLeft = cx > rightEdge - 36;
+            const labelX = flipLeft ? cx - 8 : cx + 8;
+            const labelAnchor: "start" | "end" = flipLeft ? "end" : "start";
             const labelY = Math.max(padT + 12, cy - 6);
             return (
               <g key={`cursor-${i}`}>
@@ -362,6 +369,7 @@ export function LineChart({
                 <text
                   x={labelX}
                   y={labelY}
+                  textAnchor={labelAnchor}
                   className="fill-neutral-100"
                   fontSize={11}
                   fontWeight={600}

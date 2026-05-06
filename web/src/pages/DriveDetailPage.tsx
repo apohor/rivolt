@@ -418,7 +418,7 @@ export default function DriveDetailPage() {
         ? {
             source: "meteo",
             points: meteoTempPts,
-            label: "Outside temp (Open-Meteo)",
+            label: "Outside temp",
           }
         : insideTempSmoothed.length > 1
           ? { source: "cabin", points: insideTempSmoothed, label: "Cabin temp" }
