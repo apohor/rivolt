@@ -1,24 +1,42 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   backend,
   type DriveEfficiency,
   type EfficiencyFactor,
 } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
+import { usePreferences } from "../lib/preferences";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { formatDateTime } from "../lib/format";
 
 // EfficiencyExplainerCard renders an AI-driven breakdown of why a
 // drive's efficiency landed where it did, with an actionable
-// recommendation. Replaces the old TripRecapCard.
+// recommendation.
 //
-// Generation is on-demand and NOT cached — each click bills the
-// operator's LLM key. Keeps state in local useState; nothing else in
-// this codebase uses react-query mutations.
+// Generation flow:
+//   1. On mount we fetch the cached analysis from the server. If one
+//      exists (drive was analyzed before, possibly in an earlier pod
+//      lifecycle), we render it immediately — no LLM round-trip.
+//   2. If no cache row exists, we show the empty-state form. Clicking
+//      "Analyze efficiency" fires POST, which generates and persists
+//      a fresh row, then renders the result.
+//   3. "Regenerate" on an already-analyzed drive re-runs POST and
+//      replaces the cached row. The user pays for that call.
+//
+// Persistence lives in the drive_efficiency table (migration 0025).
+// Without it the card lost its content on every component remount
+// AND every pod rollout — the previous design held the result in
+// useState only, so a hard refresh wiped it.
 export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
   const enabled = useAIEnabled();
+  const prefs = usePreferences();
   const [data, setData] = useState<DriveEfficiency | null>(null);
   const [busy, setBusy] = useState(false);
+  // Tracks the initial cache fetch so we render a small spinner
+  // instead of the empty-state form while the GET is in flight. A
+  // flash of the form on every drive open looks like the saved
+  // analysis was lost.
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   // Per-trip transient context. Not persisted -- the user fills it
   // in (or leaves blank) before each Analyze click. Towing isn't a
@@ -27,13 +45,48 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
   // efficiency analyzer already lists in the prompt.
   const [extraLoadLb, setExtraLoadLb] = useState<string>("");
 
+  useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setData(null);
+    setErr(null);
+    backend
+      .driveEfficiencyGet(driveId)
+      .then((cached) => {
+        if (cancelled) return;
+        setData(cached);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // GET failures are non-fatal — the user can still hit
+        // Analyze. Surface the error so a misconfigured DB doesn't
+        // silently look like "no analysis yet".
+        setErr(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [driveId, enabled]);
+
   if (!enabled) return null;
 
   async function generate() {
     setBusy(true);
     setErr(null);
     try {
-      const body: { extra_load_lb?: number } = {};
+      const body: { extra_load_lb?: number; temperature_unit: "c" | "f" } = {
+        // Echo the user's pref so the prompt's prose comments and
+        // the recommendation use the right unit. The backend stores
+        // Celsius internally and converts on prompt assembly.
+        temperature_unit: prefs.temperatureUnit,
+      };
       const n = Number(extraLoadLb);
       if (Number.isFinite(n) && n > 0) body.extra_load_lb = n;
       const fresh = await backend.driveEfficiencyGenerate(driveId, body);
@@ -49,7 +102,7 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
     <Card
       title="Efficiency analysis"
       actions={
-        data && !busy ? (
+        data && !busy && !loading ? (
           <button
             type="button"
             onClick={generate}
@@ -61,7 +114,12 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
         ) : null
       }
     >
-      {busy ? (
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-neutral-400">
+          <Spinner />
+          Loading analysis…
+        </div>
+      ) : busy ? (
         <div className="flex items-center gap-2 text-sm text-neutral-400">
           <Spinner />
           Analyzing drive…
@@ -76,7 +134,8 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
             control, tire pressure — with a single concrete
             recommendation for your next drive. Drive stats and
             elevation profile are sent; no GPS coordinates leave the
-            box.
+            box. The result is saved per-drive so you only pay the
+            LLM once.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>

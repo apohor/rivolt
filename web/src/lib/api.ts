@@ -697,19 +697,37 @@ export const backend = {
       `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
     ),
   // Efficiency analysis: AI-driven breakdown of what drove efficiency
-  // variance for a drive, with actionable recommendations. Generated
-  // on-demand (not cached), so each call bills the LLM account. The
-  // optional body carries per-trip transient context (extra cargo)
-  // that the SPA captures from the form on the analysis card. Towing
-  // is auto-detected server-side from the persisted driveMode samples.
+  // variance for a drive, with actionable recommendations. POST runs
+  // a fresh analysis (re-bills the LLM account) and persists the
+  // result; GET fetches the stored result so the SPA can show a
+  // previously-analyzed drive on page mount without re-billing. The
+  // optional POST body carries per-trip transient context (extra
+  // cargo, the user's chosen temperature unit so prose mentions °F
+  // or °C consistently). Towing is auto-detected server-side from
+  // the persisted driveMode samples.
   driveEfficiencyGenerate: (
     id: string,
-    body?: { extra_load_lb?: number },
+    body?: {
+      extra_load_lb?: number;
+      temperature_unit?: "c" | "f";
+    },
   ) =>
     api.post<DriveEfficiency>(
       `/api/drives/${encodeURIComponent(id)}/efficiency`,
       body ?? {},
     ),
+  driveEfficiencyGet: async (id: string): Promise<DriveEfficiency | null> => {
+    try {
+      return await api.get<DriveEfficiency>(
+        `/api/drives/${encodeURIComponent(id)}/efficiency`,
+      );
+    } catch (e) {
+      // 404 = no analysis stored yet; surface it to the caller as
+      // null so the card can fall through to the empty-state form.
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
   // Per-vehicle profile (tire type, wheel size, accessories, default
   // extra load, frequently_tows). Persisted in vehicles.metadata.profile;
   // pulled into every efficiency analysis. The path param is the

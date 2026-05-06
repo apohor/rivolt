@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -409,10 +410,19 @@ func New(d Deps) http.Handler {
 			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
 			// efficiency variance for a drive, with actionable
-			// recommendations. Generated on-demand (no cache), so each
-			// call bills the operator's LLM account.
+			// recommendations.
+			//
+			// POST runs the analysis (re-bills the operator's LLM
+			// account) and persists the result to drive_efficiency.
+			// GET returns the persisted result so the SPA can show a
+			// previously-analyzed drive without re-billing on every
+			// page load. 404 on first visit; the SPA falls back to
+			// the empty-state form.
 			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
+			}))
+			r.Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveEfficiencyGet(d, uid)(w, r)
 			}))
 			// Standalone weather snapshot for a drive. Independent of
 			// the recap path so the detail-page chart can render the
@@ -2325,16 +2335,27 @@ type driveEfficiencyResponse struct {
 }
 
 // handleDriveEfficiencyPost generates an AI-driven efficiency analysis
-// on demand. Not cached: each call bills the operator's LLM account,
-// so the SPA only triggers it from a "Generate" button. The optional
-// JSON body carries per-trip transient context (extra load) the SPA
-// captures via the form on the analysis card; persisted per-vehicle
-// settings (tire type, wheel size, accessories) are pulled from
-// vehicles.metadata regardless of body shape. Towing is auto-detected
-// from the persisted driveMode samples (Rivian 'tow' / 'towing' mode).
+// on demand and persists it to drive_efficiency so subsequent loads of
+// the drive page hit the cache instead of re-billing the LLM key.
+// Each call to this endpoint *does* re-bill (the SPA only fires it
+// from an explicit Analyze / Regenerate button); the GET counterpart
+// is what fetches the stored copy on page mount.
+//
+// The optional JSON body carries per-trip transient context (extra
+// load, temperature unit) the SPA captures via the form on the
+// analysis card; persisted per-vehicle settings (tire type, wheel
+// size, accessories) are pulled from vehicles.metadata regardless of
+// body shape. Towing is auto-detected from the persisted driveMode
+// samples (Rivian 'tow' / 'towing' mode).
 func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 	type efficiencyReq struct {
 		ExtraLoadLb float64 `json:"extra_load_lb,omitempty"`
+		// "f" or "c". Empty / unknown values fall back to F so a
+		// legacy SPA without the field gets the historical behavior.
+		// The backend can't read the SPA's preferences store
+		// directly (it's localStorage, per-browser), so the SPA
+		// echoes the user's pick on every request.
+		TemperatureUnit string `json:"temperature_unit,omitempty"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d.DB == nil {
@@ -2477,10 +2498,16 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			}
 		}
 
+		// Default to F to preserve historical behavior when the SPA
+		// doesn't send temperature_unit. Anything other than the
+		// explicit "c" maps to F so a typo can't silently flip a
+		// user's display.
+		useF := !strings.EqualFold(req.TemperatureUnit, "c")
+
 		res, err := recap.GenerateEfficiency(ctx, analyzer, recap.EfficiencyInputs{
 			Drive:            *drv,
 			Samples:          windowed,
-			UseFahrenheit:    true,
+			UseFahrenheit:    useF,
 			BaselineMiPerKWh: baseMiPerKWh,
 			BaselineDays:     baseDays,
 			Weather:          effWeather,
@@ -2497,7 +2524,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		}
 
 		now := time.Now()
-		writeJSON(w, http.StatusOK, driveEfficiencyResponse{
+		response := driveEfficiencyResponse{
 			Analysis:       res.Analysis,
 			Factors:        effFactorsOf(res.Parsed),
 			Recommendation: effRecommendationOf(res.Parsed),
@@ -2507,8 +2534,115 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			GeneratedAt:    now,
 			InputTokens:    res.InputTokens,
 			OutputTokens:   res.OutputTokens,
-		})
+		}
+
+		// Persist to drive_efficiency so the next page load hits the
+		// cache. Best-effort: if the upsert fails (DB hiccup, RLS
+		// flip, FK violation from a deleted user) we still return
+		// the freshly-computed analysis so the user sees something.
+		if err := saveDriveEfficiency(r.Context(), d.DB, uid, drv.ID, response); err != nil {
+			slog.WarnContext(r.Context(), "drive_efficiency: save failed",
+				"err", err, "drive_id", drv.ID)
+		}
+
+		writeJSON(w, http.StatusOK, response)
 	}
+}
+
+// handleDriveEfficiencyGet returns the stored efficiency analysis for
+// a drive, or 404 when none has been generated yet. The SPA fetches
+// this on page mount so a previously-analyzed drive shows the result
+// immediately instead of an empty form. Generating a fresh analysis
+// is the POST counterpart.
+func handleDriveEfficiencyGet(d Deps, uid uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		driveID := chi.URLParam(r, "id")
+		if driveID == "" {
+			http.Error(w, "missing drive id", http.StatusBadRequest)
+			return
+		}
+		row, err := loadDriveEfficiency(r.Context(), d.DB, uid, driveID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if row == nil {
+			http.Error(w, "no analysis", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, *row)
+	}
+}
+
+// saveDriveEfficiency upserts a finished analysis. The Analysis text
+// is stored separately from the structured JSON so log forwarders /
+// debugging tooling can read it without parsing JSONB.
+func saveDriveEfficiency(
+	ctx context.Context,
+	db *sql.DB,
+	uid uuid.UUID,
+	driveID string,
+	resp driveEfficiencyResponse,
+) error {
+	if db == nil {
+		return fmt.Errorf("nil db")
+	}
+	body, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO drive_efficiency (
+			user_id, drive_id, model, analysis_text, result_json,
+			input_tokens, output_tokens, generated_at
+		) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+		ON CONFLICT (user_id, drive_id) DO UPDATE SET
+			model         = EXCLUDED.model,
+			analysis_text = EXCLUDED.analysis_text,
+			result_json   = EXCLUDED.result_json,
+			input_tokens  = EXCLUDED.input_tokens,
+			output_tokens = EXCLUDED.output_tokens,
+			generated_at  = EXCLUDED.generated_at
+	`,
+		uid, driveID, resp.Model, resp.Analysis, body,
+		resp.InputTokens, resp.OutputTokens, resp.GeneratedAt,
+	)
+	return err
+}
+
+// loadDriveEfficiency returns the stored response for a drive, or nil
+// when no row exists. The full driveEfficiencyResponse round-trips
+// through result_json, so callers get the same JSON shape POST
+// returned originally.
+func loadDriveEfficiency(
+	ctx context.Context,
+	db *sql.DB,
+	uid uuid.UUID,
+	driveID string,
+) (*driveEfficiencyResponse, error) {
+	if db == nil {
+		return nil, fmt.Errorf("nil db")
+	}
+	var body []byte
+	err := db.QueryRowContext(ctx, `
+		SELECT result_json FROM drive_efficiency
+		WHERE user_id = $1 AND drive_id = $2
+	`, uid, driveID).Scan(&body)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var resp driveEfficiencyResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("unmarshal: %w", err)
+	}
+	return &resp, nil
 }
 
 // detectTowingFromSamples returns true when any persisted sample

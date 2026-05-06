@@ -138,6 +138,12 @@ Use the vehicle profile and per-trip context (towing, extra load, tire pressure,
 - Tire pressure 5 psi below placard: -2 to -3%.
 - 500 lb extra payload: -1 to -2%.
 
+Recommendation constraints — read carefully, these prevent confidently wrong advice:
+- Use the user's chosen temperature unit (the user prompt block writes temperatures in F or C; match whatever the data shows).
+- Rivolt does NOT capture the one-pedal driving setting or regen-level setting. Do not recommend turning either on or off. Do not assert what the driver currently has set.
+- Only recommend a drive-mode change when the "Drive modes used" line is present AND the change is clearly supported (e.g. recommend Conserve only if the data shows All-Purpose was used and the trip was steady-state highway). When the field is absent or the trip already used the recommended mode, pick a different recommendation.
+- Anchor the recommendation to a specific signal you observed in this trip (a number from the prompt block). "Drive smoother" without a referenced data point is too vague.
+
 Then suggest ONE specific, actionable change the driver can make on their NEXT drive. Be concrete (e.g. "set climate to 70F instead of 65F to save ~3% range") not vague ("drive more carefully").
 
 Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
