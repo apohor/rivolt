@@ -15,10 +15,25 @@ import (
 // EfficiencyFactor is a single contributor to efficiency variance,
 // scored by the model. Negative impacts mean it hurt efficiency,
 // positive means it helped.
+//
+// MagnitudeKWh and Evidence are newer schema fields:
+//   - MagnitudeKWh: signed kWh impact on this specific drive. Lets
+//     the SPA show concrete loss in addition to the relative percent
+//     and lets us sum factors and sanity-check against EnergyUsedKWh.
+//   - Evidence: short string citing the data point that justified
+//     the factor (e.g. "Headwind 18 mph from Open-Meteo at start").
+//     Forces the model to commit to a citation; the SPA renders it
+//     beneath the factor name as a verifiable subtitle.
+//
+// Both are optional in the JSON wire format and on legacy stored
+// rows so the SPA renders defensively without breaking older
+// analyses generated before the field landed.
 type EfficiencyFactor struct {
 	Name              string  `json:"name"`
 	ImpactEstimatePct float64 `json:"impact_estimate_pct"`
 	Confidence0To100  int     `json:"confidence_0_to_100"`
+	MagnitudeKWh      float64 `json:"magnitude_kwh,omitempty"`
+	Evidence          string  `json:"evidence,omitempty"`
 }
 
 // EfficiencyParsed is the structured shape the model returns. Every
@@ -127,9 +142,9 @@ func ParseEfficiency(s string) *EfficiencyParsed {
 func buildEfficiencyPrompt(in EfficiencyInputs) (string, string) {
 	const system = `You are an EV efficiency coach. Analyze a single drive and explain why efficiency landed where it did.
 
-Break down the variance by factor: weather, terrain, driving style, climate control, payload, route, tire pressure, tire type, wheel size, towing, accessories. For each factor estimate impact in percent (negative = hurt efficiency, positive = helped) and confidence 0-100.
+Break down the variance by factor: weather, terrain, driving style, climate control, payload, route, tire pressure, tire type, wheel size, towing, accessories.
 
-Use the vehicle profile and per-trip context (towing, extra load, tire pressure, accessories) when present. Typical reference points (use as priors only; weight by your confidence):
+Typical reference points (use as priors only; weight by your confidence):
 - All-terrain tires: -5 to -10% vs all-season; winter tires: -3 to -7%.
 - 22-inch wheels: -2 to -4% vs 20-inch.
 - Roof rack empty: -2 to -5%; with cargo box: -8 to -15% at highway speed.
@@ -138,23 +153,66 @@ Use the vehicle profile and per-trip context (towing, extra load, tire pressure,
 - Tire pressure 5 psi below placard: -2 to -3%.
 - 500 lb extra payload: -1 to -2%.
 
-Recommendation constraints — read carefully, these prevent confidently wrong advice:
-- Use the user's chosen temperature unit (the user prompt block writes temperatures in F or C; match whatever the data shows).
-- Rivolt does NOT capture the one-pedal driving setting or regen-level setting. Do not recommend turning either on or off. Do not assert what the driver currently has set.
-- Only recommend a drive-mode change when the "Drive modes used" line is present AND the change is clearly supported (e.g. recommend Conserve only if the data shows All-Purpose was used and the trip was steady-state highway). When the field is absent or the trip already used the recommended mode, pick a different recommendation.
-- Anchor the recommendation to a specific signal you observed in this trip (a number from the prompt block). "Drive smoother" without a referenced data point is too vague.
+CONFIDENCE RUBRIC — use these anchors strictly:
+- 90-100: Directly observed in this trip's data (e.g. headwind 18 mph when the weather block reports it).
+- 60-89:  Inferable from two or more data points (e.g. cabin heating from outside 28F + 35-min drive + median cabin 72F).
+- 30-59:  Prior-based, applied generically to this vehicle/trip (e.g. 22-inch wheels from the vehicle profile).
+- 0-29:   Speculative. If you would assign <30, OMIT the factor instead.
 
-Then suggest ONE specific, actionable change the driver can make on their NEXT drive. Be concrete (e.g. "set climate to 70F instead of 65F to save ~3% range") not vague ("drive more carefully").
+FACTOR RULES:
+- Emit AT MOST 5 factors. Three well-supported factors beat five weak ones.
+- Each factor's existence and magnitude must be defensible by a number elsewhere in this prompt or in the vehicle profile. If you can't point to the supporting data, omit the factor.
+- Use canonical factor names where they fit:
+    Headwind, Tailwind, Cold cabin heating, Hot cabin cooling, Climb,
+    Descent, Highway speed, City stop-and-go, Aggressive acceleration,
+    Smooth cruising, Roof rack, Cargo box, Bike rack, Hitch rack,
+    Towing, Heavy payload, Low tire pressure, All-terrain tires,
+    Winter tires, Large wheels, Precipitation, Wet roads, Cold-start HVAC.
+  If a factor doesn't fit any of these, name it concisely (<= 3 words).
+- For each factor emit:
+    impact_estimate_pct  signed % (negative = hurt; positive = helped)
+    magnitude_kwh        signed kWh on this trip (negative = hurt). Should approximately sum to the trip's deviation from the baseline.
+    confidence_0_to_100  per the rubric above.
+    evidence             <= 80 chars citing the specific data point that justified this factor (e.g. "Headwind 18 mph at start"). Required.
+
+ANTI-HALLUCINATION:
+- Do not invent values not present in this prompt. If wind isn't given, don't claim wind. If outside temp isn't given, don't claim cold-weather effects.
+- When citing a number in the summary, recommendation, or evidence, it must appear (verbatim or as a direct rounding) in the user prompt below.
+- If the data is too thin (no efficiency, no elevation, no weather, fewer than ~5 minutes of samples), return an empty factors array, summary "Not enough data for a confident analysis", and a recommendation pointing the user at a longer drive.
+
+RECOMMENDATION CONSTRAINTS:
+- Use the user's chosen temperature unit — the user prompt below writes temperatures in F or C; match it.
+- Rivolt does NOT capture the one-pedal driving setting or regen-level setting. Do not recommend toggling either. Do not assert what the driver currently has set.
+- Only recommend a drive-mode change when the "Drive mode share" line is present AND the change is clearly supported (e.g. recommend Conserve only if the data shows All-Purpose was used for a steady-state highway trip). If the field is absent or the trip already used the recommended mode, pick a different recommendation.
+- The recommendation must address one of the factors you listed (mention it by name or by the same data signal that justified it).
+- Anchor the recommendation to a specific number from this trip's data.
+
+LENGTH BUDGET:
+- summary: <= 2 sentences.
+- recommendation: <= 1 sentence.
+- forecast: <= 1 sentence.
 
 Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 {
   "factors": [
-    {"name": "Headwind", "impact_estimate_pct": -8, "confidence_0_to_100": 75},
-    {"name": "Cold cabin heating", "impact_estimate_pct": -5, "confidence_0_to_100": 60}
+    {
+      "name": "Headwind",
+      "impact_estimate_pct": -8,
+      "magnitude_kwh": -0.7,
+      "confidence_0_to_100": 85,
+      "evidence": "18 mph headwind from Open-Meteo at start"
+    },
+    {
+      "name": "Cold cabin heating",
+      "impact_estimate_pct": -5,
+      "magnitude_kwh": -0.4,
+      "confidence_0_to_100": 70,
+      "evidence": "Outside 28F, cabin 72F, 35-min drive"
+    }
   ],
   "recommendation": "Pre-condition the cabin while still plugged in to save ~4% on heating draw next cold drive.",
-  "forecast": "Following this could improve efficiency ~4-6% on similar trips.",
-  "summary": "Cold weather and headwind cost roughly 13% efficiency; pre-conditioning recovers most of the heating loss."
+  "forecast": "Following this could improve efficiency 4-6% on similar trips.",
+  "summary": "Cold weather and an 18 mph headwind cost roughly 13% efficiency; pre-conditioning recovers most of the heating loss."
 }`
 
 	var b strings.Builder
@@ -185,9 +243,54 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 	}
 	fmt.Fprintf(&b, "SoC: %.0f%% -> %.0f%%\n", d.StartSoCPct, d.EndSoCPct)
 
-	// Drive modes encountered
-	if modes := summarizeDriveModes(in.Samples); modes != "" {
-		fmt.Fprintf(&b, "Drive modes used: %s\n", modes)
+	// Regen recovery from physics. Anchors a "city stop-and-go"
+	// or "long descent" factor with a concrete observation rather
+	// than the model inferring it from speed and elevation alone.
+	if pa := AnalyzeDrivePower(in.Samples, d); pa.DrawKwh > 0.1 {
+		fmt.Fprintf(&b, "Regen recovered: %.2f kWh (%.0f%% of consumption)\n",
+			pa.RegenKwh, pa.RegenPct)
+	}
+
+	// Speed distribution. Differentiates "highway slog" from "city
+	// stop-and-go" — two fundamentally different efficiency stories
+	// the previous prompt hid behind a single Avg/Max line.
+	if buckets := SpeedBuckets(in.Samples); len(buckets) > 0 {
+		var parts []string
+		for _, sb := range buckets {
+			if sb.Pct < 1 {
+				// Drop noise rows so the line stays readable;
+				// 0.4 % of a 35-min drive is 8 s of telemetry.
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s mph %.0f%%", sb.Label, sb.Pct))
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "Time by speed band: %s\n", strings.Join(parts, ", "))
+		}
+	}
+
+	// Stops & idle time. City vs highway shows up here independently
+	// of the speed distribution above; long highway trips can have
+	// zero stops while short urban hops hit double digits.
+	if st := Stops(in.Samples); st.HasSignal {
+		idleMin := st.IdleSec / 60
+		fmt.Fprintf(&b, "Stops: %d (idle time %.1f min)\n", st.Count, idleMin)
+	}
+
+	// Drive mode share by time, not just the set of modes seen.
+	// Sport for 5 min of a 60-min trip is barely a factor; Sport for
+	// 45 min is the dominant story.
+	if shares := DriveModeShares(in.Samples); len(shares) > 0 {
+		var parts []string
+		for _, dm := range shares {
+			if dm.Pct < 5 {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s %.0f%%", dm.Mode, dm.Pct))
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "Drive mode share: %s\n", strings.Join(parts, ", "))
+		}
 	}
 
 	// Elevation (reuse helper from recap.go)
@@ -196,12 +299,34 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 			elev.profileLabel(), int(math.Round(elev.climbFt)), int(math.Round(elev.descentFt)), int(math.Round(elev.netFt)))
 	}
 
-	// Outside temperature from samples
+	// Outside + cabin temperature. Cabin alone tells the model
+	// little; the delta against outside is what reveals HVAC load.
+	// We also keep the outside line for backward-compat with prior
+	// prompts the model has seen in its training data.
 	if t := medianNonZeroOutsideTempC(in.Samples); t != nil {
 		if in.UseFahrenheit {
 			fmt.Fprintf(&b, "Outside temp (median): %.0f F\n", *t*1.8+32)
 		} else {
 			fmt.Fprintf(&b, "Outside temp (median): %.0f C\n", *t)
+		}
+	}
+	if ct, ok := CabinTemp(in.Samples); ok {
+		if in.UseFahrenheit {
+			fmt.Fprintf(&b, "Cabin temp (median): %.0f F", ct.MedianCabinC*1.8+32)
+		} else {
+			fmt.Fprintf(&b, "Cabin temp (median): %.0f C", ct.MedianCabinC)
+		}
+		if ct.HasDelta {
+			// Multiply by 1.8 (not 1.8+32) for the delta —
+			// a difference doesn't carry the freezing-point
+			// offset, only the slope.
+			if in.UseFahrenheit {
+				fmt.Fprintf(&b, " (Δ %+.0f F vs outside)\n", ct.MedianDeltaC*1.8)
+			} else {
+				fmt.Fprintf(&b, " (Δ %+.0f C vs outside)\n", ct.MedianDeltaC)
+			}
+		} else {
+			b.WriteString("\n")
 		}
 	}
 

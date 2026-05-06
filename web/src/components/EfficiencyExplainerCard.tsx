@@ -242,21 +242,44 @@ function FactorRow({ factor }: { factor: EfficiencyFactor }) {
       ? "text-amber-300"
       : "text-neutral-400";
   const conf = Math.max(0, Math.min(100, Math.round(factor.confidence_0_to_100)));
+  // magnitude_kwh is signed kWh on this trip. We render it next to
+  // the percent so users see both the relative effect ("−8%") and
+  // the absolute one ("−0.7 kWh") at a glance. Hidden when the
+  // value is too small to read meaningfully (<0.05 kWh on either
+  // side) or when the field is missing on a legacy row.
+  const kwh = factor.magnitude_kwh;
+  const showKWh = typeof kwh === "number" && Math.abs(kwh) >= 0.05;
   return (
-    <li className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-neutral-200">{factor.name}</span>
-      <span className="flex items-center gap-2 tabular-nums">
-        <span className={`font-medium ${color}`}>
-          {sign}
-          {pct.toFixed(0)}%
+    <li className="space-y-0.5 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-neutral-200">{factor.name}</span>
+        <span className="flex items-center gap-2 tabular-nums">
+          <span className={`font-medium ${color}`}>
+            {sign}
+            {pct.toFixed(0)}%
+          </span>
+          {showKWh ? (
+            <span
+              className={`text-[11px] ${color} opacity-80`}
+              title="Estimated kWh impact on this drive"
+            >
+              {(kwh as number) > 0 ? "+" : ""}
+              {(kwh as number).toFixed(2)} kWh
+            </span>
+          ) : null}
+          <span
+            className="text-[10px] text-neutral-500"
+            title={`Model confidence ${conf}/100`}
+          >
+            {conf}%
+          </span>
         </span>
-        <span
-          className="text-[10px] text-neutral-500"
-          title={`Model confidence ${conf}/100`}
-        >
-          {conf}%
-        </span>
-      </span>
+      </div>
+      {factor.evidence ? (
+        <div className="text-[11px] leading-tight text-neutral-500">
+          {factor.evidence}
+        </div>
+      ) : null}
     </li>
   );
 }

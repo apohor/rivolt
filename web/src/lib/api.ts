@@ -379,6 +379,17 @@ export type EfficiencyFactor = {
   name: string;
   impact_estimate_pct: number; // Negative = hurt efficiency, positive = helped
   confidence_0_to_100: number;
+  // Signed kWh impact on this specific drive (negative = hurt). Set
+  // alongside impact_estimate_pct so the SPA can show "−8% (−0.7 kWh)"
+  // and so factors can be summed and sanity-checked against the
+  // drive's total energy. Optional for backwards compat with rows
+  // generated before the field landed.
+  magnitude_kwh?: number;
+  // Short citation (≤ 80 chars) of the data point that justified
+  // the factor. Rendered as a muted subtitle under the factor name
+  // so users can verify the AI's reasoning. Optional for the same
+  // backwards-compat reason.
+  evidence?: string;
 };
 
 export type DriveEfficiency = {
