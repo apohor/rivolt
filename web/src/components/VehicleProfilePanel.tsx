@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type VehicleProfile, type VehicleTireType } from "../lib/api";
-import { ErrorBox, Spinner } from "./ui";
+import { ErrorBox, Spinner, Toggle } from "./ui";
 
 // VehicleProfilePanel lets the user persist per-vehicle context the
 // efficiency analyzer factors into its breakdown: tire type, wheel
@@ -241,12 +241,14 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
       </div>
 
       <div>
-        <label className="flex items-center gap-2 text-neutral-300">
-          <input
-            type="checkbox"
+        <label
+          htmlFor="profile-frequently-tows"
+          className="flex items-center gap-2 text-neutral-300"
+        >
+          <Toggle
+            id="profile-frequently-tows"
             checked={frequentlyTows}
-            onChange={(e) => setFrequentlyTows(e.target.checked)}
-            className="h-3.5 w-3.5 accent-emerald-500"
+            onChange={setFrequentlyTows}
           />
           Frequently tows
         </label>

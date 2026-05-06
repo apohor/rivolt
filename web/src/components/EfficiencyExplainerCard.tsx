@@ -5,7 +5,7 @@ import {
   type EfficiencyFactor,
 } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
-import { Card, ErrorBox, Spinner } from "./ui";
+import { Card, ErrorBox, Spinner, Toggle } from "./ui";
 import { formatDateTime } from "../lib/format";
 
 // EfficiencyExplainerCard renders an AI-driven breakdown of why a
@@ -104,12 +104,7 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
               </div>
             </div>
             <label className="flex items-center gap-2 pb-1.5 text-neutral-300">
-              <input
-                type="checkbox"
-                checked={towing}
-                onChange={(e) => setTowing(e.target.checked)}
-                className="h-3.5 w-3.5 accent-emerald-500"
-              />
+              <Toggle checked={towing} onChange={setTowing} />
               Towing this trip
             </label>
             <button
