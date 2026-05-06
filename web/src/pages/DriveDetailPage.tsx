@@ -14,6 +14,7 @@ import {
   pct,
 } from "../lib/format";
 import { collapseRoundTrips } from "../lib/drives";
+import { analyzeDrivePower } from "../lib/power";
 import { usePreferences, formatTemperature } from "../lib/preferences";
 
 export default function DriveDetailPage() {
@@ -280,6 +281,17 @@ export default function DriveDetailPage() {
   const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
   const tempUnit = prefs.temperatureUnit;
   const weatherPts = driveWeatherSeries.data?.points ?? [];
+  // Physics-based power totals — share the same model the timeline
+  // ribbon uses so the "Regen recovered" stat tile and the chart's
+  // green/red pixels are computed from one source of truth. Memoized
+  // on driveSamples + drive's energy total; drives without
+  // EnergyUsedKWh (legacy ElectraFi imports) fall back to an
+  // un-calibrated physics estimate, which is still directionally
+  // correct for the regen-vs-draw ratio.
+  const powerAnalysis = useMemo(
+    () => analyzeDrivePower(driveSamples, drive),
+    [driveSamples, drive],
+  );
 
   // Estimate GPS accuracy during the drive by checking fix freshness
   // and sample continuity. Returns true if accuracy is likely low.
@@ -380,6 +392,19 @@ export default function DriveDetailPage() {
         <Stat
           label="Energy"
           value={drive.EnergyUsedKWh > 0 ? num(drive.EnergyUsedKWh, 1, "kWh") : "—"}
+        />
+        <Stat
+          label="Regen recovered"
+          value={
+            powerAnalysis.regenKwh >= 0.05
+              ? num(powerAnalysis.regenKwh, 2, "kWh")
+              : "—"
+          }
+          hint={
+            powerAnalysis.regenKwh >= 0.05 && powerAnalysis.regenPct > 0
+              ? `${powerAnalysis.regenPct.toFixed(0)}% of consumption`
+              : undefined
+          }
         />
         <Stat
           label="Cost"
