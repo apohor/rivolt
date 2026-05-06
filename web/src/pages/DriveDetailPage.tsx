@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { backend, ApiError, type DriveWeatherSeries, type Sample } from "../lib/api";
@@ -23,6 +23,18 @@ export default function DriveDetailPage() {
   // Stored in milliseconds so it can be passed straight through as
   // the chart x-axis cursor; converted to unix seconds for the map.
   const [cursorMs, setCursorMs] = useState<number | null>(null);
+  // Lifted zoom window: when set, the timeline shows only this slice
+  // of the drive AND the route map crops to the same window. Cleared
+  // by the timeline's reset button or a double-click on the chart;
+  // also cleared whenever the URL/drive changes so a stale window
+  // from drive A doesn't get applied to drive B.
+  const [viewWindow, setViewWindow] = useState<[number, number] | null>(
+    null,
+  );
+  useEffect(() => {
+    setViewWindow(null);
+    setCursorMs(null);
+  }, [id]);
   const drives = useQuery({
     queryKey: ["drives", "all"],
     queryFn: () => backend.allDrives(),
@@ -203,15 +215,22 @@ export default function DriveDetailPage() {
   const mapPathSamples = useMemo(() => {
     if (!drive) return [] as Sample[];
     const endMs = new Date(drive.EndedAt).getTime();
-    const inWindow = driveSamples.filter(
-      (p) => new Date(p.At).getTime() <= endMs,
-    );
+    // Pre-filter by EndedAt + parked-frame trim (existing behavior),
+    // then narrow to the chart's zoom window if one is set so the
+    // route map crops to the same slice the user is inspecting.
+    // fitBounds inside DriveMap auto-reframes to the new polyline.
+    const inWindow = driveSamples.filter((p) => {
+      const t = new Date(p.At).getTime();
+      if (t > endMs) return false;
+      if (viewWindow && (t < viewWindow[0] || t > viewWindow[1])) return false;
+      return true;
+    });
     let head = 0;
     while (head < inWindow.length && inWindow[head].ShiftState === "P") head++;
     let tail = inWindow.length;
     while (tail > head && inWindow[tail - 1].ShiftState === "P") tail--;
     return inWindow.slice(head, tail);
-  }, [drive, driveSamples]);
+  }, [drive, driveSamples, viewWindow]);
 
   // Stable map points: DriveMap's effect tears the map down whenever
   // its `points` array identity changes, so we MUST memoize the
@@ -434,6 +453,8 @@ export default function DriveDetailPage() {
             weatherPts={weatherPts}
             cursorMs={cursorMs}
             onCursorChange={setCursorMs}
+            viewWindow={viewWindow}
+            onViewWindowChange={setViewWindow}
             tempUnit={tempUnit}
           />
         )}

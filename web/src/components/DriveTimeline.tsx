@@ -17,7 +17,7 @@
 // (EnergyUsedKWh / SoC delta), so it works on every drive that has
 // telemetry without needing a per-vehicle pack-size config.
 
-import { useMemo } from "react";
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Drive, DriveWeatherSamplePoint, Sample } from "../lib/api";
 import { smoothGaussianTime } from "../lib/smooth";
 
@@ -63,6 +63,12 @@ export type DriveTimelineProps = {
   weatherPts: DriveWeatherSamplePoint[];
   cursorMs: number | null;
   onCursorChange: (ms: number | null) => void;
+  // Controlled zoom window in epoch ms. `null` means "show the full
+  // drive". Lifted to the page so the route map can crop to the same
+  // window. Set by drag-to-select on the chart, cleared by the reset
+  // button or double-click.
+  viewWindow: [number, number] | null;
+  onViewWindowChange: (window: [number, number] | null) => void;
   tempUnit: "f" | "c";
 };
 
@@ -72,21 +78,12 @@ export function DriveTimeline({
   weatherPts,
   cursorMs,
   onCursorChange,
+  viewWindow,
+  onViewWindowChange,
   tempUnit,
 }: DriveTimelineProps) {
   const driveStartMs = new Date(drive.StartedAt).getTime();
   const driveEndMs = new Date(drive.EndedAt).getTime();
-
-  // Pack capacity: derived from this drive's actuals so power works on
-  // every car without per-vehicle config. Falls back to ~135 kWh (R1S
-  // Large pack) when the drive's energy/SoC totals are missing or noisy.
-  const packKwh = useMemo(() => {
-    const dSoC = drive.StartSoCPct - drive.EndSoCPct;
-    if (drive.EnergyUsedKWh > 0 && dSoC > 0.5) {
-      return (drive.EnergyUsedKWh / dSoC) * 100;
-    }
-    return 135;
-  }, [drive.EnergyUsedKWh, drive.StartSoCPct, drive.EndSoCPct]);
 
   const speedPts = useMemo(() => buildSpeedPts(samples), [samples]);
   const socPts = useMemo(() => {
@@ -109,8 +106,8 @@ export function DriveTimeline({
     return smoothGaussianTime(raw, 15_000);
   }, [samples]);
   const powerPts = useMemo(
-    () => derivePower(socPts, packKwh),
-    [socPts, packKwh],
+    () => derivePower(samples, elevPts, drive.EnergyUsedKWh),
+    [samples, elevPts, drive.EnergyUsedKWh],
   );
 
   const modeSegments = useMemo(
@@ -134,15 +131,28 @@ export function DriveTimeline({
     return <NoSamples />;
   }
 
-  // X-domain: anchored to the drive's own coverage so weather padding
-  // doesn't compress the actual driving into a narrow middle strip.
+  // Full-drive x-domain: anchored to the drive's own coverage so
+  // weather padding doesn't compress the actual driving into a narrow
+  // middle strip.
   const allX = [
     ...speedPts.map((p) => p.x),
     ...socPts.map((p) => p.x),
     ...elevPts.map((p) => p.x),
   ];
-  const xMin = allX.length > 0 ? Math.min(...allX) : driveStartMs;
-  const xMax = allX.length > 0 ? Math.max(...allX) : driveEndMs;
+  const fullXMin = allX.length > 0 ? Math.min(...allX) : driveStartMs;
+  const fullXMax = allX.length > 0 ? Math.max(...allX) : driveEndMs;
+
+  // Visible x-domain: clamp the lifted viewWindow to the drive's own
+  // coverage and fall back to the full drive when no zoom is active.
+  // Clamping defends against navigating in from a stale URL or a
+  // moments-detection bug that produces an out-of-range window.
+  const xMin = viewWindow
+    ? Math.max(fullXMin, Math.min(viewWindow[0], viewWindow[1]))
+    : fullXMin;
+  const xMax = viewWindow
+    ? Math.min(fullXMax, Math.max(viewWindow[0], viewWindow[1]))
+    : fullXMax;
+  const isZoomed = viewWindow != null;
 
   const cursorSample = useMemo(() => {
     if (cursorMs == null || samples.length === 0) return null;
@@ -177,6 +187,7 @@ export function DriveTimeline({
         moments={moments}
         cursorMs={cursorMs}
         onCursorChange={onCursorChange}
+        onViewWindowChange={onViewWindowChange}
         cursorSample={cursorSample}
         cursorPower={cursorPower}
         cursorSoc={cursorSoc}
@@ -187,13 +198,39 @@ export function DriveTimeline({
         startSoC={drive.StartSoCPct}
         endSoC={drive.EndSoCPct}
       />
-      {moments.length > 0 ? (
-        <MomentChips
-          moments={moments}
-          cursorMs={cursorMs}
-          onCursorChange={onCursorChange}
-        />
-      ) : null}
+      <div className="flex items-center justify-between gap-3">
+        {moments.length > 0 ? (
+          <MomentChips
+            moments={moments}
+            cursorMs={cursorMs}
+            onCursorChange={(ms) => {
+              onCursorChange(ms);
+              // If a chip click jumps the cursor out of the visible
+              // window, reset zoom so the marker isn't off-screen.
+              if (ms != null && (ms < xMin || ms > xMax)) {
+                onViewWindowChange(null);
+              }
+            }}
+          />
+        ) : (
+          <span />
+        )}
+        {isZoomed ? (
+          <button
+            type="button"
+            onClick={() => onViewWindowChange(null)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-300 hover:bg-neutral-800"
+            title="Reset chart zoom — also re-fits the route map"
+          >
+            <span aria-hidden>⤢</span>
+            Reset zoom
+          </button>
+        ) : (
+          <span className="text-[10px] text-neutral-600">
+            Drag across the chart to zoom — release to commit, double-click to reset.
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -248,6 +285,7 @@ function TimelineSVG(props: {
   moments: Moment[];
   cursorMs: number | null;
   onCursorChange: (ms: number | null) => void;
+  onViewWindowChange: (window: [number, number] | null) => void;
   cursorSample: Sample | null;
   cursorPower: number | null;
   cursorSoc: number | null;
@@ -270,6 +308,7 @@ function TimelineSVG(props: {
     moments,
     cursorMs,
     onCursorChange,
+    onViewWindowChange,
     cursorSample,
     cursorPower,
     cursorSoc,
@@ -283,6 +322,30 @@ function TimelineSVG(props: {
 
   const xSpan = Math.max(1, xMax - xMin);
   const sx = (x: number) => PAD_L + ((x - xMin) / xSpan) * PLOT_W;
+
+  // Brush state — local to the chart. dragStart/dragEnd are in
+  // data-space ms, captured during a pointerdown→move→up gesture.
+  // We treat <5 px of pointer movement as a click (no drag), so
+  // single-clicks still fall through to the existing cursor-set
+  // behavior; only an actual drag commits a zoom.
+  const [drag, setDrag] = useState<{
+    startMs: number;
+    endMs: number;
+    startScreenX: number;
+    moved: boolean;
+  } | null>(null);
+
+  const eventToDataMs = (
+    e: ReactPointerEvent<SVGElement>,
+  ): number | null => {
+    const svg = e.currentTarget.ownerSVGElement;
+    if (!svg) return null;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    const vbX = ((e.clientX - rect.left) / rect.width) * VIEW_W;
+    if (vbX < PAD_L || vbX > VIEW_W - PAD_R) return null;
+    return xMin + ((vbX - PAD_L) / PLOT_W) * xSpan;
+  };
 
   // Speed Y-domain: 0 → max speed + headroom, with a 50 mph minimum so
   // city-only drives still get a reasonable scale.
@@ -300,6 +363,14 @@ function TimelineSVG(props: {
   // and aggressive drives don't all saturate into the same red.
   const powerCap = Math.max(60, ...powerPts.map((p) => Math.abs(p.y))) * 1.05;
 
+  // Cursor visibility: when zoomed, hide crosshair / dots / floating
+  // tooltip if the cursor is parked outside the visible window. The
+  // persistent readout above the chart still shows it. This avoids
+  // ghost dots floating in the y-axis gutter or out past the right
+  // edge after a zoom-in.
+  const cursorVisible =
+    cursorMs != null && cursorMs >= xMin && cursorMs <= xMax;
+
   return (
     <svg
       viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
@@ -308,19 +379,34 @@ function TimelineSVG(props: {
       role="img"
       aria-label="Drive timeline"
     >
+      <defs>
+        {/* Single clip-path that all data layers inherit. Bounds the
+            plot area horizontally so zoomed-in series can't bleed
+            into the y-axis gutter or the right margin; vertically it
+            covers the full SVG so individual panels don't need their
+            own clip. Y-axis tick labels and panel labels live OUTSIDE
+            this clip's X range and so render unaffected. */}
+        <clipPath id="dt-plot-clip">
+          <rect x={PAD_L} y={0} width={PLOT_W} height={TOTAL_H} />
+        </clipPath>
+      </defs>
+
       {/* ---- Mode tint background on speed panel ------------------ */}
-      {modeSegments.map((seg, i) => (
-        <rect
-          key={`tint-${i}`}
-          x={sx(seg.x0)}
-          y={SPEED_TOP}
-          width={Math.max(0, sx(seg.x1) - sx(seg.x0))}
-          height={SPEED_H}
-          fill={MODE_TINT[seg.mode]}
-        />
-      ))}
+      <g clipPath="url(#dt-plot-clip)">
+        {modeSegments.map((seg, i) => (
+          <rect
+            key={`tint-${i}`}
+            x={sx(seg.x0)}
+            y={SPEED_TOP}
+            width={Math.max(0, sx(seg.x1) - sx(seg.x0))}
+            height={SPEED_H}
+            fill={MODE_TINT[seg.mode]}
+          />
+        ))}
+      </g>
 
       {/* ---- Power ribbon ----------------------------------------- */}
+      {/* PowerRibbon manages its own label; data inside is clipped. */}
       <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} />
 
       {/* ---- Speed panel: frame + grid + ticks -------------------- */}
@@ -383,7 +469,7 @@ function TimelineSVG(props: {
             const first = speedPts[0];
             const baseY = ySolve(0, 0, speedMax, SPEED_TOP, SPEED_H);
             return (
-              <g>
+              <g clipPath="url(#dt-plot-clip)">
                 <path
                   d={`${path} L ${sx(last.x).toFixed(2)},${baseY.toFixed(2)} L ${sx(first.x).toFixed(2)},${baseY.toFixed(2)} Z`}
                   fill={SERIES.speed}
@@ -404,31 +490,33 @@ function TimelineSVG(props: {
         : null}
 
       {/* ---- Moment markers --------------------------------------- */}
-      {moments.map((m, i) => {
-        const x = sx(m.ms);
-        return (
-          <g key={`mom-${i}`}>
-            <line
-              x1={x}
-              x2={x}
-              y1={SPEED_TOP + 4}
-              y2={SPEED_TOP + SPEED_H - 2}
-              stroke={momentColor(m.tone)}
-              strokeWidth={0.7}
-              strokeDasharray="2 4"
-              opacity={0.8}
-            />
-            <circle
-              cx={x}
-              cy={SPEED_TOP + 4}
-              r={2.6}
-              fill={momentColor(m.tone)}
-            >
-              <title>{`${m.label} — ${m.detail}`}</title>
-            </circle>
-          </g>
-        );
-      })}
+      <g clipPath="url(#dt-plot-clip)">
+        {moments.map((m, i) => {
+          const x = sx(m.ms);
+          return (
+            <g key={`mom-${i}`}>
+              <line
+                x1={x}
+                x2={x}
+                y1={SPEED_TOP + 4}
+                y2={SPEED_TOP + SPEED_H - 2}
+                stroke={momentColor(m.tone)}
+                strokeWidth={0.7}
+                strokeDasharray="2 4"
+                opacity={0.8}
+              />
+              <circle
+                cx={x}
+                cy={SPEED_TOP + 4}
+                r={2.6}
+                fill={momentColor(m.tone)}
+              >
+                <title>{`${m.label} — ${m.detail}`}</title>
+              </circle>
+            </g>
+          );
+        })}
+      </g>
 
       {/* ---- Battery panel: frame + ticks + elevation backdrop ---- */}
       <rect
@@ -494,15 +582,17 @@ function TimelineSVG(props: {
               })),
             );
             return (
-              <path
-                d={path}
-                fill="none"
-                stroke={SERIES.battery}
-                strokeWidth={1.4}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
+              <g clipPath="url(#dt-plot-clip)">
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={SERIES.battery}
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
             );
           })()
         : null}
@@ -539,28 +629,30 @@ function TimelineSVG(props: {
       <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} />
 
       {/* ---- Crosshair -------------------------------------------- */}
-      {cursorMs != null
+      {cursorVisible
         ? (() => {
-            const cx = sx(cursorMs);
+            const cx = sx(cursorMs!);
             return (
-              <line
-                x1={cx}
-                x2={cx}
-                y1={SPEED_TOP}
-                y2={MODE_STRIP_TOP + MODE_STRIP_H}
-                stroke="#a3a3a3"
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-              />
+              <g clipPath="url(#dt-plot-clip)">
+                <line
+                  x1={cx}
+                  x2={cx}
+                  y1={SPEED_TOP}
+                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
+                  stroke="#a3a3a3"
+                  strokeWidth={1}
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
             );
           })()
         : null}
 
       {/* ---- Cursor dots on each panel ---------------------------- */}
-      {cursorMs != null && cursorSample ? (
-        <g pointerEvents="none">
+      {cursorVisible && cursorSample ? (
+        <g pointerEvents="none" clipPath="url(#dt-plot-clip)">
           <circle
-            cx={sx(cursorMs)}
+            cx={sx(cursorMs!)}
             cy={ySolve(
               cursorSample.SpeedMph || 0,
               0,
@@ -575,7 +667,7 @@ function TimelineSVG(props: {
           />
           {cursorSoc != null ? (
             <circle
-              cx={sx(cursorMs)}
+              cx={sx(cursorMs!)}
               cy={ySolve(cursorSoc, socLo, socHi, BATT_TOP, BATT_H)}
               r={3}
               fill={SERIES.battery}
@@ -587,9 +679,13 @@ function TimelineSVG(props: {
       ) : null}
 
       {/* ---- Floating tooltip ------------------------------------- */}
-      {cursorMs != null && cursorSample ? (
+      {/* Tooltip stays unclipped so it can flip to the left of the
+          plot when the cursor is near the right edge. Only renders
+          when the cursor is inside the visible window — otherwise
+          the persistent readout above the chart is the only display. */}
+      {cursorVisible && cursorSample ? (
         <FloatingTooltip
-          x={sx(cursorMs)}
+          x={sx(cursorMs!)}
           cursorSample={cursorSample}
           cursorPower={cursorPower}
           cursorSoc={cursorSoc}
@@ -599,6 +695,44 @@ function TimelineSVG(props: {
         />
       ) : null}
 
+      {/* ---- Brush-selection overlay (drawn during a drag) -------- */}
+      {drag && drag.moved ? (
+        <g pointerEvents="none" clipPath="url(#dt-plot-clip)">
+          {(() => {
+            const a = sx(Math.min(drag.startMs, drag.endMs));
+            const b = sx(Math.max(drag.startMs, drag.endMs));
+            return (
+              <>
+                <rect
+                  x={a}
+                  y={SPEED_TOP}
+                  width={Math.max(0, b - a)}
+                  height={MODE_STRIP_TOP + MODE_STRIP_H - SPEED_TOP}
+                  fill="#10b981"
+                  opacity={0.12}
+                />
+                <line
+                  x1={a}
+                  x2={a}
+                  y1={SPEED_TOP}
+                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
+                  stroke="#10b981"
+                  strokeWidth={1}
+                />
+                <line
+                  x1={b}
+                  x2={b}
+                  y1={SPEED_TOP}
+                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
+                  stroke="#10b981"
+                  strokeWidth={1}
+                />
+              </>
+            );
+          })()}
+        </g>
+      ) : null}
+
       {/* ---- Pointer-capture overlay ------------------------------ */}
       <rect
         x={PAD_L}
@@ -606,19 +740,65 @@ function TimelineSVG(props: {
         width={PLOT_W}
         height={MODE_STRIP_TOP + MODE_STRIP_H - SPEED_TOP}
         fill="transparent"
-        style={{ cursor: "crosshair" }}
-        onPointerMove={(e) => {
-          const svg = (e.currentTarget as SVGElement)
-            .ownerSVGElement as SVGSVGElement | null;
-          if (!svg) return;
-          const rect = svg.getBoundingClientRect();
-          if (rect.width === 0) return;
-          const vbX = ((e.clientX - rect.left) / rect.width) * VIEW_W;
-          if (vbX < PAD_L || vbX > VIEW_W - PAD_R) return;
-          const t = xMin + ((vbX - PAD_L) / PLOT_W) * (xMax - xMin);
-          onCursorChange(snapToSample(t, speedPts));
+        style={{ cursor: drag?.moved ? "ew-resize" : "crosshair" }}
+        onPointerDown={(e) => {
+          // Only respond to the primary button. Ignore right-clicks
+          // and middle-clicks so context menus / autoscroll still work.
+          if (e.button !== 0) return;
+          const t = eventToDataMs(e);
+          if (t == null) return;
+          (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+          setDrag({
+            startMs: t,
+            endMs: t,
+            startScreenX: e.clientX,
+            moved: false,
+          });
         }}
-        onPointerLeave={() => onCursorChange(null)}
+        onPointerMove={(e) => {
+          if (drag) {
+            const t = eventToDataMs(e);
+            if (t == null) return;
+            // Promote a click to a drag once the pointer has actually
+            // moved a few px on screen — below that threshold we treat
+            // mouseup as a regular click and fall through to setting
+            // the cursor at that x.
+            const moved =
+              drag.moved || Math.abs(e.clientX - drag.startScreenX) > 4;
+            setDrag({ ...drag, endMs: t, moved });
+          } else {
+            const t = eventToDataMs(e);
+            if (t == null) return;
+            onCursorChange(snapToSample(t, speedPts));
+          }
+        }}
+        onPointerUp={(e) => {
+          if (!drag) return;
+          (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+          if (drag.moved) {
+            const lo = Math.min(drag.startMs, drag.endMs);
+            const hi = Math.max(drag.startMs, drag.endMs);
+            // Reject windows that are smaller than 1 % of the visible
+            // span — likely an accidental drag, and zooming that far in
+            // would just leave the chart empty.
+            if (hi - lo > xSpan * 0.01) {
+              onViewWindowChange([lo, hi]);
+            }
+          } else {
+            // No movement → treat as a regular click that sets the
+            // cursor at the press location.
+            onCursorChange(snapToSample(drag.startMs, speedPts));
+          }
+          setDrag(null);
+        }}
+        onPointerCancel={() => setDrag(null)}
+        onPointerLeave={() => {
+          if (!drag) onCursorChange(null);
+        }}
+        onDoubleClick={() => {
+          // Reset zoom on a double-click anywhere over the chart.
+          onViewWindowChange(null);
+        }}
       />
     </svg>
   );
@@ -647,28 +827,34 @@ function PowerRibbon({
       >
         Power
       </text>
-      {powerPts.slice(0, -1).map((p, i) => {
-        const next = powerPts[i + 1];
-        const x0 = sx(p.x);
-        const x1 = sx(next.x);
-        if (x1 <= x0) return null;
-        const ratio = Math.max(-1, Math.min(1, p.y / cap));
-        const fill =
-          ratio > 0
-            ? interpHex("#1f2937", SERIES.draw, ratio)
-            : interpHex("#1f2937", SERIES.regen, -ratio);
-        return (
-          <rect
-            key={`pr-${i}`}
-            x={x0}
-            y={RIBBON_TOP}
-            width={x1 - x0}
-            height={RIBBON_H}
-            fill={fill}
-            opacity={0.95}
-          />
-        );
-      })}
+      {/* Per-interval color cells live inside the plot clip so they
+          can't bleed past the y-axis gutter when the chart is zoomed
+          in. The frame rect and right-side legend stay outside the
+          clip so they always render at the panel edges. */}
+      <g clipPath="url(#dt-plot-clip)">
+        {powerPts.slice(0, -1).map((p, i) => {
+          const next = powerPts[i + 1];
+          const x0 = sx(p.x);
+          const x1 = sx(next.x);
+          if (x1 <= x0) return null;
+          const ratio = Math.max(-1, Math.min(1, p.y / cap));
+          const fill =
+            ratio > 0
+              ? interpHex("#1f2937", SERIES.draw, ratio)
+              : interpHex("#1f2937", SERIES.regen, -ratio);
+          return (
+            <rect
+              key={`pr-${i}`}
+              x={x0}
+              y={RIBBON_TOP}
+              width={x1 - x0}
+              height={RIBBON_H}
+              fill={fill}
+              opacity={0.95}
+            />
+          );
+        })}
+      </g>
       <rect
         x={PAD_L}
         y={RIBBON_TOP}
@@ -719,7 +905,7 @@ function ElevationBackdrop({
   const last = proj[proj.length - 1];
   const first = proj[0];
   return (
-    <g>
+    <g clipPath="url(#dt-plot-clip)">
       <path
         d={`${path} L ${last.x.toFixed(2)},${baseY.toFixed(2)} L ${first.x.toFixed(2)},${baseY.toFixed(2)} Z`}
         fill={SERIES.elevation}
@@ -768,32 +954,34 @@ function CategoricalStrip({
         className="fill-neutral-900"
         rx={2}
       />
-      {bands.map((b, i) => {
-        const w = Math.max(0, b.x1 - b.x0);
-        return (
-          <g key={`bn-${i}`}>
-            <rect
-              x={b.x0}
-              y={top}
-              width={w}
-              height={height}
-              fill={b.color}
-              opacity={0.55}
-            />
-            {showLabels && w > 70 ? (
-              <text
-                x={b.x0 + 6}
-                y={top + height - 3}
-                className="fill-neutral-100"
-                fontSize={9}
-              >
-                {b.label}
-              </text>
-            ) : null}
-            <title>{b.label}</title>
-          </g>
-        );
-      })}
+      <g clipPath="url(#dt-plot-clip)">
+        {bands.map((b, i) => {
+          const w = Math.max(0, b.x1 - b.x0);
+          return (
+            <g key={`bn-${i}`}>
+              <rect
+                x={b.x0}
+                y={top}
+                width={w}
+                height={height}
+                fill={b.color}
+                opacity={0.55}
+              />
+              {showLabels && w > 70 ? (
+                <text
+                  x={b.x0 + 6}
+                  y={top + height - 3}
+                  className="fill-neutral-100"
+                  fontSize={9}
+                >
+                  {b.label}
+                </text>
+              ) : null}
+              <title>{b.label}</title>
+            </g>
+          );
+        })}
+      </g>
     </g>
   );
 }
@@ -1054,28 +1242,129 @@ function buildSpeedPts(samples: Sample[]): { x: number; y: number }[] {
   return [...raw, { x: last.x + 1000, y: 0 }];
 }
 
-// Power from smoothed SoC. Convention: positive = draw (consuming the
-// pack), negative = regen (recapturing). Smoothed twice — first via
-// the SoC pre-smooth (caller handles), then a second pass on the
-// power output itself to clean up the per-sample ripple that comes
-// from coarse 1% SoC quantization.
+// Physics-based instantaneous power.
+//
+// Why not derive from SoC delta? Because Rivian reports BatteryLevelPct
+// at 1% resolution (see internal/rivian/ws.go — vs.BatteryLevel.Value
+// is integer percent). On a 135 kWh pack that's 1.35 kWh per step. A
+// 5-second hard regen at 50 kW recovers ~0.07 kWh = 5% of one step,
+// so most braking events don't move the SoC integer at all and are
+// invisible to the derivative. Aggressive smoothing (the only way to
+// get *any* signal out of the 1%-integer SoC) then averages whatever
+// peaks survive across ~60 s and they vanish.
+//
+// Instead: model the longitudinal force balance on the vehicle from
+// speed, acceleration, road grade, and aero/rolling drag. Multiply by
+// speed to get power at the wheels, divide/multiply by drivetrain
+// efficiency to get battery-side power. The constants (mass, Cd,
+// frontal area) are R1S-ish defaults; the calibration step at the end
+// rescales the whole series to match drive.EnergyUsedKWh integrated
+// over time, which absorbs per-vehicle variation (R1T trim, aftermarket
+// accessories, cargo, headwind that wasn't in the weather data, etc.)
+// without hand-tuning every constant.
+//
+// Convention: positive = draw, negative = regen.
 function derivePower(
-  socPts: { x: number; y: number }[],
-  packKwh: number,
+  samples: Sample[],
+  elevPts: { x: number; y: number }[],
+  totalEnergyKwh: number,
 ): { x: number; y: number }[] {
-  if (socPts.length < 2) return [];
+  if (samples.length < 3) return [];
+
+  // Vehicle constants. Roughly R1S Large pack with passengers + gear.
+  // The calibration loop below scales the final series so being off
+  // by ±20 % on any of these is harmless — it just changes the scale
+  // factor.
+  const MASS_KG = 3050;
+  const CD = 0.34;
+  const FRONTAL_AREA_M2 = 3.0;
+  const RHO_KG_M3 = 1.225;
+  const CRR = 0.012;
+  const G_M_S2 = 9.81;
+  const ETA_DRIVE = 0.85; // wheel→battery losses while drawing
+  const ETA_REGEN = 0.7; // wheel→battery losses while recovering
+  const ACCESSORY_KW = 1.2; // HVAC + electronics baseline
+
+  const elevAt = (t: number): number => {
+    if (elevPts.length === 0) return 0;
+    let best = elevPts[0];
+    let bestD = Math.abs(best.x - t);
+    for (let i = 1; i < elevPts.length; i++) {
+      const d = Math.abs(elevPts[i].x - t);
+      if (d < bestD) {
+        bestD = d;
+        best = elevPts[i];
+      }
+    }
+    return best.y / 3.28084; // ft → m
+  };
+
+  const points = samples.map((s) => ({
+    t: new Date(s.At).getTime(),
+    v: (s.SpeedMph || 0) * 0.44704, // mph → m/s
+    elev: elevAt(new Date(s.At).getTime()),
+  }));
+
   const out: { x: number; y: number }[] = [];
-  for (let i = 1; i < socPts.length; i++) {
-    const dt = (socPts[i].x - socPts[i - 1].x) / 3_600_000; // hours
-    if (dt <= 0) continue;
-    const dSoC = socPts[i].y - socPts[i - 1].y;
-    const kw = (-dSoC / 100) * packKwh / dt;
+  for (let i = 1; i < points.length; i++) {
+    const dtSec = (points[i].t - points[i - 1].t) / 1000;
+    // Skip large telemetry gaps (parked at a charger mid-window etc.) —
+    // a 60 s gap can produce a deceptively huge dv/dt.
+    if (dtSec <= 0 || dtSec > 30) continue;
+
+    const v = (points[i].v + points[i - 1].v) / 2;
+    const dvdt = (points[i].v - points[i - 1].v) / dtSec;
+    const dist = v * dtSec;
+    const dh = points[i].elev - points[i - 1].elev;
+    // Use grade only when we actually moved. At rest dh/dist is
+    // numerically explosive and the resulting "grade" force would be
+    // nonsense.
+    const grade = dist > 0.5 ? dh / dist : 0;
+
+    const fAir = 0.5 * CD * FRONTAL_AREA_M2 * RHO_KG_M3 * v * v;
+    const fRoll = v > 0.5 ? CRR * MASS_KG * G_M_S2 : 0;
+    const fGrade = MASS_KG * G_M_S2 * grade; // small-angle approx
+    const fAccel = MASS_KG * dvdt;
+    const fTotal = fAir + fRoll + fGrade + fAccel;
+
+    const pWheelsW = fTotal * v;
+    // Battery-side: drive losses inflate consumption; regen losses
+    // reduce captured energy.
+    const pBatteryW =
+      pWheelsW >= 0
+        ? pWheelsW / ETA_DRIVE + ACCESSORY_KW * 1000
+        : pWheelsW * ETA_REGEN + ACCESSORY_KW * 1000;
     out.push({
-      x: (socPts[i].x + socPts[i - 1].x) / 2,
-      y: kw,
+      x: (points[i].t + points[i - 1].t) / 2,
+      y: pBatteryW / 1000, // W → kW
     });
   }
-  return smoothGaussianTime(out, 30_000);
+
+  // Calibrate to the drive's known net energy. Integrate the modeled
+  // power, compare to drive.EnergyUsedKWh (which the backend computed
+  // from SoC delta × usable pack capacity at drive close), and rescale
+  // uniformly. Clamped to [0.5, 2.0] so a noisy energy total can't
+  // produce a wildly distorted ribbon.
+  if (totalEnergyKwh > 0 && out.length > 1) {
+    let energyKwh = 0;
+    for (let i = 1; i < out.length; i++) {
+      const dtH = (out[i].x - out[i - 1].x) / 3_600_000;
+      const avg = (out[i].y + out[i - 1].y) / 2;
+      energyKwh += avg * dtH;
+    }
+    if (energyKwh > 0.1) {
+      const factor = Math.max(
+        0.5,
+        Math.min(2.0, totalEnergyKwh / energyKwh),
+      );
+      for (const p of out) p.y *= factor;
+    }
+  }
+
+  // Light smoothing: 4 s window cleans per-sample dvdt jitter without
+  // erasing brake events, which last 5–15 s and are the whole point of
+  // the ribbon.
+  return smoothGaussianTime(out, 4_000);
 }
 
 function buildModeSegments(
