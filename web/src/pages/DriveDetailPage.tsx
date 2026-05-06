@@ -320,17 +320,10 @@ export default function DriveDetailPage() {
       x: new Date(p.At).getTime(),
       y: cToUnit(p.OutsideTempC),
     }));
-  const insideTempPts = driveSamples
-    .filter((p) => Number.isFinite(p.InsideTempC) && p.InsideTempC !== 0)
-    .map((p) => ({
-      x: new Date(p.At).getTime(),
-      y: cToUnit(p.InsideTempC),
-    }));
   // Outdoor temperature changes slowly (minutes, not seconds), so a
   // wide smoothing window cleans the typical ~1 °C sensor jitter
   // without flattening real ramps when driving in/out of sun.
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
-  const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
 
   // Open-Meteo time series. 15-min cadence for drives within the
   // forecast window, 60-min for older drives. The renderer treats
@@ -446,12 +439,16 @@ export default function DriveDetailPage() {
     .filter((b): b is { x0: number; x1: number; color: string; label: string } => b != null);
   const hasPrecipBands = precipBands.length > 0;
 
-  // Combined weather panel picks one temperature trace. Preference:
+  // Combined weather panel picks one outside-temperature source.
+  // Preference:
   //   1. real outside-temp sensor samples (best resolution).
   //   2. Open-Meteo time series (15- or 60-min cadence).
-  //   3. cabin temp -- last resort so a fresh live session that
-  //      hasn't been backfilled still shows *something*.
-  type TempTraceSource = "sensor" | "meteo" | "cabin";
+  // Cabin temp is intentionally not used as a fallback here -- it
+  // tracks HVAC and occupant comfort, not the environment, and
+  // labelling it as "Outside temp" would mislead. Drives with no
+  // outside source simply omit the temp line; the panel still
+  // carries elevation/headwind/precipitation if those exist.
+  type TempTraceSource = "sensor" | "meteo";
   const tempTrace: {
     source: TempTraceSource;
     points: { x: number; y: number }[];
@@ -469,9 +466,7 @@ export default function DriveDetailPage() {
             points: meteoTempPts,
             label: "Outside temp",
           }
-        : insideTempSmoothed.length > 1
-          ? { source: "cabin", points: insideTempSmoothed, label: "Cabin temp" }
-          : null;
+        : null;
 
   // Resolve the sample closest to the synced cursor for the
   // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
