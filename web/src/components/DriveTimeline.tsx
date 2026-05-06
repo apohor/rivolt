@@ -201,7 +201,10 @@ export function DriveTimeline({
 // ---- Layout ---------------------------------------------------------------
 
 const VIEW_W = 1000;
-const PAD_L = 56;
+// Left gutter has to fit the longest panel label ("BATTERY") next to a
+// 2-digit y-axis tick label ("90", "73") without collisions. 70 px gives
+// each side ~6 px of breathing room at fontSize=10.
+const PAD_L = 70;
 const PAD_R = 14;
 const PLOT_W = VIEW_W - PAD_L - PAD_R;
 
@@ -359,20 +362,12 @@ function TimelineSVG(props: {
       })}
       <text
         x={4}
-        y={SPEED_TOP + 11}
+        y={SPEED_TOP + 12}
         className="fill-neutral-400"
         fontSize={10}
         style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
       >
         Speed
-      </text>
-      <text
-        x={4}
-        y={SPEED_TOP + 23}
-        className="fill-neutral-600"
-        fontSize={9.5}
-      >
-        mph
       </text>
 
       {/* ---- Speed area + line ------------------------------------ */}
@@ -474,20 +469,12 @@ function TimelineSVG(props: {
       })}
       <text
         x={4}
-        y={BATT_TOP + 11}
+        y={BATT_TOP + 12}
         className="fill-neutral-400"
         fontSize={10}
         style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
       >
         Battery
-      </text>
-      <text
-        x={4}
-        y={BATT_TOP + 23}
-        className="fill-neutral-600"
-        fontSize={9.5}
-      >
-        % · elev backdrop
       </text>
 
       <ElevationBackdrop
@@ -825,28 +812,36 @@ function TimeAxis({
   const ticks = niceTimeTicks(xMin, xMax, 5);
   return (
     <g>
-      {ticks.map((t, i) => (
-        <g key={`tt-${i}`}>
-          <line
-            x1={sx(t)}
-            x2={sx(t)}
-            y1={top - 4}
-            y2={top - 1}
-            className="stroke-neutral-700"
-            strokeWidth={0.6}
-          />
-          <text
-            x={sx(t)}
-            y={top + 10}
-            textAnchor="middle"
-            className="fill-neutral-500"
-            fontSize={10}
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          >
-            {fmtClock(t)}
-          </text>
-        </g>
-      ))}
+      {ticks.map((t, i) => {
+        // Anchor the first and last tick labels to start/end of the
+        // tick line so the label can't extend past the SVG bounds and
+        // get clipped (e.g. "06:27 PM" turning into "06:27 P" at the
+        // right edge). Interior ticks stay centered on the tick.
+        const anchor: "start" | "middle" | "end" =
+          i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle";
+        return (
+          <g key={`tt-${i}`}>
+            <line
+              x1={sx(t)}
+              x2={sx(t)}
+              y1={top - 4}
+              y2={top - 1}
+              className="stroke-neutral-700"
+              strokeWidth={0.6}
+            />
+            <text
+              x={sx(t)}
+              y={top + 10}
+              textAnchor={anchor}
+              className="fill-neutral-500"
+              fontSize={10}
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              {fmtClock(t)}
+            </text>
+          </g>
+        );
+      })}
     </g>
   );
 }
