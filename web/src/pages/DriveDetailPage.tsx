@@ -495,8 +495,22 @@ export default function DriveDetailPage() {
         ) : (
           <DriveMap
             points={mapPoints}
-            start={homeStart ?? { lat: drive.StartLat, lon: drive.StartLon }}
-            end={homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon }}
+            // When the timeline is zoomed, suppress the home start/end
+            // pins. Otherwise DriveMap extends the polyline from the
+            // drive's true endpoints through the cropped window and
+            // fitBounds includes those far-away anchors — which drags
+            // the visible map back out to the whole drive instead of
+            // framing just the cropped slice.
+            start={
+              viewWindow
+                ? undefined
+                : (homeStart ?? { lat: drive.StartLat, lon: drive.StartLon })
+            }
+            end={
+              viewWindow
+                ? undefined
+                : (homeEnd ?? { lat: drive.EndLat, lon: drive.EndLon })
+            }
             height={360}
             cursorTime={cursorMs != null ? cursorMs / 1000 : null}
             onCursorChange={(t) =>
