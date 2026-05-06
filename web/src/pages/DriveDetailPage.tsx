@@ -573,7 +573,6 @@ export default function DriveDetailPage() {
               <div className="space-y-3">
                 {hasSpeed || hasSoC ? (
                   <ChartPanel
-                    label="Telemetry"
                     legend={[
                       ...(hasSpeed
                         ? [{ label: "Speed", color: "#38bdf8" }]
@@ -918,7 +917,10 @@ function ChartPanel({
   legend,
   children,
 }: {
-  label: string;
+  // Optional sub-section label rendered above the chart. Omit
+  // when the parent Card title already names the panel; the
+  // legend alone is enough to attribute series.
+  label?: string;
   // Optional per-series legend rendered inline next to the panel
   // label. Each entry shows a small swatch in `color` (any CSS
   // color or tailwind bg-* class via `colorClass`) followed by
@@ -935,7 +937,7 @@ function ChartPanel({
   return (
     <div>
       <div className="mb-1 flex items-center gap-3 text-[10px] uppercase tracking-wide text-neutral-400">
-        <span>{label}</span>
+        {label ? <span>{label}</span> : null}
         {legend && legend.length > 0 ? (
           <span className="flex items-center gap-3 normal-case tracking-normal text-neutral-500">
             {legend.map((item, i) => (
