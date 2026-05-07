@@ -3,7 +3,7 @@
 //
 // What's covered (in priority order):
 //   1. react-hooks/rules-of-hooks — Rules of Hooks. Catches the
-//      "hook after early return" pattern that shipped as v0.17.72
+//      "hook after early return" pattern that has previously shipped
 //      and produced a blank Drive Details page on hard refresh.
 //      Runtime-only failure mode that TypeScript can't detect.
 //   2. react-hooks/exhaustive-deps — useEffect/useMemo dep arrays.
@@ -52,8 +52,7 @@ export default tseslint.config(
       "react-hooks": reactHooks,
     },
     rules: {
-      // Hard error: hooks ordering must be consistent. This is the
-      // class of bug that shipped as v0.17.72.
+      // Hard error: hooks ordering must be consistent.
       "react-hooks/rules-of-hooks": "error",
       // Loud warning rather than error: stale-closure defects are
       // nice to fix but too noisy on legitimate stable-ref cases to

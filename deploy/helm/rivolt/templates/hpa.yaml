@@ -1,8 +1,9 @@
 {{- if .Values.autoscaling.enabled }}
-# WARNING: Phase 2 prerequisites (subscription lease reconciliation,
-# global Redis token bucket, reconnect-storm controls) are not yet
-# implemented. Running >1 replicas means duplicate Rivian websockets
-# and ban risk. See values.yaml `replicaCount` for context.
+# WARNING: multi-replica prerequisites (subscription lease
+# reconciliation, global Redis token bucket, reconnect-storm
+# controls) are not yet implemented. Running >1 replicas means
+# duplicate Rivian websockets and ban risk. See values.yaml
+# `replicaCount` for context.
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

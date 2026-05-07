@@ -37,8 +37,8 @@ type AccountRegistry interface {
 
 // liveAccountRegistry is the production implementation: one
 // *LiveClient per user, lazily constructed, never evicted. At the
-// designed scale (≤50 users in the homelab path, low hundreds in
-// the SaaS path) the memory footprint of one struct + one TLS
+// designed scale (≤50 users self-hosted, low hundreds in the SaaS
+// path) the memory footprint of one struct + one TLS
 // session per user is negligible against the rate-limit headroom
 // LRU eviction would buy back.
 type liveAccountRegistry struct {

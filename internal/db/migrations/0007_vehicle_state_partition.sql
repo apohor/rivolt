@@ -9,7 +9,7 @@
 -- `vehicle_state` is the one genuine growth table in Rivolt — the
 -- live recorder writes ~1 row / 30s per vehicle, so at 1000 vehicles
 -- we're looking at ~2.9M rows/month, ~35M rows/year. A single heap
--- works fine at the homelab scale we're at today, but retrofitting
+-- works fine at the scale we're at today, but retrofitting
 -- partitioning under a live table requires either a CONCURRENTLY
 -- dance or a maintenance window — neither of which we want to buy
 -- on our way to 1000 vehicles. Landing the partitioning now, while
@@ -19,16 +19,16 @@
 --     so a retention policy becomes trivial later.
 --   - Query planner prunes to the month(s) of interest for any
 --     `WHERE at > $since` filter — which is every read path.
---   - TimescaleDB / pg_partman drop-in at phase 3 is a rewrite
---     of one migration + one janitor, not of every read query.
+--   - TimescaleDB / pg_partman drop-in later is a rewrite of one
+--     migration + one janitor, not of every read query.
 --
 -- # Why hand-rolled, not pg_partman
 --
 -- pg_partman is great but adds a cluster-level extension dependency
 -- that self-hosters have to install. We need exactly one thing from
 -- it — "create next month's partition on a schedule" — and a 20-line
--- PL/pgSQL function + a Go boot-time call cover it. Phase 3 can
--- graduate to pg_partman if we ever want its retention automation.
+-- PL/pgSQL function + a Go boot-time call cover it. We can graduate
+-- to pg_partman later if we ever want its retention automation.
 
 -- Disable any cluster-default statement_timeout for the duration of
 -- this migration's tx. The boot context already enforces a generous

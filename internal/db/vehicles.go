@@ -127,11 +127,11 @@ type VehicleSummary struct {
 }
 
 // ListUserVehicles returns every real vehicle row owned by userID,
-// excluding the legacy `electrafi-<hash>` synthetic rows that the
-// pre-v0.17.21 importer used to create. Synthetic rows linger in
-// existing installs because their drives/charges/samples still
-// reference them; we hide them from the picker so a fresh import
-// can only land on a Rivian-linked vehicle.
+// excluding the legacy `electrafi-<hash>` synthetic rows left over
+// from earlier importers. Synthetic rows linger in existing installs
+// because their drives/charges/samples still reference them; we
+// hide them from the picker so a fresh import can only land on a
+// Rivian-linked vehicle.
 func ListUserVehicles(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]VehicleSummary, error) {
 	if d == nil || userID == uuid.Nil {
 		return nil, nil

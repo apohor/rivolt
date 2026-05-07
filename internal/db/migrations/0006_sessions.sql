@@ -1,6 +1,6 @@
 -- 0006_sessions.sql — server-side opaque sessions.
 --
--- Rationale (ARCHITECTURE decision 4, ROADMAP Phase 1):
+-- Rationale (ARCHITECTURE decision 4):
 --
 -- Before this migration the cookie carried a signed
 -- `{user_id, expires_at}` blob. The HMAC is fine; the lack of a

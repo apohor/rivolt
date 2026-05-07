@@ -254,7 +254,8 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 	vs := data.VehicleState
 	// At = wall clock; LocationFixAt = GPS fix age. See live.go for
-	// the rationale and the v0.17.6 fragmentation incident.
+	// the rationale (a stale GNSS timestamp on State.At fragmented
+	// trips into 3-min stubs).
 	at := time.Now().UTC()
 	fixAt := parseGNSSFixTime(vs.GNSSLocation.TimeStamp)
 	ps := func(s permissiveString) string { return string(s) }

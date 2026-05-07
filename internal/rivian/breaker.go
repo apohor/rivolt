@@ -75,7 +75,7 @@ type BreakerConfig struct {
 }
 
 // DefaultBreakerConfig returns the production-ready defaults. Tuned
-// for a single-region homelab against Rivian's gateway: 60s window,
+// for a single-region deployment against Rivian's gateway: 60s window,
 // trip on 3 rate-limited or 8 outage events, 30s initial cooldown.
 func DefaultBreakerConfig() BreakerConfig {
 	return BreakerConfig{

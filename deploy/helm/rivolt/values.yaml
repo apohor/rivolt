@@ -1,12 +1,12 @@
 # Default values for rivolt.
 #
 # Two install modes:
-#   1. Homelab quick-start — `--set cnpg.enabled=true`. The chart
-#      renders a CloudNativePG `Cluster` (single instance, local-path
-#      PVC). Requires the CNPG operator installed in the cluster.
-#   2. Production / external DB — `cnpg.enabled=false` (default),
-#      point `externalDatabase.*` at a real Postgres (an existing
-#      CNPG cluster, managed cloud DB, etc.).
+#   1. Quick-start — `--set cnpg.enabled=true`. The chart renders a
+#      CloudNativePG `Cluster` (single instance, local-path PVC).
+#      Requires the CNPG operator installed in the cluster.
+#   2. External DB — `cnpg.enabled=false` (default), point
+#      `externalDatabase.*` at a real Postgres (an existing CNPG
+#      cluster, managed cloud DB, etc.).
 
 # -- Container image. The runtime is distroless/static; rootless,
 # read-only-rootfs-ready, exposes 8080.
@@ -17,7 +17,7 @@ image:
   tag: ""
 imagePullSecrets: []
 
-# -- Replica count. KEEP AT 1 until Phase 2 lands.
+# -- Replica count. KEEP AT 1 until subscription leases ship.
 #
 # Rivolt today does not have:
 #   - subscription lease reconciliation (every replica would open
@@ -145,8 +145,8 @@ resources:
     cpu: 50m
     memory: 64Mi
 
-# -- HPA. Disabled by default; flip on only after Phase 2 lease
-# reconciliation lands. See `replicaCount` for why.
+# -- HPA. Disabled by default; flip on only after subscription
+# lease reconciliation lands. See `replicaCount` for why.
 autoscaling:
   enabled: false
   minReplicas: 1
@@ -228,7 +228,7 @@ config:
   #   RIVOLT_OIDC_GOOGLE_ISSUER: "https://accounts.google.com"
   #   RIVOLT_OIDC_GOOGLE_DISPLAY_NAME: "Google"
 
-# -- App secrets. Either set values inline (homelab) or point at an
+# -- App secrets. Either set values inline or point at an
 # already-managed Secret with `existingSecret`. When `existingSecret`
 # is set, the chart skips the Secret resource entirely and the
 # Deployment's envFrom references the user-supplied object.
@@ -275,7 +275,7 @@ secrets:
   # Optional cookie-signing pepper. Auto-generated and persisted to
   # /data/cookie_secret on first boot when empty. Set explicitly
   # only if you'll ever scale beyond a single replica AND have a
-  # real way to share it (Phase 2 territory).
+  # real way to share it across pods.
   cookieSecret: ""
 
   # Optional AI keys. Empty leaves the Settings UI free to manage them.
@@ -323,8 +323,8 @@ cnpg:
   clusterName: ""
 
   # Number of Postgres instances (primary + N-1 hot standbys with
-  # streaming replication). 1 is fine for a homelab; bump to 3 for
-  # production HA. CNPG handles failover.
+  # streaming replication). 1 is fine for single-node installs;
+  # bump to 3 for production HA. CNPG handles failover.
   instances: 1
 
   # Postgres major version. CNPG tracks recent majors; bump as
@@ -394,7 +394,7 @@ externalDatabase:
   existingSecretUserKey: ""
 
 # ---------------------------------------------------------------------------
-# Global upstream rate limiter (Phase 2 #3)
+# Global upstream rate limiter
 # ---------------------------------------------------------------------------
 #
 # Optional global token bucket against the Rivian GraphQL upstream,
@@ -442,7 +442,7 @@ maps:
 # The default upstream is Mapzen on AWS Open Data
 # (s3.amazonaws.com/elevation-tiles-prod/terrarium/...). That works
 # but leaks per-tile coordinates off-LAN — counter to the rest of
-# Phase 2 self-hosting. Two ways to keep tile traffic in-cluster:
+# the rest of the self-hosting story. Two ways to keep tile traffic in-cluster:
 #
 #   1. `tilesUrl` -> a self-hosted Terrarium mirror (e.g. an
 #      unprivileged-nginx Deployment serving a pre-built tile dump

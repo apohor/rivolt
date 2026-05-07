@@ -121,12 +121,11 @@ export function DriveTimeline({
   );
 
   // cursorSample lives BEFORE the empty-samples early return so all
-  // hooks fire in the same order on every render. Same Rules-of-Hooks
-  // class of bug as v0.17.72/v0.17.77 — even though the parent guards
-  // driveSamples > 0 so this branch never fires in practice today,
-  // the linter (correctly) sees the structural violation and flags
-  // it, and a future caller passing empty samples would trigger it
-  // at runtime.
+  // hooks fire in the same order on every render — Rules-of-Hooks.
+  // Even though the parent guards driveSamples > 0 so this branch
+  // never fires in practice today, the linter (correctly) sees the
+  // structural violation and flags it, and a future caller passing
+  // empty samples would trigger it at runtime.
   const cursorSample = useMemo(() => {
     if (cursorMs == null || samples.length === 0) return null;
     let best = samples[0];

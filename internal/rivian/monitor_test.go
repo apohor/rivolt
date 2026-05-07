@@ -8,7 +8,8 @@ import (
 // TestParseGNSSFixTime: empty/garbage GPS timestamp returns the zero
 // time so callers can distinguish "no fix" from "fix at unix epoch".
 // parseTimeOrNow's old behavior of substituting time.Now() for empty
-// input was the v0.17.6 fragmentation incident.
+// input fragmented trips into 3-min stubs whenever a frame carried
+// a stale GNSS timestamp.
 func TestParseGNSSFixTime(t *testing.T) {
 	if got := parseGNSSFixTime(""); !got.IsZero() {
 		t.Errorf("empty input must return zero time, got %v", got)

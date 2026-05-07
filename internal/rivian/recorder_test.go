@@ -154,8 +154,8 @@ func TestHandleChargeLifecycle_NormalFrameKeepsSession(t *testing.T) {
 // + plugged) so handleChargeLifecycle stays on the ongoing branch
 // and we can read s.charge.endSoC, then do a separate close pass.
 // The close branch's job is to forward those same mutations when
-// the *first* post-gap frame is already terminal — which is what
-// the v0.17.5 fix added.
+// the *first* post-gap frame is already terminal — what this test
+// pins down.
 func TestHandleChargeLifecycle_CloseUsesLatestFrameSoC(t *testing.T) {
 	m := NewStateMonitor(nil, nil)
 	s := &liveSessions{}
@@ -201,11 +201,11 @@ func TestHandleChargeLifecycle_CloseUsesLatestFrameSoC(t *testing.T) {
 	}
 }
 
-// TestHandleDriveLifecycle_StaleClockDoesNotFragment reproduces the
-// 2026-05-03 weekend incident: a single 90-min drive produced 60+
-// drive rows because Rivian's WS deltas alternate between including
-// a GNSSLocation block (carrying a stale 38h-old GPS fix timestamp,
-// which pre-v0.17.6 was assigned to State.At) and omitting it (in
+// TestHandleDriveLifecycle_StaleClockDoesNotFragment reproduces a
+// past incident: a single 90-min drive produced 60+ drive rows
+// because Rivian's WS deltas alternate between including a
+// GNSSLocation block (carrying a stale 38h-old GPS fix timestamp,
+// which earlier code assigned to State.At) and omitting it (in
 // which case parseTimeOrNow returned time.Now). Each fresh-At frame
 // after a stale-At frame saw curr.At - s.drive.endAt > 30min and
 // triggered the "closing stale live drive" path, fragmenting the
@@ -226,12 +226,12 @@ func TestHandleDriveLifecycle_StaleClockDoesNotFragment(t *testing.T) {
 
 	// Simulate 30 frames of an actual drive, alternating fresh wall
 	// clock (each 3 min later) with frames carrying a GPS fix from
-	// 38h ago (the v0.17.6 root cause).
+	// 38h ago (the past root cause).
 	staleGPS := t0.Add(-38 * time.Hour)
 	for i := 1; i <= 30; i++ {
 		var at time.Time
 		if i%2 == 0 {
-			at = staleGPS // would have regressed endAt pre-v0.17.6
+			at = staleGPS // would have regressed endAt under earlier code
 		} else {
 			at = t0.Add(time.Duration(i) * 3 * time.Minute)
 		}

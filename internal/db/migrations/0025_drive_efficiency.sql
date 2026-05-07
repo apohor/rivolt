@@ -27,8 +27,8 @@
 --
 -- RLS: not enabled on this table for the same reason 0020_drive_recaps
 -- skipped it -- the app role currently bypasses RLS (see 0008's
--- "dormant suspenders" note). Phase 2 will enable RLS on every
--- user-scoped table at once and this row will be picked up there.
+-- "dormant suspenders" note). When RLS is enabled across every
+-- user-scoped table, this row will be picked up at the same time.
 
 CREATE TABLE IF NOT EXISTS drive_efficiency (
     user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

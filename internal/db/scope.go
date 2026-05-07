@@ -5,12 +5,11 @@
 // rows are visible; this helper is the seam where an operator's
 // per-request pinning would live.
 //
-// In Phase 1 the app connects as the DB owner and therefore
-// BYPASSRLS is implicit — so calling `WithUserScope` is optional
-// and serves as documentation. In Phase 2, the app role is split
-// from the owner, at which point every request-handling code path
-// must funnel through `WithUserScope` or the RLS policies will
-// return empty result sets.
+// While the app connects as the DB owner BYPASSRLS is implicit —
+// so calling `WithUserScope` is optional and serves as
+// documentation. Once the app role is split from the owner, every
+// request-handling code path must funnel through `WithUserScope`
+// or the RLS policies will return empty result sets.
 //
 // Design notes:
 //
@@ -41,7 +40,7 @@ import (
 
 // DBTX is the subset of *sql.DB / *sql.Tx / *sql.Conn that every
 // store uses. Having a named interface lets callers pass either
-// the pool (Phase 1) or a scoped tx (Phase 2) without API churn.
+// the pool or a scoped tx without API churn.
 type DBTX interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)

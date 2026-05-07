@@ -415,10 +415,11 @@ func runServer() {
 	// subscriber proceeds straight into Subscribe, no UI traffic
 	// is required to "wake up" recording.
 	//
-	// Fix for the v0.17.12 missed-drive incident: shared
-	// LiveClient + lazy hydrate via rivianHydrateMW meant pod
-	// restarts silently disabled telemetry until someone opened
-	// the SPA.
+	// Pre-warm to avoid the missed-drive class of bug: a shared
+	// LiveClient that lazy-hydrates via rivianHydrateMW silently
+	// disables telemetry across pod restarts until someone opens
+	// the SPA. Eagerly subscribing here keeps the data plane
+	// running regardless of UI traffic.
 	if os.Getenv("RIVIAN_CLIENT") != "stub" && os.Getenv("RIVIAN_CLIENT") != "mock" {
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
@@ -507,9 +508,9 @@ func runServer() {
 			logger,
 			func(qctx context.Context) ([]string, error) {
 				// Skip the legacy electrafi-<hash> synthetic vehicle
-				// rows that the pre-v0.17.21 importer used to create.
-				// They aren't real Rivian VINs, so leasing them only
-				// burns subscription slots on dead WS streams.
+				// rows left over from earlier importers. They aren't
+				// real Rivian VINs, so leasing them only burns
+				// subscription slots on dead WS streams.
 				return leases.QueryStringColumn(qctx, pgPool,
 					`SELECT DISTINCT rivian_vehicle_id FROM vehicles
 					   WHERE rivian_vehicle_id <> ''
@@ -584,8 +585,8 @@ func runServer() {
 	// and a forged header from any client is ignored.
 	//
 	// RIVOLT_SECURE_COOKIE defaults to true; set to "false" for pure
-	// http:// homelab deployments where the browser will otherwise
-	// refuse to store the session cookie.
+	// http:// deployments where the browser would otherwise refuse
+	// to store the session cookie.
 	//
 	// RIVOLT_AUTH_BYPASS_USER, when set, makes every unauthenticated
 	// request resolve to the named user. Local-dev only — it's the
@@ -746,9 +747,9 @@ func runServer() {
 	}
 
 	// OIDC: third issuer alongside static creds + trusted-proxy
-	// header. Disabled when RIVOLT_OIDC_PROVIDERS is empty so the
-	// homelab default ships zero behaviour change. When enabled
-	// it requires pgPool (we need EnsureUserFull and a sessions
+	// header. Disabled when RIVOLT_OIDC_PROVIDERS is empty so a
+	// fresh install ships zero behaviour change. When enabled it
+	// requires pgPool (we need EnsureUserFull and a sessions
 	// store) — emit a clear error rather than silently dropping.
 	var oidcSvc *oidc.Service
 	if provs, perr := oidc.ParseProvidersFromEnv(os.Getenv, os.Getenv("RIVOLT_BASE_URL")); perr != nil {
@@ -1112,9 +1113,8 @@ func loadOrCreateCookieSecret(path string) ([]byte, error) {
 	// the only caller is single-threaded boot. If two replicas race
 	// on a shared volume they'll each generate a secret and the
 	// loser's gets overwritten; sessions issued between the two
-	// boots stay valid under whichever key ultimately wins. Good
-	// enough for a homelab; a real HA story would use a config
-	// map / secret backend.
+	// boots stay valid under whichever key ultimately wins. A
+	// proper HA story would use a config map / secret backend.
 	if err := os.WriteFile(path, buf, 0o600); err != nil {
 		return nil, fmt.Errorf("persist secret: %w", err)
 	}

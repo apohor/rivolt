@@ -192,7 +192,7 @@ type Config struct {
 // failure, transient discovery error, invalid issuer URL) are
 // logged at WARN and retried in the background with exponential
 // backoff — the rest still come up. That's the right posture for
-// a homelab where Rivolt and its IdP (e.g. Hydra) might race at
+// a self-hosted deploy where Rivolt and its IdP (e.g. Hydra) might race at
 // boot: the provider becomes available without an operator restart
 // once discovery succeeds.
 func New(ctx context.Context, cfg Config) (*Service, error) {

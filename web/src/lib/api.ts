@@ -649,9 +649,8 @@ export const backend = {
   setChargingNetworks: (networks: ChargingNetwork[]) =>
     api.put<ChargingNetwork[]>("/api/settings/charging/networks", networks),
   // AI provider configuration is admin-only — the keys are install-
-  // wide and the operator pays the LLM bill. Routes were under
-  // /api/settings/ai before v0.17.17; they moved to /api/admin/* in
-  // v0.17.17 along with the requireAdminMW gate. Non-admins get a
+  // wide and the operator pays the LLM bill. Routes live under
+  // /api/admin/* behind the requireAdminMW gate. Non-admins get a
   // 403 from these calls; the SPA hides the /admin route behind
   // me().role === "admin" so they don't even render the buttons.
   getAISettings: () => api.get<AISettings>("/api/admin/settings/ai"),

@@ -19,7 +19,7 @@
 // # Source
 //
 // Open-Meteo (https://open-meteo.com/) free archive endpoint. No API
-// key required, no quota issues at homelab volume. ERA5 reanalysis
+// key required, no quota issues at single-tenant volume. ERA5 reanalysis
 // ~9 km grid, hourly back to 1940. We pull a single hour (the trip
 // start hour, UTC truncated) and lift the closest reading.
 package weather

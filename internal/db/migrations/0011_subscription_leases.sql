@@ -1,7 +1,7 @@
 -- 0011_subscription_leases.sql — per-vehicle ownership leases for
 -- multi-replica steady state.
 --
--- Rationale (ARCHITECTURE decision 5, ROADMAP Phase 2 N>1):
+-- Rationale (ARCHITECTURE decision 5, multi-replica steady state):
 --
 -- Today the binary calls `EnsureSubscribed(vehicleID)` for every
 -- known vehicle at startup. With one replica that's correct. With

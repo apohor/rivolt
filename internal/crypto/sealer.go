@@ -1,8 +1,7 @@
 // Package crypto is Rivolt's in-process key-wrapping layer. It
 // exists so the rest of the codebase can say "seal this blob" and
 // "open this blob" without caring whether the key-encryption key
-// (KEK) sits in an env var (phase 1 / 2) or in a cloud KMS
-// (phase 3).
+// (KEK) sits in an env var or a cloud KMS.
 //
 // # Design
 //
@@ -20,7 +19,7 @@
 //   - **KEK rotation is cheap.** Rotating the KEK only re-wraps
 //     the per-row DEKs; the payload ciphertexts don't have to be
 //     re-encrypted.
-//   - **Phase-3 KMS stays affordable.** A per-request
+//   - **KMS-backed sealing stays affordable.** A per-request
 //     kms:Encrypt/Decrypt for a ~32-byte DEK is the canonical
 //     KMS usage pattern; encrypting whole session payloads via
 //     KMS would blow through the request/s quota and add 20-50ms
@@ -41,8 +40,8 @@
 //     threat model here is database-at-rest (DB dump, offsite
 //     backup, compromised replica).
 //   - It does not store the KEK. That's delivered by the
-//     environment (env var in phase 1/2, KMS in phase 3) and
-//     swapped in via the Sealer implementation.
+//     environment (env var or KMS) and swapped in via the
+//     Sealer implementation.
 package crypto
 
 import (

@@ -13,7 +13,7 @@
 // We don't use pg_partman: one PL/pgSQL function + one goroutine
 // here is simpler to ship and easier for self-hosters to audit
 // than an extension dependency. If partition management ever grows
-// a retention story, graduate to pg_partman in phase 3.
+// a retention story, graduate to pg_partman.
 
 package samples
 

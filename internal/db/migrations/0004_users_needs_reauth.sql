@@ -1,6 +1,6 @@
 -- 0004_users_needs_reauth.sql — per-user Rivian re-auth gate.
 --
--- Rationale (ARCHITECTURE decision 8 + ROADMAP Phase 1):
+-- Rationale (ARCHITECTURE decision 8):
 --
 --   When Rivian's gateway returns a user-action error class
 --   (credentials rejected, MFA required mid-session, account

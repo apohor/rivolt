@@ -58,7 +58,7 @@ type State struct {
 	// At is wall-clock time when this snapshot was assembled by the
 	// recorder (REST or WS receive time). Always monotonic with the
 	// process clock. Use LocationFixAt for the actual GPS-fix age.
-	// Pre-v0.17.6 this was sourced from GNSSLocation.TimeStamp which
+	// Earlier code sourced this from GNSSLocation.TimeStamp which
 	// could be hours stale (parking garage, sleeping car) and caused
 	// drive/charge sessions to fragment because lifecycle gap checks
 	// saw spurious 38h "gaps".

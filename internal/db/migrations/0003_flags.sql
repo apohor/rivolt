@@ -1,6 +1,6 @@
 -- 0003_flags.sql — global operational flags.
 --
--- Rationale (ARCHITECTURE.md decision 6, ROADMAP Phase 1):
+-- Rationale (ARCHITECTURE.md decision 6):
 --
 --   1. Kill switch. When Rivian's gateway starts rate-limiting us,
 --      when we detect an incident, or when we deliberately want to

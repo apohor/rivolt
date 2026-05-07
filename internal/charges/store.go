@@ -25,10 +25,11 @@ import (
 //   - charger_disconnected      (cable pulled)
 //   - abandoned                 (recorder janitor closure)
 //
-// v0.17.7 incident: a brief charging_user_stopped frame between two
-// physical sessions was being treated as open, so the next
-// charging_active frame reattached to the just-closed row and
-// absorbed every subsequent drive + charge into one absorber row.
+// Past incident the whitelist guards against: a brief
+// charging_user_stopped frame between two physical sessions was
+// being treated as open, so the next charging_active frame
+// reattached to the just-closed row and absorbed every subsequent
+// drive + charge into one absorber row.
 var openLiveFinalStates = []string{
 	"charging_active",
 	"charging_ready",
@@ -287,10 +288,12 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		  -- a session". Anything else (charging_user_stopped,
 		  -- charging_station_stopped, charging_complete, charging_station_err,
 		  -- abandoned, charger_disconnected, blank) is terminal and must NOT
-		  -- be resumed. v0.17.7 incident: a brief charging_user_stopped frame
-		  -- between two physical sessions was being treated as open here, so
-		  -- the next charging_active frame reattached to the just-closed row
-		  -- and absorbed every subsequent drive + charge into one absorber.
+		  -- be resumed. Past bug this guards against: a brief
+		  -- charging_user_stopped frame between two physical sessions
+		  -- was being treated as open here, so the next
+		  -- charging_active frame reattached to the just-closed row
+		  -- and absorbed every subsequent drive + charge into one
+		  -- absorber.
 		  AND c.final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')
 		ORDER BY c.started_at DESC
 		LIMIT 1`, s.userID, rivianVehicleID, vid)
@@ -327,7 +330,7 @@ func (s *Store) CloseStaleOpenLive(ctx context.Context, rivianVehicleID, keepID 
 		WHERE user_id = $1 AND vehicle_id = $2
 		  AND source = 'live'
 		  AND external_id <> $3
-		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  -- Same whitelist as LatestOpenLive.
 		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, vid, keepID)
 	if err != nil {
@@ -349,7 +352,7 @@ func (s *Store) CloseStaleOpenLiveBefore(ctx context.Context, before time.Time) 
 		WHERE user_id = $1
 		  AND source = 'live'
 		  AND ended_at < $2
-		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  -- Same whitelist as LatestOpenLive.
 		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, before.UTC())
 	if err != nil {
@@ -386,7 +389,7 @@ func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]Stal
 		WHERE c.user_id = $1
 		  AND c.source = 'live'
 		  AND c.ended_at < $2
-		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  -- Same whitelist as LatestOpenLive.
 		  AND c.final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, before.UTC())
 	if err != nil {
@@ -421,7 +424,7 @@ func (s *Store) RefreshOpenLive(ctx context.Context, externalID, finalState stri
 		WHERE user_id = $1
 		  AND external_id = $2
 		  AND source = 'live'
-		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  -- Same whitelist as LatestOpenLive.
 		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, externalID, finalState)
 	if err != nil {
@@ -444,7 +447,7 @@ func (s *Store) AbandonOpenLive(ctx context.Context, externalID string) (int, er
 		WHERE user_id = $1
 		  AND external_id = $2
 		  AND source = 'live'
-		  -- Same whitelist as LatestOpenLive (v0.17.7).
+		  -- Same whitelist as LatestOpenLive.
 		  AND final_state IN ('charging_active','charging_ready','charging_connecting','waiting_on_charger')`,
 		s.userID, externalID)
 	if err != nil {

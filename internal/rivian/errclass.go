@@ -11,16 +11,16 @@ import (
 // ErrorClass buckets every upstream failure into one of five
 // categories. The classes drive very different downstream
 // reactions: a Transient error should be retried with backoff; an
-// Outage should be circuit-broken (phase 2); RateLimited should
-// back off globally; UserAction should raise the per-user
-// needs_reauth flag and stop retrying for that user; Unknown is
-// treated as Transient-with-a-logged-warning.
+// Outage should be circuit-broken; RateLimited should back off
+// globally; UserAction should raise the per-user needs_reauth flag
+// and stop retrying for that user; Unknown is treated as
+// Transient-with-a-logged-warning.
 //
 // This enum is the single biggest determinant of support load at
-// scale, per ROADMAP phase 1. Misclassifying UserAction as
-// Transient means retrying a bad-password response until Rivian
-// locks the account; misclassifying RateLimited as Transient
-// means a reconnect storm that makes the throttle worse.
+// scale. Misclassifying UserAction as Transient means retrying a
+// bad-password response until Rivian locks the account;
+// misclassifying RateLimited as Transient means a reconnect storm
+// that makes the throttle worse.
 type ErrorClass int
 
 const (
@@ -36,14 +36,13 @@ const (
 	ClassTransient
 
 	// ClassOutage is sustained 5xx, DNS failure, connection
-	// refused. Distinct from Transient only in degree; in phase
-	// 2 the circuit breaker trips on repeated Outage within a
-	// window.
+	// refused. Distinct from Transient only in degree; the
+	// circuit breaker trips on repeated Outage within a window.
 	ClassOutage
 
 	// ClassRateLimited is 429 or a GraphQL error whose extension
 	// code / message names a rate limit. Must never be retried
-	// without honoring a global Redis token bucket (phase 2).
+	// without honoring a global Redis token bucket.
 	ClassRateLimited
 
 	// ClassUserAction means the user has to do something before

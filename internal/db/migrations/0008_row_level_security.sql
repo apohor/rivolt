@@ -1,17 +1,16 @@
 -- 0008_row_level_security.sql
 --
--- Installs row-level-security policies on every user-scoped table.
--- Closes Phase-1 roadmap item "Row-level security on every
--- user-scoped table" with a staged rollout:
+-- Installs row-level-security policies on every user-scoped table
+-- as a staged rollout:
 --
---   phase 1 (this migration): ENABLE ROW LEVEL SECURITY.
+--   stage 1 (this migration): ENABLE ROW LEVEL SECURITY.
 --     Policies exist and are enforced for any role that isn't the
 --     table owner / not BYPASSRLS. The app still connects as the
 --     DB owner today, so the effective behaviour is unchanged —
 --     app-level `user_id` predicates remain the sole filter. The
 --     policies are dormant-but-ready suspenders.
 --
---   phase 2 (future): split the app role, drop BYPASSRLS, set
+--   stage 2 (future): split the app role, drop BYPASSRLS, set
 --     `app.user_id` per connection. Policies activate with zero
 --     schema churn.
 --
@@ -19,8 +18,8 @@
 -- looks up `users` BEFORE it knows which user is authenticating,
 -- and the sessions lookup in `Middleware` runs before we can set
 -- `app.user_id`. Enforcing both against a dormant setting would
--- brick login on first deploy. Phase 2 ships alongside the
--- request-scoped connection pinning that sets the GUC *before*
+-- brick login on first deploy. The role-split work ships alongside
+-- the request-scoped connection pinning that sets the GUC *before*
 -- the first query.
 --
 -- # Policy shape
@@ -96,8 +95,8 @@ END $$;
 
 -- NOTE: FORCE ROW LEVEL SECURITY is deliberately NOT set here.
 -- That means the table owner (the DB role the app connects as
--- today) bypasses the policies. Once phase 2 ships the app-role
--- split, a follow-up migration will:
+-- today) bypasses the policies. Once the app-role split ships,
+-- a follow-up migration will:
 --
 --   ALTER TABLE <each> FORCE ROW LEVEL SECURITY;
 --   REVOKE BYPASSRLS FROM rivolt_app;

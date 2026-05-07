@@ -276,7 +276,7 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 // ListAll returns every sample for this user, oldest first. Used by
 // the Settings → Backup endpoint. Unbounded — a year of 60 s polls
 // is on the order of 500k rows, ~100 MB JSON; acceptable for a
-// homelab backup but NOT suitable for UI consumption.
+// full backup but NOT suitable for UI consumption.
 func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.rivian_vehicle_id, vs.at,

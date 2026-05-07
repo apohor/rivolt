@@ -53,8 +53,8 @@ FOR EACH ROW
 EXECUTE FUNCTION users_bootstrap_admin();
 
 -- Backfill: if there's already at least one user and no admin,
--- promote the oldest user. This is the install-upgrade path
--- (we already shipped multi-user without admin in v0.17.15).
+-- promote the oldest user. This is the install-upgrade path for
+-- pre-existing multi-user installs that predate the admin role.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')

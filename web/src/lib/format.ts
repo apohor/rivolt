@@ -107,10 +107,10 @@ export function isActiveCharge(c: { FinalState: string; Source?: string }): bool
   return s !== "charging_complete" && s !== "charging_station_err";
 }
 
-// maxFixAgeSeconds removed in v0.17.75 alongside the staleness badge
-// on ChargeMap. The badge fired routinely on parked vehicles (the
-// modem stops urgently re-fixing when there's no movement) without
-// telling the user anything actionable. The drive-side staleness
-// signal lives in DriveDetailPage's "Low GPS accuracy" header pill,
-// which checks fix freshness AND sample-to-sample distance jumps —
-// a stricter test than any single max-fix-age value.
+// The earlier ChargeMap staleness badge has been removed: it fired
+// routinely on parked vehicles (the modem stops urgently re-fixing
+// when there's no movement) without telling the user anything
+// actionable. The drive-side staleness signal lives in
+// DriveDetailPage's "Low GPS accuracy" header pill, which checks
+// fix freshness AND sample-to-sample distance jumps — a stricter
+// test than any single max-fix-age value.

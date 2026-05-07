@@ -7,7 +7,7 @@
 -- terminal frames like charging_user_stopped and
 -- charging_station_stopped as still-open, so resumeOpenCharge would
 -- reattach to the just-closed row and absorb every subsequent
--- physical session into one absorber row. See v0.17.7 incident.
+-- physical session into one absorber row.
 --
 -- The store-side queries (LatestOpenLive, CloseStaleOpenLive,
 -- CloseStaleOpenLiveBefore, ListStaleOpenLive, RefreshOpenLive,

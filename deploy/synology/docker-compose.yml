@@ -54,7 +54,7 @@ services:
       RIVOLT_KEK: "v1:REPLACE_WITH_OUTPUT_OF_openssl_rand_base64_32"
       # RIVOLT_KEK_ROTATION: "v0:..."  # optional, comma-separated old keys
 
-      # Optional: OIDC sign-in (Phase 2 — Identity).
+      # Optional: OIDC sign-in.
       # When enabled, Rivolt mounts /api/auth/oidc/{name}/{start,callback}
       # and the SPA renders a "Continue with X" button per provider on
       # /login. Username/password login keeps working alongside it.

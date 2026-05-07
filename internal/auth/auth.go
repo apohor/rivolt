@@ -387,8 +387,8 @@ func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
 // request's RemoteAddr is inside a TrustedProxyCIDR *and* the
 // header is present. This is deliberate:
 //
-//   - Homelab install has an empty CIDR list → header check is a
-//     no-op, cookie-only, zero footgun.
+//   - Single-tenant install has an empty CIDR list → header check
+//     is a no-op, cookie-only, zero footgun.
 //   - K8s install behind oauth2-proxy sets the pod-network CIDR →
 //     header wins, and a forged header from outside the allowed
 //     network falls back to the cookie path (which fails open to

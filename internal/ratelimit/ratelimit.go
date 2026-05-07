@@ -80,7 +80,7 @@ type Config struct {
 }
 
 // DefaultConfig returns sane defaults sized for a single-region
-// homelab against Rivian's gateway. Tuned conservatively — the
+// deployment against Rivian's gateway. Tuned conservatively — the
 // breaker still trips on bursts that exceed these.
 func DefaultConfig() Config {
 	return Config{

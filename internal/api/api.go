@@ -77,9 +77,9 @@ type Deps struct {
 	Push     *push.Factory
 	// SettingsMgr exposes install-wide AI provider config (keys,
 	// default models). Install-wide because the deployer pays the
-	// LLM bill for every user. v0.17.15 leaves this nil; the
-	// admin track will repopulate it from app_settings and gate
-	// the handlers behind requireAdmin.
+	// LLM bill for every user. May be nil; the admin track
+	// repopulates it from app_settings and gates the handlers
+	// behind requireAdmin.
 	SettingsMgr *settings.Manager
 	// Auth, when non-nil, gates /api/* behind a session cookie
 	// or trusted-proxy header. Whether unauthenticated requests
@@ -2166,8 +2166,6 @@ func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uu
 	}
 	return snap, nil
 }
-
-// loadCachedRecap removed in v0.17.64 with drive recap feature
 
 // handleDriveWeatherGet returns the persisted weather snapshot for
 // (uid, driveID), or 404 when no row exists. Lightweight read off

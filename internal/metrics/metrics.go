@@ -45,8 +45,8 @@ type Metrics struct {
 	// stays bounded.
 	RivianResultsTotal *prometheus.CounterVec
 
-	// Subscription leases owned by this pod. Phase 2 lease work
-	// will increment/decrement these as it claims/releases.
+	// Subscription leases owned by this pod. The lease layer
+	// increments/decrements as it claims and releases.
 	SubscriptionLeases prometheus.Gauge
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge

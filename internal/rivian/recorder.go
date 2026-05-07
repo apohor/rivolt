@@ -318,13 +318,12 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 	// a fresh drive — close the old in-memory session so we don't
 	// straddle two real drives.
 	//
-	// Gate on a strictly-forward clock delta: pre-v0.17.6 State.At
-	// could regress when a frame carried a stale GNSS timestamp
-	// (parking garage etc.), making this check fire 60+ times during
-	// one weekend's driving and fragmenting trips into 3-min stubs.
-	// State.At is now wall-clock so this should always be ≥0, but a
-	// defensive gap > 0 guard keeps us safe against future
-	// regressions and any out-of-order frame ordering bugs.
+	// Gate on a strictly-forward clock delta. State.At is now
+	// wall-clock so this should always be ≥0, but a defensive
+	// gap > 0 guard keeps us safe against future regressions
+	// (a regressed clock used to fragment trips into 3-min
+	// stubs whenever a frame carried a stale GNSS timestamp)
+	// and any out-of-order frame ordering bugs.
 	if driving && s.drive != nil {
 		gap := curr.At.Sub(s.drive.endAt)
 		if gap > liveDriveMaxGap {
@@ -374,7 +373,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		// endAt is monotonic-forward only. A regressed clock from
 		// any source must not pull the row's "ended_at" backwards
-		// (drove the v0.17.6 negative-duration rows on 2026-05-03).
+		// — that path produced negative-duration rows in the past.
 		if curr.At.After(s.drive.endAt) {
 			s.drive.endAt = curr.At
 		}
@@ -504,8 +503,8 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
-		// endAt is monotonic-forward only — see drive lifecycle for
-		// the v0.17.6 incident this guard prevents.
+		// endAt is monotonic-forward only — see the drive-lifecycle
+		// branch above for the regressed-clock class this guards.
 		if curr.At.After(s.charge.endAt) {
 			s.charge.endAt = curr.At
 		}
@@ -526,7 +525,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// reflects the SoC from when the WS died, not the actual
 		// final state. Mirrors the "charge ongoing" branch above.
 		// endAt is monotonic-forward to defend against any
-		// regressed-clock close frame (see v0.17.6 incident).
+		// regressed-clock close frame.
 		if curr.At.After(s.charge.endAt) {
 			s.charge.endAt = curr.At
 		}

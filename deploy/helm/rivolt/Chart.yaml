@@ -5,8 +5,8 @@ description: |
   CloudNativePG Cluster CR for in-cluster Postgres, ExternalSecret-friendly
   for cluster operators who already run Postgres elsewhere.
 type: application
-version: 0.8.100
-appVersion: "0.17.100"
+version: 0.8.101
+appVersion: "0.17.101"
 home: https://github.com/apohor/rivolt
 sources:
   - https://github.com/apohor/rivolt
@@ -23,8 +23,8 @@ keywords:
 #   1. CloudNativePG (`cnpg.enabled=true`). The chart renders a
 #      `Cluster` CR; the CNPG operator (installed separately, once
 #      per cluster) reconciles it into a real Postgres. Same shape
-#      for homelab (1 instance, local-path PVC) and production
-#      (3 instances + WAL archiving). Recommended.
+#      whether you run small (1 instance, local-path PVC) or
+#      production (3 instances + WAL archiving). Recommended.
 #
 #   2. External Postgres (`cnpg.enabled=false`, default). Set
 #      `externalDatabase.*` to point at any reachable Postgres —

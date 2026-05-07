@@ -36,7 +36,7 @@ func newTestService(t *testing.T, cidrs []string) *Service {
 	return s
 }
 
-// TestHeader_IgnoredWhenCIDRListEmpty covers the homelab default.
+// TestHeader_IgnoredWhenCIDRListEmpty covers the empty-list default.
 // No trusted CIDRs means a client pretending to be oauth2-proxy
 // must be ignored completely — otherwise anyone can send a header
 // and become anyone.
