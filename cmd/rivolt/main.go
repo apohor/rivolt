@@ -30,6 +30,7 @@ import (
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/authelia"
+	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/charges"
@@ -812,6 +813,23 @@ func runServer() {
 		logger.Error("kratos init", "err", err.Error())
 		os.Exit(1)
 	}
+	// Hydra admin client — drives the custom login + consent UI
+	// mounted at /api/auth/hydra. Disabled when HYDRA_ADMIN_URL is
+	// unset; the routes are then absent and downstream apps must
+	// federate against another provider (Authelia OIDC).
+	hydraClient, err := hydra.NewFromEnv()
+	if err != nil {
+		logger.Error("hydra init", "err", err.Error())
+		os.Exit(1)
+	}
+	if hydraClient.Enabled() && kratosClient.Enabled() {
+		logger.Info("hydra OIDC bridge enabled",
+			"admin", os.Getenv("HYDRA_ADMIN_URL"),
+			"kratos_public", os.Getenv("KRATOS_PUBLIC_URL"))
+	} else if hydraClient.Enabled() {
+		logger.Warn("hydra is configured but kratos public URL is missing — /auth/hydra/* will be disabled",
+			"hint", "set KRATOS_PUBLIC_URL alongside KRATOS_ADMIN_URL")
+	}
 	var userProvider idp.UserProvider
 	switch {
 	case kratosClient.Enabled():
@@ -884,6 +902,8 @@ func runServer() {
 		Invites:      inviteStore,
 		OSRMProxy:    osrmProxy,
 		TilesProxy:   tilesProxy,
+		Hydra:        hydraClient,
+		Kratos:       kratosClient,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

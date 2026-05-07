@@ -50,8 +50,14 @@ import (
 type Config struct {
 	// AdminURL is the Kratos admin API base, e.g.
 	// http://ory-kratos-admin.ory.svc:80. Required (and the only
-	// required field for in-cluster setups).
+	// required field for in-cluster identity-provisioning setups).
 	AdminURL string
+
+	// PublicURL is the Kratos public API base, e.g.
+	// http://ory-kratos-public.ory.svc:80. Optional; only needed
+	// when the caller uses LoginByPassword or Whoami (the Hydra
+	// custom login UI in internal/api/hydra.go does).
+	PublicURL string
 
 	// SchemaID is the identity schema to use; matches the id in
 	// kratos.config.identity.schemas[].id in the Helm values.
@@ -87,6 +93,7 @@ type Client struct {
 // Recognised env vars:
 //
 //	KRATOS_ADMIN_URL          — required to enable
+//	KRATOS_PUBLIC_URL         — optional; enables LoginByPassword/Whoami
 //	KRATOS_SCHEMA_ID          — defaults to "rivolt_user"
 //	KRATOS_TIMEOUT            — Go duration; default 10s
 //	KRATOS_GROUPS_ADMIN       — CSV; default "admins"
@@ -106,6 +113,7 @@ func NewFromEnv() (*Client, error) {
 	}
 	return New(Config{
 		AdminURL:    addr,
+		PublicURL:   strings.TrimSpace(os.Getenv("KRATOS_PUBLIC_URL")),
 		SchemaID:    envOr("KRATOS_SCHEMA_ID", "rivolt_user"),
 		Timeout:     timeout,
 		AdminGroups: splitCSV(envOr("KRATOS_GROUPS_ADMIN", "admins")),
@@ -120,6 +128,7 @@ func New(cfg Config) (*Client, error) {
 		return nil, errors.New("kratos: AdminURL is required")
 	}
 	cfg.AdminURL = strings.TrimRight(cfg.AdminURL, "/")
+	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	if cfg.SchemaID == "" {
 		cfg.SchemaID = "rivolt_user"
 	}

@@ -30,7 +30,9 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/invites"
+	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -95,6 +97,14 @@ type Deps struct {
 	// header. nil disables the social-login button row in the
 	// SPA but doesn't affect any other code path.
 	OIDC    *oidc.Service
+	// Hydra, when non-nil along with Kratos, mounts the custom
+	// login + consent handlers under /api/auth/hydra. This makes
+	// Rivolt the bring-your-own-UI for an Ory Hydra OAuth2 / OIDC
+	// provider — downstream apps (ArgoCD, Grafana, etc.) federate
+	// against Hydra and Hydra calls back into us for the user-
+	// facing login prompt.
+	Hydra  *hydra.Client
+	Kratos *kratos.Client
 	WebFS   fs.FS
 	Version string
 	// DB is the shared Postgres pool. Used by request middleware
@@ -233,6 +243,20 @@ func New(d Deps) http.Handler {
 				r.Get("/me", handleMeEnriched(d.Auth, d.DB))
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
+				}
+				// Hydra OIDC bridge: Rivolt is the login + consent UI
+				// for our Ory Hydra OAuth2 server. Both Hydra (admin
+				// API) and Kratos (public auth API) must be wired
+				// for this to be useful. Mounting just one would
+				// leave a half-broken flow, so guard on both.
+				if d.Hydra != nil && d.Hydra.Enabled() &&
+					d.Kratos != nil && d.Kratos.Enabled() {
+					hd := hydraDeps{Hydra: d.Hydra, Kratos: d.Kratos, Logger: d.Logger}
+					r.Route("/hydra", func(r chi.Router) {
+						r.Get("/login", hydraLoginGET(hd))
+						r.Post("/login", hydraLoginPOST(hd))
+						r.Get("/consent", hydraConsentGET(hd))
+					})
 				}
 			})
 		}
