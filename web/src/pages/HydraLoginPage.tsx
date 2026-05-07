@@ -23,6 +23,14 @@ type LoginMeta = {
   login_hint?: string;
 };
 
+// Hydra "skip" responses bypass the form: a remembered prior login
+// means we accepted server-side and the SPA just navigates onward.
+function isSkip(
+  r: { skip?: boolean; redirect_to?: string },
+): r is { skip: true; redirect_to: string } {
+  return r.skip === true && typeof r.redirect_to === "string" && r.redirect_to.length > 0;
+}
+
 export default function HydraLoginPage() {
   const [params] = useSearchParams();
   const challenge = params.get("login_challenge") ?? "";
@@ -44,7 +52,21 @@ export default function HydraLoginPage() {
       .hydraLoginGet(challenge)
       .then((m) => {
         if (cancelled) return;
-        setMeta(m);
+        if (isSkip(m)) {
+          window.location.assign(m.redirect_to);
+          return;
+        }
+        if (!m.challenge || !m.client_id) {
+          setMetaError("Login challenge response was malformed.");
+          return;
+        }
+        setMeta({
+          challenge: m.challenge,
+          client_id: m.client_id,
+          client_name: m.client_name ?? m.client_id,
+          requested_scope: m.requested_scope ?? [],
+          login_hint: m.login_hint,
+        });
         if (m.login_hint) setEmail(m.login_hint);
       })
       .catch((e: unknown) => {

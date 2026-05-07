@@ -567,10 +567,15 @@ export const backend = {
   // scopes it wants, and whether a login_hint was provided.
   hydraLoginGet: (challenge: string) =>
     api.get<{
-      challenge: string;
-      client_id: string;
-      client_name: string;
-      requested_scope: string[];
+      // skip=true means Hydra remembered a prior login; we accepted
+      // server-side and the SPA must navigate to redirect_to without
+      // rendering a form.
+      skip?: boolean;
+      redirect_to?: string;
+      challenge?: string;
+      client_id?: string;
+      client_name?: string;
+      requested_scope?: string[];
       login_hint?: string;
     }>(`/api/auth/hydra/login?login_challenge=${encodeURIComponent(challenge)}`),
   // hydraLoginPost authenticates the user against Kratos via

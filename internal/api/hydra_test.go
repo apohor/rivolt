@@ -49,7 +49,9 @@ func discardLogger() *slog.Logger {
 }
 
 // TestHydraLoginGET_skip exercises the "Hydra already trusts this
-// session" path: GET returns a 302 to redirect_to without prompting.
+// session" path. Returns JSON {skip, redirect_to} so the SPA's XHR
+// fetch can navigate the browser instead of silently following a
+// redirect into Hydra's HTML.
 func TestHydraLoginGET_skip(t *testing.T) {
 	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -65,11 +67,15 @@ func TestHydraLoginGET_skip(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/login?login_challenge=c", nil)
 	hydraLoginGET(d).ServeHTTP(rr, req)
-	if rr.Code != http.StatusFound {
-		t.Fatalf("status = %d want 302; body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200; body=%s", rr.Code, rr.Body.String())
 	}
-	if got := rr.Header().Get("Location"); got != "https://hydra/cb" {
-		t.Errorf("Location = %q", got)
+	var got hydraLoginGetResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Skip || got.RedirectTo != "https://hydra/cb" {
+		t.Errorf("response: %+v", got)
 	}
 }
 

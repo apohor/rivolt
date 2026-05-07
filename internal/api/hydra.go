@@ -20,17 +20,22 @@ type hydraDeps struct {
 	Logger *slog.Logger
 }
 
-// hydraLoginGET handles GET /api/auth/hydra/login?login_challenge=…
+// hydraLoginGET handles GET /api/auth/hydra/login?login_challenge=….
+// Always returns JSON — this endpoint is fetched by the SPA via XHR,
+// not visited by the browser, so a 302 here would be silently
+// swallowed by `fetch(redirect: 'follow')` and end with the SPA
+// trying to JSON-parse Hydra's HTML auth page.
 //
-// Two outcomes:
+// Two shapes:
 //
-//	skip=true → POST our accept immediately, 302 to redirect_to.
-//	         (Hydra has already authenticated the user via a prior
-//	          session; we just need to confirm the subject.)
+//	skip=true  → {"skip": true, "redirect_to": "…"}.  The SPA
+//	             does window.location.assign(redirect_to) without
+//	             rendering a form.  Used when Hydra remembered a
+//	             prior login and just needs us to confirm the
+//	             subject.
 //
-//	skip=false → return JSON with the challenge id, client name,
-//	         and requested scopes so the SPA login page can render
-//	         a password prompt that POSTs back to us.
+//	skip=false → {"challenge": "…", "client_id": "…", …}.  The
+//	             SPA renders a password prompt and POSTs back.
 func hydraLoginGET(d hydraDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d.Hydra == nil || !d.Hydra.Enabled() {
@@ -60,7 +65,10 @@ func hydraLoginGET(d hydraDeps) http.HandlerFunc {
 				http.Error(w, "hydra accept failed", http.StatusBadGateway)
 				return
 			}
-			http.Redirect(w, r, redirect.RedirectTo, http.StatusFound)
+			writeJSON(w, http.StatusOK, hydraLoginGetResponse{
+				Skip:       true,
+				RedirectTo: redirect.RedirectTo,
+			})
 			return
 		}
 		// Not skipped. The SPA renders the form; we hand back enough
@@ -78,12 +86,16 @@ func hydraLoginGET(d hydraDeps) http.HandlerFunc {
 	}
 }
 
-// hydraLoginGetResponse is the JSON the SPA renders into a form.
+// hydraLoginGetResponse is the JSON the SPA reads to decide whether
+// to render the form or to skip straight to redirect_to. Exactly one
+// of {Skip, Challenge} is meaningful per response.
 type hydraLoginGetResponse struct {
-	Challenge      string   `json:"challenge"`
-	ClientID       string   `json:"client_id"`
-	ClientName     string   `json:"client_name"`
-	RequestedScope []string `json:"requested_scope"`
+	Skip           bool     `json:"skip,omitempty"`
+	RedirectTo     string   `json:"redirect_to,omitempty"`
+	Challenge      string   `json:"challenge,omitempty"`
+	ClientID       string   `json:"client_id,omitempty"`
+	ClientName     string   `json:"client_name,omitempty"`
+	RequestedScope []string `json:"requested_scope,omitempty"`
 	LoginHint      string   `json:"login_hint,omitempty"`
 }
 
