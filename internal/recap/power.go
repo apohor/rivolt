@@ -336,7 +336,12 @@ func DriveModeShares(ss []samples.Sample) []DriveModeShare {
 	}
 	out := make([]DriveModeShare, 0, len(totals))
 	for k, v := range totals {
-		out = append(out, DriveModeShare{Mode: k, Pct: v / total * 100})
+		// Humanize wire values ("distance" → "Conserve", etc.) so the
+		// share line in the LLM recap prompt uses the same vocabulary
+		// the SPA shows. Without this, the recap prompt's instruction
+		// to "recommend Conserve only if All-Purpose was used" never
+		// lines up with the data line, which says "distance".
+		out = append(out, DriveModeShare{Mode: humanizeDriveMode(k), Pct: v / total * 100})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Pct > out[j].Pct })
 	return out

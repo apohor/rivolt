@@ -453,7 +453,7 @@ func summarizeDriveModes(ss []samples.Sample) string {
 	seen := make(map[string]struct{})
 	out := []string{}
 	for _, s := range ss {
-		m := strings.TrimSpace(strings.ToLower(s.DriveMode))
+		m := humanizeDriveMode(s.DriveMode)
 		if m == "" {
 			continue
 		}

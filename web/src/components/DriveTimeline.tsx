@@ -1432,12 +1432,16 @@ function buildModeSegments(
 function classifyMode(s: Sample): Mode {
   const raw = (s.drive_mode || "").trim().toLowerCase();
   if (raw) {
-    if (raw.includes("sport") || raw.includes("launch")) return "Sport";
-    if (raw.includes("conserve") || raw.includes("eco")) return "Conserve";
+    // Rivian's wire values are "everyday" / "sport" / "distance"; the
+    // formatted labels ("All-Purpose" / "Conserve") also flow through
+    // here when a sample carries a display-typed value, so accept both.
+    if (raw === "sport" || raw.includes("launch")) return "Sport";
+    if (raw === "distance" || raw.includes("conserve") || raw.includes("eco"))
+      return "Conserve";
     if (
+      raw === "everyday" ||
       raw.includes("all purpose") ||
-      raw.includes("all-purpose") ||
-      raw.includes("everyday")
+      raw.includes("all-purpose")
     )
       return "AllPurpose";
     return "Other";
