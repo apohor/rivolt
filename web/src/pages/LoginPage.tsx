@@ -53,10 +53,12 @@ export default function LoginPage() {
           <Logo size={24} className="text-emerald-400" />
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
-        <h1 className="mb-1 text-base font-semibold text-neutral-100">Sign in</h1>
-        <p className="mb-5 text-sm text-neutral-400">
-          Choose an identity provider to continue.
-        </p>
+        <h1 className={`text-base font-semibold text-neutral-100 ${providers && providers.length > 1 ? "mb-1" : "mb-5"}`}>Sign in</h1>
+        {providers && providers.length > 1 && (
+          <p className="mb-5 text-sm text-neutral-400">
+            Choose an identity provider to continue.
+          </p>
+        )}
 
         {providers === null && (
           <p className="text-sm text-neutral-500">Loading…</p>

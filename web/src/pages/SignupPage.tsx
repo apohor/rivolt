@@ -51,7 +51,11 @@ export default function SignupPage() {
         display_name: displayName.trim() || undefined,
         password,
       });
-      // Redirect to /login so the user authenticates with their new creds.
+      // Drop any existing session before redirecting to /login so a
+      // previously-logged-in user (e.g. admin testing signup) isn't
+      // silently kept in their old account by the login page's whoami
+      // short-circuit.
+      try { await backend.logout(); } catch { /* no session is fine */ }
       navigate("/login?next=/onboarding", { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
