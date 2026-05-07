@@ -96,6 +96,26 @@ type Config struct {
 	HeaderUser  string
 	HeaderEmail string
 
+	// KratosCookieName is the name of the Ory Kratos session cookie
+	// (default "ory_kratos_session"). When KratosResolver is set, a
+	// request bearing this cookie is checked against Kratos's
+	// /sessions/whoami; on success the resolved Rivolt UUID is
+	// installed in the request context, identical to the cookie
+	// path. Empty disables the issuer.
+	KratosCookieName string
+
+	// KratosResolver, when non-nil, enables the Kratos session
+	// issuer. The function receives the cookie value (verbatim)
+	// and returns the Rivolt user UUID, an "ok" flag (false →
+	// no active session), and an error for transient failures.
+	// Wired by main to a closure that calls kratos.Whoami and
+	// runs the resulting identity through UserIDFor to produce
+	// the same UUID the cookie / header issuers would.
+	//
+	// The resolver is called with the request context so it
+	// inherits the request's deadline.
+	KratosResolver func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error)
+
 	// UserIDFor maps a username to the stable tenant UUID. main
 	// wires this to db.UserIDFor; the indirection keeps the auth
 	// package free of any direct dependency on the db package.
@@ -149,6 +169,9 @@ type Service struct {
 	roleFor      func(ctx context.Context, uid uuid.UUID) (string, error)
 	disabledFor  func(ctx context.Context, uid uuid.UUID) (bool, error)
 	bypassUserID uuid.UUID
+
+	kratosCookieName string
+	kratosResolver   func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error)
 
 	// sessionStore, when non-nil, is the source of truth for
 	// cookie identity: Login creates a row, Middleware looks up
@@ -208,6 +231,9 @@ func New(cfg Config) (*Service, error) {
 	if cfg.HeaderEmail == "" {
 		cfg.HeaderEmail = "X-Forwarded-Email"
 	}
+	if cfg.KratosCookieName == "" {
+		cfg.KratosCookieName = "ory_kratos_session"
+	}
 	if cfg.UserIDFor == nil {
 		return nil, fmt.Errorf("auth.New: UserIDFor is required")
 	}
@@ -234,6 +260,9 @@ func New(cfg Config) (*Service, error) {
 		roleFor:      cfg.RoleFor,
 		disabledFor:  cfg.DisabledFor,
 		bypassUserID: cfg.BypassUserID,
+
+		kratosCookieName: cfg.KratosCookieName,
+		kratosResolver:   cfg.KratosResolver,
 	}, nil
 }
 
@@ -376,6 +405,24 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		if uid, ok := s.identityFromHeader(r); ok {
 			s.serveAsUser(next, w, r, uid, false)
 			return
+		}
+		// Kratos session issuer. Cheap pre-check: only call out
+		// to Kratos when the inbound request actually carries
+		// the Kratos session cookie. This keeps the per-request
+		// cost at zero for the common case (Rivolt's own cookie),
+		// and bounded to a single in-cluster GET when the user
+		// signed in via Hydra/Kratos.
+		if s.kratosResolver != nil {
+			if _, err := r.Cookie(s.kratosCookieName); err == nil {
+				if uid, ok, err := s.kratosResolver(r.Context(), r.Header.Get("Cookie")); err == nil && ok {
+					s.serveAsUser(next, w, r, uid, false)
+					return
+				}
+				// Resolver said "no session" or hit a transient
+				// error: fall through to the cookie path so a
+				// stale Kratos cookie doesn't lock out users
+				// who also have a valid Rivolt cookie.
+			}
 		}
 		c, err := r.Cookie(s.cookieName)
 		if err != nil {

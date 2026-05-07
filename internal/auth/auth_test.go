@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -171,6 +173,105 @@ func TestBypass_InjectsUser(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), r)
 	if got != want {
 		t.Fatalf("bypass-resolved user = %s, want %s", got, want)
+	}
+}
+
+// TestKratos_ResolverNotInvokedWithoutCookie pins the cost
+// invariant: the resolver must not be called when the inbound
+// request has no Kratos cookie. Otherwise every Rivolt-only login
+// pays a Whoami round-trip.
+func TestKratos_ResolverNotInvokedWithoutCookie(t *testing.T) {
+	called := false
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(_ context.Context, _ string) (uuid.UUID, bool, error) {
+			called = true
+			return uuid.Nil, false, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "1.2.3.4:1"
+	rr := httptest.NewRecorder()
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, r)
+	if called {
+		t.Errorf("KratosResolver was invoked despite no Kratos cookie")
+	}
+}
+
+// TestKratos_ResolverInvokedWithCookie covers the happy path: a
+// request bearing ory_kratos_session is resolved through the
+// resolver and the returned UUID lands in the request context.
+func TestKratos_ResolverInvokedWithCookie(t *testing.T) {
+	want := fakeUserIDFor("kratos@example.com")
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(_ context.Context, cookieHeader string) (uuid.UUID, bool, error) {
+			if !strings.Contains(cookieHeader, "ory_kratos_session=abc") {
+				t.Errorf("resolver got cookieHeader = %q", cookieHeader)
+			}
+			return want, true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "abc"})
+	r.RemoteAddr = "1.2.3.4:1"
+
+	var got uuid.UUID
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(httptest.NewRecorder(), r)
+
+	if got != want {
+		t.Errorf("user = %s, want %s", got, want)
+	}
+}
+
+// TestKratos_ResolverFallsBackToCookieOnNoSession asserts that a
+// stale Kratos cookie (resolver says ok=false) doesn't lock the
+// user out — the cookie path still runs after.
+func TestKratos_ResolverFallsBackToCookieOnNoSession(t *testing.T) {
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			return uuid.Nil, false, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Forge a Rivolt cookie via the HMAC encode path, which is
+	// the same value Login would set on a real flow.
+	uid := fakeUserIDFor("u")
+	tok, err := s.encode(token{UserID: uid, ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "stale"})
+	r.AddCookie(&http.Cookie{Name: "rivolt_session", Value: tok})
+	r.RemoteAddr = "1.2.3.4:1"
+
+	var got uuid.UUID
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(httptest.NewRecorder(), r)
+
+	if got != uid {
+		t.Errorf("expected fallback to cookie issuer, got %s", got)
 	}
 }
 

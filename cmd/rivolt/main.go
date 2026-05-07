@@ -655,6 +655,16 @@ func runServer() {
 		)
 	}
 
+	// Kratos client — initialised early so the auth Service's
+	// KratosResolver closure can capture it. Disabled when
+	// KRATOS_ADMIN_URL is unset; the resolver then becomes a
+	// no-op and only the cookie / header / OIDC issuers run.
+	kratosClient, err := kratos.NewFromEnv()
+	if err != nil {
+		logger.Error("kratos init", "err", err.Error())
+		os.Exit(1)
+	}
+
 	authSvc, err := auth.New(auth.Config{
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
@@ -679,6 +689,41 @@ func runServer() {
 			return db.IsDisabled(ctx, pgPool, uid)
 		},
 		BypassUserID: bypassUserID,
+		// Kratos session issuer — only invoked when the inbound
+		// request actually carries the ory_kratos_session cookie,
+		// so the per-request Whoami round-trip is paid only by
+		// Hydra/Kratos-authenticated users. Resolver returns
+		// (uid, true, nil) on hit, (zero, false, nil) on no
+		// session, (zero, false, err) on transient infra error
+		// (which middleware treats as no session).
+		KratosResolver: func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error) {
+			if kratosClient == nil || !kratosClient.Enabled() {
+				return uuid.Nil, false, nil
+			}
+			id, err := kratosClient.Whoami(ctx, cookieHeader)
+			if err != nil {
+				if errors.Is(err, kratos.ErrNoSession) {
+					return uuid.Nil, false, nil
+				}
+				return uuid.Nil, false, err
+			}
+			email := strings.ToLower(strings.TrimSpace(id.Traits.Email))
+			if email == "" {
+				return uuid.Nil, false, nil
+			}
+			// EnsureUserFull guarantees a row exists with the
+			// same UUIDv5(email) the cookie / OIDC paths use,
+			// so a user who first appeared via Kratos resolves
+			// to the same identity downstream.
+			if pgPool != nil {
+				uid, err := db.EnsureUserFull(ctx, pgPool, email, email, id.Traits.DisplayName)
+				if err != nil {
+					return uuid.Nil, false, err
+				}
+				return uid, true, nil
+			}
+			return db.UserIDFor(email), true, nil
+		},
 	})
 	if err != nil {
 		logger.Error("auth init", "err", err.Error())
@@ -808,11 +853,8 @@ func runServer() {
 		logger.Error("authelia init", "err", err.Error())
 		os.Exit(1)
 	}
-	kratosClient, err := kratos.NewFromEnv()
-	if err != nil {
-		logger.Error("kratos init", "err", err.Error())
-		os.Exit(1)
-	}
+	// Note: kratosClient is initialised earlier (before auth.New)
+	// so the auth Service's KratosResolver closure can capture it.
 	// Hydra admin client — drives the custom login + consent UI
 	// mounted at /api/auth/hydra. Disabled when HYDRA_ADMIN_URL is
 	// unset; the routes are then absent and downstream apps must
