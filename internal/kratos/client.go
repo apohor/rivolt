@@ -181,6 +181,47 @@ func (c *Client) CreateIdentityGeneratePassword(ctx context.Context, email, disp
 	return pw, nil
 }
 
+// GetIdentity fetches an identity by its Kratos id (UUID). The
+// `id` is the value returned from LoginByPassword and the same
+// value Hydra hands back in the consent challenge's `subject`
+// field. Returns ErrNotFound when the identity does not exist.
+//
+// Used at consent-accept time to look up the email + display name
+// traits of the just-authenticated identity, so we can pour them
+// into Hydra's id_token Session payload — otherwise downstream
+// OIDC clients only see a bare `sub` claim and have to round-trip
+// /userinfo for anything human.
+func (c *Client) GetIdentity(ctx context.Context, id string) (*Identity, error) {
+	if !c.Enabled() {
+		return nil, errors.New("kratos: client not configured")
+	}
+	if strings.TrimSpace(id) == "" {
+		return nil, errors.New("kratos: id is required")
+	}
+	target := c.cfg.AdminURL + "/admin/identities/" + url.PathEscape(id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("kratos get identity: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var id Identity
+		if err := json.NewDecoder(resp.Body).Decode(&id); err != nil {
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+		return &id, nil
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		return nil, apiError("get identity", resp)
+	}
+}
+
 // DeleteIdentity removes the identity matching the given email.
 // No-op when the identity does not exist (404). Email is the
 // canonical login identifier in our schema.

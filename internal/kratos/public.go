@@ -172,6 +172,13 @@ func (c *Client) createNativeLoginFlow(ctx context.Context) (string, error) {
 // 401 to keep the response opaque.
 var ErrInvalidCredentials = errors.New("kratos: invalid credentials")
 
+// ErrNotFound is returned by admin lookups (GetIdentity) when the
+// requested identity does not exist (Kratos returns 404). Distinct
+// from ErrNoSession (no active session) and ErrInvalidCredentials
+// (login failed): callers usually treat ErrNotFound as a hard 4xx
+// because it means the subject we got from Hydra is stale.
+var ErrNotFound = errors.New("kratos: identity not found")
+
 // ErrNoSession is returned by Whoami when there is no active
 // Kratos session for the supplied cookie.
 var ErrNoSession = errors.New("kratos: no active session")

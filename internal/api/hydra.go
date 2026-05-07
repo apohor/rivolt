@@ -175,12 +175,45 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 			http.Error(w, "hydra fetch failed", http.StatusBadGateway)
 			return
 		}
+		// Look up the just-authenticated identity in Kratos so we
+		// can pour its traits (email, display_name) into the OIDC
+		// id_token Session. Without this, downstream OIDC clients
+		// only see a bare `sub` claim and Rivolt's own callback
+		// has no email to key off of, so it lands users on a
+		// subject-derived UUID that diverges from the cookie /
+		// Kratos-session paths.
+		var session *hydra.Session
+		if d.Kratos != nil && d.Kratos.Enabled() && req.Subject != "" {
+			id, err := d.Kratos.GetIdentity(r.Context(), req.Subject)
+			if err != nil {
+				// Don't fail consent on a Kratos hiccup — the
+				// access token still works, the id_token just
+				// won't have the rich claims. Log loud so the
+				// degradation is visible.
+				d.Logger.Warn("hydra consent: kratos lookup",
+					"err", err, "subject", req.Subject)
+			} else {
+				claims := map[string]any{}
+				if id.Traits.Email != "" {
+					claims["email"] = id.Traits.Email
+					claims["email_verified"] = true
+				}
+				if id.Traits.DisplayName != "" {
+					claims["name"] = id.Traits.DisplayName
+					claims["preferred_username"] = id.Traits.DisplayName
+				}
+				if len(claims) > 0 {
+					session = &hydra.Session{IDToken: claims}
+				}
+			}
+		}
 		redirect, err := d.Hydra.AcceptConsentRequest(r.Context(), challenge,
 			hydra.AcceptConsentRequest{
 				GrantScope:               req.RequestedScope,
 				GrantAccessTokenAudience: req.RequestedAccessTokenAudience,
 				Remember:                 true,
 				RememberFor:              3600,
+				Session:                  session,
 			})
 		if err != nil {
 			d.Logger.Error("hydra consent: accept", "err", err)
