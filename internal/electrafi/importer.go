@@ -237,17 +237,33 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	// ranges would otherwise produce duplicate rows for the same
 	// physical session. A timestamp-keyed ID makes re-imports a clean
 	// upsert.
+	//
+	// Each driveNumber group is also split on sustained "frozen" GPS
+	// windows: ElectraFi's polling sometimes returns a stuck/cached
+	// frame for hours after the car parks (same lat/lon, same speed,
+	// shift_state=D), without resetting driveNumber. Trusting that
+	// frame as live state would yield drive rows that span overnight
+	// stays — see the May 1-3 trip where a single driveNumber=1896
+	// group produced a 39-hour, 104-mile, 2.7 mph "drive". Each split
+	// segment becomes its own drive row; the parked samples remain in
+	// vehicle_state but don't anchor any drive (the SPA joins drive →
+	// samples by time window, not by drive_number).
+	const minParkedWindow = 30 * time.Minute
+	driveRowsEmitted := 0
 	for _, snaps := range driveGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
-		id := stableID(vehicleID, "d", snaps[0].at)
-		// Only stamp per-drive energy when the operator set an explicit
-		// --pack-kwh. The DefaultPackKWh fallback is fine for charge
-		// estimation (already lossy) but we don't want to bake a guess
-		// into the drive row that the dashboard will then aggregate as
-		// if it were real.
-		d := deriveDrive(id, vehicleID, snaps, i.PackKWh)
-		if err := i.Drives.Upsert(ctx, d); err != nil {
-			return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
+		for _, sub := range splitFrozenGPS(snaps, minParkedWindow) {
+			id := stableID(vehicleID, "d", sub[0].at)
+			// Only stamp per-drive energy when the operator set an explicit
+			// --pack-kwh. The DefaultPackKWh fallback is fine for charge
+			// estimation (already lossy) but we don't want to bake a guess
+			// into the drive row that the dashboard will then aggregate as
+			// if it were real.
+			d := deriveDrive(id, vehicleID, sub, i.PackKWh)
+			if err := i.Drives.Upsert(ctx, d); err != nil {
+				return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
+			}
+			driveRowsEmitted++
 		}
 	}
 	if i.OnProgress != nil {
@@ -266,10 +282,84 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		File:        name,
 		Rows:        rows,
 		Samples:     sampleCount,
-		Drives:      len(driveGroups),
+		Drives:      driveRowsEmitted,
 		Charges:     len(chargeGroups),
 		SkippedRows: skipped,
 	}, nil
+}
+
+// splitFrozenGPS partitions a time-sorted snapshot group into sub-
+// groups separated by sustained "frozen GPS" windows. ElectraFi's
+// polling occasionally returns a cached frame for the same lat/lon
+// over many hours after the car parks, without resetting driveNumber
+// or shift_state. Snaps inside such a window aren't real driving and
+// must not be treated as part of a single continuous drive row.
+//
+// Detection: a maximal run of snaps sharing identical lat+lon whose
+// wall-clock span is ≥ minParkedWindow is treated as parked. Snaps
+// inside a parked window are dropped from the output (they remain in
+// vehicle_state but don't anchor any drive).
+//
+// Bit-exact equality on lat/lon is intentional: the failure mode this
+// targets is the gateway replaying a previously-cached float, byte
+// for byte. Real motion produces fresh floats every poll, so any
+// non-zero motion noise breaks the run. Polling jitter at a stoplight
+// or in a parking lot lasts seconds, not 30 minutes — well below the
+// minParkedWindow gate.
+//
+// When no parked window is detected the original group is returned
+// unchanged. When the entire group is one parked window, returns nil
+// so no drive row is emitted at all.
+func splitFrozenGPS(snaps []snapshot, minParkedWindow time.Duration) [][]snapshot {
+	if len(snaps) == 0 {
+		return nil
+	}
+	if len(snaps) == 1 {
+		return [][]snapshot{snaps}
+	}
+
+	// Mark parked snaps. Walk the slice tracking the start of each
+	// constant-lat/lon run; when a run ends and was long enough,
+	// flag every member as parked.
+	parked := make([]bool, len(snaps))
+	runStart := 0
+	flushRun := func(end int) {
+		if end-runStart < 2 {
+			return
+		}
+		span := snaps[end-1].at.Sub(snaps[runStart].at)
+		if span < minParkedWindow {
+			return
+		}
+		for k := runStart; k < end; k++ {
+			parked[k] = true
+		}
+	}
+	for i := 1; i < len(snaps); i++ {
+		if snaps[i].lat != snaps[runStart].lat || snaps[i].lon != snaps[runStart].lon {
+			flushRun(i)
+			runStart = i
+		}
+	}
+	flushRun(len(snaps))
+
+	// Collect contiguous non-parked runs.
+	var groups [][]snapshot
+	var current []snapshot
+	for i, s := range snaps {
+		if parked[i] {
+			if len(current) > 0 {
+				groups = append(groups, current)
+				current = nil
+			}
+			continue
+		}
+		current = append(current, s)
+	}
+	if len(current) > 0 {
+		groups = append(groups, current)
+	}
+	return groups
 }
 
 // snapshot is the minimal projection of a polling row we need.

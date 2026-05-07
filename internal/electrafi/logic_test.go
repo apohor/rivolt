@@ -111,3 +111,127 @@ func TestDeriveChargeSoCFallback(t *testing.T) {
 		t.Fatalf("energy: got %g want 90", c2.EnergyAddedKWh)
 	}
 }
+
+// TestSplitFrozenGPS_NoParking covers the common case: a real
+// continuous drive with changing lat/lon throughout. Output is the
+// same group, single sub-group.
+func TestSplitFrozenGPS_NoParking(t *testing.T) {
+	t0 := time.Date(2026, 5, 1, 14, 0, 0, 0, time.UTC)
+	snaps := []snapshot{
+		{at: t0, lat: 30.55, lon: -97.76},
+		{at: t0.Add(time.Minute), lat: 30.56, lon: -97.77},
+		{at: t0.Add(2 * time.Minute), lat: 30.57, lon: -97.78},
+		{at: t0.Add(3 * time.Minute), lat: 30.58, lon: -97.79},
+	}
+	got := splitFrozenGPS(snaps, 30*time.Minute)
+	if len(got) != 1 {
+		t.Fatalf("real drive must stay one group: got %d groups", len(got))
+	}
+	if len(got[0]) != 4 {
+		t.Fatalf("real drive must keep all snaps: got %d", len(got[0]))
+	}
+}
+
+// TestSplitFrozenGPS_ShortPause covers a brief stop (e.g. red light,
+// drive-thru) where lat/lon is constant for a few minutes. Below the
+// minParkedWindow threshold so the run stays inside the same group.
+func TestSplitFrozenGPS_ShortPause(t *testing.T) {
+	t0 := time.Date(2026, 5, 1, 14, 0, 0, 0, time.UTC)
+	snaps := []snapshot{
+		{at: t0, lat: 30.55, lon: -97.76},
+		{at: t0.Add(time.Minute), lat: 30.56, lon: -97.77},
+		// 5-minute frozen run at the same coords (drive-thru):
+		{at: t0.Add(2 * time.Minute), lat: 30.57, lon: -97.78},
+		{at: t0.Add(3 * time.Minute), lat: 30.57, lon: -97.78},
+		{at: t0.Add(7 * time.Minute), lat: 30.57, lon: -97.78},
+		// Movement resumes:
+		{at: t0.Add(8 * time.Minute), lat: 30.58, lon: -97.79},
+	}
+	got := splitFrozenGPS(snaps, 30*time.Minute)
+	if len(got) != 1 || len(got[0]) != 6 {
+		t.Fatalf("short pause must not split: got %d groups, sizes %v", len(got), groupSizes(got))
+	}
+}
+
+// TestSplitFrozenGPS_OvernightParked reproduces the May 1-3
+// driveNumber=1896 shape: real drive → 36h frozen GPS (cached
+// ElectraFi frame) → real drive, all under one driveNumber. Splits
+// must produce exactly two sub-groups (the parked window dropped),
+// preserving the original first sample's timestamp on group 1 (so
+// re-import upserts the original drive row in place).
+func TestSplitFrozenGPS_OvernightParked(t *testing.T) {
+	t0 := time.Date(2026, 5, 1, 22, 0, 0, 0, time.UTC)
+	var snaps []snapshot
+	// 3-hour real drive with changing coords.
+	for i := 0; i < 6; i++ {
+		snaps = append(snaps, snapshot{
+			at:  t0.Add(time.Duration(i*30) * time.Minute),
+			lat: 30.5 + float64(i)*0.01,
+			lon: -97.7 - float64(i)*0.01,
+		})
+	}
+	// 36-hour frozen run at the same coords (cached frame).
+	parkLat, parkLon := 30.56, -97.76
+	parkStart := t0.Add(3 * time.Hour)
+	for i := 0; i <= 72; i++ {
+		snaps = append(snaps, snapshot{
+			at:  parkStart.Add(time.Duration(i*30) * time.Minute),
+			lat: parkLat,
+			lon: parkLon,
+		})
+	}
+	// Resumed real drive at a different location.
+	resumeStart := parkStart.Add(36 * time.Hour)
+	for i := 1; i <= 4; i++ {
+		snaps = append(snaps, snapshot{
+			at:  resumeStart.Add(time.Duration(i*10) * time.Minute),
+			lat: 31.0 + float64(i)*0.01,
+			lon: -98.0 - float64(i)*0.01,
+		})
+	}
+
+	got := splitFrozenGPS(snaps, 30*time.Minute)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 sub-groups (real-drive | frozen | real-drive); got %d, sizes %v",
+			len(got), groupSizes(got))
+	}
+	// First sub-group must start at t0 so the re-import upserts the
+	// original drive row in place.
+	if !got[0][0].at.Equal(t0) {
+		t.Fatalf("first sub-group must start at the original first sample (%v); got %v",
+			t0, got[0][0].at)
+	}
+	// First sub-group should not contain any parked-window samples.
+	for _, s := range got[0] {
+		if s.lat == parkLat && s.lon == parkLon {
+			t.Fatalf("first sub-group leaked a parked sample at %v", s.at)
+		}
+	}
+}
+
+// TestSplitFrozenGPS_AllParked covers the degenerate case of a group
+// that's entirely a single parked window. Returns nil — no drive row
+// should be emitted.
+func TestSplitFrozenGPS_AllParked(t *testing.T) {
+	t0 := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	var snaps []snapshot
+	for i := 0; i <= 80; i++ {
+		snaps = append(snaps, snapshot{
+			at:  t0.Add(time.Duration(i*30) * time.Minute),
+			lat: 30.55,
+			lon: -97.76,
+		})
+	}
+	got := splitFrozenGPS(snaps, 30*time.Minute)
+	if got != nil {
+		t.Fatalf("all-parked group must produce no sub-groups; got %v", groupSizes(got))
+	}
+}
+
+func groupSizes(groups [][]snapshot) []int {
+	out := make([]int, len(groups))
+	for i, g := range groups {
+		out[i] = len(g)
+	}
+	return out
+}
