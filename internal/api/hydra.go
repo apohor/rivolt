@@ -212,6 +212,15 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 				}
 				if id.Traits.DisplayName != "" {
 					claims["name"] = id.Traits.DisplayName
+				}
+				// preferred_username must be a stable, short handle —
+				// Grafana (and others) keys local user records on it.
+				// Use the email local-part so it survives display-name
+				// edits and OIDC issuer renames. Falls back to the
+				// display name when no email is present.
+				if local := emailLocalPart(id.Traits.Email); local != "" {
+					claims["preferred_username"] = local
+				} else if id.Traits.DisplayName != "" {
 					claims["preferred_username"] = id.Traits.DisplayName
 				}
 				// Project the Kratos role into a `groups` array on
@@ -282,4 +291,15 @@ func groupsForRole(role string) []string {
 	default:
 		return []string{"users"}
 	}
+}
+
+// emailLocalPart returns the part of `email` before the first '@',
+// trimmed and lower-cased. Returns "" for malformed input so callers
+// can fall back to a different claim source.
+func emailLocalPart(email string) string {
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(email[:at]))
 }
