@@ -12,9 +12,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/apohor/rivolt/internal/authelia"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/invites"
 )
 
@@ -80,7 +80,7 @@ func isValidEmail(s string) bool {
 // Success: 201 {"ok": true}
 // Client errors: 400 / 409
 // Backend errors: 502 / 500
-func handleSignup(d *sql.DB, inv *invites.Store, ac *authelia.Client, log *slog.Logger) http.HandlerFunc {
+func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			InviteCode  string `json:"invite_code"`
@@ -138,16 +138,22 @@ func handleSignup(d *sql.DB, inv *invites.Store, ac *authelia.Client, log *slog.
 			return
 		}
 
-		// --- Provision into Authelia ---
-		if ac.Enabled() {
-			if err := ac.UpsertUserWithPassword(r.Context(), body.Email, body.Email, body.DisplayName, "user", body.Password); err != nil {
+		// --- Provision into IdP ---
+		if ac != nil && ac.Enabled() {
+			if err := ac.CreateUser(r.Context(), idp.CreateRequest{
+				Username:    body.Email,
+				Email:       body.Email,
+				DisplayName: body.DisplayName,
+				Role:        "user",
+				Password:    body.Password,
+			}); err != nil {
 				// Roll back the rivolt row so the user can retry.
 				if derr := db.DeleteUser(r.Context(), d, userID); derr != nil && log != nil {
-					log.Error("signup: rollback after authelia upsert failed",
+					log.Error("signup: rollback after idp create failed",
 						"id", userID.String(), "err", derr.Error())
 				}
 				if log != nil {
-					log.Error("signup: authelia upsert", "err", err.Error())
+					log.Error("signup: idp create", "err", err.Error())
 				}
 				writeJSON(w, http.StatusBadGateway, map[string]any{"error": "account provisioning failed"})
 				return

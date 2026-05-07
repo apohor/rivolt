@@ -24,7 +24,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/authelia"
+	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
@@ -126,12 +126,12 @@ type Deps struct {
 	// mounts /metrics. nil disables both — useful for tests that
 	// don't want the global default registry pollution.
 	Metrics *metrics.Metrics
-	// Authelia, when non-nil, provisions Authelia file-backend
-	// users on POST /api/admin/users (and removes them on
-	// DELETE). nil disables IdP provisioning — the rivolt DB
-	// row is still created, callers must create the OIDC
-	// identity out-of-band. See internal/authelia.
-	Authelia *authelia.Client
+	// Users, when non-nil, provisions user identities in the
+	// configured IdP on POST /api/admin/users and DELETE.
+	// nil (or a disabled provider) skips IdP provisioning —
+	// the rivolt DB row is still created, callers must create
+	// the OIDC identity out-of-band. See internal/idp.
+	Users idp.UserProvider
 	// Invites, when non-nil, enables the invite-code signup flow:
 	// POST /api/signup validates + redeems a code and creates the
 	// user, and POST+GET /api/admin/invite-codes generate / list
@@ -240,7 +240,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.Invites != nil {
-			r.Post("/signup", handleSignup(d.DB, d.Invites, d.Authelia, d.Logger))
+			r.Post("/signup", handleSignup(d.DB, d.Invites, d.Users, d.Logger))
 		}
 
 		// Everything else sits behind requireUser when auth is
@@ -412,10 +412,10 @@ func New(d Deps) http.Handler {
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
-				r.Post("/users", handleAdminUserCreate(d.DB, d.Authelia, d.Logger))
+				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
 				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
-				r.Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Authelia, d.Logger))
+				r.Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.Logger))
 			r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 			r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
 			r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))

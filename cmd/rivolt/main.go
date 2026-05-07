@@ -30,6 +30,7 @@ import (
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/authelia"
+	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
@@ -801,8 +802,9 @@ func runServer() {
 		logger.Error("authelia init", "err", err.Error())
 		os.Exit(1)
 	}
-	if autheliaClient.Enabled() {
-		logger.Info("authelia provisioning enabled")
+	userProvider := idp.FromAuthelia(autheliaClient)
+	if userProvider.Enabled() {
+		logger.Info("idp provisioning enabled", "backend", "authelia")
 	}
 
 	// OSRM same-origin proxy. RIVOLT_OSRM_BASE_URL points at the
@@ -861,7 +863,7 @@ func runServer() {
 		Flags:        flagsStore,
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
-		Authelia:     autheliaClient,
+		Users:        userProvider,
 		Invites:      inviteStore,
 		OSRMProxy:    osrmProxy,
 		TilesProxy:   tilesProxy,
