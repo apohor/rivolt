@@ -413,11 +413,11 @@ function HeroBanner({
             Your Rivian, your data
           </span>
           <h1 className="mt-1.5 text-lg font-semibold tracking-tight sm:text-xl">
-            <span className="text-neutral-100">Drive more.</span>{" "}
-            <span className="text-emerald-300">Know it better.</span>
+            <span className="text-neutral-100">There&apos;s a story</span>{" "}
+            <span className="text-emerald-300">in every drive.</span>
           </h1>
           <p className="mt-1 text-[12px] text-neutral-400 sm:text-sm">
-            Live telemetry, full drive &amp; charge history, session-level cost tracking. Runs on your network.
+            AI-powered efficiency breakdowns, cost tracking, and full charge history.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">

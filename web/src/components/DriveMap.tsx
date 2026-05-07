@@ -1438,13 +1438,36 @@ function decodePolyline(s: string | undefined | null): [number, number][] {
   return out;
 }
 
-// DrivesOverviewMap renders every drive's route on a single map. When
-// a drive has a stored RoutePolyline (live recorder, post-migration
-// 0018) it renders the real on-road trace; older drives without a
-// polyline fall back to a straight start→end line. Endpoint dots mark
-// origins / destinations so heavy clusters (home, work) read clearly.
-// Click a line or dot to open the drive detail page (which carries
-// the road-snapped, OSRM-matched trace).
+// routeOverview fetches a road-snapped start→end geometry from OSRM
+// for drives that don't have a stored RoutePolyline. Lightweight: only
+// two coordinates, no GPS trace required. Returns null on any failure
+// so the caller can keep the straight-line fallback.
+async function routeOverview(
+  startLat: number,
+  startLon: number,
+  endLat: number,
+  endLon: number,
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  await ensureConfig();
+  if (signal.aborted) return null;
+  return routeAll(
+    [
+      { lat: startLat, lon: startLon },
+      { lat: endLat, lon: endLon },
+    ],
+    signal,
+  );
+}
+
+// DrivesOverviewMap renders every drive's route on a single map. Drives
+// with a stored RoutePolyline (live recorder) show the real GPS trace.
+// Legacy drives (ElectraFi imports) fetch a road-snapped geometry from
+// OSRM using just the start/end coordinates. Self-hosted OSRM has no
+// rate limits so concurrency is set high; the public demo fallback
+// would need a lower value but we don't expect it in production.
+const ROUTE_CONCURRENCY = 20;
+
 export function DrivesOverviewMap({
   drives,
   onSelect,
@@ -1458,10 +1481,6 @@ export function DrivesOverviewMap({
     EndLon: number;
     StartedAt: string;
     DistanceMi: number;
-    // Encoded GPS trace for the drive (Google polyline algorithm,
-    // precision 5). Populated by the live recorder; legacy ElectraFi
-    // imports and pre-migration drives leave it empty, in which case
-    // we fall back to a straight start → end line.
     RoutePolyline?: string;
   }[];
   onSelect?: (id: string) => void;
@@ -1498,15 +1517,19 @@ export function DrivesOverviewMap({
     map.on("mouseout", () => map.scrollWheelZoom.disable());
     addBasemap(map);
 
+    const ac = new AbortController();
     const allLatLngs: [number, number][] = [];
+
+    // Render initial polylines (stored trace or straight-line placeholder)
+    // and collect drives that need an OSRM route fetch.
+    const needsRoute: {
+      d: (typeof valid)[0];
+      line: L.Polyline;
+    }[] = [];
+
     for (const d of valid) {
       const start: [number, number] = [d.StartLat, d.StartLon];
       const end: [number, number] = [d.EndLat, d.EndLon];
-      // If the recorder captured a real GPS trace for this drive,
-      // render the polyline so the overview shows on-road routes
-      // instead of a straight crow-flight chord. Legacy drives
-      // (ElectraFi imports, anything from before migration 0018)
-      // have no polyline and fall back to start → end.
       const trace = decodePolyline(d.RoutePolyline);
       const path: [number, number][] = trace.length >= 2 ? trace : [start, end];
       for (const p of path) allLatLngs.push(p);
@@ -1529,25 +1552,56 @@ export function DrivesOverviewMap({
         .addTo(map)
         .bindTooltip(tooltip, { sticky: true });
       line.on("click", () => onSelectRef.current?.(d.ID));
-      // Endpoint dots so heavy origins/destinations (home, work) read
-      // as bright clusters rather than tangles of line ends.
       L.marker(start, { icon: dotIcon("#10b981") })
         .addTo(map)
         .on("click", () => onSelectRef.current?.(d.ID));
       L.marker(end, { icon: dotIcon("#f43f5e") })
         .addTo(map)
         .on("click", () => onSelectRef.current?.(d.ID));
+
+      // Queue an OSRM fetch only for drives without a stored polyline.
+      if (trace.length < 2) {
+        needsRoute.push({ d, line });
+      }
     }
+
     map.fitBounds(L.latLngBounds(allLatLngs), {
       padding: [24, 24],
       maxZoom: 14,
     });
+
+    // Async pass: replace straight-line placeholders with road-snapped
+    // routes, ROUTE_CONCURRENCY at a time.
+    if (needsRoute.length > 0) {
+      const queue = [...needsRoute];
+      const worker = async () => {
+        while (queue.length > 0 && !ac.signal.aborted) {
+          const item = queue.shift()!;
+          const routed = await routeOverview(
+            item.d.StartLat,
+            item.d.StartLon,
+            item.d.EndLat,
+            item.d.EndLon,
+            ac.signal,
+          );
+          if (routed && routed.length >= 2 && !ac.signal.aborted) {
+            item.line.setLatLngs(routed);
+          }
+        }
+      };
+      const workers = Array.from(
+        { length: Math.min(ROUTE_CONCURRENCY, needsRoute.length) },
+        worker,
+      );
+      void Promise.all(workers);
+    }
 
     const invalidate = () => map.invalidateSize();
     const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
     const ro = new ResizeObserver(invalidate);
     ro.observe(ref.current);
     return () => {
+      ac.abort();
       cancelAnimationFrame(rAF);
       ro.disconnect();
       map.remove();
