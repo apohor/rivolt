@@ -1,12 +1,15 @@
 // Package idp defines the UserProvider interface — the single contract
 // between Rivolt's API layer and whichever identity backend is deployed.
 //
-// Today the backend is Authelia (file backend via Vault/ExternalSecret).
-// Tomorrow it can be Kratos, lldap, or anything else: implement the
-// interface, swap the wire in api.Config, done.
+// Today the backend is Ory Kratos. The interface stays minimal so a
+// future swap (Keycloak, Zitadel, lldap, …) lands behind the same
+// surface: implement the interface, swap the wire in api.Config, done.
 package idp
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // UserProvider provisions and deprovisions user identities in the
 // configured identity backend. All methods must be safe to call
@@ -49,4 +52,23 @@ type CreateRequest struct {
 	DisplayName string
 	Role        string // "admin" | "user"
 	Password    string // required for CreateUser; ignored by CreateUserGeneratePassword
+}
+
+// Disabled returns a no-op UserProvider whose Enabled() == false and
+// every mutating call returns an error. Safe to wire into deployments
+// that don't have an identity backend configured (local dev, smoke
+// tests).
+func Disabled() UserProvider { return disabled{} }
+
+type disabled struct{}
+
+func (disabled) Enabled() bool { return false }
+func (disabled) CreateUser(_ context.Context, _ CreateRequest) error {
+	return fmt.Errorf("idp: no provider configured")
+}
+func (disabled) CreateUserGeneratePassword(_ context.Context, _ CreateRequest) (string, error) {
+	return "", fmt.Errorf("idp: no provider configured")
+}
+func (disabled) DeleteUser(_ context.Context, _ string) error {
+	return fmt.Errorf("idp: no provider configured")
 }

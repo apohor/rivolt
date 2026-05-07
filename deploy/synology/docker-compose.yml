@@ -77,7 +77,7 @@ services:
       # RIVOLT_OIDC_GOOGLE_DISPLAY_NAME: "Google"
       # RIVOLT_OIDC_GOOGLE_SCOPES: "openid,email,profile"  # default; override only if needed
       #
-      # Self-hosted Authentik / Authelia / Keycloak follow the same
+      # Self-hosted Authentik / Keycloak / Hydra follow the same
       # pattern — add the slug to RIVOLT_OIDC_PROVIDERS and set
       # RIVOLT_OIDC_<UPPER_SLUG>_{ISSUER,CLIENT_ID,CLIENT_SECRET,...}.
       # RIVOLT_OIDC_AUTHENTIK_ISSUER: "https://auth.example.com/application/o/rivolt/"

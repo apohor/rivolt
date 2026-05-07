@@ -1,7 +1,7 @@
 // Package kratos provides admin-side provisioning of Ory Kratos
 // identities via the Kratos admin API.
 //
-// Wire flow (vs the authelia package this replaces):
+// Wire flow:
 //
 //	Admin → POST /api/admin/users
 //	  rivolt API
@@ -17,9 +17,8 @@
 // ExternalSecret refresh, no file-watcher polling — the identity is
 // usable in <100 ms.
 //
-// All operations are idempotent in the sense that the API surface
-// matches the authelia package: CreateIdentity returns an error on
-// 409 Conflict (existing email), DeleteIdentity is a no-op on 404.
+// All operations are idempotent: CreateIdentity returns an error
+// on 409 Conflict (existing email), DeleteIdentity is a no-op on 404.
 //
 // The package is a no-op when not configured (NewFromEnv returns a
 // nil client when KRATOS_ADMIN_URL is unset). Callers must check
@@ -66,9 +65,10 @@ type Config struct {
 	// Timeout for individual HTTP calls to the admin API.
 	Timeout time.Duration
 
-	// AdminGroups / UserGroups are kept here for symmetry with the
-	// authelia package — Kratos schemas don't have a built-in
-	// "groups" concept, so we store the role in a metadata_public
+	// AdminGroups / UserGroups are kept here so call-sites have a
+	// single place to map roles to OIDC group strings. Kratos schemas
+	// don't have a built-in "groups" concept, so we store the role
+	// in a metadata_public
 	// field. Use the first entry of each slice as the canonical name.
 	AdminGroups []string
 	UserGroups  []string

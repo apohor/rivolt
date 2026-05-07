@@ -29,7 +29,6 @@ import (
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/authelia"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
@@ -842,23 +841,16 @@ func runServer() {
 	// Identity provider — provisioning of users on
 	// POST /api/admin/users and POST /api/signup.
 	//
-	// Selection rule: Kratos wins when KRATOS_ADMIN_URL is set,
-	// otherwise we fall back to Authelia. Both can be configured
-	// during the migration but only one is wired into the API at
-	// a time. When neither is configured the provider is disabled
-	// (every call returns an error) and the rivolt admin endpoint
-	// only creates the rivolt DB row.
-	autheliaClient, err := authelia.NewFromEnv()
-	if err != nil {
-		logger.Error("authelia init", "err", err.Error())
-		os.Exit(1)
-	}
+	// Kratos is the only backend; when KRATOS_ADMIN_URL is unset the
+	// provider is disabled (every mutating call returns an error) and
+	// the rivolt admin endpoint only creates the rivolt DB row.
+	//
 	// Note: kratosClient is initialised earlier (before auth.New)
 	// so the auth Service's KratosResolver closure can capture it.
 	// Hydra admin client — drives the custom login + consent UI
 	// mounted at /api/auth/hydra. Disabled when HYDRA_ADMIN_URL is
-	// unset; the routes are then absent and downstream apps must
-	// federate against another provider (Authelia OIDC).
+	// unset; without it the OIDC bridge is absent and Rivolt only
+	// serves its own SPA without a federated sign-in path.
 	hydraClient, err := hydra.NewFromEnv()
 	if err != nil {
 		logger.Error("hydra init", "err", err.Error())
@@ -873,15 +865,11 @@ func runServer() {
 			"hint", "set KRATOS_PUBLIC_URL alongside KRATOS_ADMIN_URL")
 	}
 	var userProvider idp.UserProvider
-	switch {
-	case kratosClient.Enabled():
+	if kratosClient.Enabled() {
 		userProvider = idp.FromKratos(kratosClient)
 		logger.Info("idp provisioning enabled", "backend", "kratos")
-	case autheliaClient.Enabled():
-		userProvider = idp.FromAuthelia(autheliaClient)
-		logger.Info("idp provisioning enabled", "backend", "authelia")
-	default:
-		userProvider = idp.FromAuthelia(nil) // disabled provider
+	} else {
+		userProvider = idp.Disabled()
 	}
 
 	// OSRM same-origin proxy. RIVOLT_OSRM_BASE_URL points at the

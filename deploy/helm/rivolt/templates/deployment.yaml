@@ -151,33 +151,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "rivolt.dbPasswordSecretName" . }}
                   key: {{ include "rivolt.dbPasswordSecretKey" . }}
-            {{- if .Values.authelia.enabled }}
-            # Authelia file-backend user provisioning via Vault
-            # KVv2. The rivolt process logs in to Vault via the
-            # kubernetes auth method (no static token) and patches
-            # the `authelia/users` KV entry, then PATCHes the
-            # `authelia-users` ExternalSecret to force-resync.
-            - name: AUTHELIA_VAULT_ADDR
-              value: {{ .Values.authelia.vaultAddr | quote }}
-            - name: AUTHELIA_VAULT_ROLE
-              value: {{ .Values.authelia.vaultRole | quote }}
-            - name: AUTHELIA_KUBE_NAMESPACE
-              value: {{ .Values.authelia.kubeNamespace | quote }}
-            - name: AUTHELIA_EXTERNAL_SECRET
-              value: {{ .Values.authelia.externalSecretName | quote }}
-            {{- with .Values.authelia.vaultPath }}
-            - name: AUTHELIA_VAULT_PATH
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.authelia.adminGroups }}
-            - name: AUTHELIA_GROUPS_ADMIN
-              value: {{ join "," . | quote }}
-            {{- end }}
-            {{- with .Values.authelia.userGroups }}
-            - name: AUTHELIA_GROUPS_USER
-              value: {{ join "," . | quote }}
-            {{- end }}
-            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

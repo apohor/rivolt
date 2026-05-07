@@ -305,11 +305,9 @@ func CreateUser(ctx context.Context, d *sql.DB, username, email, displayName, ro
 	if u == "" {
 		return uuid.Nil, fmt.Errorf("username is required")
 	}
-	// Display name is required because Authelia 4.39 made it a
-	// non-empty field in the file backend schema; provisioning a
-	// user with an empty displayname would land a record in the
-	// users_database.yml that crashes Authelia at startup. Catch
-	// it at the rivolt boundary so a half-broken row never gets
+	// Display name is required because the Kratos identity schema
+	// rejects empty traits.display_name on create; catching it at
+	// the rivolt boundary so a half-broken row never gets
 	// pushed to Vault.
 	dn := strings.TrimSpace(displayName)
 	if dn == "" {
@@ -367,8 +365,8 @@ func LookupUsername(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, erro
 
 // RawUsernameByID returns the raw username column for a user by id,
 // regardless of whether display_name is set. Used by the admin
-// delete path to identify the row in Authelia's file backend
-// (which is keyed on login id, not display name). Returns the
+// delete path to identify the row in the IdP backend (Kratos),
+// which is keyed on the email/credential identifier. Returns the
 // empty string for an unknown UUID.
 func RawUsernameByID(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, error) {
 	if uid == uuid.Nil {

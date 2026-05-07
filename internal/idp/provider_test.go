@@ -7,13 +7,13 @@ import (
 	"github.com/apohor/rivolt/internal/idp"
 )
 
-// TestDisabledProvider verifies that a nil/unconfigured provider never
+// TestDisabledProvider verifies that the Disabled provider never
 // panics and always reports Enabled() == false.
 func TestDisabledProvider(t *testing.T) {
-	p := idp.FromAuthelia(nil)
+	p := idp.Disabled()
 
 	if p.Enabled() {
-		t.Fatal("expected Enabled() == false for nil authelia client")
+		t.Fatal("expected Enabled() == false for the disabled provider")
 	}
 
 	ctx := context.Background()

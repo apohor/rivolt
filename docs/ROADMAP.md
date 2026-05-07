@@ -34,7 +34,7 @@
   token bucket, reconnect-storm controls), app-level structured
   logs / metrics / traces, and self-hosted map tiles + routing.
   v0.11.0 cut OIDC out of password login; v0.11.1 fixed Go's
-  `oauth2` auth-style probing against Authelia's strict
+  `oauth2` auth-style probing against the IdP's strict
   `client_secret_post`.
 - 🟡 **iOS scaffold** landed (v0.9 track) — skeleton-only, runs via
   Xcode on a tethered iPhone. See [`../ios/README.md`](../ios/README.md).
@@ -464,8 +464,8 @@ decisions 5–7, 10–12.
 ### Identity
 
 - [x] **OIDC login** via `go-oidc`. Generic OIDC works against any
-      compliant IdP (Google, Authentik, Authelia, Keycloak,
-      Okta…). Configuration is per-provider env soup —
+      compliant IdP (Google, Authentik, Hydra, Keycloak, Okta…).
+      Configuration is per-provider env soup —
       `RIVOLT_OIDC_PROVIDERS=google,authentik` plus
       `RIVOLT_OIDC_<NAME>_{ISSUER,CLIENT_ID,CLIENT_SECRET,DISPLAY_NAME,SCOPES}` —
       so adding a provider is a deploy-time change, not a code
@@ -487,26 +487,25 @@ decisions 5–7, 10–12.
 - [ ] **Invite-token user provisioning end-to-end with the IdP.**
       Today `POST /api/admin/users` only pre-provisions a rivolt
       DB row keyed by UUIDv5(username) — the OIDC user must
-      already exist in the IdP (Authelia file backend in our
-      single-tenant deploy). The interim "generate password
-      once, return it in the 201 response, admin sends it
-      out-of-band" flow ships now and lets the admin endpoint
-      create the Authelia user via Vault + ExternalSecret
-      bump. Follow-up replaces that with first-class invites:
+      already exist in the IdP (Kratos in our single-tenant
+      deploy). The interim "generate password once, return it
+      in the 201 response, admin sends it out-of-band" flow
+      ships now and lets the admin endpoint create the Kratos
+      identity via the admin API. Follow-up replaces that with
+      first-class invites:
         - new `user_invites` table (token_hash, user_id,
           expires_at, consumed_at, created_by);
         - `POST /api/admin/users` returns
           `{id, invite_url, expires_at}` instead of a password;
         - public `POST /api/invite/{token}/accept` validates
           token, prompts for password (with complexity rules),
-          writes the Authelia user via Vault, marks invite
-          consumed, enables the rivolt user;
+          writes the Kratos identity via the admin API, marks
+          invite consumed, enables the rivolt user;
         - admin "Regenerate invite" button for expired/lost
           links;
-        - delete path also removes the Authelia entry.
-      Vault writes use KVv2 CAS to serialize concurrent admin
-      operations on `kv/authelia/users`. Argon2id hashing runs
-      in a serialized worker to bound CPU on the API path.
+        - delete path also removes the Kratos identity.
+      Concurrent admin operations are serialized at the Kratos
+      admin API level (it uses Postgres row-level locks).
 
 ### Observability
 

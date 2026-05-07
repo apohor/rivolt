@@ -189,7 +189,7 @@ function CreateUserForm() {
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
   const [disabled, setDisabled] = useState(false);
-  // One-time password surfaced when the server's Authelia
+  // One-time password surfaced when the server's IdP (Kratos)
   // integration is wired in. Cleared by the next form submit
   // and on dismiss — never persisted, never refetched. Admin
   // must copy it out before the dialog closes.

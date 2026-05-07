@@ -7,9 +7,10 @@
 // Middleware accepts three wire formats and collapses them onto the
 // same user_id contract:
 //
-//  1. A trusted upstream proxy (oauth2-proxy, Authelia, Keycloak
-//     gatekeeper, …) writes X-Forwarded-User / -Email. Rivolt
-//     believes the header only if the request's RemoteAddr falls
+//  1. A trusted upstream proxy (oauth2-proxy, Keycloak gatekeeper,
+//     ingress with built-in auth, …) writes X-Forwarded-User /
+//     -Email. Rivolt believes the header only if the request's
+//     RemoteAddr falls
 //     inside a CIDR in Config.TrustedProxyCIDRs; an empty list
 //     disables header-based auth entirely.
 //
@@ -79,8 +80,8 @@ type Config struct {
 	// docker-compose deployments want: the in-app cookie login is
 	// the only issuer.
 	//
-	// In a k8s deployment behind oauth2-proxy, Authelia, or
-	// Keycloak gatekeeper, set this to the pod-network CIDR (e.g.
+	// In a k8s deployment behind oauth2-proxy or Keycloak gatekeeper,
+	// set this to the pod-network CIDR (e.g.
 	// "10.0.0.0/8,127.0.0.1/32") — requests not coming from an
 	// allowed source are treated as if the header weren't there,
 	// so a direct client curl with a forged header falls back to

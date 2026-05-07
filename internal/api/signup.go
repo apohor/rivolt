@@ -52,7 +52,7 @@ func validatePassword(p string) string {
 }
 
 // isValidEmail is a minimal sanity-check; we do not try to be RFC-
-// complete. Authelia will reject anything truly malformed anyway.
+// complete. The IdP will reject anything truly malformed anyway.
 func isValidEmail(s string) bool {
 	at := strings.IndexByte(s, '@')
 	if at < 1 || at == len(s)-1 {
@@ -161,9 +161,9 @@ func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.
 		}
 
 		// --- Redeem invite code ---
-		// Redeem after provisioning; if Authelia fails we rolled back so the
-		// code remains available for the next attempt. If Redeem itself fails
-		// (extremely unlikely race) the user is created and provisioned — not
+		// Redeem after provisioning; if IdP creation fails we rolled back so
+		// the code remains available for the next attempt. If Redeem itself
+		// fails (extremely unlikely race) the user is created and provisioned — not
 		// worth rolling back for that; log and continue.
 		if err := inv.Redeem(r.Context(), body.InviteCode, userID); err != nil && log != nil {
 			log.Warn("signup: redeem invite code after successful create",

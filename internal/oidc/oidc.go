@@ -192,9 +192,9 @@ type Config struct {
 // failure, transient discovery error, invalid issuer URL) are
 // logged at WARN and retried in the background with exponential
 // backoff — the rest still come up. That's the right posture for
-// a homelab where Rivolt and its IdP (e.g. Authelia) might race
-// at boot: the provider becomes available without an operator
-// restart once discovery succeeds.
+// a homelab where Rivolt and its IdP (e.g. Hydra) might race at
+// boot: the provider becomes available without an operator restart
+// once discovery succeeds.
 func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.IssueSession == nil {
 		return nil, errors.New("oidc.New: IssueSession is required")
@@ -314,9 +314,10 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 			RedirectURL:  pc.RedirectURL,
 			// Force client_secret_post. Without this, Go's oauth2
 			// library auto-detects (defaults to client_secret_basic
-			// on the first attempt). Authelia's per-client
-			// token_endpoint_auth_method enforcement rejects the
-			// mismatched method outright instead of letting the
+			// on the first attempt). Hydra (and most providers
+			// configured with token_endpoint_auth_method=
+			// client_secret_post) reject the mismatched method
+			// outright instead of letting the
 			// library fall back, so we pin the style here.
 			Endpoint: func() oauth2.Endpoint {
 				ep := op.Endpoint()

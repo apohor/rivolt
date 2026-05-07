@@ -13,12 +13,11 @@ import (
 //
 // Email is the canonical identifier for Kratos identities (the
 // schema registers email as the password credential identifier).
-// Username is preserved on CreateRequest for parity with the Authelia
-// provider but is not used here; callers should pass the same value
-// for Username and Email during the cutover.
+// Username on CreateRequest is accepted for backwards compatibility
+// with older callers but is otherwise unused.
 func FromKratos(kc *kratos.Client) UserProvider {
 	if kc == nil || !kc.Enabled() {
-		return disabled{}
+		return Disabled()
 	}
 	return &kratosProvider{c: kc}
 }
@@ -44,20 +43,17 @@ func (k *kratosProvider) CreateUserGeneratePassword(ctx context.Context, req Cre
 }
 
 func (k *kratosProvider) DeleteUser(ctx context.Context, username string) error {
-	// In our schema the email is the canonical identifier. Old call
-	// sites still pass `username` (legacy from Authelia file backend
-	// where username and email were distinct columns); accept either
-	// — Kratos's lookup by credentials_identifier matches both since
-	// the email is the identifier. If callers ever drift, this is
-	// the seam to add a username→email mapping table.
+	// In our schema the email is the canonical identifier. Older call
+	// sites still pass `username` (legacy callers); accept either —
+	// Kratos's lookup by credentials_identifier matches the email
+	// directly. If callers ever drift, this is the seam to add a
+	// username→email mapping table.
 	return k.c.DeleteIdentity(ctx, username)
 }
 
 // pickEmail returns the request email, falling back to username.
-// This keeps the API stable while the Authelia and Kratos worlds
-// run in parallel: the Authelia provider treated username as the
-// login name and email as a separate trait, while Kratos uses email
-// as the login identifier.
+// Older call-sites passed only username; new code should always set
+// Email. Kratos uses email as the credential identifier.
 func pickEmail(req CreateRequest) string {
 	if req.Email != "" {
 		return req.Email

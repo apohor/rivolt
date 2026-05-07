@@ -56,14 +56,14 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 // departing employee whose IdP entry is still alive). The Middleware
 // disabled-gate refuses to mint a session for the row.
 //
-// When an Authelia client is wired in, the handler also provisions
-// the user in Authelia's file backend, generates a one-time random
+// When an idp.UserProvider is wired in (Kratos), the handler also
+// provisions the user in the IdP, generates a one-time random
 // password, and returns it in the 201 response under `password`.
 // The plaintext is shown to the admin once and never persisted on
 // rivolt's side — the admin is responsible for delivering it to
-// the user out-of-band. If Authelia provisioning fails AFTER the
-// rivolt row is created, we delete the rivolt row to avoid leaving
-// a half-provisioned account, then surface the error.
+// the user out-of-band. If IdP provisioning fails AFTER the rivolt
+// row is created, we delete the rivolt row to avoid leaving a
+// half-provisioned account, then surface the error.
 func handleAdminUserCreate(d *sql.DB, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
@@ -255,11 +255,11 @@ func handleAdminUserSetRole(d *sql.DB) http.HandlerFunc {
 // delete the caller (an admin can't suicide; ask a different
 // admin) and refuses to delete the last admin.
 //
-// Also removes the user from Authelia's file backend when an
-// Authelia client is wired in. Best-effort: if the rivolt-side
-// delete succeeds but Authelia removal fails, the operation
-// returns 200 — leaving an orphan IdP entry that no longer
-// matches a rivolt user (and therefore can't sign in past the
+// Also removes the user from the IdP backend (Kratos) when one is
+// wired in. Best-effort: if the rivolt-side delete succeeds but
+// IdP removal fails, the operation returns 200 — leaving an orphan
+// IdP entry that no longer matches a rivolt user (and therefore
+// can't sign in past the
 // EnsureUser bootstrap gate). The error is logged so the admin
 // can clean up via the script.
 func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
