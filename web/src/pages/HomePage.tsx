@@ -40,8 +40,8 @@ export default function HomePage() {
     queryFn: () => backend.allCharges(),
   });
 
-  const all = drives.data ?? [];
-  const allC = charges.data ?? [];
+  const all = useMemo(() => drives.data ?? [], [drives.data]);
+  const allC = useMemo(() => charges.data ?? [], [charges.data]);
   const winDrives = useMemo(() => {
     const filtered = filterByWindow(all, win);
     return roundTripsEnabled

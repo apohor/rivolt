@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   backend,
   type AIProvider,
@@ -498,7 +498,7 @@ function ImportPanel() {
     queryKey: ["vehicles", "owned"],
     queryFn: () => backend.listOwnedVehicles(),
   });
-  const ownedVehicles = vehiclesQ.data?.vehicles ?? [];
+  const ownedVehicles = useMemo(() => vehiclesQ.data?.vehicles ?? [], [vehiclesQ.data]);
   const [vehicleID, setVehicleID] = useState<string>("");
   // Default the picker to the first available vehicle once the list
   // loads, so the common single-vehicle case needs zero clicks.

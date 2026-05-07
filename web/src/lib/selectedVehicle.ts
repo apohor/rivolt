@@ -85,7 +85,7 @@ export function useSelectedVehicle(
     typeof window !== "undefined" ? readStoredID() : null,
   );
 
-  const list = vehicles ?? [];
+  const list = useMemo(() => vehicles ?? [], [vehicles]);
   const selectedID = useMemo(() => {
     if (list.length === 0) return undefined;
     if (stored && list.some((v) => v.id === stored)) return stored;
