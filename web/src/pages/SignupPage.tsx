@@ -24,6 +24,7 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [created, setCreated] = useState(false);
 
   const passwordChecks = useMemo(
     () => rules.map((r) => ({ ...r, ok: r.test(password) })),
@@ -51,12 +52,12 @@ export default function SignupPage() {
         display_name: displayName.trim() || undefined,
         password,
       });
-      // Drop any existing session before redirecting to /login so a
+      // Drop any existing session before showing the success screen so a
       // previously-logged-in user (e.g. admin testing signup) isn't
       // silently kept in their old account by the login page's whoami
       // short-circuit.
       try { await backend.logout(); } catch { /* no session is fine */ }
-      navigate("/login?next=/onboarding", { replace: true });
+      setCreated(true);
     } catch (err) {
       if (err instanceof ApiError) {
         const msg = (err.body as { error?: string } | null)?.error;
@@ -67,6 +68,32 @@ export default function SignupPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (created) {
+    return (
+      <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
+        <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
+          <div className="mb-6 flex items-center gap-2 text-neutral-100">
+            <Logo size={24} className="text-emerald-400" />
+            <span className="text-lg font-semibold tracking-tight">Rivolt</span>
+          </div>
+          <h1 className="mb-3 text-base font-semibold text-neutral-100">Account created!</h1>
+          <p className="mb-4 text-sm text-neutral-400">
+            Your credentials are being provisioned. This takes up to a minute —
+            if you sign in too quickly you may see an "incorrect password" error.
+            Wait a moment, then click below.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/login?next=/onboarding", { replace: true })}
+            className="w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+          >
+            Sign in to your new account
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
