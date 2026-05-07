@@ -53,6 +53,24 @@ spec:
       {{- end }}
   {{- end }}
 
+  {{- with .Values.cnpg.managedRoles }}
+  # Declarative role management — CNPG reconciles these roles on every
+  # sync. Passwords are read from the referenced K8s Secrets (format:
+  # { username: ..., password: ... }), which should be synced from
+  # Vault via ExternalSecret. Any role listed here is created / updated
+  # automatically; omitting a role does NOT delete it (CNPG is safe).
+  managed:
+    roles:
+      {{- range . }}
+      - name: {{ .name | quote }}
+        login: true
+        {{- with .passwordSecret }}
+        passwordSecret:
+          name: {{ .name | quote }}
+        {{- end }}
+      {{- end }}
+  {{- end }}
+
   {{- if .Values.cnpg.backup.enabled }}
   backup:
     {{- with .Values.cnpg.backup.barmanObjectStore }}
