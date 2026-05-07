@@ -216,7 +216,7 @@ code. See [`ARCHITECTURE.md`](ARCHITECTURE.md) decisions 1–4, 8, 9, 13.
 ## Phase 2 — Self-hosted k8s cluster
 
 Run on the operator's own k8s (k3s on Synology today, a dedicated
-homelab cluster later). Multi-replica. All correctness plumbing
+cluster later). Multi-replica. All correctness plumbing
 becomes real. Target: 1000 vehicles on one pod set, 3–8 replicas,
 one managed Postgres. See [`ARCHITECTURE.md`](ARCHITECTURE.md)
 decisions 5–7, 10–12.

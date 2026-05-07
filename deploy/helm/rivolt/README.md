@@ -4,7 +4,7 @@ Single Deployment of [Rivolt](https://github.com/apohor/rivolt) plus an
 optional [CloudNativePG](https://cloudnative-pg.io/) `Cluster` for the
 database.
 
-## TL;DR — homelab on k3s
+## TL;DR — single-cluster k3s install
 
 ```bash
 # 1. Install the CNPG operator (once per cluster).
@@ -96,7 +96,7 @@ Three layers, in priority order:
 1. `secrets.existingSecret: <name>` — chart skips its own Secret;
    Deployment `envFrom` references the user-supplied object. Use
    this with ExternalSecrets / Vault / SOPS / sealed-secrets.
-2. `secrets.<key>` inline values — fine for a homelab.
+2. `secrets.<key>` inline values — fine for a single-user cluster.
 3. `extraEnv:` / `extraEnvFrom:` — final escape hatch for env vars
    the chart doesn't model directly (per-provider OIDC client IDs,
    etc.).
