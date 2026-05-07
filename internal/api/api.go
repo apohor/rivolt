@@ -297,7 +297,13 @@ func New(d Deps) http.Handler {
 			// stuck Rivian calls from pinning a connection. Bulk
 			// data routes (import / backup / restore) live in a
 			// second group below without this timeout — large CSV
-			// exports can take minutes.
+			// exports can take minutes. AI-bound routes (efficiency
+			// POST in particular) also live in a sibling group below
+			// with a 5-minute timeout because "thinking" LLMs like
+			// Gemini 3.1 Pro Preview routinely take >30s to respond
+			// on non-trivial prompts (502 when CF saw the chi
+			// middleware kill the connection mid-call on
+			// 2026-05-07).
 			r.Use(middleware.Timeout(30 * time.Second))
 
 			// Same-origin OSRM proxy. Mounted only when the operator
@@ -471,15 +477,14 @@ func New(d Deps) http.Handler {
 			// efficiency variance for a drive, with actionable
 			// recommendations.
 			//
-			// POST runs the analysis (re-bills the operator's LLM
-			// account) and persists the result to drive_efficiency.
 			// GET returns the persisted result so the SPA can show a
 			// previously-analyzed drive without re-billing on every
 			// page load. 404 on first visit; the SPA falls back to
-			// the empty-state form.
-			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleDriveEfficiencyPost(d, uid)(w, r)
-			}))
+			// the empty-state form. The matching POST lives in the
+			// AI-bound sibling group below — it can take >30s on
+			// thinking models (Gemini 3.1 Pro Preview), so the chi
+			// 30s middleware here would cut the call and return 502
+			// to the SPA mid-analysis.
 			r.Get("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyGet(d, uid)(w, r)
 			}))
@@ -525,6 +530,23 @@ func New(d Deps) http.Handler {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 		}) // end of timed authenticated /api group
+
+		// AI-bound POSTs. Same auth as the timed group above, but
+		// with a 5-minute timeout because "thinking" LLMs like
+		// Gemini 3.1 Pro Preview routinely take 30–90s to respond
+		// on non-trivial drive prompts. The chi 30s timeout in the
+		// timed group writes 504 mid-call and the SPA shows
+		// "Analysis failed" — keep these endpoints here so the
+		// connection stays alive long enough for the model.
+		r.Group(func(r chi.Router) {
+			if d.AuthEnforced {
+				r.Use(requireUserMW)
+			}
+			r.Use(middleware.Timeout(5 * time.Minute))
+			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDriveEfficiencyPost(d, uid)(w, r)
+			}))
+		})
 
 		// Bulk data routes. Identical auth, no 30s timeout — an
 		// ElectraFi import or a year-long backup can legitimately
@@ -2556,7 +2578,12 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			}
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		// Slightly less than the surrounding chi middleware.Timeout
+		// so the LLM call observes ctx.Done first and returns a
+		// real error message — chi's wrapper would otherwise win
+		// the race and write 504 with no body. See the AI-bound
+		// group registration above for the chi side of the budget.
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute+30*time.Second)
 		defer cancel()
 
 		// Per-trip transient context from the request body. Tolerate
