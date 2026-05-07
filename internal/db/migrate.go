@@ -23,10 +23,37 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// migrationLockID is the session-level pg_advisory_lock key Migrate
+// uses to serialise concurrent boots. Hex bytes spell "rivoltdm";
+// any stable int64 unique to this codebase would do, but a recognisable
+// constant makes it easier to spot in pg_locks during a stuck boot.
+const migrationLockID int64 = 0x7269766f6c74646d
+
 // Migrate runs every unapplied migration in migrationFS against db.
 // The migrations table is self-bootstrapped on first boot so fresh
 // Postgres databases come up clean.
+//
+// Multi-pod safety: two pods booting concurrently against the same
+// database both call Migrate. We serialise them with a session-level
+// pg_advisory_lock — the second caller blocks until the first
+// finishes, then re-reads the migrations table and finds everything
+// already applied. The lock is held on a dedicated connection so
+// migrations themselves run on the pool unaffected, and is released
+// (best-effort) on a background context so a cancelled ctx doesn't
+// leak the lock for the rest of the conn's lifetime.
 func Migrate(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationLockID); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", migrationLockID)
+	}()
+
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS migrations (
 			id         TEXT PRIMARY KEY,
