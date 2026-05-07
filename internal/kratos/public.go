@@ -15,14 +15,28 @@ import (
 // identities response contains, but only the parts the Hydra login
 // handler needs to make a "subject" decision.
 type Identity struct {
-	ID     string         `json:"id"`
-	Traits IdentityTraits `json:"traits"`
+	ID             string             `json:"id"`
+	Traits         IdentityTraits     `json:"traits"`
+	MetadataPublic IdentityMetaPublic `json:"metadata_public,omitempty"`
 }
 
 // IdentityTraits matches our rivolt_user schema (email + display).
 type IdentityTraits struct {
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name,omitempty"`
+}
+
+// IdentityMetaPublic carries fields we attach to the identity for
+// display / authorization but don't want users to mutate via
+// self-service flows. Kratos guarantees `metadata_public` is only
+// writable from the admin API.
+//
+// Today we use it for `role` (admin / user), which the consent
+// handler projects into a `groups` claim on the id_token so
+// downstream OIDC clients (ArgoCD, Grafana, Rivolt) can run their
+// own RBAC off it.
+type IdentityMetaPublic struct {
+	Role string `json:"role,omitempty"`
 }
 
 // LoginByPassword authenticates a user against Kratos's API login

@@ -198,3 +198,52 @@ func TestHydraConsentGET_autoAccepts(t *testing.T) {
 		t.Errorf("scopes granted: %v", grantedScopes)
 	}
 }
+
+// TestHydraConsentGET_injectsGroupsClaim confirms that an admin role
+// in the Kratos identity surfaces as a `groups: ["admins"]` claim on
+// the id_token Session payload Hydra hands back. ArgoCD/Grafana
+// RBAC depend on this projection.
+func TestHydraConsentGET_injectsGroupsClaim(t *testing.T) {
+	// GetIdentity hits the admin API; build a Kratos client whose
+	// AdminURL points at the test server.
+	kratosSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"u","traits":{"email":"a@x","display_name":"Anton"},"metadata_public":{"role":"admin"}}`))
+	}))
+	t.Cleanup(kratosSrv.Close)
+	kr, err := kratos.New(kratos.Config{AdminURL: kratosSrv.URL, PublicURL: "http://unused"})
+	if err != nil {
+		t.Fatalf("kratos.New: %v", err)
+	}
+
+	var sentClaims map[string]any
+	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"challenge":"c","subject":"u","client":{"client_id":"argo"},"requested_scope":["openid","email"]}`))
+		case r.Method == http.MethodPut:
+			body, _ := io.ReadAll(r.Body)
+			var b map[string]any
+			_ = json.Unmarshal(body, &b)
+			if sess, ok := b["session"].(map[string]any); ok {
+				if tok, ok := sess["id_token"].(map[string]any); ok {
+					sentClaims = tok
+				}
+			}
+			_, _ = w.Write([]byte(`{"redirect_to":"https://app/cb"}`))
+		}
+	})
+	d := hydraDeps{Hydra: hyd, Kratos: kr, Logger: discardLogger()}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/consent?consent_challenge=c", nil)
+	hydraConsentGET(d).ServeHTTP(rr, req)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	groups, ok := sentClaims["groups"].([]any)
+	if !ok || len(groups) != 1 || groups[0] != "admins" {
+		t.Errorf("groups claim = %#v want [admins]", sentClaims["groups"])
+	}
+	if sentClaims["email"] != "a@x" {
+		t.Errorf("email claim = %v", sentClaims["email"])
+	}
+}

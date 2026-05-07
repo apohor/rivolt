@@ -214,6 +214,15 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 					claims["name"] = id.Traits.DisplayName
 					claims["preferred_username"] = id.Traits.DisplayName
 				}
+				// Project the Kratos role into a `groups` array on
+				// the id_token. ArgoCD and Grafana RBAC both key off
+				// a list-shaped claim, so even single-role users get
+				// a one-element slice. Empty role → omit the claim
+				// rather than send `[""]`, which clients would map to
+				// an unknown group.
+				if g := groupsForRole(id.MetadataPublic.Role); len(g) > 0 {
+					claims["groups"] = g
+				}
 				if len(claims) > 0 {
 					session = &hydra.Session{IDToken: claims}
 				}
@@ -242,4 +251,22 @@ func orFallback(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// groupsForRole maps a Kratos `metadata_public.role` value to the
+// list of OIDC `groups` claim entries we emit. Centralised here so
+// the mapping is one place to change when downstream clients need
+// finer-grained groups (e.g. "rivolt-admin" vs "argocd-admin").
+//
+// Today: "admin" → ["admins"], anything else → ["users"], empty →
+// nil so the claim is omitted entirely.
+func groupsForRole(role string) []string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "":
+		return nil
+	case "admin", "admins":
+		return []string{"admins"}
+	default:
+		return []string{"users"}
+	}
 }
