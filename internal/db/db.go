@@ -29,6 +29,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -251,6 +252,40 @@ func SetDisabled(ctx context.Context, d *sql.DB, uid uuid.UUID, disabled bool) e
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE users SET disabled = $1 WHERE id = $2`, disabled, uid,
+	)
+	return err
+}
+
+// OnboardingCompleted reports whether the user has finished the
+// first-run onboarding stepper. Returns true for legacy rows that
+// predate the onboarding_completed column (migration 0026 back-fills
+// them to TRUE). Returns true when d is nil so callers in no-DB mode
+// never show the stepper.
+func OnboardingCompleted(ctx context.Context, d *sql.DB, uid uuid.UUID) (bool, error) {
+	if d == nil || uid == uuid.Nil {
+		return true, nil
+	}
+	var done bool
+	err := d.QueryRowContext(ctx,
+		`SELECT onboarding_completed FROM users WHERE id = $1`, uid,
+	).Scan(&done)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return done, nil
+}
+
+// SetOnboardingCompleted marks the user's onboarding stepper as
+// finished. Idempotent — safe to call twice.
+func SetOnboardingCompleted(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
+	if d == nil || uid == uuid.Nil {
+		return fmt.Errorf("nil db or user id")
+	}
+	_, err := d.ExecContext(ctx,
+		`UPDATE users SET onboarding_completed = TRUE WHERE id = $1`, uid,
 	)
 	return err
 }

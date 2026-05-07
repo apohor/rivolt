@@ -31,7 +31,8 @@ CI publishes `ghcr.io/apohor/rivolt:0.X.Y` on tag push only — wait
 for the Actions run to go green before bumping infra.
 
 ## 4. Bump the infra chart in `rivolt-infra`
-**Only after CI is green** — ArgoCD will immediately try to pull the image.
+Push immediately after step 3 — no need to wait for CI. ArgoCD will
+attempt to pull the image and retry automatically until it lands.
 ```
 # in rivolt-infra:
 # apps/rivolt/app.yaml → chart.version: v0.X.Y
@@ -43,6 +44,5 @@ git push
 ## Checklist
 - [ ] `Chart.yaml` `version` + `appVersion` bumped
 - [ ] `git push --follow-tags` done
-- [ ] CI green (Actions tab on GitHub)
 - [ ] `rivolt-infra` `app.yaml` bumped & pushed
 - [ ] ArgoCD synced, pod on new version (`kubectl -n rivolt get pods`)

@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect } from "react";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import Logo from "../components/Logo";
@@ -104,11 +105,25 @@ function SignOutButton() {
 }
 
 export default function AppLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const me = useQuery({
     queryKey: ["auth", "me"],
     queryFn: () => backend.whoami(),
     staleTime: 5 * 60_000,
   });
+
+  // Redirect to onboarding stepper when a freshly created account
+  // logs in for the first time. The backend back-fills existing users
+  // as completed=true in migration 0026, so only brand-new signups
+  // will see this. We guard on me.data being loaded (not null) so the
+  // redirect doesn't fire in no-auth / dev mode where whoami returns null.
+  useEffect(() => {
+    if (me.data && me.data.onboarding_completed === false) {
+      navigate("/onboarding", { replace: true });
+    }
+  }, [me.data, navigate, location.pathname]);
+
   const navItems = me.data?.role === "admin" ? [...nav, ...adminNav] : nav;
   return (
     <div className="min-h-full flex flex-col">

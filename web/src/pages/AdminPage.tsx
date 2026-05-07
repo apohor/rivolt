@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type AdminUserRow } from "../lib/api";
+import { backend, type AdminUserRow, type InviteCode } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel } from "./SettingsPage";
 
@@ -31,6 +31,9 @@ export default function AdminPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Admin" />
+      <Card title="Invite codes">
+        <InviteCodesPanel />
+      </Card>
       <Card title="Users">
         <CreateUserForm />
         <UsersPanel currentUserID={me.data.user_id} />
@@ -41,6 +44,140 @@ export default function AdminPage() {
       <Card title="Recap weather">
         <RecapWeatherPanel />
       </Card>
+    </div>
+  );
+}
+
+// ── Invite codes ──────────────────────────────────────────────────────────────
+
+function InviteCodesPanel() {
+  const qc = useQueryClient();
+  const [count, setCount] = useState(1);
+  const [newCodes, setNewCodes] = useState<string[] | null>(null);
+
+  const list = useQuery({
+    queryKey: ["admin", "invite-codes"],
+    queryFn: () => backend.adminListInviteCodes(),
+  });
+
+  const generate = useMutation({
+    mutationFn: () => backend.adminGenerateInviteCodes(count),
+    onSuccess: (data) => {
+      setNewCodes(data.codes);
+      qc.invalidateQueries({ queryKey: ["admin", "invite-codes"] });
+    },
+  });
+
+  function copyAll() {
+    if (!newCodes) return;
+    navigator.clipboard.writeText(newCodes.join("\n"));
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Generator row */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="mb-1 block text-xs text-neutral-500">Count</label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={count}
+            onChange={(e) => setCount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+            className="w-20 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 focus:border-emerald-600 focus:outline-none"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => generate.mutate()}
+          disabled={generate.isPending}
+          className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+        >
+          {generate.isPending ? "Generating…" : "Generate"}
+        </button>
+      </div>
+
+      {/* Freshly generated codes — shown until next generate or page reload */}
+      {newCodes && newCodes.length > 0 && (
+        <div className="rounded-md border border-emerald-900 bg-emerald-950/40 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium text-emerald-400">
+              {newCodes.length} new code{newCodes.length > 1 ? "s" : ""} — copy before leaving
+            </span>
+            <button
+              type="button"
+              onClick={copyAll}
+              className="text-xs text-emerald-500 hover:underline"
+            >
+              Copy all
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {newCodes.map((c) => (
+              <li key={c} className="flex items-center justify-between gap-2">
+                <code className="font-mono text-xs text-emerald-300">{c}</code>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(c)}
+                  className="text-[10px] text-neutral-500 hover:text-neutral-300"
+                >
+                  copy
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {generate.isError && (
+        <ErrorBox title={String(generate.error)} />
+      )}
+
+      {/* History table */}
+      {list.isLoading && <p className="text-sm text-neutral-500">Loading…</p>}
+      {list.isError && <ErrorBox title="Failed to load invite codes" />}
+      {list.data && <InviteCodeTable codes={list.data.codes} />}
+    </div>
+  );
+}
+
+function InviteCodeTable({ codes }: { codes: InviteCode[] }) {
+  if (codes.length === 0) {
+    return <p className="text-sm text-neutral-500">No invite codes yet.</p>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-xs text-neutral-400">
+        <thead>
+          <tr className="border-b border-neutral-800">
+            <th className="pb-2 font-medium text-neutral-500">Code</th>
+            <th className="pb-2 font-medium text-neutral-500">Created</th>
+            <th className="pb-2 font-medium text-neutral-500">Used by</th>
+            <th className="pb-2 font-medium text-neutral-500">Used at</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-900">
+          {codes.map((c) => (
+            <tr key={c.Code}>
+              <td className="py-2 pr-4 font-mono text-neutral-200">{c.Code}</td>
+              <td className="py-2 pr-4 text-neutral-500">
+                {new Date(c.CreatedAt).toLocaleDateString()}
+              </td>
+              <td className="py-2 pr-4">
+                {c.UsedBy ?? <span className="text-neutral-700">—</span>}
+              </td>
+              <td className="py-2">
+                {c.UsedAt ? (
+                  new Date(c.UsedAt).toLocaleDateString()
+                ) : (
+                  <span className="text-emerald-700">available</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

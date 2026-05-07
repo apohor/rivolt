@@ -1,0 +1,216 @@
+import { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { backend, ApiError } from "../lib/api";
+import Logo from "../components/Logo";
+
+// Password complexity rules — must mirror backend validatePassword in
+// internal/api/signup.go so the live checklist and the server agree.
+const rules = [
+  { id: "len", label: "At least 12 characters", test: (p: string) => p.length >= 12 },
+  { id: "upper", label: "One uppercase letter", test: (p: string) => /[A-Z]/.test(p) },
+  { id: "lower", label: "One lowercase letter", test: (p: string) => /[a-z]/.test(p) },
+  { id: "digit", label: "One digit", test: (p: string) => /[0-9]/.test(p) },
+  { id: "special", label: "One special character", test: (p: string) => /[^A-Za-z0-9]/.test(p) },
+];
+
+export default function SignupPage() {
+  const navigate = useNavigate();
+
+  const [inviteCode, setInviteCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const passwordChecks = useMemo(
+    () => rules.map((r) => ({ ...r, ok: r.test(password) })),
+    [password],
+  );
+  const passwordValid = passwordChecks.every((c) => c.ok);
+  const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
+
+  const canSubmit =
+    inviteCode.trim().length > 0 &&
+    email.trim().length > 0 &&
+    passwordValid &&
+    passwordsMatch &&
+    !submitting;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await backend.signup({
+        invite_code: inviteCode.trim(),
+        email: email.trim(),
+        display_name: displayName.trim() || undefined,
+        password,
+      });
+      // Redirect to /login so the user authenticates with their new creds.
+      navigate("/login?next=/onboarding", { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const msg = (err.body as { error?: string } | null)?.error;
+        setError(msg ?? `Error ${err.status}`);
+      } else {
+        setError("Unexpected error. Please try again.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
+      <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
+        <div className="mb-6 flex items-center gap-2 text-neutral-100">
+          <Logo size={24} className="text-emerald-400" />
+          <span className="text-lg font-semibold tracking-tight">Rivolt</span>
+        </div>
+
+        <h1 className="mb-1 text-base font-semibold text-neutral-100">Create your account</h1>
+        <p className="mb-5 text-sm text-neutral-400">
+          You'll need an invite code from the administrator.
+        </p>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Invite code */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+              Invite code
+            </label>
+            <input
+              type="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              placeholder="ABCDEFGHIJKLMNOPQRST"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+              Email address
+            </label>
+            <input
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+
+          {/* Display name (optional) */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+              Display name{" "}
+              <span className="text-neutral-600">(optional — defaults to email)</span>
+            </label>
+            <input
+              type="text"
+              autoComplete="name"
+              placeholder="Alice"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+            />
+          </div>
+
+          {/* Password */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-neutral-400">Password</label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-10 text-sm text-neutral-100 focus:border-emerald-600 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                {showPassword ? "hide" : "show"}
+              </button>
+            </div>
+            {/* Live checklist */}
+            {password.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {passwordChecks.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 text-xs">
+                    <span
+                      className={c.ok ? "text-emerald-400" : "text-neutral-500"}
+                    >
+                      {c.ok ? "✓" : "○"}
+                    </span>
+                    <span className={c.ok ? "text-neutral-300" : "text-neutral-500"}>
+                      {c.label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Confirm password */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+              Confirm password
+            </label>
+            <input
+              type={showPassword ? "text" : "password"}
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className={`w-full rounded-md border bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:outline-none ${
+                confirmPassword.length > 0 && !passwordsMatch
+                  ? "border-rose-700 focus:border-rose-500"
+                  : "border-neutral-700 focus:border-emerald-600"
+              }`}
+            />
+            {confirmPassword.length > 0 && !passwordsMatch && (
+              <p className="mt-1 text-xs text-rose-400">Passwords don't match</p>
+            )}
+          </div>
+
+          {error && (
+            <div
+              role="alert"
+              className="rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
+            >
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {submitting ? "Creating account…" : "Create account"}
+          </button>
+        </form>
+
+        <p className="mt-4 text-center text-xs text-neutral-600">
+          Already have an account?{" "}
+          <a href="/login" className="text-emerald-500 hover:underline">
+            Sign in
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+}

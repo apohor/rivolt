@@ -9,20 +9,22 @@ import LivePage from "./pages/LivePage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
+import SignupPage from "./pages/SignupPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
   return (
     <Routes>
       {/*
-        /login sits outside AppLayout so the layout's status pill and
-        nav don't fire /api/* calls before the user has a session —
-        those calls would 401 and bounce the user right back here,
-        creating a redirect loop. Once login succeeds we navigate into
-        the AppLayout tree where the API client's normal 401 handler
-        takes over.
+        /login, /signup and /onboarding sit outside AppLayout so the
+        layout's status pill and nav don't fire /api/* calls before the
+        user has a session. Once login succeeds the API client's normal
+        401 handler takes over inside the AppLayout tree.
       */}
       <Route path="login" element={<LoginPage />} />
+      <Route path="signup" element={<SignupPage />} />
+      <Route path="onboarding" element={<OnboardingPage />} />
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="drives" element={<DrivesPage />} />

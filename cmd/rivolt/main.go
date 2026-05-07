@@ -36,6 +36,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/maps"
@@ -830,6 +831,15 @@ func runServer() {
 		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
 	}
 
+	// Invite-code store. Always wired when a DB is available so
+	// the admin panel can generate codes even on existing installs.
+	// nil-safe in api.Deps — disables the /api/signup and
+	// /api/admin/invite-codes routes gracefully when no DB is present.
+	var inviteStore *invites.Store
+	if pgPool != nil {
+		inviteStore = invites.New(pgPool)
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:       rivianClient,
 		Accounts:     accountRegistry,
@@ -852,6 +862,7 @@ func runServer() {
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
 		Authelia:     autheliaClient,
+		Invites:      inviteStore,
 		OSRMProxy:    osrmProxy,
 		TilesProxy:   tilesProxy,
 	})

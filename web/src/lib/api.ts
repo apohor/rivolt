@@ -538,6 +538,14 @@ export const backend = {
     }
   },
   logout: () => api.post<void>("/api/auth/logout"),
+  signup: (body: {
+    invite_code: string;
+    email: string;
+    display_name?: string;
+    password: string;
+  }) => api.post<{ ok: boolean }>("/api/signup", body),
+  completeOnboarding: () =>
+    api.post<{ ok: boolean }>("/api/onboarding/complete"),
   // oidcProviders returns the list of OIDC sign-in options the
   // server has wired up. An empty array (or a 404 when an old
   // server is in front of a new SPA) means the server isn't
@@ -681,6 +689,10 @@ export const backend = {
       if (!res.ok) throw new ApiError(res.status, parsed);
       return parsed as { ok: true };
     }),
+  adminGenerateInviteCodes: (count = 1) =>
+    api.post<{ codes: string[] }>("/api/admin/invite-codes", { count }),
+  adminListInviteCodes: () =>
+    api.get<{ codes: InviteCode[] }>("/api/admin/invite-codes"),
   // Local DBSCAN clustering of charge locations. Returns one row per
   // cluster, largest-first, with "Home" / "Public" / "Fast" labels.
   chargeClusters: () =>
@@ -940,6 +952,7 @@ export type AuthUser = {
   user_id: string;
   username: string;
   role: "user" | "admin";
+  onboarding_completed: boolean;
 };
 
 // AdminUserRow is one entry from GET /api/admin/users.
@@ -951,6 +964,14 @@ export type AdminUserRow = {
   role: "user" | "admin";
   disabled: boolean;
   created_at: string;
+};
+
+// InviteCode is one row from GET /api/admin/invite-codes.
+export type InviteCode = {
+  Code: string;
+  CreatedAt: string;
+  UsedAt?: string | null;
+  UsedBy?: string | null;
 };
 
 // OIDCProvider is one entry in /api/auth/oidc/. The SPA renders

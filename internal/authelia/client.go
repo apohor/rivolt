@@ -243,6 +243,48 @@ func (c *Client) UpsertUser(ctx context.Context, username, email, displayName, r
 	return pwd, nil
 }
 
+// UpsertUserWithPassword is like UpsertUser but uses the caller-supplied
+// plaintext password instead of generating a random one. This is the
+// self-service signup path: the user chose their own password at the
+// signup form, so we hash it here and write it to Vault.
+func (c *Client) UpsertUserWithPassword(ctx context.Context, username, email, displayName, role, password string) error {
+	if !c.Enabled() {
+		return errors.New("authelia: client disabled")
+	}
+	if username == "" {
+		return errors.New("authelia: username required")
+	}
+	if strings.TrimSpace(displayName) == "" {
+		return errors.New("authelia: display name required")
+	}
+	if password == "" {
+		return errors.New("authelia: password required")
+	}
+	hash, err := hashArgon2id(password)
+	if err != nil {
+		return fmt.Errorf("authelia: hash password: %w", err)
+	}
+	groups := c.cfg.UserGroups
+	if role == "admin" {
+		groups = c.cfg.AdminGroups
+	}
+	if err := c.casUpdate(ctx, func(users map[string]any) map[string]any {
+		users[username] = map[string]any{
+			"displayname": displayName,
+			"password":    hash,
+			"email":       email,
+			"groups":      groups,
+		}
+		return users
+	}); err != nil {
+		return err
+	}
+	if err := c.bumpExternalSecret(ctx); err != nil {
+		return fmt.Errorf("authelia: provisioned to vault but force-sync failed: %w", err)
+	}
+	return nil
+}
+
 // DeleteUser removes a user from the Authelia users_database.yml.
 // No-op when the user is absent. Triggers an ExternalSecret
 // refresh on success.

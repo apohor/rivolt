@@ -87,6 +87,13 @@ export default function LoginPage() {
             ))}
           </div>
         )}
+
+        <p className="mt-5 text-center text-xs text-neutral-600">
+          New here?{" "}
+          <a href="/signup" className="text-emerald-500 hover:underline">
+            Create an account
+          </a>
+        </p>
       </div>
     </div>
   );

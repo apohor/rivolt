@@ -30,6 +30,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -131,6 +132,12 @@ type Deps struct {
 	// row is still created, callers must create the OIDC
 	// identity out-of-band. See internal/authelia.
 	Authelia *authelia.Client
+	// Invites, when non-nil, enables the invite-code signup flow:
+	// POST /api/signup validates + redeems a code and creates the
+	// user, and POST+GET /api/admin/invite-codes generate / list
+	// codes. nil disables the signup route (existing installs that
+	// don't need invite-based onboarding are unaffected).
+	Invites *invites.Store
 	// OSRMProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/osrm/* that forwards to a self-hosted
 	// OSRM (cluster Service typically). nil leaves the route
@@ -223,11 +230,17 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
-				r.Get("/me", d.Auth.Me)
+				r.Get("/me", handleMeEnriched(d.Auth, d.DB))
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
 			})
+		}
+		// Public sign-up: validate invite code and create account.
+		// Deliberately outside the requireUser group — the user
+		// does not have a session yet.
+		if d.Invites != nil {
+			r.Post("/signup", handleSignup(d.DB, d.Invites, d.Authelia, d.Logger))
 		}
 
 		// Everything else sits behind requireUser when auth is
@@ -264,6 +277,12 @@ func New(d Deps) http.Handler {
 			if d.TilesProxy != nil {
 				r.Mount("/maps/tiles", http.StripPrefix("/api/maps/tiles", d.TilesProxy))
 			}
+			// Onboarding — marks the first-run stepper as done for the
+			// current user. Called by the frontend when the user
+			// reaches the final step and clicks "Done".
+			r.Post("/onboarding/complete", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleOnboardingComplete(d.DB)(uid, w, r)
+			}))
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
@@ -403,6 +422,10 @@ func New(d Deps) http.Handler {
 			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
 			r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
 			r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
+			if d.Invites != nil {
+				r.Post("/invite-codes", handleAdminInviteCodesCreate(d.DB, d.Invites))
+				r.Get("/invite-codes", handleAdminInviteCodesList(d.Invites))
+			}
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
