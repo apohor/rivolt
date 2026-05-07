@@ -14,8 +14,9 @@
 //	         └─ k8s PATCH externalsecret/authelia-users           (force resync)
 //
 // The ExternalSecret patch annotation triggers external-secrets to
-// re-pull immediately; Authelia's file backend has watch=true, so
-// the new user shows up in ~Secret-propagation time (~60s).
+// re-pull immediately; Authelia's file backend polls every 5s
+// (watch=false), so the new user shows up within ~Secret-propagation
+// time + poll interval (~20s total).
 //
 // All operations are idempotent. UpsertUser overwrites an existing
 // entry — this is the password-rotation path. DeleteUser is a no-op
@@ -83,8 +84,9 @@ type Config struct {
 	// DataKey is the field inside the Vault secret holding the
 	// raw users_database.yml. Default: "users_database.yml".
 	DataKey string
-	// KubeNamespace is where the ExternalSecret lives. Default:
-	// "authelia". Empty disables the ExternalSecret refresh.
+	// KubeNamespace is where the ExternalSecret and Authelia
+	// deployment live. Default: "authelia". Empty disables both
+	// the ExternalSecret refresh and the rollout restart.
 	KubeNamespace string
 	// ExternalSecretName is the name of the ExternalSecret to
 	// annotate-bump. Default: "authelia-users". Empty disables.
@@ -240,6 +242,12 @@ func (c *Client) UpsertUser(ctx context.Context, username, email, displayName, r
 		// log here in callers.
 		return pwd, fmt.Errorf("authelia: provisioned to vault but force-sync failed: %w", err)
 	}
+	// Restart Authelia so its file-backend watcher reloads the
+	// updated secret. K8s secret volumes use symlink swaps which
+	// inotify doesn't detect, so watch:true alone isn't enough.
+	if err := c.rolloutRestartAuthelia(ctx); err != nil {
+		return pwd, fmt.Errorf("authelia: user provisioned but restart failed: %w", err)
+	}
 	return pwd, nil
 }
 
@@ -281,6 +289,9 @@ func (c *Client) UpsertUserWithPassword(ctx context.Context, username, email, di
 	}
 	if err := c.bumpExternalSecret(ctx); err != nil {
 		return fmt.Errorf("authelia: provisioned to vault but force-sync failed: %w", err)
+	}
+	if err := c.rolloutRestartAuthelia(ctx); err != nil {
+		return fmt.Errorf("authelia: user provisioned but restart failed: %w", err)
 	}
 	return nil
 }
