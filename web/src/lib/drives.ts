@@ -52,10 +52,15 @@ export function collapseRoundTrips(
 }
 
 // mergeChain folds an ordered slice of drives into one aggregate row.
-// Energy rule: only sum energy when every leg with meaningful distance
-// (> 0.1 mi) carries a non-zero EnergyUsedKWh. Phantom stubs are
-// excluded from this gate so they don't zero out an otherwise complete
-// merged row.
+// Energy rule: only sum energy when every meaningful leg either carries
+// a non-zero EnergyUsedKWh or is SoC-quantization-limited (a short leg
+// whose start_soc == end_soc because consumption was below the ~1% SoC
+// resolution Rivian reports — typical for a 0.3 mi errand). Phantom
+// stubs and quantization-limited legs both contribute zero energy to
+// the sum and must NOT gate the merged total; we only gate when SoC
+// actually dropped but EnergyUsedKWh is still zero (the "real
+// consumption, missing estimate" case). Same rationale applies to
+// estimated_cost.
 function mergeChain(chain: Drive[]): Drive {
   if (chain.length === 1) return chain[0];
   const last = chain[chain.length - 1];
@@ -79,10 +84,11 @@ function mergeChain(chain: Drive[]): Drive {
       wDur += dur;
     }
     if (d.DistanceMi > 0.1) {
+      const socDropped = d.StartSoCPct > d.EndSoCPct;
       if (d.EnergyUsedKWh > 0) totalEnergy += d.EnergyUsedKWh;
-      else allHaveEnergy = false;
+      else if (socDropped) allHaveEnergy = false;
       if (d.estimated_cost != null) totalCost += d.estimated_cost;
-      else hasCost = false;
+      else if (socDropped) hasCost = false;
     }
   }
 

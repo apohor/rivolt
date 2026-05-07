@@ -103,11 +103,33 @@ func mergeChain(chain []Drive) Drive {
 			wSpd += d.AvgSpeedMph * dur
 			wDur += dur
 		}
-		// Exclude phantom stubs from the energy gate.
+		// Energy gate. Two leg classes legitimately carry zero
+		// EnergyUsedKWh and must NOT gate the merged total:
+		//
+		//   1. Phantom stubs — sub-second gear bounces with ~0 mi.
+		//      Excluded by the DistanceMi > 0.01 guard.
+		//
+		//   2. SoC-quantization-limited legs — short legs whose
+		//      consumption was below the ~1% SoC resolution Rivian
+		//      reports, so start_soc == end_soc and the recorder's
+		//      SoC-delta energy estimator correctly returns 0. A
+		//      0.3 mi errand around the corner is the canonical
+		//      example: ~0.1 kWh used, well below the ~1.5 kWh
+		//      needed to tick a percent on a R1S pack. Without
+		//      this carve-out a single such sub-leg silently
+		//      zeros the entire round trip's energy / cost /
+		//      efficiency.
+		//
+		// We only gate when SoC actually dropped but EnergyUsedKWh
+		// is still zero — that's the "real consumption, missing
+		// estimate" case where reporting an aggregate would be a
+		// lie.
 		if d.DistanceMi > 0.01 {
-			if d.EnergyUsedKWh > 0 {
+			socDropped := d.StartSoCPct > d.EndSoCPct
+			switch {
+			case d.EnergyUsedKWh > 0:
 				totalEnergy += d.EnergyUsedKWh
-			} else {
+			case socDropped:
 				allHaveEnergy = false
 			}
 		}
