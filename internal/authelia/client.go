@@ -242,12 +242,6 @@ func (c *Client) UpsertUser(ctx context.Context, username, email, displayName, r
 		// log here in callers.
 		return pwd, fmt.Errorf("authelia: provisioned to vault but force-sync failed: %w", err)
 	}
-	// Restart Authelia so its file-backend watcher reloads the
-	// updated secret. K8s secret volumes use symlink swaps which
-	// inotify doesn't detect, so watch:true alone isn't enough.
-	if err := c.rolloutRestartAuthelia(ctx); err != nil {
-		return pwd, fmt.Errorf("authelia: user provisioned but restart failed: %w", err)
-	}
 	return pwd, nil
 }
 
@@ -289,9 +283,6 @@ func (c *Client) UpsertUserWithPassword(ctx context.Context, username, email, di
 	}
 	if err := c.bumpExternalSecret(ctx); err != nil {
 		return fmt.Errorf("authelia: provisioned to vault but force-sync failed: %w", err)
-	}
-	if err := c.rolloutRestartAuthelia(ctx); err != nil {
-		return fmt.Errorf("authelia: user provisioned but restart failed: %w", err)
 	}
 	return nil
 }
