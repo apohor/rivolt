@@ -260,6 +260,11 @@ func runServer() {
 	// hydrate sweep below, and Login/Logout drive the runtime
 	// lifecycle. Nil in stub mode.
 	var monitorRegistry *rivian.MonitorRegistry
+	// sharedRedis is the Redis client (when configured) used by the
+	// rate limiter and the live-session persistence layer. Hoisted to
+	// the function scope so the post-switch monitorRegistry wiring
+	// can install a LiveStateStore factory against the same client.
+	var sharedRedis *redis.Client
 	// appMetrics owns the Prometheus registry. Built before the
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
@@ -312,6 +317,7 @@ func runServer() {
 				_ = rdb.Close()
 			} else {
 				sharedLimiter = limiter
+				sharedRedis = rdb
 				logger.Info("ratelimit: enabled", "addr", addr)
 			}
 		}
@@ -371,6 +377,19 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Live-session persistence: when Redis is wired, install a
+		// per-user LiveStateStore factory so each StateMonitor can
+		// rehydrate its in-flight drive/charge accumulators across
+		// pod restarts and lease handoffs. Without this, a deploy or
+		// a peer pod taking over a lease mid-drive fragments the
+		// trip into a fresh drive row at the handover (see incident
+		// on 2026-05-07).
+		if sharedRedis != nil {
+			monitorRegistry.SetLiveStateStoreFactory(func(uid uuid.UUID) rivian.LiveStateStore {
+				return rivian.NewRedisLiveStateStore(sharedRedis, uid.String())
+			})
+			logger.Info("live state store: enabled (redis)")
+		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
 		// ELEVATION_ENABLED=1 turns it on; ELEVATION_TILES_URL points

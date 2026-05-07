@@ -2481,7 +2481,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		}
 		const (
 			roundTripRadiusM = 200.0
-			roundTripMaxGap  = 60 * time.Minute
+			roundTripMaxGap  = 90 * time.Minute
 		)
 		ds = drives.CollapseRoundTrips(ds, roundTripRadiusM, roundTripMaxGap)
 		var drv *drives.Drive

@@ -30,7 +30,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   timeZone: "auto",
   roundTripsEnabled: true,
   roundTripRadiusMeters: 200,
-  roundTripMaxGapMinutes: 60,
+  roundTripMaxGapMinutes: 90,
 };
 
 function readPreferences(): Preferences {

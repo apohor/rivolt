@@ -180,11 +180,22 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 	m.sessMu.Lock()
 	sess := m.sessions[vehicleID]
 	if sess == nil {
-		sess = &liveSessions{}
+		// First contact for this vehicle in this process. If a
+		// LiveStateStore is wired and this is the first attempt for
+		// this vehicle (post-boot or post-Unsubscribe), try to
+		// rehydrate the in-flight accumulator from Redis so a pod
+		// restart or lease handoff mid-drive doesn't fragment the
+		// session into a new drive row. The recorder's own
+		// stale-session guards (liveDriveMaxGap / liveChargeMaxGap)
+		// still run on the next lifecycle pass and will drop
+		// rehydrated state that's clearly out of date.
+		sess = m.maybeRehydrate(vehicleID, curr)
 		m.sessions[vehicleID] = sess
 	}
 
 	var driveNum, chargeNum int64
+	var snap LiveStateSnapshot
+	saveSnapshot := false
 	if lifecycle {
 		// Physical-invariant guard: a car can't be driving and
 		// charging at the same time. If the current frame says it's
@@ -200,6 +211,15 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// right drive_number / charge_number for this frame.
 		driveNum = sess.handleDriveLifecycle(curr, prev, m, wctx)
 		chargeNum = sess.handleChargeLifecycle(curr, prev, m, wctx)
+
+		// Snapshot the post-lifecycle accumulator while we still
+		// hold sessMu; the actual Redis write happens after unlock
+		// so a slow round-trip doesn't serialise other vehicles'
+		// frames behind it.
+		if m.liveStateStore != nil {
+			snap = sess.snapshot()
+			saveSnapshot = true
+		}
 	} else {
 		// Sample-only path: don't open or close any session, but DO
 		// stamp the sample with whatever drive/charge is currently
@@ -212,6 +232,10 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		}
 	}
 	m.sessMu.Unlock()
+
+	if saveSnapshot {
+		m.persistLiveState(vehicleID, snap)
+	}
 
 	// Sample insert: one row per cache update. WS pushes arrive only
 	// on changes, REST refresh fires every 2 min, charging poller
@@ -555,6 +579,77 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		return n
 	}
 	return 0
+}
+
+// maybeRehydrate is the lazy-init path for sessions[vehicleID]. The
+// first time we see a vehicle in this process (or after Unsubscribe
+// cleared the rehydrated flag), it consults liveStateStore for a
+// snapshot left behind by the previous lease owner. Stale snapshots
+// (older than liveDriveMaxGap relative to the current frame) are
+// dropped so a long-since-finished drive doesn't reattach.
+//
+// Caller holds sessMu.
+func (m *StateMonitor) maybeRehydrate(vehicleID string, curr *State) *liveSessions {
+	if m.liveStateStore == nil {
+		return &liveSessions{}
+	}
+	if m.rehydrated[vehicleID] {
+		return &liveSessions{}
+	}
+	m.rehydrated[vehicleID] = true
+
+	loadCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	snap, ok, err := m.liveStateStore.Load(loadCtx, vehicleID)
+	if err != nil {
+		m.logger.Debug("livestate load failed", "vehicle", vehicleID, "err", err.Error())
+		return &liveSessions{}
+	}
+	if !ok {
+		return &liveSessions{}
+	}
+
+	// Drop snapshots whose drive/charge endAt is clearly stale. The
+	// stale-session guards in handleDriveLifecycle / handleChargeLifecycle
+	// would also catch this on the next frame, but throwing away the
+	// expired half here keeps logs cleaner and prevents an old
+	// driveCounter from leaking into a brand-new session.
+	now := curr.At
+	if snap.Drive != nil && now.Sub(snap.Drive.EndAt) > liveDriveMaxGap {
+		snap.Drive = nil
+	}
+	if snap.Charge != nil && now.Sub(snap.Charge.EndAt) > liveChargeMaxGap {
+		snap.Charge = nil
+	}
+
+	sess := liveSessionsFromSnapshot(snap)
+	if sess.drive != nil || sess.charge != nil {
+		m.logger.Info("live state rehydrated",
+			"vehicle", vehicleID,
+			"drive_open", sess.drive != nil,
+			"charge_open", sess.charge != nil,
+			"drive_counter", sess.driveCounter,
+			"charge_counter", sess.chargeCounter)
+	}
+	return sess
+}
+
+// persistLiveState saves the current accumulator snapshot to the
+// LiveStateStore. Best-effort: storage failures are logged at debug
+// and never propagated. Should be called after every WS-driven
+// lifecycle pass so a pod restart between frames can rehydrate from
+// the latest snapshot. Caller MUST NOT hold sessMu — Save can issue
+// a network round-trip and we don't want to serialise frames across
+// vehicles behind it.
+func (m *StateMonitor) persistLiveState(vehicleID string, snap LiveStateSnapshot) {
+	if m.liveStateStore == nil {
+		return
+	}
+	saveCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := m.liveStateStore.Save(saveCtx, vehicleID, snap, LiveStateTTL); err != nil {
+		m.logger.Debug("livestate save failed", "vehicle", vehicleID, "err", err.Error())
+	}
 }
 
 func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {

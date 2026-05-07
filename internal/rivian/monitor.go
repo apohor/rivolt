@@ -71,8 +71,22 @@ type StateMonitor struct {
 	// Per-vehicle in-flight session accumulators, keyed by vehicleID.
 	// Access guarded by sessMu. Separate from mu so recorder work
 	// doesn't serialize behind cache reads.
-	sessMu   sync.Mutex
-	sessions map[string]*liveSessions
+	//
+	// rehydrated tracks which vehicles we've already attempted to
+	// rehydrate from liveStateStore in this process. Looked up before
+	// the lazy init at recordFrame so a single Redis miss after pod
+	// boot doesn't keep retrying on every WS frame for the same
+	// vehicle. Cleared on Unsubscribe so a re-acquired lease tries
+	// again.
+	sessMu      sync.Mutex
+	sessions    map[string]*liveSessions
+	rehydrated  map[string]bool
+
+	// liveStateStore persists liveSessions across pod restarts and
+	// lease handoffs. Set via SetLiveStateStore at boot; nil disables
+	// the rehydrate path (in-memory only). Best-effort: storage
+	// failures degrade to fragmentation but never break the recorder.
+	liveStateStore LiveStateStore
 
 	// Latest LiveSession payload per vehicle, refreshed by
 	// chargingSessionPoller. Used by the recorder to enrich charge
@@ -150,6 +164,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		active:         make(map[string]context.CancelFunc),
 		subCancel:      make(map[string]context.CancelCauseFunc),
 		sessions:       make(map[string]*liveSessions),
+		rehydrated:     make(map[string]bool),
 		lastSession:    make(map[string]*LiveSession),
 		chargeBond:     make(map[string]string),
 		lastSessionFor: make(map[string]string),
@@ -168,6 +183,14 @@ func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drive
 	m.samplesStore = samplesStore
 	m.drivesStore = drivesStore
 	m.chargesStore = chargesStore
+}
+
+// SetLiveStateStore wires the cross-restart accumulator persistence
+// store. nil disables persistence and rehydration; the recorder runs
+// purely from in-memory state (the pre-Redis behaviour). Safe to call
+// before Start; racy if called after subscriptions are running.
+func (m *StateMonitor) SetLiveStateStore(s LiveStateStore) {
+	m.liveStateStore = s
 }
 
 // SetElevationLookup wires an optional elevation resolver. nil
@@ -385,6 +408,13 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		delete(m.wsSeen, vehicleID)
 	}
 	m.mu.Unlock()
+	// A re-acquired lease should try the livestate rehydrate path
+	// again — in particular, if a peer pod was holding the vehicle
+	// and just released it (lease handoff in the other direction),
+	// the snapshot in Redis is the authoritative open-drive state.
+	m.sessMu.Lock()
+	delete(m.rehydrated, vehicleID)
+	m.sessMu.Unlock()
 	if ok && cancel != nil {
 		cancel()
 	}
