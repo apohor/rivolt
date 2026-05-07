@@ -865,6 +865,27 @@ func runServer() {
 		logger.Warn("hydra is configured but kratos public URL is missing — /auth/hydra/* will be disabled",
 			"hint", "set KRATOS_PUBLIC_URL alongside KRATOS_ADMIN_URL")
 	}
+	// How long Hydra should remember a user's login + consent
+	// before re-prompting. Drives the RememberFor field on
+	// AcceptLoginRequest / AcceptConsentRequest. Zero defers to
+	// Hydra's own login_session lifespan; a positive duration
+	// caps the silent-refresh window from the RP's perspective.
+	hydraRememberFor := 24 * time.Hour
+	if v := strings.TrimSpace(os.Getenv("RIVOLT_OIDC_HYDRA_REMEMBER_FOR")); v != "" {
+		parsed, perr := time.ParseDuration(v)
+		if perr != nil {
+			logger.Error("invalid RIVOLT_OIDC_HYDRA_REMEMBER_FOR", "value", v, "err", perr.Error())
+			os.Exit(1)
+		}
+		if parsed < 0 {
+			logger.Error("RIVOLT_OIDC_HYDRA_REMEMBER_FOR must be >= 0", "value", v)
+			os.Exit(1)
+		}
+		hydraRememberFor = parsed
+	}
+	if hydraClient.Enabled() {
+		logger.Info("hydra remember_for configured", "duration", hydraRememberFor.String())
+	}
 	var userProvider idp.UserProvider
 	if kratosClient.Enabled() {
 		userProvider = idp.FromKratos(kratosClient)
@@ -933,8 +954,9 @@ func runServer() {
 		Invites:      inviteStore,
 		OSRMProxy:    osrmProxy,
 		TilesProxy:   tilesProxy,
-		Hydra:        hydraClient,
-		Kratos:       kratosClient,
+		Hydra:            hydraClient,
+		Kratos:           kratosClient,
+		HydraRememberFor: hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

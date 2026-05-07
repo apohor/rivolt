@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/kratos"
@@ -18,6 +19,22 @@ type hydraDeps struct {
 	Hydra  *hydra.Client
 	Kratos *kratos.Client
 	Logger *slog.Logger
+	// RememberFor is how long Hydra should remember the user's
+	// login + consent decision before forcing a fresh prompt. Zero
+	// means "remember until the underlying login_session cookie
+	// itself expires" (Hydra's default). Applied to both the
+	// AcceptLoginRequest and AcceptConsentRequest calls.
+	RememberFor time.Duration
+}
+
+// rememberForSeconds returns RememberFor in whole seconds, clamped at
+// zero. Hydra's API takes int64 seconds; values below 1s collapse to
+// 0 ("remember as long as login_session lasts").
+func (d hydraDeps) rememberForSeconds() int64 {
+	if d.RememberFor <= 0 {
+		return 0
+	}
+	return int64(d.RememberFor / time.Second)
 }
 
 // hydraLoginGET handles GET /api/auth/hydra/login?login_challenge=….
@@ -58,7 +75,7 @@ func hydraLoginGET(d hydraDeps) http.HandlerFunc {
 				hydra.AcceptLoginRequest{
 					Subject:     req.Subject,
 					Remember:    true,
-					RememberFor: 3600,
+					RememberFor: d.rememberForSeconds(),
 				})
 			if err != nil {
 				d.Logger.Error("hydra login: skip-accept failed", "err", err)
@@ -153,7 +170,7 @@ func hydraLoginPOST(d hydraDeps) http.HandlerFunc {
 			hydra.AcceptLoginRequest{
 				Subject:     identity.ID,
 				Remember:    true,
-				RememberFor: 3600,
+				RememberFor: d.rememberForSeconds(),
 				ACR:         "0",
 				AMR:         []string{"pwd"},
 			})
@@ -255,7 +272,7 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 				GrantScope:               req.RequestedScope,
 				GrantAccessTokenAudience: req.RequestedAccessTokenAudience,
 				Remember:                 true,
-				RememberFor:              3600,
+				RememberFor:              d.rememberForSeconds(),
 				Session:                  session,
 			})
 		if err != nil {

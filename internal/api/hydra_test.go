@@ -10,10 +10,67 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/kratos"
 )
+
+// TestHydraDeps_rememberForSeconds: zero/negative collapse to 0
+// (Hydra's "remember as long as login_session lasts"); positive
+// durations round to whole seconds.
+func TestHydraDeps_rememberForSeconds(t *testing.T) {
+	cases := []struct {
+		in   time.Duration
+		want int64
+	}{
+		{0, 0},
+		{-time.Hour, 0},
+		{500 * time.Millisecond, 0},
+		{time.Second, 1},
+		{24 * time.Hour, 86400},
+	}
+	for _, c := range cases {
+		got := hydraDeps{RememberFor: c.in}.rememberForSeconds()
+		if got != c.want {
+			t.Errorf("rememberForSeconds(%v) = %d want %d", c.in, got, c.want)
+		}
+	}
+}
+
+// TestHydraLoginPOST_sendsRememberFor confirms RememberFor on the
+// hydraDeps is plumbed into the Hydra accept-login payload.
+func TestHydraLoginPOST_sendsRememberFor(t *testing.T) {
+	kr := fakeKratos(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/self-service/login/api" {
+			_, _ = w.Write([]byte(`{"id":"f"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"session":{"identity":{"id":"u"}}}`))
+	})
+	var seenRememberFor float64
+	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			body, _ := io.ReadAll(r.Body)
+			var b map[string]any
+			_ = json.Unmarshal(body, &b)
+			seenRememberFor, _ = b["remember_for"].(float64)
+			_, _ = w.Write([]byte(`{"redirect_to":"https://h/done"}`))
+		}
+	})
+	d := hydraDeps{Hydra: hyd, Kratos: kr, Logger: discardLogger(), RememberFor: 24 * time.Hour}
+	body := bytes.NewBufferString(`{"challenge":"c","email":"u@x","password":"pw"}`)
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	hydraLoginPOST(d).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if int64(seenRememberFor) != 86400 {
+		t.Errorf("remember_for sent to hydra = %v want 86400", seenRememberFor)
+	}
+}
 
 // fakeHydra returns an httptest.Server emulating the four Hydra
 // admin endpoints we use, plus a Hydra client wired to it.

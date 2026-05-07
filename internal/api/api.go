@@ -105,6 +105,11 @@ type Deps struct {
 	// facing login prompt.
 	Hydra  *hydra.Client
 	Kratos *kratos.Client
+	// HydraRememberFor controls how long Hydra remembers the
+	// user's login + consent before forcing a fresh prompt. Zero
+	// defers to Hydra's login_session lifespan. Sourced from the
+	// RIVOLT_OIDC_HYDRA_REMEMBER_FOR env var in main.go.
+	HydraRememberFor time.Duration
 	WebFS   fs.FS
 	Version string
 	// DB is the shared Postgres pool. Used by request middleware
@@ -251,7 +256,12 @@ func New(d Deps) http.Handler {
 				// leave a half-broken flow, so guard on both.
 				if d.Hydra != nil && d.Hydra.Enabled() &&
 					d.Kratos != nil && d.Kratos.Enabled() {
-					hd := hydraDeps{Hydra: d.Hydra, Kratos: d.Kratos, Logger: d.Logger}
+					hd := hydraDeps{
+						Hydra:       d.Hydra,
+						Kratos:      d.Kratos,
+						Logger:      d.Logger,
+						RememberFor: d.HydraRememberFor,
+					}
 					r.Route("/hydra", func(r chi.Router) {
 						r.Get("/login", hydraLoginGET(hd))
 						r.Post("/login", hydraLoginPOST(hd))
