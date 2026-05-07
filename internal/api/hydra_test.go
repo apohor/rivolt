@@ -215,7 +215,7 @@ func TestHydraConsentGET_injectsGroupsClaim(t *testing.T) {
 		t.Fatalf("kratos.New: %v", err)
 	}
 
-	var sentClaims map[string]any
+	var sentClaims, sentAccessClaims map[string]any
 	hyd := fakeHydra(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet:
@@ -227,6 +227,9 @@ func TestHydraConsentGET_injectsGroupsClaim(t *testing.T) {
 			if sess, ok := b["session"].(map[string]any); ok {
 				if tok, ok := sess["id_token"].(map[string]any); ok {
 					sentClaims = tok
+				}
+				if tok, ok := sess["access_token"].(map[string]any); ok {
+					sentAccessClaims = tok
 				}
 			}
 			_, _ = w.Write([]byte(`{"redirect_to":"https://app/cb"}`))
@@ -245,5 +248,15 @@ func TestHydraConsentGET_injectsGroupsClaim(t *testing.T) {
 	}
 	if sentClaims["email"] != "a@x" {
 		t.Errorf("email claim = %v", sentClaims["email"])
+	}
+	// /userinfo reads from the access-token session in Hydra, so we
+	// must mirror the same claims there. Without this Grafana's
+	// generic_oauth provider gets an empty email and bails with
+	// "user not found".
+	if sentAccessClaims["email"] != "a@x" {
+		t.Errorf("access_token email claim = %v", sentAccessClaims["email"])
+	}
+	if g, _ := sentAccessClaims["groups"].([]any); len(g) != 1 || g[0] != "admins" {
+		t.Errorf("access_token groups = %#v", sentAccessClaims["groups"])
 	}
 }

@@ -224,7 +224,20 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 					claims["groups"] = g
 				}
 				if len(claims) > 0 {
-					session = &hydra.Session{IDToken: claims}
+					// Mirror into AccessToken session as well so
+					// Hydra's /userinfo endpoint returns them.
+					// Hydra returns *only* what's in Session.IDToken
+					// from /userinfo when it was minted from a
+					// session that has them; in practice Grafana,
+					// ArgoCD and other clients that hit /userinfo
+					// for the email/groups payload need them on
+					// the access-token session. Send to both —
+					// id_token claims show up in the JWT, access
+					// token claims surface via /userinfo.
+					session = &hydra.Session{
+						IDToken:     claims,
+						AccessToken: claims,
+					}
 				}
 			}
 		}
