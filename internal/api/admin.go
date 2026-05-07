@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -43,17 +44,21 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 }
 
 // handleAdminUserCreate — POST /api/admin/users
-// Body: {"username": "...", "email": "...", "display_name": "...", "role": "user"|"admin", "disabled": bool}
+// Body: {"email": "...", "display_name": "...", "role": "user"|"admin", "disabled": bool}
 //
-// Pre-provisions a user row keyed by the deterministic UUIDv5 of
-// the username. Auth is OIDC-only — this does NOT issue a password.
-// When the user later signs in via OIDC with a matching
-// preferred_username, EnsureUserFull lands on this row and the
-// pre-set role/email/display_name survive.
+// Email is the canonical identifier (matches Kratos's identity
+// schema, which registers email as the password credential
+// identifier). The rivolt row's stable internal handle (`username`)
+// is derived from the email local-part, so the deterministic
+// UUIDv5 stays consistent across logins. `display_name` is
+// optional — defaults to email — so admins can add a teammate
+// without inventing a label. Older callers may still send
+// `username` explicitly; if present it overrides the local-part
+// derivation, but new code should not.
 //
-// `disabled: true` lets an admin pre-block a username before the
-// user has ever attempted to sign in (e.g. revoking access for a
-// departing employee whose IdP entry is still alive). The Middleware
+// `disabled: true` lets an admin pre-block an account before the
+// user has ever signed in (e.g. revoking access for a departing
+// employee whose IdP entry is still alive). The auth Middleware
 // disabled-gate refuses to mint a session for the row.
 //
 // When an idp.UserProvider is wired in (Kratos), the handler also
@@ -80,6 +85,23 @@ func handleAdminUserCreate(d *sql.DB, ac idp.UserProvider, log *slog.Logger) htt
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
 			return
+		}
+		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
+		body.Username = strings.TrimSpace(body.Username)
+		body.DisplayName = strings.TrimSpace(body.DisplayName)
+		// Email is required. Derive a stable rivolt-side handle from
+		// the local-part when the caller doesn't supply one (new
+		// shape) and default display_name to the email so the form
+		// only really needs one field plus role.
+		if body.Email == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "email is required"})
+			return
+		}
+		if body.Username == "" {
+			body.Username = emailLocalPart(body.Email)
+		}
+		if body.DisplayName == "" {
+			body.DisplayName = body.Email
 		}
 		id, err := db.CreateUser(r.Context(), d, body.Username, body.Email, body.DisplayName, body.Role)
 		if err != nil {

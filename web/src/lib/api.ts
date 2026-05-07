@@ -694,8 +694,7 @@ export const backend = {
   // out-of-band before the next page reload (it is never
   // persisted on the rivolt side).
   adminCreateUser: (input: {
-    username: string;
-    email?: string;
+    email: string;
     display_name?: string;
     role: "user" | "admin";
     disabled?: boolean;

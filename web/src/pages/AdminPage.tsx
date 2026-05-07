@@ -184,7 +184,6 @@ function InviteCodeTable({ codes }: { codes: InviteCode[] }) {
 
 function CreateUserForm() {
   const qc = useQueryClient();
-  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
@@ -201,15 +200,13 @@ function CreateUserForm() {
   const create = useMutation({
     mutationFn: () =>
       backend.adminCreateUser({
-        username: username.trim(),
-        email: email.trim() || undefined,
-        display_name: displayName.trim(),
+        email: email.trim(),
+        display_name: displayName.trim() || undefined,
         role,
         disabled: disabled || undefined,
       }),
     onSuccess: (resp) => {
-      const created = username.trim();
-      setUsername("");
+      const created = email.trim();
       setEmail("");
       setDisplayName("");
       setRole("user");
@@ -221,38 +218,30 @@ function CreateUserForm() {
     },
   });
 
-  // Pre-provision: the row reserves the deterministic UUID for the
-  // username so when the user later signs in via OIDC with a
-  // matching preferred_username the existing row is reused. We
-  // surface this in the help text so it's not surprising.
+  // Email is the canonical Kratos credential identifier. Display
+  // name is optional — the server defaults it to the email when
+  // empty. Role and disabled stay explicit because their defaults
+  // matter operationally (a stale "admin" toggle would be a bug).
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (!username.trim()) return;
+        if (!email.trim()) return;
         create.mutate();
       }}
-      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-6"
+      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-5"
     >
       <input
-        type="text"
-        required
-        placeholder="username"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
-        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
-      />
-      <input
         type="email"
-        placeholder="email (optional)"
+        required
+        placeholder="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
       />
       <input
         type="text"
-        required
-        placeholder="display name"
+        placeholder="display name (optional)"
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
         className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
@@ -276,15 +265,16 @@ function CreateUserForm() {
       </label>
       <button
         type="submit"
-        disabled={!username.trim() || create.isPending}
+        disabled={!email.trim() || create.isPending}
         className="rounded-md border border-emerald-800 bg-emerald-950 px-3 py-1 text-sm text-emerald-200 hover:border-emerald-700 hover:text-emerald-100 disabled:opacity-40"
       >
         {create.isPending ? "Creating…" : "Create user"}
       </button>
       <p className="col-span-full text-xs text-neutral-500">
-        Auth is OIDC-only — this pre-provisions the user row. When the
-        named user later signs in via OIDC with a matching
-        preferred_username, they pick up the pre-set role and details.
+        Provisions the user in Kratos with a one-time password. They
+        sign in at <span className="font-mono">auth.rivolt.dev</span>{" "}
+        with this email and the password shown below, then change it
+        via the IdP self-service flow.
       </p>
       {create.error && (
         <p className="col-span-full text-xs text-red-400">
