@@ -24,9 +24,11 @@ appVersion: "0.X.Y"   # pod image tag — MUST match the git tag
 git add <changed files> deploy/helm/rivolt/Chart.yaml
 git commit -m "v0.X.Y: <short summary>"
 git tag v0.X.Y
-git push --follow-tags
+git push origin main
+git push origin v0.X.Y
 ```
-`--follow-tags` ships the commit and the tag together.
+Push the tag explicitly — `--follow-tags` only pushes annotated tags,
+and we create lightweight tags, so the tag must be pushed separately.
 CI publishes `ghcr.io/apohor/rivolt:0.X.Y` on tag push only — wait
 for the Actions run to go green before bumping infra.
 
@@ -43,6 +45,6 @@ git push
 
 ## Checklist
 - [ ] `Chart.yaml` `version` + `appVersion` bumped
-- [ ] `git push --follow-tags` done
+- [ ] `git push origin main && git push origin vX.Y.Z` done
 - [ ] `rivolt-infra` `app.yaml` bumped & pushed
 - [ ] ArgoCD synced, pod on new version (`kubectl -n rivolt get pods`)
