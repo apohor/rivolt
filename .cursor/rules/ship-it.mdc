@@ -1,7 +1,15 @@
 ---
 description: Ship-it checklist — commit, bump Chart.yaml, push, tag, bump infra
+globs:
+  - deploy/helm/rivolt/Chart.yaml
+  - ../rivolt-infra/apps/rivolt/app.yaml
 alwaysApply: false
 ---
+
+> **When to follow this**: any time you bump `Chart.yaml`'s `version`/`appVersion`
+> or `rivolt-infra/apps/rivolt/app.yaml`'s `chart.version`. The chart version
+> is a git tag that must be created and pushed; without step 3 ArgoCD fails
+> with `unable to resolve 'v0.X.Y' to a commit SHA`.
 
 # Ship-it Process
 
