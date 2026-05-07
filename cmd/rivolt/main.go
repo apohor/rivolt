@@ -31,6 +31,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/authelia"
 	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
@@ -792,19 +793,35 @@ func runServer() {
 		settingsMgr = mgr
 	}
 
-	// Authelia client — provisioning of file-backend users via
-	// Vault on POST /api/admin/users. Disabled (nil) when
-	// AUTHELIA_VAULT_ADDR is unset; the rivolt admin endpoint
-	// then only creates the rivolt DB row and the OIDC identity
-	// must be created out-of-band.
+	// Identity provider — provisioning of users on
+	// POST /api/admin/users and POST /api/signup.
+	//
+	// Selection rule: Kratos wins when KRATOS_ADMIN_URL is set,
+	// otherwise we fall back to Authelia. Both can be configured
+	// during the migration but only one is wired into the API at
+	// a time. When neither is configured the provider is disabled
+	// (every call returns an error) and the rivolt admin endpoint
+	// only creates the rivolt DB row.
 	autheliaClient, err := authelia.NewFromEnv()
 	if err != nil {
 		logger.Error("authelia init", "err", err.Error())
 		os.Exit(1)
 	}
-	userProvider := idp.FromAuthelia(autheliaClient)
-	if userProvider.Enabled() {
+	kratosClient, err := kratos.NewFromEnv()
+	if err != nil {
+		logger.Error("kratos init", "err", err.Error())
+		os.Exit(1)
+	}
+	var userProvider idp.UserProvider
+	switch {
+	case kratosClient.Enabled():
+		userProvider = idp.FromKratos(kratosClient)
+		logger.Info("idp provisioning enabled", "backend", "kratos")
+	case autheliaClient.Enabled():
+		userProvider = idp.FromAuthelia(autheliaClient)
 		logger.Info("idp provisioning enabled", "backend", "authelia")
+	default:
+		userProvider = idp.FromAuthelia(nil) // disabled provider
 	}
 
 	// OSRM same-origin proxy. RIVOLT_OSRM_BASE_URL points at the
