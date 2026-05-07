@@ -130,7 +130,7 @@ func (s *Store) List(ctx context.Context) ([]Code, error) {
 		return nil, fmt.Errorf("invites: list: %w", err)
 	}
 	defer rows.Close()
-	var out []Code
+	out := make([]Code, 0)
 	for rows.Next() {
 		var c Code
 		var usedAt sql.NullTime
