@@ -397,10 +397,12 @@ func New(d Deps) http.Handler {
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
 				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
 				r.Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Authelia, d.Logger))
-				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
-				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
-				r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
-				r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
+			r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
+			r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
+			r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
+			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
+			r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
+			r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -1832,7 +1834,37 @@ func handleAISettingsPut(mgr *settings.Manager) http.HandlerFunc {
 	}
 }
 
-// Recap settings handlers removed in v0.17.64
+// handleRecapSettingsGet returns the current recap configuration.
+func handleRecapSettingsGet(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, mgr.RecapPublic())
+	}
+}
+
+// handleRecapSettingsPut accepts a partial patch for recap settings.
+func handleRecapSettingsPut(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		var patch settings.RecapUpdate
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+			return
+		}
+		pub, err := mgr.UpdateRecap(r.Context(), patch)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, pub)
+	}
+}
 
 // handleAIModelsList proxies the provider's catalogue endpoint using the
 // stored API key so the UI can offer a live dropdown instead of asking
