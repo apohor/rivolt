@@ -54,7 +54,15 @@ async function request<T>(
     // doesn't have to reinvent this. We *don't* redirect for
     // /api/auth/me — the login page itself polls that endpoint to
     // bootstrap, and redirecting on its 401 would create a loop.
-    if (res.status === 401 && !url.endsWith("/api/auth/me")) {
+    // /api/auth/hydra/login returns 401 for "invalid credentials" on
+    // the user-supplied form — bouncing to /login would lose the
+    // login_challenge in the URL and strand the third-party OIDC
+    // flow. Let the page render an inline error instead.
+    if (
+      res.status === 401 &&
+      !url.endsWith("/api/auth/me") &&
+      !url.startsWith("/api/auth/hydra/login")
+    ) {
       const here = window.location.pathname + window.location.search;
       if (!window.location.pathname.startsWith("/login")) {
         const next = here === "/" ? "" : `?next=${encodeURIComponent(here)}`;
@@ -551,6 +559,30 @@ export const backend = {
   // server is in front of a new SPA) means the server isn't
   // configured for any IdP \u2014 LoginPage shows a clear message
   // since OIDC is the only sign-in method.
+  // hydraLoginGet fetches the metadata for an in-progress Hydra
+  // login challenge. The browser was redirected here from Hydra
+  // with ?login_challenge=…; we hand that back to the backend
+  // which calls Hydra's admin /oauth2/auth/requests/login. The
+  // response tells the SPA which OAuth2 client is asking, what
+  // scopes it wants, and whether a login_hint was provided.
+  hydraLoginGet: (challenge: string) =>
+    api.get<{
+      challenge: string;
+      client_id: string;
+      client_name: string;
+      requested_scope: string[];
+      login_hint?: string;
+    }>(`/api/auth/hydra/login?login_challenge=${encodeURIComponent(challenge)}`),
+  // hydraLoginPost authenticates the user against Kratos via
+  // Rivolt's backend and asks Hydra to accept the login. The
+  // backend returns a redirect_to URL which the SPA must navigate
+  // to via a full-page assign (a fetch redirect would never reach
+  // Hydra's cookie domain).
+  hydraLoginPost: (body: {
+    challenge: string;
+    email: string;
+    password: string;
+  }) => api.post<{ redirect_to: string }>("/api/auth/hydra/login", body),
   oidcProviders: async (): Promise<OIDCProvider[]> => {
     try {
       return await api.get<OIDCProvider[]>("/api/auth/oidc/");
