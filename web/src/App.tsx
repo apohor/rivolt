@@ -6,6 +6,7 @@ import DriveDetailPage from "./pages/DriveDetailPage";
 import ChargesPage from "./pages/ChargesPage";
 import ChargeDetailPage from "./pages/ChargeDetailPage";
 import LivePage from "./pages/LivePage";
+import TripPlanPage from "./pages/TripPlanPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="charges" element={<ChargesPage />} />
         <Route path="charges/:id" element={<ChargeDetailPage />} />
         <Route path="live" element={<LivePage />} />
+        <Route path="trips/plan" element={<TripPlanPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />

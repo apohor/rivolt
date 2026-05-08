@@ -817,6 +817,13 @@ export const backend = {
     api.get<DriveWeatherSeries>(
       `/api/drives/${encodeURIComponent(id)}/weather/series`,
     ),
+  // Trip planner — pass-through to Rivian's planTripWithMultiStop.
+  // Slice 1: read-only, no AI, no save. The caller supplies origin
+  // + destination (+ optional intermediate waypoints) and an
+  // optional target arrival SoC; vehicle_id and starting_soc are
+  // back-filled by the server from the live state cache when omitted.
+  planTrip: (req: TripPlanRequest) =>
+    api.post<TripPlan>("/api/trips/plan", req),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON
@@ -1016,4 +1023,69 @@ export type OIDCProvider = {
   name: string;
   display_name: string;
   start_url: string;
+};
+
+// TripPlanRequest is the body for POST /api/trips/plan. vehicle_id
+// and starting_soc may be omitted — the server fills them from the
+// live state cache.
+export type TripPlanRequest = {
+  vehicle_id?: string;
+  starting_soc?: number;
+  starting_range_meters?: number;
+  origin_bearing: number;
+  waypoints: TripPlanInputWaypoint[];
+  target_arrival_soc_percent?: number;
+  drive_mode?: string;
+  trailer_profile?: string;
+  avoid_adapter_required?: boolean;
+  supported_connector_types?: string[];
+  network_preferences?: { network_id: string; preference: number }[];
+};
+
+export type TripPlanInputWaypoint = {
+  latitude: number;
+  longitude: number;
+  // "origin" | "destination" | "waypoint" — strings the gateway
+  // recognises. Kept loose so a future planner extension doesn't
+  // break the SPA build.
+  waypoint_type: string;
+  entity_id?: string;
+};
+
+// TripPlan mirrors internal/rivian.TripPlan (Go side). The gateway
+// returns one or more candidate routes; the first is typically the
+// recommended one.
+export type TripPlan = {
+  Status: string;
+  ChargeStationsAvailable: boolean;
+  SoCBelowLimit: boolean;
+  Routes: TripRoute[];
+};
+
+export type TripRoute = {
+  DestinationReached: boolean;
+  TotalChargingDurationSec: number;
+  ArrivalSoC: number;
+  ArrivalReachableMeters: number;
+  EnergyConsumptionKWh: number;
+  BatteryEmptyToDestMeters: number;
+  BatteryEmptyLat: number;
+  BatteryEmptyLon: number;
+  RouteResponseRaw: unknown;
+  Waypoints: PlannedWaypoint[];
+};
+
+export type PlannedWaypoint = {
+  WaypointType: string;
+  EntityID: string;
+  Name: string;
+  Latitude: number;
+  Longitude: number;
+  MaxPowerKW: number;
+  ChargeDurationSec: number;
+  ArrivalSoC: number;
+  DepartureSoC: number;
+  ArrivalReachableMeters: number;
+  DepartureReachableMeters: number;
+  AdapterRequired: boolean;
 };

@@ -529,6 +529,16 @@ func New(d Deps) http.Handler {
 			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
+			// Trip planner — pass-through to Rivian's
+			// planTripWithMultiStop. Slice 1 of the trip-planner
+			// feature: read-only, no AI, no save. Caller supplies
+			// origin + destination + optional intermediate waypoints
+			// + optional target arrival SoC. The handler resolves
+			// the user's vehicle + current SoC from cache; the
+			// gateway computes charging stops and per-leg numbers.
+			r.Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleTripPlan(clientFor(d, uid), monitorFor(d, uid))(w, r)
+			}))
 		}) // end of timed authenticated /api group
 
 		// AI-bound POSTs. Same auth as the timed group above, but
@@ -1068,6 +1078,133 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 			return
 		}
 		writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
+	}
+}
+
+// tripPlanRequest is the SPA-facing input. VehicleID + StartingSoC
+// can be omitted; the handler back-fills them from the monitor's
+// state cache so callers don't repeat what the server already knows.
+type tripPlanRequest struct {
+	VehicleID               string                  `json:"vehicle_id"`
+	StartingSoC             *float64                `json:"starting_soc,omitempty"`
+	StartingRangeMeters     float64                 `json:"starting_range_meters,omitempty"`
+	OriginBearing           float64                 `json:"origin_bearing"`
+	Waypoints               []tripPlanWaypoint      `json:"waypoints"`
+	TargetArrivalSocPercent *float64                `json:"target_arrival_soc_percent,omitempty"`
+	DriveMode               string                  `json:"drive_mode,omitempty"`
+	TrailerProfile          string                  `json:"trailer_profile,omitempty"`
+	AvoidAdapterRequired    bool                    `json:"avoid_adapter_required,omitempty"`
+	SupportedConnectorTypes []string                `json:"supported_connector_types,omitempty"`
+	NetworkPreferences      []tripPlanNetworkPref   `json:"network_preferences,omitempty"`
+}
+
+type tripPlanWaypoint struct {
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	WaypointType string  `json:"waypoint_type"`
+	EntityID     string  `json:"entity_id,omitempty"`
+}
+
+type tripPlanNetworkPref struct {
+	NetworkID  string `json:"network_id"`
+	Preference int    `json:"preference"`
+}
+
+// handleTripPlan calls Rivian's planTripWithMultiStop. Slice 1 of
+// the trip-planner feature: read-only pass-through with no AI, no
+// save, no places search. Caller provides waypoint coordinates
+// directly (geocoding lands in slice 2).
+//
+// The user's current SoC is pulled from the monitor's state cache
+// when the body omits starting_soc; that's the typical SPA path
+// where the user's planning a trip "from where I am now". Callers
+// can override (e.g. simulating a different starting state) by
+// passing starting_soc explicitly.
+func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		var req tripPlanRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(req.Waypoints) < 2 {
+			http.Error(w, "at least origin + destination waypoints required", http.StatusBadRequest)
+			return
+		}
+		// Fill in vehicle + SoC from the cache when omitted.
+		startingSoC := 0.0
+		if req.StartingSoC != nil {
+			startingSoC = *req.StartingSoC
+		}
+		if req.VehicleID == "" || req.StartingSoC == nil {
+			if mon == nil {
+				http.Error(w, "vehicle_id + starting_soc required (no live monitor for this user)", http.StatusBadRequest)
+				return
+			}
+			// When VehicleID is missing, fall back to whichever vehicle
+			// the cache has freshest state for.
+			vid := req.VehicleID
+			if vid == "" {
+				for _, v := range mon.AllVehicleInfo() {
+					vid = v.ID
+					break
+				}
+			}
+			if vid == "" {
+				http.Error(w, "vehicle_id required", http.StatusBadRequest)
+				return
+			}
+			req.VehicleID = vid
+			if req.StartingSoC == nil {
+				if st, _ := mon.Latest(vid); st != nil {
+					startingSoC = st.BatteryLevelPct
+					if req.StartingRangeMeters == 0 && st.DistanceToEmpty > 0 {
+						req.StartingRangeMeters = st.DistanceToEmpty * 1000
+					}
+				} else {
+					http.Error(w, "starting_soc required (no cached state for vehicle)", http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
+		in := rivian.PlanTripInput{
+			VehicleID:               req.VehicleID,
+			StartingSoC:             startingSoC,
+			StartingRangeMeters:     req.StartingRangeMeters,
+			OriginBearing:           req.OriginBearing,
+			TargetArrivalSocPercent: req.TargetArrivalSocPercent,
+			DriveMode:               req.DriveMode,
+			TrailerProfile:          req.TrailerProfile,
+			AvoidAdapterRequired:    req.AvoidAdapterRequired,
+			SupportedConnectorTypes: req.SupportedConnectorTypes,
+		}
+		for _, wp := range req.Waypoints {
+			in.Waypoints = append(in.Waypoints, rivian.PlanTripWaypoint{
+				Latitude:     wp.Latitude,
+				Longitude:    wp.Longitude,
+				WaypointType: wp.WaypointType,
+				EntityID:     wp.EntityID,
+			})
+		}
+		for _, np := range req.NetworkPreferences {
+			in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{
+				NetworkID:  np.NetworkID,
+				Preference: np.Preference,
+			})
+		}
+
+		plan, err := lc.PlanTrip(r.Context(), in)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, plan)
 	}
 }
 

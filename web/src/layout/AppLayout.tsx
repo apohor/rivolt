@@ -9,6 +9,7 @@ const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/live", label: "Live" },
   { to: "/drives", label: "Drives" },
   { to: "/charges", label: "Charges" },
+  { to: "/trips/plan", label: "Plan" },
   { to: "/settings", label: "Settings" },
 ];
 
