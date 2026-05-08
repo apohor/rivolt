@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 // PlanTripInput is the request shape for PlanTrip. Mirrors the
@@ -122,46 +124,17 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	if len(in.Waypoints) < 2 {
 		return nil, fmt.Errorf("planTrip: origin + destination waypoints required")
 	}
-	vars := planTripVars{
-		Vehicle: in.VehicleID,
-	}
-	for _, wp := range in.Waypoints {
-		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
-			Latitude:  wp.Latitude,
-			Longitude: wp.Longitude,
-		})
-	}
-	if in.StartingSoC > 0 {
-		v := in.StartingSoC
-		vars.StartingSoc = &v
-	}
-	if in.StartingRangeMeters > 0 {
-		v := in.StartingRangeMeters
-		vars.StartingRangeMeters = &v
-	}
-	if in.TargetArrivalSocPercent != nil {
-		v := *in.TargetArrivalSocPercent
-		vars.TargetArrivalSocPercent = &v
-	}
-	if in.DriveMode != "" {
-		v := in.DriveMode
-		vars.DriveMode = &v
-	}
-	if in.TrailerProfile != "" {
-		v := in.TrailerProfile
-		vars.TrailerProfile = &v
-	}
-	for _, np := range in.NetworkPreferences {
-		vars.NetworkPreferences = append(vars.NetworkPreferences, planTripNetworkPrefVar{
-			NetworkID:  np.NetworkID,
-			Preference: np.Preference,
-		})
-	}
-
+	// Build an inlined GraphQL query (no GraphQL variables). The
+	// gateway rejects every input type name we've tried for
+	// `waypoints` with GRAPHQL_VALIDATION_FAILED — the iOS app's
+	// gql DSL builds queries from a cached schema we can't reach.
+	// Inlining literal values bypasses the type-name issue
+	// entirely; v0.17.129's diag confirmed this returns real plans.
+	query := buildPlanTrip2Query(in)
 	data, err := doGraphQL[planTripData](ctx, c, graphQLRequest{
 		OperationName: "planTripWithMultiStopV2",
-		Query:         qPlanTripWithMultiStop,
-		Variables:     vars,
+		Query:         query,
+		// No variables — everything is inlined into the query body.
 	}, c.authHeaders())
 	if err != nil {
 		return nil, fmt.Errorf("planTrip2: %w", err)
@@ -394,8 +367,14 @@ func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) 
 	}
 	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
 		OperationName: "planTripWithMultiStop",
-		Query:         qPlanTripWithMultiStop,
-		Variables:     raw,
+		// Legacy diag entries pass variables for the OLD
+		// planTripMultiStop shape (now known broken). Build a
+		// stub query that uses those variables so the gateway
+		// gives a real error instead of "undefined variable".
+		// Useful for keeping old diag entries returning the
+		// same comparison shape.
+		Query: legacyPlanTripMultiStopQuery,
+		Variables: raw,
 	}, c.authHeaders())
 	if err != nil {
 		return nil, err
@@ -403,49 +382,87 @@ func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) 
 	return data, nil
 }
 
-// qPlanTripWithMultiStop selects the field set used by the Rivian
-// Owner App. Pulled from rivian-api.kaedenb.org's reverse-engineered
-// schema; the gateway returns 200 with `errors` when the selection
-// includes a removed field, so additions need a probe via
-// ChargingFieldProbe / a feature-detect path before going live.
-// qPlanTripWithMultiStop targets the v2 planner — `planTrip2` (with
-// the "2" suffix) under operation name `planTripWithMultiStopV2`.
-// The v1 sibling `planTrip` (and the never-existing
-// `planTripMultiStop`) both return INTERNAL_SERVER_ERROR for any
-// input today; v2 is what the iOS app actually uses.
-//
-// Schema source: the actual implementation in
-// jrgutier/rivian-python-client/src/rivian/rivian.py at
-// plan_trip_with_multi_stop (line 2441+). The gateway.graphql file
-// in the same repo was an older snapshot and described the v1
-// shape; trust the live client code instead.
-//
-// Field names that bit us before: `vehicle` (not `vehicleId`!),
-// `arrivalSOCPercent` (not `arrivalSOC`), `plans` (not `routes`),
-// `summary` block. Drive mode values are CONSERVE / SPORT /
-// ALL_PURPOSE (not EVERYDAY).
-const qPlanTripWithMultiStop = `query planTripWithMultiStopV2(
-  $waypoints: [TripWaypointInput!]!,
-  $vehicle: String!,
-  $startingSoc: Float,
+// legacyPlanTripMultiStopQuery is the OLD (broken) v1 query string
+// kept around so PlanTripRaw can still serve diag entries that send
+// the legacy variable shape (waypoints/originBearing/driveMode/etc.).
+// All legacy diag tests now error in expected ways against this.
+// The TYPED PlanTrip path uses buildPlanTrip2Query (inlined v2) and
+// does NOT touch this string.
+const legacyPlanTripMultiStopQuery = `query planTripWithMultiStop(
+  $vehicleId: String!,
+  $startingSoc: Float!,
   $startingRangeMeters: Float,
+  $originBearing: Float!,
+  $waypoints: [CoordinatesInput!]!,
   $targetArrivalSocPercent: Float,
   $driveMode: String,
-  $networkPreferences: [NetworkPreferenceInput!],
   $trailerProfile: String,
-  $hasAdapter: Boolean
+  $avoidAdapterRequired: Boolean,
+  $supportedConnectorTypes: [String!],
+  $networkPreferences: [NetworkPreference!]
 ) {
-  planTrip2(
-    waypoints: $waypoints,
-    vehicle: $vehicle,
+  planTripMultiStop(
+    vehicleId: $vehicleId,
     startingSoc: $startingSoc,
     startingRangeMeters: $startingRangeMeters,
+    originBearing: $originBearing,
+    waypoints: $waypoints,
     targetArrivalSocPercent: $targetArrivalSocPercent,
     driveMode: $driveMode,
-    networkPreferences: $networkPreferences,
     trailerProfile: $trailerProfile,
-    hasAdapter: $hasAdapter
+    avoidAdapterRequired: $avoidAdapterRequired,
+    supportedConnectorTypes: $supportedConnectorTypes,
+    networkPreferences: $networkPreferences
   ) {
+    tripPlanStatus
+    chargeStationsAvailable
+    socBelowLimit
+  }
+}`
+
+// buildPlanTrip2Query returns the planTripWithMultiStopV2 query as a
+// fully-inlined GraphQL string — every value is a literal in the
+// query body, no $variables. Rivian's gateway rejects every input
+// type name we tried to declare for $waypoints
+// (GRAPHQL_VALIDATION_FAILED at the type-name position); the iOS
+// app's gql DSL works around this by building queries from a cached
+// schema, which we don't have. Inlining bypasses the type-name
+// guessing entirely.
+//
+// Confirmed working by v0.17.129's plan_trip_v128_inline diag entry:
+// returns real charging-stop plans. Inlining means no JSON-injectable
+// surface — the only "user input" interpolated here are floats and a
+// vehicleId string we control via fmt.Sprintf %q.
+//
+// Schema reference (operation name, response selection): the actual
+// Python client at jrgutier/rivian-python-client/src/rivian/rivian.py
+// plan_trip_with_multi_stop (line 2441).
+func buildPlanTrip2Query(in PlanTripInput) string {
+	var wps []string
+	for _, wp := range in.Waypoints {
+		wps = append(wps, fmt.Sprintf("{latitude: %s, longitude: %s}",
+			fmtFloat(wp.Latitude), fmtFloat(wp.Longitude)))
+	}
+	args := []string{
+		fmt.Sprintf("waypoints: [%s]", strings.Join(wps, ", ")),
+		fmt.Sprintf("vehicle: %q", in.VehicleID),
+	}
+	if in.StartingSoC > 0 {
+		args = append(args, fmt.Sprintf("startingSoc: %s", fmtFloat(in.StartingSoC)))
+	}
+	if in.StartingRangeMeters > 0 {
+		args = append(args, fmt.Sprintf("startingRangeMeters: %s", fmtFloat(in.StartingRangeMeters)))
+	}
+	if in.TargetArrivalSocPercent != nil {
+		args = append(args, fmt.Sprintf("targetArrivalSocPercent: %s", fmtFloat(*in.TargetArrivalSocPercent)))
+	}
+	// driveMode / trailerProfile / hasAdapter / networkPreferences
+	// are intentionally omitted in slice 1 — the diag's working
+	// payload didn't include them and Rivian returned plans. Adding
+	// them later requires deciding string vs enum literal per field
+	// (the schema we have can't disambiguate).
+	return fmt.Sprintf(`query planTripWithMultiStopV2 {
+  planTrip2(%s) {
     status
     plans {
       summary {
@@ -470,4 +487,20 @@ const qPlanTripWithMultiStop = `query planTripWithMultiStopV2(
       }
     }
   }
-}`
+}`, strings.Join(args, ", "))
+}
+
+// fmtFloat formats a Float for inlining as a GraphQL Float literal.
+// %g is correct (omits trailing zeros, uses a non-locale-dependent
+// "." decimal separator), but for values that print as integers
+// (e.g. 54 not 54.0) we append ".0" so they parse as Float, not Int.
+// Rivian's gateway accepts Int where Float is expected in many
+// contexts, but we match the docs behaviour by always emitting a
+// proper Float literal.
+func fmtFloat(f float64) string {
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
+	return s
+}
