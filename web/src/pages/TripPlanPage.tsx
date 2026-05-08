@@ -114,12 +114,12 @@ export default function TripPlanPage() {
           {
             latitude: Number(originLat),
             longitude: Number(originLon),
-            waypoint_type: "origin",
+            waypoint_type: "OTHER",
           },
           {
             latitude: Number(destLat),
             longitude: Number(destLon),
-            waypoint_type: "destination",
+            waypoint_type: "OTHER",
           },
         ],
       });

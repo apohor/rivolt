@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -143,10 +144,41 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 		vars.TrailerProfile = &v
 	}
 	for _, wp := range in.Waypoints {
+		wt := wp.WaypointType
+		if wt == "" {
+			// "OTHER" is what the Rivian iOS app sends for pins the
+			// user drops manually (no Rivian POI / charger entityId
+			// associated). Empty string would fail GraphQL validation
+			// for a required scalar.
+			wt = "OTHER"
+		}
 		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
-			Latitude:  wp.Latitude,
-			Longitude: wp.Longitude,
+			Latitude:     wp.Latitude,
+			Longitude:    wp.Longitude,
+			WaypointType: wt,
+			EntityID:     wp.EntityID,
 		})
+	}
+	// Required-but-easily-omitted defaults. The schema marks
+	// supportedConnectorTypes as [String!] (non-null list) and
+	// driveMode/trailerProfile as required-by-implementation even
+	// when the SDL says they're optional — the gateway returns
+	// INTERNAL_SERVER_ERROR when they're absent. The Rivian iOS app
+	// always sends EVERYDAY / NONE / CCS+J1772; we mirror that until
+	// we surface user-driven controls in slice 2+.
+	if vars.DriveMode == nil || *vars.DriveMode == "" {
+		v := "EVERYDAY"
+		vars.DriveMode = &v
+	}
+	if vars.TrailerProfile == nil || *vars.TrailerProfile == "" {
+		v := "NONE"
+		vars.TrailerProfile = &v
+	}
+	if len(vars.SupportedConnectorTypes) == 0 {
+		// CCS + J1772 covers the public-charging set the R1S
+		// natively supports (NACS adapter is implicit; Tesla-network
+		// chargers are gated behind avoidAdapterRequired).
+		vars.SupportedConnectorTypes = []string{"CCS", "J1772"}
 	}
 	for _, np := range in.NetworkPreferences {
 		vars.NetworkPreferences = append(vars.NetworkPreferences, planTripNetworkPrefVar{
@@ -221,18 +253,18 @@ type planTripVars struct {
 }
 
 // planTripWaypointVar is the wire shape of one CoordinatesInput.
-// The reverse-engineered docs (rivian-api.kaedenb.org) listed
-// waypointType + entityId as input fields, but the gateway returns
-// BAD_USER_INPUT when those are present — the docs page conflated
-// the *response* waypoint shape (which carries waypointType / name /
-// entityId / etc.) with the input. CoordinatesInput is just the
-// pair of floats; origin vs destination is derived from array
-// position (index 0 is origin, last index is destination,
-// intermediate entries are charging stops the planner may use as
-// hints).
+// Initially I removed waypointType + entityId after a BAD_USER_INPUT
+// failure; that turned out to be the wrong fix. The example payload
+// at rivian-api.kaedenb.org shows the input *does* include
+// waypointType, but with uppercase enum values like "OTHER" — not
+// lowercase "origin"/"destination" like the response shape uses.
+// Sending a manually-entered coordinate as "OTHER" mirrors what the
+// Rivian iOS app does when the user drops a pin or types coords.
 type planTripWaypointVar struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	WaypointType string  `json:"waypointType"`
+	EntityID     string  `json:"entityId,omitempty"`
 }
 
 type planTripNetworkPrefVar struct {
@@ -275,6 +307,49 @@ type planTripWaypointRow struct {
 	ArrivalReachableDistance   float64 `json:"arrivalReachableDistance"`
 	DepartureReachableDistance float64 `json:"departureReachableDistance"`
 	AdapterRequired            bool    `json:"adapterRequired"`
+}
+
+// PlanTripRaw posts the planTripWithMultiStop operation with a
+// caller-supplied variables payload and returns the gateway's
+// response data + errors verbatim. Bypasses the typed PlanTrip path
+// so we can reverse-engineer schema/value mismatches without round-
+// tripping through chart bumps. Admin-only (the wrapping HTTP
+// handler enforces this) — gives the operator full control over
+// every field in the request, including ones the typed path
+// defaults.
+//
+// Returns the parsed JSON `data` field on success. On a GraphQL
+// `errors` envelope, returns the structured error from
+// doGraphQLAt's classification (which preserves extension codes /
+// messages) so callers can read the failure reason directly.
+func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) (map[string]any, error) {
+	if err := c.checkUpstream(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, ErrNotAuthenticated
+	}
+	// Marshal/unmarshal so caller-supplied data doesn't accidentally
+	// wire any non-JSON-serializable values into the request.
+	blob, err := json.Marshal(variables)
+	if err != nil {
+		return nil, fmt.Errorf("encode variables: %w", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(blob, &raw); err != nil {
+		return nil, fmt.Errorf("decode variables: %w", err)
+	}
+	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
+		OperationName: "planTripWithMultiStop",
+		Query:         qPlanTripWithMultiStop,
+		Variables:     raw,
+	}, c.authHeaders())
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // qPlanTripWithMultiStop selects the field set used by the Rivian

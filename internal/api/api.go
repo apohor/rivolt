@@ -466,6 +466,14 @@ func New(d Deps) http.Handler {
 				r.Post("/invite-codes", handleAdminInviteCodesCreate(d.DB, d.Invites))
 				r.Get("/invite-codes", handleAdminInviteCodesList(d.Invites))
 			}
+			// Trip-planner debug: send arbitrary planTripWithMultiStop
+			// variables and get the gateway response (data + errors)
+			// verbatim. Lets us iterate on schema/value shape without
+			// chart bumps. Body shape:
+			//   { "variables": { ... whatever the caller wants ... } }
+			r.Post("/trips/plan/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleTripPlanRawDebug(clientFor(d, uid))(w, r)
+			}))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -1236,6 +1244,38 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		writeJSON(w, http.StatusOK, plan)
+	}
+}
+
+// handleTripPlanRawDebug forwards an arbitrary variables JSON to
+// Rivian's planTripWithMultiStop and returns the gateway's response
+// or error verbatim. Admin-only via the chi.Route("/admin") group
+// it lives in. Used to reverse-engineer schema/value mismatches
+// without round-tripping through chart bumps.
+func handleTripPlanRawDebug(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(body.Variables) == 0 {
+			http.Error(w, "variables required (object key 'variables')", http.StatusBadRequest)
+			return
+		}
+		data, err := lc.PlanTripRaw(r.Context(), body.Variables)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
 	}
 }
 
