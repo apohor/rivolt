@@ -494,14 +494,9 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 		args = append(args, fmt.Sprintf("targetArrivalSocPercent: %s", fmtFloat(*in.TargetArrivalSocPercent)))
 	}
 	if in.DriveMode != "" {
-		// driveMode is an enum (DriveMode!), not a String! — the
-		// gateway rejects `driveMode: "CONSERVE"` with
-		// GRAPHQL_VALIDATION_FAILED and only accepts the unquoted
-		// enum literal `driveMode: CONSERVE`. The v0.17.136 build
-		// shipped %q here and produced 400s; this fmt.Sprintf with
-		// %s drops the quotes. SetPlannerPrefs already validates
-		// the value against the known enum set, so the only strings
-		// that reach this line are CONSERVE / ALL_PURPOSE / SPORT.
+		// driveMode is an enum (DriveMode!) — must be unquoted.
+		// SetPlannerPrefs validates against the known enum set, so
+		// only CONSERVE / ALL_PURPOSE / SPORT reach this line.
 		args = append(args, fmt.Sprintf("driveMode: %s", in.DriveMode))
 	}
 	if in.HasAdapter != nil {

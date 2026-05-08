@@ -1689,6 +1689,9 @@ func handleDrives(store *drives.Store, chargesStore *charges.Store, settingsStor
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Drop ignition-cycle / gear-bounce rows so the SPA list
+		// shows only real travel. The rows still exist in DB.
+		out = drives.FilterReparking(out)
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
 		// Pull every charge once and sort ascending by EndedAt so we
 		// can binary-search for the most recent charge that closed

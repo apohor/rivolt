@@ -157,11 +157,8 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			})
 			return
 		case err != nil:
-			// Surface the unwrapped error so the operator can see
-			// which gate or upstream rejected it. The handler logs
-			// at WARN because every fail here is user-visible —
-			// blank logs were what made the v0.17.139 preview
-			// debugging unnecessarily blind.
+			// Log every login failure at WARN so the gate or upstream
+			// class is visible without round-tripping the response body.
 			fields := []any{"err", err.Error()}
 			var ue *rivian.UpstreamError
 			if errors.As(err, &ue) {
