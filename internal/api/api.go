@@ -1332,6 +1332,60 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		out := map[string]any{}
+		// IMPORTANT: order matters. The shared rivian.Breaker trips
+		// after a handful of upstream errors, after which any
+		// subsequent call returns "breaker open" without reaching
+		// Rivian. Run the highest-information tests FIRST.
+		//
+		// query_axes is the most informative right now: vary the
+		// query string itself (operation name + selection set)
+		// while keeping variables identical to the v119 baseline.
+		queryAxes := map[string]struct {
+			op    string
+			query string
+		}{
+			"query_minimal_selection": {
+				op: "planTripWithMultiStop",
+				query: `query planTripWithMultiStop($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
+  planTripMultiStop(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
+    tripPlanStatus
+    chargeStationsAvailable
+    socBelowLimit
+  }
+}`,
+			},
+			"query_plan_trip_legacy": {
+				op: "planTrip",
+				query: `query planTrip($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
+  planTrip(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
+    tripPlanStatus
+    chargeStationsAvailable
+    socBelowLimit
+  }
+}`,
+			},
+		}
+		queryResults := map[string]any{}
+		queryAxisVars := map[string]any{
+			"vehicleId":               "01-242521064",
+			"startingSoc":             54.0,
+			"originBearing":           0.0,
+			"supportedConnectorTypes": []string{"CCS", "J1772"},
+			"waypoints": []map[string]any{
+				{"latitude": 30.5538, "longitude": -97.7622},
+				{"latitude": 32.7767, "longitude": -96.797},
+			},
+		}
+		for name, qa := range queryAxes {
+			data, err := lc.RawGraphQL(r.Context(), qa.op, qa.query, queryAxisVars)
+			if err != nil {
+				queryResults[name] = map[string]any{"op": qa.op, "error": err.Error()}
+			} else {
+				queryResults[name] = map[string]any{"op": qa.op, "data": data}
+			}
+		}
+		out["query_axes"] = queryResults
+
 		// Probe several likely names for the waypoint input object.
 		// Whichever returns non-null is the answer.
 		names := []string{
@@ -1442,61 +1496,6 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 			}
 		}
 		out["plan_trip_v119"] = variantResults
-
-		// Operation/query-shape axes: keep the variables identical
-		// to v119_baseline but vary the QUERY itself. If the
-		// gateway's planTripWithMultiStop is broken/deprecated, an
-		// alternate query string may succeed where the variables-
-		// only variants all failed.
-		queryAxes := map[string]struct {
-			op    string
-			query string
-		}{
-			// Bare-minimum response selection set. If a deprecated
-			// response field is what's crashing planning, this should
-			// succeed where the full selection fails.
-			"query_minimal_selection": {
-				op: "planTripWithMultiStop",
-				query: `query planTripWithMultiStop($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
-  planTripMultiStop(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-  }
-}`,
-			},
-			// Try the older single-trip operation.
-			"query_plan_trip_legacy": {
-				op: "planTrip",
-				query: `query planTrip($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
-  planTrip(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-  }
-}`,
-			},
-		}
-		queryResults := map[string]any{}
-		queryAxisVars := map[string]any{
-			"vehicleId":               "01-242521064",
-			"startingSoc":             54.0,
-			"originBearing":           0.0,
-			"supportedConnectorTypes": []string{"CCS", "J1772"},
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622},
-				{"latitude": 32.7767, "longitude": -96.797},
-			},
-		}
-		for name, qa := range queryAxes {
-			data, err := lc.RawGraphQL(r.Context(), qa.op, qa.query, queryAxisVars)
-			if err != nil {
-				queryResults[name] = map[string]any{"op": qa.op, "error": err.Error()}
-			} else {
-				queryResults[name] = map[string]any{"op": qa.op, "data": data}
-			}
-		}
-		out["query_axes"] = queryResults
 
 		writeJSON(w, http.StatusOK, out)
 	}
