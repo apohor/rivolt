@@ -1392,6 +1392,30 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "data": minData}
 		}
 
+		// The exact shape the v0.17.119 typed /api/trips/plan path
+		// now sends: bare {lat, lon} waypoints + the required
+		// defaults that minimal omitted. This is the combined fix —
+		// both halves together for the first time.
+		combinedPayload := map[string]any{
+			"vehicleId":               "01-242521064",
+			"startingSoc":             54.0,
+			"originBearing":           0.0,
+			"avoidAdapterRequired":    false,
+			"supportedConnectorTypes": []string{"CCS", "J1772"},
+			"driveMode":               "EVERYDAY",
+			"trailerProfile":          "NONE",
+			"waypoints": []map[string]any{
+				{"latitude": 30.5538, "longitude": -97.7622},
+				{"latitude": 32.7767, "longitude": -96.797},
+			},
+		}
+		combinedData, combinedErr := lc.PlanTripRaw(r.Context(), combinedPayload)
+		if combinedErr != nil {
+			out["plan_trip_v119"] = map[string]any{"sent": combinedPayload, "error": combinedErr.Error()}
+		} else {
+			out["plan_trip_v119"] = map[string]any{"sent": combinedPayload, "data": combinedData}
+		}
+
 		writeJSON(w, http.StatusOK, out)
 	}
 }
