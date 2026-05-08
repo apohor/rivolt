@@ -427,6 +427,17 @@ func New(d Deps) http.Handler {
 				}))
 			})
 
+			// User's saved home location, used by the trip planner
+			// for one-click Origin/Destination presets.
+			r.Route("/settings/home-location", func(r chi.Router) {
+				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeLocationGet(d.Settings.For(uid))(w, r)
+				}))
+				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomeLocationPut(d.Settings.For(uid))(w, r)
+				}))
+			})
+
 			// AI provider configuration moved to /api/admin/settings/ai.
 			// AI keys are install-wide (operator pays the bill); only
 			// admins can read or rotate them. The SPA's /admin page
@@ -1171,6 +1182,40 @@ func handleGeocode() http.HandlerFunc {
 			results = []geocoding.Result{}
 		}
 		writeJSON(w, http.StatusOK, results)
+	}
+}
+
+// handleHomeLocationGet returns the user's saved home location, or
+// {"set": false} when none is configured. Used by the trip planner
+// to decide whether to render the "Home" preset.
+func handleHomeLocationGet(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h, err := settings.GetHomeLocation(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, h)
+	}
+}
+
+// handleHomeLocationPut writes the user's home location. Body shape
+// matches HomeLocation; passing Set=false clears the saved value.
+func handleHomeLocationPut(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var h settings.HomeLocation
+		if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := settings.SetHomeLocation(r.Context(), store, h); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Echo back what's now stored (post-validation) so the SPA
+		// can update its in-memory copy without a second GET.
+		out, _ := settings.GetHomeLocation(r.Context(), store)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

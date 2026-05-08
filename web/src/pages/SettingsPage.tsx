@@ -8,6 +8,8 @@ import {
   type AIPingResult,
   type ChargingNetwork,
   type DriveWeatherBackfillResult,
+  type GeocodeResult,
+  type HomeLocation,
   type ImportResult,
   type ImportProgress,
   type RecapSettingsUpdate,
@@ -61,6 +63,10 @@ export default function SettingsPage() {
 
       <Card title="Charging networks">
         <ChargingNetworksPanel />
+      </Card>
+
+      <Card title="Home location">
+        <HomeLocationPanel />
       </Card>
 
       <Card title="Import ElectraFi CSV">
@@ -1408,6 +1414,112 @@ function DangerZonePanel() {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+// HomeLocationPanel lets the operator save a "Home" location used by
+// the trip planner as a one-click Origin/Destination preset. Same
+// geocoding backend as the planner's search box.
+function HomeLocationPanel() {
+  const qc = useQueryClient();
+  const homeQ = useQuery({
+    queryKey: ["settings", "homeLocation"],
+    queryFn: backend.homeLocationGet,
+    staleTime: 60 * 1000,
+  });
+  const save = useMutation({
+    mutationFn: (h: HomeLocation) => backend.homeLocationPut(h),
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "homeLocation"], data);
+    },
+  });
+
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+  const results = useQuery({
+    queryKey: ["geocode", debounced],
+    queryFn: () => backend.geocode(debounced, 5),
+    enabled: debounced.trim().length >= 2,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const home = homeQ.data;
+  const onSelect = (r: GeocodeResult) => {
+    save.mutate({
+      set: true,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      label: [r.name, r.admin1, r.country].filter(Boolean).join(", "),
+    });
+    setQuery("");
+  };
+  const onClear = () => {
+    save.mutate({ set: false, latitude: 0, longitude: 0, label: "" });
+  };
+
+  return (
+    <div className="space-y-3 text-sm">
+      {homeQ.isLoading ? (
+        <Spinner />
+      ) : home?.set ? (
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <span className="text-neutral-400">Home: </span>
+            <span className="text-neutral-100">{home.label || "(unnamed)"}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-xs text-neutral-500 hover:text-neutral-300"
+          >
+            clear
+          </button>
+        </div>
+      ) : (
+        <p className="text-neutral-500">
+          Not set. Pick a place below to enable the Home preset on the trip planner.
+        </p>
+      )}
+
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={home?.set ? "Search for a different home…" : "Search for your home city…"}
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        />
+        {(results.data ?? []).length > 0 && (
+          <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
+            {(results.data ?? []).map((r) => (
+              <li key={`${r.latitude},${r.longitude}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(r)}
+                  className="block w-full px-3 py-2 text-left hover:bg-neutral-800"
+                >
+                  <div className="text-neutral-100">{r.name}</div>
+                  <div className="text-xs text-neutral-500">
+                    {[r.admin1, r.country].filter(Boolean).join(", ")}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {save.isError && (
+        <p className="text-xs text-rose-400">Save failed: {String(save.error)}</p>
+      )}
+      <p className="text-xs text-neutral-500">
+        Open-Meteo geocoding (city-level). Street addresses arrive when self-hosted Photon ships.
+      </p>
     </div>
   );
 }

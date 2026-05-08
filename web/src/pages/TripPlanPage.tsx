@@ -4,44 +4,28 @@ import { backend, type GeocodeResult, type TripPlan, type TripRoute } from "../l
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 
 // TX_PRESETS are city-hall lat/lon for one-click destination testing.
-// Picked to span the typical R1S range envelope from Austin: Dallas
-// and Houston are reachable on one charge from Austin's home cell;
-// San Antonio is a no-charge-needed in-range trip; Big Bend is the
-// canonical multi-charge trip (the May 1-3 drive that surfaced the
-// frozen-GPS importer bug).
 const TX_PRESETS: { label: string; lat: number; lon: number }[] = [
   { label: "Dallas", lat: 32.7767, lon: -96.797 },
   { label: "Houston", lat: 29.7604, lon: -95.3698 },
   { label: "San Antonio", lat: 29.4241, lon: -98.4936 },
-  { label: "Big Bend NP (Panther Junction)", lat: 29.3267, lon: -103.207 },
+  { label: "Big Bend NP", lat: 29.3267, lon: -103.207 },
 ];
 
-// Slice 1 of the trip planner: a thin pass-through to Rivian's
-// planTripWithMultiStop. The form takes raw lat/lon coords (geocoding
-// lands in slice 2) plus an optional target arrival SoC. The server
-// fills in vehicle_id and starting_soc from the live state cache,
-// so the form stays minimal: where am I going, and how charged do I
-// want to be when I get there?
-//
-// What this surfaces: per-stop arrival/departure SoC, charge duration,
-// max power, adapter-required flag, total trip charging time, and any
-// risk signals (socBelowLimit, batteryEmptyToDestinationDistance).
-// No AI commentary, no map polyline, no save — those are slices 2+.
-export default function TripPlanPage() {
-  const [originLat, setOriginLat] = useState("");
-  const [originLon, setOriginLon] = useState("");
-  const [destLat, setDestLat] = useState("");
-  const [destLon, setDestLon] = useState("");
-  const [targetSoc, setTargetSoc] = useState<string>("20");
-  const [originPrefilled, setOriginPrefilled] = useState(false);
+// Selection is what the form actually plans against. lat/lon are
+// resolved (search result, preset, or current vehicle position);
+// label is human-readable so the form can render "From: Home" and
+// not bother the user with raw coordinates.
+type Selection = {
+  lat: number;
+  lon: number;
+  label: string;
+} | null;
 
-  // Pre-fill the origin with the user's current vehicle position +
-  // current SoC. Two-step lookup: list the user's owned vehicles
-  // (DB-backed, so it works even when the Rivian gateway is slow),
-  // then fetch live state for the first one. We also remember the
-  // vehicle's rivian_vehicle_id and the current SoC so the planner
-  // request is self-contained (multi-pod safe — request affinity
-  // doesn't matter when we send what we know).
+export default function TripPlanPage() {
+  const [origin, setOrigin] = useState<Selection>(null);
+  const [destination, setDestination] = useState<Selection>(null);
+  const [targetSoc, setTargetSoc] = useState<string>("20");
+
   const ownedQuery = useQuery({
     queryKey: ["vehicles", "owned"],
     queryFn: backend.listOwnedVehicles,
@@ -54,54 +38,67 @@ export default function TripPlanPage() {
     enabled: !!firstVehicle?.rivian_vehicle_id,
     staleTime: 30 * 1000,
   });
-  // Fallback to the latest persisted sample when /api/state returns
-  // (0, 0) — the WS frame currently in cache may not have carried
-  // GNSSLocation (Rivian sometimes omits it on parked frames). The
-  // samples endpoint reads from vehicle_state where coords are always
-  // populated.
   const stateLat = stateQuery.data?.latitude;
   const stateLon = stateQuery.data?.longitude;
   const stateHasFix =
     typeof stateLat === "number" &&
     typeof stateLon === "number" &&
     !(stateLat === 0 && stateLon === 0);
+
+  // Fallback to the latest persisted sample when /api/state returns
+  // (0, 0) — the WS frame may not have carried GNSSLocation. Walk
+  // newest → oldest to pick the most recent fix.
   const samplesQuery = useQuery({
     queryKey: ["samplesLatestForPlanner"],
-    // /api/samples is sorted ASC by at, so we fetch a narrow recent
-    // window and take the LAST entry (newest). 6h window is generous
-    // enough that an idle car parked at home still has a fresh fix
-    // from the most recent boot, but small enough that the response
-    // is bounded.
     queryFn: () =>
       backend.samples(new Date(Date.now() - 6 * 60 * 60 * 1000), 5000),
     enabled: stateQuery.isFetched && !stateHasFix,
     staleTime: 30 * 1000,
   });
 
-  useEffect(() => {
-    if (originPrefilled) return;
-    if (stateHasFix) {
-      setOriginLat((stateLat as number).toFixed(6));
-      setOriginLon((stateLon as number).toFixed(6));
-      setOriginPrefilled(true);
-      return;
-    }
-    // Walk newest → oldest to pick the most recent sample with a real
-    // GNSS fix (skip cached frames that wrote (0, 0)).
+  // currentPosition is whichever source has the freshest GPS fix:
+  // /api/state if it's non-(0,0), else the newest sample with real
+  // coords. null when neither is available.
+  let currentPosition: { lat: number; lon: number } | null = null;
+  if (stateHasFix) {
+    currentPosition = { lat: stateLat as number, lon: stateLon as number };
+  } else {
     const samples = samplesQuery.data ?? [];
     for (let i = samples.length - 1; i >= 0; i--) {
       const s = samples[i];
       if (s.Lat !== 0 || s.Lon !== 0) {
-        setOriginLat(s.Lat.toFixed(6));
-        setOriginLon(s.Lon.toFixed(6));
-        setOriginPrefilled(true);
-        return;
+        currentPosition = { lat: s.Lat, lon: s.Lon };
+        break;
       }
     }
-  }, [stateHasFix, stateLat, stateLon, samplesQuery.data, originPrefilled]);
+  }
+
+  // Pre-fill origin to current vehicle position once on mount when
+  // the user hasn't already picked something. The user can still
+  // override via search or a preset.
+  useEffect(() => {
+    if (origin) return;
+    if (!currentPosition) return;
+    setOrigin({
+      lat: currentPosition.lat,
+      lon: currentPosition.lon,
+      label: "Current vehicle position",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition?.lat, currentPosition?.lon]);
+
+  const homeQuery = useQuery({
+    queryKey: ["settings", "homeLocation"],
+    queryFn: backend.homeLocationGet,
+    staleTime: 60 * 1000,
+  });
+  const home = homeQuery.data?.set ? homeQuery.data : null;
 
   const planMutation = useMutation({
     mutationFn: () => {
+      if (!origin || !destination) {
+        return Promise.reject(new Error("origin + destination required"));
+      }
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
       const vid = firstVehicle?.rivian_vehicle_id;
       const soc = stateQuery.data?.battery_level_pct;
@@ -111,16 +108,8 @@ export default function TripPlanPage() {
         origin_bearing: 0,
         target_arrival_soc_percent: target,
         waypoints: [
-          {
-            latitude: Number(originLat),
-            longitude: Number(originLon),
-            waypoint_type: "OTHER",
-          },
-          {
-            latitude: Number(destLat),
-            longitude: Number(destLon),
-            waypoint_type: "OTHER",
-          },
+          { latitude: origin.lat, longitude: origin.lon, waypoint_type: "OTHER" },
+          { latitude: destination.lat, longitude: destination.lon, waypoint_type: "OTHER" },
         ],
       });
     },
@@ -135,7 +124,7 @@ export default function TripPlanPage() {
     <div className="space-y-6">
       <PageHeader
         title="Trip planner"
-        subtitle="Slice 1 — Rivian planTripWithMultiStop pass-through. Coordinates only; geocoding + AI commentary land later."
+        subtitle="Plan a route with charging stops via Rivian's planner."
       />
 
       <Card title="Plan a trip">
@@ -145,51 +134,38 @@ export default function TripPlanPage() {
             {typeof stateQuery.data?.battery_level_pct === "number" && (
               <> · SoC: <span className="font-mono">{stateQuery.data.battery_level_pct.toFixed(0)}%</span></>
             )}
-            {originPrefilled && <> · origin prefilled from current position</>}
           </p>
         )}
-        <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <LocationSearch
-              label="Origin (search)"
-              placeholder="Type a city to override the prefilled position…"
-              onSelect={(r) => {
-                setOriginLat(r.latitude.toFixed(6));
-                setOriginLon(r.longitude.toFixed(6));
-              }}
-            />
-          </div>
-          <CoordField label="Origin lat" value={originLat} setValue={setOriginLat} placeholder="30.5538" />
-          <CoordField label="Origin lon" value={originLon} setValue={setOriginLon} placeholder="-97.7622" />
-          <div className="sm:col-span-2">
-            <LocationSearch
-              label="Destination (search)"
-              placeholder="Type a city — Dallas, Houston, Big Bend…"
-              onSelect={(r) => {
-                setDestLat(r.latitude.toFixed(6));
-                setDestLon(r.longitude.toFixed(6));
-              }}
-            />
-          </div>
-          <CoordField label="Destination lat" value={destLat} setValue={setDestLat} placeholder="32.7767" />
-          <CoordField label="Destination lon" value={destLon} setValue={setDestLon} placeholder="-96.7970" />
-          <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-neutral-500">Quick destinations (TX):</span>
-            {TX_PRESETS.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => {
-                  setDestLat(p.lat.toFixed(6));
-                  setDestLon(p.lon.toFixed(6));
-                }}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <label className="flex flex-col gap-1 text-sm">
+        <form onSubmit={onSubmit} className="space-y-4">
+          <LocationField
+            heading="From"
+            value={origin}
+            onChange={setOrigin}
+            presets={[
+              ...(currentPosition
+                ? [{
+                    label: "Current vehicle position",
+                    lat: currentPosition.lat,
+                    lon: currentPosition.lon,
+                  }]
+                : []),
+              ...(home
+                ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
+                : []),
+            ]}
+          />
+          <LocationField
+            heading="To"
+            value={destination}
+            onChange={setDestination}
+            presets={[
+              ...(home
+                ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
+                : []),
+              ...TX_PRESETS,
+            ]}
+          />
+          <label className="flex flex-col gap-1 text-sm sm:max-w-xs">
             <span className="text-neutral-400">Target arrival SoC %</span>
             <input
               type="number"
@@ -200,15 +176,18 @@ export default function TripPlanPage() {
               className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
             />
           </label>
-          <div className="sm:col-span-2 flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <button
               type="submit"
-              disabled={planMutation.isPending || !canSubmit({ originLat, originLon, destLat, destLon })}
+              disabled={planMutation.isPending || !origin || !destination}
               className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
               Plan trip
             </button>
             {planMutation.isPending && <Spinner />}
+            <span className="text-xs text-neutral-500">
+              Set Home in <a href="/settings" className="underline hover:text-neutral-300">Settings</a> for one-click presets.
+            </span>
           </div>
         </form>
       </Card>
@@ -225,24 +204,84 @@ export default function TripPlanPage() {
   );
 }
 
+// LocationField is a single Origin or Destination row: shows the
+// current selection's label, a typeahead search, and preset
+// buttons. No raw lat/lon visible.
+function LocationField({
+  heading,
+  value,
+  onChange,
+  presets,
+}: {
+  heading: string;
+  value: Selection;
+  onChange: (s: Selection) => void;
+  presets: { label: string; lat: number; lon: number }[];
+}) {
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-sm">
+          <span className="text-neutral-400">{heading}: </span>
+          <span className="text-neutral-100">
+            {value ? value.label : <span className="text-neutral-500">— pick a place —</span>}
+          </span>
+        </div>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs text-neutral-500 hover:text-neutral-300"
+          >
+            clear
+          </button>
+        )}
+      </div>
+      <div className="mt-3">
+        <LocationSearch
+          placeholder="Type a city — Austin, Dallas, Big Bend…"
+          onSelect={(r) =>
+            onChange({
+              lat: r.latitude,
+              lon: r.longitude,
+              label: formatGeocode(r),
+            })
+          }
+        />
+      </div>
+      {presets.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          {presets.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // LocationSearch is a debounced typeahead over /api/geocode. Emits
 // the selected GeocodeResult upward; the parent decides what to do
-// with it (here: drop the lat/lon into the form's coord fields).
-// Internal text state is intentionally kept here so the parent
-// doesn't have to wire it; clearing happens on selection.
+// with it. Internal text state is kept here so the parent doesn't
+// have to wire it; clearing happens on selection.
 function LocationSearch({
-  label,
   placeholder,
   onSelect,
 }: {
-  label: string;
   placeholder: string;
   onSelect: (r: GeocodeResult) => void;
 }) {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLLabelElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 300);
@@ -256,14 +295,10 @@ function LocationSearch({
     staleTime: 5 * 60 * 1000,
   });
 
-  // Close the dropdown on outside click so it doesn't linger.
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
@@ -274,8 +309,7 @@ function LocationSearch({
   const items = results.data ?? [];
 
   return (
-    <label className="relative flex flex-col gap-1 text-sm" ref={containerRef}>
-      <span className="text-neutral-400">{label}</span>
+    <div className="relative" ref={containerRef}>
       <input
         type="text"
         value={query}
@@ -285,7 +319,7 @@ function LocationSearch({
         }}
         onFocus={() => setOpen(true)}
         placeholder={placeholder}
-        className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
       />
       {open && items.length > 0 && (
         <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
@@ -295,7 +329,7 @@ function LocationSearch({
                 type="button"
                 onClick={() => {
                   onSelect(r);
-                  setQuery(formatGeocode(r));
+                  setQuery("");
                   setOpen(false);
                 }}
                 className="block w-full px-3 py-2 text-left hover:bg-neutral-800"
@@ -312,56 +346,12 @@ function LocationSearch({
           ))}
         </ul>
       )}
-    </label>
+    </div>
   );
 }
 
 function formatGeocode(r: GeocodeResult): string {
   return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
-}
-
-function CoordField({
-  label,
-  value,
-  setValue,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  setValue: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="text-neutral-400">{label}</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={placeholder}
-        className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-neutral-100 focus:border-neutral-500 focus:outline-none"
-      />
-    </label>
-  );
-}
-
-function canSubmit({
-  originLat,
-  originLon,
-  destLat,
-  destLon,
-}: {
-  originLat: string;
-  originLon: string;
-  destLat: string;
-  destLon: string;
-}) {
-  const fields = [originLat, originLon, destLat, destLon];
-  return fields.every((s) => {
-    const n = Number(s);
-    return s.trim() !== "" && Number.isFinite(n);
-  });
 }
 
 function TripPlanResult({ plan }: { plan: TripPlan }) {
@@ -393,7 +383,7 @@ function TripPlanResult({ plan }: { plan: TripPlan }) {
 
 function RouteCard({ route, index }: { route: TripRoute; index: number }) {
   const charging = route.Waypoints.filter(
-    (w) => w.WaypointType !== "origin" && w.WaypointType !== "destination",
+    (w) => w.WaypointType !== "ORIGIN" && w.WaypointType !== "DESTINATION" && w.WaypointType !== "OTHER",
   );
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   return (

@@ -817,6 +817,12 @@ export const backend = {
     api.get<DriveWeatherSeries>(
       `/api/drives/${encodeURIComponent(id)}/weather/series`,
     ),
+  // User's saved home location. Read by the trip planner to render
+  // a "Home" preset on Origin/Destination; settable from the
+  // Settings page.
+  homeLocationGet: () => api.get<HomeLocation>("/api/settings/home-location"),
+  homeLocationPut: (h: HomeLocation) =>
+    api.put<HomeLocation>("/api/settings/home-location", h),
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
@@ -1030,6 +1036,15 @@ export type OIDCProvider = {
   name: string;
   display_name: string;
   start_url: string;
+};
+
+// HomeLocation is the user's saved "home" base. set=false means no
+// home is configured — the planner UI should hide the Home preset.
+export type HomeLocation = {
+  set: boolean;
+  latitude: number;
+  longitude: number;
+  label?: string;
 };
 
 // GeocodeResult is one match from /api/geocode (Open-Meteo).
