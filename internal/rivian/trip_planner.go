@@ -122,30 +122,34 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	if len(in.Waypoints) < 2 {
 		return nil, fmt.Errorf("planTrip: origin + destination waypoints required")
 	}
-	// startingRangeMeters is non-null on the schema. If the caller
-	// didn't pass one, fall back to a SoC-derived estimate using a
-	// conservative R1S range table (so the request validates even
-	// without an explicit value). Caller can override.
-	rangeMeters := in.StartingRangeMeters
-	if rangeMeters <= 0 {
-		// 5 m/% per kWh @ ~3 mi/kWh -> ~5000m per percent SoC for an
-		// R1S Adventure. Coarse but well within the planner's
-		// tolerance; refines automatically once the SPA can read the
-		// vehicle's reported range.
-		rangeMeters = in.StartingSoC * 5000
-	}
-
 	vars := planTripVars{
-		Origin:              planTripWaypointVar{Latitude: in.Waypoints[0].Latitude, Longitude: in.Waypoints[0].Longitude},
-		Destination:         planTripWaypointVar{Latitude: in.Waypoints[len(in.Waypoints)-1].Latitude, Longitude: in.Waypoints[len(in.Waypoints)-1].Longitude},
-		Bearing:             in.OriginBearing,
-		VehicleID:           in.VehicleID,
-		StartingSoc:         in.StartingSoC,
-		StartingRangeMeters: rangeMeters,
+		Vehicle: in.VehicleID,
+	}
+	for _, wp := range in.Waypoints {
+		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
+			Latitude:  wp.Latitude,
+			Longitude: wp.Longitude,
+		})
+	}
+	if in.StartingSoC > 0 {
+		v := in.StartingSoC
+		vars.StartingSoc = &v
+	}
+	if in.StartingRangeMeters > 0 {
+		v := in.StartingRangeMeters
+		vars.StartingRangeMeters = &v
 	}
 	if in.TargetArrivalSocPercent != nil {
 		v := *in.TargetArrivalSocPercent
 		vars.TargetArrivalSocPercent = &v
+	}
+	if in.DriveMode != "" {
+		v := in.DriveMode
+		vars.DriveMode = &v
+	}
+	if in.TrailerProfile != "" {
+		v := in.TrailerProfile
+		vars.TrailerProfile = &v
 	}
 	for _, np := range in.NetworkPreferences {
 		vars.NetworkPreferences = append(vars.NetworkPreferences, planTripNetworkPrefVar{
@@ -155,49 +159,66 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	}
 
 	data, err := doGraphQL[planTripData](ctx, c, graphQLRequest{
-		OperationName: "planTrip",
+		OperationName: "planTripWithMultiStopV2",
 		Query:         qPlanTripWithMultiStop,
 		Variables:     vars,
 	}, c.authHeaders())
 	if err != nil {
-		return nil, fmt.Errorf("planTrip: %w", err)
+		return nil, fmt.Errorf("planTrip2: %w", err)
 	}
 
+	// Map the v2 response (status / plans[].summary / plans[].waypoints)
+	// into the existing TripPlan / TripRoute / PlannedWaypoint shape so
+	// the SPA contract stays stable. Each v2 plan becomes one TripRoute;
+	// summary fields land on TripRoute, waypoint fields on PlannedWaypoint.
 	out := &TripPlan{
-		Status:                  data.PlanTrip.TripPlanStatus,
-		ChargeStationsAvailable: data.PlanTrip.ChargeStationsAvailable,
-		SoCBelowLimit:           data.PlanTrip.SocBelowLimit,
-		Routes:                  make([]TripRoute, 0, len(data.PlanTrip.Routes)),
+		Status: data.PlanTrip2.Status,
+		Routes: make([]TripRoute, 0, len(data.PlanTrip2.Plans)),
 	}
-	for _, r := range data.PlanTrip.Routes {
-		route := TripRoute{
-			DestinationReached:       r.DestinationReached,
-			TotalChargingDurationSec: r.TotalChargingDuration,
-			ArrivalSoC:               r.ArrivalSOC,
-			ArrivalReachableMeters:   r.ArrivalReachableDistance,
-			EnergyConsumptionKWh:     r.EnergyConsumptionOnLeg,
-			BatteryEmptyToDestMeters: r.BatteryEmptyToDestinationDistance,
-			BatteryEmptyLat:          r.BatteryEmptyLocationLatitude,
-			BatteryEmptyLon:          r.BatteryEmptyLocationLongitude,
-			RouteResponseRaw:         r.RouteResponse,
-			Waypoints:                make([]PlannedWaypoint, 0, len(r.Waypoints)),
+	// v2 doesn't expose `socBelowLimit` / `chargeStationsAvailable` at
+	// the top level — instead it's per-plan. Surface true if any plan
+	// flagged it, so the SPA's existing risk display still lights up.
+	for _, p := range data.PlanTrip2.Plans {
+		if p.Summary.SocBelowLimitAtDestination {
+			out.SoCBelowLimit = true
 		}
-		for _, w := range r.Waypoints {
+	}
+	for _, p := range data.PlanTrip2.Plans {
+		route := TripRoute{
+			DestinationReached:       p.Summary.DestinationReachable,
+			TotalChargingDurationSec: p.Summary.TotalChargeDurationSeconds,
+			ArrivalSoC:               p.Summary.ArrivalSOCPercent,
+			ArrivalReachableMeters:   p.Summary.ArrivalRangeMeters,
+			// EnergyConsumptionKWh on the v1 schema was per-leg; v2's
+			// arrivalEnergyKwh is the projected energy *remaining* at
+			// destination, not consumed. We don't have an exact
+			// "consumed" field; leave 0 unless the SPA computes it
+			// from start/arrival deltas.
+			EnergyConsumptionKWh: 0,
+			Waypoints:            make([]PlannedWaypoint, 0, len(p.Waypoints)),
+		}
+		for _, w := range p.Waypoints {
 			route.Waypoints = append(route.Waypoints, PlannedWaypoint{
 				WaypointType:             w.WaypointType,
-				EntityID:                 w.EntityID,
-				Name:                     w.Name,
 				Latitude:                 w.Latitude,
 				Longitude:                w.Longitude,
-				MaxPowerKW:               w.MaxPower,
-				ChargeDurationSec:        w.ChargeDuration,
-				ArrivalSoC:               w.ArrivalSOC,
-				DepartureSoC:             w.DepartureSOC,
-				ArrivalReachableMeters:   w.ArrivalReachableDistance,
-				DepartureReachableMeters: w.DepartureReachableDistance,
+				ArrivalSoC:               w.ArrivalSOCPercent,
+				DepartureSoC:             w.DepartureSOCPercent,
+				ArrivalReachableMeters:   w.ArrivalRangeMeters,
+				DepartureReachableMeters: w.DepartureRangeMeters,
 			})
 		}
 		out.Routes = append(out.Routes, route)
+	}
+	// v2 has no top-level chargeStationsAvailable; infer from the
+	// presence of charging waypoints across plans.
+	for _, r := range out.Routes {
+		for _, w := range r.Waypoints {
+			if w.WaypointType != "" && w.WaypointType != "ORIGIN" && w.WaypointType != "DESTINATION" && w.WaypointType != "WAYPOINT" {
+				out.ChargeStationsAvailable = true
+				break
+			}
+		}
 	}
 	return out, nil
 }
@@ -205,14 +226,15 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 // --- wire types ----------------------------------------------------
 
 type planTripVars struct {
-	Origin                  planTripWaypointVar      `json:"origin"`
-	Destination             planTripWaypointVar      `json:"destination"`
-	Bearing                 float64                  `json:"bearing"`
-	VehicleID               string                   `json:"vehicleId"`
-	StartingSoc             float64                  `json:"startingSoc"`
-	StartingRangeMeters     float64                  `json:"startingRangeMeters"`
+	Waypoints               []planTripWaypointVar    `json:"waypoints"`
+	Vehicle                 string                   `json:"vehicle"`
+	StartingSoc             *float64                 `json:"startingSoc,omitempty"`
+	StartingRangeMeters     *float64                 `json:"startingRangeMeters,omitempty"`
 	TargetArrivalSocPercent *float64                 `json:"targetArrivalSocPercent,omitempty"`
+	DriveMode               *string                  `json:"driveMode,omitempty"`
 	NetworkPreferences      []planTripNetworkPrefVar `json:"networkPreferences,omitempty"`
+	TrailerProfile          *string                  `json:"trailerProfile,omitempty"`
+	HasAdapter              *bool                    `json:"hasAdapter,omitempty"`
 }
 
 // planTripWaypointVar is the wire shape of one CoordinatesInput.
@@ -235,39 +257,37 @@ type planTripNetworkPrefVar struct {
 }
 
 type planTripData struct {
-	PlanTrip struct {
-		TripPlanStatus          string             `json:"tripPlanStatus"`
-		ChargeStationsAvailable bool               `json:"chargeStationsAvailable"`
-		SocBelowLimit           bool               `json:"socBelowLimit"`
-		Routes                  []planTripRouteRow `json:"routes"`
-	} `json:"planTrip"`
+	PlanTrip2 struct {
+		Status string            `json:"status"`
+		Plans  []planTripPlanRow `json:"plans"`
+	} `json:"planTrip2"`
 }
 
-type planTripRouteRow struct {
-	RouteResponse                     any                   `json:"routeResponse"`
-	DestinationReached                bool                  `json:"destinationReached"`
-	TotalChargingDuration             int                   `json:"totalChargingDuration"`
-	ArrivalSOC                        float64               `json:"arrivalSOC"`
-	ArrivalReachableDistance          float64               `json:"arrivalReachableDistance"`
-	EnergyConsumptionOnLeg            float64               `json:"energyConsumptionOnLeg"`
-	BatteryEmptyToDestinationDistance float64               `json:"batteryEmptyToDestinationDistance"`
-	BatteryEmptyLocationLatitude      float64               `json:"batteryEmptyLocationLatitude"`
-	BatteryEmptyLocationLongitude     float64               `json:"batteryEmptyLocationLongitude"`
-	Waypoints                         []planTripWaypointRow `json:"waypoints"`
+type planTripPlanRow struct {
+	Summary   planTripSummaryRow    `json:"summary"`
+	Waypoints []planTripWaypointRow `json:"waypoints"`
+}
+
+type planTripSummaryRow struct {
+	DestinationReachable        bool    `json:"destinationReachable"`
+	SocBelowLimitAtDestination  bool    `json:"socBelowLimitAtDestination"`
+	TotalChargeDurationSeconds  int     `json:"totalChargeDurationSeconds"`
+	TotalDriveDurationSeconds   int     `json:"totalDriveDurationSeconds"`
+	TotalDriveDistanceMeters    float64 `json:"totalDriveDistanceMeters"`
+	TotalTripDurationSeconds    int     `json:"totalTripDurationSeconds"`
+	ArrivalSOCPercent           float64 `json:"arrivalSOCPercent"`
+	ArrivalRangeMeters          float64 `json:"arrivalRangeMeters"`
+	ArrivalEnergyKwh            float64 `json:"arrivalEnergyKwh"`
 }
 
 type planTripWaypointRow struct {
-	WaypointType               string  `json:"waypointType"`
-	EntityID                   string  `json:"entityId"`
-	Name                       string  `json:"name"`
-	Latitude                   float64 `json:"latitude"`
-	Longitude                  float64 `json:"longitude"`
-	MaxPower                   float64 `json:"maxPower"`
-	ChargeDuration             int     `json:"chargeDuration"`
-	ArrivalSOC                 float64 `json:"arrivalSOC"`
-	DepartureSOC               float64 `json:"departureSOC"`
-	ArrivalReachableDistance   float64 `json:"arrivalReachableDistance"`
-	DepartureReachableDistance float64 `json:"departureReachableDistance"`
+	WaypointType         string  `json:"waypointType"`
+	Latitude             float64 `json:"latitude"`
+	Longitude            float64 `json:"longitude"`
+	ArrivalSOCPercent    float64 `json:"arrivalSOCPercent"`
+	DepartureSOCPercent  float64 `json:"departureSOCPercent"`
+	ArrivalRangeMeters   float64 `json:"arrivalRangeMeters"`
+	DepartureRangeMeters float64 `json:"departureRangeMeters"`
 }
 
 // RawGraphQL posts an arbitrary operation+query+variables to the
@@ -388,62 +408,65 @@ func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) 
 // schema; the gateway returns 200 with `errors` when the selection
 // includes a removed field, so additions need a probe via
 // ChargingFieldProbe / a feature-detect path before going live.
-// qPlanTrip uses the operation + arg shape from the authoritative
-// gateway.graphql in jrgutier/rivian-python-client (the iOS app's
-// reverse-engineered schema). The earlier guesses based on
-// rivian-api.kaedenb.org's docs were materially wrong: the docs page
-// described a `planTripMultiStop` operation that the gateway either
-// doesn't have or has broken — every variant we sent there returned
-// INTERNAL_SERVER_ERROR. The real operation is `planTrip` with
-// scalar origin+destination args (not a waypoints array), `bearing`
-// (not `originBearing`), and required `startingRangeMeters`. Drive
-// mode / trailer profile / connector types / waypointType / adapterRequired
-// don't exist on this schema at all.
-const qPlanTripWithMultiStop = `query planTrip(
-  $origin: CoordinatesInput!,
-  $destination: CoordinatesInput!,
-  $bearing: Float!,
-  $vehicleId: String!,
-  $startingSoc: Float!,
-  $startingRangeMeters: Float!,
+// qPlanTripWithMultiStop targets the v2 planner — `planTrip2` (with
+// the "2" suffix) under operation name `planTripWithMultiStopV2`.
+// The v1 sibling `planTrip` (and the never-existing
+// `planTripMultiStop`) both return INTERNAL_SERVER_ERROR for any
+// input today; v2 is what the iOS app actually uses.
+//
+// Schema source: the actual implementation in
+// jrgutier/rivian-python-client/src/rivian/rivian.py at
+// plan_trip_with_multi_stop (line 2441+). The gateway.graphql file
+// in the same repo was an older snapshot and described the v1
+// shape; trust the live client code instead.
+//
+// Field names that bit us before: `vehicle` (not `vehicleId`!),
+// `arrivalSOCPercent` (not `arrivalSOC`), `plans` (not `routes`),
+// `summary` block. Drive mode values are CONSERVE / SPORT /
+// ALL_PURPOSE (not EVERYDAY).
+const qPlanTripWithMultiStop = `query planTripWithMultiStopV2(
+  $waypoints: [TripWaypointInput!]!,
+  $vehicle: String!,
+  $startingSoc: Float,
+  $startingRangeMeters: Float,
   $targetArrivalSocPercent: Float,
-  $networkPreferences: [NetworkPreference!]
+  $driveMode: String,
+  $networkPreferences: [NetworkPreferenceInput!],
+  $trailerProfile: String,
+  $hasAdapter: Boolean
 ) {
-  planTrip(
-    origin: $origin,
-    destination: $destination,
-    bearing: $bearing,
-    vehicleId: $vehicleId,
+  planTrip2(
+    waypoints: $waypoints,
+    vehicle: $vehicle,
     startingSoc: $startingSoc,
     startingRangeMeters: $startingRangeMeters,
     targetArrivalSocPercent: $targetArrivalSocPercent,
-    networkPreferences: $networkPreferences
+    driveMode: $driveMode,
+    networkPreferences: $networkPreferences,
+    trailerProfile: $trailerProfile,
+    hasAdapter: $hasAdapter
   ) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-    routes {
-      routeResponse
-      destinationReached
-      totalChargingDuration
-      arrivalSOC
-      arrivalReachableDistance
-      energyConsumptionOnLeg
-      batteryEmptyToDestinationDistance
-      batteryEmptyLocationLatitude
-      batteryEmptyLocationLongitude
+    status
+    plans {
+      summary {
+        destinationReachable
+        socBelowLimitAtDestination
+        totalChargeDurationSeconds
+        totalDriveDurationSeconds
+        totalDriveDistanceMeters
+        totalTripDurationSeconds
+        arrivalSOCPercent
+        arrivalRangeMeters
+        arrivalEnergyKwh
+      }
       waypoints {
         waypointType
-        entityId
-        name
         latitude
         longitude
-        maxPower
-        chargeDuration
-        arrivalSOC
-        departureSOC
-        arrivalReachableDistance
-        departureReachableDistance
+        arrivalSOCPercent
+        departureSOCPercent
+        arrivalRangeMeters
+        departureRangeMeters
       }
     }
   }

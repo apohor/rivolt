@@ -1554,46 +1554,37 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 		// startingRangeMeters required). RawGraphQL bypasses the
 		// typed path so we can isolate whether the gateway itself
 		// accepts this shape.
-		v126Query := `query planTrip(
-  $origin: CoordinatesInput!,
-  $destination: CoordinatesInput!,
-  $bearing: Float!,
-  $vehicleId: String!,
-  $startingSoc: Float!,
-  $startingRangeMeters: Float!,
-  $targetArrivalSocPercent: Float,
-  $networkPreferences: [NetworkPreference!]
-) {
-  planTrip(
-    origin: $origin,
-    destination: $destination,
-    bearing: $bearing,
-    vehicleId: $vehicleId,
-    startingSoc: $startingSoc,
-    startingRangeMeters: $startingRangeMeters,
-    targetArrivalSocPercent: $targetArrivalSocPercent,
-    networkPreferences: $networkPreferences
-  ) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-    routes { destinationReached totalChargingDuration arrivalSOC }
+		// v0.17.128 shape — planTrip2 (with the "2" suffix) under
+		// operationName planTripWithMultiStopV2. Authoritative source:
+		// jrgutier/rivian-python-client/src/rivian/rivian.py
+		// plan_trip_with_multi_stop. Args: waypoints array (not
+		// origin+destination scalars), `vehicle` (not `vehicleId`!),
+		// optional startingSoc / startingRangeMeters, drive modes
+		// CONSERVE / SPORT / ALL_PURPOSE.
+		v128Query := `query planTripWithMultiStopV2($waypoints: [TripWaypointInput!]!, $vehicle: String!, $startingSoc: Float, $startingRangeMeters: Float, $targetArrivalSocPercent: Float) {
+  planTrip2(waypoints: $waypoints, vehicle: $vehicle, startingSoc: $startingSoc, startingRangeMeters: $startingRangeMeters, targetArrivalSocPercent: $targetArrivalSocPercent) {
+    status
+    plans {
+      summary { destinationReachable totalChargeDurationSeconds totalDriveDistanceMeters arrivalSOCPercent }
+      waypoints { waypointType latitude longitude arrivalSOCPercent departureSOCPercent }
+    }
   }
 }`
-		v126Vars := map[string]any{
-			"origin":                  map[string]float64{"latitude": 30.5538, "longitude": -97.7622},
-			"destination":             map[string]float64{"latitude": 32.7767, "longitude": -96.797},
-			"bearing":                 0.0,
-			"vehicleId":               "01-242521064",
+		v128Vars := map[string]any{
+			"waypoints": []map[string]float64{
+				{"latitude": 30.5538, "longitude": -97.7622},
+				{"latitude": 32.7767, "longitude": -96.797},
+			},
+			"vehicle":                 "01-242521064",
 			"startingSoc":             54.0,
-			"startingRangeMeters":     270000.0, // ~5km/% × 54
+			"startingRangeMeters":     270000.0,
 			"targetArrivalSocPercent": 20.0,
 		}
-		v126Data, v126Err := lc.RawGraphQL(r.Context(), "planTrip", v126Query, v126Vars)
-		if v126Err != nil {
-			out["plan_trip_v126_correct_schema"] = map[string]any{"sent": v126Vars, "error": v126Err.Error()}
+		v128Data, v128Err := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", v128Query, v128Vars)
+		if v128Err != nil {
+			out["plan_trip_v128_v2_schema"] = map[string]any{"sent": v128Vars, "error": v128Err.Error()}
 		} else {
-			out["plan_trip_v126_correct_schema"] = map[string]any{"sent": v126Vars, "data": v126Data}
+			out["plan_trip_v128_v2_schema"] = map[string]any{"sent": v128Vars, "data": v128Data}
 		}
 
 		writeJSON(w, http.StatusOK, out)
