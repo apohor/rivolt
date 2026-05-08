@@ -474,6 +474,12 @@ func New(d Deps) http.Handler {
 			r.Post("/trips/plan/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanRawDebug(clientFor(d, uid))(w, r)
 			}))
+			// Schema introspection: GET /api/admin/gql/type?name=CoordinatesInput
+			// returns the input-object field set the gateway publishes.
+			// Bypasses guess-and-check on undocumented shapes.
+			r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleGraphQLIntrospect(clientFor(d, uid))(w, r)
+			}))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -1271,6 +1277,32 @@ func handleTripPlanRawDebug(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		data, err := lc.PlanTripRaw(r.Context(), body.Variables)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}
+}
+
+// handleGraphQLIntrospect runs an __type introspection on the
+// gateway and returns the response verbatim. Lets us read the exact
+// input-object shape the gateway publishes, which is the
+// authoritative answer for "what fields does CoordinatesInput
+// accept?"
+func handleGraphQLIntrospect(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "name query parameter required (e.g. ?name=CoordinatesInput)", http.StatusBadRequest)
+			return
+		}
+		data, err := lc.IntrospectInputType(r.Context(), name)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return

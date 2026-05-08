@@ -309,6 +309,54 @@ type planTripWaypointRow struct {
 	AdapterRequired            bool    `json:"adapterRequired"`
 }
 
+// IntrospectInputType returns the field set of a named GraphQL
+// input object via the gateway's __type introspection. Used to
+// reverse-engineer the exact shape of inputs like CoordinatesInput
+// that the iOS-app reverse-engineered docs got wrong (they conflated
+// input/response shapes). Admin-only.
+func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (map[string]any, error) {
+	if err := c.checkUpstream(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, ErrNotAuthenticated
+	}
+	const q = `query IntrospectInput($name: String!) {
+  __type(name: $name) {
+    name
+    kind
+    inputFields {
+      name
+      description
+      type {
+        name
+        kind
+        ofType {
+          name
+          kind
+          ofType {
+            name
+            kind
+          }
+        }
+      }
+      defaultValue
+    }
+  }
+}`
+	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
+		OperationName: "IntrospectInput",
+		Query:         q,
+		Variables:     map[string]any{"name": typeName},
+	}, c.authHeaders())
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // PlanTripRaw posts the planTripWithMultiStop operation with a
 // caller-supplied variables payload and returns the gateway's
 // response data + errors verbatim. Bypasses the typed PlanTrip path
