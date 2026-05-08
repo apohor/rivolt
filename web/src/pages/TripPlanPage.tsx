@@ -303,7 +303,6 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
                 <th className="px-2 py-2">Depart</th>
                 <th className="px-2 py-2">Charge</th>
                 <th className="px-2 py-2">Max kW</th>
-                <th className="px-2 py-2">Adapter?</th>
               </tr>
             </thead>
             <tbody>
@@ -315,7 +314,6 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
                   <td className="px-2 py-2 font-mono">{w.DepartureSoC.toFixed(0)}%</td>
                   <td className="px-2 py-2 font-mono">{Math.round(w.ChargeDurationSec / 60)} min</td>
                   <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
-                  <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
                 </tr>
               ))}
             </tbody>

@@ -12,22 +12,24 @@ import (
 // (e.g. TargetArrivalSocPercent, TrailerProfile) are pointers so the
 // zero value is distinguishable from "not provided".
 //
-// Waypoints must include both the origin (waypointType="origin") and
-// the destination (waypointType="destination"); intermediate stops
-// use waypointType="waypoint". The gateway computes charging stops
-// between them — callers don't pre-pick chargers.
+// Waypoints[0] is the origin, Waypoints[len-1] is the destination.
+// Slice 1 of the planner only supports those two; intermediate stops
+// aren't part of this schema's planTrip operation. The gateway
+// computes charging stops between origin and destination.
 type PlanTripInput struct {
 	VehicleID               string
 	StartingSoC             float64
-	StartingRangeMeters     float64 // optional — pass 0 to omit
+	StartingRangeMeters     float64 // 0 → derived from SoC by PlanTrip
 	OriginBearing           float64 // degrees from true north; pass 0 if unknown
 	Waypoints               []PlanTripWaypoint
 	TargetArrivalSocPercent *float64
-	DriveMode               string // empty = let Rivian pick
-	TrailerProfile          string // empty = no trailer
+	NetworkPreferences      []NetworkPreference
+	// Fields kept on the input for SPA-side compat / future schemas;
+	// not forwarded to Rivian's current planTrip schema.
+	DriveMode               string
+	TrailerProfile          string
 	AvoidAdapterRequired    bool
 	SupportedConnectorTypes []string
-	NetworkPreferences      []NetworkPreference
 }
 
 // PlanTripWaypoint is one input waypoint. waypointType is one of
@@ -92,18 +94,19 @@ type PlannedWaypoint struct {
 	DepartureSoC             float64
 	ArrivalReachableMeters   float64
 	DepartureReachableMeters float64
-	AdapterRequired          bool
 }
 
 // PlanTrip runs the gateway's planTripWithMultiStop operation and
 // returns a flattened, JSON-friendly TripPlan. Per-user — the
 // authenticated session must own the vehicleId.
 //
-// The query selects every field documented at
-// https://rivian-api.kaedenb.org/app/trip-planning/plan-trip/ except
-// the geometry payload, which is forwarded verbatim via
-// RouteResponseRaw so the SPA renderer can decode without a second
-// round-trip.
+// Schema source: jrgutier/rivian-python-client/src/rivian/schemas/gateway.graphql.
+// The operation is `planTrip` (not `planTripMultiStop` — the docs at
+// rivian-api.kaedenb.org described a non-existent or broken sibling),
+// taking scalar origin+destination CoordinatesInput args (not a
+// waypoints array), `bearing` (not `originBearing`), and required
+// startingRangeMeters. driveMode/trailerProfile/avoidAdapterRequired/
+// supportedConnectorTypes don't exist on this schema at all.
 func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan, error) {
 	if err := c.checkUpstream(ctx); err != nil {
 		return nil, err
@@ -117,58 +120,32 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 		return nil, fmt.Errorf("planTrip: vehicleId required")
 	}
 	if len(in.Waypoints) < 2 {
-		return nil, fmt.Errorf("planTrip: at least origin + destination waypoints required")
+		return nil, fmt.Errorf("planTrip: origin + destination waypoints required")
+	}
+	// startingRangeMeters is non-null on the schema. If the caller
+	// didn't pass one, fall back to a SoC-derived estimate using a
+	// conservative R1S range table (so the request validates even
+	// without an explicit value). Caller can override.
+	rangeMeters := in.StartingRangeMeters
+	if rangeMeters <= 0 {
+		// 5 m/% per kWh @ ~3 mi/kWh -> ~5000m per percent SoC for an
+		// R1S Adventure. Coarse but well within the planner's
+		// tolerance; refines automatically once the SPA can read the
+		// vehicle's reported range.
+		rangeMeters = in.StartingSoC * 5000
 	}
 
 	vars := planTripVars{
-		VehicleID:               in.VehicleID,
-		StartingSoc:             in.StartingSoC,
-		OriginBearing:           in.OriginBearing,
-		AvoidAdapterRequired:    in.AvoidAdapterRequired,
-		SupportedConnectorTypes: in.SupportedConnectorTypes,
-	}
-	if in.StartingRangeMeters > 0 {
-		v := in.StartingRangeMeters
-		vars.StartingRangeMeters = &v
+		Origin:              planTripWaypointVar{Latitude: in.Waypoints[0].Latitude, Longitude: in.Waypoints[0].Longitude},
+		Destination:         planTripWaypointVar{Latitude: in.Waypoints[len(in.Waypoints)-1].Latitude, Longitude: in.Waypoints[len(in.Waypoints)-1].Longitude},
+		Bearing:             in.OriginBearing,
+		VehicleID:           in.VehicleID,
+		StartingSoc:         in.StartingSoC,
+		StartingRangeMeters: rangeMeters,
 	}
 	if in.TargetArrivalSocPercent != nil {
 		v := *in.TargetArrivalSocPercent
 		vars.TargetArrivalSocPercent = &v
-	}
-	if in.DriveMode != "" {
-		v := in.DriveMode
-		vars.DriveMode = &v
-	}
-	if in.TrailerProfile != "" {
-		v := in.TrailerProfile
-		vars.TrailerProfile = &v
-	}
-	for _, wp := range in.Waypoints {
-		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
-			Latitude:  wp.Latitude,
-			Longitude: wp.Longitude,
-		})
-	}
-	// Required-but-easily-omitted defaults. The schema marks
-	// supportedConnectorTypes as [String!] (non-null list) and
-	// driveMode/trailerProfile as required-by-implementation even
-	// when the SDL says they're optional — the gateway returns
-	// INTERNAL_SERVER_ERROR when they're absent. The Rivian iOS app
-	// always sends EVERYDAY / NONE / CCS+J1772; we mirror that until
-	// we surface user-driven controls in slice 2+.
-	if vars.DriveMode == nil || *vars.DriveMode == "" {
-		v := "EVERYDAY"
-		vars.DriveMode = &v
-	}
-	if vars.TrailerProfile == nil || *vars.TrailerProfile == "" {
-		v := "NONE"
-		vars.TrailerProfile = &v
-	}
-	if len(vars.SupportedConnectorTypes) == 0 {
-		// CCS + J1772 covers the public-charging set the R1S
-		// natively supports (NACS adapter is implicit; Tesla-network
-		// chargers are gated behind avoidAdapterRequired).
-		vars.SupportedConnectorTypes = []string{"CCS", "J1772"}
 	}
 	for _, np := range in.NetworkPreferences {
 		vars.NetworkPreferences = append(vars.NetworkPreferences, planTripNetworkPrefVar{
@@ -178,21 +155,21 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	}
 
 	data, err := doGraphQL[planTripData](ctx, c, graphQLRequest{
-		OperationName: "planTripWithMultiStop",
+		OperationName: "planTrip",
 		Query:         qPlanTripWithMultiStop,
 		Variables:     vars,
 	}, c.authHeaders())
 	if err != nil {
-		return nil, fmt.Errorf("planTripWithMultiStop: %w", err)
+		return nil, fmt.Errorf("planTrip: %w", err)
 	}
 
 	out := &TripPlan{
-		Status:                  data.PlanTripMultiStop.TripPlanStatus,
-		ChargeStationsAvailable: data.PlanTripMultiStop.ChargeStationsAvailable,
-		SoCBelowLimit:           data.PlanTripMultiStop.SocBelowLimit,
-		Routes:                  make([]TripRoute, 0, len(data.PlanTripMultiStop.Routes)),
+		Status:                  data.PlanTrip.TripPlanStatus,
+		ChargeStationsAvailable: data.PlanTrip.ChargeStationsAvailable,
+		SoCBelowLimit:           data.PlanTrip.SocBelowLimit,
+		Routes:                  make([]TripRoute, 0, len(data.PlanTrip.Routes)),
 	}
-	for _, r := range data.PlanTripMultiStop.Routes {
+	for _, r := range data.PlanTrip.Routes {
 		route := TripRoute{
 			DestinationReached:       r.DestinationReached,
 			TotalChargingDurationSec: r.TotalChargingDuration,
@@ -218,7 +195,6 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureSoC:             w.DepartureSOC,
 				ArrivalReachableMeters:   w.ArrivalReachableDistance,
 				DepartureReachableMeters: w.DepartureReachableDistance,
-				AdapterRequired:          w.AdapterRequired,
 			})
 		}
 		out.Routes = append(out.Routes, route)
@@ -229,16 +205,13 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 // --- wire types ----------------------------------------------------
 
 type planTripVars struct {
+	Origin                  planTripWaypointVar      `json:"origin"`
+	Destination             planTripWaypointVar      `json:"destination"`
+	Bearing                 float64                  `json:"bearing"`
 	VehicleID               string                   `json:"vehicleId"`
 	StartingSoc             float64                  `json:"startingSoc"`
-	StartingRangeMeters     *float64                 `json:"startingRangeMeters,omitempty"`
-	OriginBearing           float64                  `json:"originBearing"`
-	Waypoints               []planTripWaypointVar    `json:"waypoints"`
+	StartingRangeMeters     float64                  `json:"startingRangeMeters"`
 	TargetArrivalSocPercent *float64                 `json:"targetArrivalSocPercent,omitempty"`
-	DriveMode               *string                  `json:"driveMode,omitempty"`
-	TrailerProfile          *string                  `json:"trailerProfile,omitempty"`
-	AvoidAdapterRequired    bool                     `json:"avoidAdapterRequired"`
-	SupportedConnectorTypes []string                 `json:"supportedConnectorTypes,omitempty"`
 	NetworkPreferences      []planTripNetworkPrefVar `json:"networkPreferences,omitempty"`
 }
 
@@ -262,12 +235,12 @@ type planTripNetworkPrefVar struct {
 }
 
 type planTripData struct {
-	PlanTripMultiStop struct {
+	PlanTrip struct {
 		TripPlanStatus          string             `json:"tripPlanStatus"`
 		ChargeStationsAvailable bool               `json:"chargeStationsAvailable"`
 		SocBelowLimit           bool               `json:"socBelowLimit"`
 		Routes                  []planTripRouteRow `json:"routes"`
-	} `json:"planTripMultiStop"`
+	} `json:"planTrip"`
 }
 
 type planTripRouteRow struct {
@@ -295,7 +268,6 @@ type planTripWaypointRow struct {
 	DepartureSOC               float64 `json:"departureSOC"`
 	ArrivalReachableDistance   float64 `json:"arrivalReachableDistance"`
 	DepartureReachableDistance float64 `json:"departureReachableDistance"`
-	AdapterRequired            bool    `json:"adapterRequired"`
 }
 
 // RawGraphQL posts an arbitrary operation+query+variables to the
@@ -416,30 +388,35 @@ func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) 
 // schema; the gateway returns 200 with `errors` when the selection
 // includes a removed field, so additions need a probe via
 // ChargingFieldProbe / a feature-detect path before going live.
-const qPlanTripWithMultiStop = `query planTripWithMultiStop(
+// qPlanTrip uses the operation + arg shape from the authoritative
+// gateway.graphql in jrgutier/rivian-python-client (the iOS app's
+// reverse-engineered schema). The earlier guesses based on
+// rivian-api.kaedenb.org's docs were materially wrong: the docs page
+// described a `planTripMultiStop` operation that the gateway either
+// doesn't have or has broken — every variant we sent there returned
+// INTERNAL_SERVER_ERROR. The real operation is `planTrip` with
+// scalar origin+destination args (not a waypoints array), `bearing`
+// (not `originBearing`), and required `startingRangeMeters`. Drive
+// mode / trailer profile / connector types / waypointType / adapterRequired
+// don't exist on this schema at all.
+const qPlanTripWithMultiStop = `query planTrip(
+  $origin: CoordinatesInput!,
+  $destination: CoordinatesInput!,
+  $bearing: Float!,
   $vehicleId: String!,
   $startingSoc: Float!,
-  $startingRangeMeters: Float,
-  $originBearing: Float!,
-  $waypoints: [CoordinatesInput!]!,
+  $startingRangeMeters: Float!,
   $targetArrivalSocPercent: Float,
-  $driveMode: String,
-  $trailerProfile: String,
-  $avoidAdapterRequired: Boolean,
-  $supportedConnectorTypes: [String!],
   $networkPreferences: [NetworkPreference!]
 ) {
-  planTripMultiStop(
+  planTrip(
+    origin: $origin,
+    destination: $destination,
+    bearing: $bearing,
     vehicleId: $vehicleId,
     startingSoc: $startingSoc,
     startingRangeMeters: $startingRangeMeters,
-    originBearing: $originBearing,
-    waypoints: $waypoints,
     targetArrivalSocPercent: $targetArrivalSocPercent,
-    driveMode: $driveMode,
-    trailerProfile: $trailerProfile,
-    avoidAdapterRequired: $avoidAdapterRequired,
-    supportedConnectorTypes: $supportedConnectorTypes,
     networkPreferences: $networkPreferences
   ) {
     tripPlanStatus
@@ -467,7 +444,6 @@ const qPlanTripWithMultiStop = `query planTripWithMultiStop(
         departureSOC
         arrivalReachableDistance
         departureReachableDistance
-        adapterRequired
       }
     }
   }
