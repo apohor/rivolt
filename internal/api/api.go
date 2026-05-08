@@ -1561,31 +1561,89 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 		// origin+destination scalars), `vehicle` (not `vehicleId`!),
 		// optional startingSoc / startingRangeMeters, drive modes
 		// CONSERVE / SPORT / ALL_PURPOSE.
-		v128Query := `query planTripWithMultiStopV2($waypoints: [TripWaypointInput!]!, $vehicle: String!, $startingSoc: Float, $startingRangeMeters: Float, $targetArrivalSocPercent: Float) {
-  planTrip2(waypoints: $waypoints, vehicle: $vehicle, startingSoc: $startingSoc, startingRangeMeters: $startingRangeMeters, targetArrivalSocPercent: $targetArrivalSocPercent) {
+		// Variant A: inline values (no variables, no type names).
+		// The Python client uses gql DSL which builds inlined queries
+		// from a cached schema — the iOS app effectively does the
+		// same. This bypasses any input-type-name guessing.
+		v128InlineQuery := `query planTripWithMultiStopV2 {
+  planTrip2(
+    waypoints: [
+      {latitude: 30.5538, longitude: -97.7622},
+      {latitude: 32.7767, longitude: -96.797}
+    ],
+    vehicle: "01-242521064",
+    startingSoc: 54.0,
+    startingRangeMeters: 270000.0,
+    targetArrivalSocPercent: 20.0
+  ) {
     status
     plans {
-      summary { destinationReachable totalChargeDurationSeconds totalDriveDistanceMeters arrivalSOCPercent }
-      waypoints { waypointType latitude longitude arrivalSOCPercent departureSOCPercent }
+      summary {
+        destinationReachable
+        socBelowLimitAtDestination
+        totalChargeDurationSeconds
+        totalDriveDurationSeconds
+        totalDriveDistanceMeters
+        totalTripDurationSeconds
+        arrivalSOCPercent
+        arrivalRangeMeters
+        arrivalEnergyKwh
+      }
+      waypoints {
+        waypointType
+        latitude
+        longitude
+        arrivalSOCPercent
+        departureSOCPercent
+        arrivalRangeMeters
+        departureRangeMeters
+      }
     }
   }
 }`
-		v128Vars := map[string]any{
+		inlineData, inlineErr := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", v128InlineQuery, map[string]any{})
+		if inlineErr != nil {
+			out["plan_trip_v128_inline"] = map[string]any{"error": inlineErr.Error()}
+		} else {
+			out["plan_trip_v128_inline"] = map[string]any{"data": inlineData}
+		}
+
+		// Variant B: candidate input type names — keep variables but
+		// try alternatives to TripWaypointInput. Whichever passes
+		// validation is the answer.
+		typeNames := []string{
+			"CoordinatesInput",
+			"WaypointInput",
+			"WaypointV2Input",
+			"TripPlanV2WaypointInput",
+			"TripWaypointInputV2",
+			"TripPlanWaypointInput",
+			"PlanTrip2WaypointInput",
+		}
+		typeResults := map[string]any{}
+		baseVars := map[string]any{
 			"waypoints": []map[string]float64{
 				{"latitude": 30.5538, "longitude": -97.7622},
 				{"latitude": 32.7767, "longitude": -96.797},
 			},
-			"vehicle":                 "01-242521064",
-			"startingSoc":             54.0,
-			"startingRangeMeters":     270000.0,
-			"targetArrivalSocPercent": 20.0,
+			"vehicle":     "01-242521064",
+			"startingSoc": 54.0,
 		}
-		v128Data, v128Err := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", v128Query, v128Vars)
-		if v128Err != nil {
-			out["plan_trip_v128_v2_schema"] = map[string]any{"sent": v128Vars, "error": v128Err.Error()}
-		} else {
-			out["plan_trip_v128_v2_schema"] = map[string]any{"sent": v128Vars, "data": v128Data}
+		for _, tn := range typeNames {
+			q := fmt.Sprintf(`query planTripWithMultiStopV2($waypoints: [%s!]!, $vehicle: String!, $startingSoc: Float) {
+  planTrip2(waypoints: $waypoints, vehicle: $vehicle, startingSoc: $startingSoc) {
+    status
+    plans { summary { destinationReachable arrivalSOCPercent } }
+  }
+}`, tn)
+			data, err := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", q, baseVars)
+			if err != nil {
+				typeResults[tn] = map[string]any{"error": err.Error()}
+			} else {
+				typeResults[tn] = map[string]any{"data": data}
+			}
 		}
+		out["plan_trip_v128_input_type_probe"] = typeResults
 
 		writeJSON(w, http.StatusOK, out)
 	}
