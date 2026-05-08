@@ -2162,41 +2162,15 @@ func handleDriveWeatherBackfill(d Deps, uid uuid.UUID) http.HandlerFunc {
 // but does not roll back the snapshot -- the recap can still
 // render with start-hour data while the chart stays empty.
 func fetchAndCacheDriveWeather(ctx context.Context, cache *weather.Cache, uid uuid.UUID, drv *drives.Drive) (*weather.Snapshot, error) {
-	if drv == nil || (drv.StartLat == 0 && drv.StartLon == 0) {
+	if drv == nil {
 		return nil, nil
 	}
-	client := weather.NewClient()
-	bearing := weather.Bearing(drv.StartLat, drv.StartLon, drv.EndLat, drv.EndLon)
-	hasBearing := drv.EndLat != 0 || drv.EndLon != 0
-	clat, clon := weather.Coarsen(drv.StartLat, drv.StartLon)
-
-	// Snapshot covers the start hour and feeds the LLM prompt + the
-	// at-a-glance strip. Treated as required: if it fails we abort
-	// so the drive still counts as "remaining" on a future retry.
-	snapCtx, snapCancel := context.WithTimeout(ctx, 8*time.Second)
-	snap, sampledAt, err := client.FetchHour(snapCtx, drv.StartLat, drv.StartLon, drv.StartedAt, bearing, hasBearing)
-	snapCancel()
-	if err != nil {
-		return nil, err
-	}
-	if snap != nil {
-		if perr := cache.Put(ctx, uid, drv.ID, clat, clon, sampledAt, snap); perr != nil {
-			return nil, perr
-		}
-	}
-
-	// Series covers the full drive window at 15-min cadence (recent
-	// drives, forecast endpoint) or 60-min (older drives, archive).
-	// Failure here is non-fatal -- we already persisted the snapshot,
-	// and a missing series surfaces as a chart-less detail page,
-	// not a broken recap.
-	rangeCtx, rangeCancel := context.WithTimeout(ctx, 12*time.Second)
-	rows, rerr := client.FetchRange(rangeCtx, drv.StartLat, drv.StartLon, drv.StartedAt, drv.EndedAt, bearing, hasBearing)
-	rangeCancel()
-	if rerr == nil && len(rows) > 0 {
-		_ = cache.PutSeries(ctx, uid, drv.ID, clat, clon, rows)
-	}
-	return snap, nil
+	return weather.FetchAndCache(
+		ctx, cache, uid, drv.ID,
+		drv.StartedAt, drv.EndedAt,
+		drv.StartLat, drv.StartLon,
+		drv.EndLat, drv.EndLon,
+	)
 }
 
 // handleDriveWeatherGet returns the persisted weather snapshot for

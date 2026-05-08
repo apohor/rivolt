@@ -52,6 +52,7 @@ import (
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tracing"
+	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -265,6 +266,12 @@ func runServer() {
 	// the function scope so the post-switch monitorRegistry wiring
 	// can install a LiveStateStore factory against the same client.
 	var sharedRedis *redis.Client
+	// settingsMgr is constructed further below (after sealer + auth
+	// setup) but the recorder's drive-close hook factory needs to
+	// reference it before the boot hydrate sweep starts new monitors.
+	// Declared here so the closure captures the variable; the late
+	// assignment populates it before any drive actually closes.
+	var settingsMgr *settings.Manager
 	// appMetrics owns the Prometheus registry. Built before the
 	// rivian client so the breaker observer (which writes to the
 	// breaker gauge/counter) and the lease coordinator (which
@@ -389,6 +396,34 @@ func runServer() {
 				return rivian.NewRedisLiveStateStore(sharedRedis, uid.String())
 			})
 			logger.Info("live state store: enabled (redis)")
+		}
+		// Drive-close enrichment: when a drive closes (D→P), spawn a
+		// goroutine that fetches Open-Meteo weather for the start
+		// hour + the per-cadence series, gated on the operator's
+		// recap.weather_enabled toggle. Without this, weather only
+		// landed when the user clicked "Backfill" in the SPA, so
+		// recently recorded drives showed up without weather data.
+		if pgPool != nil {
+			weatherCache := weather.NewCache(pgPool)
+			monitorRegistry.SetDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
+				return func(ctx context.Context, drv drives.Drive) {
+					if settingsMgr == nil || !settingsMgr.RecapWeatherEnabled() {
+						return
+					}
+					if _, err := weather.FetchAndCache(
+						ctx, weatherCache, uid, drv.ID,
+						drv.StartedAt, drv.EndedAt,
+						drv.StartLat, drv.StartLon,
+						drv.EndLat, drv.EndLon,
+					); err != nil {
+						logger.Debug("auto weather fetch failed",
+							"user_id", uid.String(),
+							"drive_id", drv.ID,
+							"err", err.Error())
+					}
+				}
+			})
+			logger.Info("drive close hook: weather auto-fetch enabled")
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
@@ -838,8 +873,9 @@ func runServer() {
 	// boot so a freshly deployed install with OPENAI_API_KEY in
 	// helm values comes up already configured; once a row is in
 	// app_settings, the stored value wins (the admin can rotate
-	// from the UI without re-deploying).
-	var settingsMgr *settings.Manager
+	// from the UI without re-deploying). Variable was declared
+	// near the registry hoists above so the recorder's drive-close
+	// hook factory can capture it before the boot hydrate sweep.
 	if pgPool != nil && sealer != nil {
 		appKV, err := appsettings.New(pgPool, sealer)
 		if err != nil {

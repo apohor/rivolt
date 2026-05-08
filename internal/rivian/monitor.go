@@ -88,6 +88,13 @@ type StateMonitor struct {
 	// failures degrade to fragmentation but never break the recorder.
 	liveStateStore LiveStateStore
 
+	// driveCloseHook is invoked asynchronously after every D→P
+	// transition with a stable copy of the just-persisted drive row.
+	// Used for post-close enrichment (weather fetch, etc.) that
+	// should run as the drive is recorded rather than waiting for an
+	// SPA backfill click. Set via SetDriveCloseHook; nil disables.
+	driveCloseHook DriveCloseHook
+
 	// Latest LiveSession payload per vehicle, refreshed by
 	// chargingSessionPoller. Used by the recorder to enrich charge
 	// rows with TotalChargedEnergyKWh / RangeAddedKm. Guarded by mu
@@ -191,6 +198,19 @@ func (m *StateMonitor) SetStores(samplesStore *samples.Store, drivesStore *drive
 // before Start; racy if called after subscriptions are running.
 func (m *StateMonitor) SetLiveStateStore(s LiveStateStore) {
 	m.liveStateStore = s
+}
+
+// DriveCloseHook is invoked asynchronously after a D→P transition
+// finishes upserting the drive row. ctx is bounded; the hook should
+// honour it. Implementations must be safe for concurrent calls
+// across vehicles.
+type DriveCloseHook func(ctx context.Context, drv drives.Drive)
+
+// SetDriveCloseHook wires a post-close enrichment callback (e.g.
+// weather fetch). nil disables. Safe to call before Start; racy if
+// called after subscriptions are running.
+func (m *StateMonitor) SetDriveCloseHook(h DriveCloseHook) {
+	m.driveCloseHook = h
 }
 
 // SetElevationLookup wires an optional elevation resolver. nil

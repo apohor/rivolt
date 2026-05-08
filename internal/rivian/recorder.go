@@ -427,11 +427,35 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 	// Close drive on transition D/R/N → P.
 	if !driving && s.drive != nil {
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		// Snapshot the row before the close hook fires so any async
+		// hook sees the persisted shape, not a half-mutated
+		// accumulator. Hooks run with their own ctx so a slow
+		// network call (weather fetch) can't block the recorder.
+		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
 		n := s.drive.number
 		s.drive = nil
+		if m.driveCloseHook != nil {
+			go m.runDriveCloseHook(closedRow)
+		}
 		return n
 	}
 	return 0
+}
+
+// runDriveCloseHook invokes the configured DriveCloseHook with a
+// detached context bounded by hookTimeout. Best-effort: panics and
+// errors are caught/logged so a buggy hook can't crash the recorder.
+func (m *StateMonitor) runDriveCloseHook(row drives.Drive) {
+	const hookTimeout = 30 * time.Second
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Warn("drive close hook panicked",
+				"vehicle", row.VehicleID, "drive_id", row.ID, "panic", r)
+		}
+	}()
+	hctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+	defer cancel()
+	m.driveCloseHook(hctx, row)
 }
 
 // handleChargeLifecycle is the charge-session analogue to
@@ -652,10 +676,12 @@ func (m *StateMonitor) persistLiveState(vehicleID string, snap LiveStateSnapshot
 	}
 }
 
-func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {
-	if m.drivesStore == nil || d == nil {
-		return
-	}
+// liveDriveRow builds a drives.Drive value from the in-memory
+// accumulator. Used by upsertLiveDrive on every WS frame to refresh
+// the row, and by the D→P close path to hand a stable copy to any
+// post-close hook (weather fetch, etc.) without exposing liveDrive
+// across package boundaries.
+func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive {
 	avg := 0.0
 	if d.speedN > 0 {
 		avg = d.sumSpeed / float64(d.speedN)
@@ -672,7 +698,7 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 			energy = socUsed / 100.0 * pack
 		}
 	}
-	row := drives.Drive{
+	return drives.Drive{
 		ID:              d.id,
 		VehicleID:       vehicleID,
 		StartedAt:       d.startedAt,
@@ -692,6 +718,13 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 		Source:          "live",
 		RoutePolyline:   encodePolyline(d.path),
 	}
+}
+
+func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {
+	if m.drivesStore == nil || d == nil {
+		return
+	}
+	row := m.liveDriveRow(vehicleID, d)
 	if err := m.drivesStore.Upsert(ctx, row); err != nil {
 		m.logger.Debug("live drive upsert failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())
 	}

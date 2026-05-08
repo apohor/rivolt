@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/drives"
 )
 
 // chargingFrame builds a State that represents an actively-charging frame.
@@ -380,5 +382,96 @@ func TestApplyMutualExclusion_NeutralFrameTouchesNothing(t *testing.T) {
 	s.applyMutualExclusion(parked, m, ctx)
 	if s.charge == nil || s.charge.id != chargeID {
 		t.Fatalf("parked + unplugged frame must NOT touch charge accumulator")
+	}
+}
+
+// TestDriveCloseHook_FiresOnDtoP verifies the DriveCloseHook is
+// invoked exactly once per D→P transition, with the persisted drive
+// row's shape (id, vehicle, start/end times). Open and ongoing
+// frames must NOT fire the hook.
+func TestDriveCloseHook_FiresOnDtoP(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	type call struct {
+		drv  drives.Drive
+		seen bool
+	}
+	var got call
+	done := make(chan struct{})
+	m.SetDriveCloseHook(func(_ context.Context, d drives.Drive) {
+		got.drv = d
+		got.seen = true
+		close(done)
+	})
+
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+
+	// Open: gear D → drive opens.
+	_ = s.handleDriveLifecycle(&State{
+		VehicleID: "vid-1", At: t0, Gear: "D",
+		BatteryLevelPct: 80, OdometerKm: 1000,
+		Latitude: 30.55, Longitude: -97.76,
+	}, nil, m, ctx)
+	if got.seen {
+		t.Fatalf("hook fired on drive OPEN; should only fire on close")
+	}
+
+	// Ongoing: another D frame, still driving.
+	_ = s.handleDriveLifecycle(&State{
+		VehicleID: "vid-1", At: t0.Add(5 * time.Minute), Gear: "D",
+		BatteryLevelPct: 79, OdometerKm: 1010, SpeedKph: 100,
+		Latitude: 30.6, Longitude: -97.8,
+	}, nil, m, ctx)
+	if got.seen {
+		t.Fatalf("hook fired on ongoing drive frame; should only fire on close")
+	}
+
+	// Close: gear P.
+	openID := s.drive.id
+	_ = s.handleDriveLifecycle(&State{
+		VehicleID: "vid-1", At: t0.Add(10 * time.Minute), Gear: "P",
+		BatteryLevelPct: 78, OdometerKm: 1020,
+		Latitude: 30.65, Longitude: -97.85,
+	}, nil, m, ctx)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("hook did not fire on D→P close")
+	}
+
+	if got.drv.ID != openID {
+		t.Fatalf("hook drive id: got %q want %q (open's id)", got.drv.ID, openID)
+	}
+	if got.drv.VehicleID != "vid-1" {
+		t.Fatalf("hook drive vehicle: got %q", got.drv.VehicleID)
+	}
+	if !got.drv.StartedAt.Equal(t0) {
+		t.Fatalf("hook startedAt: got %v want %v", got.drv.StartedAt, t0)
+	}
+}
+
+// TestDriveCloseHook_NotSetIsNoOp ensures the recorder behaves
+// identically when no hook is wired (the chart-default path).
+func TestDriveCloseHook_NotSetIsNoOp(t *testing.T) {
+	m := NewStateMonitor(nil, nil) // no SetDriveCloseHook
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{
+		VehicleID: "vid-1", At: t0, Gear: "D", BatteryLevelPct: 80,
+	}, nil, m, ctx)
+	got := s.handleDriveLifecycle(&State{
+		VehicleID: "vid-1", At: t0.Add(time.Minute), Gear: "P",
+		BatteryLevelPct: 79,
+	}, nil, m, ctx)
+
+	if got != 1 {
+		t.Fatalf("close should still return drive number 1; got %d", got)
+	}
+	if s.drive != nil {
+		t.Fatalf("drive should be cleared after close")
 	}
 }

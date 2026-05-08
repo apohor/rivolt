@@ -389,6 +389,68 @@ func NewClient() *Client {
 	}
 }
 
+// FetchAndCache populates both the start-hour snapshot
+// (drive_weather, used by the recap prompt + start-strip) and the
+// per-cadence time series (drive_weather_series, used by the drive-
+// detail panel) for one drive. Designed for two callers: the API
+// backfill / efficiency-analysis path, and the live recorder's
+// post-close hook.
+//
+// Returns the snapshot so the recap path can render it inline; nil
+// without error when the drive has no usable start fix. Each upstream
+// call is given its own bounded timeout so a slow provider can't
+// pin a recorder goroutine. A series-fetch failure after a successful
+// snapshot fetch is logged at the call site but does not roll back
+// the snapshot — the recap can still render with start-hour data
+// while the chart stays empty.
+func FetchAndCache(
+	ctx context.Context,
+	cache *Cache,
+	uid uuid.UUID,
+	driveID string,
+	startedAt, endedAt time.Time,
+	startLat, startLon, endLat, endLon float64,
+) (*Snapshot, error) {
+	if cache == nil {
+		return nil, errors.New("weather: nil cache")
+	}
+	if startLat == 0 && startLon == 0 {
+		return nil, nil
+	}
+	client := NewClient()
+	bearing := Bearing(startLat, startLon, endLat, endLon)
+	hasBearing := endLat != 0 || endLon != 0
+	clat, clon := Coarsen(startLat, startLon)
+
+	// Snapshot covers the start hour and feeds the LLM prompt + the
+	// at-a-glance strip. Treated as required: if it fails we abort so
+	// the drive still counts as "remaining" on a future retry.
+	snapCtx, snapCancel := context.WithTimeout(ctx, 8*time.Second)
+	snap, sampledAt, err := client.FetchHour(snapCtx, startLat, startLon, startedAt, bearing, hasBearing)
+	snapCancel()
+	if err != nil {
+		return nil, err
+	}
+	if snap != nil {
+		if perr := cache.Put(ctx, uid, driveID, clat, clon, sampledAt, snap); perr != nil {
+			return nil, perr
+		}
+	}
+
+	// Series covers the full drive window at 15-min cadence (recent
+	// drives, forecast endpoint) or 60-min (older drives, archive).
+	// Failure here is non-fatal — we already persisted the snapshot,
+	// and a missing series surfaces as a chart-less detail page,
+	// not a broken recap.
+	rangeCtx, rangeCancel := context.WithTimeout(ctx, 12*time.Second)
+	rows, rerr := client.FetchRange(rangeCtx, startLat, startLon, startedAt, endedAt, bearing, hasBearing)
+	rangeCancel()
+	if rerr == nil && len(rows) > 0 {
+		_ = cache.PutSeries(ctx, uid, driveID, clat, clon, rows)
+	}
+	return snap, nil
+}
+
 // FetchHour returns the snapshot for the hour containing `at` at the
 // rounded (lat, lon). The trip bearing is used to project wind onto
 // a headwind component; pass 0 if unknown (HeadwindKPH stays unset).
