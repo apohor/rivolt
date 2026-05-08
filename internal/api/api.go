@@ -1497,6 +1497,58 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 		}
 		out["plan_trip_v119"] = variantResults
 
+		// "Full GitHub spec" variants: match the raw payload at
+		// kaedenbrinkman/rivian-api/main/app/trip-planning/plan-trip.md
+		// as closely as possible. The spec shows waypointType "OTHER"
+		// + networkPreferences + targetArrivalSocPercent +
+		// startingRangeMeters + an entityId on the destination —
+		// fields we've each tested singly but never combined.
+		fullSpec := map[string]any{
+			"vehicleId":               "01-242521064",
+			"startingSoc":             54.0,
+			"startingRangeMeters":     300000.0,
+			"originBearing":           0.0,
+			"targetArrivalSocPercent": 20.0,
+			"driveMode":               "EVERYDAY",
+			"trailerProfile":          "NONE",
+			"avoidAdapterRequired":    false,
+			"supportedConnectorTypes": []string{"CCS", "J1772"},
+			"networkPreferences": []map[string]any{
+				{"networkId": "10001", "preference": 1},
+			},
+			"waypoints": []map[string]any{
+				{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
+				{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER"},
+			},
+		}
+		fullSpecResults := map[string]any{
+			"full_spec_no_entityid": fullSpec,
+		}
+		// Same but destination has a real-looking Google Place ID
+		// (ChIJ-prefixed) — the example payload shows the iOS app
+		// includes one when the user picked the destination from a
+		// places-search result.
+		fullSpecWithEntity := map[string]any{}
+		for k, v := range fullSpec {
+			fullSpecWithEntity[k] = v
+		}
+		fullSpecWithEntity["waypoints"] = []map[string]any{
+			{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
+			{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER", "entityId": "ChIJjS24muXhR4cRLcTV8XqxMgs"},
+		}
+		fullSpecResults["full_spec_with_entityid"] = fullSpecWithEntity
+
+		fullSpecData := map[string]any{}
+		for name, payload := range fullSpecResults {
+			data, err := lc.PlanTripRaw(r.Context(), payload.(map[string]any))
+			if err != nil {
+				fullSpecData[name] = map[string]any{"sent": payload, "error": err.Error()}
+			} else {
+				fullSpecData[name] = map[string]any{"sent": payload, "data": data}
+			}
+		}
+		out["plan_trip_full_spec"] = fullSpecData
+
 		writeJSON(w, http.StatusOK, out)
 	}
 }
