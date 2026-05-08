@@ -172,6 +172,15 @@ func TestLiveClientFlipsNeedsReauthOn401(t *testing.T) {
 	if hits != before {
 		t.Errorf("gate leaked HTTP traffic: before=%d after=%d", before, hits)
 	}
+
+	// Login itself must NOT be blocked by the reauth flag — that
+	// would strand the user with a flagged session and no way out.
+	// withBypassReauth (set inside Login) lets the gate through;
+	// other code paths still honor the flag. v0.17.140 → v0.17.141
+	// fix for the preview environment's "can't sign in" bug.
+	if err := c.checkUpstream(withBypassReauth(ctx)); err != nil {
+		t.Fatalf("withBypassReauth must allow Login through, got %v", err)
+	}
 }
 
 // TestReauthSinkFiresOnceForStorm is the guard against a failure

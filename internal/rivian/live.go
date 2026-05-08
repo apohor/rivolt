@@ -318,8 +318,11 @@ func (c *LiveClient) SetNeedsReauth(needs bool, reason string) {
 
 // checkUpstream runs the configured gate; nil gate allows.
 func (c *LiveClient) checkUpstream(ctx context.Context) error {
-	// Per-user re-auth takes precedence over the global gate.
-	if s := c.reauthState.Load(); s != nil && s.needs {
+	// Per-user re-auth takes precedence over the global gate —
+	// except for explicit re-auth attempts (Login), which carry a
+	// withBypassReauth ctx value so the user can sign in again
+	// even when their stored session is flagged.
+	if s := c.reauthState.Load(); s != nil && s.needs && !bypassReauth(ctx) {
 		return ErrNeedsReauth
 	}
 	// Operator kill switch beats failure-driven backpressure: if the
@@ -449,6 +452,25 @@ func withBypassBreaker(ctx context.Context) context.Context {
 
 func bypassBreaker(ctx context.Context) bool {
 	v, _ := ctx.Value(ctxKeyBypassBreaker{}).(bool)
+	return v
+}
+
+// ctxKeyBypassReauth marks a context as "this call is a deliberate
+// re-authentication attempt, skip the per-user needs_reauth gate".
+// Login is the only legitimate user of it: needs_reauth is supposed
+// to halt *background* traffic on a stale session, but the user
+// voluntarily submitting fresh credentials is the way out of that
+// state. Without this bypass, a flagged user can never sign in
+// again because every login attempt is short-circuited by its own
+// stale flag (CreateCSRFToken errors with ErrNeedsReauth).
+type ctxKeyBypassReauth struct{}
+
+func withBypassReauth(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKeyBypassReauth{}, true)
+}
+
+func bypassReauth(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxKeyBypassReauth{}).(bool)
 	return v
 }
 
@@ -664,6 +686,14 @@ func (c *LiveClient) Login(ctx context.Context, creds Credentials) error {
 	// to the priority token bucket so a reconnect storm in the
 	// main class can't lock new users out.
 	ctx = WithPriority(ctx)
+
+	// A user with a flagged needs_reauth state is the exact case
+	// Login exists to resolve — let the calls below proceed even
+	// when checkUpstream would otherwise short-circuit. The flag
+	// clears on successful Login (via clearNeedsReauth at the end
+	// of the OTP / password leg), or stays set when the upstream
+	// rejects the new credentials too.
+	ctx = withBypassReauth(ctx)
 
 	if err := c.ensureCSRF(ctx); err != nil {
 		return err
