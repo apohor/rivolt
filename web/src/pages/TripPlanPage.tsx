@@ -54,16 +54,51 @@ export default function TripPlanPage() {
     enabled: !!firstVehicle?.rivian_vehicle_id,
     staleTime: 30 * 1000,
   });
+  // Fallback to the latest persisted sample when /api/state returns
+  // (0, 0) — the WS frame currently in cache may not have carried
+  // GNSSLocation (Rivian sometimes omits it on parked frames). The
+  // samples endpoint reads from vehicle_state where coords are always
+  // populated.
+  const stateLat = stateQuery.data?.latitude;
+  const stateLon = stateQuery.data?.longitude;
+  const stateHasFix =
+    typeof stateLat === "number" &&
+    typeof stateLon === "number" &&
+    !(stateLat === 0 && stateLon === 0);
+  const samplesQuery = useQuery({
+    queryKey: ["samplesLatestForPlanner"],
+    // /api/samples is sorted ASC by at, so we fetch a narrow recent
+    // window and take the LAST entry (newest). 6h window is generous
+    // enough that an idle car parked at home still has a fresh fix
+    // from the most recent boot, but small enough that the response
+    // is bounded.
+    queryFn: () =>
+      backend.samples(new Date(Date.now() - 6 * 60 * 60 * 1000), 5000),
+    enabled: stateQuery.isFetched && !stateHasFix,
+    staleTime: 30 * 1000,
+  });
 
   useEffect(() => {
     if (originPrefilled) return;
-    const st = stateQuery.data;
-    if (!st || st.latitude == null || st.longitude == null) return;
-    if (st.latitude === 0 && st.longitude === 0) return;
-    setOriginLat(st.latitude.toFixed(6));
-    setOriginLon(st.longitude.toFixed(6));
-    setOriginPrefilled(true);
-  }, [stateQuery.data, originPrefilled]);
+    if (stateHasFix) {
+      setOriginLat((stateLat as number).toFixed(6));
+      setOriginLon((stateLon as number).toFixed(6));
+      setOriginPrefilled(true);
+      return;
+    }
+    // Walk newest → oldest to pick the most recent sample with a real
+    // GNSS fix (skip cached frames that wrote (0, 0)).
+    const samples = samplesQuery.data ?? [];
+    for (let i = samples.length - 1; i >= 0; i--) {
+      const s = samples[i];
+      if (s.Lat !== 0 || s.Lon !== 0) {
+        setOriginLat(s.Lat.toFixed(6));
+        setOriginLon(s.Lon.toFixed(6));
+        setOriginPrefilled(true);
+        return;
+      }
+    }
+  }, [stateHasFix, stateLat, stateLon, samplesQuery.data, originPrefilled]);
 
   const planMutation = useMutation({
     mutationFn: () => {
