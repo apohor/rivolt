@@ -1392,11 +1392,12 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "data": minData}
 		}
 
-		// The exact shape the v0.17.119 typed /api/trips/plan path
-		// now sends: bare {lat, lon} waypoints + the required
-		// defaults that minimal omitted. This is the combined fix —
-		// both halves together for the first time.
-		combinedPayload := map[string]any{
+		// Single-axis variants over a base v0.17.119 payload, to
+		// isolate which field's value the gateway is rejecting on
+		// the server side (we see INTERNAL_SERVER_ERROR rather than
+		// BAD_USER_INPUT, so the *shape* is fine but a value is
+		// triggering a server-side null-deref or assertion).
+		base := map[string]any{
 			"vehicleId":               "01-242521064",
 			"startingSoc":             54.0,
 			"originBearing":           0.0,
@@ -1409,12 +1410,38 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 				{"latitude": 32.7767, "longitude": -96.797},
 			},
 		}
-		combinedData, combinedErr := lc.PlanTripRaw(r.Context(), combinedPayload)
-		if combinedErr != nil {
-			out["plan_trip_v119"] = map[string]any{"sent": combinedPayload, "error": combinedErr.Error()}
-		} else {
-			out["plan_trip_v119"] = map[string]any{"sent": combinedPayload, "data": combinedData}
+		clone := func(extra map[string]any) map[string]any {
+			out := make(map[string]any, len(base)+len(extra))
+			for k, v := range base {
+				out[k] = v
+			}
+			for k, v := range extra {
+				out[k] = v
+			}
+			return out
 		}
+		variants := map[string]map[string]any{
+			"v119_baseline":         base,
+			"v119_soc_fraction":     clone(map[string]any{"startingSoc": 0.54}),
+			"v119_bearing_nonzero":  clone(map[string]any{"originBearing": 45.0}),
+			"v119_with_target_soc":  clone(map[string]any{"targetArrivalSocPercent": 20.0}),
+			"v119_with_range":       clone(map[string]any{"startingRangeMeters": 300000.0}),
+			"v119_no_connectors":    clone(map[string]any{"supportedConnectorTypes": nil}),
+			"v119_only_ccs":         clone(map[string]any{"supportedConnectorTypes": []string{"CCS"}}),
+			"v119_with_nacs":        clone(map[string]any{"supportedConnectorTypes": []string{"CCS", "J1772", "NACS"}}),
+			"v119_drive_conserve":   clone(map[string]any{"driveMode": "CONSERVE"}),
+			"v119_drive_distance":   clone(map[string]any{"driveMode": "DISTANCE"}),
+		}
+		variantResults := map[string]any{}
+		for name, payload := range variants {
+			data, err := lc.PlanTripRaw(r.Context(), payload)
+			if err != nil {
+				variantResults[name] = map[string]any{"sent": payload, "error": err.Error()}
+			} else {
+				variantResults[name] = map[string]any{"sent": payload, "data": data}
+			}
+		}
+		out["plan_trip_v119"] = variantResults
 
 		writeJSON(w, http.StatusOK, out)
 	}
