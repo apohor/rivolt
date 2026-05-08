@@ -16,7 +16,7 @@
 // already gives content-hashed filenames for /assets/*, so runtime
 // stale-while-revalidate is enough and keeps this file trivial.
 
-const CACHE_NAME = "rivolt-shell-v1";
+const CACHE_NAME = "rivolt-shell-v2";
 
 // Files that make up the app shell. Everything else (hashed JS/CSS) is
 // cached lazily on first fetch.
