@@ -144,19 +144,9 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 		vars.TrailerProfile = &v
 	}
 	for _, wp := range in.Waypoints {
-		wt := wp.WaypointType
-		if wt == "" {
-			// "OTHER" is what the Rivian iOS app sends for pins the
-			// user drops manually (no Rivian POI / charger entityId
-			// associated). Empty string would fail GraphQL validation
-			// for a required scalar.
-			wt = "OTHER"
-		}
 		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
-			Latitude:     wp.Latitude,
-			Longitude:    wp.Longitude,
-			WaypointType: wt,
-			EntityID:     wp.EntityID,
+			Latitude:  wp.Latitude,
+			Longitude: wp.Longitude,
 		})
 	}
 	// Required-but-easily-omitted defaults. The schema marks
@@ -253,18 +243,17 @@ type planTripVars struct {
 }
 
 // planTripWaypointVar is the wire shape of one CoordinatesInput.
-// Initially I removed waypointType + entityId after a BAD_USER_INPUT
-// failure; that turned out to be the wrong fix. The example payload
-// at rivian-api.kaedenb.org shows the input *does* include
-// waypointType, but with uppercase enum values like "OTHER" — not
-// lowercase "origin"/"destination" like the response shape uses.
-// Sending a manually-entered coordinate as "OTHER" mirrors what the
-// Rivian iOS app does when the user drops a pin or types coords.
+// Confirmed by /api/admin/trips/plan/diag (v0.17.118): the input
+// is *just* {latitude, longitude}. The waypointType + entityId
+// fields the rivian-api.kaedenb.org docs listed as inputs are
+// actually response-only — the docs page conflated them. Sending
+// either field triggers BAD_USER_INPUT (one per waypoint), while a
+// bare {lat, lon} payload passes input validation and progresses to
+// the planner's runtime stage. Origin vs destination is positional
+// (index 0 = origin, last = destination, intermediate = stops).
 type planTripWaypointVar struct {
-	Latitude     float64 `json:"latitude"`
-	Longitude    float64 `json:"longitude"`
-	WaypointType string  `json:"waypointType"`
-	EntityID     string  `json:"entityId,omitempty"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 type planTripNetworkPrefVar struct {
