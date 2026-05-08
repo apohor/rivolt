@@ -432,11 +432,34 @@ func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, ex
 	return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)
 }
 
+// ctxBypassBreaker, when set on the request context, instructs
+// doGraphQLAt to skip both the breaker gate (Allow) and the outcome
+// Observe. Used by admin-only debug paths (RawGraphQL, PlanTripRaw,
+// IntrospectInputType) so a fan-out of failed diagnostic calls can't
+// trip the production hot-path's circuit breaker. The shared breaker
+// is for protecting Rivian from real-traffic storms; operator-driven
+// diagnostics are not real traffic.
+type ctxKeyBypassBreaker struct{}
+
+// withBypassBreaker returns a child context tagged so doGraphQLAt
+// skips breaker side-effects on the call running under it.
+func withBypassBreaker(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKeyBypassBreaker{}, true)
+}
+
+func bypassBreaker(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxKeyBypassBreaker{}).(bool)
+	return v
+}
+
 // doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (result T, err error) {
 	var zero T
-	if err := c.checkUpstream(ctx); err != nil {
-		return zero, err
+	skipBreaker := bypassBreaker(ctx)
+	if !skipBreaker {
+		if err := c.checkUpstream(ctx); err != nil {
+			return zero, err
+		}
 	}
 
 	// Wrap the call in a span named after the GraphQL operation so
@@ -462,12 +485,12 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 					attribute.String("rivian.error.class", ue.Class.String()),
 					attribute.Int("rivian.http.status", ue.HTTPStatus),
 				)
-				if c.breaker != nil {
+				if c.breaker != nil && !skipBreaker {
 					c.breaker.Observe(ue.Class)
 				}
 			}
 			span.RecordError(err)
-		} else if c.breaker != nil {
+		} else if c.breaker != nil && !skipBreaker {
 			// Successful 2xx with no GraphQL errors: closes the
 			// breaker if it was half-open.
 			c.breaker.ObserveSuccess()

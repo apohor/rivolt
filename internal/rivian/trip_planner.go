@@ -304,15 +304,14 @@ type planTripWaypointRow struct {
 // response selection sets, etc. without round-tripping through
 // chart bumps.
 func (c *LiveClient) RawGraphQL(ctx context.Context, operationName, query string, variables map[string]any) (map[string]any, error) {
-	if err := c.checkUpstream(ctx); err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
 		return nil, ErrNotAuthenticated
 	}
-	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
+	// Admin debug path: bypass the shared breaker so a fan-out of
+	// diagnostic failures can't poison the production hot path.
+	data, err := doGraphQL[map[string]any](withBypassBreaker(ctx), c, graphQLRequest{
 		OperationName: operationName,
 		Query:         query,
 		Variables:     variables,
@@ -329,14 +328,13 @@ func (c *LiveClient) RawGraphQL(ctx context.Context, operationName, query string
 // that the iOS-app reverse-engineered docs got wrong (they conflated
 // input/response shapes). Admin-only.
 func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (map[string]any, error) {
-	if err := c.checkUpstream(ctx); err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
 		return nil, ErrNotAuthenticated
 	}
+	// Admin debug — bypass breaker (see RawGraphQL doc).
+	ctx = withBypassBreaker(ctx)
 	const q = `query IntrospectInput($name: String!) {
   __type(name: $name) {
     name
@@ -385,14 +383,13 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
 // doGraphQLAt's classification (which preserves extension codes /
 // messages) so callers can read the failure reason directly.
 func (c *LiveClient) PlanTripRaw(ctx context.Context, variables map[string]any) (map[string]any, error) {
-	if err := c.checkUpstream(ctx); err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.userSessionToken == "" {
 		return nil, ErrNotAuthenticated
 	}
+	// Admin debug — bypass breaker (see RawGraphQL doc).
+	ctx = withBypassBreaker(ctx)
 	// Marshal/unmarshal so caller-supplied data doesn't accidentally
 	// wire any non-JSON-serializable values into the request.
 	blob, err := json.Marshal(variables)
