@@ -30,6 +30,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/kratos"
@@ -560,6 +561,14 @@ func New(d Deps) http.Handler {
 			// gateway computes charging stops and per-leg numbers.
 			r.Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid)(w, r)
+			}))
+			// Geocoding for the trip planner. Forwards a free-text
+			// query to Open-Meteo's geocoding endpoint (same
+			// provider as weather; privacy trade-off is identical).
+			// Returns city-level matches sorted by population so the
+			// SPA can render a sensible suggestion dropdown.
+			r.Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleGeocode()(w, r)
 			}))
 		}) // end of timed authenticated /api group
 
@@ -1130,6 +1139,39 @@ type tripPlanWaypoint struct {
 type tripPlanNetworkPref struct {
 	NetworkID  string `json:"network_id"`
 	Preference int    `json:"preference"`
+}
+
+// handleGeocode forwards a free-text query to Open-Meteo's
+// geocoding endpoint and returns the results array. Slice 2 of the
+// trip planner: the SPA replaces the lat/lon input fields with a
+// debounced search box. Privacy posture matches the existing
+// weather wiring (we send city names to Open-Meteo, no per-user
+// identifiers; the response stays in-process until the SPA
+// receives it).
+func handleGeocode() http.HandlerFunc {
+	gc := geocoding.NewClient()
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if strings.TrimSpace(q) == "" {
+			writeJSON(w, http.StatusOK, []geocoding.Result{})
+			return
+		}
+		count := 5
+		if c := r.URL.Query().Get("count"); c != "" {
+			if n, err := strconv.Atoi(c); err == nil && n > 0 {
+				count = n
+			}
+		}
+		results, err := gc.Search(r.Context(), q, count)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		if results == nil {
+			results = []geocoding.Result{}
+		}
+		writeJSON(w, http.StatusOK, results)
+	}
 }
 
 // handleTripPlan calls Rivian's planTripWithMultiStop. Slice 1 of

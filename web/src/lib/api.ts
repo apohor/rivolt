@@ -817,6 +817,13 @@ export const backend = {
     api.get<DriveWeatherSeries>(
       `/api/drives/${encodeURIComponent(id)}/weather/series`,
     ),
+  // Geocoding for the trip planner: free-text → city/town
+  // suggestions with lat/lon. Backed by Open-Meteo, sorted by
+  // population. Empty array when no match.
+  geocode: (q: string, count = 5) =>
+    api.get<GeocodeResult[]>(
+      `/api/geocode?q=${encodeURIComponent(q)}&count=${count}`,
+    ),
   // Trip planner — pass-through to Rivian's planTripWithMultiStop.
   // Slice 1: read-only, no AI, no save. The caller supplies origin
   // + destination (+ optional intermediate waypoints) and an
@@ -1023,6 +1030,20 @@ export type OIDCProvider = {
   name: string;
   display_name: string;
   start_url: string;
+};
+
+// GeocodeResult is one match from /api/geocode (Open-Meteo).
+// admin1 is the state/province; useful to disambiguate "Dallas, TX"
+// vs "Dallas, OR".
+export type GeocodeResult = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  country?: string;
+  country_code?: string;
+  admin1?: string;
+  population?: number;
+  timezone?: string;
 };
 
 // TripPlanRequest is the body for POST /api/trips/plan. vehicle_id

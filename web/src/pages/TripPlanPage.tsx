@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { backend, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, type GeocodeResult, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 
 // TX_PRESETS are city-hall lat/lon for one-click destination testing.
@@ -149,8 +149,28 @@ export default function TripPlanPage() {
           </p>
         )}
         <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <LocationSearch
+              label="Origin (search)"
+              placeholder="Type a city to override the prefilled position…"
+              onSelect={(r) => {
+                setOriginLat(r.latitude.toFixed(6));
+                setOriginLon(r.longitude.toFixed(6));
+              }}
+            />
+          </div>
           <CoordField label="Origin lat" value={originLat} setValue={setOriginLat} placeholder="30.5538" />
           <CoordField label="Origin lon" value={originLon} setValue={setOriginLon} placeholder="-97.7622" />
+          <div className="sm:col-span-2">
+            <LocationSearch
+              label="Destination (search)"
+              placeholder="Type a city — Dallas, Houston, Big Bend…"
+              onSelect={(r) => {
+                setDestLat(r.latitude.toFixed(6));
+                setDestLon(r.longitude.toFixed(6));
+              }}
+            />
+          </div>
           <CoordField label="Destination lat" value={destLat} setValue={setDestLat} placeholder="32.7767" />
           <CoordField label="Destination lon" value={destLon} setValue={setDestLon} placeholder="-96.7970" />
           <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-xs">
@@ -203,6 +223,101 @@ export default function TripPlanPage() {
       {planMutation.data && <TripPlanResult plan={planMutation.data} />}
     </div>
   );
+}
+
+// LocationSearch is a debounced typeahead over /api/geocode. Emits
+// the selected GeocodeResult upward; the parent decides what to do
+// with it (here: drop the lat/lon into the form's coord fields).
+// Internal text state is intentionally kept here so the parent
+// doesn't have to wire it; clearing happens on selection.
+function LocationSearch({
+  label,
+  placeholder,
+  onSelect,
+}: {
+  label: string;
+  placeholder: string;
+  onSelect: (r: GeocodeResult) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLLabelElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const results = useQuery({
+    queryKey: ["geocode", debounced],
+    queryFn: () => backend.geocode(debounced, 5),
+    enabled: debounced.trim().length >= 2,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Close the dropdown on outside click so it doesn't linger.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const items = results.data ?? [];
+
+  return (
+    <label className="relative flex flex-col gap-1 text-sm" ref={containerRef}>
+      <span className="text-neutral-400">{label}</span>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+      />
+      {open && items.length > 0 && (
+        <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
+          {items.map((r) => (
+            <li key={`${r.latitude},${r.longitude}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(r);
+                  setQuery(formatGeocode(r));
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-2 text-left hover:bg-neutral-800"
+              >
+                <div className="text-neutral-100">{r.name}</div>
+                <div className="text-xs text-neutral-500">
+                  {[r.admin1, r.country].filter(Boolean).join(", ")}
+                  {typeof r.population === "number" && r.population > 0 && (
+                    <> · pop. {r.population.toLocaleString()}</>
+                  )}
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </label>
+  );
+}
+
+function formatGeocode(r: GeocodeResult): string {
+  return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
 }
 
 function CoordField({

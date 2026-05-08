@@ -170,7 +170,29 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 			EnergyConsumptionKWh: 0,
 			Waypoints:            make([]PlannedWaypoint, 0, len(p.Waypoints)),
 		}
+		// v2 doesn't expose per-stop chargeDurationSeconds; only the
+		// summary total. Apportion the total across the charging
+		// stops in proportion to SoC delivered at each (departureSoC
+		// - arrivalSoC). For typical 1-2 stop trips this is exact;
+		// for longer trips with non-linear charge curves this is
+		// close enough to render a meaningful per-stop column. If
+		// totalSocCharged is zero (no charging needed), each stop
+		// gets 0.
+		var totalSocCharged float64
 		for _, w := range p.Waypoints {
+			delta := w.DepartureSOCPercent - w.ArrivalSOCPercent
+			if delta > 0 {
+				totalSocCharged += delta
+			}
+		}
+		for _, w := range p.Waypoints {
+			perStopSec := 0
+			if totalSocCharged > 0 {
+				delta := w.DepartureSOCPercent - w.ArrivalSOCPercent
+				if delta > 0 {
+					perStopSec = int(float64(p.Summary.TotalChargeDurationSeconds) * (delta / totalSocCharged))
+				}
+			}
 			route.Waypoints = append(route.Waypoints, PlannedWaypoint{
 				WaypointType:             w.WaypointType,
 				Latitude:                 w.Latitude,
@@ -179,7 +201,7 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureSoC:             w.DepartureSOCPercent,
 				ArrivalReachableMeters:   w.ArrivalRangeMeters,
 				DepartureReachableMeters: w.DepartureRangeMeters,
-				ChargeDurationSec:        w.ChargeDurationSeconds,
+				ChargeDurationSec:        perStopSec,
 			})
 		}
 		out.Routes = append(out.Routes, route)
@@ -255,14 +277,13 @@ type planTripSummaryRow struct {
 }
 
 type planTripWaypointRow struct {
-	WaypointType          string  `json:"waypointType"`
-	Latitude              float64 `json:"latitude"`
-	Longitude             float64 `json:"longitude"`
-	ArrivalSOCPercent     float64 `json:"arrivalSOCPercent"`
-	DepartureSOCPercent   float64 `json:"departureSOCPercent"`
-	ArrivalRangeMeters    float64 `json:"arrivalRangeMeters"`
-	DepartureRangeMeters  float64 `json:"departureRangeMeters"`
-	ChargeDurationSeconds int     `json:"chargeDurationSeconds"`
+	WaypointType         string  `json:"waypointType"`
+	Latitude             float64 `json:"latitude"`
+	Longitude            float64 `json:"longitude"`
+	ArrivalSOCPercent    float64 `json:"arrivalSOCPercent"`
+	DepartureSOCPercent  float64 `json:"departureSOCPercent"`
+	ArrivalRangeMeters   float64 `json:"arrivalRangeMeters"`
+	DepartureRangeMeters float64 `json:"departureRangeMeters"`
 }
 
 // RawGraphQL posts an arbitrary operation+query+variables to the
@@ -486,7 +507,6 @@ func buildPlanTrip2Query(in PlanTripInput) string {
         departureSOCPercent
         arrivalRangeMeters
         departureRangeMeters
-        chargeDurationSeconds
       }
     }
   }
