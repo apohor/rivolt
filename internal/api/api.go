@@ -537,7 +537,7 @@ func New(d Deps) http.Handler {
 			// the user's vehicle + current SoC from cache; the
 			// gateway computes charging stops and per-leg numbers.
 			r.Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(clientFor(d, uid), monitorFor(d, uid))(w, r)
+				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid)(w, r)
 			}))
 		}) // end of timed authenticated /api group
 
@@ -1115,12 +1115,13 @@ type tripPlanNetworkPref struct {
 // save, no places search. Caller provides waypoint coordinates
 // directly (geocoding lands in slice 2).
 //
-// The user's current SoC is pulled from the monitor's state cache
-// when the body omits starting_soc; that's the typical SPA path
-// where the user's planning a trip "from where I am now". Callers
-// can override (e.g. simulating a different starting state) by
-// passing starting_soc explicitly.
-func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
+// vehicle_id and starting_soc may be omitted in the body — the
+// handler back-fills them, preferring the per-pod monitor cache
+// (zero-ms hot path), then falling back to the DB when this pod
+// doesn't own the vehicle's lease (multi-pod path: the lease holder
+// is a different replica, so this pod's monitor cache is empty for
+// that vehicle).
+func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		if !ok || lc == nil {
@@ -1136,41 +1137,61 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc 
 			http.Error(w, "at least origin + destination waypoints required", http.StatusBadRequest)
 			return
 		}
-		// Fill in vehicle + SoC from the cache when omitted.
 		startingSoC := 0.0
 		if req.StartingSoC != nil {
 			startingSoC = *req.StartingSoC
 		}
-		if req.VehicleID == "" || req.StartingSoC == nil {
-			if mon == nil {
-				http.Error(w, "vehicle_id + starting_soc required (no live monitor for this user)", http.StatusBadRequest)
-				return
+		// Prefer the in-memory monitor cache (fastest, freshest).
+		if mon != nil && req.VehicleID == "" {
+			for _, v := range mon.AllVehicleInfo() {
+				req.VehicleID = v.ID
+				break
 			}
-			// When VehicleID is missing, fall back to whichever vehicle
-			// the cache has freshest state for.
-			vid := req.VehicleID
-			if vid == "" {
-				for _, v := range mon.AllVehicleInfo() {
-					vid = v.ID
-					break
+		}
+		if mon != nil && req.StartingSoC == nil && req.VehicleID != "" {
+			if st, _ := mon.Latest(req.VehicleID); st != nil {
+				startingSoC = st.BatteryLevelPct
+				req.StartingSoC = &startingSoC
+				if req.StartingRangeMeters == 0 && st.DistanceToEmpty > 0 {
+					req.StartingRangeMeters = st.DistanceToEmpty * 1000
 				}
 			}
-			if vid == "" {
-				http.Error(w, "vehicle_id required", http.StatusBadRequest)
-				return
+		}
+		// DB fallback when the monitor cache didn't cover us — the
+		// typical multi-pod case where the OTHER replica holds the
+		// lease for this user's vehicle and our cache is empty.
+		if req.VehicleID == "" && pool != nil {
+			vs, err := db.ListUserVehicles(r.Context(), pool, uid)
+			if err == nil && len(vs) > 0 {
+				req.VehicleID = vs[0].RivianVehicleID
 			}
-			req.VehicleID = vid
-			if req.StartingSoC == nil {
-				if st, _ := mon.Latest(vid); st != nil {
-					startingSoC = st.BatteryLevelPct
-					if req.StartingRangeMeters == 0 && st.DistanceToEmpty > 0 {
-						req.StartingRangeMeters = st.DistanceToEmpty * 1000
-					}
-				} else {
-					http.Error(w, "starting_soc required (no cached state for vehicle)", http.StatusBadRequest)
-					return
+		}
+		if req.VehicleID == "" {
+			http.Error(w, "vehicle_id required (no vehicle linked to this user)", http.StatusBadRequest)
+			return
+		}
+		if req.StartingSoC == nil && pool != nil {
+			var soc, rangeMi sql.NullFloat64
+			err := pool.QueryRowContext(r.Context(), `
+				SELECT battery_level_pct, range_mi
+				  FROM vehicle_state
+				 WHERE user_id = $1
+				   AND vehicle_id = (
+				       SELECT id FROM vehicles
+				        WHERE user_id = $1 AND rivian_vehicle_id = $2
+				        LIMIT 1)
+				 ORDER BY at DESC
+				 LIMIT 1`, uid, req.VehicleID).Scan(&soc, &rangeMi)
+			if err == nil && soc.Valid {
+				startingSoC = soc.Float64
+				if rangeMi.Valid && req.StartingRangeMeters == 0 {
+					req.StartingRangeMeters = rangeMi.Float64 * 1609.34 // mi → m
 				}
 			}
+		}
+		if req.StartingSoC == nil && startingSoC == 0 {
+			http.Error(w, "starting_soc required (no recent vehicle_state row for this vehicle)", http.StatusBadRequest)
+			return
 		}
 
 		in := rivian.PlanTripInput{
