@@ -1,7 +1,20 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { backend, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+
+// TX_PRESETS are city-hall lat/lon for one-click destination testing.
+// Picked to span the typical R1S range envelope from Austin: Dallas
+// and Houston are reachable on one charge from Austin's home cell;
+// San Antonio is a no-charge-needed in-range trip; Big Bend is the
+// canonical multi-charge trip (the May 1-3 drive that surfaced the
+// frozen-GPS importer bug).
+const TX_PRESETS: { label: string; lat: number; lon: number }[] = [
+  { label: "Dallas", lat: 32.7767, lon: -96.797 },
+  { label: "Houston", lat: 29.7604, lon: -95.3698 },
+  { label: "San Antonio", lat: 29.4241, lon: -98.4936 },
+  { label: "Big Bend NP (Panther Junction)", lat: 29.3267, lon: -103.207 },
+];
 
 // Slice 1 of the trip planner: a thin pass-through to Rivian's
 // planTripWithMultiStop. The form takes raw lat/lon coords (geocoding
@@ -20,11 +33,46 @@ export default function TripPlanPage() {
   const [destLat, setDestLat] = useState("");
   const [destLon, setDestLon] = useState("");
   const [targetSoc, setTargetSoc] = useState<string>("20");
+  const [originPrefilled, setOriginPrefilled] = useState(false);
+
+  // Pre-fill the origin with the user's current vehicle position +
+  // current SoC. Two-step lookup: list the user's owned vehicles
+  // (DB-backed, so it works even when the Rivian gateway is slow),
+  // then fetch live state for the first one. We also remember the
+  // vehicle's rivian_vehicle_id and the current SoC so the planner
+  // request is self-contained (multi-pod safe — request affinity
+  // doesn't matter when we send what we know).
+  const ownedQuery = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: backend.listOwnedVehicles,
+    staleTime: 5 * 60 * 1000,
+  });
+  const firstVehicle = ownedQuery.data?.vehicles?.[0];
+  const stateQuery = useQuery({
+    queryKey: ["vehicleState", firstVehicle?.rivian_vehicle_id],
+    queryFn: () => backend.vehicleState(firstVehicle!.rivian_vehicle_id),
+    enabled: !!firstVehicle?.rivian_vehicle_id,
+    staleTime: 30 * 1000,
+  });
+
+  useEffect(() => {
+    if (originPrefilled) return;
+    const st = stateQuery.data;
+    if (!st || st.latitude == null || st.longitude == null) return;
+    if (st.latitude === 0 && st.longitude === 0) return;
+    setOriginLat(st.latitude.toFixed(6));
+    setOriginLon(st.longitude.toFixed(6));
+    setOriginPrefilled(true);
+  }, [stateQuery.data, originPrefilled]);
 
   const planMutation = useMutation({
     mutationFn: () => {
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
+      const vid = firstVehicle?.rivian_vehicle_id;
+      const soc = stateQuery.data?.battery_level_pct;
       return backend.planTrip({
+        vehicle_id: vid,
+        starting_soc: typeof soc === "number" && soc > 0 ? soc : undefined,
         origin_bearing: 0,
         target_arrival_soc_percent: target,
         waypoints: [
@@ -56,11 +104,36 @@ export default function TripPlanPage() {
       />
 
       <Card title="Plan a trip">
+        {firstVehicle && (
+          <p className="mb-3 text-xs text-neutral-500">
+            Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
+            {typeof stateQuery.data?.battery_level_pct === "number" && (
+              <> · SoC: <span className="font-mono">{stateQuery.data.battery_level_pct.toFixed(0)}%</span></>
+            )}
+            {originPrefilled && <> · origin prefilled from current position</>}
+          </p>
+        )}
         <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CoordField label="Origin lat" value={originLat} setValue={setOriginLat} placeholder="30.5538" />
           <CoordField label="Origin lon" value={originLon} setValue={setOriginLon} placeholder="-97.7622" />
           <CoordField label="Destination lat" value={destLat} setValue={setDestLat} placeholder="32.7767" />
           <CoordField label="Destination lon" value={destLon} setValue={setDestLon} placeholder="-96.7970" />
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-neutral-500">Quick destinations (TX):</span>
+            {TX_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => {
+                  setDestLat(p.lat.toFixed(6));
+                  setDestLon(p.lon.toFixed(6));
+                }}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-neutral-400">Target arrival SoC %</span>
             <input
