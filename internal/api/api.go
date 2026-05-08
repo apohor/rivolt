@@ -1201,6 +1201,16 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc 
 
 		plan, err := lc.PlanTrip(r.Context(), in)
 		if err != nil {
+			// Log at WARN with the full Rivian error so we can debug
+			// without staring at trace IDs. Cloudflare's edge often
+			// replaces a JSON 502 body with its own 502 page, so the
+			// SPA-side error is not enough to triangulate gateway-
+			// schema mismatches; the server log is.
+			logger := slog.Default()
+			logger.Warn("trip plan failed",
+				"vehicle_id", in.VehicleID,
+				"waypoints", len(in.Waypoints),
+				"err", err.Error())
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return
 		}
