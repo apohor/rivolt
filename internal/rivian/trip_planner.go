@@ -179,6 +179,7 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureSoC:             w.DepartureSOCPercent,
 				ArrivalReachableMeters:   w.ArrivalRangeMeters,
 				DepartureReachableMeters: w.DepartureRangeMeters,
+				ChargeDurationSec:        w.ChargeDurationSeconds,
 			})
 		}
 		out.Routes = append(out.Routes, route)
@@ -254,13 +255,14 @@ type planTripSummaryRow struct {
 }
 
 type planTripWaypointRow struct {
-	WaypointType         string  `json:"waypointType"`
-	Latitude             float64 `json:"latitude"`
-	Longitude            float64 `json:"longitude"`
-	ArrivalSOCPercent    float64 `json:"arrivalSOCPercent"`
-	DepartureSOCPercent  float64 `json:"departureSOCPercent"`
-	ArrivalRangeMeters   float64 `json:"arrivalRangeMeters"`
-	DepartureRangeMeters float64 `json:"departureRangeMeters"`
+	WaypointType          string  `json:"waypointType"`
+	Latitude              float64 `json:"latitude"`
+	Longitude             float64 `json:"longitude"`
+	ArrivalSOCPercent     float64 `json:"arrivalSOCPercent"`
+	DepartureSOCPercent   float64 `json:"departureSOCPercent"`
+	ArrivalRangeMeters    float64 `json:"arrivalRangeMeters"`
+	DepartureRangeMeters  float64 `json:"departureRangeMeters"`
+	ChargeDurationSeconds int     `json:"chargeDurationSeconds"`
 }
 
 // RawGraphQL posts an arbitrary operation+query+variables to the
@@ -484,6 +486,7 @@ func buildPlanTrip2Query(in PlanTripInput) string {
         departureSOCPercent
         arrivalRangeMeters
         departureRangeMeters
+        chargeDurationSeconds
       }
     }
   }

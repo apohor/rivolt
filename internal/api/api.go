@@ -1319,11 +1319,31 @@ func handleGraphQLIntrospect(c rivian.Client) http.HandlerFunc {
 	}
 }
 
-// handleTripPlanDiag is the mobile-friendly diagnostic endpoint:
-// runs introspection on a handful of likely input-object names and
-// also fires a known-payload planTripWithMultiStop call, dumping
-// every response (or error) into one JSON. Click in browser bar →
-// paste back to debug. Admin-only via the route group.
+// handleTripPlanDiag is the mobile-friendly diagnostic endpoint
+// for the trip planner. Slimmed down after slice 1 shipped: runs
+// one known-good v2 call (operation planTripWithMultiStopV2 / field
+// planTrip2) with literal values inlined, plus the introspection
+// probe on CoordinatesInput as a sanity check that the gateway is
+// answering us. Click in browser bar → paste response to debug.
+// Admin-only via the route group.
+//
+// History (deleted): earlier versions had ~10 variant-axis tests
+// (waypointType / driveMode / connector lists / soc-as-fraction)
+// + 7-name introspection probe + 7-name input-type probe + the
+// v1 `planTrip` and broken `planTripMultiStop` shapes. They served
+// their purpose during reverse engineering and are gone now —
+// kept here as comments so a future operator can tell what was
+// already tried:
+//
+//   v0.17.118  intro of diag (variants: full + minimal)
+//   v0.17.121  v119_* fan-out (10 single-axis variants)
+//   v0.17.122  query_axes (response-set + planTrip-legacy probes)
+//   v0.17.124  added breaker bypass for diag-only calls
+//   v0.17.125  full_spec_with_entityid (Place ID test)
+//   v0.17.127  v126_correct_schema (planTrip + origin/destination)
+//   v0.17.128  v128_v2_schema (planTrip2 with declared types)
+//   v0.17.129  inline + 7 input-type-name probe
+//   v0.17.130  inlined query merged into the typed PlanTrip path
 func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
@@ -1332,240 +1352,11 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		out := map[string]any{}
-		// IMPORTANT: order matters. The shared rivian.Breaker trips
-		// after a handful of upstream errors, after which any
-		// subsequent call returns "breaker open" without reaching
-		// Rivian. Run the highest-information tests FIRST.
-		//
-		// query_axes is the most informative right now: vary the
-		// query string itself (operation name + selection set)
-		// while keeping variables identical to the v119 baseline.
-		queryAxes := map[string]struct {
-			op    string
-			query string
-		}{
-			"query_minimal_selection": {
-				op: "planTripWithMultiStop",
-				query: `query planTripWithMultiStop($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
-  planTripMultiStop(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-  }
-}`,
-			},
-			"query_plan_trip_legacy": {
-				op: "planTrip",
-				query: `query planTrip($vehicleId: String!, $startingSoc: Float!, $originBearing: Float!, $waypoints: [CoordinatesInput!]!, $supportedConnectorTypes: [String!]) {
-  planTrip(vehicleId: $vehicleId, startingSoc: $startingSoc, originBearing: $originBearing, waypoints: $waypoints, supportedConnectorTypes: $supportedConnectorTypes) {
-    tripPlanStatus
-    chargeStationsAvailable
-    socBelowLimit
-  }
-}`,
-			},
-		}
-		queryResults := map[string]any{}
-		queryAxisVars := map[string]any{
-			"vehicleId":               "01-242521064",
-			"startingSoc":             54.0,
-			"originBearing":           0.0,
-			"supportedConnectorTypes": []string{"CCS", "J1772"},
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622},
-				{"latitude": 32.7767, "longitude": -96.797},
-			},
-		}
-		for name, qa := range queryAxes {
-			data, err := lc.RawGraphQL(r.Context(), qa.op, qa.query, queryAxisVars)
-			if err != nil {
-				queryResults[name] = map[string]any{"op": qa.op, "error": err.Error()}
-			} else {
-				queryResults[name] = map[string]any{"op": qa.op, "data": data}
-			}
-		}
-		out["query_axes"] = queryResults
 
-		// Probe several likely names for the waypoint input object.
-		// Whichever returns non-null is the answer.
-		names := []string{
-			"CoordinatesInput",
-			"Coordinates",
-			"WaypointInput",
-			"PlanTripWaypointInput",
-			"PlanTripCoordinatesInput",
-			"TripWaypointInput",
-			"LocationInput",
-		}
-		introspect := map[string]any{}
-		for _, n := range names {
-			data, err := lc.IntrospectInputType(r.Context(), n)
-			if err != nil {
-				introspect[n] = map[string]any{"error": err.Error()}
-				continue
-			}
-			introspect[n] = data
-		}
-		out["introspect"] = introspect
-
-		// Test payload — Austin → Dallas, default everything.
-		payload := map[string]any{
-			"vehicleId":               "01-242521064",
-			"startingSoc":             54.0,
-			"originBearing":           0.0,
-			"avoidAdapterRequired":    false,
-			"supportedConnectorTypes": []string{"CCS", "J1772"},
-			"driveMode":               "EVERYDAY",
-			"trailerProfile":          "NONE",
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
-				{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER"},
-			},
-		}
-		data, err := lc.PlanTripRaw(r.Context(), payload)
-		if err != nil {
-			out["plan_trip"] = map[string]any{"sent": payload, "error": err.Error()}
-		} else {
-			out["plan_trip"] = map[string]any{"sent": payload, "data": data}
-		}
-
-		// Same payload but minimal (just lat/lon, no waypointType).
-		minPayload := map[string]any{
-			"vehicleId":     "01-242521064",
-			"startingSoc":   54.0,
-			"originBearing": 0.0,
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622},
-				{"latitude": 32.7767, "longitude": -96.797},
-			},
-		}
-		minData, minErr := lc.PlanTripRaw(r.Context(), minPayload)
-		if minErr != nil {
-			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "error": minErr.Error()}
-		} else {
-			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "data": minData}
-		}
-
-		// Single-axis variants over a base v0.17.119 payload, to
-		// isolate which field's value the gateway is rejecting on
-		// the server side (we see INTERNAL_SERVER_ERROR rather than
-		// BAD_USER_INPUT, so the *shape* is fine but a value is
-		// triggering a server-side null-deref or assertion).
-		base := map[string]any{
-			"vehicleId":               "01-242521064",
-			"startingSoc":             54.0,
-			"originBearing":           0.0,
-			"avoidAdapterRequired":    false,
-			"supportedConnectorTypes": []string{"CCS", "J1772"},
-			"driveMode":               "EVERYDAY",
-			"trailerProfile":          "NONE",
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622},
-				{"latitude": 32.7767, "longitude": -96.797},
-			},
-		}
-		clone := func(extra map[string]any) map[string]any {
-			out := make(map[string]any, len(base)+len(extra))
-			for k, v := range base {
-				out[k] = v
-			}
-			for k, v := range extra {
-				out[k] = v
-			}
-			return out
-		}
-		variants := map[string]map[string]any{
-			"v119_baseline":         base,
-			"v119_soc_fraction":     clone(map[string]any{"startingSoc": 0.54}),
-			"v119_bearing_nonzero":  clone(map[string]any{"originBearing": 45.0}),
-			"v119_with_target_soc":  clone(map[string]any{"targetArrivalSocPercent": 20.0}),
-			"v119_with_range":       clone(map[string]any{"startingRangeMeters": 300000.0}),
-			"v119_no_connectors":    clone(map[string]any{"supportedConnectorTypes": nil}),
-			"v119_only_ccs":         clone(map[string]any{"supportedConnectorTypes": []string{"CCS"}}),
-			"v119_with_nacs":        clone(map[string]any{"supportedConnectorTypes": []string{"CCS", "J1772", "NACS"}}),
-			"v119_drive_conserve":   clone(map[string]any{"driveMode": "CONSERVE"}),
-			"v119_drive_distance":   clone(map[string]any{"driveMode": "DISTANCE"}),
-		}
-		variantResults := map[string]any{}
-		for name, payload := range variants {
-			data, err := lc.PlanTripRaw(r.Context(), payload)
-			if err != nil {
-				variantResults[name] = map[string]any{"sent": payload, "error": err.Error()}
-			} else {
-				variantResults[name] = map[string]any{"sent": payload, "data": data}
-			}
-		}
-		out["plan_trip_v119"] = variantResults
-
-		// "Full GitHub spec" variants: match the raw payload at
-		// kaedenbrinkman/rivian-api/main/app/trip-planning/plan-trip.md
-		// as closely as possible. The spec shows waypointType "OTHER"
-		// + networkPreferences + targetArrivalSocPercent +
-		// startingRangeMeters + an entityId on the destination —
-		// fields we've each tested singly but never combined.
-		fullSpec := map[string]any{
-			"vehicleId":               "01-242521064",
-			"startingSoc":             54.0,
-			"startingRangeMeters":     300000.0,
-			"originBearing":           0.0,
-			"targetArrivalSocPercent": 20.0,
-			"driveMode":               "EVERYDAY",
-			"trailerProfile":          "NONE",
-			"avoidAdapterRequired":    false,
-			"supportedConnectorTypes": []string{"CCS", "J1772"},
-			"networkPreferences": []map[string]any{
-				{"networkId": "10001", "preference": 1},
-			},
-			"waypoints": []map[string]any{
-				{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
-				{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER"},
-			},
-		}
-		fullSpecResults := map[string]any{
-			"full_spec_no_entityid": fullSpec,
-		}
-		// Same but destination has a real-looking Google Place ID
-		// (ChIJ-prefixed) — the example payload shows the iOS app
-		// includes one when the user picked the destination from a
-		// places-search result.
-		fullSpecWithEntity := map[string]any{}
-		for k, v := range fullSpec {
-			fullSpecWithEntity[k] = v
-		}
-		fullSpecWithEntity["waypoints"] = []map[string]any{
-			{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
-			{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER", "entityId": "ChIJjS24muXhR4cRLcTV8XqxMgs"},
-		}
-		fullSpecResults["full_spec_with_entityid"] = fullSpecWithEntity
-
-		fullSpecData := map[string]any{}
-		for name, payload := range fullSpecResults {
-			data, err := lc.PlanTripRaw(r.Context(), payload.(map[string]any))
-			if err != nil {
-				fullSpecData[name] = map[string]any{"sent": payload, "error": err.Error()}
-			} else {
-				fullSpecData[name] = map[string]any{"sent": payload, "data": data}
-			}
-		}
-		out["plan_trip_full_spec"] = fullSpecData
-
-		// v0.17.126 shape — the actual planTrip operation with the
-		// correct schema args (origin + destination, bearing,
-		// startingRangeMeters required). RawGraphQL bypasses the
-		// typed path so we can isolate whether the gateway itself
-		// accepts this shape.
-		// v0.17.128 shape — planTrip2 (with the "2" suffix) under
-		// operationName planTripWithMultiStopV2. Authoritative source:
-		// jrgutier/rivian-python-client/src/rivian/rivian.py
-		// plan_trip_with_multi_stop. Args: waypoints array (not
-		// origin+destination scalars), `vehicle` (not `vehicleId`!),
-		// optional startingSoc / startingRangeMeters, drive modes
-		// CONSERVE / SPORT / ALL_PURPOSE.
-		// Variant A: inline values (no variables, no type names).
-		// The Python client uses gql DSL which builds inlined queries
-		// from a cached schema — the iOS app effectively does the
-		// same. This bypasses any input-type-name guessing.
-		v128InlineQuery := `query planTripWithMultiStopV2 {
+		// Known-good v2 inlined call. Returns real plans when the
+		// upstream is healthy; an INTERNAL_SERVER_ERROR here means
+		// Rivian's planner is degraded again.
+		v2Query := `query planTripWithMultiStopV2 {
   planTrip2(
     waypoints: [
       {latitude: 30.5538, longitude: -97.7622},
@@ -1597,53 +1388,26 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
         departureSOCPercent
         arrivalRangeMeters
         departureRangeMeters
+        chargeDurationSeconds
       }
     }
   }
 }`
-		inlineData, inlineErr := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", v128InlineQuery, map[string]any{})
-		if inlineErr != nil {
-			out["plan_trip_v128_inline"] = map[string]any{"error": inlineErr.Error()}
+		if data, err := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", v2Query, map[string]any{}); err != nil {
+			out["plan_trip_v2"] = map[string]any{"error": err.Error()}
 		} else {
-			out["plan_trip_v128_inline"] = map[string]any{"data": inlineData}
+			out["plan_trip_v2"] = map[string]any{"data": data}
 		}
 
-		// Variant B: candidate input type names — keep variables but
-		// try alternatives to TripWaypointInput. Whichever passes
-		// validation is the answer.
-		typeNames := []string{
-			"CoordinatesInput",
-			"WaypointInput",
-			"WaypointV2Input",
-			"TripPlanV2WaypointInput",
-			"TripWaypointInputV2",
-			"TripPlanWaypointInput",
-			"PlanTrip2WaypointInput",
+		// Light gateway health check — succeeds when the gateway
+		// answers introspection at all (currently always rejects
+		// it, GRAPHQL_VALIDATION_FAILED). Useful only as a sentinel
+		// in case Rivian re-enables introspection in the future.
+		if data, err := lc.IntrospectInputType(r.Context(), "CoordinatesInput"); err != nil {
+			out["introspect_sentinel"] = map[string]any{"error": err.Error()}
+		} else {
+			out["introspect_sentinel"] = map[string]any{"data": data}
 		}
-		typeResults := map[string]any{}
-		baseVars := map[string]any{
-			"waypoints": []map[string]float64{
-				{"latitude": 30.5538, "longitude": -97.7622},
-				{"latitude": 32.7767, "longitude": -96.797},
-			},
-			"vehicle":     "01-242521064",
-			"startingSoc": 54.0,
-		}
-		for _, tn := range typeNames {
-			q := fmt.Sprintf(`query planTripWithMultiStopV2($waypoints: [%s!]!, $vehicle: String!, $startingSoc: Float) {
-  planTrip2(waypoints: $waypoints, vehicle: $vehicle, startingSoc: $startingSoc) {
-    status
-    plans { summary { destinationReachable arrivalSOCPercent } }
-  }
-}`, tn)
-			data, err := lc.RawGraphQL(r.Context(), "planTripWithMultiStopV2", q, baseVars)
-			if err != nil {
-				typeResults[tn] = map[string]any{"error": err.Error()}
-			} else {
-				typeResults[tn] = map[string]any{"data": data}
-			}
-		}
-		out["plan_trip_v128_input_type_probe"] = typeResults
 
 		writeJSON(w, http.StatusOK, out)
 	}
