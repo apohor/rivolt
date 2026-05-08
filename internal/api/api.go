@@ -480,6 +480,14 @@ func New(d Deps) http.Handler {
 			r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleGraphQLIntrospect(clientFor(d, uid))(w, r)
 			}))
+			// Trip-planner diagnostic bundle. GET-only so an operator
+			// can click the URL on mobile (no DevTools needed). Runs:
+			//   1. __type introspection on a few likely names
+			//   2. planTripWithMultiStop with a known-Austin payload
+			// Dumps every response together. Paste-back-to-debug.
+			r.Get("/trips/plan/diag", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleTripPlanDiag(clientFor(d, uid))(w, r)
+			}))
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
@@ -1308,6 +1316,83 @@ func handleGraphQLIntrospect(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}
+}
+
+// handleTripPlanDiag is the mobile-friendly diagnostic endpoint:
+// runs introspection on a handful of likely input-object names and
+// also fires a known-payload planTripWithMultiStop call, dumping
+// every response (or error) into one JSON. Click in browser bar →
+// paste back to debug. Admin-only via the route group.
+func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		out := map[string]any{}
+		// Probe several likely names for the waypoint input object.
+		// Whichever returns non-null is the answer.
+		names := []string{
+			"CoordinatesInput",
+			"Coordinates",
+			"WaypointInput",
+			"PlanTripWaypointInput",
+			"PlanTripCoordinatesInput",
+			"TripWaypointInput",
+			"LocationInput",
+		}
+		introspect := map[string]any{}
+		for _, n := range names {
+			data, err := lc.IntrospectInputType(r.Context(), n)
+			if err != nil {
+				introspect[n] = map[string]any{"error": err.Error()}
+				continue
+			}
+			introspect[n] = data
+		}
+		out["introspect"] = introspect
+
+		// Test payload — Austin → Dallas, default everything.
+		payload := map[string]any{
+			"vehicleId":               "01-242521064",
+			"startingSoc":             54.0,
+			"originBearing":           0.0,
+			"avoidAdapterRequired":    false,
+			"supportedConnectorTypes": []string{"CCS", "J1772"},
+			"driveMode":               "EVERYDAY",
+			"trailerProfile":          "NONE",
+			"waypoints": []map[string]any{
+				{"latitude": 30.5538, "longitude": -97.7622, "waypointType": "OTHER"},
+				{"latitude": 32.7767, "longitude": -96.797, "waypointType": "OTHER"},
+			},
+		}
+		data, err := lc.PlanTripRaw(r.Context(), payload)
+		if err != nil {
+			out["plan_trip"] = map[string]any{"sent": payload, "error": err.Error()}
+		} else {
+			out["plan_trip"] = map[string]any{"sent": payload, "data": data}
+		}
+
+		// Same payload but minimal (just lat/lon, no waypointType).
+		minPayload := map[string]any{
+			"vehicleId":     "01-242521064",
+			"startingSoc":   54.0,
+			"originBearing": 0.0,
+			"waypoints": []map[string]any{
+				{"latitude": 30.5538, "longitude": -97.7622},
+				{"latitude": 32.7767, "longitude": -96.797},
+			},
+		}
+		minData, minErr := lc.PlanTripRaw(r.Context(), minPayload)
+		if minErr != nil {
+			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "error": minErr.Error()}
+		} else {
+			out["plan_trip_minimal"] = map[string]any{"sent": minPayload, "data": minData}
+		}
+
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
