@@ -1108,4 +1108,5 @@ export type PlannedWaypoint = {
   DepartureSoC: number;
   ArrivalReachableMeters: number;
   DepartureReachableMeters: number;
+  AdapterRequired: boolean;
 };
