@@ -161,11 +161,18 @@ type RedisLiveStateStore struct {
 }
 
 // NewRedisLiveStateStore binds rdb to the given userID. Pass the same
-// *redis.Client constructed at boot for the rate limiter.
-func NewRedisLiveStateStore(rdb *redis.Client, userID string) *RedisLiveStateStore {
+// *redis.Client constructed at boot for the rate limiter. keyPrefix
+// is the install-wide Redis prefix (typically "rivolt" for prod,
+// "rivolt-preview" for the preview env) — the livestate suffix is
+// appended internally so two environments sharing one Redis still
+// own disjoint keyspaces.
+func NewRedisLiveStateStore(rdb *redis.Client, userID, keyPrefix string) *RedisLiveStateStore {
+	if keyPrefix == "" {
+		keyPrefix = "rivolt"
+	}
 	return &RedisLiveStateStore{
 		rdb:       rdb,
-		keyPrefix: "rivolt:livestate",
+		keyPrefix: keyPrefix + ":livestate",
 		userID:    userID,
 	}
 }

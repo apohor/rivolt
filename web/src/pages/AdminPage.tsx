@@ -103,7 +103,7 @@ function FeatureFlagsPanel() {
             Pauses every outbound Rivian call across all users.{" "}
             {f.kill_switch.paused
               ? `Currently PAUSED${f.kill_switch.reason ? ` — ${f.kill_switch.reason}` : ""}.`
-              : "Currently active."}
+              : "Upstream calls flowing normally."}
           </p>
         </div>
         <button

@@ -85,6 +85,16 @@ spec:
             # cleanly — useful for single-binary local dev.
             - name: RIVOLT_REDIS_ADDR
               value: {{ .redis.addr | quote }}
+            {{- if .redis.keyPrefix }}
+            # Install-wide Redis key prefix. Defaults to "rivolt"
+            # in the binary; preview env overrides to e.g.
+            # "rivolt-preview" so two environments sharing one
+            # Redis don't collide on rate-limiter token buckets
+            # (livestate keys are already disjoint by user_id,
+            # but limiter classes are install-wide constants).
+            - name: RIVOLT_REDIS_KEY_PREFIX
+              value: {{ .redis.keyPrefix | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- with .Values.maps }}

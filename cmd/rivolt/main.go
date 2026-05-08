@@ -277,6 +277,17 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
+	// Install-wide Redis key prefix. Defaults to "rivolt"; the preview
+	// environment sets "rivolt-preview" so preview and prod can share
+	// one Redis without colliding on the rate-limiter token buckets
+	// (per-user livestate keys are already disjoint by user_id, but
+	// the limiter classes are install-wide constants). Hoisted out
+	// of the rivian-client switch so the livestate factory below
+	// can read the same value.
+	redisKeyPrefix := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_KEY_PREFIX"))
+	if redisKeyPrefix == "" {
+		redisKeyPrefix = "rivolt"
+	}
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "mock":
 		// Mock starts logged-out; the UI sign-in panel drives Login()
@@ -317,7 +328,9 @@ func runServer() {
 		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
 			rdb := redis.NewClient(&redis.Options{Addr: addr})
 			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
-			limiter, err := ratelimit.New(pingCtx, rdb, ratelimit.DefaultConfig(), logger)
+			rlCfg := ratelimit.DefaultConfig()
+			rlCfg.KeyPrefix = redisKeyPrefix + ":rl"
+			limiter, err := ratelimit.New(pingCtx, rdb, rlCfg, logger)
 			pingCancel()
 			if err != nil {
 				logger.Warn("ratelimit: disabled (redis unreachable)", "addr", addr, "err", err.Error())
@@ -325,7 +338,7 @@ func runServer() {
 			} else {
 				sharedLimiter = limiter
 				sharedRedis = rdb
-				logger.Info("ratelimit: enabled", "addr", addr)
+				logger.Info("ratelimit: enabled", "addr", addr, "key_prefix", rlCfg.KeyPrefix)
 			}
 		}
 
@@ -393,7 +406,7 @@ func runServer() {
 		// on 2026-05-07).
 		if sharedRedis != nil {
 			monitorRegistry.SetLiveStateStoreFactory(func(uid uuid.UUID) rivian.LiveStateStore {
-				return rivian.NewRedisLiveStateStore(sharedRedis, uid.String())
+				return rivian.NewRedisLiveStateStore(sharedRedis, uid.String(), redisKeyPrefix)
 			})
 			logger.Info("live state store: enabled (redis)")
 		}
