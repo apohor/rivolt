@@ -438,6 +438,17 @@ func New(d Deps) http.Handler {
 				}))
 			})
 
+			// Trip planner defaults — drive mode + Tesla NACS
+			// adapter. SPA pre-fills the per-trip form from these.
+			r.Route("/settings/planner", func(r chi.Router) {
+				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePlannerPrefsGet(d.Settings.For(uid))(w, r)
+				}))
+				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePlannerPrefsPut(d.Settings.For(uid))(w, r)
+				}))
+			})
+
 			// AI provider configuration moved to /api/admin/settings/ai.
 			// AI keys are install-wide (operator pays the bill); only
 			// admins can read or rotate them. The SPA's /admin page
@@ -1134,6 +1145,7 @@ type tripPlanRequest struct {
 	Waypoints               []tripPlanWaypoint      `json:"waypoints"`
 	TargetArrivalSocPercent *float64                `json:"target_arrival_soc_percent,omitempty"`
 	DriveMode               string                  `json:"drive_mode,omitempty"`
+	HasAdapter              *bool                   `json:"has_adapter,omitempty"`
 	TrailerProfile          string                  `json:"trailer_profile,omitempty"`
 	AvoidAdapterRequired    bool                    `json:"avoid_adapter_required,omitempty"`
 	SupportedConnectorTypes []string                `json:"supported_connector_types,omitempty"`
@@ -1215,6 +1227,37 @@ func handleHomeLocationPut(store *settings.Store) http.HandlerFunc {
 		// Echo back what's now stored (post-validation) so the SPA
 		// can update its in-memory copy without a second GET.
 		out, _ := settings.GetHomeLocation(r.Context(), store)
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handlePlannerPrefsGet returns the user's saved trip-planner
+// defaults (drive mode + Tesla adapter). Used by the SPA to
+// pre-fill the per-trip form.
+func handlePlannerPrefsGet(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := settings.GetPlannerPrefs(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// handlePlannerPrefsPut persists planner defaults.
+func handlePlannerPrefsPut(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var p settings.PlannerPrefs
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := settings.SetPlannerPrefs(r.Context(), store, p); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, _ := settings.GetPlannerPrefs(r.Context(), store)
 		writeJSON(w, http.StatusOK, out)
 	}
 }
@@ -1310,6 +1353,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			OriginBearing:           req.OriginBearing,
 			TargetArrivalSocPercent: req.TargetArrivalSocPercent,
 			DriveMode:               req.DriveMode,
+			HasAdapter:              req.HasAdapter,
 			TrailerProfile:          req.TrailerProfile,
 			AvoidAdapterRequired:    req.AvoidAdapterRequired,
 			SupportedConnectorTypes: req.SupportedConnectorTypes,

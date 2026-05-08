@@ -10,6 +10,7 @@ import {
   type DriveWeatherBackfillResult,
   type GeocodeResult,
   type HomeLocation,
+  type PlannerPrefs,
   type ImportResult,
   type ImportProgress,
   type RecapSettingsUpdate,
@@ -67,6 +68,10 @@ export default function SettingsPage() {
 
       <Card title="Home location">
         <HomeLocationPanel />
+      </Card>
+
+      <Card title="Trip planner defaults">
+        <PlannerPrefsPanel />
       </Card>
 
       <Card title="Import ElectraFi CSV">
@@ -1520,6 +1525,99 @@ function HomeLocationPanel() {
       <p className="text-xs text-neutral-500">
         Open-Meteo geocoding (city-level). Street addresses arrive when self-hosted Photon ships.
       </p>
+    </div>
+  );
+}
+
+// PlannerPrefsPanel saves defaults for the trip planner: drive
+// mode and Tesla NACS adapter flag. The planner page reads these
+// on load to pre-fill its per-trip form.
+function PlannerPrefsPanel() {
+  const qc = useQueryClient();
+  const prefsQ = useQuery({
+    queryKey: ["settings", "plannerPrefs"],
+    queryFn: backend.plannerPrefsGet,
+    staleTime: 60 * 1000,
+  });
+  const save = useMutation({
+    mutationFn: (p: PlannerPrefs) => backend.plannerPrefsPut(p),
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "plannerPrefs"], data);
+    },
+  });
+
+  const [mode, setMode] = useState<PlannerPrefs["drive_mode"]>("");
+  const [hasAdapter, setHasAdapter] = useState<"unset" | "yes" | "no">("unset");
+
+  // Sync local state with loaded prefs on first load.
+  const [synced, setSynced] = useState(false);
+  useEffect(() => {
+    if (synced) return;
+    if (!prefsQ.data) return;
+    setMode(prefsQ.data.drive_mode || "");
+    setHasAdapter(
+      typeof prefsQ.data.has_adapter === "boolean"
+        ? prefsQ.data.has_adapter ? "yes" : "no"
+        : "unset",
+    );
+    setSynced(true);
+  }, [prefsQ.data, synced]);
+
+  const onSave = () => {
+    const payload: PlannerPrefs = { drive_mode: mode };
+    if (hasAdapter !== "unset") {
+      payload.has_adapter = hasAdapter === "yes";
+    }
+    save.mutate(payload);
+  };
+
+  return (
+    <div className="space-y-3 text-sm">
+      <label className="flex flex-col gap-1">
+        <span className="text-neutral-400">Default drive mode</span>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as PlannerPrefs["drive_mode"])}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        >
+          <option value="">No default (let planner pick)</option>
+          <option value="ALL_PURPOSE">All-Purpose</option>
+          <option value="CONSERVE">Conserve</option>
+          <option value="SPORT">Sport</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-neutral-400">Tesla NACS adapter</span>
+        <select
+          value={hasAdapter}
+          onChange={(e) =>
+            setHasAdapter(e.target.value as "unset" | "yes" | "no")
+          }
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        >
+          <option value="unset">Not specified (let planner default)</option>
+          <option value="yes">Yes — I have it</option>
+          <option value="no">No — exclude Superchargers</option>
+        </select>
+      </label>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={save.isPending}
+          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+        >
+          Save defaults
+        </button>
+        {save.isSuccess && (
+          <span className="text-xs text-emerald-400">Saved.</span>
+        )}
+        {save.isError && (
+          <span className="text-xs text-rose-400">
+            Save failed: {String(save.error)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

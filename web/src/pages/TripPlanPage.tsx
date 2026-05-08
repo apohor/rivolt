@@ -21,10 +21,14 @@ type Selection = {
   label: string;
 } | null;
 
+type DriveMode = "" | "CONSERVE" | "ALL_PURPOSE" | "SPORT";
+
 export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
   const [targetSoc, setTargetSoc] = useState<string>("20");
+  const [driveMode, setDriveMode] = useState<DriveMode>("");
+  const [hasAdapter, setHasAdapter] = useState<boolean>(false);
 
   const ownedQuery = useQuery({
     queryKey: ["vehicles", "owned"],
@@ -94,6 +98,27 @@ export default function TripPlanPage() {
   });
   const home = homeQuery.data?.set ? homeQuery.data : null;
 
+  // Pre-fill drive mode + adapter from saved planner prefs. The
+  // user can still override per-trip; we don't write back unless
+  // they hit "Save as default".
+  const prefsQuery = useQuery({
+    queryKey: ["settings", "plannerPrefs"],
+    queryFn: backend.plannerPrefsGet,
+    staleTime: 60 * 1000,
+  });
+  const [prefsApplied, setPrefsApplied] = useState(false);
+  useEffect(() => {
+    if (prefsApplied) return;
+    if (!prefsQuery.data) return;
+    if (prefsQuery.data.drive_mode) {
+      setDriveMode(prefsQuery.data.drive_mode);
+    }
+    if (typeof prefsQuery.data.has_adapter === "boolean") {
+      setHasAdapter(prefsQuery.data.has_adapter);
+    }
+    setPrefsApplied(true);
+  }, [prefsQuery.data, prefsApplied]);
+
   const planMutation = useMutation({
     mutationFn: () => {
       if (!origin || !destination) {
@@ -107,6 +132,8 @@ export default function TripPlanPage() {
         starting_soc: typeof soc === "number" && soc > 0 ? soc : undefined,
         origin_bearing: 0,
         target_arrival_soc_percent: target,
+        drive_mode: driveMode || undefined,
+        has_adapter: hasAdapter,
         waypoints: [
           { latitude: origin.lat, longitude: origin.lon, waypoint_type: "OTHER" },
           { latitude: destination.lat, longitude: destination.lon, waypoint_type: "OTHER" },
@@ -165,17 +192,46 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
-          <label className="flex flex-col gap-1 text-sm sm:max-w-xs">
-            <span className="text-neutral-400">Target arrival SoC %</span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={targetSoc}
-              onChange={(e) => setTargetSoc(e.target.value)}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-            />
-          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Target arrival SoC %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={targetSoc}
+                onChange={(e) => setTargetSoc(e.target.value)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Drive mode</span>
+              <select
+                value={driveMode}
+                onChange={(e) => setDriveMode(e.target.value as DriveMode)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+              >
+                <option value="">Default (let planner pick)</option>
+                <option value="ALL_PURPOSE">All-Purpose</option>
+                <option value="CONSERVE">Conserve (more efficient, fewer / smaller stops)</option>
+                <option value="SPORT">Sport</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Tesla NACS adapter</span>
+              <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={hasAdapter}
+                  onChange={(e) => setHasAdapter(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                <span className="text-neutral-300">
+                  Vehicle has the Tesla adapter (allows Supercharger stops)
+                </span>
+              </label>
+            </label>
+          </div>
           <div className="flex items-center gap-3">
             <button
               type="submit"

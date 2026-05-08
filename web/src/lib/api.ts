@@ -823,6 +823,11 @@ export const backend = {
   homeLocationGet: () => api.get<HomeLocation>("/api/settings/home-location"),
   homeLocationPut: (h: HomeLocation) =>
     api.put<HomeLocation>("/api/settings/home-location", h),
+  // Trip-planner default drive mode + Tesla NACS adapter flag.
+  // SPA pre-fills the per-trip form from these.
+  plannerPrefsGet: () => api.get<PlannerPrefs>("/api/settings/planner"),
+  plannerPrefsPut: (p: PlannerPrefs) =>
+    api.put<PlannerPrefs>("/api/settings/planner", p),
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
@@ -1038,6 +1043,15 @@ export type OIDCProvider = {
   start_url: string;
 };
 
+// PlannerPrefs are the user's saved trip-planner defaults.
+// drive_mode is one of "CONSERVE" / "ALL_PURPOSE" / "SPORT".
+// has_adapter is the Tesla NACS adapter availability; absent on the
+// wire when unset.
+export type PlannerPrefs = {
+  drive_mode: "" | "CONSERVE" | "ALL_PURPOSE" | "SPORT";
+  has_adapter?: boolean;
+};
+
 // HomeLocation is the user's saved "home" base. set=false means no
 // home is configured — the planner UI should hide the Home preset.
 export type HomeLocation = {
@@ -1072,6 +1086,7 @@ export type TripPlanRequest = {
   waypoints: TripPlanInputWaypoint[];
   target_arrival_soc_percent?: number;
   drive_mode?: string;
+  has_adapter?: boolean;
   trailer_profile?: string;
   avoid_adapter_required?: boolean;
   supported_connector_types?: string[];

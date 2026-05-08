@@ -26,9 +26,19 @@ type PlanTripInput struct {
 	Waypoints               []PlanTripWaypoint
 	TargetArrivalSocPercent *float64
 	NetworkPreferences      []NetworkPreference
+	// DriveMode is one of "CONSERVE" / "SPORT" / "ALL_PURPOSE".
+	// Empty means "let the planner pick its default" (typically
+	// ALL_PURPOSE). CONSERVE produces materially different routes
+	// (more stops, longer legs at lower speeds) so this is a real
+	// user-facing knob.
+	DriveMode string
+	// HasAdapter signals whether the vehicle has the Tesla NACS
+	// adapter. Pointer so we can distinguish "unset" (rely on
+	// account defaults) from "explicitly false" (block any
+	// adapter-required Supercharger). Default unset.
+	HasAdapter *bool
 	// Fields kept on the input for SPA-side compat / future schemas;
 	// not forwarded to Rivian's current planTrip schema.
-	DriveMode               string
 	TrailerProfile          string
 	AvoidAdapterRequired    bool
 	SupportedConnectorTypes []string
@@ -483,11 +493,17 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 	if in.TargetArrivalSocPercent != nil {
 		args = append(args, fmt.Sprintf("targetArrivalSocPercent: %s", fmtFloat(*in.TargetArrivalSocPercent)))
 	}
-	// driveMode / trailerProfile / hasAdapter / networkPreferences
-	// are intentionally omitted in slice 1 — the diag's working
-	// payload didn't include them and Rivian returned plans. Adding
-	// them later requires deciding string vs enum literal per field
-	// (the schema we have can't disambiguate).
+	if in.DriveMode != "" {
+		// driveMode is a String! per the schema we have, so quoting
+		// is correct. The Python client passes Python-strings to its
+		// gql DSL which serializes them as quoted strings too.
+		args = append(args, fmt.Sprintf("driveMode: %q", in.DriveMode))
+	}
+	if in.HasAdapter != nil {
+		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
+	}
+	// trailerProfile / networkPreferences omitted in this slice —
+	// not yet user-facing. Surface when needed.
 	return fmt.Sprintf(`query planTripWithMultiStopV2 {
   planTrip2(%s) {
     status
