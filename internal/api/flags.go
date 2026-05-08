@@ -8,9 +8,25 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 )
 
-// handleFlagsGet returns the current kill-switch state as JSON. No
-// secrets on this payload; the value is identical to what operators
-// can read directly from `SELECT * FROM flags` in psql.
+// requireTripPlannerEnabledMW 404s requests when the trip-planner
+// feature flag is off. Returns 404 (not 403) so a disabled planner
+// looks identical to a deploy that never had the route — matches
+// what the SPA expects when it stops rendering the link.
+func requireTripPlannerEnabledMW(store *flags.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if store == nil || !store.TripPlanner().Enabled {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// handleFlagsGet returns every operational flag as JSON. Admin-only
+// — exposes audit fields (actor, reason). The non-admin SPA reads
+// the user-visible subset via /api/flags instead.
 func handleFlagsGet(store *flags.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if store == nil {
@@ -18,7 +34,8 @@ func handleFlagsGet(store *flags.Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"kill_switch": store.KillSwitch(),
+			"kill_switch":  store.KillSwitch(),
+			"trip_planner": store.TripPlanner(),
 		})
 	}
 }
@@ -65,6 +82,40 @@ func handleFlagsKillPut(store *flags.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"kill_switch": store.KillSwitch(),
+		})
+	}
+}
+
+// flagsTripPlannerRequest is the PUT body for the trip-planner
+// admin toggle. Single boolean; actor is derived from the session.
+type flagsTripPlannerRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// handleFlagsTripPlannerPut flips the trip-planner feature flag.
+// 404s the planner UI/endpoints when disabled; immediate effect
+// on the writer's pod, ~10s on peers.
+func handleFlagsTripPlannerPut(store *flags.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req flagsTripPlannerRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		actor := "admin"
+		if uid, ok := auth.UserFromContext(r.Context()); ok {
+			actor = uid.String()
+		}
+		if err := store.SetTripPlanner(r.Context(), req.Enabled, actor); err != nil {
+			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"trip_planner": store.TripPlanner(),
 		})
 	}
 }

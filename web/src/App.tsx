@@ -14,6 +14,16 @@ import HydraLoginPage from "./pages/HydraLoginPage";
 import SignupPage from "./pages/SignupPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import { useTripPlannerEnabled } from "./lib/config";
+
+// TripPlanGuard renders the planner page only when the feature
+// flag is on. When off it falls through to the 404 — same surface
+// the server presents on the API side, so a flipped-off planner
+// is indistinguishable from a deploy that never had the route.
+function TripPlanGuard() {
+  const enabled = useTripPlannerEnabled();
+  return enabled ? <TripPlanPage /> : <NotFoundPage />;
+}
 
 export default function App() {
   return (
@@ -41,7 +51,7 @@ export default function App() {
         <Route path="charges" element={<ChargesPage />} />
         <Route path="charges/:id" element={<ChargeDetailPage />} />
         <Route path="live" element={<LivePage />} />
-        <Route path="trips/plan" element={<TripPlanPage />} />
+        <Route path="trips/plan" element={<TripPlanGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />

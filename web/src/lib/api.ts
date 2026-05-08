@@ -683,6 +683,16 @@ export const backend = {
       "/api/drives/weather/backfill",
       {},
     ),
+  // Operational flags. GET returns both flags' state (kill switch
+  // + trip planner); each PUT flips one. Admin-only on the server.
+  adminFlagsGet: () => api.get<AdminFlagsState>("/api/admin/kill-switch"),
+  adminFlagsKillPut: (paused: boolean, reason: string) =>
+    api.put<AdminFlagsState>("/api/admin/kill-switch", { paused, reason }),
+  adminFlagsTripPlannerPut: (enabled: boolean) =>
+    api.put<{ trip_planner: { enabled: boolean; actor?: string } }>(
+      "/api/admin/flags/trip-planner",
+      { enabled },
+    ),
   // Admin user management. Same gating as the AI endpoints.
   adminListUsers: () =>
     api.get<{ users: AdminUserRow[] }>("/api/admin/users"),
@@ -1013,6 +1023,14 @@ export type AuthUser = {
   username: string;
   role: "user" | "admin";
   onboarding_completed: boolean;
+};
+
+// AdminFlagsState is the response shape from GET /api/admin/kill-switch.
+// Carries every operational flag — currently the Rivian-upstream kill
+// switch and the trip-planner feature flag — with their audit fields.
+export type AdminFlagsState = {
+  kill_switch: { paused: boolean; reason?: string; actor?: string };
+  trip_planner: { enabled: boolean; actor?: string };
 };
 
 // AdminUserRow is one entry from GET /api/admin/users.

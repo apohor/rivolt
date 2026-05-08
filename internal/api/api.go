@@ -242,7 +242,7 @@ func New(d Deps) http.Handler {
 		// (today: whether the OSRM same-origin proxy is mounted).
 		// Public so the SPA can fetch it before login as well as
 		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil))
+		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -440,7 +440,11 @@ func New(d Deps) http.Handler {
 
 			// Trip planner defaults — drive mode + Tesla NACS
 			// adapter. SPA pre-fills the per-trip form from these.
+			// Gated on the trip-planner feature flag: when disabled
+			// the route returns 404 so the SPA's surface is fully
+			// gone, not just hidden.
 			r.Route("/settings/planner", func(r chi.Router) {
+				r.Use(requireTripPlannerEnabledMW(d.Flags))
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePlannerPrefsGet(d.Settings.For(uid))(w, r)
 				}))
@@ -474,6 +478,7 @@ func New(d Deps) http.Handler {
 				}))
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
+				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
@@ -575,13 +580,13 @@ func New(d Deps) http.Handler {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
 			// Trip planner — pass-through to Rivian's
-			// planTripWithMultiStop. Slice 1 of the trip-planner
-			// feature: read-only, no AI, no save. Caller supplies
-			// origin + destination + optional intermediate waypoints
-			// + optional target arrival SoC. The handler resolves
+			// planTripWithMultiStop. Caller supplies origin +
+			// destination + optional intermediate waypoints +
+			// optional target arrival SoC. The handler resolves
 			// the user's vehicle + current SoC from cache; the
 			// gateway computes charging stops and per-leg numbers.
-			r.Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// 404'd when the trip-planner feature flag is off.
+			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid)(w, r)
 			}))
 			// Geocoding for the trip planner. Forwards a free-text
@@ -663,7 +668,7 @@ func handleHealth(version string) http.HandlerFunc {
 // /route) and PMTiles (drive map basemap), falling back to the
 // public demos when a path is empty. Public so the SPA can fetch
 // it without a session.
-func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool) http.HandlerFunc {
+func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store) http.HandlerFunc {
 	type osrmCfg struct {
 		// Path is the same-origin URL prefix the SPA should hit
 		// (empty when the proxy is not configured server-side).
@@ -694,26 +699,38 @@ func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool) http.HandlerFunc {
 		// reload.
 		Enabled bool `json:"enabled"`
 	}
-	type cfg struct {
-		OSRM  osrmCfg  `json:"osrm"`
-		Tiles tilesCfg `json:"tiles"`
-		AI    aiCfg    `json:"ai"`
+	type featuresCfg struct {
+		// TripPlannerEnabled gates the Plan nav link and route on
+		// the SPA. Polled value, so flipping the admin toggle
+		// takes effect on next page load (or whenever the SPA
+		// re-fetches /api/config).
+		TripPlannerEnabled bool `json:"trip_planner_enabled"`
 	}
-	c := cfg{}
+	type cfg struct {
+		OSRM     osrmCfg     `json:"osrm"`
+		Tiles    tilesCfg    `json:"tiles"`
+		AI       aiCfg       `json:"ai"`
+		Features featuresCfg `json:"features"`
+	}
+	base := cfg{}
 	if osrmEnabled {
-		c.OSRM.Path = "/api/maps/osrm"
+		base.OSRM.Path = "/api/maps/osrm"
 	}
 	if tilesEnabled {
-		c.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
+		base.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
 		// chargers.pmtiles lives next to texas.pmtiles on the same
 		// PVC and is served by the same nginx, so its presence is
 		// gated on the same flag. If the chargers Job hasn't run
 		// yet, the URL still resolves; the SPA's PMTiles client
 		// will see a 404 on the file root and gracefully fall back.
-		c.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
+		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
-	c.AI.Enabled = aiEnabled
+	base.AI.Enabled = aiEnabled
 	return func(w http.ResponseWriter, _ *http.Request) {
+		c := base
+		if flagsStore != nil {
+			c.Features.TripPlannerEnabled = flagsStore.TripPlanner().Enabled
+		}
 		writeJSON(w, http.StatusOK, c)
 	}
 }

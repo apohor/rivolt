@@ -494,10 +494,15 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 		args = append(args, fmt.Sprintf("targetArrivalSocPercent: %s", fmtFloat(*in.TargetArrivalSocPercent)))
 	}
 	if in.DriveMode != "" {
-		// driveMode is a String! per the schema we have, so quoting
-		// is correct. The Python client passes Python-strings to its
-		// gql DSL which serializes them as quoted strings too.
-		args = append(args, fmt.Sprintf("driveMode: %q", in.DriveMode))
+		// driveMode is an enum (DriveMode!), not a String! — the
+		// gateway rejects `driveMode: "CONSERVE"` with
+		// GRAPHQL_VALIDATION_FAILED and only accepts the unquoted
+		// enum literal `driveMode: CONSERVE`. The v0.17.136 build
+		// shipped %q here and produced 400s; this fmt.Sprintf with
+		// %s drops the quotes. SetPlannerPrefs already validates
+		// the value against the known enum set, so the only strings
+		// that reach this line are CONSERVE / ALL_PURPOSE / SPORT.
+		args = append(args, fmt.Sprintf("driveMode: %s", in.DriveMode))
 	}
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))

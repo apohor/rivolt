@@ -18,10 +18,16 @@ func TestBuildPlanTrip2QueryWithDriveModeAndAdapter(t *testing.T) {
 		HasAdapter: &tt,
 	}
 	q := buildPlanTrip2Query(in)
-	for _, want := range []string{`driveMode: "CONSERVE"`, `hasAdapter: true`} {
+	for _, want := range []string{`driveMode: CONSERVE`, `hasAdapter: true`} {
 		if !strings.Contains(q, want) {
 			t.Errorf("query missing %q\nfull query:\n%s", want, q)
 		}
+	}
+	// driveMode is a GraphQL enum, not a String — the gateway
+	// rejects driveMode: "CONSERVE" with GRAPHQL_VALIDATION_FAILED.
+	// See the v0.17.136 → v0.17.137 fix.
+	if strings.Contains(q, `driveMode: "`) {
+		t.Errorf("driveMode must be an unquoted enum literal, got:\n%s", q)
 	}
 
 	in.DriveMode = ""

@@ -38,12 +38,134 @@ export default function AdminPage() {
         <CreateUserForm />
         <UsersPanel currentUserID={me.data.user_id} />
       </Card>
+      <Card title="Feature flags">
+        <FeatureFlagsPanel />
+      </Card>
       <Card title="AI providers">
         <AIProvidersPanel />
       </Card>
       <Card title="Recap weather">
         <RecapWeatherPanel />
       </Card>
+    </div>
+  );
+}
+
+// FeatureFlagsPanel exposes the install-wide operational flags
+// (Rivian-upstream kill switch + trip-planner feature flag) so the
+// operator can flip them without psql or a deploy. Both are polled
+// server-side at ~10s; the local pod sees the flip immediately, peers
+// catch up on their next refresh.
+function FeatureFlagsPanel() {
+  const qc = useQueryClient();
+  const flagsQ = useQuery({
+    queryKey: ["admin", "flags"],
+    queryFn: backend.adminFlagsGet,
+  });
+
+  const [reason, setReason] = useState("");
+
+  const killMut = useMutation({
+    mutationFn: ({ paused, reason }: { paused: boolean; reason: string }) =>
+      backend.adminFlagsKillPut(paused, reason),
+    onSuccess: (data) => {
+      // Merge into the cached AdminFlagsState rather than overwriting
+      // — the kill-switch PUT only echoes its own field on the wire.
+      qc.setQueryData(["admin", "flags"], (prev: typeof data | undefined) => ({
+        kill_switch: data.kill_switch,
+        trip_planner: prev?.trip_planner ?? { enabled: false },
+      }));
+    },
+  });
+  const plannerMut = useMutation({
+    mutationFn: (enabled: boolean) => backend.adminFlagsTripPlannerPut(enabled),
+    onSuccess: (data) => {
+      qc.setQueryData(["admin", "flags"], (prev: any) => ({
+        kill_switch: prev?.kill_switch ?? { paused: false },
+        trip_planner: data.trip_planner,
+      }));
+    },
+  });
+
+  if (flagsQ.isLoading) return <Spinner />;
+  if (flagsQ.isError)
+    return (
+      <ErrorBox title="Failed to load flags" detail={(flagsQ.error as Error).message} />
+    );
+  const f = flagsQ.data!;
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-neutral-100">Rivian upstream kill switch</div>
+          <p className="text-xs text-neutral-500">
+            Pauses every outbound Rivian call across all users.{" "}
+            {f.kill_switch.paused
+              ? `Currently PAUSED${f.kill_switch.reason ? ` — ${f.kill_switch.reason}` : ""}.`
+              : "Currently active."}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={killMut.isPending}
+          onClick={() =>
+            killMut.mutate({
+              paused: !f.kill_switch.paused,
+              reason: f.kill_switch.paused ? "" : reason,
+            })
+          }
+          className={`shrink-0 rounded-md border px-3 py-1.5 text-xs ${
+            f.kill_switch.paused
+              ? "border-emerald-700 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-900/60"
+              : "border-rose-700 bg-rose-900/40 text-rose-200 hover:bg-rose-900/60"
+          } disabled:opacity-50`}
+        >
+          {f.kill_switch.paused ? "Resume" : "Pause"}
+        </button>
+      </div>
+      {!f.kill_switch.paused && (
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason (recorded with the pause for future operators)"
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+        />
+      )}
+
+      <div className="border-t border-neutral-800 pt-3 flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-neutral-100">Trip planner</div>
+          <p className="text-xs text-neutral-500">
+            When off, the Plan nav link is hidden and /api/trips/* + the
+            planner settings 404. Useful while the feature is still
+            iterating.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={plannerMut.isPending}
+          onClick={() => plannerMut.mutate(!f.trip_planner.enabled)}
+          className={`shrink-0 rounded-md border px-3 py-1.5 text-xs ${
+            f.trip_planner.enabled
+              ? "border-rose-700 bg-rose-900/40 text-rose-200 hover:bg-rose-900/60"
+              : "border-emerald-700 bg-emerald-900/40 text-emerald-200 hover:bg-emerald-900/60"
+          } disabled:opacity-50`}
+        >
+          {f.trip_planner.enabled ? "Disable" : "Enable"}
+        </button>
+      </div>
+
+      {(killMut.isError || plannerMut.isError) && (
+        <p className="text-xs text-rose-400">
+          Save failed:{" "}
+          {String(
+            (killMut.error as Error)?.message ??
+              (plannerMut.error as Error)?.message,
+          )}
+        </p>
+      )}
     </div>
   );
 }

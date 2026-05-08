@@ -47,6 +47,11 @@ import (
 // the same string the poller does.
 const KillSwitchName = "rivian_upstream_paused"
 
+// TripPlannerEnabledName is the flags.name value gating the trip
+// planner UI + endpoints. Default-off: when the row is missing or
+// the JSON decodes to {enabled:false}, the planner stays hidden.
+const TripPlannerEnabledName = "trip_planner_enabled"
+
 // DefaultPollInterval is how often the Store refreshes its
 // in-memory snapshot from Postgres. Chosen so a flipped flag
 // takes effect in roughly the time a human can notice — on the
@@ -63,6 +68,15 @@ type KillSwitchState struct {
 	Actor  string `json:"actor,omitempty"`
 }
 
+// TripPlannerState is the JSONB payload for the trip-planner
+// feature flag. Default zero value (Enabled=false) hides the
+// planner UI and 404s its endpoints — chosen so missing rows
+// or fresh installs stay locked down.
+type TripPlannerState struct {
+	Enabled bool   `json:"enabled"`
+	Actor   string `json:"actor,omitempty"`
+}
+
 // Store is the runtime flag cache. Start() kicks off the background
 // refresh; callers read via KillSwitch(). The type is safe for
 // concurrent use: all readers hit atomic.Value, only the refresh
@@ -76,6 +90,12 @@ type Store struct {
 	// Rivian-facing code path. Stored as *KillSwitchState so we
 	// can atomically swap the pointer on refresh.
 	snapshot atomic.Pointer[KillSwitchState]
+
+	// tripPlanner is the latest trip-planner flag state. Same
+	// shape as snapshot — separate pointer because the two flags
+	// are read on disjoint code paths and we want lock-free reads
+	// for both.
+	tripPlanner atomic.Pointer[TripPlannerState]
 
 	startOnce sync.Once
 }
@@ -96,9 +116,10 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 	// Initial read. If it fails we still return a usable Store
 	// with the default "not paused" state so the server boots.
 	if err := s.refresh(ctx); err != nil {
-		logger.Warn("flags: initial refresh failed; defaulting to not-paused",
+		logger.Warn("flags: initial refresh failed; defaulting to safe values",
 			"err", err.Error())
 		s.snapshot.Store(&KillSwitchState{Paused: false})
+		s.tripPlanner.Store(&TripPlannerState{Enabled: false})
 	}
 	return s, nil
 }
@@ -127,28 +148,44 @@ func (s *Store) loop(ctx context.Context) {
 	}
 }
 
-// refresh reads the kill-switch row from Postgres and swaps it
-// into the snapshot pointer.
+// refresh reads every tracked flag row from Postgres in one query
+// and swaps each into its respective snapshot pointer. Rows that
+// aren't present fall back to safe defaults (not-paused for the
+// kill switch; planner disabled).
 func (s *Store) refresh(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var raw []byte
-	err := s.db.QueryRowContext(ctx,
-		`SELECT value FROM flags WHERE name = $1`, KillSwitchName).Scan(&raw)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT name, value FROM flags WHERE name = ANY($1)`,
+		[]string{KillSwitchName, TripPlannerEnabledName})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			// Migration didn't seed (or was rolled back); fall
-			// back to not-paused rather than stranding the poller.
-			s.snapshot.Store(&KillSwitchState{Paused: false})
-			return nil
+		return fmt.Errorf("select flags: %w", err)
+	}
+	defer rows.Close()
+	kill := KillSwitchState{Paused: false}
+	planner := TripPlannerState{Enabled: false}
+	for rows.Next() {
+		var name string
+		var raw []byte
+		if err := rows.Scan(&name, &raw); err != nil {
+			return fmt.Errorf("scan flag row: %w", err)
 		}
-		return fmt.Errorf("select flag %q: %w", KillSwitchName, err)
+		switch name {
+		case KillSwitchName:
+			if err := json.Unmarshal(raw, &kill); err != nil {
+				return fmt.Errorf("decode flag %q: %w", name, err)
+			}
+		case TripPlannerEnabledName:
+			if err := json.Unmarshal(raw, &planner); err != nil {
+				return fmt.Errorf("decode flag %q: %w", name, err)
+			}
+		}
 	}
-	var st KillSwitchState
-	if err := json.Unmarshal(raw, &st); err != nil {
-		return fmt.Errorf("decode flag %q: %w", KillSwitchName, err)
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate flag rows: %w", err)
 	}
-	s.snapshot.Store(&st)
+	s.snapshot.Store(&kill)
+	s.tripPlanner.Store(&planner)
 	return nil
 }
 
@@ -187,5 +224,37 @@ func (s *Store) SetKillSwitch(ctx context.Context, paused bool, reason, actor st
 		return fmt.Errorf("upsert flag %q: %w", KillSwitchName, err)
 	}
 	s.snapshot.Store(&st)
+	return nil
+}
+
+// TripPlanner returns the current cached trip-planner flag state.
+// Same lock-free read shape as KillSwitch.
+func (s *Store) TripPlanner() TripPlannerState {
+	p := s.tripPlanner.Load()
+	if p == nil {
+		return TripPlannerState{}
+	}
+	return *p
+}
+
+// SetTripPlanner persists a new trip-planner flag state.
+func (s *Store) SetTripPlanner(ctx context.Context, enabled bool, actor string) error {
+	st := TripPlannerState{Enabled: enabled, Actor: actor}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode state: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO flags (name, value, updated_at, updated_by)
+		VALUES ($1, $2, now(), $3)
+		ON CONFLICT (name) DO UPDATE
+			SET value = EXCLUDED.value,
+			    updated_at = EXCLUDED.updated_at,
+			    updated_by = EXCLUDED.updated_by
+	`, TripPlannerEnabledName, raw, actor)
+	if err != nil {
+		return fmt.Errorf("upsert flag %q: %w", TripPlannerEnabledName, err)
+	}
+	s.tripPlanner.Store(&st)
 	return nil
 }

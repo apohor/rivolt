@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
+import { useTripPlannerEnabled } from "../lib/config";
 import Logo from "../components/Logo";
 
 const nav: { to: string; label: string; end?: boolean }[] = [
@@ -9,9 +10,16 @@ const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/live", label: "Live" },
   { to: "/drives", label: "Drives" },
   { to: "/charges", label: "Charges" },
-  { to: "/trips/plan", label: "Plan" },
   { to: "/settings", label: "Settings" },
 ];
+
+// Plan is gated on the trip-planner feature flag; spliced in
+// before Settings when enabled so the nav order reads
+// Overview → Live → Drives → Charges → Plan → Settings.
+const planNavItem: { to: string; label: string; end?: boolean } = {
+  to: "/trips/plan",
+  label: "Plan",
+};
 
 // adminNav is appended to nav at render-time when whoami() reports
 // role === "admin". Kept as a separate const so the role check
@@ -125,7 +133,11 @@ export default function AppLayout() {
     }
   }, [me.data, navigate, location.pathname]);
 
-  const navItems = me.data?.role === "admin" ? [...nav, ...adminNav] : nav;
+  const tripPlannerEnabled = useTripPlannerEnabled();
+  const baseNav = tripPlannerEnabled
+    ? [...nav.slice(0, -1), planNavItem, nav[nav.length - 1]]
+    : nav;
+  const navItems = me.data?.role === "admin" ? [...baseNav, ...adminNav] : baseNav;
   return (
     <div className="min-h-full flex flex-col">
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-[1100] app-safe-top">

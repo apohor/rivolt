@@ -46,12 +46,21 @@ export type RuntimeConfig = {
     // weekly digest, etc.) so we don't render dead buttons.
     enabled: boolean;
   };
+  features: {
+    // tripPlannerEnabled mirrors the install-wide trip-planner
+    // feature flag. The SPA hides the Plan nav link and skips
+    // mounting /plan when this is false; the server 404s the
+    // related endpoints, so the surface is fully gone, not just
+    // hidden. Admin toggles it from the Admin page.
+    tripPlannerEnabled: boolean;
+  };
 };
 
 const fallback: RuntimeConfig = {
   osrm: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
+  features: { tripPlannerEnabled: false },
 };
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
@@ -64,6 +73,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       osrm?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean };
     } | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
@@ -72,6 +82,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         chargersUrl: j?.tiles?.chargers_url ?? "",
       },
       ai: { enabled: !!j?.ai?.enabled },
+      features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
     };
   } catch {
     return fallback;
@@ -90,6 +101,7 @@ export function ensureConfig(): Promise<RuntimeConfig> {
   }
   return inflight;
 }
+
 
 // getConfig returns the last-loaded config, or the fallback shape
 // until the load resolves. Callers that need the "real" answer
@@ -149,6 +161,26 @@ export function useAIEnabled(): boolean {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setEnabled(c.ai.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
+}
+
+// useTripPlannerEnabled is the React-friendly accessor for the
+// trip-planner feature flag. Same shape as useAIEnabled — components
+// that mount before /api/config resolves will re-render when the
+// fetch completes.
+export function useTripPlannerEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(
+    cached.features.tripPlannerEnabled,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(c.features.tripPlannerEnabled);
     });
     return () => {
       cancelled = true;
