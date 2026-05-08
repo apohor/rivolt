@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -156,6 +157,23 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			})
 			return
 		case err != nil:
+			// Surface the unwrapped error so the operator can see
+			// which gate or upstream rejected it. The handler logs
+			// at WARN because every fail here is user-visible —
+			// blank logs were what made the v0.17.139 preview
+			// debugging unnecessarily blind.
+			fields := []any{"err", err.Error()}
+			var ue *rivian.UpstreamError
+			if errors.As(err, &ue) {
+				fields = append(fields,
+					"class", ue.Class.String(),
+					"op", ue.Op,
+					"http_status", ue.HTTPStatus,
+					"ext_code", ue.ExtCode,
+					"reason", ue.Reason,
+				)
+			}
+			slog.WarnContext(r.Context(), "rivian login failed", fields...)
 			writeUpstreamError(w, err)
 			return
 		}
@@ -213,6 +231,18 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		// Second leg of the MFA dance. Email is read from the
 		// pending-state cached inside the client.
 		if err := lc.Login(r.Context(), rivian.Credentials{OTP: req.OTP}); err != nil {
+			fields := []any{"err", err.Error()}
+			var ue *rivian.UpstreamError
+			if errors.As(err, &ue) {
+				fields = append(fields,
+					"class", ue.Class.String(),
+					"op", ue.Op,
+					"http_status", ue.HTTPStatus,
+					"ext_code", ue.ExtCode,
+					"reason", ue.Reason,
+				)
+			}
+			slog.WarnContext(r.Context(), "rivian mfa failed", fields...)
 			writeUpstreamError(w, err)
 			return
 		}
