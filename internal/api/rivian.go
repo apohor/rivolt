@@ -11,6 +11,61 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 )
 
+// httpStatusForUpstream picks an HTTP status for an error that
+// originated from the Rivian gateway. The mapping matters for two
+// reasons:
+//
+//  1. Cloudflare (and most edges) replace 5xx response bodies with
+//     a branded HTML error page. A bad-credentials response that
+//     comes back as 502 reaches the browser as Cloudflare HTML
+//     instead of our JSON, so the SPA can't render a useful
+//     message. 4xx is passed through cleanly.
+//  2. The class already encodes who the error belongs to. UserAction
+//     means the user has to fix something on their side (bad
+//     password, missing MFA, expired session). RateLimited means
+//     the client should back off. Mapping these to 4xx gives the
+//     SPA accurate semantics without inspecting our error strings.
+//
+// 5xx is reserved for genuine upstream gateway failures the user
+// cannot fix.
+func httpStatusForUpstream(err error) int {
+	var ue *rivian.UpstreamError
+	if !errors.As(err, &ue) {
+		return http.StatusBadGateway
+	}
+	switch ue.Class {
+	case rivian.ClassUserAction:
+		// 401 — the user's credentials / session need attention.
+		// Distinct from a rivolt-side auth fail (also 401) by
+		// the response body, which carries the upstream reason.
+		return http.StatusUnauthorized
+	case rivian.ClassRateLimited:
+		return http.StatusTooManyRequests
+	case rivian.ClassOutage:
+		return http.StatusServiceUnavailable
+	default:
+		// ClassTransient + ClassUnknown: real upstream wobble,
+		// retry-eligible. 502 is the right verb here.
+		return http.StatusBadGateway
+	}
+}
+
+// writeUpstreamError renders an UpstreamError (or any wrapped
+// error from the rivian package) as JSON with the right status.
+// Body shape is stable: {error, class, reason?}.
+func writeUpstreamError(w http.ResponseWriter, err error) {
+	status := httpStatusForUpstream(err)
+	body := map[string]any{"error": err.Error()}
+	var ue *rivian.UpstreamError
+	if errors.As(err, &ue) {
+		body["class"] = ue.Class.String()
+		if ue.Reason != "" {
+			body["reason"] = ue.Reason
+		}
+	}
+	writeJSON(w, status, body)
+}
+
 // rivianStatusDTO is the public view of the Rivian account state.
 // Email is returned as-is for the authenticated caller's own session.
 type rivianStatusDTO struct {
@@ -101,7 +156,7 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			})
 			return
 		case err != nil:
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		// Fully authenticated — persist.
@@ -158,7 +213,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		// Second leg of the MFA dance. Email is read from the
 		// pending-state cached inside the client.
 		if err := lc.Login(r.Context(), rivian.Credentials{OTP: req.OTP}); err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {

@@ -124,9 +124,14 @@ export default function OnboardingPage() {
     try {
       await backend.completeOnboarding();
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      navigate("/", { replace: true });
+      // Land directly on the Rivian-account section — that's the
+      // first thing the onboarding text tells the user to do, and
+      // a fresh user has no data plane until they wire credentials,
+      // so the home page would just show empty cards. SettingsPage
+      // reads the hash and scrolls.
+      navigate("/settings#rivian", { replace: true });
     } catch {
-      navigate("/", { replace: true });
+      navigate("/settings#rivian", { replace: true });
     } finally {
       setCompleting(false);
     }

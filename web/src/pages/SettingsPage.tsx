@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   backend,
   type AIProvider,
@@ -31,6 +32,21 @@ import {
 export default function SettingsPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
 
+  // Hash scroll. The browser only auto-scrolls to #anchor on a full
+  // page load; an SPA navigation from /onboarding → /settings#rivian
+  // mounts the page at top and the hash is silently dropped. This
+  // effect re-applies it on mount, queued through rAF so React has
+  // committed the DOM (the target Card renders before useEffect
+  // runs but its layout pass hasn't necessarily flushed).
+  const location = useLocation();
+  useEffect(() => {
+    if (!location.hash) return;
+    const id = location.hash.slice(1);
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [location.hash]);
+
   return (
     <div className="space-y-4">
       <PageHeader title="Settings" />
@@ -50,7 +66,7 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card title="Rivian account">
+      <Card title="Rivian account" id="rivian">
         <RivianAccountPanel />
       </Card>
 
