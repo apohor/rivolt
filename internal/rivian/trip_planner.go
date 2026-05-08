@@ -144,10 +144,8 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	}
 	for _, wp := range in.Waypoints {
 		vars.Waypoints = append(vars.Waypoints, planTripWaypointVar{
-			Latitude:     wp.Latitude,
-			Longitude:    wp.Longitude,
-			WaypointType: wp.WaypointType,
-			EntityID:     wp.EntityID,
+			Latitude:  wp.Latitude,
+			Longitude: wp.Longitude,
 		})
 	}
 	for _, np := range in.NetworkPreferences {
@@ -222,11 +220,19 @@ type planTripVars struct {
 	NetworkPreferences      []planTripNetworkPrefVar `json:"networkPreferences,omitempty"`
 }
 
+// planTripWaypointVar is the wire shape of one CoordinatesInput.
+// The reverse-engineered docs (rivian-api.kaedenb.org) listed
+// waypointType + entityId as input fields, but the gateway returns
+// BAD_USER_INPUT when those are present — the docs page conflated
+// the *response* waypoint shape (which carries waypointType / name /
+// entityId / etc.) with the input. CoordinatesInput is just the
+// pair of floats; origin vs destination is derived from array
+// position (index 0 is origin, last index is destination,
+// intermediate entries are charging stops the planner may use as
+// hints).
 type planTripWaypointVar struct {
-	Latitude     float64 `json:"latitude"`
-	Longitude    float64 `json:"longitude"`
-	WaypointType string  `json:"waypointType"`
-	EntityID     string  `json:"entityId,omitempty"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 type planTripNetworkPrefVar struct {
