@@ -1549,6 +1549,53 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 		}
 		out["plan_trip_full_spec"] = fullSpecData
 
+		// v0.17.126 shape — the actual planTrip operation with the
+		// correct schema args (origin + destination, bearing,
+		// startingRangeMeters required). RawGraphQL bypasses the
+		// typed path so we can isolate whether the gateway itself
+		// accepts this shape.
+		v126Query := `query planTrip(
+  $origin: CoordinatesInput!,
+  $destination: CoordinatesInput!,
+  $bearing: Float!,
+  $vehicleId: String!,
+  $startingSoc: Float!,
+  $startingRangeMeters: Float!,
+  $targetArrivalSocPercent: Float,
+  $networkPreferences: [NetworkPreference!]
+) {
+  planTrip(
+    origin: $origin,
+    destination: $destination,
+    bearing: $bearing,
+    vehicleId: $vehicleId,
+    startingSoc: $startingSoc,
+    startingRangeMeters: $startingRangeMeters,
+    targetArrivalSocPercent: $targetArrivalSocPercent,
+    networkPreferences: $networkPreferences
+  ) {
+    tripPlanStatus
+    chargeStationsAvailable
+    socBelowLimit
+    routes { destinationReached totalChargingDuration arrivalSOC }
+  }
+}`
+		v126Vars := map[string]any{
+			"origin":                  map[string]float64{"latitude": 30.5538, "longitude": -97.7622},
+			"destination":             map[string]float64{"latitude": 32.7767, "longitude": -96.797},
+			"bearing":                 0.0,
+			"vehicleId":               "01-242521064",
+			"startingSoc":             54.0,
+			"startingRangeMeters":     270000.0, // ~5km/% × 54
+			"targetArrivalSocPercent": 20.0,
+		}
+		v126Data, v126Err := lc.RawGraphQL(r.Context(), "planTrip", v126Query, v126Vars)
+		if v126Err != nil {
+			out["plan_trip_v126_correct_schema"] = map[string]any{"sent": v126Vars, "error": v126Err.Error()}
+		} else {
+			out["plan_trip_v126_correct_schema"] = map[string]any{"sent": v126Vars, "data": v126Data}
+		}
+
 		writeJSON(w, http.StatusOK, out)
 	}
 }
