@@ -10,7 +10,7 @@
 //      opening_hours per charger — the things charge-detail
 //      popups actually need.
 //
-//   2. /api/maps/tiles/texas.pmtiles (the basemap archive) — used
+//   2. /api/maps/tiles/us.pmtiles (the basemap archive) — used
 //      as a fallback when the chargers archive isn't deployed.
 //      The protomaps planet build strips POI tags down to just
 //      name/kind/min_zoom, so we get a snap point but no

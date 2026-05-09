@@ -16,7 +16,6 @@ import {
   ensureConfig,
   tilesPMTilesURL,
 } from "../lib/config";
-import { getRoutingEngine } from "../lib/preferences";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
@@ -225,15 +224,11 @@ async function snapToRoads(
   await ensureConfig();
   if (signal.aborted) return null;
 
-  // Routing-engine preference dispatch. When the user picked
-  // Valhalla AND the server has a Valhalla proxy wired, try
-  // Valhalla first. On failure (or unwired backend) fall through
-  // to OSRM — keeps the drive map populating even if Valhalla
-  // is briefly down.
-  if (getRoutingEngine() === "valhalla" && valhallaBase() !== "") {
-    const v = await valhallaSnap(points, signal);
-    if (v && v.length > 1) return v;
-    if (signal.aborted) return null;
+  // Valhalla is preferred whenever the server advertises it; no
+  // OSRM fallback in that case so a Valhalla failure surfaces as a
+  // straight line rather than a silently different engine result.
+  if (valhallaBase() !== "") {
+    return await valhallaSnap(points, signal);
   }
 
   // Self-hosted OSRM: send the whole trace as a single /match.
@@ -1534,10 +1529,8 @@ async function routeOverview(
     { lat: startLat, lon: startLon },
     { lat: endLat, lon: endLon },
   ];
-  if (getRoutingEngine() === "valhalla" && valhallaBase() !== "") {
-    const v = await valhallaRoute(pts, signal);
-    if (v && v.length > 1) return v;
-    if (signal.aborted) return null;
+  if (valhallaBase() !== "") {
+    return await valhallaRoute(pts, signal);
   }
   return routeAll(pts, signal);
 }

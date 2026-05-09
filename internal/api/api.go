@@ -737,8 +737,8 @@ func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, fl
 		base.Valhalla.Path = "/api/maps/valhalla"
 	}
 	if tilesEnabled {
-		base.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
-		// chargers.pmtiles lives next to texas.pmtiles on the same
+		base.Tiles.URL = "/api/maps/tiles/us.pmtiles"
+		// chargers.pmtiles lives next to us.pmtiles on the same
 		// PVC and is served by the same nginx, so its presence is
 		// gated on the same flag. If the chargers Job hasn't run
 		// yet, the URL still resolves; the SPA's PMTiles client

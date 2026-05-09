@@ -25,12 +25,9 @@ import {
   setRoundTripsEnabled,
   setRoundTripRadiusMeters,
   setRoundTripMaxGapMinutes,
-  setRoutingEngine,
   usePreferences,
   type TemperatureUnit,
-  type RoutingEngine,
 } from "../lib/preferences";
-import { useValhallaEnabled } from "../lib/config";
 
 export default function SettingsPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
@@ -125,13 +122,7 @@ function DisplayPreferences() {
     roundTripsEnabled,
     roundTripRadiusMeters,
     roundTripMaxGapMinutes,
-    routingEngine,
   } = usePreferences();
-  const valhallaEnabled = useValhallaEnabled();
-  const routingEngines: { value: RoutingEngine; label: string }[] = [
-    { value: "osrm", label: "OSRM" },
-    { value: "valhalla", label: "Valhalla" },
-  ];
   const options: { value: TemperatureUnit; label: string }[] = [
     { value: "c", label: "Celsius (°C)" },
     { value: "f", label: "Fahrenheit (°F)" },
@@ -206,37 +197,6 @@ function DisplayPreferences() {
           Timestamps are stored in UTC; this only affects how they're displayed.
         </p>
       </div>
-
-      {valhallaEnabled && (
-        <div>
-          <div className="text-neutral-400 mb-1">Routing engine</div>
-          <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden">
-            {routingEngines.map((opt) => {
-              const active = opt.value === routingEngine;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setRoutingEngine(opt.value)}
-                  className={
-                    "px-3 py-1.5 text-xs transition-colors " +
-                    (active
-                      ? "bg-emerald-600/20 text-emerald-300"
-                      : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800")
-                  }
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-1 text-xs text-neutral-500">
-            Used for snap-to-roads and route polylines on the drive map.
-            OSRM is the historical default; Valhalla is more accurate at low
-            GPS density. Falls back to OSRM if the chosen engine fails.
-          </p>
-        </div>
-      )}
 
       <div>
         <label className="flex items-center gap-2 text-neutral-300">

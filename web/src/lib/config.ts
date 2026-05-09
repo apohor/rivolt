@@ -186,24 +186,6 @@ export function useAIEnabled(): boolean {
   return enabled;
 }
 
-// useValhallaEnabled returns true when the server has wired a
-// Valhalla proxy. Components use it to gate the routing-engine
-// picker — when false, OSRM is the only choice and the picker is
-// hidden.
-export function useValhallaEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(!!cached.valhalla.path);
-  useEffect(() => {
-    let cancelled = false;
-    ensureConfig().then((c) => {
-      if (!cancelled) setEnabled(!!c.valhalla.path);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return enabled;
-}
-
 // useTripPlannerEnabled is the React-friendly accessor for the
 // trip-planner feature flag. Same shape as useAIEnabled — components
 // that mount before /api/config resolves will re-render when the

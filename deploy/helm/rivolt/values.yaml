@@ -427,7 +427,7 @@ ratelimit:
 #
 # When `tiles.baseUrl` is set, the rivolt API:
 #   - mounts /api/maps/tiles/* and reverse-proxies to this URL,
-#   - advertises /api/maps/tiles/texas.pmtiles on /api/config so
+#   - advertises /api/maps/tiles/us.pmtiles on /api/config so
 #     the SPA's protomaps-leaflet layer pulls vector tiles from
 #     the cluster (via byte-range reads on the .pmtiles file).
 # Typical in-cluster value: "http://tiles.tiles.svc.cluster.local".
