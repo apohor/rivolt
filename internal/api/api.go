@@ -518,6 +518,14 @@ func New(d Deps) http.Handler {
 			r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleGraphQLIntrospect(clientFor(d, uid))(w, r)
 			}))
+			// Generic raw-GraphQL probe. POST {operation, query,
+			// variables} → gateway response. Used to exercise
+			// arbitrary query shapes (different operation names,
+			// alternate field positions, nested input objects)
+			// when introspection is locked down on the upstream.
+			r.Post("/gql/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleGraphQLRaw(clientFor(d, uid))(w, r)
+			}))
 			// Trip-planner diagnostic bundle. GET-only so an operator
 			// can click the URL on mobile (no DevTools needed). Runs:
 			//   1. __type introspection on a few likely names
@@ -1438,6 +1446,40 @@ func handleTripPlanRawDebug(c rivian.Client) http.HandlerFunc {
 		data, err := lc.PlanTripRaw(r.Context(), body.Variables)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}
+}
+
+// handleGraphQLRaw posts an arbitrary GraphQL document to the
+// gateway. Body: {"operation": "...", "query": "...", "variables": {...}}.
+// Returns {data, errors} verbatim from upstream — a 200 here means
+// the wire roundtrip happened, errors land in the body. Used to
+// reverse-engineer schemas that ban introspection.
+func handleGraphQLRaw(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		var body struct {
+			Operation string         `json:"operation"`
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.Query == "" {
+			http.Error(w, "query is required", http.StatusBadRequest)
+			return
+		}
+		data, err := lc.RawGraphQL(r.Context(), body.Operation, body.Query, body.Variables)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": data})
