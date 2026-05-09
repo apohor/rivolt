@@ -13,23 +13,35 @@ const (
 	keyPlannerHasAdapter       = "planner.has_adapter"
 )
 
-// Valid driveMode values for Rivian's planTrip2 enum. Probed
-// against the live gateway: only EVERYDAY and SPORT are accepted;
-// CONSERVE / ALL_PURPOSE / range-related variants all return
-// GRAPHQL_VALIDATION_FAILED. SPORT plans noticeably more charge
-// time than EVERYDAY on a long trip, so the knob is real.
+// Valid driveMode values for Rivian's planTrip2 enum. Names cribbed
+// from the home-assistant-rivian integration's DRIVE_MODE_MAP and
+// confirmed against the live gateway. The mobile app's user-facing
+// labels don't match the enum; mapping below.
+//
+//   EVERYDAY               → "All-Purpose"  (default)
+//   DISTANCE               → "Conserve"     (range-extension)
+//   SPORT                  → "Sport"
+//   WINTER                 → "Snow"
+//   OFF_ROAD_AUTO          → "All-Terrain"
+//
+// DISTANCE produces materially different plans (one fewer stop +
+// shorter route on long trips) so the knob is load-bearing.
 const (
-	DriveModeEveryday = "EVERYDAY"
-	DriveModeSport    = "SPORT"
+	DriveModeEveryday    = "EVERYDAY"
+	DriveModeDistance    = "DISTANCE"
+	DriveModeSport       = "SPORT"
+	DriveModeWinter      = "WINTER"
+	DriveModeOffRoadAuto = "OFF_ROAD_AUTO"
 )
 
 // PlannerPrefs are the user's saved trip-planner defaults. The SPA
 // pre-fills the per-trip form from these so the user doesn't have
 // to pick the same drive mode every time.
 type PlannerPrefs struct {
-	// DriveMode is one of EVERYDAY / SPORT. Empty string means
-	// "no default — let Rivian pick" (the gateway's own default
-	// is EVERYDAY, so empty and EVERYDAY produce the same plan).
+	// DriveMode is one of EVERYDAY / DISTANCE / SPORT / WINTER /
+	// OFF_ROAD_AUTO. Empty string means "no default — let Rivian
+	// pick" (the gateway's default is EVERYDAY, so empty and
+	// EVERYDAY produce the same plan).
 	DriveMode string `json:"drive_mode"`
 	// HasAdapter — does the vehicle have the Tesla NACS adapter?
 	// Pointer so absent/false/true are all distinguishable on the
@@ -50,7 +62,7 @@ func GetPlannerPrefs(ctx context.Context, s *Store) (PlannerPrefs, error) {
 	}
 	if v, ok := all[keyPlannerDefaultDriveMode]; ok && v != "" {
 		switch v {
-		case DriveModeEveryday, DriveModeSport:
+		case DriveModeEveryday, DriveModeDistance, DriveModeSport, DriveModeWinter, DriveModeOffRoadAuto:
 			p.DriveMode = v
 		}
 	}
@@ -70,7 +82,7 @@ func SetPlannerPrefs(ctx context.Context, s *Store, p PlannerPrefs) error {
 	}
 	dm := p.DriveMode
 	switch dm {
-	case "", DriveModeEveryday, DriveModeSport:
+	case "", DriveModeEveryday, DriveModeDistance, DriveModeSport, DriveModeWinter, DriveModeOffRoadAuto:
 		// accepted
 	default:
 		dm = "" // unknown value silently cleared

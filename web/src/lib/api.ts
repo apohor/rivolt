@@ -1075,11 +1075,18 @@ export type OIDCProvider = {
 };
 
 // PlannerPrefs are the user's saved trip-planner defaults.
-// drive_mode is one of "EVERYDAY" / "SPORT".
+// drive_mode is one of "EVERYDAY" / "DISTANCE" / "SPORT" /
+// "WINTER" / "OFF_ROAD_AUTO".
 // has_adapter is the Tesla NACS adapter availability; absent on the
 // wire when unset.
 export type PlannerPrefs = {
-  drive_mode: "" | "EVERYDAY" | "SPORT";
+  drive_mode:
+    | ""
+    | "EVERYDAY"
+    | "DISTANCE"
+    | "SPORT"
+    | "WINTER"
+    | "OFF_ROAD_AUTO";
   has_adapter?: boolean;
 };
 
