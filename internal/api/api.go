@@ -1006,15 +1006,6 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 							}
 						}
 					}
-					// Subscriptions are not on the response's
-					// critical path; fan them out async.
-					go func() {
-						for _, v := range mon.AllVehicleInfo() {
-							if v.ID != "" {
-								mon.EnsureSubscribed(v.ID)
-							}
-						}
-					}()
 				} else {
 					if logger != nil {
 						logger.Warn("post-login vehicle info refresh (sync) failed; falling back to async",
@@ -1026,12 +1017,6 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 						if rerr := mon.RefreshVehicleInfo(bgctx); rerr != nil {
 							if logger != nil {
 								logger.Warn("post-login vehicle info refresh (async) failed", "err", rerr.Error())
-							}
-							return
-						}
-						for _, v := range mon.AllVehicleInfo() {
-							if v.ID != "" {
-								mon.EnsureSubscribed(v.ID)
 							}
 						}
 					}()
@@ -1045,10 +1030,12 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 // handleVehicleState returns a current snapshot for the given vehicle.
 // 404 if no live client is configured, 502 for upstream failures.
 //
-// When a StateMonitor is wired, serves from its cache (populated by a
-// long-lived websocket subscription). On cache miss it falls back to
-// a one-shot REST fetch, primes the cache with the result, and kicks
-// off the subscription so subsequent calls are free.
+// WS subscriptions are owned by the lease coordinator. A pod that
+// doesn't own the lease serves cache hits from its local snapshot
+// when present, and falls back to a one-shot REST fetch on miss —
+// it does NOT open its own subscription. Two pods subscribed to the
+// same Rivian session token would kick each other repeatedly and
+// fragment drives at every WS bounce.
 func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
@@ -1061,7 +1048,6 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			return
 		}
 		if mon != nil {
-			mon.EnsureSubscribed(id)
 			if st, _ := mon.Latest(id); st != nil {
 				writeJSON(w, http.StatusOK, st)
 				return
