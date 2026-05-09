@@ -13,22 +13,23 @@ const (
 	keyPlannerHasAdapter       = "planner.has_adapter"
 )
 
-// Valid driveMode values per the Rivian schema. CONSERVE produces
-// materially different routes (more stops, lower-speed legs) so this
-// is a real user knob; ALL_PURPOSE is the everyday default; SPORT
-// trades range for performance.
+// Valid driveMode values for Rivian's planTrip2 enum. Probed
+// against the live gateway: only EVERYDAY and SPORT are accepted;
+// CONSERVE / ALL_PURPOSE / range-related variants all return
+// GRAPHQL_VALIDATION_FAILED. SPORT plans noticeably more charge
+// time than EVERYDAY on a long trip, so the knob is real.
 const (
-	DriveModeConserve   = "CONSERVE"
-	DriveModeAllPurpose = "ALL_PURPOSE"
-	DriveModeSport      = "SPORT"
+	DriveModeEveryday = "EVERYDAY"
+	DriveModeSport    = "SPORT"
 )
 
 // PlannerPrefs are the user's saved trip-planner defaults. The SPA
 // pre-fills the per-trip form from these so the user doesn't have
 // to pick the same drive mode every time.
 type PlannerPrefs struct {
-	// DriveMode is one of CONSERVE / ALL_PURPOSE / SPORT. Empty
-	// string means "no default — let Rivian pick".
+	// DriveMode is one of EVERYDAY / SPORT. Empty string means
+	// "no default — let Rivian pick" (the gateway's own default
+	// is EVERYDAY, so empty and EVERYDAY produce the same plan).
 	DriveMode string `json:"drive_mode"`
 	// HasAdapter — does the vehicle have the Tesla NACS adapter?
 	// Pointer so absent/false/true are all distinguishable on the
@@ -49,7 +50,7 @@ func GetPlannerPrefs(ctx context.Context, s *Store) (PlannerPrefs, error) {
 	}
 	if v, ok := all[keyPlannerDefaultDriveMode]; ok && v != "" {
 		switch v {
-		case DriveModeConserve, DriveModeAllPurpose, DriveModeSport:
+		case DriveModeEveryday, DriveModeSport:
 			p.DriveMode = v
 		}
 	}
@@ -69,7 +70,7 @@ func SetPlannerPrefs(ctx context.Context, s *Store, p PlannerPrefs) error {
 	}
 	dm := p.DriveMode
 	switch dm {
-	case "", DriveModeConserve, DriveModeAllPurpose, DriveModeSport:
+	case "", DriveModeEveryday, DriveModeSport:
 		// accepted
 	default:
 		dm = "" // unknown value silently cleared

@@ -22,7 +22,7 @@ type Selection = {
   label: string;
 } | null;
 
-type DriveMode = "" | "CONSERVE" | "ALL_PURPOSE" | "SPORT";
+type DriveMode = "" | "EVERYDAY" | "SPORT";
 
 export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
@@ -213,9 +213,8 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
               >
                 <option value="">Default (let planner pick)</option>
-                <option value="ALL_PURPOSE">All-Purpose</option>
-                <option value="CONSERVE">Conserve (more efficient, fewer / smaller stops)</option>
-                <option value="SPORT">Sport</option>
+                <option value="EVERYDAY">Everyday</option>
+                <option value="SPORT">Sport (more aggressive consumption)</option>
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
