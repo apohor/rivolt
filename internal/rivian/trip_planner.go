@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -148,6 +149,12 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 		// No variables — everything is inlined into the query body.
 	}, c.authHeaders())
 	if err != nil {
+		slog.WarnContext(ctx, "planTrip2 failed",
+			"err", err.Error(),
+			"drive_mode", in.DriveMode,
+			"has_adapter", in.HasAdapter != nil,
+			"query", query,
+		)
 		return nil, fmt.Errorf("planTrip2: %w", err)
 	}
 
