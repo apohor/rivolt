@@ -1514,10 +1514,13 @@ function decodePolyline(
   return out;
 }
 
-// routeOverview fetches a road-snapped start→end geometry from OSRM
-// for drives that don't have a stored RoutePolyline. Lightweight: only
-// two coordinates, no GPS trace required. Returns null on any failure
-// so the caller can keep the straight-line fallback.
+// routeOverview fetches a road-snapped start→end geometry for drives
+// that don't have a stored RoutePolyline. Lightweight: only two
+// coordinates, no GPS trace required. Dispatches on the user's
+// routing-engine preference (same as snapToRoads); falls back to OSRM
+// when Valhalla fails or isn't wired so the overview map always
+// populates. Returns null on total failure so the caller can keep
+// the straight-line fallback.
 async function routeOverview(
   startLat: number,
   startLon: number,
@@ -1527,13 +1530,55 @@ async function routeOverview(
 ): Promise<[number, number][] | null> {
   await ensureConfig();
   if (signal.aborted) return null;
-  return routeAll(
-    [
-      { lat: startLat, lon: startLon },
-      { lat: endLat, lon: endLon },
-    ],
-    signal,
-  );
+  const pts: SnapPoint[] = [
+    { lat: startLat, lon: startLon },
+    { lat: endLat, lon: endLon },
+  ];
+  if (getRoutingEngine() === "valhalla" && valhallaBase() !== "") {
+    const v = await valhallaRoute(pts, signal);
+    if (v && v.length > 1) return v;
+    if (signal.aborted) return null;
+  }
+  return routeAll(pts, signal);
+}
+
+// valhallaRoute is the cheapest-path equivalent of routeAll, used by
+// the multi-drive overview map. POST /route with two break points and
+// decode the polyline6 shape.
+async function valhallaRoute(
+  pts: SnapPoint[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  const base = valhallaBase();
+  if (base === "" || pts.length < 2) return null;
+  const body = {
+    locations: pts.map((p) => ({ lat: p.lat, lon: p.lon })),
+    costing: "auto",
+    directions_options: { units: "miles" },
+  };
+  try {
+    const r = await fetch(`${base}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      trip?: { legs?: { shape?: string }[] };
+    };
+    const legs = j.trip?.legs ?? [];
+    if (legs.length === 0) return null;
+    const out: [number, number][] = [];
+    for (let i = 0; i < legs.length; i++) {
+      const seg = decodePolyline(legs[i].shape, 6);
+      if (i > 0 && seg.length > 0) seg.shift();
+      out.push(...seg);
+    }
+    return out.length > 1 ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 // DrivesOverviewMap renders every drive's route on a single map. Drives
