@@ -14,17 +14,30 @@ export class ApiError extends Error {
   body: unknown;
   constructor(status: number, body: unknown, msg?: string) {
     let message = msg;
-    if (!message && typeof body === "string" && body.length > 0) {
-      message = body;
-    }
     if (!message && body && typeof body === "object" && "error" in body) {
       const e = (body as { error?: unknown }).error;
       if (typeof e === "string" && e.length > 0) message = e;
     }
-    super(message ?? `HTTP ${status}`);
+    if (!message && typeof body === "string" && body.length > 0) {
+      // Cloudflare's 5xx error pages and any other edge that
+      // intercepts a 5xx response substitute an HTML body. Don't
+      // leak that into a UI toast — render a stable status-based
+      // message instead.
+      const looksHTML = /^\s*<(!doctype|html|head|body)/i.test(body);
+      message = looksHTML ? statusFallbackMessage(status) : body;
+    }
+    super(message ?? statusFallbackMessage(status));
     this.status = status;
     this.body = body;
   }
+}
+
+function statusFallbackMessage(status: number): string {
+  if (status === 502) return "Bad gateway — upstream isn't responding.";
+  if (status === 503) return "Service unavailable — try again shortly.";
+  if (status === 504) return "Upstream timed out — try again shortly.";
+  if (status >= 500) return `Server error (HTTP ${status}).`;
+  return `HTTP ${status}`;
 }
 
 async function request<T>(

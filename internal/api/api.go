@@ -916,7 +916,7 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
 				return
 			}
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		// Prime the local `vehicles` table for the calling user. The
@@ -1059,7 +1059,7 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		if mon != nil {
@@ -1086,7 +1086,7 @@ func handleVehicleStateDebug(c rivian.Client) http.HandlerFunc {
 		}
 		raw, err := lc.StateRaw(r.Context(), id)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, raw)
@@ -1110,7 +1110,7 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
@@ -1150,7 +1150,7 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 		}
 		sess, err := lc.LiveSession(r.Context(), id)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeUpstreamError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
@@ -1398,17 +1398,14 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 
 		plan, err := lc.PlanTrip(r.Context(), in)
 		if err != nil {
-			// Log at WARN with the full Rivian error so we can debug
-			// without staring at trace IDs. Cloudflare's edge often
-			// replaces a JSON 502 body with its own 502 page, so the
-			// SPA-side error is not enough to triangulate gateway-
-			// schema mismatches; the server log is.
-			logger := slog.Default()
-			logger.Warn("trip plan failed",
+			slog.WarnContext(r.Context(), "trip plan failed",
 				"vehicle_id", in.VehicleID,
 				"waypoints", len(in.Waypoints),
 				"err", err.Error())
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			// Map upstream error class to an HTTP status the SPA
+			// can render. 4xx passes through Cloudflare cleanly;
+			// 5xx gets replaced with Cloudflare's HTML error page.
+			writeUpstreamError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, plan)
