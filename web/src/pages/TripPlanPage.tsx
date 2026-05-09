@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { backend, type GeocodeResult, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { TripRouteMap } from "../components/TripRouteMap";
 
 // TX_PRESETS are city-hall lat/lon for one-click destination testing.
 const TX_PRESETS: { label: string; lat: number; lon: number }[] = [
@@ -444,6 +445,9 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   return (
     <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
+      <div className="mb-4">
+        <TripRouteMap route={route} />
+      </div>
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
         <Stat label="Charging stops" value={String(charging.length)} />
         <Stat label="Total charge time" value={totalChargeMin > 0 ? `${totalChargeMin} min` : "—"} />
