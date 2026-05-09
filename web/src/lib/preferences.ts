@@ -12,6 +12,12 @@ export type TemperatureUnit = "c" | "f";
 // zone); otherwise an IANA identifier (e.g. "America/Chicago", "UTC").
 export type TimeZonePref = "auto" | string;
 
+// RoutingEngine picks which backend the SPA hits for snap-to-roads
+// and route polylines on the drive map. OSRM is the historical
+// default; Valhalla is offered when the server advertises it via
+// /api/config.valhalla.path. Selection is per-browser, not per-user.
+export type RoutingEngine = "osrm" | "valhalla";
+
 type Preferences = {
   temperatureUnit: TemperatureUnit;
   timeZone: TimeZonePref;
@@ -21,6 +27,7 @@ type Preferences = {
   roundTripsEnabled: boolean;
   roundTripRadiusMeters: number;
   roundTripMaxGapMinutes: number;
+  routingEngine: RoutingEngine;
 };
 
 const STORAGE_KEY = "rivolt.preferences.v1";
@@ -31,6 +38,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   roundTripsEnabled: true,
   roundTripRadiusMeters: 200,
   roundTripMaxGapMinutes: 90,
+  routingEngine: "osrm",
 };
 
 function readPreferences(): Preferences {
@@ -66,6 +74,10 @@ function readPreferences(): Preferences {
         parsed.roundTripMaxGapMinutes > 0
           ? parsed.roundTripMaxGapMinutes
           : DEFAULT_PREFERENCES.roundTripMaxGapMinutes,
+      routingEngine:
+        parsed.routingEngine === "valhalla" || parsed.routingEngine === "osrm"
+          ? parsed.routingEngine
+          : DEFAULT_PREFERENCES.routingEngine,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -144,6 +156,17 @@ export function setRoundTripRadiusMeters(m: number): void {
   emit();
 }
 
+export function setRoutingEngine(engine: RoutingEngine): void {
+  if (current.routingEngine === engine) return;
+  current = { ...current, routingEngine: engine };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
+  }
+  emit();
+}
+
 export function setRoundTripMaxGapMinutes(mins: number): void {
   if (!Number.isFinite(mins) || mins <= 0) return;
   if (current.roundTripMaxGapMinutes === mins) return;
@@ -171,6 +194,13 @@ export function usePreferences(): Preferences {
     () => current,
     () => DEFAULT_PREFERENCES,
   );
+}
+
+// getRoutingEngine returns the current synchronous snapshot. For
+// non-React callers (snap-to-roads inside a useEffect, etc.) that
+// can't subscribe to the store.
+export function getRoutingEngine(): RoutingEngine {
+  return current.routingEngine;
 }
 
 // formatTemperature renders a Celsius value in the user's chosen

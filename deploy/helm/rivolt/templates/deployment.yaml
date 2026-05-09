@@ -107,6 +107,13 @@ spec:
             - name: RIVOLT_OSRM_BASE_URL
               value: {{ .osrm.baseUrl | quote }}
             {{- end }}
+            {{- if and .valhalla .valhalla.baseUrl }}
+            # Same-origin Valhalla proxy. Mirrors OSRM: when set,
+            # /api/maps/valhalla/* forwards to this URL and the
+            # SPA can choose Valhalla as its routing engine.
+            - name: RIVOLT_VALHALLA_BASE_URL
+              value: {{ .valhalla.baseUrl | quote }}
+            {{- end }}
             {{- if .tiles.baseUrl }}
             # Same-origin PMTiles proxy. When set, the rivolt API
             # mounts /api/maps/tiles/* and forwards to this URL,

@@ -417,6 +417,14 @@ ratelimit:
 # Typical in-cluster value: "http://osrm.osrm.svc.cluster.local".
 # Empty falls back to router.project-osrm.org.
 #
+# When `valhalla.baseUrl` is set, the rivolt API:
+#   - mounts /api/maps/valhalla/* and reverse-proxies to this URL,
+#   - advertises that path on /api/config so the SPA can offer
+#     Valhalla as a routing-engine choice alongside OSRM.
+# Typical in-cluster value: "http://valhalla.valhalla.svc.cluster.local".
+# Both engines can be wired simultaneously — the user picks per
+# install which to use.
+#
 # When `tiles.baseUrl` is set, the rivolt API:
 #   - mounts /api/maps/tiles/* and reverse-proxies to this URL,
 #   - advertises /api/maps/tiles/texas.pmtiles on /api/config so
@@ -426,6 +434,8 @@ ratelimit:
 # Empty falls back to CARTO's public dark raster basemap.
 maps:
   osrm:
+    baseUrl: ""
+  valhalla:
     baseUrl: ""
   tiles:
     baseUrl: ""

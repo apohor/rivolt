@@ -9,7 +9,14 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { osrmBase, getConfig, ensureConfig, tilesPMTilesURL } from "../lib/config";
+import {
+  osrmBase,
+  valhallaBase,
+  getConfig,
+  ensureConfig,
+  tilesPMTilesURL,
+} from "../lib/config";
+import { getRoutingEngine } from "../lib/preferences";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
@@ -153,6 +160,58 @@ async function routeAll(
   }
 }
 
+// valhallaSnap runs Valhalla's POST /trace_route — the equivalent of
+// OSRM /match. The shape comes back as an encoded polyline at
+// precision 6 (Valhalla's default). One round trip handles the whole
+// trace; Valhalla doesn't have OSRM's 9-coord-per-call cap.
+async function valhallaSnap(
+  pts: SnapPoint[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  const base = valhallaBase();
+  if (base === "" || pts.length < 2) return null;
+  // Defensive ceiling. Valhalla scales much further than OSRM but a
+  // multi-thousand-point GPX import shouldn't go in one shot.
+  const MAX_TRACE = 1500;
+  let trace = pts;
+  if (trace.length > MAX_TRACE) {
+    const step = Math.ceil(trace.length / MAX_TRACE);
+    trace = trace.filter((_, i) => i % step === 0);
+    if (trace[trace.length - 1] !== pts[pts.length - 1]) {
+      trace.push(pts[pts.length - 1]);
+    }
+  }
+  const body = {
+    shape: trace.map((p) => ({ lat: p.lat, lon: p.lon })),
+    costing: "auto",
+    shape_match: "map_snap",
+    directions_options: { units: "miles" },
+  };
+  try {
+    const r = await fetch(`${base}/trace_route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      trip?: { legs?: { shape?: string }[] };
+    };
+    const legs = j.trip?.legs ?? [];
+    if (legs.length === 0) return null;
+    const out: [number, number][] = [];
+    for (let i = 0; i < legs.length; i++) {
+      const seg = decodePolyline(legs[i].shape, 6);
+      if (i > 0 && seg.length > 0) seg.shift();
+      out.push(...seg);
+    }
+    return out.length > 1 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 async function snapToRoads(
   points: SnapPoint[],
   signal: AbortSignal,
@@ -165,6 +224,17 @@ async function snapToRoads(
   // instead of falling back to the public demo by accident.
   await ensureConfig();
   if (signal.aborted) return null;
+
+  // Routing-engine preference dispatch. When the user picked
+  // Valhalla AND the server has a Valhalla proxy wired, try
+  // Valhalla first. On failure (or unwired backend) fall through
+  // to OSRM — keeps the drive map populating even if Valhalla
+  // is briefly down.
+  if (getRoutingEngine() === "valhalla" && valhallaBase() !== "") {
+    const v = await valhallaSnap(points, signal);
+    if (v && v.length > 1) return v;
+    if (signal.aborted) return null;
+  }
 
   // Self-hosted OSRM: send the whole trace as a single /match.
   // Cap at MAX_TRACE_SELFHOSTED for a defensive ceiling — our
@@ -1397,13 +1467,19 @@ export function ChargesOverviewMap({
   );
 }
 
-// decodePolyline decodes a Google-format encoded polyline (precision
-// 5) into [lat, lon] pairs. Matches the encoder in
-// internal/rivian/polyline.go on the backend. Returns an empty array
-// for empty / nullish / malformed input so callers can do a simple
-// length check and fall back to a straight start→end line.
-function decodePolyline(s: string | undefined | null): [number, number][] {
+// decodePolyline decodes a Google-format encoded polyline into
+// [lat, lon] pairs. Matches the encoder in
+// internal/rivian/polyline.go on the backend at the default
+// precision. precision defaults to 5 (Google / OSRM); pass 6 for
+// Valhalla shapes. Returns an empty array for empty / nullish /
+// malformed input so callers can do a simple length check and
+// fall back to a straight start→end line.
+function decodePolyline(
+  s: string | undefined | null,
+  precision: 5 | 6 = 5,
+): [number, number][] {
   if (!s) return [];
+  const factor = precision === 6 ? 1e-6 : 1e-5;
   const out: [number, number][] = [];
   let lat = 0;
   let lon = 0;
@@ -1433,7 +1509,7 @@ function decodePolyline(s: string | undefined | null): [number, number][] {
     const dlon = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
     lon += dlon;
 
-    out.push([lat * 1e-5, lon * 1e-5]);
+    out.push([lat * factor, lon * factor]);
   }
   return out;
 }

@@ -38,6 +38,13 @@ export type RuntimeConfig = {
     // info).
     chargersUrl: string;
   };
+  valhalla: {
+    // path mirrors osrm.path: same-origin URL prefix to the
+    // Valhalla HTTP API, empty when no proxy is wired. The SPA
+    // offers Valhalla as an alternate routing engine when this
+    // is set; otherwise OSRM is the only option.
+    path: string;
+  };
   ai: {
     // enabled is true when the install has at least one AI provider
     // configured with a working key+model. Snapshot at /api/config
@@ -58,6 +65,7 @@ export type RuntimeConfig = {
 
 const fallback: RuntimeConfig = {
   osrm: { path: "" },
+  valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
   features: { tripPlannerEnabled: false },
@@ -71,12 +79,14 @@ async function loadConfig(): Promise<RuntimeConfig> {
     if (!r.ok) return fallback;
     const j = (await r.json()) as {
       osrm?: { path?: string };
+      valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean };
     } | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
+      valhalla: { path: j?.valhalla?.path ?? "" },
       tiles: {
         url: j?.tiles?.url ?? "",
         chargersUrl: j?.tiles?.chargers_url ?? "",
@@ -116,6 +126,13 @@ export function getConfig(): RuntimeConfig {
 // are appended by the caller.
 export function osrmBase(): string {
   return cached.osrm.path || "https://router.project-osrm.org";
+}
+
+// valhallaBase returns the base URL for the Valhalla HTTP API, or
+// "" when no proxy is wired. There's no public-demo fallback —
+// Valhalla is only available when self-hosted.
+export function valhallaBase(): string {
+  return cached.valhalla.path;
 }
 
 // tilesPMTilesURL returns the same-origin URL of the .pmtiles
@@ -161,6 +178,24 @@ export function useAIEnabled(): boolean {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setEnabled(c.ai.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
+}
+
+// useValhallaEnabled returns true when the server has wired a
+// Valhalla proxy. Components use it to gate the routing-engine
+// picker — when false, OSRM is the only choice and the picker is
+// hidden.
+export function useValhallaEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(!!cached.valhalla.path);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(!!c.valhalla.path);
     });
     return () => {
       cancelled = true;

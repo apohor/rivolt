@@ -161,6 +161,13 @@ type Deps struct {
 	// /api/config advertises whether the proxy is mounted so the
 	// SPA picks the right base URL at boot.
 	OSRMProxy http.Handler
+	// ValhallaProxy mirrors OSRMProxy for the Valhalla routing
+	// engine. When non-nil, /api/maps/valhalla/* forwards to a
+	// self-hosted Valhalla. /api/config advertises which engines
+	// are available so the SPA can offer them as a user choice.
+	// Both proxies can be set simultaneously — the user picks per
+	// install which engine to use, OSRM stays as a fallback.
+	ValhallaProxy http.Handler
 	// TilesProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/tiles/* that forwards to a self-hosted
 	// PMTiles file server (nginx serving the .pmtiles bundle
@@ -242,7 +249,7 @@ func New(d Deps) http.Handler {
 		// (today: whether the OSRM same-origin proxy is mounted).
 		// Public so the SPA can fetch it before login as well as
 		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags))
+		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -314,6 +321,9 @@ func New(d Deps) http.Handler {
 			// itself; the proxy.Director then forwards as-is.
 			if d.OSRMProxy != nil {
 				r.Mount("/maps/osrm", http.StripPrefix("/api/maps/osrm", d.OSRMProxy))
+			}
+			if d.ValhallaProxy != nil {
+				r.Mount("/maps/valhalla", http.StripPrefix("/api/maps/valhalla", d.ValhallaProxy))
 			}
 			if d.TilesProxy != nil {
 				r.Mount("/maps/tiles", http.StripPrefix("/api/maps/tiles", d.TilesProxy))
@@ -668,7 +678,7 @@ func handleHealth(version string) http.HandlerFunc {
 // /route) and PMTiles (drive map basemap), falling back to the
 // public demos when a path is empty. Public so the SPA can fetch
 // it without a session.
-func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store) http.HandlerFunc {
+func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store) http.HandlerFunc {
 	type osrmCfg struct {
 		// Path is the same-origin URL prefix the SPA should hit
 		// (empty when the proxy is not configured server-side).
@@ -706,8 +716,15 @@ func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.S
 		// re-fetches /api/config).
 		TripPlannerEnabled bool `json:"trip_planner_enabled"`
 	}
+	type valhallaCfg struct {
+		// Path is the same-origin URL prefix for Valhalla's HTTP
+		// API. Empty means the proxy isn't wired and Valhalla
+		// shouldn't be offered as an engine option.
+		Path string `json:"path,omitempty"`
+	}
 	type cfg struct {
 		OSRM     osrmCfg     `json:"osrm"`
+		Valhalla valhallaCfg `json:"valhalla"`
 		Tiles    tilesCfg    `json:"tiles"`
 		AI       aiCfg       `json:"ai"`
 		Features featuresCfg `json:"features"`
@@ -715,6 +732,9 @@ func handleConfig(osrmEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.S
 	base := cfg{}
 	if osrmEnabled {
 		base.OSRM.Path = "/api/maps/osrm"
+	}
+	if valhallaEnabled {
+		base.Valhalla.Path = "/api/maps/valhalla"
 	}
 	if tilesEnabled {
 		base.Tiles.URL = "/api/maps/tiles/texas.pmtiles"
