@@ -174,6 +174,10 @@ type Deps struct {
 	// with byte-range support). nil leaves the route unmounted;
 	// the SPA falls back to CARTO's public dark raster basemap.
 	TilesProxy http.Handler
+	// Photon is the self-hosted geocoder client. Empty BaseURL on
+	// the client disables; /api/geocode falls through to
+	// Open-Meteo's city-level service.
+	Photon *geocoding.PhotonClient
 }
 
 // New builds the root mux with all routes mounted.
@@ -613,7 +617,7 @@ func New(d Deps) http.Handler {
 			// Returns city-level matches sorted by population so the
 			// SPA can render a sensible suggestion dropdown.
 			r.Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleGeocode()(w, r)
+				handleGeocode(d.Photon)(w, r)
 			}))
 		}) // end of timed authenticated /api group
 
@@ -1195,14 +1199,12 @@ type tripPlanNetworkPref struct {
 	Preference int    `json:"preference"`
 }
 
-// handleGeocode forwards a free-text query to Open-Meteo's
-// geocoding endpoint and returns the results array. Slice 2 of the
-// trip planner: the SPA replaces the lat/lon input fields with a
-// debounced search box. Privacy posture matches the existing
-// weather wiring (we send city names to Open-Meteo, no per-user
-// identifiers; the response stays in-process until the SPA
-// receives it).
-func handleGeocode() http.HandlerFunc {
+// handleGeocode resolves a free-text query to a list of locations.
+// When a self-hosted Photon is wired (RIVOLT_PHOTON_BASE_URL),
+// queries hit Photon first for street-level resolution; on empty
+// results or transient failure we fall back to Open-Meteo's city-
+// level search. With Photon unwired the handler is just Open-Meteo.
+func handleGeocode(photon *geocoding.PhotonClient) http.HandlerFunc {
 	gc := geocoding.NewClient()
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")
@@ -1216,10 +1218,20 @@ func handleGeocode() http.HandlerFunc {
 				count = n
 			}
 		}
-		results, err := gc.Search(r.Context(), q, count)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
-			return
+		var results []geocoding.Result
+		if photon.Enabled() {
+			r1, err := photon.Search(r.Context(), q, count)
+			if err == nil && len(r1) > 0 {
+				results = r1
+			}
+		}
+		if len(results) == 0 {
+			r2, err := gc.Search(r.Context(), q, count)
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+				return
+			}
+			results = r2
 		}
 		if results == nil {
 			results = []geocoding.Result{}

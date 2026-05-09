@@ -437,6 +437,12 @@ maps:
     baseUrl: ""
   valhalla:
     baseUrl: ""
+  photon:
+    # Self-hosted Photon geocoder for street-level addresses.
+    # Typical in-cluster value:
+    #   "http://photon.photon.svc.cluster.local"
+    # Empty falls back to Open-Meteo's city-level geocoding.
+    baseUrl: ""
   tiles:
     baseUrl: ""
 

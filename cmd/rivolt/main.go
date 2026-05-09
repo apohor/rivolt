@@ -39,6 +39,7 @@ import (
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/invites"
+	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/maps"
@@ -1003,6 +1004,15 @@ func runServer() {
 		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
 	}
 
+	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
+	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
+	// Empty disables; /api/geocode then falls through to Open-Meteo
+	// for city-level results without street-address support.
+	photonClient := geocoding.NewPhotonClient(os.Getenv("RIVOLT_PHOTON_BASE_URL"))
+	if photonClient.Enabled() {
+		logger.Info("photon geocoder enabled", "upstream", photonClient.BaseURL)
+	}
+
 	// Invite-code store. Always wired when a DB is available so
 	// the admin panel can generate codes even on existing installs.
 	// nil-safe in api.Deps — disables the /api/signup and
@@ -1038,6 +1048,7 @@ func runServer() {
 		OSRMProxy:     osrmProxy,
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,
+		Photon:        photonClient,
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,
 		HydraRememberFor: hydraRememberFor,

@@ -114,6 +114,13 @@ spec:
             - name: RIVOLT_VALHALLA_BASE_URL
               value: {{ .valhalla.baseUrl | quote }}
             {{- end }}
+            {{- if and .photon .photon.baseUrl }}
+            # Self-hosted Photon geocoder. When set, /api/geocode
+            # tries Photon first for street-level resolution;
+            # Open-Meteo (city-level) is the fallback.
+            - name: RIVOLT_PHOTON_BASE_URL
+              value: {{ .photon.baseUrl | quote }}
+            {{- end }}
             {{- if .tiles.baseUrl }}
             # Same-origin PMTiles proxy. When set, the rivolt API
             # mounts /api/maps/tiles/* and forwards to this URL,
