@@ -454,9 +454,16 @@ func FetchAndCache(
 // FetchHour returns the snapshot for the hour containing `at` at the
 // rounded (lat, lon). The trip bearing is used to project wind onto
 // a headwind component; pass 0 if unknown (HeadwindKPH stays unset).
+//
+// Routes to the forecast endpoint (api.open-meteo.com/v1/forecast)
+// when `at` is within forecastWindowDays of now — past or future —
+// so a planned future departure resolves to a real forecast instead
+// of failing against the archive's "no data past today" window.
+// Older timestamps go to the archive endpoint as before.
 func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, tripBearingDeg float64, hasBearing bool) (*Snapshot, time.Time, error) {
 	clat, clon := Coarsen(lat, lon)
 	hour := at.UTC().Truncate(time.Hour)
+	useForecast := time.Since(hour) < forecastWindowDays*24*time.Hour
 	q := url.Values{}
 	q.Set("latitude", strconv.FormatFloat(clat, 'f', 4, 64))
 	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
@@ -472,7 +479,12 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	q.Set("temperature_unit", "celsius")
 	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
-	endpoint := strings.TrimRight(c.BaseURL, "/") + "/v1/archive?" + q.Encode()
+	var endpoint string
+	if useForecast {
+		endpoint = "https://api.open-meteo.com/v1/forecast?" + q.Encode()
+	} else {
+		endpoint = strings.TrimRight(c.BaseURL, "/") + "/v1/archive?" + q.Encode()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, hour, err

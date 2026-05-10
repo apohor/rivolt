@@ -1202,6 +1202,9 @@ export type TripAdviceRequest = {
   tire_rr_bar?: number;
   // Observed pack capacity in kWh (from vehicles table). Omit when unknown.
   pack_kwh?: number;
+  // ISO 8601 UTC of planned departure; backend uses it to fetch forecast
+  // weather for that hour instead of "now".
+  departure_datetime?: string;
 };
 
 // TripAdvice is the AI-generated analysis returned by the advice endpoint.

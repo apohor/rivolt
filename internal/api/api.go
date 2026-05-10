@@ -1460,17 +1460,18 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			return
 		}
 		var body struct {
-			Plan        *rivian.TripPlan `json:"plan"`
-			Origin      string           `json:"origin"`
-			Destination string           `json:"destination"`
-			DriveMode   string           `json:"drive_mode"`
-			StartingSoC float64          `json:"starting_soc"`
-			HasAdapter  bool             `json:"has_adapter"`
-			TireFLBar   float64          `json:"tire_fl_bar"`
-			TireFRBar   float64          `json:"tire_fr_bar"`
-			TireRLBar   float64          `json:"tire_rl_bar"`
-			TireRRBar   float64          `json:"tire_rr_bar"`
-			PackKWh     float64          `json:"pack_kwh"`
+			Plan              *rivian.TripPlan `json:"plan"`
+			Origin            string           `json:"origin"`
+			Destination       string           `json:"destination"`
+			DriveMode         string           `json:"drive_mode"`
+			StartingSoC       float64          `json:"starting_soc"`
+			HasAdapter        bool             `json:"has_adapter"`
+			TireFLBar         float64          `json:"tire_fl_bar"`
+			TireFRBar         float64          `json:"tire_fr_bar"`
+			TireRLBar         float64          `json:"tire_rl_bar"`
+			TireRRBar         float64          `json:"tire_rr_bar"`
+			PackKWh           float64          `json:"pack_kwh"`
+			DepartureDatetime string           `json:"departure_datetime"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
@@ -1490,10 +1491,18 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			PackKWh:          body.PackKWh,
 		}
 		// Fetch weather at the origin when the operator has enabled the
-		// weather feature. Best-effort: a failure just omits the context.
+		// weather feature. Use the user-supplied departure datetime when
+		// present so a future plan gets a forecast for that hour, not now.
+		// Best-effort: a failure just omits the context.
 		if mgr.RecapWeatherEnabled() {
 			if lat, lon, ok := originLatLon(body.Plan); ok {
-				if snap, _, err := weather.NewClient().FetchHour(r.Context(), lat, lon, time.Now(), 0, false); err == nil {
+				at := time.Now()
+				if body.DepartureDatetime != "" {
+					if t, err := time.Parse(time.RFC3339, body.DepartureDatetime); err == nil {
+						at = t
+					}
+				}
+				if snap, _, err := weather.NewClient().FetchHour(r.Context(), lat, lon, at, 0, false); err == nil {
 					tc.Weather = snap
 				}
 			}
