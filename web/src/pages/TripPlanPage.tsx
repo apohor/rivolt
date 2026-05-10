@@ -34,6 +34,8 @@ export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
   const [targetSoc, setTargetSoc] = useState<string>("20");
+  // Empty = auto from live vehicle state; user can override.
+  const [startingSoc, setStartingSoc] = useState<string>("");
   const [driveMode, setDriveMode] = useState<DriveMode>("");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
 
@@ -133,10 +135,12 @@ export default function TripPlanPage() {
       }
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
       const vid = firstVehicle?.rivian_vehicle_id;
-      const soc = stateQuery.data?.battery_level_pct;
+      const liveSoc = stateQuery.data?.battery_level_pct;
+      const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
+      const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
       return backend.planTrip({
         vehicle_id: vid,
-        starting_soc: typeof soc === "number" && soc > 0 ? soc : undefined,
+        starting_soc: soc,
         origin_bearing: 0,
         target_arrival_soc_percent: target,
         drive_mode: driveMode || undefined,
@@ -157,7 +161,7 @@ export default function TripPlanPage() {
           origin: origin.label,
           destination: destination.label,
           drive_mode: driveMode || undefined,
-          starting_soc: stateQuery.data?.battery_level_pct,
+          starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? stateQuery.data?.battery_level_pct,
           has_adapter: hasAdapter,
         });
       }
@@ -185,9 +189,6 @@ export default function TripPlanPage() {
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
-            {typeof stateQuery.data?.battery_level_pct === "number" && (
-              <> · SoC: <span className="font-mono">{stateQuery.data.battery_level_pct.toFixed(0)}%</span></>
-            )}
           </p>
         )}
         <form onSubmit={onSubmit} className="space-y-4">
@@ -219,7 +220,23 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Starting SoC %</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={startingSoc}
+                onChange={(e) => setStartingSoc(e.target.value)}
+                placeholder={
+                  typeof stateQuery.data?.battery_level_pct === "number"
+                    ? String(Math.round(stateQuery.data.battery_level_pct))
+                    : "auto"
+                }
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-none"
+              />
+            </label>
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Target arrival SoC %</span>
               <input
@@ -287,6 +304,8 @@ export default function TripPlanPage() {
       {planMutation.data && (
         <TripPlanResult
           plan={planMutation.data}
+          originLabel={origin?.label ?? ""}
+          destLabel={destination?.label ?? ""}
           advice={adviceMutation.data}
           adviceLoading={adviceMutation.isPending}
         />
@@ -447,10 +466,14 @@ function formatGeocode(r: GeocodeResult): string {
 
 function TripPlanResult({
   plan,
+  originLabel,
+  destLabel,
   advice,
   adviceLoading,
 }: {
   plan: TripPlan;
+  originLabel: string;
+  destLabel: string;
   advice?: TripAdvice;
   adviceLoading?: boolean;
 }) {
@@ -471,7 +494,7 @@ function TripPlanResult({
         <TripAdviceCard advice={advice} loading={adviceLoading ?? false} />
       )}
       {plan.Routes.map((route, i) => (
-        <RouteCard key={i} route={route} index={i} />
+        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} />
       ))}
       {plan.SoCBelowLimit && (
         <ErrorBox
@@ -483,11 +506,24 @@ function TripPlanResult({
   );
 }
 
-function RouteCard({ route, index }: { route: TripRoute; index: number }) {
+function RouteCard({
+  route,
+  index,
+  originLabel,
+  destLabel,
+}: {
+  route: TripRoute;
+  index: number;
+  originLabel: string;
+  destLabel: string;
+}) {
   const charging = route.Waypoints.filter(
     (w) => w.WaypointType !== "ORIGIN" && w.WaypointType !== "DESTINATION" && w.WaypointType !== "OTHER",
   );
+  const origin = route.Waypoints.find((w) => w.WaypointType === "ORIGIN");
+  const dest = route.Waypoints.find((w) => w.WaypointType === "DESTINATION");
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
+  const showTable = origin || dest || charging.length > 0;
   return (
     <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
       <div className="mb-4">
@@ -502,7 +538,7 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
           value={route.EnergyConsumptionKWh > 0 ? `${route.EnergyConsumptionKWh.toFixed(1)} kWh` : "—"}
         />
       </dl>
-      {charging.length > 0 && (
+      {showTable && (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
@@ -517,6 +553,19 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
               </tr>
             </thead>
             <tbody>
+              {origin && (
+                <tr className="border-b border-neutral-900 text-neutral-400">
+                  <td className="px-2 py-2">S</td>
+                  <td className="px-2 py-2">{originLabel || origin.Name || "Origin"}</td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2 font-mono text-neutral-100">
+                    {origin.DepartureSoC > 0 ? `${origin.DepartureSoC.toFixed(0)}%` : "—"}
+                  </td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2"></td>
+                </tr>
+              )}
               {charging.map((w, j) => (
                 <tr key={j} className="border-b border-neutral-900">
                   <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
@@ -528,6 +577,19 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
                   <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
                 </tr>
               ))}
+              {dest && (
+                <tr className="border-b border-neutral-900 text-neutral-400">
+                  <td className="px-2 py-2">E</td>
+                  <td className="px-2 py-2">{destLabel || dest.Name || "Destination"}</td>
+                  <td className="px-2 py-2 font-mono text-neutral-100">
+                    {dest.ArrivalSoC > 0 ? `${dest.ArrivalSoC.toFixed(0)}%` : "—"}
+                  </td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2">—</td>
+                  <td className="px-2 py-2"></td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
