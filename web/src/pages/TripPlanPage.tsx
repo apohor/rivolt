@@ -190,6 +190,75 @@ export default function TripPlanPage() {
           </p>
         )}
         <form onSubmit={onSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Starting SoC %</span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={startingSoc}
+                onChange={(e) => setStartingSoc(e.target.value)}
+                placeholder={
+                  typeof stateQuery.data?.battery_level_pct === "number"
+                    ? String(Math.round(stateQuery.data.battery_level_pct))
+                    : "auto"
+                }
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Target arrival SoC %</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={targetSoc}
+                onChange={(e) => setTargetSoc(e.target.value)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Drive mode</span>
+              <select
+                value={driveMode}
+                onChange={(e) => setDriveMode(e.target.value as DriveMode)}
+                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+              >
+                <option value="">Default (let planner pick)</option>
+                <option value="EVERYDAY">All-Purpose</option>
+                <option value="DISTANCE">Conserve (fewer / shorter stops)</option>
+                <option value="SPORT">Sport</option>
+                <option value="WINTER">Snow</option>
+                <option value="OFF_ROAD_AUTO">All-Terrain</option>
+              </select>
+            </label>
+            <div className="flex flex-col gap-1 text-sm">
+              <span className="text-neutral-400">Tesla NACS adapter</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={hasAdapter}
+                onClick={() => setHasAdapter((v) => !v)}
+                className={`flex items-center justify-between rounded-md border border-neutral-700 px-3 py-2 transition-colors ${
+                  hasAdapter ? "bg-emerald-900/30" : "bg-neutral-900"
+                }`}
+              >
+                <span className="text-neutral-300">{hasAdapter ? "Yes" : "No"}</span>
+                <span
+                  className={`relative inline-block h-5 w-9 rounded-full transition-colors ${
+                    hasAdapter ? "bg-emerald-600" : "bg-neutral-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      hasAdapter ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
+            </div>
+          </div>
           <LocationField
             heading="From"
             value={origin}
@@ -244,64 +313,6 @@ export default function TripPlanPage() {
             />
             <span className="text-xs text-neutral-600">Leave blank to depart now</span>
           </label>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Starting SoC %</span>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={startingSoc}
-                onChange={(e) => setStartingSoc(e.target.value)}
-                placeholder={
-                  typeof stateQuery.data?.battery_level_pct === "number"
-                    ? String(Math.round(stateQuery.data.battery_level_pct))
-                    : "auto"
-                }
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Target arrival SoC %</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={targetSoc}
-                onChange={(e) => setTargetSoc(e.target.value)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Drive mode</span>
-              <select
-                value={driveMode}
-                onChange={(e) => setDriveMode(e.target.value as DriveMode)}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-              >
-                <option value="">Default (let planner pick)</option>
-                <option value="EVERYDAY">All-Purpose</option>
-                <option value="DISTANCE">Conserve (fewer / shorter stops)</option>
-                <option value="SPORT">Sport</option>
-                <option value="WINTER">Snow</option>
-                <option value="OFF_ROAD_AUTO">All-Terrain</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Tesla NACS adapter</span>
-              <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={hasAdapter}
-                  onChange={(e) => setHasAdapter(e.target.checked)}
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                <span className="text-neutral-300">
-                  Vehicle has the Tesla adapter (allows Supercharger stops)
-                </span>
-              </label>
-            </label>
-          </div>
           <div className="flex items-center gap-3">
             <button
               type="submit"
