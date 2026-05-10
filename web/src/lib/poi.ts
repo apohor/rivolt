@@ -389,13 +389,27 @@ export async function findChargersAlongPath(
           const [flon, flat] = gj.geometry.coordinates as [number, number];
           const props = f.properties as Record<string, unknown>;
           const maxKW = extractMaxPowerKW(props);
-          const hasDCConnector =
+          // NREL's TESLA connector covers both Supercharger (DCFC) and
+          // Destination (L2), so tesla_supercharger alone is NOT a
+          // reliable DC indicator. Use explicit DC count when the
+          // pipeline emits it; fall back to unambiguous DC connectors
+          // (CCS1, CHAdeMO) or known maxPowerKW ≥ 50.
+          const dcfcCount = typeof props["dcfc_count"] === "number" ? (props["dcfc_count"] as number) : undefined;
+          const l2Count = typeof props["l2_count"] === "number" ? (props["l2_count"] as number) : undefined;
+          const hasUnambiguousDC =
             props["socket:type1_combo"] === "yes" ||
-            props["socket:chademo"] === "yes" ||
-            props["socket:tesla_supercharger"] === "yes";
-          const isDCFC = hasDCConnector || (maxKW !== undefined && maxKW >= 50);
+            props["socket:chademo"] === "yes";
+          let isDCFC: boolean;
+          if (dcfcCount !== undefined) {
+            isDCFC = dcfcCount > 0;
+          } else {
+            isDCFC = hasUnambiguousDC || (maxKW !== undefined && maxKW >= 50);
+          }
+          // For L2: prefer explicit l2_count when present, else infer
+          // from absence of DCFC signal.
+          const isL2 = l2Count !== undefined ? l2Count > 0 : !isDCFC;
           if (filter === "dcfc" && !isDCFC) continue;
-          if (filter === "l2" && isDCFC) continue;
+          if (filter === "l2" && !isL2) continue;
           const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
           if (!seen.has(k)) {
             seen.set(k, { ...chargersLookup.toPOI(props, {
