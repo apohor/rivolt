@@ -314,12 +314,21 @@ async function findInArchive(
   return best;
 }
 
-// findChargersAlongPath scans the chargers archive for DCFC stations
-// (≥ minPowerKW) within the corridor of a route polyline. It samples
-// the path at ~10 km intervals, collects the 3×3 z14 tile block
-// around each sample, deduplicates tiles across samples, and fetches
-// them all in parallel. Returns [] when no chargers archive is
-// configured (i.e. chargersPMTilesURL() is empty).
+// CORRIDOR_KM is the half-width of the charger search band around
+// a planned route — 50 miles expressed in kilometres.
+const CORRIDOR_KM = 80.5;
+
+// findChargersAlongPath returns all DCFC stations within CORRIDOR_KM
+// of any point on the route. It expands the route's bounding box by
+// CORRIDOR_KM on all sides, enumerates every z14 tile in that bbox,
+// and fetches them in parallel. PMTiles' internal directory structure
+// means most tile lookups are in-memory cache hits; only tiles that
+// actually contain charger data trigger HTTP range reads.
+//
+// DCFC detection: accept a station if it has a known maxPowerKW ≥
+// minPowerKW OR if it carries a DC connector tag (CCS1 / CHAdeMO /
+// Tesla SC). The NREL AFDC source omits kW at the station level, so
+// connector-type fallback is required for the primary archive.
 export async function findChargersAlongPath(
   path: [number, number][],
   minPowerKW = 50,
@@ -331,41 +340,40 @@ export async function findChargersAlongPath(
   if (!pm) return [];
   const z = chargersLookup.z;
 
-  const tileSet = new Set<string>();
-  const tilesToFetch: [number, number][] = [];
-  const addPoint = (lat: number, lon: number) => {
-    const cx = lonToTileX(lon, z);
-    const cy = latToTileY(lat, z);
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const k = `${cx + dx},${cy + dy}`;
-        if (!tileSet.has(k)) {
-          tileSet.add(k);
-          tilesToFetch.push([cx + dx, cy + dy]);
-        }
-      }
-    }
-  };
+  // Build the route bounding box.
+  let minLat = path[0][0], maxLat = path[0][0];
+  let minLon = path[0][1], maxLon = path[0][1];
+  for (const [lat, lon] of path) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  }
 
-  const SAMPLE_M = 10_000;
-  let accumulated = 0;
-  addPoint(path[0][0], path[0][1]);
-  for (let i = 1; i < path.length; i++) {
-    const dist = haversineMeters(
-      path[i - 1][0], path[i - 1][1],
-      path[i][0], path[i][1],
-    );
-    accumulated += dist;
-    if (accumulated >= SAMPLE_M) {
-      addPoint(path[i][0], path[i][1]);
-      accumulated = 0;
+  // Expand by CORRIDOR_KM degrees on all sides.
+  const midLat = (minLat + maxLat) / 2;
+  const dLat = CORRIDOR_KM / 111.32;
+  const dLon = CORRIDOR_KM / (111.32 * Math.cos((midLat * Math.PI) / 180));
+  minLat -= dLat; maxLat += dLat;
+  minLon -= dLon; maxLon += dLon;
+
+  // Enumerate all z14 tiles within the expanded bbox.
+  // TMS convention: y increases downward — northernmost lat → smallest y.
+  const txMin = lonToTileX(minLon, z);
+  const txMax = lonToTileX(maxLon, z);
+  const tyMin = latToTileY(maxLat, z);
+  const tyMax = latToTileY(minLat, z);
+
+  const tiles: [number, number][] = [];
+  for (let tx = txMin; tx <= txMax; tx++) {
+    for (let ty = tyMin; ty <= tyMax; ty++) {
+      tiles.push([tx, ty]);
     }
   }
-  addPoint(path[path.length - 1][0], path[path.length - 1][1]);
 
   const seen = new Map<string, POI>();
   await Promise.all(
-    tilesToFetch.map(async ([tx, ty]) => {
+    tiles.map(async ([tx, ty]) => {
       try {
         const result = await pm.getZxy(z, tx, ty);
         if (!result) return;
@@ -379,11 +387,6 @@ export async function findChargersAlongPath(
           const [flon, flat] = gj.geometry.coordinates as [number, number];
           const props = f.properties as Record<string, unknown>;
           const maxKW = extractMaxPowerKW(props);
-          // NREL AFDC data (our primary archive) carries no kW field —
-          // fall back to connector-type detection. Presence of a DC
-          // connector (CCS1 / CHAdeMO / Tesla SC) is a reliable proxy
-          // for "fast charger"; Level-1/2 J1772 and NEMA outlets
-          // are excluded by this check.
           const hasDCConnector =
             props["socket:type1_combo"] === "yes" ||
             props["socket:chademo"] === "yes" ||

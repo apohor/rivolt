@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { valhallaBase, ensureConfig } from "../lib/config";
+import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
+import { namedFlavor } from "@protomaps/basemaps";
+import { valhallaBase, tilesPMTilesURL, ensureConfig } from "../lib/config";
 import { findChargersAlongPath } from "../lib/poi";
 import type { POI } from "../lib/poi";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
@@ -53,7 +55,7 @@ export function TripRouteMap({
     });
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    addCartoDark(map);
+    addBasemap(map);
 
     // Initial fit to the waypoint bounds; the road-snapped path
     // refines this once it lands.
@@ -233,29 +235,30 @@ function chargerPopupHTML(poi: POI, addable: boolean): string {
   return lines.join("");
 }
 
-// addCartoDark mirrors the basemap used elsewhere — same dark
-// raster split into a no-labels and labels-only layer so place
-// names stay legible above the polyline.
+const PROTOMAPS_ATTRIB =
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
 const CARTO_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>';
-function addCartoDark(map: L.Map) {
+
+// addBasemap uses the self-hosted Protomaps PMTiles basemap when
+// configured, falling back to CartoCDN dark tiles otherwise.
+function addBasemap(map: L.Map) {
+  const url = tilesPMTilesURL();
+  if (url) {
+    const flavor = namedFlavor("dark");
+    leafletLayer({
+      url,
+      paintRules: paintRules(flavor),
+      labelRules: labelRules(flavor, "en"),
+      backgroundColor: flavor.background,
+      attribution: PROTOMAPS_ATTRIB,
+    }).addTo(map);
+    return;
+  }
+  // Fallback: CartoCDN dark raster.
   L.tileLayer(
     "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-    {
-      subdomains: "abcd",
-      maxZoom: 19,
-      attribution: CARTO_ATTRIB,
-      pane: "tilePane",
-    },
-  ).addTo(map);
-  L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
-    {
-      subdomains: "abcd",
-      maxZoom: 19,
-      attribution: "",
-      pane: "shadowPane",
-    },
+    { subdomains: "abcd", maxZoom: 19, attribution: CARTO_ATTRIB },
   ).addTo(map);
 }
 

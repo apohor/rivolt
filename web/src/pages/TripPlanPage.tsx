@@ -562,11 +562,15 @@ function RouteCard({
   destLabel: string;
   onAddStop?: StopAdder;
 }) {
+  // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
+  // "destination" / "waypoint"); compare case-insensitively so the
+  // table renders correctly regardless of casing.
+  const wpType = (w: { WaypointType: string }) => w.WaypointType.toLowerCase();
   const charging = route.Waypoints.filter(
-    (w) => w.WaypointType !== "ORIGIN" && w.WaypointType !== "DESTINATION" && w.WaypointType !== "OTHER",
+    (w) => wpType(w) !== "origin" && wpType(w) !== "destination" && wpType(w) !== "waypoint" && wpType(w) !== "other",
   );
-  const origin = route.Waypoints.find((w) => w.WaypointType === "ORIGIN");
-  const dest = route.Waypoints.find((w) => w.WaypointType === "DESTINATION");
+  const origin = route.Waypoints.find((w) => wpType(w) === "origin");
+  const dest = route.Waypoints.find((w) => wpType(w) === "destination");
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   const showTable = origin || dest || charging.length > 0;
   return (
