@@ -237,29 +237,18 @@ function chargerPopupHTML(poi: POI, addable: boolean): string {
 
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
-const CARTO_ATTRIB =
-  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>';
 
-// addBasemap uses the self-hosted Protomaps PMTiles basemap when
-// configured, falling back to CartoCDN dark tiles otherwise.
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
-  if (url) {
-    const flavor = namedFlavor("dark");
-    leafletLayer({
-      url,
-      paintRules: paintRules(flavor),
-      labelRules: labelRules(flavor, "en"),
-      backgroundColor: flavor.background,
-      attribution: PROTOMAPS_ATTRIB,
-    }).addTo(map);
-    return;
-  }
-  // Fallback: CartoCDN dark raster.
-  L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-    { subdomains: "abcd", maxZoom: 19, attribution: CARTO_ATTRIB },
-  ).addTo(map);
+  if (!url) return;
+  const flavor = namedFlavor("dark");
+  leafletLayer({
+    url,
+    paintRules: paintRules(flavor),
+    labelRules: labelRules(flavor, "en"),
+    backgroundColor: flavor.background,
+    attribution: PROTOMAPS_ATTRIB,
+  }).addTo(map);
 }
 
 // valhallaMultiRoute POSTs every waypoint as a single trip and
