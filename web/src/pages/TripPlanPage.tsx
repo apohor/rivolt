@@ -433,16 +433,19 @@ function LocationSearch({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query), 300);
+    const t = setTimeout(() => setDebounced(query), 150);
     return () => clearTimeout(t);
   }, [query]);
 
   const results = useQuery({
     queryKey: ["geocode", debounced],
-    queryFn: () => backend.geocode(debounced, 5),
+    queryFn: () => backend.geocode(debounced, 8),
     enabled: debounced.trim().length >= 2,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Pending: either debounce hasn't fired yet or query is in flight.
+  const pending = query !== debounced || results.isFetching;
 
   useEffect(() => {
     if (!open) return;
@@ -456,21 +459,29 @@ function LocationSearch({
   }, [open]);
 
   const items = results.data ?? [];
+  const showDropdown = open && query.trim().length >= 2;
 
   return (
     <div className="relative" ref={containerRef}>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        placeholder={placeholder}
-        className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-      />
-      {open && items.length > 0 && (
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        />
+        {pending && query.trim().length >= 2 && (
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
+            <Spinner />
+          </span>
+        )}
+      </div>
+      {showDropdown && (items.length > 0 ? (
         <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
           {items.map((r) => (
             <li key={`${r.latitude},${r.longitude}`}>
@@ -494,7 +505,11 @@ function LocationSearch({
             </li>
           ))}
         </ul>
-      )}
+      ) : !pending && results.isFetched ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-500 shadow-lg">
+          No results
+        </div>
+      ) : null)}
     </div>
   );
 }

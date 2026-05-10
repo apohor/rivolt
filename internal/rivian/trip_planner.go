@@ -189,7 +189,7 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 			Waypoints:            make([]PlannedWaypoint, 0, len(p.Waypoints)),
 		}
 		for _, w := range p.Waypoints {
-			slog.DebugContext(ctx, "planTrip2 waypoint", "waypointType", w.WaypointType, "lat", w.Latitude, "lon", w.Longitude)
+			slog.InfoContext(ctx, "planTrip2 waypoint", "waypointType", w.WaypointType, "lat", w.Latitude, "lon", w.Longitude)
 			pw := PlannedWaypoint{
 				WaypointType:             w.WaypointType,
 				Latitude:                 w.Latitude,
