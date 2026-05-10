@@ -401,20 +401,8 @@ function DeparturePicker({
     <div className="flex flex-col gap-1 text-sm">
       <span className="text-neutral-400">Departure</span>
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          value={date || ""}
-          onChange={(e) => setDate(e.target.value)}
-          style={{ colorScheme: "dark" }}
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-        />
-        <input
-          type="time"
-          value={time || ""}
-          onChange={(e) => setTime(e.target.value)}
-          style={{ colorScheme: "dark" }}
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-        />
+        <DatePopover value={date || ""} onChange={setDate} />
+        <TimePopover value={time || ""} onChange={setTime} />
         {presets.map((p) => (
           <button
             key={p.label}
@@ -440,6 +428,249 @@ function DeparturePicker({
       </span>
     </div>
   );
+}
+
+// useOutsideClick closes the popup when the user clicks anywhere
+// outside the referenced element. Shared by DatePopover and TimePopover.
+function useOutsideClick(
+  ref: React.RefObject<HTMLElement | null>,
+  onOutside: () => void,
+  active: boolean,
+) {
+  useEffect(() => {
+    if (!active) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onOutside();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [active, ref, onOutside]);
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const DOW_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+// DatePopover renders a button showing the formatted date; clicking it
+// opens a calendar grid styled to match the rest of the dark UI.
+function DatePopover({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useOutsideClick(containerRef, () => setOpen(false), open);
+
+  const today = new Date();
+  const selected = value ? parseLocalDate(value) : null;
+  const initial = selected ?? today;
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+
+  // Build a 6-week grid starting on Sunday. Days outside the view
+  // month render dimmed so the grid stays a fixed 6×7 — no jitter
+  // as the user pages between months.
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(1 - firstOfMonth.getDay());
+  const cells: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    cells.push(d);
+  }
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const label = selected
+    ? selected.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })
+    : "Select date";
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 hover:border-neutral-500 focus:outline-none"
+      >
+        <span className="text-neutral-500">📅</span>
+        <span className={selected ? "" : "text-neutral-500"}>{label}</span>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-72 rounded-md border border-neutral-700 bg-neutral-900 p-3 shadow-lg">
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                const m = viewMonth - 1;
+                if (m < 0) { setViewYear(viewYear - 1); setViewMonth(11); }
+                else setViewMonth(m);
+              }}
+              className="rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            >‹</button>
+            <span className="text-sm text-neutral-200">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const m = viewMonth + 1;
+                if (m > 11) { setViewYear(viewYear + 1); setViewMonth(0); }
+                else setViewMonth(m);
+              }}
+              className="rounded px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            >›</button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
+            {DOW_LABELS.map((d) => (
+              <div key={d} className="py-1 text-neutral-500">{d}</div>
+            ))}
+            {cells.map((d, i) => {
+              const inMonth = d.getMonth() === viewMonth;
+              const isToday = isSameDay(d, today);
+              const isSelected = selected && isSameDay(d, selected);
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    onChange(formatLocalDate(d));
+                    setOpen(false);
+                  }}
+                  className={`rounded py-1.5 text-sm transition-colors ${
+                    isSelected
+                      ? "bg-emerald-700 text-emerald-50"
+                      : inMonth
+                        ? "text-neutral-200 hover:bg-neutral-800"
+                        : "text-neutral-600 hover:bg-neutral-800"
+                  } ${isToday && !isSelected ? "ring-1 ring-neutral-600" : ""}`}
+                >
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex justify-between border-t border-neutral-800 pt-2">
+            <button
+              type="button"
+              onClick={() => { onChange(formatLocalDate(new Date())); setOpen(false); }}
+              className="text-xs text-neutral-400 hover:text-neutral-100"
+            >Today</button>
+            {value && (
+              <button
+                type="button"
+                onClick={() => { onChange(""); setOpen(false); }}
+                className="text-xs text-neutral-500 hover:text-neutral-300"
+              >Clear</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// TimePopover renders a button with the formatted time; clicking it
+// opens hour/minute scrollers in a popup styled like the rest of the UI.
+function TimePopover({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  useOutsideClick(containerRef, () => setOpen(false), open);
+
+  const [hh, mm] = value ? value.split(":") : ["", ""];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const label = value
+    ? new Date(`2000-01-01T${value}`).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "Time";
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 hover:border-neutral-500 focus:outline-none"
+      >
+        <span className="text-neutral-500">🕐</span>
+        <span className={value ? "" : "text-neutral-500"}>{label}</span>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 flex gap-2 rounded-md border border-neutral-700 bg-neutral-900 p-2 shadow-lg">
+          <ScrollColumn
+            options={Array.from({ length: 24 }, (_, i) => pad(i))}
+            selected={hh}
+            onSelect={(h) => onChange(`${h}:${mm || "00"}`)}
+            label="Hour"
+          />
+          <ScrollColumn
+            options={Array.from({ length: 12 }, (_, i) => pad(i * 5))}
+            selected={mm}
+            onSelect={(m) => onChange(`${hh || pad(new Date().getHours())}:${m}`)}
+            label="Min"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScrollColumn({
+  options,
+  selected,
+  onSelect,
+  label,
+}: {
+  options: string[];
+  selected: string;
+  onSelect: (v: string) => void;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col items-center">
+      <div className="mb-1 text-xs text-neutral-500">{label}</div>
+      <div className="h-40 w-12 overflow-y-auto rounded border border-neutral-800">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onSelect(opt)}
+            className={`block w-full px-2 py-1 text-sm tabular-nums transition-colors ${
+              opt === selected
+                ? "bg-emerald-700 text-emerald-50"
+                : "text-neutral-300 hover:bg-neutral-800"
+            }`}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// formatLocalDate / parseLocalDate avoid the UTC interpretation that
+// `new Date("YYYY-MM-DD")` triggers (which can shift the day on the
+// user's tz). Always work in local time for the date portion.
+function formatLocalDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function parseLocalDate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 // LocationField is a single Origin or Destination row: shows the
