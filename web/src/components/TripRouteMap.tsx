@@ -29,12 +29,18 @@ export function TripRouteMap({
   onAddStop?: AddStop;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const chargerLayerRef = useRef<L.LayerGroup | null>(null);
+  const [routePath, setRoutePath] = useState<[number, number][]>([]);
   const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "all">("dcfc");
+  const [chargerCount, setChargerCount] = useState<number | null>(null);
+  const [chargersLoading, setChargersLoading] = useState(false);
   // Ref so the async effect can call the latest callback without
   // being in the dep array (which would re-mount the map on every render).
   const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
 
+  // Effect 1: build map + Valhalla path. Re-runs only on route change.
   useEffect(() => {
     if (!ref.current) return;
     const ws = route.Waypoints.filter(
@@ -54,17 +60,14 @@ export function TripRouteMap({
       wheelPxPerZoomLevel: 120,
       fadeAnimation: true,
     });
+    mapRef.current = map;
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
     addBasemap(map);
 
-    // Initial fit to the waypoint bounds; the road-snapped path
-    // refines this once it lands.
     const wpLatLngs = ws.map((w) => [w.Latitude, w.Longitude] as [number, number]);
     map.fitBounds(L.latLngBounds(wpLatLngs), { padding: [24, 24], maxZoom: 12 });
 
-    // Straight-line placeholder so the polyline shows up immediately
-    // even before the Valhalla call lands.
     const placeholder = L.polyline(wpLatLngs, {
       color: "#34d399",
       weight: 2,
@@ -72,9 +75,6 @@ export function TripRouteMap({
       dashArray: "4 6",
     }).addTo(map);
 
-    // Markers, in waypoint order. Origin / destination get distinct
-    // colors so the direction reads at a glance; intermediate stops
-    // are amber and labeled with the charger name + max kW.
     for (let i = 0; i < ws.length; i++) {
       const w = ws[i];
       const isFirst = i === 0;
@@ -88,15 +88,16 @@ export function TripRouteMap({
         .bindTooltip(tooltipBody, { sticky: true, opacity: 0.95 });
     }
 
-    // Async pass: road-snap via Valhalla, then overlay nearby DCFC chargers.
+    // Dedicated layer group so the charger overlay can be swapped on
+    // filter change without touching the basemap/route layers.
+    const layer = L.layerGroup().addTo(map);
+    chargerLayerRef.current = layer;
+
     const ac = new AbortController();
     void (async () => {
       await ensureConfig();
       if (ac.signal.aborted) return;
-
-      // Use Valhalla road-snapped path when available; fall back to
-      // straight-line waypoint path for the charger corridor query.
-      let routePath: [number, number][] = wpLatLngs;
+      let path: [number, number][] = wpLatLngs;
       if (valhallaBase() !== "") {
         const snapped = await valhallaMultiRoute(ws, ac.signal);
         if (snapped && snapped.length >= 2 && !ac.signal.aborted) {
@@ -107,17 +108,40 @@ export function TripRouteMap({
             opacity: 0.85,
           }).addTo(map);
           map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 13 });
-          routePath = snapped;
+          path = snapped;
         }
       }
       if (ac.signal.aborted) return;
+      setRoutePath(path);
+    })();
 
-      // Overlay chargers near the route corridor, filtered by type.
+    return () => {
+      ac.abort();
+      map.remove();
+      mapRef.current = null;
+      chargerLayerRef.current = null;
+      setRoutePath([]);
+      setChargerCount(null);
+    };
+  }, [route]);
+
+  // Effect 2: charger overlay. Re-runs on filter or routePath change.
+  // Clears + re-populates only the charger layer group — the basemap
+  // and route polyline stay put, so the filter swap feels instant.
+  useEffect(() => {
+    if (routePath.length < 2 || !mapRef.current || !chargerLayerRef.current) return;
+    const layer = chargerLayerRef.current;
+    const map = mapRef.current;
+    const ac = new AbortController();
+    setChargersLoading(true);
+    void (async () => {
       const chargers = await findChargersAlongPath(routePath, chargerFilter);
       if (ac.signal.aborted) return;
+      layer.clearLayers();
+      setChargerCount(chargers.length);
+      setChargersLoading(false);
       for (const poi of chargers) {
         const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(poi.isDCFC !== false) })
-          .addTo(map)
           .bindPopup(chargerPopupHTML(poi, !!onAddStopRef.current));
         m.on("popupopen", (e) => {
           const btn = (e.popup.getElement() as HTMLElement | null)
@@ -133,14 +157,14 @@ export function TripRouteMap({
             });
           }
         });
+        layer.addLayer(m);
       }
     })();
-
     return () => {
       ac.abort();
-      map.remove();
+      setChargersLoading(false);
     };
-  }, [route, chargerFilter]);
+  }, [routePath, chargerFilter]);
 
   const filterLabels: Record<typeof chargerFilter, string> = {
     dcfc: "DCFC",
@@ -165,6 +189,9 @@ export function TripRouteMap({
             {filterLabels[f]}
           </button>
         ))}
+        <span className="text-xs text-neutral-500 ml-1">
+          {chargersLoading ? "…" : chargerCount != null ? `${chargerCount} found` : ""}
+        </span>
         {chargerFilter === "all" && (
           <span className="text-xs text-neutral-600 ml-1">
             <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;

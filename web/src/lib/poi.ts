@@ -317,8 +317,8 @@ async function findInArchive(
 }
 
 // CORRIDOR_KM is the half-width of the charger search band around
-// a planned route — 50 miles expressed in kilometres.
-const CORRIDOR_KM = 80.5;
+// a planned route — 20 miles expressed in kilometres.
+const CORRIDOR_KM = 32.2;
 
 // findChargersAlongPath returns all DCFC stations within CORRIDOR_KM
 // of any point on the route. It expands the route's bounding box by
