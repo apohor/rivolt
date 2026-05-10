@@ -190,6 +190,7 @@ export default function TripPlanPage() {
           </p>
         )}
         <form onSubmit={onSubmit} className="space-y-4">
+          <DeparturePicker value={departureAt} onChange={setDepartureAt} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
@@ -303,16 +304,6 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-neutral-400">Departure date &amp; time</span>
-            <input
-              type="datetime-local"
-              value={departureAt}
-              onChange={(e) => setDepartureAt(e.target.value)}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-            />
-            <span className="text-xs text-neutral-600">Leave blank to depart now</span>
-          </label>
           <div className="flex items-center gap-3">
             <button
               type="submit"
@@ -374,6 +365,81 @@ export default function TripPlanPage() {
           departureAt={departureAt}
         />
       )}
+    </div>
+  );
+}
+
+// DeparturePicker splits the departure datetime into native date + time
+// pickers and exposes "Now" / "+1h" / "Tomorrow 8am" presets. Stores the
+// combined value as a datetime-local string ("" = depart now).
+function DeparturePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [date, time] = value.split("T");
+  const setDate = (d: string) => onChange(d ? `${d}T${time || "08:00"}` : "");
+  const setTime = (t: string) => onChange(date ? `${date}T${t}` : "");
+  const toLocalDT = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const presets: { label: string; build: () => string }[] = [
+    {
+      label: "+1h",
+      build: () => toLocalDT(new Date(Date.now() + 60 * 60 * 1000)),
+    },
+    {
+      label: "Tomorrow 8am",
+      build: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(8, 0, 0, 0);
+        return toLocalDT(d);
+      },
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <span className="text-neutral-400">Departure</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          value={date || ""}
+          onChange={(e) => setDate(e.target.value)}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        />
+        <input
+          type="time"
+          value={time || ""}
+          onChange={(e) => setTime(e.target.value)}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+        />
+        {presets.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onChange(p.build())}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-500 hover:text-neutral-100"
+          >
+            {p.label}
+          </button>
+        ))}
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-500 hover:text-neutral-300"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <span className="text-xs text-neutral-600">
+        {value ? "Departure shifted; route times update accordingly" : "Depart now"}
+      </span>
     </div>
   );
 }
