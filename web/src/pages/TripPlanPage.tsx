@@ -157,26 +157,8 @@ export default function TripPlanPage() {
         ],
       });
     },
-    onSuccess: (plan) => {
-      // Fire AI advice immediately after the plan lands. The advice
-      // endpoint is in the 5-minute AI route group so slow models
-      // don't time out, but we don't block the plan display on it.
-      if (origin && destination) {
-        const sd = stateQuery.data;
-        adviceMutation.mutate({
-          plan,
-          origin: origin.label,
-          destination: destination.label,
-          drive_mode: driveMode || undefined,
-          starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? sd?.battery_level_pct,
-          has_adapter: hasAdapter,
-          tire_fl_bar: typeof sd?.tire_pressure_fl_bar === "number" && sd.tire_pressure_fl_bar > 0 ? sd.tire_pressure_fl_bar : undefined,
-          tire_fr_bar: typeof sd?.tire_pressure_fr_bar === "number" && sd.tire_pressure_fr_bar > 0 ? sd.tire_pressure_fr_bar : undefined,
-          tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
-          tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
-          pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
-        });
-      }
+    onSuccess: () => {
+      adviceMutation.reset();
     },
   });
 
@@ -336,6 +318,23 @@ export default function TripPlanPage() {
           destLabel={destination?.label ?? ""}
           advice={adviceMutation.data}
           adviceLoading={adviceMutation.isPending}
+          onAnalyze={() => {
+            if (!origin || !destination) return;
+            const sd = stateQuery.data;
+            adviceMutation.mutate({
+              plan: planMutation.data!,
+              origin: origin.label,
+              destination: destination.label,
+              drive_mode: driveMode || undefined,
+              starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? sd?.battery_level_pct,
+              has_adapter: hasAdapter,
+              tire_fl_bar: typeof sd?.tire_pressure_fl_bar === "number" && sd.tire_pressure_fl_bar > 0 ? sd.tire_pressure_fl_bar : undefined,
+              tire_fr_bar: typeof sd?.tire_pressure_fr_bar === "number" && sd.tire_pressure_fr_bar > 0 ? sd.tire_pressure_fr_bar : undefined,
+              tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
+              tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
+              pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
+            });
+          }}
           onAddStop={(stop) =>
             setExtraStops((prev) =>
               prev.some(
@@ -589,6 +588,7 @@ function TripPlanResult({
   destLabel,
   advice,
   adviceLoading,
+  onAnalyze,
   onAddStop,
 }: {
   plan: TripPlan;
@@ -596,6 +596,7 @@ function TripPlanResult({
   destLabel: string;
   advice?: TripAdvice;
   adviceLoading?: boolean;
+  onAnalyze?: () => void;
   onAddStop?: StopAdder;
 }) {
   if (plan.Routes.length === 0) {
@@ -611,9 +612,7 @@ function TripPlanResult({
   }
   return (
     <div className="space-y-4">
-      {(adviceLoading || advice) && (
-        <TripAdviceCard advice={advice} loading={adviceLoading ?? false} />
-      )}
+      <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />
       {plan.Routes.map((route, i) => (
         <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} onAddStop={onAddStop} />
       ))}
@@ -739,12 +738,24 @@ function RouteCard({
 function TripAdviceCard({
   advice,
   loading,
+  onAnalyze,
 }: {
   advice?: TripAdvice;
   loading: boolean;
+  onAnalyze?: () => void;
 }) {
   return (
     <Card title="AI analysis">
+      {!loading && !advice && (
+        <button
+          type="button"
+          onClick={onAnalyze}
+          disabled={!onAnalyze}
+          className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Analyze plan
+        </button>
+      )}
       {loading && !advice && (
         <div className="flex items-center gap-2 text-sm text-neutral-400">
           <Spinner />
