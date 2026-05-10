@@ -33,6 +33,7 @@ type DriveMode =
 export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
+  const [extraStops, setExtraStops] = useState<NonNullable<Selection>[]>([]);
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
@@ -147,6 +148,11 @@ export default function TripPlanPage() {
         has_adapter: hasAdapter,
         waypoints: [
           { latitude: origin.lat, longitude: origin.lon, waypoint_type: "OTHER" },
+          ...extraStops.map((s) => ({
+            latitude: s.lat,
+            longitude: s.lon,
+            waypoint_type: "OTHER",
+          })),
           { latitude: destination.lat, longitude: destination.lon, waypoint_type: "OTHER" },
         ],
       });
@@ -220,6 +226,28 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
+          {extraStops.length > 0 && (
+            <div className="space-y-2">
+              {extraStops.map((stop, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
+                >
+                  <span className="shrink-0 text-neutral-500">Via:</span>
+                  <span className="flex-1 text-neutral-100">{stop.label}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExtraStops((prev) => prev.filter((_, j) => j !== i))
+                    }
+                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
@@ -308,6 +336,17 @@ export default function TripPlanPage() {
           destLabel={destination?.label ?? ""}
           advice={adviceMutation.data}
           adviceLoading={adviceMutation.isPending}
+          onAddStop={(stop) =>
+            setExtraStops((prev) =>
+              prev.some(
+                (s) =>
+                  Math.abs(s.lat - stop.lat) < 0.0005 &&
+                  Math.abs(s.lon - stop.lon) < 0.0005,
+              )
+                ? prev
+                : [...prev, stop],
+            )
+          }
         />
       )}
     </div>
@@ -464,18 +503,22 @@ function formatGeocode(r: GeocodeResult): string {
   return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
 }
 
+type StopAdder = (stop: { lat: number; lon: number; label: string }) => void;
+
 function TripPlanResult({
   plan,
   originLabel,
   destLabel,
   advice,
   adviceLoading,
+  onAddStop,
 }: {
   plan: TripPlan;
   originLabel: string;
   destLabel: string;
   advice?: TripAdvice;
   adviceLoading?: boolean;
+  onAddStop?: StopAdder;
 }) {
   if (plan.Routes.length === 0) {
     return (
@@ -494,7 +537,7 @@ function TripPlanResult({
         <TripAdviceCard advice={advice} loading={adviceLoading ?? false} />
       )}
       {plan.Routes.map((route, i) => (
-        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} />
+        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} onAddStop={onAddStop} />
       ))}
       {plan.SoCBelowLimit && (
         <ErrorBox
@@ -511,11 +554,13 @@ function RouteCard({
   index,
   originLabel,
   destLabel,
+  onAddStop,
 }: {
   route: TripRoute;
   index: number;
   originLabel: string;
   destLabel: string;
+  onAddStop?: StopAdder;
 }) {
   const charging = route.Waypoints.filter(
     (w) => w.WaypointType !== "ORIGIN" && w.WaypointType !== "DESTINATION" && w.WaypointType !== "OTHER",
@@ -527,7 +572,7 @@ function RouteCard({
   return (
     <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
       <div className="mb-4">
-        <TripRouteMap route={route} />
+        <TripRouteMap route={route} onAddStop={onAddStop} />
       </div>
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
         <Stat label="Charging stops" value={String(charging.length)} />

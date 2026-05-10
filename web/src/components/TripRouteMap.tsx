@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { valhallaBase, ensureConfig } from "../lib/config";
+import { findChargersAlongPath } from "../lib/poi";
+import type { POI } from "../lib/poi";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
 
 // TripRouteMap renders a planned trip on a Leaflet map: a road-
@@ -13,14 +15,22 @@ import type { PlannedWaypoint, TripRoute } from "../lib/api";
 // Valhalla's /route accepts up to 50 locations in one POST so a
 // real-world trip (origin + a handful of stops + destination)
 // resolves in a single round trip. Shape is returned as polyline6.
+type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
+
 export function TripRouteMap({
   route,
   height = 320,
+  onAddStop,
 }: {
   route: TripRoute;
   height?: number;
+  onAddStop?: AddStop;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  // Ref so the async effect can call the latest callback without
+  // being in the dep array (which would re-mount the map on every render).
+  const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
+  useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -75,22 +85,52 @@ export function TripRouteMap({
         .bindTooltip(tooltipBody, { sticky: true, opacity: 0.95 });
     }
 
-    // Async pass: ask Valhalla to route through every waypoint and
-    // replace the dashed placeholder with the road-snapped path.
+    // Async pass: road-snap via Valhalla, then overlay nearby DCFC chargers.
     const ac = new AbortController();
     void (async () => {
       await ensureConfig();
       if (ac.signal.aborted) return;
-      if (valhallaBase() === "") return;
-      const path = await valhallaMultiRoute(ws, ac.signal);
-      if (!path || path.length < 2 || ac.signal.aborted) return;
-      placeholder.remove();
-      const line = L.polyline(path, {
-        color: "#34d399",
-        weight: 3,
-        opacity: 0.85,
-      }).addTo(map);
-      map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 13 });
+
+      // Use Valhalla road-snapped path when available; fall back to
+      // straight-line waypoint path for the charger corridor query.
+      let routePath: [number, number][] = wpLatLngs;
+      if (valhallaBase() !== "") {
+        const snapped = await valhallaMultiRoute(ws, ac.signal);
+        if (snapped && snapped.length >= 2 && !ac.signal.aborted) {
+          placeholder.remove();
+          const line = L.polyline(snapped, {
+            color: "#34d399",
+            weight: 3,
+            opacity: 0.85,
+          }).addTo(map);
+          map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 13 });
+          routePath = snapped;
+        }
+      }
+      if (ac.signal.aborted) return;
+
+      // Overlay fast chargers (≥ 50 kW) near the route corridor.
+      const chargers = await findChargersAlongPath(routePath);
+      if (ac.signal.aborted) return;
+      for (const poi of chargers) {
+        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon() })
+          .addTo(map)
+          .bindPopup(chargerPopupHTML(poi, !!onAddStopRef.current));
+        m.on("popupopen", (e) => {
+          const btn = (e.popup.getElement() as HTMLElement | null)
+            ?.querySelector<HTMLButtonElement>(".charger-add-btn");
+          if (btn) {
+            btn.addEventListener("click", () => {
+              const label =
+                poi.name ||
+                poi.network ||
+                `${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`;
+              onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
+              map.closePopup();
+            });
+          }
+        });
+      }
     })();
 
     return () => {
@@ -156,6 +196,41 @@ function dotIcon(color: string, size = 10): L.DivIcon {
     iconSize: [size + 4, size + 4],
     iconAnchor: [(size + 4) / 2, (size + 4) / 2],
   });
+}
+
+function chargerDotIcon(): L.DivIcon {
+  return L.divIcon({
+    className: "trip-charger-dot",
+    html: `<span style="display:block;width:8px;height:8px;border-radius:9999px;background:#06b6d4;border:1.5px solid #0a0a0a;opacity:0.85"></span>`,
+    iconSize: [11, 11],
+    iconAnchor: [5, 5],
+  });
+}
+
+function chargerPopupHTML(poi: POI, addable: boolean): string {
+  const name = poi.name || poi.network || "Charging station";
+  const lines: string[] = [
+    `<div style="font:12px/1.4 ui-sans-serif,system-ui;color:#111;min-width:150px">`,
+    `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
+  ];
+  if (poi.maxPowerKW && poi.maxPowerKW > 0) {
+    lines.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
+  }
+  if (poi.network && poi.network !== name) {
+    lines.push(`<div style="color:#555">${escapeHTML(poi.network)}</div>`);
+  }
+  if (poi.capacity && poi.capacity > 0) {
+    lines.push(`<div style="color:#555">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
+  }
+  if (addable) {
+    lines.push(
+      `<button class="charger-add-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
+      `background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
+      `Add as waypoint</button>`,
+    );
+  }
+  lines.push(`</div>`);
+  return lines.join("");
 }
 
 // addCartoDark mirrors the basemap used elsewhere — same dark

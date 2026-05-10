@@ -314,6 +314,90 @@ async function findInArchive(
   return best;
 }
 
+// findChargersAlongPath scans the chargers archive for DCFC stations
+// (≥ minPowerKW) within the corridor of a route polyline. It samples
+// the path at ~10 km intervals, collects the 3×3 z14 tile block
+// around each sample, deduplicates tiles across samples, and fetches
+// them all in parallel. Returns [] when no chargers archive is
+// configured (i.e. chargersPMTilesURL() is empty).
+export async function findChargersAlongPath(
+  path: [number, number][],
+  minPowerKW = 50,
+): Promise<POI[]> {
+  if (path.length < 2) return [];
+  const chargersURL = chargersPMTilesURL();
+  if (!chargersURL) return [];
+  const pm = getArchive(chargersURL, "chargers");
+  if (!pm) return [];
+  const z = chargersLookup.z;
+
+  const tileSet = new Set<string>();
+  const tilesToFetch: [number, number][] = [];
+  const addPoint = (lat: number, lon: number) => {
+    const cx = lonToTileX(lon, z);
+    const cy = latToTileY(lat, z);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const k = `${cx + dx},${cy + dy}`;
+        if (!tileSet.has(k)) {
+          tileSet.add(k);
+          tilesToFetch.push([cx + dx, cy + dy]);
+        }
+      }
+    }
+  };
+
+  const SAMPLE_M = 10_000;
+  let accumulated = 0;
+  addPoint(path[0][0], path[0][1]);
+  for (let i = 1; i < path.length; i++) {
+    const dist = haversineMeters(
+      path[i - 1][0], path[i - 1][1],
+      path[i][0], path[i][1],
+    );
+    accumulated += dist;
+    if (accumulated >= SAMPLE_M) {
+      addPoint(path[i][0], path[i][1]);
+      accumulated = 0;
+    }
+  }
+  addPoint(path[path.length - 1][0], path[path.length - 1][1]);
+
+  const seen = new Map<string, POI>();
+  await Promise.all(
+    tilesToFetch.map(async ([tx, ty]) => {
+      try {
+        const result = await pm.getZxy(z, tx, ty);
+        if (!result) return;
+        const tile = new VectorTile(new Pbf(result.data as ArrayBuffer));
+        const layer = tile.layers[chargersLookup.layer];
+        if (!layer) return;
+        for (let i = 0; i < layer.length; i++) {
+          const f = layer.feature(i);
+          const gj = f.toGeoJSON(tx, ty, z);
+          if (gj.geometry.type !== "Point") continue;
+          const [flon, flat] = gj.geometry.coordinates as [number, number];
+          const props = f.properties as Record<string, unknown>;
+          const maxKW = extractMaxPowerKW(props);
+          if (minPowerKW > 0 && (maxKW === undefined || maxKW < minPowerKW)) continue;
+          const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
+          if (!seen.has(k)) {
+            seen.set(k, chargersLookup.toPOI(props, {
+              lat: flat,
+              lon: flon,
+              kind: "charging_station",
+              distanceM: 0,
+            }));
+          }
+        }
+      } catch {
+        // Missing tile or corrupted MVT — skip
+      }
+    }),
+  );
+  return Array.from(seen.values());
+}
+
 // findNearestCharger queries the chargers archive first; on miss
 // (no archive configured, or no feature within radius), falls back
 // to the basemap pois layer. 250m default radius matches typical
