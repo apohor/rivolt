@@ -56,6 +56,8 @@ export type POI = {
   // Marker that this came from the rich chargers archive — UI can
   // use it to decide whether to render the spec-list table.
   source: "chargers" | "basemap";
+  // True when detection found DC connectors or maxPowerKW ≥ 50.
+  isDCFC?: boolean;
 };
 
 type ArchiveCache = {
@@ -331,7 +333,7 @@ const CORRIDOR_KM = 80.5;
 // connector-type fallback is required for the primary archive.
 export async function findChargersAlongPath(
   path: [number, number][],
-  minPowerKW = 50,
+  filter: "dcfc" | "l2" | "all" = "dcfc",
 ): Promise<POI[]> {
   if (path.length < 2) return [];
   const chargersURL = chargersPMTilesURL();
@@ -391,15 +393,17 @@ export async function findChargersAlongPath(
             props["socket:type1_combo"] === "yes" ||
             props["socket:chademo"] === "yes" ||
             props["socket:tesla_supercharger"] === "yes";
-          if (!hasDCConnector && (maxKW === undefined || maxKW < minPowerKW)) continue;
+          const isDCFC = hasDCConnector || (maxKW !== undefined && maxKW >= 50);
+          if (filter === "dcfc" && !isDCFC) continue;
+          if (filter === "l2" && isDCFC) continue;
           const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
           if (!seen.has(k)) {
-            seen.set(k, chargersLookup.toPOI(props, {
+            seen.set(k, { ...chargersLookup.toPOI(props, {
               lat: flat,
               lon: flon,
               kind: "charging_station",
               distanceM: 0,
-            }));
+            }), isDCFC });
           }
         }
       } catch {

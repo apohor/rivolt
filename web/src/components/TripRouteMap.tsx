@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
@@ -29,6 +29,7 @@ export function TripRouteMap({
   onAddStop?: AddStop;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "all">("dcfc");
   // Ref so the async effect can call the latest callback without
   // being in the dep array (which would re-mount the map on every render).
   const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
@@ -111,11 +112,11 @@ export function TripRouteMap({
       }
       if (ac.signal.aborted) return;
 
-      // Overlay fast chargers (≥ 50 kW) near the route corridor.
-      const chargers = await findChargersAlongPath(routePath);
+      // Overlay chargers near the route corridor, filtered by type.
+      const chargers = await findChargersAlongPath(routePath, chargerFilter);
       if (ac.signal.aborted) return;
       for (const poi of chargers) {
-        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon() })
+        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(poi.isDCFC !== false) })
           .addTo(map)
           .bindPopup(chargerPopupHTML(poi, !!onAddStopRef.current));
         m.on("popupopen", (e) => {
@@ -139,14 +140,44 @@ export function TripRouteMap({
       ac.abort();
       map.remove();
     };
-  }, [route]);
+  }, [route, chargerFilter]);
+
+  const filterLabels: Record<typeof chargerFilter, string> = {
+    dcfc: "DCFC",
+    l2: "L2",
+    all: "All",
+  };
 
   return (
-    <div
-      ref={ref}
-      className="rounded-lg overflow-hidden border border-neutral-800"
-      style={{ height }}
-    />
+    <div>
+      <div className="flex items-center gap-1 mb-1">
+        <span className="text-xs text-neutral-500 mr-1">Chargers:</span>
+        {(["dcfc", "l2", "all"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setChargerFilter(f)}
+            className={`px-2 py-0.5 text-xs rounded transition-colors ${
+              chargerFilter === f
+                ? "bg-cyan-800 text-cyan-100"
+                : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+            }`}
+          >
+            {filterLabels[f]}
+          </button>
+        ))}
+        {chargerFilter === "all" && (
+          <span className="text-xs text-neutral-600 ml-1">
+            <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;
+            <span style={{ color: "#a3e635" }}>●</span> L2
+          </span>
+        )}
+      </div>
+      <div
+        ref={ref}
+        className="rounded-lg overflow-hidden border border-neutral-800"
+        style={{ height }}
+      />
+    </div>
   );
 }
 
@@ -200,10 +231,11 @@ function dotIcon(color: string, size = 10): L.DivIcon {
   });
 }
 
-function chargerDotIcon(): L.DivIcon {
+function chargerDotIcon(isDCFC = true): L.DivIcon {
+  const color = isDCFC ? "#06b6d4" : "#a3e635";
   return L.divIcon({
     className: "trip-charger-dot",
-    html: `<span style="display:block;width:8px;height:8px;border-radius:9999px;background:#06b6d4;border:1.5px solid #0a0a0a;opacity:0.85"></span>`,
+    html: `<span style="display:block;width:8px;height:8px;border-radius:9999px;background:${color};border:1.5px solid #0a0a0a;opacity:0.85"></span>`,
     iconSize: [11, 11],
     iconAnchor: [5, 5],
   });

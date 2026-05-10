@@ -203,17 +203,6 @@ export default function TripPlanPage() {
                 : []),
             ]}
           />
-          <LocationField
-            heading="To"
-            value={destination}
-            onChange={setDestination}
-            presets={[
-              ...(home
-                ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
-                : []),
-              ...TX_PRESETS,
-            ]}
-          />
           <ViaStopList
             stops={extraStops}
             onRemove={(i) => setExtraStops((prev) => prev.filter((_, j) => j !== i))
@@ -229,6 +218,17 @@ export default function TripPlanPage() {
                   : [...prev, stop],
               )
             }
+          />
+          <LocationField
+            heading="To"
+            value={destination}
+            onChange={setDestination}
+            presets={[
+              ...(home
+                ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
+                : []),
+              ...TX_PRESETS,
+            ]}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
