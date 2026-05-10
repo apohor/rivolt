@@ -189,7 +189,6 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 			Waypoints:            make([]PlannedWaypoint, 0, len(p.Waypoints)),
 		}
 		for _, w := range p.Waypoints {
-			slog.InfoContext(ctx, "planTrip2 waypoint", "waypointType", w.WaypointType, "lat", w.Latitude, "lon", w.Longitude)
 			pw := PlannedWaypoint{
 				WaypointType:             w.WaypointType,
 				Latitude:                 w.Latitude,
@@ -200,10 +199,7 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureReachableMeters: w.DepartureRangeMeters,
 			}
 			// charger is null on origin/destination/manual waypoints,
-			// populated only on planner-picked charging stops. The
-			// real per-stop charge time + max-kW + name + adapter
-			// flag come from there; v0.17.131's apportionment hack
-			// is gone.
+			// populated only on planner-picked charging stops.
 			if w.Charger != nil {
 				pw.ChargeDurationSec = w.Charger.ChargeDurationSeconds
 				pw.MaxPowerKW = w.Charger.MaxPowerKw
@@ -213,13 +209,28 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 			}
 			route.Waypoints = append(route.Waypoints, pw)
 		}
+		// v2 returns user-submitted waypoints with type "WAYPOINT" rather
+		// than "ORIGIN"/"DESTINATION". Force positional types so the SPA
+		// can always render the S/E rows: first = ORIGIN, last = DESTINATION.
+		// Charging stops in between keep whatever type Rivian returned.
+		if n := len(route.Waypoints); n >= 2 {
+			t := strings.ToUpper(route.Waypoints[0].WaypointType)
+			if t != "ORIGIN" && t != "DESTINATION" {
+				route.Waypoints[0].WaypointType = "ORIGIN"
+			}
+			t = strings.ToUpper(route.Waypoints[n-1].WaypointType)
+			if t != "ORIGIN" && t != "DESTINATION" {
+				route.Waypoints[n-1].WaypointType = "DESTINATION"
+			}
+		}
 		out.Routes = append(out.Routes, route)
 	}
 	// v2 has no top-level chargeStationsAvailable; infer from the
 	// presence of charging waypoints across plans.
 	for _, r := range out.Routes {
 		for _, w := range r.Waypoints {
-			if w.WaypointType != "" && w.WaypointType != "ORIGIN" && w.WaypointType != "DESTINATION" && w.WaypointType != "WAYPOINT" {
+			t := strings.ToUpper(w.WaypointType)
+			if t != "" && t != "ORIGIN" && t != "DESTINATION" && t != "WAYPOINT" && t != "OTHER" {
 				out.ChargeStationsAvailable = true
 				break
 			}
