@@ -232,28 +232,22 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
-          {extraStops.length > 0 && (
-            <div className="space-y-2">
-              {extraStops.map((stop, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
-                >
-                  <span className="shrink-0 text-neutral-500">Via:</span>
-                  <span className="flex-1 text-neutral-100">{stop.label}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExtraStops((prev) => prev.filter((_, j) => j !== i))
-                    }
-                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
-                  >
-                    remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <ViaStopList
+            stops={extraStops}
+            onRemove={(i) => setExtraStops((prev) => prev.filter((_, j) => j !== i))
+            }
+            onAdd={(stop) =>
+              setExtraStops((prev) =>
+                prev.some(
+                  (s) =>
+                    Math.abs(s.lat - stop.lat) < 0.0005 &&
+                    Math.abs(s.lon - stop.lon) < 0.0005,
+                )
+                  ? prev
+                  : [...prev, stop],
+              )
+            }
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
@@ -510,6 +504,69 @@ function formatGeocode(r: GeocodeResult): string {
 }
 
 type StopAdder = (stop: { lat: number; lon: number; label: string }) => void;
+
+// ViaStopList renders existing via stops with remove buttons and a
+// search field for adding new ones by geocode.
+function ViaStopList({
+  stops,
+  onRemove,
+  onAdd,
+}: {
+  stops: NonNullable<Selection>[];
+  onRemove: (i: number) => void;
+  onAdd: StopAdder;
+}) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <div className="space-y-2">
+      {stops.map((stop, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
+        >
+          <span className="shrink-0 text-neutral-500">Via:</span>
+          <span className="flex-1 text-neutral-100">{stop.label}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+          >
+            remove
+          </button>
+        </div>
+      ))}
+      {adding ? (
+        <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-neutral-400">Add a stop</span>
+            <button
+              type="button"
+              onClick={() => setAdding(false)}
+              className="text-xs text-neutral-500 hover:text-neutral-300"
+            >
+              cancel
+            </button>
+          </div>
+          <LocationSearch
+            placeholder="Search city or place…"
+            onSelect={(r) => {
+              onAdd({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) });
+              setAdding(false);
+            }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="text-xs text-neutral-500 hover:text-neutral-300"
+        >
+          + add via stop
+        </button>
+      )}
+    </div>
+  );
+}
 
 function TripPlanResult({
   plan,
