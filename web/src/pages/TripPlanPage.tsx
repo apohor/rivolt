@@ -247,15 +247,11 @@ export default function TripPlanPage() {
               >
                 <span className="text-neutral-300">{hasAdapter ? "Yes" : "No"}</span>
                 <span
-                  className={`relative inline-block h-5 w-9 rounded-full transition-colors ${
-                    hasAdapter ? "bg-emerald-600" : "bg-neutral-700"
+                  className={`inline-flex h-5 w-9 items-center rounded-full px-0.5 transition-colors ${
+                    hasAdapter ? "bg-emerald-600 justify-end" : "bg-neutral-700 justify-start"
                   }`}
                 >
-                  <span
-                    className={`absolute top-0.5 inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      hasAdapter ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
+                  <span className="inline-block h-4 w-4 rounded-full bg-white shadow" />
                 </span>
               </button>
             </div>
@@ -409,12 +405,14 @@ function DeparturePicker({
           type="date"
           value={date || ""}
           onChange={(e) => setDate(e.target.value)}
+          style={{ colorScheme: "dark" }}
           className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
         />
         <input
           type="time"
           value={time || ""}
           onChange={(e) => setTime(e.target.value)}
+          style={{ colorScheme: "dark" }}
           className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
         />
         {presets.map((p) => (
