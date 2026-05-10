@@ -228,7 +228,7 @@ export default function TripPlanPage() {
               >
                 <option value="">Default (let planner pick)</option>
                 <option value="EVERYDAY">All-Purpose</option>
-                <option value="DISTANCE">Conserve (fewer / shorter stops)</option>
+                <option value="DISTANCE">Conserve</option>
                 <option value="SPORT">Sport</option>
                 <option value="WINTER">Snow</option>
                 <option value="OFF_ROAD_AUTO">All-Terrain</option>
