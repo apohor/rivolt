@@ -1123,6 +1123,9 @@ export type TripPlanRequest = {
   starting_soc?: number;
   starting_range_meters?: number;
   origin_bearing: number;
+  // ISO 8601 UTC — when omitted, Rivian uses the request time.
+  // Returned times are shifted client-side to match this departure.
+  departure_datetime?: string;
   waypoints: TripPlanInputWaypoint[];
   target_arrival_soc_percent?: number;
   drive_mode?: string;
@@ -1179,6 +1182,9 @@ export type PlannedWaypoint = {
   ArrivalReachableMeters: number;
   DepartureReachableMeters: number;
   AdapterRequired: boolean;
+  // UTC timestamps from Rivian's planner (computed from request time).
+  ArrivalTimeUTC?: string;
+  DepartureTimeUTC?: string;
 };
 
 // TripAdviceRequest is the body for POST /api/trips/plan/advice.

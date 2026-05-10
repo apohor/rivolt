@@ -39,6 +39,10 @@ export default function TripPlanPage() {
   const [startingSoc, setStartingSoc] = useState<string>("");
   const [driveMode, setDriveMode] = useState<DriveMode>("");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
+  // departureAt is a datetime-local string (local time, no timezone).
+  // Empty = depart now; Rivian's planner always plans from "now", so
+  // we store this and shift displayed waypoint times client-side.
+  const [departureAt, setDepartureAt] = useState<string>("");
 
   const ownedQuery = useQuery({
     queryKey: ["vehicles", "owned"],
@@ -230,6 +234,16 @@ export default function TripPlanPage() {
               ...TX_PRESETS,
             ]}
           />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-neutral-400">Departure date &amp; time</span>
+            <input
+              type="datetime-local"
+              value={departureAt}
+              onChange={(e) => setDepartureAt(e.target.value)}
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+            />
+            <span className="text-xs text-neutral-600">Leave blank to depart now</span>
+          </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
@@ -346,6 +360,7 @@ export default function TripPlanPage() {
                 : [...prev, stop],
             )
           }
+          departureAt={departureAt}
         />
       )}
     </div>
@@ -590,6 +605,7 @@ function TripPlanResult({
   adviceLoading,
   onAnalyze,
   onAddStop,
+  departureAt,
 }: {
   plan: TripPlan;
   originLabel: string;
@@ -598,6 +614,7 @@ function TripPlanResult({
   adviceLoading?: boolean;
   onAnalyze?: () => void;
   onAddStop?: StopAdder;
+  departureAt?: string;
 }) {
   if (plan.Routes.length === 0) {
     return (
@@ -614,7 +631,7 @@ function TripPlanResult({
     <div className="space-y-4">
       <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />
       {plan.Routes.map((route, i) => (
-        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} onAddStop={onAddStop} />
+        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} onAddStop={onAddStop} departureAt={departureAt} />
       ))}
       {plan.SoCBelowLimit && (
         <ErrorBox
@@ -626,18 +643,28 @@ function TripPlanResult({
   );
 }
 
+// formatWaypointTime formats a UTC ISO string to local HH:MM, applying
+// an optional millisecond shift (user departure offset vs Rivian's "now").
+function formatWaypointTime(utcStr: string | undefined, shiftMs: number): string {
+  if (!utcStr) return "";
+  const d = new Date(new Date(utcStr).getTime() + shiftMs);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function RouteCard({
   route,
   index,
   originLabel,
   destLabel,
   onAddStop,
+  departureAt,
 }: {
   route: TripRoute;
   index: number;
   originLabel: string;
   destLabel: string;
   onAddStop?: StopAdder;
+  departureAt?: string;
 }) {
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -650,6 +677,18 @@ function RouteCard({
   const dest = route.Waypoints.find((w) => wpType(w) === "destination");
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   const showTable = origin || dest || charging.length > 0;
+
+  // Shift displayed times so that the origin departure matches the
+  // user's chosen departure datetime. Rivian plans from "now", so
+  // the delta is (userDeparture - originDepartureTimeUTC).
+  const timeShiftMs = (() => {
+    if (!departureAt) return 0;
+    const userDep = new Date(departureAt).getTime();
+    const rivianDep = origin?.DepartureTimeUTC
+      ? new Date(origin.DepartureTimeUTC).getTime()
+      : Date.now();
+    return userDep - rivianDep;
+  })();
   return (
     <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
       <div className="mb-4">
@@ -685,6 +724,9 @@ function RouteCard({
                   <td className="px-2 py-2">{originLabel || origin.Name || "Origin"}</td>
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2 font-mono text-neutral-100">
+                    {formatWaypointTime(origin.DepartureTimeUTC, timeShiftMs) && (
+                      <div className="text-xs text-neutral-500">{formatWaypointTime(origin.DepartureTimeUTC, timeShiftMs)}</div>
+                    )}
                     {origin.DepartureSoC > 0 ? `${origin.DepartureSoC.toFixed(0)}%` : "—"}
                   </td>
                   <td className="px-2 py-2">—</td>
@@ -696,8 +738,18 @@ function RouteCard({
                 <tr key={j} className="border-b border-neutral-900">
                   <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
                   <td className="px-2 py-2">{w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`}</td>
-                  <td className="px-2 py-2 font-mono">{w.ArrivalSoC.toFixed(0)}%</td>
-                  <td className="px-2 py-2 font-mono">{w.DepartureSoC.toFixed(0)}%</td>
+                  <td className="px-2 py-2 font-mono">
+                    {formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs) && (
+                      <div className="text-xs text-neutral-500">{formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs)}</div>
+                    )}
+                    {w.ArrivalSoC.toFixed(0)}%
+                  </td>
+                  <td className="px-2 py-2 font-mono">
+                    {formatWaypointTime(w.DepartureTimeUTC, timeShiftMs) && (
+                      <div className="text-xs text-neutral-500">{formatWaypointTime(w.DepartureTimeUTC, timeShiftMs)}</div>
+                    )}
+                    {w.DepartureSoC.toFixed(0)}%
+                  </td>
                   <td className="px-2 py-2 font-mono">{Math.round(w.ChargeDurationSec / 60)} min</td>
                   <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
                   <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
@@ -708,6 +760,9 @@ function RouteCard({
                   <td className="px-2 py-2">E</td>
                   <td className="px-2 py-2">{destLabel || dest.Name || "Destination"}</td>
                   <td className="px-2 py-2 font-mono text-neutral-100">
+                    {formatWaypointTime(dest.ArrivalTimeUTC, timeShiftMs) && (
+                      <div className="text-xs text-neutral-500">{formatWaypointTime(dest.ArrivalTimeUTC, timeShiftMs)}</div>
+                    )}
                     {dest.ArrivalSoC > 0 ? `${dest.ArrivalSoC.toFixed(0)}%` : "—"}
                   </td>
                   <td className="px-2 py-2">—</td>

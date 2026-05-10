@@ -108,6 +108,10 @@ type PlannedWaypoint struct {
 	ArrivalReachableMeters   float64
 	DepartureReachableMeters float64
 	AdapterRequired          bool
+	// UTC timestamps from Rivian's planner, computed from the request
+	// time as departure. Empty string when Rivian omitted them.
+	ArrivalTimeUTC   string
+	DepartureTimeUTC string
 }
 
 // PlanTrip runs the gateway's planTripWithMultiStop operation and
@@ -197,6 +201,8 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureSoC:             w.DepartureSOCPercent,
 				ArrivalReachableMeters:   w.ArrivalRangeMeters,
 				DepartureReachableMeters: w.DepartureRangeMeters,
+				ArrivalTimeUTC:           w.ArrivalTimeUTC,
+				DepartureTimeUTC:         w.DepartureTimeUTC,
 			}
 			// charger is null on origin/destination/manual waypoints,
 			// populated only on planner-picked charging stops.
