@@ -991,6 +991,15 @@ func runServer() {
 		logger.Info("valhalla same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_VALHALLA_BASE_URL"))
 	}
 
+	// Backend-side Valhalla client. Used by the live recorder to
+	// route-fill GPS-lag gaps in the live drive polyline so a dropped
+	// fix sequence doesn't leave a straight-line shortcut across the
+	// actual drive.
+	if valhallaClient := maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")); valhallaClient != nil && monitorRegistry != nil {
+		monitorRegistry.SetRouteFiller(valhallaClient)
+		logger.Info("recorder route-fill enabled", "backend", "valhalla")
+	}
+
 	// Tiles same-origin proxy. RIVOLT_TILES_BASE_URL points at the
 	// cluster Service serving the .pmtiles bundle (nginx in front
 	// of an NFS PVC, typically). Empty disables the feature; the

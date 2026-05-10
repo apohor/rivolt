@@ -68,6 +68,12 @@ type StateMonitor struct {
 	// async tile fetches) so this never slows the WS hot path.
 	elevation ElevationLookup
 
+	// routeFiller is invoked when the WS feed drops GPS fixes for
+	// long enough that a straight line between the surrounding fixes
+	// would visibly shortcut the actual route. Optional; when nil the
+	// recorder falls back to the straight-line behavior.
+	routeFiller RouteFiller
+
 	// Per-vehicle in-flight session accumulators, keyed by vehicleID.
 	// Access guarded by sessMu. Separate from mu so recorder work
 	// doesn't serialize behind cache reads.
@@ -155,6 +161,14 @@ type ElevationLookup interface {
 	Lookup(lat, lon float64) (float64, bool)
 }
 
+// RouteFiller fills GPS-lag gaps in a live drive with a routing-engine
+// shape between the last good fix and the next one. Returned slice
+// includes both endpoints. Implemented by *maps.Valhalla; abstracted
+// so the rivian package doesn't depend on internal/maps.
+type RouteFiller interface {
+	RouteShape(ctx context.Context, from, to [2]float64) ([][2]float64, error)
+}
+
 // NewStateMonitor wraps a live client. Pass a logger (usually from
 // main.go's structured logger). nil is allowed; events will be
 // discarded.
@@ -218,6 +232,14 @@ func (m *StateMonitor) SetDriveCloseHook(h DriveCloseHook) {
 // altitude_m. Safe to call before Start; racy after.
 func (m *StateMonitor) SetElevationLookup(e ElevationLookup) {
 	m.elevation = e
+}
+
+// SetRouteFiller wires the GPS-gap fill backend. nil disables gap
+// filling; long lags will leave a straight-line shortcut in the
+// drive polyline (the pre-Valhalla behavior). Safe to call before
+// Start; racy after.
+func (m *StateMonitor) SetRouteFiller(r RouteFiller) {
+	m.routeFiller = r
 }
 
 // SetPriceLookup wires a callback the recorder uses to stamp each

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,22 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/samples"
 )
+
+// haversineMeters is the great-circle distance between two lat/lon
+// points on a spherical earth. Used by the GPS-gap fill heuristic to
+// decide whether the jump from the last good fix to the new one is
+// big enough to be worth route-snapping.
+func haversineMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	rad := func(d float64) float64 { return d * math.Pi / 180 }
+	dLat := rad(lat2 - lat1)
+	dLon := rad(lon2 - lon1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(rad(lat1))*math.Cos(rad(lat2))*
+			math.Sin(dLon/2)*math.Sin(dLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return r * c
+}
 
 // Conversion factors between the wire (metric) and the samples store
 // (imperial, inherited from the ElectraFi importer schema).
@@ -85,6 +102,13 @@ type liveDrive struct {
 	endOdoMi float64
 	endLat   float64
 	endLon   float64
+
+	// lastFixAt is the wall-clock time of the most recently appended
+	// path point. Tracked separately from endAt because endAt updates
+	// on every frame regardless of GPS validity; this only moves when
+	// path actually grows. Used to detect lag windows long enough to
+	// route-fill instead of leaving a straight-line shortcut.
+	lastFixAt time.Time
 
 	// path is the accumulated GPS trace for this drive, one [lat, lon]
 	// pair per frame that carried a usable fix. Encoded with the
@@ -380,6 +404,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		if curr.Latitude != 0 || curr.Longitude != 0 {
 			s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+			s.drive.lastFixAt = curr.At
 		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		return s.drive.number
@@ -415,7 +440,34 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 			// copies of the same coordinate in the encoded polyline.
 			n := len(s.drive.path)
 			if n == 0 || s.drive.path[n-1][0] != curr.Latitude || s.drive.path[n-1][1] != curr.Longitude {
+				// GPS-gap fill: if the last appended fix is far enough
+				// behind in time AND the straight-line jump to curr is
+				// long enough to look wrong on a map, ask the routing
+				// engine for a road-snapped shape and splice it in.
+				if n > 0 && m.routeFiller != nil && !s.drive.lastFixAt.IsZero() {
+					last := s.drive.path[n-1]
+					gap := curr.At.Sub(s.drive.lastFixAt)
+					dist := haversineMeters(last[0], last[1], curr.Latitude, curr.Longitude)
+					if gap > 10*time.Second && dist > 100 && dist < 50_000 {
+						fillCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+						shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{curr.Latitude, curr.Longitude})
+						cancel()
+						if err != nil {
+							m.logger.Debug("route-fill failed",
+								"vehicle", curr.VehicleID,
+								"gap", gap.Round(time.Second),
+								"dist_m", int(dist),
+								"err", err.Error())
+						} else if len(shape) > 2 {
+							// Drop the first vertex (== last) and the
+							// last (== curr); we already have the former
+							// and we're about to append the latter.
+							s.drive.path = append(s.drive.path, shape[1:len(shape)-1]...)
+						}
+					}
+				}
 				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
+				s.drive.lastFixAt = curr.At
 			}
 		}
 		// Periodically re-upsert so a crash preserves the latest

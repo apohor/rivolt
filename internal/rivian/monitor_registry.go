@@ -45,6 +45,7 @@ type MonitorRegistry struct {
 	samples         *samples.Factory
 	settings        *settings.Factory
 	elevation       ElevationLookup
+	routeFiller     RouteFiller
 	liveStateStore  func(uid uuid.UUID) LiveStateStore
 	driveCloseHook  func(uid uuid.UUID) DriveCloseHook
 	logger          *slog.Logger
@@ -102,6 +103,15 @@ func (r *MonitorRegistry) SetParent(ctx context.Context) {
 func (r *MonitorRegistry) SetElevationLookup(e ElevationLookup) {
 	r.mu.Lock()
 	r.elevation = e
+	r.mu.Unlock()
+}
+
+// SetRouteFiller wires the optional GPS-gap fill backend shared
+// across every per-user monitor. Stateless w.r.t. user identity, so
+// one client serves all users.
+func (r *MonitorRegistry) SetRouteFiller(rf RouteFiller) {
+	r.mu.Lock()
+	r.routeFiller = rf
 	r.mu.Unlock()
 }
 
@@ -173,6 +183,9 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	)
 	if r.elevation != nil {
 		mon.SetElevationLookup(r.elevation)
+	}
+	if r.routeFiller != nil {
+		mon.SetRouteFiller(r.routeFiller)
 	}
 	if r.liveStateStore != nil {
 		if s := r.liveStateStore(uid); s != nil {
