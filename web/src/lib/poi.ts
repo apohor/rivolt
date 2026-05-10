@@ -379,7 +379,16 @@ export async function findChargersAlongPath(
           const [flon, flat] = gj.geometry.coordinates as [number, number];
           const props = f.properties as Record<string, unknown>;
           const maxKW = extractMaxPowerKW(props);
-          if (minPowerKW > 0 && (maxKW === undefined || maxKW < minPowerKW)) continue;
+          // NREL AFDC data (our primary archive) carries no kW field —
+          // fall back to connector-type detection. Presence of a DC
+          // connector (CCS1 / CHAdeMO / Tesla SC) is a reliable proxy
+          // for "fast charger"; Level-1/2 J1772 and NEMA outlets
+          // are excluded by this check.
+          const hasDCConnector =
+            props["socket:type1_combo"] === "yes" ||
+            props["socket:chademo"] === "yes" ||
+            props["socket:tesla_supercharger"] === "yes";
+          if (!hasDCConnector && (maxKW === undefined || maxKW < minPowerKW)) continue;
           const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
           if (!seen.has(k)) {
             seen.set(k, chargersLookup.toPOI(props, {
