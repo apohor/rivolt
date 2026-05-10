@@ -1597,9 +1597,11 @@ function PlannerPrefsPanel() {
           className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
         >
           <option value="">No default (let planner pick)</option>
-          <option value="ALL_PURPOSE">All-Purpose</option>
-          <option value="CONSERVE">Conserve</option>
+          <option value="EVERYDAY">All-Purpose</option>
+          <option value="DISTANCE">Conserve</option>
           <option value="SPORT">Sport</option>
+          <option value="WINTER">Snow</option>
+          <option value="OFF_ROAD_AUTO">All-Terrain</option>
         </select>
       </label>
       <label className="flex flex-col gap-1">

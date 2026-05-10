@@ -1389,13 +1389,25 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 
+		// Drop unknown drive_mode values before they reach Rivian's
+		// GraphQL — the enum is strict and an unknown value fails the
+		// whole query. Stale SPA bundles or bad clients can send
+		// legacy labels (CONSERVE, ALL_PURPOSE) that aren't in the
+		// gateway's enum.
+		drive := ""
+		switch req.DriveMode {
+		case "", settings.DriveModeEveryday, settings.DriveModeDistance,
+			settings.DriveModeSport, settings.DriveModeWinter,
+			settings.DriveModeOffRoadAuto:
+			drive = req.DriveMode
+		}
 		in := rivian.PlanTripInput{
 			VehicleID:               req.VehicleID,
 			StartingSoC:             startingSoC,
 			StartingRangeMeters:     req.StartingRangeMeters,
 			OriginBearing:           req.OriginBearing,
 			TargetArrivalSocPercent: req.TargetArrivalSocPercent,
-			DriveMode:               req.DriveMode,
+			DriveMode:               drive,
 			HasAdapter:              req.HasAdapter,
 			TrailerProfile:          req.TrailerProfile,
 			AvoidAdapterRequired:    req.AvoidAdapterRequired,
