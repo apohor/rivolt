@@ -484,9 +484,13 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// accumulator. Hooks run with their own ctx so a slow
 		// network call (weather fetch) can't block the recorder.
 		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		// Phantom drives (zero duration + zero deltas) were skipped by
+		// upsertLiveDrive and never reached the store — don't run the
+		// post-close hook for them either.
+		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
 		n := s.drive.number
 		s.drive = nil
-		if m.driveCloseHook != nil {
+		if !phantom && m.driveCloseHook != nil {
 			go m.runDriveCloseHook(closedRow)
 		}
 		return n
@@ -774,6 +778,14 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 
 func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {
 	if m.drivesStore == nil || d == nil {
+		return
+	}
+	// Phantom-drive guard, mirroring upsertLiveCharge. A drive with zero
+	// wall-clock duration AND zero SoC / odometer delta is a single sticky
+	// gear frame that opened and closed in the same tick — not a real drive.
+	// Real drives advance endAt within seconds of opening, so the periodic
+	// upsert path picks up the row on the next frame regardless.
+	if !d.endAt.After(d.startedAt) && d.endSoC == d.startSoC && d.endOdoMi == d.startOdoMi {
 		return
 	}
 	row := m.liveDriveRow(vehicleID, d)

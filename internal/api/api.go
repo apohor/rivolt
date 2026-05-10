@@ -40,6 +40,7 @@ import (
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/tripadvice"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
@@ -635,6 +636,9 @@ func New(d Deps) http.Handler {
 			r.Use(middleware.Timeout(5 * time.Minute))
 			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
+			}))
+			r.Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleTripPlanAdvice(d.SettingsMgr)(w, r)
 			}))
 		})
 
@@ -1441,6 +1445,68 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		writeJSON(w, http.StatusOK, plan)
+	}
+}
+
+// handleTripPlanAdvice takes a completed TripPlan (returned by
+// /api/trips/plan) plus minimal context labels, calls the configured
+// AI provider, and returns a short structured analysis: headline +
+// 2-4 plain-language insights. Lives in the AI-bound route group so
+// the 5-minute timeout applies.
+func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil || mgr.Analyzer() == nil {
+			http.Error(w, "AI provider not configured", http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Plan        *rivian.TripPlan   `json:"plan"`
+			Origin      string             `json:"origin"`
+			Destination string             `json:"destination"`
+			DriveMode   string             `json:"drive_mode"`
+			StartingSoC float64            `json:"starting_soc"`
+			HasAdapter  bool               `json:"has_adapter"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.Plan == nil {
+			http.Error(w, "plan required", http.StatusBadRequest)
+			return
+		}
+		tc := tripadvice.Context{
+			OriginLabel:      body.Origin,
+			DestinationLabel: body.Destination,
+			DriveMode:        body.DriveMode,
+			StartingSoC:      body.StartingSoC,
+			HasAdapter:       body.HasAdapter,
+		}
+		result, err := tripadvice.Generate(r.Context(), mgr.Analyzer(), body.Plan, tc)
+		if err != nil {
+			slog.WarnContext(r.Context(), "trip advice generation failed", "err", err.Error())
+			http.Error(w, "AI analysis failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		type response struct {
+			Headline string   `json:"headline"`
+			Insights []string `json:"insights"`
+			Model    string   `json:"model"`
+		}
+		var headline string
+		var insights []string
+		if result.Parsed != nil {
+			headline = result.Parsed.Headline
+			insights = result.Parsed.Insights
+		}
+		if insights == nil {
+			insights = []string{}
+		}
+		writeJSON(w, http.StatusOK, response{
+			Headline: headline,
+			Insights: insights,
+			Model:    result.Model,
+		})
 	}
 }
 

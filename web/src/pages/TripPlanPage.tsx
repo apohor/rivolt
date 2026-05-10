@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { backend, type GeocodeResult, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, type GeocodeResult, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { TripRouteMap } from "../components/TripRouteMap";
 
@@ -147,10 +147,30 @@ export default function TripPlanPage() {
         ],
       });
     },
+    onSuccess: (plan) => {
+      // Fire AI advice immediately after the plan lands. The advice
+      // endpoint is in the 5-minute AI route group so slow models
+      // don't time out, but we don't block the plan display on it.
+      if (origin && destination) {
+        adviceMutation.mutate({
+          plan,
+          origin: origin.label,
+          destination: destination.label,
+          drive_mode: driveMode || undefined,
+          starting_soc: stateQuery.data?.battery_level_pct,
+          has_adapter: hasAdapter,
+        });
+      }
+    },
+  });
+
+  const adviceMutation = useMutation({
+    mutationFn: backend.planTripAdvice,
   });
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    adviceMutation.reset();
     planMutation.mutate();
   };
 
@@ -264,7 +284,13 @@ export default function TripPlanPage() {
         />
       )}
 
-      {planMutation.data && <TripPlanResult plan={planMutation.data} />}
+      {planMutation.data && (
+        <TripPlanResult
+          plan={planMutation.data}
+          advice={adviceMutation.data}
+          adviceLoading={adviceMutation.isPending}
+        />
+      )}
     </div>
   );
 }
@@ -419,7 +445,15 @@ function formatGeocode(r: GeocodeResult): string {
   return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
 }
 
-function TripPlanResult({ plan }: { plan: TripPlan }) {
+function TripPlanResult({
+  plan,
+  advice,
+  adviceLoading,
+}: {
+  plan: TripPlan;
+  advice?: TripAdvice;
+  adviceLoading?: boolean;
+}) {
   if (plan.Routes.length === 0) {
     return (
       <Card title="Result">
@@ -433,6 +467,9 @@ function TripPlanResult({ plan }: { plan: TripPlan }) {
   }
   return (
     <div className="space-y-4">
+      {(adviceLoading || advice) && (
+        <TripAdviceCard advice={advice} loading={adviceLoading ?? false} />
+      )}
       {plan.Routes.map((route, i) => (
         <RouteCard key={i} route={route} index={i} />
       ))}
@@ -505,6 +542,45 @@ function RouteCard({ route, index }: { route: TripRoute; index: number }) {
           )}
           .
         </p>
+      )}
+    </Card>
+  );
+}
+
+function TripAdviceCard({
+  advice,
+  loading,
+}: {
+  advice?: TripAdvice;
+  loading: boolean;
+}) {
+  return (
+    <Card title="AI analysis">
+      {loading && !advice && (
+        <div className="flex items-center gap-2 text-sm text-neutral-400">
+          <Spinner />
+          <span>Analyzing plan…</span>
+        </div>
+      )}
+      {advice && (
+        <div className="space-y-3">
+          {advice.headline && (
+            <p className="font-medium text-neutral-100">{advice.headline}</p>
+          )}
+          {advice.insights.length > 0 && (
+            <ul className="space-y-1.5 text-sm text-neutral-300">
+              {advice.insights.map((ins, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="mt-0.5 shrink-0 text-emerald-500">·</span>
+                  <span>{ins}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {advice.model && (
+            <p className="text-xs text-neutral-600">{advice.model}</p>
+          )}
+        </div>
       )}
     </Card>
   );

@@ -865,6 +865,8 @@ export const backend = {
   // back-filled by the server from the live state cache when omitted.
   planTrip: (req: TripPlanRequest) =>
     api.post<TripPlan>("/api/trips/plan", req),
+  planTripAdvice: (req: TripAdviceRequest) =>
+    api.post<TripAdvice>("/api/trips/plan/advice", req),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON
@@ -1177,4 +1179,21 @@ export type PlannedWaypoint = {
   ArrivalReachableMeters: number;
   DepartureReachableMeters: number;
   AdapterRequired: boolean;
+};
+
+// TripAdviceRequest is the body for POST /api/trips/plan/advice.
+export type TripAdviceRequest = {
+  plan: TripPlan;
+  origin?: string;
+  destination?: string;
+  drive_mode?: string;
+  starting_soc?: number;
+  has_adapter?: boolean;
+};
+
+// TripAdvice is the AI-generated analysis returned by the advice endpoint.
+export type TripAdvice = {
+  headline: string;
+  insights: string[];
+  model: string;
 };
