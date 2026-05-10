@@ -1458,22 +1458,24 @@ function buildPrecipBands(
   startMs: number,
   endMs: number,
 ): PrecipBand[] {
+  // Stricter painting: require actual precipitation (>0) to draw a
+  // band, even when the WMO code says "thunderstorm" or similar.
+  // Open-Meteo's hourly weather_code flags convective conditions
+  // (95/96/99) for any forecast hour with atmospheric instability,
+  // including hours where no rain reaches the ground at the coarse
+  // grid cell — that produced spurious red bands on dry drives.
   return weatherPts
     .map((p): PrecipBand | null => {
+      const amt = p.precip_in ?? 0;
+      if (amt <= 0) return null;
       const cond = p.conditions;
-      const wet = (p.precip_in ?? 0) > 0 || precipColor(cond) != null;
-      if (!wet) return null;
       const color = precipColor(cond) ?? SERIES.rain;
       const sStart = new Date(p.at).getTime();
       const sEnd = sStart + (p.cadence_minutes || 60) * 60_000;
       const x0 = Math.max(sStart, startMs);
       const x1 = Math.min(sEnd, endMs);
       if (x1 <= x0) return null;
-      const amt = p.precip_in ?? 0;
-      const label =
-        amt > 0
-          ? `${cond ?? "precipitation"} (${amt.toFixed(2)}″)`
-          : (cond ?? "precipitation");
+      const label = `${cond ?? "precipitation"} (${amt.toFixed(2)}″)`;
       return { x0, x1, color, label };
     })
     .filter((b): b is PrecipBand => b != null);
