@@ -162,13 +162,19 @@ export default function TripPlanPage() {
       // endpoint is in the 5-minute AI route group so slow models
       // don't time out, but we don't block the plan display on it.
       if (origin && destination) {
+        const sd = stateQuery.data;
         adviceMutation.mutate({
           plan,
           origin: origin.label,
           destination: destination.label,
           drive_mode: driveMode || undefined,
-          starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? stateQuery.data?.battery_level_pct,
+          starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? sd?.battery_level_pct,
           has_adapter: hasAdapter,
+          tire_fl_bar: typeof sd?.tire_pressure_fl_bar === "number" && sd.tire_pressure_fl_bar > 0 ? sd.tire_pressure_fl_bar : undefined,
+          tire_fr_bar: typeof sd?.tire_pressure_fr_bar === "number" && sd.tire_pressure_fr_bar > 0 ? sd.tire_pressure_fr_bar : undefined,
+          tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
+          tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
+          pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
         });
       }
     },

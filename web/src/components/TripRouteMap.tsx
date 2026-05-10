@@ -262,7 +262,14 @@ async function valhallaMultiRoute(
   const base = valhallaBase();
   if (base === "" || ws.length < 2) return null;
   const body = {
-    locations: ws.map((w) => ({ lat: w.Latitude, lon: w.Longitude, type: "break" })),
+    locations: ws.map((w, i) => ({
+      lat: w.Latitude,
+      lon: w.Longitude,
+      // Origin/destination are hard breaks; intermediate charging stops
+      // use "through" so Valhalla doesn't fail if it can't snap a charger
+      // location to the exact road network.
+      type: i === 0 || i === ws.length - 1 ? "break" : "through",
+    })),
     costing: "auto",
     directions_options: { units: "miles" },
   };

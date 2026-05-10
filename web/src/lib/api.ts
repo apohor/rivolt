@@ -1189,6 +1189,13 @@ export type TripAdviceRequest = {
   drive_mode?: string;
   starting_soc?: number;
   has_adapter?: boolean;
+  // Tire pressures from live vehicle state, in bar. Omit when unavailable.
+  tire_fl_bar?: number;
+  tire_fr_bar?: number;
+  tire_rl_bar?: number;
+  tire_rr_bar?: number;
+  // Observed pack capacity in kWh (from vehicles table). Omit when unknown.
+  pack_kwh?: number;
 };
 
 // TripAdvice is the AI-generated analysis returned by the advice endpoint.

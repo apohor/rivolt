@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
 // Context bundles user-supplied labels and request parameters that
@@ -26,9 +27,18 @@ type Context struct {
 	// DriveMode is the mode the user explicitly chose, or "" for
 	// "let the planner pick". Included so the model can say "you
 	// planned in Conserve mode" rather than treating it as a mystery.
-	DriveMode    string
-	StartingSoC  float64
-	HasAdapter   bool
+	DriveMode   string
+	StartingSoC float64
+	HasAdapter  bool
+	// Weather at the origin at departure time. nil when the operator
+	// has not enabled the weather feature (recap.weather_enabled).
+	Weather *weather.Snapshot
+	// TirePressurebars holds [FL, FR, RL, RR] in bar from the live
+	// vehicle state. Zero values mean unavailable for that corner.
+	TirePressureBars [4]float64
+	// PackKWh is the observed battery capacity in kWh from the vehicle
+	// record. 0 means unknown.
+	PackKWh float64
 }
 
 // Result is what Generate returns to the handler.
@@ -92,6 +102,9 @@ func buildPrompt(plan *rivian.TripPlan, tc Context) (system, user string) {
 - 2 to 4 insights, each one concrete and specific to the numbers below.
 - Lead with the most actionable observation (tight arrival SoC, long charge stop, adapter dependency).
 - If drive mode was left at default and a different mode would clearly help (e.g. Conserve saves >15 min on a long trip), say so.
+- If weather is provided and headwind > 15 kph or temp < 0 °C, mention the range impact.
+- If any tire is more than 5 PSI below the placard (35 PSI nominal), note it as a range concern.
+- If pack_kwh is provided and below 100 kWh, note the reduced range relative to a full-size pack.
 - Do not invent numbers not present in the plan summary.
 - No emoji, no marketing language, no filler.`
 
@@ -107,6 +120,51 @@ func buildPrompt(plan *rivian.TripPlan, tc Context) (system, user string) {
 	if tc.HasAdapter {
 		fmt.Fprintf(&sb, "Tesla NACS adapter: yes\n")
 	}
+
+	if tc.PackKWh > 0 {
+		fmt.Fprintf(&sb, "Battery pack: %.0f kWh\n", tc.PackKWh)
+	}
+
+	// Tire pressures: convert bar → PSI, report only corners with data.
+	const barToPSI = 14.5038
+	tireLabels := [4]string{"FL", "FR", "RL", "RR"}
+	var tireLines []string
+	for i, bar := range tc.TirePressureBars {
+		if bar > 0 {
+			tireLines = append(tireLines, fmt.Sprintf("%s %.0f PSI", tireLabels[i], bar*barToPSI))
+		}
+	}
+	if len(tireLines) > 0 {
+		fmt.Fprintf(&sb, "Tire pressures: %s\n", strings.Join(tireLines, ", "))
+	}
+
+	if w := tc.Weather; w != nil {
+		if w.HasTemp {
+			fmt.Fprintf(&sb, "Outside temp: %.0f °C", w.TempC)
+			if w.HasApparent {
+				fmt.Fprintf(&sb, " (feels like %.0f °C)", w.ApparentTempC)
+			}
+			fmt.Fprintln(&sb)
+		}
+		if w.HasWind {
+			fmt.Fprintf(&sb, "Wind: %.0f kph from %.0f°", w.WindKPH, w.WindDirDeg)
+			if w.HasHeadwind {
+				if w.HeadwindKPH > 0 {
+					fmt.Fprintf(&sb, " (%.0f kph headwind)", w.HeadwindKPH)
+				} else {
+					fmt.Fprintf(&sb, " (%.0f kph tailwind)", -w.HeadwindKPH)
+				}
+			}
+			fmt.Fprintln(&sb)
+		}
+		if w.HasConditions {
+			fmt.Fprintf(&sb, "Conditions: %s\n", w.Conditions)
+		}
+		if w.HasPrecip && w.PrecipMM > 0 {
+			fmt.Fprintf(&sb, "Precipitation: %.1f mm\n", w.PrecipMM)
+		}
+	}
+
 	fmt.Fprintln(&sb)
 
 	if len(plan.Routes) == 0 {

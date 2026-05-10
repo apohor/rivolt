@@ -1460,12 +1460,17 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			return
 		}
 		var body struct {
-			Plan        *rivian.TripPlan   `json:"plan"`
-			Origin      string             `json:"origin"`
-			Destination string             `json:"destination"`
-			DriveMode   string             `json:"drive_mode"`
-			StartingSoC float64            `json:"starting_soc"`
-			HasAdapter  bool               `json:"has_adapter"`
+			Plan        *rivian.TripPlan `json:"plan"`
+			Origin      string           `json:"origin"`
+			Destination string           `json:"destination"`
+			DriveMode   string           `json:"drive_mode"`
+			StartingSoC float64          `json:"starting_soc"`
+			HasAdapter  bool             `json:"has_adapter"`
+			TireFLBar   float64          `json:"tire_fl_bar"`
+			TireFRBar   float64          `json:"tire_fr_bar"`
+			TireRLBar   float64          `json:"tire_rl_bar"`
+			TireRRBar   float64          `json:"tire_rr_bar"`
+			PackKWh     float64          `json:"pack_kwh"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
@@ -1481,6 +1486,17 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			DriveMode:        body.DriveMode,
 			StartingSoC:      body.StartingSoC,
 			HasAdapter:       body.HasAdapter,
+			TirePressureBars: [4]float64{body.TireFLBar, body.TireFRBar, body.TireRLBar, body.TireRRBar},
+			PackKWh:          body.PackKWh,
+		}
+		// Fetch weather at the origin when the operator has enabled the
+		// weather feature. Best-effort: a failure just omits the context.
+		if mgr.RecapWeatherEnabled() {
+			if lat, lon, ok := originLatLon(body.Plan); ok {
+				if snap, _, err := weather.NewClient().FetchHour(r.Context(), lat, lon, time.Now(), 0, false); err == nil {
+					tc.Weather = snap
+				}
+			}
 		}
 		result, err := tripadvice.Generate(r.Context(), mgr.Analyzer(), body.Plan, tc)
 		if err != nil {
@@ -1508,6 +1524,22 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			Model:    result.Model,
 		})
 	}
+}
+
+// originLatLon extracts the lat/lon of the origin waypoint from the
+// first route in a plan. Returns ok=false when no origin is found.
+func originLatLon(plan *rivian.TripPlan) (lat, lon float64, ok bool) {
+	if plan == nil {
+		return 0, 0, false
+	}
+	for _, r := range plan.Routes {
+		for _, w := range r.Waypoints {
+			if strings.EqualFold(w.WaypointType, "origin") && (w.Latitude != 0 || w.Longitude != 0) {
+				return w.Latitude, w.Longitude, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // handleTripPlanRawDebug forwards an arbitrary variables JSON to
