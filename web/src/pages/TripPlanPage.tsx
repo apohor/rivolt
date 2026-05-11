@@ -1262,26 +1262,88 @@ function TripAdviceCard({
         </div>
       )}
       {advice && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {advice.headline && (
             <p className="font-medium text-neutral-100">{advice.headline}</p>
           )}
-          {advice.insights.length > 0 && (
-            <ul className="space-y-1.5 text-sm text-neutral-300">
-              {advice.insights.map((ins, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="mt-0.5 shrink-0 text-emerald-500">·</span>
-                  <span>{ins}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <AdviceCostStrip cost={advice.cost_estimate} />
+          <AdviceSection label="Cost" items={advice.cost} accent="emerald" />
+          <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
+          <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
+          <AdviceSection label="Vehicle" items={advice.vehicle} accent="amber" />
           {advice.model && (
             <p className="text-xs text-neutral-600">{advice.model}</p>
           )}
         </div>
       )}
     </Card>
+  );
+}
+
+// AdviceCostStrip renders the deterministic cost numbers the server
+// computed (not the LLM). Always shown when there's any signal —
+// purely-DCFC trips show only the DCFC line, home-energy trips show
+// only the home equivalent.
+function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
+  const hasDCFC = cost.dcfc_spend > 0;
+  const hasHome = cost.home_equivalent > 0;
+  if (!hasDCFC && !hasHome) return null;
+  const fmt = (v: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: cost.currency || "USD",
+    }).format(v);
+  return (
+    <div className="flex flex-wrap gap-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm">
+      {hasDCFC && (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-neutral-500">DCFC spend</div>
+          <div className="font-mono text-neutral-100">{fmt(cost.dcfc_spend)}</div>
+          <div className="text-[10px] text-neutral-600">@ {fmt(cost.dcfc_rate_used)}/kWh</div>
+        </div>
+      )}
+      {hasHome && (
+        <div>
+          <div className="text-xs uppercase tracking-wide text-neutral-500">Home-rate equivalent</div>
+          <div className="font-mono text-neutral-100">{fmt(cost.home_equivalent)}</div>
+          <div className="text-[10px] text-neutral-600">@ {fmt(cost.home_rate_used)}/kWh</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// AdviceSection renders one category of LLM-written observations.
+// Hidden entirely when the model returned nothing for that category
+// so we don't show empty headers.
+function AdviceSection({
+  label,
+  items,
+  accent,
+}: {
+  label: string;
+  items: string[] | undefined;
+  accent: "emerald" | "sky" | "cyan" | "amber";
+}) {
+  if (!items || items.length === 0) return null;
+  const dot = {
+    emerald: "text-emerald-500",
+    sky: "text-sky-500",
+    cyan: "text-cyan-500",
+    amber: "text-amber-500",
+  }[accent];
+  return (
+    <div>
+      <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">{label}</div>
+      <ul className="space-y-1.5 text-sm text-neutral-300">
+        {items.map((ins, i) => (
+          <li key={i} className="flex gap-2">
+            <span className={`mt-0.5 shrink-0 ${dot}`}>·</span>
+            <span>{ins}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

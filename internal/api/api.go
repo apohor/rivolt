@@ -646,7 +646,7 @@ func New(d Deps) http.Handler {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
 			r.Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanAdvice(d.SettingsMgr)(w, r)
+				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid))(w, r)
 			}))
 		})
 
@@ -1480,7 +1480,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 // AI provider, and returns a short structured analysis: headline +
 // 2-4 plain-language insights. Lives in the AI-bound route group so
 // the 5-minute timeout applies.
-func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
+func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if mgr == nil || mgr.Analyzer() == nil {
 			http.Error(w, "AI provider not configured", http.StatusServiceUnavailable)
@@ -1517,6 +1517,14 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			TirePressureBars: [4]float64{body.TireFLBar, body.TireFRBar, body.TireRLBar, body.TireRRBar},
 			PackKWh:          body.PackKWh,
 		}
+		// Pull the user's at-home charging rate so the cost section
+		// of the advice can quote real numbers, not assumptions.
+		if settingsStore != nil {
+			if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
+				tc.HomePricePerKWh = cfg.HomePricePerKWh
+				tc.HomeCurrency = cfg.HomeCurrency
+			}
+		}
 		// Fetch weather at the origin when the operator has enabled the
 		// weather feature. Use the user-supplied departure datetime when
 		// present so a future plan gets a forecast for that hour, not now.
@@ -1541,24 +1549,36 @@ func handleTripPlanAdvice(mgr *settings.Manager) http.HandlerFunc {
 			return
 		}
 		type response struct {
-			Headline string   `json:"headline"`
-			Insights []string `json:"insights"`
-			Model    string   `json:"model"`
+			Headline   string                  `json:"headline"`
+			Cost       []string                `json:"cost"`
+			Efficiency []string                `json:"efficiency"`
+			Weather    []string                `json:"weather"`
+			Vehicle    []string                `json:"vehicle"`
+			CostEst    tripadvice.CostEstimate `json:"cost_estimate"`
+			Model      string                  `json:"model"`
 		}
-		var headline string
-		var insights []string
+		nonNil := func(s []string) []string {
+			if s == nil {
+				return []string{}
+			}
+			return s
+		}
+		var resp response
+		resp.Model = result.Model
+		resp.CostEst = result.Cost
 		if result.Parsed != nil {
-			headline = result.Parsed.Headline
-			insights = result.Parsed.Insights
+			resp.Headline = result.Parsed.Headline
+			resp.Cost = nonNil(result.Parsed.Cost)
+			resp.Efficiency = nonNil(result.Parsed.Efficiency)
+			resp.Weather = nonNil(result.Parsed.Weather)
+			resp.Vehicle = nonNil(result.Parsed.Vehicle)
+		} else {
+			resp.Cost = []string{}
+			resp.Efficiency = []string{}
+			resp.Weather = []string{}
+			resp.Vehicle = []string{}
 		}
-		if insights == nil {
-			insights = []string{}
-		}
-		writeJSON(w, http.StatusOK, response{
-			Headline: headline,
-			Insights: insights,
-			Model:    result.Model,
-		})
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

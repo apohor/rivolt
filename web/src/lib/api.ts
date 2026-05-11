@@ -1267,9 +1267,22 @@ export type TripAdviceRequest = {
   departure_datetime?: string;
 };
 
-// TripAdvice is the AI-generated analysis returned by the advice endpoint.
+// TripAdvice is the categorized analysis returned by the advice endpoint.
+// The lists may be empty when the model has nothing useful to say
+// for that category; the cost_estimate is always computed server-side
+// (not by the LLM) so the dollar figures stay accurate.
 export type TripAdvice = {
   headline: string;
-  insights: string[];
+  cost: string[];
+  efficiency: string[];
+  weather: string[];
+  vehicle: string[];
+  cost_estimate: {
+    currency: string;
+    dcfc_spend: number;
+    home_equivalent: number;
+    dcfc_rate_used: number;
+    home_rate_used: number;
+  };
   model: string;
 };

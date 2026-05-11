@@ -704,6 +704,33 @@ by expected value, not by time.
 
 ---
 
+## Trip planner UX backlog
+
+Smaller cuts queued up; not phase-gated, ship as they make sense.
+
+- [ ] **Tappable route-table rows synced to map** — tap a charging
+      stop in the table → map pans + the marker pulses. Tap a
+      charger marker on the map → its row highlights and scrolls
+      into view. Bidirectional selection state.
+- [ ] **Collapse settings grid into Advanced disclosure** — show
+      summary line "80% → 20%, All-Purpose, no adapter" with an
+      Edit toggle so the form opens with route fields, not knobs.
+- [ ] **"Add as waypoint" delta preview** — tap a charger marker
+      to preview the time / SoC / cost delta before committing
+      the stop.
+- [ ] **Distance scale + total trip distance on the map.**
+- [ ] **Distance-from-previous-stop / distance-from-origin
+      columns** in the route table.
+- [ ] **Stream the AI advice response** instead of waiting for
+      the full blob (5–15 s feels much faster as it types).
+- [ ] **Mobile**: compact "Chargers: DCFC ▾" dropdown on narrow
+      screens; sticky `#` + Stop columns on horizontal scroll.
+- [ ] **"No reachable charging stations" banner** — promote the
+      empty-state from a buried subtitle to a prominent CTA
+      ("Add a custom via-stop", "Widen starting SoC").
+
+---
+
 ## Non-roadmap
 
 Explicit "not now, probably never":
