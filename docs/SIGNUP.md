@@ -73,14 +73,12 @@ To set up the dedicated account:
    add the new email.
 3. Open the invite email in the new account's inbox and click
    **Accept**.
-4. **Important:** sign in to the Rivian app on a phone with the
-   *new* (dedicated) account. Until the dedicated account
-   authenticates in the app at least once, the invite stays in
-   "Sent" status and the vehicle isn't actually added — Rivolt
-   won't see it. Once you sign in, the invite flips to active and
-   the vehicle appears in the dedicated account's vehicle list.
-5. Verify the new account can see your vehicle in the Rivian app
-   before continuing.
+4. *(Optional but recommended)* Sign in to the Rivian app on a
+   phone with the *new* (dedicated) account and confirm the
+   vehicle shows up in its vehicle list. Until the dedicated
+   account authenticates in the app at least once, the invite
+   can sit in "Sent" status and the vehicle isn't fully linked —
+   signing in flips it to active.
 
 ### Add to Rivolt
 
@@ -210,6 +208,11 @@ before push works (Share → Add to Home Screen).
 
 ## What's next
 
+- **Plan a road trip.** Open the **Plan** tab and try a real
+  destination — the planner picks charging stops, the Trip
+  analysis card breaks down DCFC spend + home-rate equivalent +
+  weather/efficiency commentary, and the form remembers your
+  last setup for the next trip.
 - The **Drives** page lists every drive with energy used, cost,
   speed averages, and a route preview. Click into one for the
   full timeline (speed / SoC / elevation / weather charts +
