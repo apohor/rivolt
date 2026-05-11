@@ -78,6 +78,9 @@ type TripPlan struct {
 type TripRoute struct {
 	DestinationReached       bool
 	TotalChargingDurationSec int
+	TotalDriveDurationSec    int
+	TotalTripDurationSec     int
+	TotalDriveDistanceMeters float64
 	ArrivalSoC               float64
 	ArrivalReachableMeters   float64
 	EnergyConsumptionKWh     float64
@@ -182,6 +185,9 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 		route := TripRoute{
 			DestinationReached:       p.Summary.DestinationReachable,
 			TotalChargingDurationSec: p.Summary.TotalChargeDurationSeconds,
+			TotalDriveDurationSec:    p.Summary.TotalDriveDurationSeconds,
+			TotalTripDurationSec:     p.Summary.TotalTripDurationSeconds,
+			TotalDriveDistanceMeters: p.Summary.TotalDriveDistanceMeters,
 			ArrivalSoC:               p.Summary.ArrivalSOCPercent,
 			ArrivalReachableMeters:   p.Summary.ArrivalRangeMeters,
 			// EnergyConsumptionKWh on the v1 schema was per-leg; v2's

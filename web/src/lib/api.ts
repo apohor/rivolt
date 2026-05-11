@@ -1216,6 +1216,9 @@ export type TripPlan = {
 export type TripRoute = {
   DestinationReached: boolean;
   TotalChargingDurationSec: number;
+  TotalDriveDurationSec: number;
+  TotalTripDurationSec: number;
+  TotalDriveDistanceMeters: number;
   ArrivalSoC: number;
   ArrivalReachableMeters: number;
   EnergyConsumptionKWh: number;

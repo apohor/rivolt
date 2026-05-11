@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { backend, type GeocodeResult, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { useAIEnabled } from "../lib/config";
 import { TripRouteMap } from "../components/TripRouteMap";
 
 // TX_PRESETS are city-hall lat/lon for one-click destination testing.
@@ -21,6 +22,38 @@ type Selection = {
   lon: number;
   label: string;
 } | null;
+
+// LAST_TRIP_KEY versions the localStorage shape. Bump on breaking
+// changes to the persisted struct so a stale entry from an older
+// build can't crash the page on rehydrate.
+const LAST_TRIP_KEY = "rivolt:trip-planner:last-trip:v1";
+
+type LastTrip = {
+  origin: NonNullable<Selection>;
+  destination: NonNullable<Selection>;
+  extraStops: NonNullable<Selection>[];
+  targetSoc: string;
+  driveMode: DriveMode;
+  hasAdapter: boolean;
+};
+
+function readLastTrip(): LastTrip | null {
+  try {
+    const raw = localStorage.getItem(LAST_TRIP_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as LastTrip;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastTrip(t: LastTrip): void {
+  try {
+    localStorage.setItem(LAST_TRIP_KEY, JSON.stringify(t));
+  } catch {
+    /* ignore quota / disabled-storage failures */
+  }
+}
 
 type DriveMode =
   | ""
@@ -43,6 +76,7 @@ export default function TripPlanPage() {
   // Empty = depart now; Rivian's planner always plans from "now", so
   // we store this and shift displayed waypoint times client-side.
   const [departureAt, setDepartureAt] = useState<string>("");
+  const aiEnabled = useAIEnabled();
 
   const ownedQuery = useQuery({
     queryKey: ["vehicles", "owned"],
@@ -91,9 +125,27 @@ export default function TripPlanPage() {
     }
   }
 
+  // Hydrate from the last successful plan on mount. Runs before the
+  // current-position prefill below so a saved trip wins; the user
+  // can clear / change any field from there. Skipped silently when
+  // there's no entry or the JSON is malformed.
+  const [lastTripApplied, setLastTripApplied] = useState(false);
+  useEffect(() => {
+    if (lastTripApplied) return;
+    const last = readLastTrip();
+    setLastTripApplied(true);
+    if (!last) return;
+    setOrigin(last.origin);
+    setDestination(last.destination);
+    setExtraStops(last.extraStops ?? []);
+    if (last.targetSoc) setTargetSoc(last.targetSoc);
+    if (last.driveMode) setDriveMode(last.driveMode);
+    if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
+  }, [lastTripApplied]);
+
   // Pre-fill origin to current vehicle position once on mount when
-  // the user hasn't already picked something. The user can still
-  // override via search or a preset.
+  // the user hasn't already picked something. Skipped when the
+  // last-trip hydrator above already supplied an origin.
   useEffect(() => {
     if (origin) return;
     if (!currentPosition) return;
@@ -161,14 +213,64 @@ export default function TripPlanPage() {
         ],
       });
     },
-    onSuccess: () => {
+    onSuccess: (plan) => {
       adviceMutation.reset();
+      // Persist the inputs that produced this plan so reopening the
+      // page restores the same starting state.
+      if (origin && destination) {
+        writeLastTrip({
+          origin,
+          destination,
+          extraStops,
+          targetSoc,
+          driveMode,
+          hasAdapter,
+        });
+      }
+      // Auto-fire AI analysis on non-trivial trips so the user
+      // doesn't need an extra tap on the road-trip path. "Non-trivial"
+      // = >200 mi total drive OR at least one planner-picked charging
+      // stop. Small commutes still wait for the explicit Analyze
+      // button. Skipped entirely when no AI provider is configured.
+      const r = plan.Routes[0];
+      if (aiEnabled && r) {
+        const miles = r.TotalDriveDistanceMeters / 1609.344;
+        const hasStops = r.Waypoints.some((w) => {
+          const t = w.WaypointType.toLowerCase();
+          return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+        });
+        if (miles > 200 || hasStops) {
+          fireAdvice(plan);
+        }
+      }
     },
   });
 
   const adviceMutation = useMutation({
     mutationFn: backend.planTripAdvice,
   });
+
+  // fireAdvice packages everything the advice handler needs to build
+  // the LLM prompt. Reused by the auto-fire path on plan success AND
+  // the explicit Analyze button on the result card.
+  const fireAdvice = (plan: TripPlan) => {
+    if (!origin || !destination) return;
+    const sd = stateQuery.data;
+    adviceMutation.mutate({
+      plan,
+      origin: origin.label,
+      destination: destination.label,
+      drive_mode: driveMode || undefined,
+      starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? sd?.battery_level_pct,
+      has_adapter: hasAdapter,
+      tire_fl_bar: typeof sd?.tire_pressure_fl_bar === "number" && sd.tire_pressure_fl_bar > 0 ? sd.tire_pressure_fl_bar : undefined,
+      tire_fr_bar: typeof sd?.tire_pressure_fr_bar === "number" && sd.tire_pressure_fr_bar > 0 ? sd.tire_pressure_fr_bar : undefined,
+      tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
+      tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
+      pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
+      departure_datetime: departureAt ? new Date(departureAt).toISOString() : undefined,
+    });
+  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,24 +432,7 @@ export default function TripPlanPage() {
           destLabel={destination?.label ?? ""}
           advice={adviceMutation.data}
           adviceLoading={adviceMutation.isPending}
-          onAnalyze={() => {
-            if (!origin || !destination) return;
-            const sd = stateQuery.data;
-            adviceMutation.mutate({
-              plan: planMutation.data!,
-              origin: origin.label,
-              destination: destination.label,
-              drive_mode: driveMode || undefined,
-              starting_soc: (startingSoc.trim() !== "" ? Number(startingSoc) : undefined) ?? sd?.battery_level_pct,
-              has_adapter: hasAdapter,
-              tire_fl_bar: typeof sd?.tire_pressure_fl_bar === "number" && sd.tire_pressure_fl_bar > 0 ? sd.tire_pressure_fl_bar : undefined,
-              tire_fr_bar: typeof sd?.tire_pressure_fr_bar === "number" && sd.tire_pressure_fr_bar > 0 ? sd.tire_pressure_fr_bar : undefined,
-              tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
-              tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
-              pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
-              departure_datetime: departureAt ? new Date(departureAt).toISOString() : undefined,
-            });
-          }}
+          onAnalyze={() => fireAdvice(planMutation.data!)}
           onAddStop={(stop) =>
             setExtraStops((prev) =>
               prev.some(
@@ -958,6 +1043,17 @@ function formatWaypointTime(utcStr: string | undefined, shiftMs: number): string
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// formatDuration turns a seconds count into "Hh Mm" / "Mm" suitable
+// for the route summary header.
+function formatDuration(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (rem === 0) return `${h}h`;
+  return `${h}h ${rem}m`;
+}
+
 function RouteCard({
   route,
   index,
@@ -1002,12 +1098,35 @@ function RouteCard({
         <TripRouteMap route={route} onAddStop={onAddStop} />
       </div>
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
-        <Stat label="Charging stops" value={String(charging.length)} />
-        <Stat label="Total charge time" value={totalChargeMin > 0 ? `${totalChargeMin} min` : "—"} />
-        <Stat label="Arrival SoC" value={route.ArrivalSoC > 0 ? `${route.ArrivalSoC.toFixed(0)}%` : "—"} />
         <Stat
-          label="Energy used"
-          value={route.EnergyConsumptionKWh > 0 ? `${route.EnergyConsumptionKWh.toFixed(1)} kWh` : "—"}
+          label="Distance"
+          value={route.TotalDriveDistanceMeters > 0
+            ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi`
+            : "—"}
+        />
+        <Stat
+          label="Total time"
+          value={route.TotalTripDurationSec > 0
+            ? formatDuration(route.TotalTripDurationSec)
+            : "—"}
+        />
+        <Stat
+          label="Arrival"
+          value={
+            (() => {
+              const t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
+              const soc = route.ArrivalSoC > 0 ? `${route.ArrivalSoC.toFixed(0)}%` : "—";
+              return t ? `${t} · ${soc}` : soc;
+            })()
+          }
+        />
+        <Stat
+          label="Charging"
+          value={
+            charging.length > 0
+              ? `${charging.length} stop${charging.length === 1 ? "" : "s"} · ${totalChargeMin} min`
+              : "0 stops"
+          }
         />
       </dl>
       {showTable && (
