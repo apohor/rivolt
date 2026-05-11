@@ -439,6 +439,33 @@ func runServer() {
 			})
 			logger.Info("drive close hook: weather auto-fetch enabled")
 		}
+		// ChargeCloseHook: deliver per-user "charging complete" push
+		// notifications. Gated on pushSvc being constructed (a missing
+		// VAPID keypair leaves pushSvc nil, in which case the factory
+		// returns nil and the hook is never installed).
+		if pushSvc != nil && pushFactory != nil {
+			monitorRegistry.SetChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				userStore := pushFactory.For(uid)
+				if userStore == nil {
+					return nil
+				}
+				return func(_ context.Context, c charges.Charge) {
+					// Skip rows the recorder considers no-ops (very
+					// short / zero-delta charges). The recorder's
+					// phantom guard already filters before the hook
+					// fires, but checking here too costs nothing.
+					if !c.EndedAt.After(c.StartedAt) {
+						return
+					}
+					summary := fmt.Sprintf(
+						"Ended at %d%% · %.1f kWh added",
+						int(c.EndSoCPct), c.EnergyAddedKWh,
+					)
+					pushSvc.NotifyChargingDone(userStore, c.ID, summary)
+				}
+			})
+			logger.Info("charge close hook: charging-done notifications enabled")
+		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
 		// ELEVATION_ENABLED=1 turns it on; ELEVATION_TILES_URL points

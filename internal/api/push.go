@@ -138,7 +138,7 @@ func handlePushStatus(svc *push.Service, store *push.Store) http.HandlerFunc {
 	}
 }
 
-func handlePushTest(svc *push.Service) http.HandlerFunc {
+func handlePushTest(svc *push.Service, store *push.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Endpoint string `json:"endpoint"`
@@ -149,7 +149,7 @@ func handlePushTest(svc *push.Service) http.HandlerFunc {
 			})
 			return
 		}
-		if err := svc.SendTest(r.Context(), body.Endpoint); err != nil {
+		if err := svc.SendTest(r.Context(), store, body.Endpoint); err != nil {
 			// Include the error verbatim — this is typically the push
 			// provider's response (e.g. Apple's BadJwtToken / InvalidToken)
 			// and surfacing it in the UI beats generic "Save failed".

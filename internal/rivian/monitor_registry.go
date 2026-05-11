@@ -48,6 +48,7 @@ type MonitorRegistry struct {
 	routeFiller     RouteFiller
 	liveStateStore  func(uid uuid.UUID) LiveStateStore
 	driveCloseHook  func(uid uuid.UUID) DriveCloseHook
+	chargeCloseHook func(uid uuid.UUID) ChargeCloseHook
 	logger          *slog.Logger
 
 	mu       sync.RWMutex
@@ -138,6 +139,15 @@ func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) D
 	r.mu.Unlock()
 }
 
+// SetChargeCloseHookFactory mirrors SetDriveCloseHookFactory for
+// charge sessions. Used to fire per-user notifications and similar
+// side-effects on charge close.
+func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
+	r.mu.Lock()
+	r.chargeCloseHook = factory
+	r.mu.Unlock()
+}
+
 // Start launches a monitor for uid if one is not already running.
 // Returns the monitor (existing or new). Returns nil only when the
 // account registry hands back a non-LiveClient (mock/stub paths
@@ -195,6 +205,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.driveCloseHook != nil {
 		if h := r.driveCloseHook(uid); h != nil {
 			mon.SetDriveCloseHook(h)
+		}
+	}
+	if r.chargeCloseHook != nil {
+		if h := r.chargeCloseHook(uid); h != nil {
+			mon.SetChargeCloseHook(h)
 		}
 	}
 	if r.settings != nil {

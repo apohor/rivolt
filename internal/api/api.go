@@ -351,8 +351,8 @@ func New(d Deps) http.Handler {
 				r.Post("/unsubscribe", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushUnsubscribe(d.Push.For(uid))(w, r)
 				}))
-				r.Post("/test", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handlePushTest(d.PushService)(w, r)
+				r.Post("/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
 			})
 

@@ -498,6 +498,22 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 	return 0
 }
 
+// runChargeCloseHook invokes the configured ChargeCloseHook with a
+// detached context bounded by hookTimeout. Best-effort: panics and
+// errors are caught/logged so a buggy hook can't crash the recorder.
+func (m *StateMonitor) runChargeCloseHook(row charges.Charge) {
+	const hookTimeout = 30 * time.Second
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Warn("charge close hook panicked",
+				"vehicle", row.VehicleID, "charge_id", row.ID, "panic", r)
+		}
+	}()
+	hctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+	defer cancel()
+	m.chargeCloseHook(hctx, row)
+}
+
 // runDriveCloseHook invokes the configured DriveCloseHook with a
 // detached context bounded by hookTimeout. Best-effort: panics and
 // errors are caught/logged so a buggy hook can't crash the recorder.
@@ -641,6 +657,11 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.finalState = curr.ChargerState
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		// Snapshot the row before the hook fires (same pattern as the
+		// drive-close path) and decide whether to skip the hook for
+		// phantom rows that upsertLiveCharge already filtered out.
+		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
+		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
 		n := s.charge.number
 		s.charge = nil
 		// Drop the cached LiveSession so its fields (energy, active,
@@ -656,6 +677,9 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
+		if !phantom && m.chargeCloseHook != nil {
+			go m.runChargeCloseHook(closedRow)
+		}
 		return n
 	}
 	return 0
@@ -810,6 +834,17 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		return
 	}
 
+	row := m.liveChargeRow(vehicleID, c)
+	if err := m.chargesStore.Upsert(ctx, row); err != nil {
+		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())
+	}
+}
+
+// liveChargeRow folds the in-flight liveCharge accumulator + any
+// bonded LiveSession push into a persistable charges.Charge row.
+// Extracted so the post-close hook can snapshot the same shape that
+// upsertLiveCharge writes without having to re-implement the merge.
+func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Charge {
 	// Prefer real metrics from Rivian's live session feed when we
 	// have them. As of v0.3.6 this map is populated by BOTH the REST
 	// chargingSessionPoller (Rivian chargers / select DC fast) and
@@ -927,9 +962,7 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 			}
 		}
 	}
-	if err := m.chargesStore.Upsert(ctx, row); err != nil {
-		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())
-	}
+	return row
 }
 
 // isDrivingGear is true for any non-park gear. Empty ("") is treated

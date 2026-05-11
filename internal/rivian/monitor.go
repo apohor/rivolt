@@ -101,6 +101,12 @@ type StateMonitor struct {
 	// SPA backfill click. Set via SetDriveCloseHook; nil disables.
 	driveCloseHook DriveCloseHook
 
+	// chargeCloseHook mirrors driveCloseHook for charge sessions:
+	// invoked asynchronously after charge close with a copy of the
+	// just-persisted row so a push notification or post-close
+	// enrichment can run without blocking the recorder. nil disables.
+	chargeCloseHook ChargeCloseHook
+
 	// Latest LiveSession payload per vehicle, refreshed by
 	// chargingSessionPoller. Used by the recorder to enrich charge
 	// rows with TotalChargedEnergyKWh / RangeAddedKm. Guarded by mu
@@ -225,6 +231,18 @@ type DriveCloseHook func(ctx context.Context, drv drives.Drive)
 // called after subscriptions are running.
 func (m *StateMonitor) SetDriveCloseHook(h DriveCloseHook) {
 	m.driveCloseHook = h
+}
+
+// ChargeCloseHook is invoked asynchronously after a charge session
+// closes (terminal charger state, plug pulled, or stale-session
+// reaper). ctx is bounded; implementations must be safe for
+// concurrent calls across vehicles.
+type ChargeCloseHook func(ctx context.Context, c charges.Charge)
+
+// SetChargeCloseHook wires a post-close callback for charge
+// sessions. nil disables. Safe to call before Start.
+func (m *StateMonitor) SetChargeCloseHook(h ChargeCloseHook) {
+	m.chargeCloseHook = h
 }
 
 // SetElevationLookup wires an optional elevation resolver. nil

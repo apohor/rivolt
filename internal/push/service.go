@@ -88,10 +88,10 @@ func (s *Service) PublicKey() string {
 	return s.vapid.PublicKey
 }
 
-// NotifyChargingDone fires when a charge session reaches the target SoC.
-// Runs in its own goroutine — callers need not block.
-func (s *Service) NotifyChargingDone(sessionID, summary string) {
-	if s == nil {
+// NotifyChargingDone fires when a charge session reaches its terminal
+// state. The provided store must be scoped to the owning user.
+func (s *Service) NotifyChargingDone(store *Store, sessionID, summary string) {
+	if s == nil || store == nil {
 		return
 	}
 	title := "Charging complete"
@@ -99,7 +99,7 @@ func (s *Service) NotifyChargingDone(sessionID, summary string) {
 	if summary != "" {
 		body = summary
 	}
-	go s.broadcast(Payload{
+	go s.broadcast(store, Payload{
 		Title: title,
 		Body:  body,
 		Tag:   "rivolt-charging-done",
@@ -109,13 +109,12 @@ func (s *Service) NotifyChargingDone(sessionID, summary string) {
 }
 
 // NotifyPlugInReminder fires when the vehicle is parked at home below a
-// configured SoC threshold and hasn't been plugged in by the user's
-// cutoff time.
-func (s *Service) NotifyPlugInReminder(soc int) {
-	if s == nil {
+// configured SoC threshold. Scoped to the user via store.
+func (s *Service) NotifyPlugInReminder(store *Store, soc int) {
+	if s == nil || store == nil {
 		return
 	}
-	go s.broadcast(Payload{
+	go s.broadcast(store, Payload{
 		Title: "Plug in reminder",
 		Body:  fmt.Sprintf("Battery is at %d%%. Plug in to be ready for tomorrow.", soc),
 		Tag:   "rivolt-plug-in",
@@ -124,13 +123,13 @@ func (s *Service) NotifyPlugInReminder(soc int) {
 	}, selectPlugInReminder)
 }
 
-// NotifyAnomaly fires when the AI coach has flagged something unusual
-// (sudden range drop, phantom-drain spike, unexpected BMS behavior).
-func (s *Service) NotifyAnomaly(title, body, deepLink string) {
-	if s == nil {
+// NotifyAnomaly fires when an anomaly is detected for the user. Scoped
+// to the user via store.
+func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {
+	if s == nil || store == nil {
 		return
 	}
-	go s.broadcast(Payload{
+	go s.broadcast(store, Payload{
 		Title: title,
 		Body:  body,
 		Tag:   "rivolt-anomaly",
@@ -139,17 +138,20 @@ func (s *Service) NotifyAnomaly(title, body, deepLink string) {
 	}, selectAnomaly)
 }
 
-// SendTest delivers a single test notification to one endpoint. Used by
-// the "send test" button in Settings so operators can verify the pipe
-// without having to actually pull a shot.
-func (s *Service) SendTest(ctx context.Context, endpoint string) error {
-	subs, err := s.store.List(ctx)
+// SendTest delivers a single test notification to one endpoint. The
+// store must be scoped to the requesting user so we don't leak test
+// pings across tenants.
+func (s *Service) SendTest(ctx context.Context, store *Store, endpoint string) error {
+	if store == nil {
+		return errors.New("push: nil store")
+	}
+	subs, err := store.List(ctx)
 	if err != nil {
 		return err
 	}
 	for _, sub := range subs {
 		if sub.Endpoint == endpoint {
-			return s.sendOne(ctx, sub, Payload{
+			return s.sendOne(ctx, store, sub, Payload{
 				Title: "Rivolt test notification",
 				Body:  "Push is working. Drive your truck to see the real thing.",
 				Tag:   "rivolt-test",
@@ -170,14 +172,14 @@ func selectAnomaly(s Subscription) bool        { return s.OnAnomaly }
 // broadcast fans a payload out to every stored subscription matching
 // the selector. Each send is independent: one bad subscription can't
 // block the others, and 404/410 responses purge the dead subscription.
-func (s *Service) broadcast(p Payload, sel selector) {
+// store must be scoped to a single user — broadcasts are user-private.
+func (s *Service) broadcast(store *Store, p Payload, sel selector) {
 	// Deliberately use a fresh context independent of any request-scoped
-	// one: shot-finished is usually invoked from a goroutine that will
-	// outlive the triggering HTTP request anyway.
+	// one: hooks running this typically outlive the triggering frame.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	subs, err := s.store.List(ctx)
+	subs, err := store.List(ctx)
 	if err != nil {
 		s.logger.Warn("push: list subs failed", "err", err.Error())
 		return
@@ -194,7 +196,7 @@ func (s *Service) broadcast(p Payload, sel selector) {
 		wg.Add(1)
 		go func(sub Subscription) {
 			defer wg.Done()
-			if err := s.sendOne(ctx, sub, p); err != nil {
+			if err := s.sendOne(ctx, store, sub, p); err != nil {
 				s.logger.Warn("push: send failed",
 					"host", endpointHost(sub.Endpoint),
 					"kind", p.Kind,
@@ -206,9 +208,9 @@ func (s *Service) broadcast(p Payload, sel selector) {
 }
 
 // sendOne delivers the payload to a single subscription. If the push
-// service reports the subscription is gone (404/410) we purge it so the
-// DB doesn't accumulate dead rows.
-func (s *Service) sendOne(ctx context.Context, sub Subscription, p Payload) error {
+// service reports the subscription is gone (404/410) we purge it via
+// the supplied per-user store so the DB doesn't accumulate dead rows.
+func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p Payload) error {
 	body, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -249,14 +251,18 @@ func (s *Service) sendOne(ctx context.Context, sub Subscription, p Payload) erro
 	switch {
 	case res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusGone:
 		// Browser has told the push service this subscription is dead
-		// (uninstalled PWA, revoked permission, etc.). Clean it up.
-		if delErr := s.store.Delete(ctx, sub.Endpoint); delErr != nil {
-			s.logger.Warn("push: purge dead sub failed", "err", delErr.Error())
-		} else {
-			s.logger.Info("push: purged dead subscription",
-				"host", host,
-				"status", res.StatusCode,
-				"body", previewBody(respBody))
+		// (uninstalled PWA, revoked permission, etc.). Clean it up via
+		// the per-user store if the caller supplied one; otherwise log
+		// and move on (the row will be cleaned up on a later attempt).
+		if store != nil {
+			if delErr := store.Delete(ctx, sub.Endpoint); delErr != nil {
+				s.logger.Warn("push: purge dead sub failed", "err", delErr.Error())
+			} else {
+				s.logger.Info("push: purged dead subscription",
+					"host", host,
+					"status", res.StatusCode,
+					"body", previewBody(respBody))
+			}
 		}
 		return nil
 	case res.StatusCode >= 200 && res.StatusCode < 300:
