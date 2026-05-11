@@ -68,10 +68,19 @@ To set up the dedicated account:
 1. Create a new Rivian account at <https://rivian.com> with a
    different email from your primary one. A `+rivolt` Gmail alias
    works (`yourname+rivolt@gmail.com`).
-2. In the Rivian app on your phone, open **Vehicle → Settings →
-   Authorized Drivers** and add the new email.
-3. Accept the invite from the new account's inbox.
-4. Verify the new account can see your vehicle in the Rivian app.
+2. In the Rivian app on your phone (logged in as your **primary**
+   account), open **Vehicle → Settings → Authorized Drivers** and
+   add the new email.
+3. Open the invite email in the new account's inbox and click
+   **Accept**.
+4. **Important:** sign in to the Rivian app on a phone with the
+   *new* (dedicated) account. Until the dedicated account
+   authenticates in the app at least once, the invite stays in
+   "Sent" status and the vehicle isn't actually added — Rivolt
+   won't see it. Once you sign in, the invite flips to active and
+   the vehicle appears in the dedicated account's vehicle list.
+5. Verify the new account can see your vehicle in the Rivian app
+   before continuing.
 
 ### Add to Rivolt
 
