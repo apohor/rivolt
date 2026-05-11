@@ -782,6 +782,41 @@ for the non-charge-done categories.
 
 ---
 
+## Maintenance backlog
+
+Routine upgrades + tooling that haven't blocked launch but need
+to land eventually.
+
+- [ ] **Vite 8 upgrade.** Closes 3 moderate `npm audit` advisories
+      (esbuild → vite → @vitejs/plugin-legacy) that are
+      dev-server-only — they let a malicious website read
+      responses from `npm run dev` on a maintainer's laptop, but
+      don't ship in the production bundle. Three plugin bumps in
+      one PR: `vite@^8`, `@vitejs/plugin-react@latest`,
+      `@vitejs/plugin-legacy@^8` (the latter is a 5→8 jump, the
+      actual risk). Verify `modernPolyfills` + `renderLegacyChunks`
+      still behave on the production build (Safari 15+ target).
+      `npm audit` will keep flagging the moderates until this
+      ships.
+- [ ] **Dependabot / GH Security tab** — auto-PRs for npm + Go
+      bumps so we don't accumulate audit debt by hand.
+- [ ] **CI lint gate.** `gosec`, `staticcheck`, and frontend
+      eslint (with `--max-warnings 0`) run on every push.
+      Currently lint warnings accumulate silently.
+- [ ] **Per-user AI cost cap.** No daily budget on
+      `/api/trips/plan/advice` today; a Reddit beta tester
+      auto-firing analysis on every plan can rack up tokens.
+      Soft cap (e.g. 20 calls / user / day, configurable in
+      Admin → AI providers) protects the operator's bill.
+- [ ] **RLS enforcement (stage 2 of migration 0008).** Split the
+      app role into an owner + a runtime role, drop BYPASSRLS
+      from runtime, FORCE the policies, add a chi middleware
+      that pins `app.user_id` per request. The application code
+      is already fully scoped — this moves enforcement from
+      "by convention" to "by the database."
+
+---
+
 ## Non-roadmap
 
 Explicit "not now, probably never":
