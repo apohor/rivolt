@@ -97,6 +97,15 @@ export default function TripPlanPage() {
     enabled: !!firstVehicle?.rivian_vehicle_id,
     staleTime: 30 * 1000,
   });
+  // Per-vehicle profile carries the user-configured door-jamb
+  // placard PSI; surfaced into the trip-advice prompt so the
+  // "vehicle" section uses real numbers (not a hardcoded 35 PSI).
+  const profileQuery = useQuery({
+    queryKey: ["vehicleProfile", firstVehicle?.rivian_vehicle_id],
+    queryFn: () => backend.vehicleProfileGet(firstVehicle!.rivian_vehicle_id),
+    enabled: !!firstVehicle?.rivian_vehicle_id,
+    staleTime: 5 * 60_000,
+  });
   const stateLat = stateQuery.data?.latitude;
   const stateLon = stateQuery.data?.longitude;
   const stateHasFix =
@@ -275,6 +284,11 @@ export default function TripPlanPage() {
       tire_rl_bar: typeof sd?.tire_pressure_rl_bar === "number" && sd.tire_pressure_rl_bar > 0 ? sd.tire_pressure_rl_bar : undefined,
       tire_rr_bar: typeof sd?.tire_pressure_rr_bar === "number" && sd.tire_pressure_rr_bar > 0 ? sd.tire_pressure_rr_bar : undefined,
       pack_kwh: typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0 ? firstVehicle.pack_kwh : undefined,
+      tire_placard_psi:
+        typeof profileQuery.data?.tire_placard_psi === "number" &&
+        profileQuery.data.tire_placard_psi > 0
+          ? profileQuery.data.tire_placard_psi
+          : undefined,
       departure_datetime: departureAt ? new Date(departureAt).toISOString() : undefined,
     });
   };

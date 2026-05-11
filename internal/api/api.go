@@ -1497,6 +1497,7 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 			TireFRBar         float64          `json:"tire_fr_bar"`
 			TireRLBar         float64          `json:"tire_rl_bar"`
 			TireRRBar         float64          `json:"tire_rr_bar"`
+			TirePlacardPSI    float64          `json:"tire_placard_psi"`
 			PackKWh           float64          `json:"pack_kwh"`
 			DepartureDatetime string           `json:"departure_datetime"`
 		}
@@ -1515,6 +1516,7 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 			StartingSoC:      body.StartingSoC,
 			HasAdapter:       body.HasAdapter,
 			TirePressureBars: [4]float64{body.TireFLBar, body.TireFRBar, body.TireRLBar, body.TireRRBar},
+			TirePlacardPSI:   body.TirePlacardPSI,
 			PackKWh:          body.PackKWh,
 		}
 		// Pull the user's at-home charging rate so the cost section

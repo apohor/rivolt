@@ -39,6 +39,11 @@ type Context struct {
 	// PackKWh is the observed battery capacity in kWh from the vehicle
 	// record. 0 means unknown.
 	PackKWh float64
+	// TirePlacardPSI is the user-configured door-jamb cold-fill
+	// pressure from the vehicle profile. 0 means unconfigured; the
+	// prompt then falls back to a generic "below placard" framing
+	// instead of citing a specific number.
+	TirePlacardPSI float64
 	// HomePricePerKWh is the user's at-home charging cost in
 	// HomeCurrency (typically USD). 0 means unconfigured — the cost
 	// section degrades to a pure-DCFC estimate.
@@ -184,7 +189,7 @@ func buildPrompt(plan *rivian.TripPlan, tc Context, cost CostEstimate) (system, 
 - "cost": comment on the DCFC spend and home-equivalent already computed below. Mention if charging at fewer/different stops would save money; if the trip uses zero DCFC (all from battery stored at home), say so plainly. Don't restate the numbers, frame them.
 - "efficiency": 1–3 actionable tips. Drive mode (e.g. Conserve saves time on long trips, Sport burns range), departure timing (avoid peak heat / cold), trailer/load if relevant.
 - "weather": only when there's something material — headwind > 15 kph, temp < 0 °C or > 35 °C, precipitation, thunderstorm forecast. Quantify the range impact when you can.
-- "vehicle": tire pressures (placard is 35 PSI), pack capacity vs. trip distance, adapter dependency at any stop.
+- "vehicle": tire pressures vs. the placard PSI (when provided below), pack capacity vs. trip distance, adapter dependency at any stop. If the placard is missing, frame tire commentary generically ("below the door-jamb spec") rather than citing a specific number.
 - Lead each section with the most actionable observation. Do not invent numbers. No emoji, no marketing language.`
 
 	var sb strings.Builder
@@ -215,6 +220,9 @@ func buildPrompt(plan *rivian.TripPlan, tc Context, cost CostEstimate) (system, 
 	}
 	if len(tireLines) > 0 {
 		fmt.Fprintf(&sb, "Tire pressures: %s\n", strings.Join(tireLines, ", "))
+	}
+	if tc.TirePlacardPSI > 0 {
+		fmt.Fprintf(&sb, "Tire placard PSI: %.0f (door-jamb cold-fill)\n", tc.TirePlacardPSI)
 	}
 
 	if w := tc.Weather; w != nil {

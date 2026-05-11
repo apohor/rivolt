@@ -1262,6 +1262,10 @@ export type TripAdviceRequest = {
   tire_rr_bar?: number;
   // Observed pack capacity in kWh (from vehicles table). Omit when unknown.
   pack_kwh?: number;
+  // Door-jamb cold-fill placard PSI from the per-vehicle profile.
+  // Omit when unconfigured; backend prompt then frames tire
+  // commentary generically instead of citing a guessed number.
+  tire_placard_psi?: number;
   // ISO 8601 UTC of planned departure; backend uses it to fetch forecast
   // weather for that hour instead of "now".
   departure_datetime?: string;
