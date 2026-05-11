@@ -15,99 +15,135 @@ will cost.
 
 ---
 
-## Why Rivolt
+## Overview — see your truck at a glance
 
-Rivolt sits between four kinds of tools and replaces all of them:
+The home view stitches together what you actually care about right
+now: current SoC and range, where the truck is, whether it's
+plugged in, the most recent drive, the most recent charge, and the
+rolling weekly totals (miles, kWh, $). Live telemetry comes off the
+Rivian WebSocket feed at 1–5 s while you're driving and ~30 s when
+parked, so the dot on the map is honest, not stale-mobile-app
+honest.
 
-|                                | Official app | Roamer | Outpost | ElectraFi | **Rivolt** |
-|---                             |:---:        |:---:   |:---:    |:---:      |:---:        |
-| Live vehicle telemetry         | ✅           | ✅      | ✅       | ✅         | ✅           |
-| Per-drive efficiency breakdown | ❌           | ⚠️      | ⚠️       | ✅         | ✅           |
-| Real charging-cost ledger      | ❌           | ❌      | ❌       | ⚠️         | ✅           |
-| Trip planner with cost/weather | ❌           | ❌      | ❌       | ❌         | ✅           |
-| Multi-user / household         | ⚠️           | ❌      | ❌       | ❌         | ✅           |
-| Open source, MIT               | ❌           | ❌      | ❌       | ❌         | ✅           |
-| Optional AI commentary         | ❌           | ❌      | ❌       | ❌         | ✅           |
-
-Rivolt's differentiators in one sentence each:
-
-- **Costs use *your* rate.** Configure your home $/kWh; every
-  charging session is priced against it. Trip planner shows DCFC
-  spend + home-rate equivalent before you leave the driveway.
-- **The trip planner is honest.** It surfaces total energy used,
-  arrival time at your chosen departure datetime, charger detour
-  cost, and weather impact for *this* corridor — not generic
-  "consider Conserve mode" tips.
-- **Per-drive analytics that explain the numbers.** Route maps,
-  speed and elevation overlays, temperature, headwind, energy
-  used vs. the rolling average, weather context. Not a wall of
-  charts you have to interpret.
-- **Read-only against Rivian.** Rivolt never sends commands to
-  your truck. It can't unlock doors, start charging, or change
-  drive mode. Telemetry only.
-- **Open source and yours to inspect.** MIT-licensed core; full
-  data export and one-click disconnect from the Settings page.
+![Rivolt overview page](docs/screenshots/overview.png)
 
 ---
 
-## What it does today
+## Drives — every trip explained
 
-### Live + history
+Each drive is a page, not a row. The map is road-snapped (OSRM or
+Valhalla, whichever the deployment wires) and coloured by speed —
+gray for parking-lot crawls, rose for interstate — over a
+self-hosted Protomaps basemap. Below the map, time-aligned charts
+for speed, SoC, elevation, temperature, headwind, and precipitation,
+plus per-drive totals: distance, average speed, energy used,
+cost at *your* home $/kWh rate, weather at the start.
 
-- **Live panel** — real-time SoC, range, charge state, gear, GPS
-  via the Rivian WebSocket feed (1–5 s frames while driving).
-- **Drive timeline** — per-drive maps with road-snapped polyline
-  (OSRM / Valhalla), speed-coloured route, elevation, temperature,
-  weather overlay, headwind, precipitation bands. GPS staleness
-  detection with admin-tunable thresholds.
-- **Charge sessions** — per-session curve, BMS thermal split when
-  the Parallax feed is available, peak/avg kW, energy delivered,
-  cost. Public / Home / DCFC bucketed automatically with no AI
-  involved (DBSCAN clustering on coordinates).
-- **ElectraFi CSV import** — backfill years of history in minutes.
+A "Low GPS accuracy" pill surfaces when the Rivian modem returned
+stale fixes or implausible jumps during the drive, with thresholds
+that are admin-tunable so the warning doesn't fire on every parking
+garage.
 
-### Trip planner
+![Drive detail page](docs/screenshots/drive-detail.png)
 
-Plan a road trip end-to-end:
+---
 
-- **Pick origin, destination, and via-stops** with a custom
-  date/time picker; departure defaults to "now" but anything on
-  the calendar works.
-- **Rivian's own planner picks charging stops** bounded by your
-  starting SoC, target arrival SoC, and adapter config (Tesla
-  NACS yes/no).
-- **Charger overlay** along the actual route corridor (perpendicular
-  distance to polyline, not bounding box), filterable DCFC / L2 /
-  All, sourced from NREL AFDC.
-- **Trip analysis** card surfaces: headline summary, DCFC spend in
-  USD plus home-rate-equivalent energy cost, and optional LLM-written
-  commentary across four named sections (cost framing, efficiency
-  tips, weather impact, vehicle config). The dollar figures are
-  computed deterministically from your home rate + stop SoC deltas;
-  the LLM frames them, never invents them.
-- **Last-trip persistence** — closing and reopening the page lands
-  you back on your previous inputs.
+## Charges — every kWh, every dollar
 
-### Notifications
+Charging sessions are recorded with the same fidelity as drives:
+the full power curve, peak and average kW, energy delivered, total
+session time, and — when the Parallax feed is available — the
+thermal split between energy going to the pack and energy spent on
+battery conditioning.
 
-- **Web Push** (VAPID) — per-device subscribe in Settings →
-  Notifications. Charge-close events fire automatically with
-  final SoC + kWh added in the body; per-event toggles let
-  users opt in / out of charging-done, plug-in reminder, anomaly.
-- **PWA** — installable on iOS / Android / desktop; offline-capable
-  service worker; mobile-first chart cursor.
+Sessions are automatically bucketed `Home` / `Public` / `DCFC` by
+DBSCAN clustering on coordinates and peak kW; sessions in your
+home cluster price against your configured home rate, sessions
+out in the wild price against the session's actual reported cost
+when Rivian provides it.
 
-### Accounts
+![Charge detail page](docs/screenshots/charge-detail.png)
 
-- **OIDC** sign-in via Ory Hydra (any compliant OIDC provider
-  works). Invite-code signup flow for households + small fleets.
-- **Multi-user from day one.** Every data-plane store carries
-  `user_id`; Postgres Row-Level Security enforces isolation at
-  the database, not the application layer. Rivian credentials
-  are envelope-encrypted with the user ID bound as AES-GCM AAD
-  so ciphertext can't be swapped across tenants.
-- **Read-only** against the Rivian API. Rivolt sends commands to
-  no Rivian endpoint, period.
+---
+
+## Trip planner — plan with cost in mind
+
+This is the feature the app was built for. Pick origin, destination,
+optional via-stops, and a departure date/time on the calendar.
+Rivolt asks Rivian's own planner to lay out a route with charging
+stops, then layers on top of it:
+
+- A self-hosted Protomaps basemap with the actual route drawn in.
+- A charger overlay along the route corridor — perpendicular
+  distance to the polyline, not bounding box, with arc-length
+  trimming near the endpoints so the destination metro doesn't
+  drag in dozens of irrelevant downtown stations.
+- DCFC / L2 / All toggle on the charger overlay, sourced from
+  NREL AFDC data with proper DCFC vs L2 discrimination (Tesla
+  Destination chargers no longer mis-classified as Supercharger).
+- Last-trip persistence — closing and reopening lands you back on
+  yesterday's setup.
+- Departure-time-aware arrival clock: the table shows arrival
+  HH:MM at every stop based on your chosen departure, not "now".
+
+![Trip planner](docs/screenshots/trip-planner.png)
+
+---
+
+## Trip analysis — what the trip actually costs
+
+After the route comes back, the **Trip analysis** card breaks it
+down. The dollar figures are computed deterministically in Go —
+not asked of an LLM — from your home rate, stop SoC deltas, and an
+industry-default DCFC rate:
+
+- **DCFC spend** — what you'll actually pay at fast chargers along
+  the way.
+- **Home-rate equivalent** — what the total energy used would have
+  cost if every kWh came from your home meter; useful as a
+  "what is this trip actually costing me" baseline.
+
+Around those numbers, when an AI provider is wired by the operator,
+the model writes short categorised commentary across **Cost**,
+**Efficiency** (drive mode, departure timing), **Weather** (only
+when there's something material — cold-snap, headwind > 15 kph,
+precipitation), and **Vehicle** (tire pressures, pack size, adapter
+dependency at any stop). Empty categories hide their headers.
+
+![Trip analysis card](docs/screenshots/trip-analysis.png)
+
+---
+
+## Settings — everything in one place
+
+A five-tab layout for the per-user controls:
+
+- **Account** — Rivian connection (with the dedicated
+  Authorized Driver pattern documented in
+  [`docs/SIGNUP.md`](docs/SIGNUP.md)).
+- **Vehicle** — vehicle profile (pack capacity), display units,
+  home location.
+- **Charging** — home $/kWh rate + currency, preferred public
+  networks, trip planner defaults.
+- **Notifications** — per-device push subscription with per-event
+  toggles (see below).
+- **Data** — ElectraFi CSV import + danger zone (full JSON
+  backup, reset).
+
+![Settings](docs/screenshots/settings.png)
+
+---
+
+## Notifications — push that actually fires
+
+Web Push (VAPID), per-device subscribe. Enable once on each
+device you want pinged, pick which events you care about, and
+Rivolt delivers an OS-level notification on the next matching
+event. Currently wired: **charging session completes** (with the
+final SoC + kWh added in the body). Plug-in reminders and
+anomaly alerts have the plumbing — event sources land next.
+
+![Notifications panel](docs/screenshots/notifications.png)
 
 ---
 
@@ -136,7 +172,9 @@ of:
   service in between.
 - All your drive, charge, and trip data is exportable as JSON from
   Settings → Data, and deletable from the same page.
-- Read-only against the Rivian API.
+- **Read-only against the Rivian API.** Rivolt sends commands to
+  no Rivian endpoint, period. It can't unlock doors, start
+  charging, or change drive mode. Telemetry only.
 
 ---
 
@@ -148,6 +186,9 @@ of:
   coder/websocket for the Rivian feed, webpush-go for VAPID.
 - **Postgres** with Row-Level Security, monthly partitioning on
   `vehicle_state`, envelope-encrypted secrets in `user_secrets`.
+  Multi-tenant from day one: every data-plane store carries
+  `user_id`, every query filters on it, every request pins
+  `app.user_id` so RLS does the final enforcement at the DB.
 - **React 18 + TypeScript + Vite + Tailwind v3** for the SPA;
   TanStack Query for the data layer; uPlot for time-series
   charts; Leaflet + protomaps-leaflet for maps.
