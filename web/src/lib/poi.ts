@@ -320,6 +320,43 @@ async function findInArchive(
 // a planned route — 20 miles expressed in kilometres.
 const CORRIDOR_KM = 32.2;
 
+// minMetersToPath returns the minimum perpendicular distance in
+// metres from (lat, lon) to any segment of `path`. Uses an
+// equirectangular projection centred on the test point — accurate
+// enough for the 20-mile corridor we care about and ~50× cheaper
+// than spherical great-circle math for a route with thousands of
+// segments. Returns Infinity for a path with fewer than 2 points.
+function minMetersToPath(lat: number, lon: number, path: [number, number][]): number {
+  if (path.length < 2) return Infinity;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  // Project to a local x/y in metres for fast distance math.
+  const x = lon * 111320 * cosLat;
+  const y = lat * 110540;
+  let best = Infinity;
+  for (let i = 1; i < path.length; i++) {
+    const [aLat, aLon] = path[i - 1];
+    const [bLat, bLon] = path[i];
+    const ax = aLon * 111320 * cosLat;
+    const ay = aLat * 110540;
+    const bx = bLon * 111320 * cosLat;
+    const by = bLat * 110540;
+    // Distance from point to segment AB.
+    const dx = bx - ax;
+    const dy = by - ay;
+    const segLen2 = dx * dx + dy * dy;
+    let t = segLen2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / segLen2 : 0;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    const ddx = x - cx;
+    const ddy = y - cy;
+    const d2 = ddx * ddx + ddy * ddy;
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
+
 // findChargersAlongPath returns all DCFC stations within CORRIDOR_KM
 // of any point on the route. It expands the route's bounding box by
 // CORRIDOR_KM on all sides, enumerates every z14 tile in that bbox,
@@ -410,6 +447,11 @@ export async function findChargersAlongPath(
           const isL2 = l2Count !== undefined ? l2Count > 0 : !isDCFC;
           if (filter === "dcfc" && !isDCFC) continue;
           if (filter === "l2" && !isL2) continue;
+          // Filter by perpendicular distance to the route line, not
+          // just the route's bounding box. A long mostly-east-west
+          // route otherwise drags in everything in the bbox rectangle
+          // (e.g. an entire metro area dozens of miles off-route).
+          if (minMetersToPath(flat, flon, path) > CORRIDOR_KM * 1000) continue;
           const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
           if (!seen.has(k)) {
             seen.set(k, { ...chargersLookup.toPOI(props, {
