@@ -482,13 +482,29 @@ export function LineChart({
           width={innerW}
           height={innerH}
           fill="transparent"
-          style={{ cursor: "crosshair" }}
+          style={{ cursor: "crosshair", touchAction: "none" }}
+          onPointerDown={(e) => {
+            // Capture the pointer so subsequent moves keep updating
+            // even if the finger drifts off the overlay's bounding
+            // rect. Required for mobile to register a tap.
+            (e.target as Element).setPointerCapture?.(e.pointerId);
+            const x = eventToDataX(e.clientX);
+            if (x == null) return;
+            onCursorChange(snapToSample(x));
+          }}
           onPointerMove={(e) => {
             const x = eventToDataX(e.clientX);
             if (x == null) return;
             onCursorChange(snapToSample(x));
           }}
-          onPointerLeave={() => onCursorChange(null)}
+          onPointerLeave={(e) => {
+            // Only clear on mouse leave. Touch pointers fire
+            // pointerleave immediately at touchend, which would
+            // wipe the readout on every tap; leave the last value
+            // on screen for touch users so the tap-to-inspect
+            // gesture works.
+            if (e.pointerType === "mouse") onCursorChange(null);
+          }}
         />
       ) : null}
     </svg>
