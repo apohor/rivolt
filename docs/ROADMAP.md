@@ -745,6 +745,19 @@ Smaller cuts queued up; not phase-gated, ship as they make sense.
 - [ ] **"No reachable charging stations" banner** — promote the
       empty-state from a buried subtitle to a prominent CTA
       ("Add a custom via-stop", "Widen starting SoC").
+- [ ] **Weather overlay on the trip planner map.** Toggle next to
+      the charger filter:
+      - *Radar* — RainViewer precipitation tiles (free, no API
+        key, ~2 h forecast). Auto-disable when the picked
+        departure is > 2 h out.
+      - *Along-route markers* — temp / wind / precip icons at the
+        origin, destination, and ~hourly midpoints, sourced from
+        Open-Meteo `FetchRange`. Works for any departure time
+        including multi-day-ahead plans.
+      Ship the radar first, layer markers on top for far-future
+      trips. Optional OpenWeatherMap tiles (cloud / wind /
+      temperature) are a follow-up if anyone wants them and is
+      willing to configure a key admin-side.
 
 ---
 
