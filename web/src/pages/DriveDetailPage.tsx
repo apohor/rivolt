@@ -21,6 +21,10 @@ import { usePreferences, formatTemperature } from "../lib/preferences";
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
   const prefs = usePreferences();
+  // Admin-configurable thresholds for the "Low GPS accuracy" pill.
+  // Read at the top of the component so the hook order stays
+  // consistent across early returns below.
+  const gpsThresholds = useGPSThresholds();
   // Shared cursor for the Speed chart, Battery chart and route map.
   // Stored in milliseconds so it can be passed straight through as
   // the chart x-axis cursor; converted to unix seconds for the map.
@@ -301,8 +305,7 @@ export default function DriveDetailPage() {
 
   // Estimate GPS accuracy during the drive by checking fix freshness
   // and sample continuity. Returns true if accuracy is likely low.
-  // Thresholds come from /api/config (admin-tunable).
-  const gpsThresholds = useGPSThresholds();
+  // Thresholds come from /api/config (admin-tunable, see top of fn).
   const gpsAccuracyLow = (() => {
     if (driveSamples.length === 0) return false;
 
