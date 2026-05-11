@@ -40,9 +40,15 @@ type LastTrip = {
 function readLastTrip(): LastTrip | null {
   try {
     const raw = localStorage.getItem(LAST_TRIP_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as LastTrip;
-  } catch {
+    if (!raw) {
+      console.debug("[trip-planner] no saved trip in localStorage");
+      return null;
+    }
+    const parsed = JSON.parse(raw) as LastTrip;
+    console.debug("[trip-planner] hydrated last trip:", parsed);
+    return parsed;
+  } catch (e) {
+    console.warn("[trip-planner] readLastTrip failed:", e);
     return null;
   }
 }
@@ -50,8 +56,9 @@ function readLastTrip(): LastTrip | null {
 function writeLastTrip(t: LastTrip): void {
   try {
     localStorage.setItem(LAST_TRIP_KEY, JSON.stringify(t));
-  } catch {
-    /* ignore quota / disabled-storage failures */
+    console.debug("[trip-planner] saved last trip:", t);
+  } catch (e) {
+    console.warn("[trip-planner] writeLastTrip failed:", e);
   }
 }
 
@@ -1114,7 +1121,18 @@ function RouteCard({
           label="Arrival"
           value={
             (() => {
-              const t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
+              // Prefer Rivian's per-waypoint arrival time when present.
+              // Fall back to (departure + totalTripDurationSec) so the
+              // stat always reads something useful — Rivian sometimes
+              // omits arrivalTimeUTC on the destination waypoint.
+              let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
+              if (!t && route.TotalTripDurationSec > 0) {
+                const originDep = origin?.DepartureTimeUTC
+                  ? new Date(origin.DepartureTimeUTC).getTime()
+                  : Date.now();
+                const arriveMs = originDep + route.TotalTripDurationSec * 1000 + timeShiftMs;
+                t = new Date(arriveMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+              }
               const soc = route.ArrivalSoC > 0 ? `${route.ArrivalSoC.toFixed(0)}%` : "—";
               return t ? `${t} · ${soc}` : soc;
             })()
