@@ -186,7 +186,6 @@ export function milesPerDay(
 export function socTrend(
   drives: Drive[],
   charges: Charge[],
-  opts?: { dailyBucket?: boolean },
 ): { x: number; y: number }[] {
   const pts: { x: number; y: number }[] = [];
   for (const d of drives) {
@@ -206,61 +205,7 @@ export function socTrend(
     }
   }
   pts.sort((a, b) => a.x - b.x);
-
-  // Daily aggregation for long windows. The natural drive/charge
-  // sawtooth (~50% → 25% → 80% per day) looks busy over a 30/60-day
-  // window even after spike rejection. Bucketing into one
-  // point-per-local-day with the median value collapses the zigzag
-  // into a readable trend line at the cost of intra-day detail —
-  // exactly the right trade-off when you're looking at "how has
-  // my SoC drifted over the month".
-  if (opts?.dailyBucket) {
-    const buckets = new Map<string, number[]>();
-    for (const p of pts) {
-      const d = new Date(p.x);
-      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      const arr = buckets.get(key) ?? [];
-      arr.push(p.y);
-      buckets.set(key, arr);
-    }
-    const days = [...buckets.entries()].sort(([a], [b]) => a.localeCompare(b));
-    return days.map(([key, ys]) => {
-      ys.sort((a, b) => a - b);
-      const median =
-        ys.length % 2 === 1
-          ? ys[(ys.length - 1) / 2]
-          : (ys[ys.length / 2 - 1] + ys[ys.length / 2]) / 2;
-      // Anchor x at local noon so the marker lands inside the day
-      // rather than at midnight (which visually attributes it to
-      // the previous day on most chart axes).
-      const [y, m, d] = key.split("-").map(Number);
-      return { x: new Date(y, m - 1, d, 12).getTime(), y: median };
-    });
-  }
-
-  // 7-day view: keep point-level resolution but de-noise.
-  // Coalesce points within the same minute (end-drive + start-charge
-  // often share second-precision timestamps).
-  const deduped: { x: number; y: number }[] = [];
-  for (const p of pts) {
-    const last = deduped[deduped.length - 1];
-    if (last && Math.abs(p.x - last.x) < 60_000) continue;
-    deduped.push(p);
-  }
-  // 3-point rolling median to eat single-sample outliers from
-  // phantom drives / stale telemetry.
-  if (deduped.length < 3) return deduped;
-  const out: { x: number; y: number }[] = new Array(deduped.length);
-  out[0] = deduped[0];
-  out[deduped.length - 1] = deduped[deduped.length - 1];
-  for (let i = 1; i < deduped.length - 1; i++) {
-    const a = deduped[i - 1].y;
-    const b = deduped[i].y;
-    const c = deduped[i + 1].y;
-    const med = a + b + c - Math.min(a, b, c) - Math.max(a, b, c);
-    out[i] = { x: deduped[i].x, y: med };
-  }
-  return out;
+  return pts;
 }
 
 function sum(xs: number[]): number {

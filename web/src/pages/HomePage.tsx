@@ -112,12 +112,9 @@ export default function HomePage() {
     () => milesPerDay(winDrives, barDays),
     [winDrives, barDays],
   );
-  // Daily-aggregate the SoC trend for the 30d / 60d windows so the
-  // sawtooth from per-drive/per-charge points doesn't dominate the
-  // chart. 7d view keeps point-level resolution + median spike filter.
   const trend = useMemo(
-    () => socTrend(winDrives, winCharges, { dailyBucket: win !== "7d" }),
-    [winDrives, winCharges, win],
+    () => socTrend(winDrives, winCharges),
+    [winDrives, winCharges],
   );
 
   const isError = drives.isError || charges.isError;
