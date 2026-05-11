@@ -227,8 +227,15 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 	// normal-urgency pushes on a backgrounded device; high is what you
 	// want for user-visible notifications that need to arrive promptly.
 	// FCM/Mozilla treat the two similarly in practice.
+	//
+	// webpush-go prepends "mailto:" itself unless the subscriber
+	// already starts with "https:" — passing the full mailto: URL
+	// produces a doubled "mailto:mailto:..." which APNs rejects as
+	// BadJwtToken. Strip a leading "mailto:" so we hand the library
+	// what it expects (a bare email address).
+	subscriber := strings.TrimPrefix(s.vapid.Subject, "mailto:")
 	res, err := s.sender.SendNotification(body, wsub, &webpush.Options{
-		Subscriber:      s.vapid.Subject,
+		Subscriber:      subscriber,
 		VAPIDPublicKey:  s.vapid.PublicKey,
 		VAPIDPrivateKey: s.vapid.PrivateKey,
 		TTL:             s.ttlSeconds,
