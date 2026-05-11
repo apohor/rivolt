@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/apohor/rivolt#readme
+    about: README, architecture notes, signup walkthrough.

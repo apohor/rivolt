@@ -1,0 +1,67 @@
+name: 🎟️ Beta invite request
+description: Request access to the Rivolt closed beta
+title: "Beta invite request: <your truck / location>"
+labels:
+  - beta-request
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in the Rivolt beta. Fill in the
+        fields below and I'll send an invite code via the email
+        you list, usually within a couple of days.
+
+        Already an owner? Skip the form and just write a quick
+        comment in any open beta-invite issue so I know you're a
+        Rivian owner who'd put the app through real use.
+
+  - type: input
+    id: vehicle
+    attributes:
+      label: Rivian model
+      description: e.g. R1S 2023 Quad-Motor Large, R1T 2024 Dual-Motor Max, R1S Gen 2 Tri-Max.
+      placeholder: R1S 2024 Dual-Motor Max
+    validations:
+      required: true
+
+  - type: dropdown
+    id: usage
+    attributes:
+      label: How often do you take 200+ mi drives?
+      options:
+        - Multiple times a month
+        - Once a month or so
+        - A few times a year
+        - Mostly local driving
+    validations:
+      required: true
+
+  - type: dropdown
+    id: home-charging
+    attributes:
+      label: Do you charge at home?
+      options:
+        - Yes — Level 2 (J1772 / NACS)
+        - Yes — Level 1 (wall outlet)
+        - No — public charging only
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: feedback
+    attributes:
+      label: Beta-tester expectations
+      description: All beta accounts are invite-only while we shake out bugs. Confirm you're up for the following.
+      options:
+        - label: I'll file a GitHub issue when something breaks (not just DM)
+          required: true
+        - label: I understand this is pre-release software and things may change between updates
+          required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Optional. What's drawing you to Rivolt, features you'd like, etc.
+    validations:
+      required: false

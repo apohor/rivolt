@@ -119,19 +119,35 @@ export default function SignupPage() {
           <li>• Every drive and charge tracked against your own $/kWh</li>
           <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
         </ul>
-        <div className="mb-5 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+        <div className="mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
           <strong className="text-amber-200">Closed beta.</strong> Access is
           invite-only while we shake out bugs. Paste your code below to get
           started — no code yet?{" "}
           <a
-            href="https://github.com/apohor/rivolt#readme"
+            href="https://github.com/apohor/rivolt/issues/new?template=beta-invite-request.yml"
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:text-amber-100"
           >
-            Learn more
+            Request one
           </a>
           .
+        </div>
+
+        <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
+          <strong className="text-neutral-200">What's next:</strong> after
+          you sign in, a short setup wizard walks you through connecting
+          your Rivian account. We recommend a dedicated Authorized Driver
+          login — see the{" "}
+          <a
+            href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-500 hover:underline"
+          >
+            signup walkthrough
+          </a>{" "}
+          for the recommended pattern.
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
