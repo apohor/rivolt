@@ -1244,7 +1244,7 @@ function TripAdviceCard({
   onAnalyze?: () => void;
 }) {
   return (
-    <Card title="AI analysis">
+    <Card title="Trip analysis">
       {!loading && !advice && (
         <button
           type="button"
