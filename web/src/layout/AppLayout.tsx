@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
 import Logo from "../components/Logo";
+import IOSInstallBanner from "../components/IOSInstallBanner";
 
 const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Overview", end: true },
@@ -140,6 +141,7 @@ export default function AppLayout() {
   const navItems = me.data?.role === "admin" ? [...baseNav, ...adminNav] : baseNav;
   return (
     <div className="min-h-full flex flex-col">
+      <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-[1100] app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">
           <NavLink
@@ -179,6 +181,46 @@ export default function AppLayout() {
       <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-4 md:py-5 lg:py-6">
         <Outlet />
       </main>
+      <Footer />
     </div>
+  );
+}
+
+function Footer() {
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: () => backend.health(),
+    staleTime: 60_000,
+  });
+  return (
+    <footer className="border-t border-neutral-900 bg-neutral-950/80 text-xs text-neutral-500">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-3 text-center">
+        <a
+          href="https://github.com/apohor/rivolt"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-neutral-200"
+        >
+          GitHub
+        </a>
+        <span className="text-neutral-700">·</span>
+        <span>MIT licensed</span>
+        <span className="text-neutral-700">·</span>
+        <a
+          href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-neutral-200"
+        >
+          Docs
+        </a>
+        {health.data?.version && (
+          <>
+            <span className="text-neutral-700">·</span>
+            <span className="font-mono text-neutral-600">v{health.data.version}</span>
+          </>
+        )}
+      </div>
+    </footer>
   );
 }

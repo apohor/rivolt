@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
@@ -120,6 +121,7 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4">
+      <ConnectRivianPrompt context="Once connected, drives, charges, and live telemetry start streaming." />
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
           row that floated between the hero card and the KPI card on

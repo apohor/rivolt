@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { backend, ApiError, type DriveWeatherSeries, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { DriveMap } from "../components/DriveMap";
+// Lazy-load DriveMap so the Leaflet + Protomaps bundle only ships
+// when a drive is actually opened.
+const DriveMap = lazy(() =>
+  import("../components/DriveMap").then((m) => ({ default: m.DriveMap })),
+);
 import { DriveTimeline } from "../components/DriveTimeline";
 import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
@@ -540,6 +544,7 @@ export default function DriveDetailPage() {
         ) : mapPathSamples.length === 0 ? (
           <NoSamples />
         ) : (
+          <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <DriveMap
             points={mapPoints}
             // When the timeline is zoomed, suppress the home start/end
@@ -565,6 +570,7 @@ export default function DriveDetailPage() {
             }
             fixAgeSeconds={null}
           />
+          </Suspense>
         )}
       </Card>
 

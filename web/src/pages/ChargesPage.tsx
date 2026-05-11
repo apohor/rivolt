@@ -10,6 +10,7 @@ import {
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
 import { ChargesOverviewMap } from "../components/DriveMap";
+import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import {
   durationSeconds,
@@ -66,6 +67,7 @@ export default function ChargesPage() {
 
   return (
     <div className="space-y-4">
+      <ConnectRivianPrompt context="Once connected, charging sessions appear here automatically." />
       <PageHeader
         title="Charges"
         subtitle={

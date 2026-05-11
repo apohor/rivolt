@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { backend, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
@@ -45,6 +46,7 @@ export default function DrivesPage() {
 
   return (
     <div className="space-y-4">
+      <ConnectRivianPrompt context="Once connected, drives appear here automatically." />
       <PageHeader
         title="Drives"
         subtitle={

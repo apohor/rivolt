@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { backend, type GeocodeResult, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
-import { TripRouteMap } from "../components/TripRouteMap";
+
+// Lazy-load TripRouteMap so the Leaflet + Protomaps + protomaps-leaflet
+// bundle (several hundred KB) only ships when the user actually opens
+// a plan with a rendered map, not on every page navigation.
+const TripRouteMap = lazy(() =>
+  import("../components/TripRouteMap").then((m) => ({ default: m.TripRouteMap })),
+);
 
 // TX_PRESETS are city-hall lat/lon for one-click destination testing.
 const TX_PRESETS: { label: string; lat: number; lon: number }[] = [
@@ -301,6 +308,7 @@ export default function TripPlanPage() {
 
   return (
     <div className="space-y-6">
+      <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <PageHeader
         title="Trip planner"
         subtitle="Plan a route with charging stops via Rivian's planner."
@@ -1116,7 +1124,9 @@ function RouteCard({
   return (
     <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
       <div className="mb-4">
-        <TripRouteMap route={route} onAddStop={onAddStop} />
+        <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
+          <TripRouteMap route={route} onAddStop={onAddStop} />
+        </Suspense>
       </div>
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
         <Stat

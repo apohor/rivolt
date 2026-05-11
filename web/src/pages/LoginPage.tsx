@@ -49,13 +49,26 @@ export default function LoginPage() {
   return (
     <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
       <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
-        <div className="mb-6 flex items-center gap-2 text-neutral-100">
+        <div className="mb-4 flex items-center gap-2 text-neutral-100">
           <Logo size={24} className="text-emerald-400" />
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
-        <h1 className={`text-base font-semibold text-neutral-100 ${providers && providers.length > 1 ? "mb-1" : "mb-5"}`}>Sign in</h1>
+        <div className="mb-2 flex items-center gap-2">
+          <h1 className="text-base font-semibold text-neutral-100">Sign in</h1>
+          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+            Beta
+          </span>
+        </div>
+        <p className="mb-3 text-sm text-neutral-400">
+          Your Rivian companion. After signing in you'll have:
+        </p>
+        <ul className="mb-4 space-y-1 text-xs text-neutral-500">
+          <li>• Live telemetry from your truck</li>
+          <li>• Every drive and charge tracked against your own $/kWh</li>
+          <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
+        </ul>
         {providers && providers.length > 1 && (
-          <p className="mb-5 text-sm text-neutral-400">
+          <p className="mb-4 text-xs text-neutral-500">
             Choose an identity provider to continue.
           </p>
         )}
