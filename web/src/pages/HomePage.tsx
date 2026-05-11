@@ -417,7 +417,7 @@ function HeroBanner({
             <span className="text-emerald-300">in every drive.</span>
           </h1>
           <p className="mt-1 text-[12px] text-neutral-400 sm:text-sm">
-            AI-powered efficiency breakdowns, cost tracking, and full charge history.
+            Per-drive efficiency breakdowns, cost tracking, and full charge history.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
