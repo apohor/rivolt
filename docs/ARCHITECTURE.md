@@ -581,36 +581,6 @@ flip a flag to re-enable it; hosted deployment runs OIDC-only.
 
 ---
 
-## Decision 13 — The Rivian upstream relationship is managed
-
-**Status**: self-host (before accepting users who aren't you).
-
-Non-code but architecturally important:
-
-- **User-agent**: outbound requests to Rivian impersonate the iOS
-  Rivian Owner App (`User-Agent: RivianApp/4400 ...`,
-  `apollographql-client-name: com.rivian.ios.consumer`,
-  `apollographql-client-version: 3.6.0-4400`) because an
-  unallowlisted UA is the single easiest signal for Rivian to
-  block us on. We ship an `X-Rivolt-Version` trailer so our own
-  identity still travels with every request — operators and
-  Rivian's on-call can tell Rivolt traffic apart without us
-  advertising \"not the iOS app\" to their bot-detection first.
-  Flipping to an honest `Rivolt/<version>` UA is a phase-3
-  conversation to have *with* Rivian dev-rels (see below), not a
-  unilateral decision from us.
-- **Dev-relations outreach**: before running a public instance,
-  email Rivian's developer/API contact and introduce yourself.
-  Precedents for EV telematics third-parties: Teslafi, Teslamate,
-  Roamer. An unofficial client Rivian's on-call knows about is
-  tolerated; one that surprises them in an incident is killed.
-- **Kill switch**: decision 6. Must be togglable in seconds,
-  without a deploy.
-- **Aggressive back-off on 429/5xx**: global circuit, not
-  per-subscription.
-
----
-
 ## What we are explicitly *not* doing
 
 To keep the design honest, the following are non-goals and will be

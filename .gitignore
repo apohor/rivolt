@@ -36,3 +36,6 @@ _local_overrides.*
 .idea/
 .vscode/
 *.swp
+
+# AI assistant local notes (kept out of source tree)
+CLAUDE.md
