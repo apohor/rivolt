@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 
 	"github.com/apohor/rivolt/internal/ai"
@@ -44,6 +45,22 @@ const (
 	// feature discloses coarse trip coordinates to a third party
 	// (Open-Meteo). See internal/weather for the privacy posture.
 	keyRecapWeatherEnabled = "recap.weather_enabled"
+
+	// Client-side thresholds used by the drive detail page to flag a
+	// drive as having "low GPS accuracy". Tuneable so operators can
+	// dial sensitivity for their fleet and noise floor without a deploy.
+	keyGPSMissingPct = "gps.threshold_missing_pct"
+	keyGPSStaleSec   = "gps.threshold_stale_sec"
+	keyGPSJumpCount  = "gps.threshold_jump_count"
+)
+
+// Defaults for the GPS accuracy heuristic. Tuned to surface drives
+// with genuinely bad GPS (long tunnels, modem-side dropouts) while
+// ignoring single anomalies and brief parking-garage stalls.
+const (
+	DefaultGPSMissingPct float64 = 0.40
+	DefaultGPSStaleSec   int     = 300
+	DefaultGPSJumpCount  int     = 2
 )
 
 // Defaults used when nothing is stored and no env override is present.
@@ -101,6 +118,12 @@ type AIConfig struct {
 	// runs during trip recap generation. Off by default; the feature
 	// hits an external HTTP API (Open-Meteo) so it must be opt-in.
 	RecapWeatherEnabled bool
+
+	// GPS accuracy heuristic thresholds applied client-side on the
+	// drive detail page. See DefaultGPS* for the meaning of each.
+	GPSMissingPct float64
+	GPSStaleSec   int
+	GPSJumpCount  int
 }
 
 // AIPublic is the redacted view returned to the UI. Keys are reported only
@@ -132,6 +155,22 @@ type RecapPublic struct {
 // Same nil-pointer-means-untouched contract as AIUpdate.
 type RecapUpdate struct {
 	WeatherEnabled *bool `json:"weather_enabled,omitempty"`
+}
+
+// GPSPublic is the redacted view of the GPS accuracy thresholds.
+// Surfaced through /api/config so every page that needs to apply
+// them (drive detail, live panel) reads one source.
+type GPSPublic struct {
+	MissingPct float64 `json:"missing_pct"`
+	StaleSec   int     `json:"stale_sec"`
+	JumpCount  int     `json:"jump_count"`
+}
+
+// GPSUpdate is the JSON body accepted by PUT /api/admin/settings/gps.
+type GPSUpdate struct {
+	MissingPct *float64 `json:"missing_pct,omitempty"`
+	StaleSec   *int     `json:"stale_sec,omitempty"`
+	JumpCount  *int     `json:"jump_count,omitempty"`
 }
 
 // AIImagePublic is the subset surfaced to the Settings UI. Per-provider
@@ -532,6 +571,65 @@ func (m *Manager) RecapPublic() RecapPublic {
 	return RecapPublic{WeatherEnabled: m.cfg.RecapWeatherEnabled}
 }
 
+// GPSPublic returns the current GPS accuracy thresholds.
+func (m *Manager) GPSPublic() GPSPublic {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return GPSPublic{
+		MissingPct: m.cfg.GPSMissingPct,
+		StaleSec:   m.cfg.GPSStaleSec,
+		JumpCount:  m.cfg.GPSJumpCount,
+	}
+}
+
+// UpdateGPS applies the patch and persists. Values are clamped to
+// non-negative ranges so a malformed payload can't silently disable
+// the heuristic by way of a negative threshold.
+func (m *Manager) UpdateGPS(ctx context.Context, patch GPSUpdate) (GPSPublic, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cfg := m.cfg
+	if patch.MissingPct != nil {
+		v := *patch.MissingPct
+		if v < 0 {
+			v = 0
+		}
+		if v > 1 {
+			v = 1
+		}
+		cfg.GPSMissingPct = v
+	}
+	if patch.StaleSec != nil {
+		v := *patch.StaleSec
+		if v < 0 {
+			v = 0
+		}
+		cfg.GPSStaleSec = v
+	}
+	if patch.JumpCount != nil {
+		v := *patch.JumpCount
+		if v < 1 {
+			v = 1
+		}
+		cfg.GPSJumpCount = v
+	}
+	if err := m.store.Set(ctx, keyGPSMissingPct, strconv.FormatFloat(cfg.GPSMissingPct, 'f', -1, 64)); err != nil {
+		return GPSPublic{}, fmt.Errorf("persist %s: %w", keyGPSMissingPct, err)
+	}
+	if err := m.store.Set(ctx, keyGPSStaleSec, strconv.Itoa(cfg.GPSStaleSec)); err != nil {
+		return GPSPublic{}, fmt.Errorf("persist %s: %w", keyGPSStaleSec, err)
+	}
+	if err := m.store.Set(ctx, keyGPSJumpCount, strconv.Itoa(cfg.GPSJumpCount)); err != nil {
+		return GPSPublic{}, fmt.Errorf("persist %s: %w", keyGPSJumpCount, err)
+	}
+	m.cfg = cfg
+	return GPSPublic{
+		MissingPct: cfg.GPSMissingPct,
+		StaleSec:   cfg.GPSStaleSec,
+		JumpCount:  cfg.GPSJumpCount,
+	}, nil
+}
+
 // UpdateRecap applies the patch and persists. Doesn't touch the AI
 // analyzer because recap settings are orthogonal to provider config.
 func (m *Manager) UpdateRecap(ctx context.Context, patch RecapUpdate) (RecapPublic, error) {
@@ -599,8 +697,34 @@ func (m *Manager) load(ctx context.Context, env AIConfig) error {
 		SpeechGeminiModel: pick(keyAISpeechGeminiModel, env.SpeechGeminiModel, ""),
 
 		RecapWeatherEnabled: parseBool(pick(keyRecapWeatherEnabled, boolToStr(env.RecapWeatherEnabled), "")),
+
+		GPSMissingPct: parseFloatOr(pick(keyGPSMissingPct, "", ""), DefaultGPSMissingPct),
+		GPSStaleSec:   parseIntOr(pick(keyGPSStaleSec, "", ""), DefaultGPSStaleSec),
+		GPSJumpCount:  parseIntOr(pick(keyGPSJumpCount, "", ""), DefaultGPSJumpCount),
 	}
 	return nil
+}
+
+func parseFloatOr(s string, def float64) float64 {
+	if s == "" {
+		return def
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return def
+	}
+	return v
+}
+
+func parseIntOr(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return v
 }
 
 // rebuild is the public-locking variant used at construction time.

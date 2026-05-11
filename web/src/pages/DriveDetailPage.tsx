@@ -15,6 +15,7 @@ import {
 } from "../lib/format";
 import { collapseRoundTrips } from "../lib/drives";
 import { analyzeDrivePower } from "../lib/power";
+import { useGPSThresholds } from "../lib/config";
 import { usePreferences, formatTemperature } from "../lib/preferences";
 
 export default function DriveDetailPage() {
@@ -300,18 +301,20 @@ export default function DriveDetailPage() {
 
   // Estimate GPS accuracy during the drive by checking fix freshness
   // and sample continuity. Returns true if accuracy is likely low.
+  // Thresholds come from /api/config (admin-tunable).
+  const gpsThresholds = useGPSThresholds();
   const gpsAccuracyLow = (() => {
     if (driveSamples.length === 0) return false;
-    
-    // Check 1: Percentage of samples with missing fix timestamps
+
+    // Check 1: Percentage of samples with missing fix timestamps.
     const samplesWithoutFix = driveSamples.filter(
       (s) => !s.LocationFixAt
     ).length;
     const missingFixRatio = samplesWithoutFix / driveSamples.length;
-    if (missingFixRatio > 0.2) return true; // >20% missing = low accuracy
-    
+    if (missingFixRatio > gpsThresholds.missingPct) return true;
+
     // Check 2: Max fix age during the drive (when a sample's
-    // LocationFixAt is much older than its wall-clock At)
+    // LocationFixAt is much older than its wall-clock At).
     let maxFixAgeS = 0;
     for (const s of driveSamples) {
       if (s.LocationFixAt) {
@@ -321,12 +324,14 @@ export default function DriveDetailPage() {
         if (ageS > maxFixAgeS) maxFixAgeS = ageS;
       }
     }
-    if (maxFixAgeS > 120) return true; // >2 min stale fix = low accuracy
-    
-    // Check 3: Spatial jumps suggesting dropouts. Compare consecutive
-    // valid samples; if they jump >0.5 mi with minimal time, GPS
-    // likely re-locked after a dropout.
+    if (maxFixAgeS > gpsThresholds.staleSec) return true;
+
+    // Check 3: Spatial jumps suggesting dropouts. Count consecutive
+    // pairs that imply > 150 mph over > 0.5 mi; require at least
+    // gpsThresholds.jumpCount to flag so a single GPS glitch doesn't
+    // mark the whole drive as low-accuracy.
     const JUMP_THRESHOLD_MI = 0.5;
+    let jumps = 0;
     for (let i = 1; i < driveSamples.length; i++) {
       const prev = driveSamples[i - 1];
       const curr = driveSamples[i];
@@ -343,9 +348,10 @@ export default function DriveDetailPage() {
         const timeMs =
           new Date(curr.At).getTime() - new Date(prev.At).getTime();
         const speedMph = (distMi / (timeMs / 3600000)) || 0;
-        // Reasonable speed cap for a car (~150 mph); jumps above this
-        // suggest GPS lost-then-found.
-        if (distMi > JUMP_THRESHOLD_MI && speedMph > 150) return true;
+        if (distMi > JUMP_THRESHOLD_MI && speedMph > 150) {
+          jumps++;
+          if (jumps >= gpsThresholds.jumpCount) return true;
+        }
       }
     }
     return false;

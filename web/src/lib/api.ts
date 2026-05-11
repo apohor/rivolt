@@ -490,6 +490,22 @@ export type RecapSettingsUpdate = {
   weather_enabled?: boolean;
 };
 
+// GPSSettings is the install-wide GPS accuracy heuristic
+// configuration returned from GET /api/admin/settings/gps.
+export type GPSSettings = {
+  missing_pct: number;
+  stale_sec: number;
+  jump_count: number;
+};
+
+// GPSSettingsUpdate is the partial patch for PUT
+// /api/admin/settings/gps. Omitted fields are left alone.
+export type GPSSettingsUpdate = {
+  missing_pct?: number;
+  stale_sec?: number;
+  jump_count?: number;
+};
+
 // DriveWeatherBackfillResult is one tick of progress returned by
 // POST /api/drives/weather/backfill. Each call processes a bounded
 // batch and reports `remaining` so the SPA can poll until zero.
@@ -687,6 +703,10 @@ export const backend = {
     api.get<RecapSettings>("/api/admin/settings/recap"),
   updateRecapSettings: (patch: RecapSettingsUpdate) =>
     api.put<RecapSettings>("/api/admin/settings/recap", patch),
+  getGPSSettings: () =>
+    api.get<GPSSettings>("/api/admin/settings/gps"),
+  updateGPSSettings: (patch: GPSSettingsUpdate) =>
+    api.put<GPSSettings>("/api/admin/settings/gps", patch),
   // Bulk-enrich historical drives with weather snapshots. The
   // server processes a bounded batch per call so a slow upstream
   // can't lock up a worker; callers should poll until

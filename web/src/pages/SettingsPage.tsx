@@ -15,6 +15,7 @@ import {
   type ImportResult,
   type ImportProgress,
   type RecapSettingsUpdate,
+  type GPSSettingsUpdate,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
@@ -1060,6 +1061,121 @@ export function RecapWeatherPanel() {
       {mut.isError && (
         <ErrorBox title="Save failed" detail={String(mut.error)} />
       )}
+    </div>
+  );
+}
+
+// GPSAccuracyPanel exposes the three thresholds the drive detail page
+// uses to decide whether to render the "Low GPS accuracy" pill.
+// Stored install-wide so a fleet operator can tune for their noise
+// floor without a redeploy. Defaults: 40% missing fixes, 5 min stale
+// fix age, 2 implausible jumps.
+export function GPSAccuracyPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["gps-settings"],
+    queryFn: () => backend.getGPSSettings(),
+  });
+  const mut = useMutation({
+    mutationFn: (patch: GPSSettingsUpdate) => backend.updateGPSSettings(patch),
+    onSuccess: (fresh) => qc.setQueryData(["gps-settings"], fresh),
+  });
+
+  // Local edit state so the user can type without each keystroke
+  // firing a PUT. Committed on blur or on Apply.
+  const [missingPctStr, setMissingPctStr] = useState("");
+  const [staleSecStr, setStaleSecStr] = useState("");
+  const [jumpCountStr, setJumpCountStr] = useState("");
+  useEffect(() => {
+    if (q.data) {
+      setMissingPctStr(String(Math.round(q.data.missing_pct * 100)));
+      setStaleSecStr(String(q.data.stale_sec));
+      setJumpCountStr(String(q.data.jump_count));
+    }
+  }, [q.data]);
+
+  if (q.isLoading) return <Spinner />;
+  if (q.isError)
+    return (
+      <ErrorBox
+        title="Failed to load GPS settings"
+        detail={String(q.error)}
+      />
+    );
+  if (!q.data) return null;
+
+  const apply = () => {
+    const pct = Number(missingPctStr);
+    const sec = Number(staleSecStr);
+    const jumps = Number(jumpCountStr);
+    if (!Number.isFinite(pct) || !Number.isFinite(sec) || !Number.isFinite(jumps)) return;
+    mut.mutate({
+      missing_pct: pct / 100,
+      stale_sec: Math.max(0, Math.trunc(sec)),
+      jump_count: Math.max(1, Math.trunc(jumps)),
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-neutral-400 max-w-2xl">
+        Thresholds for the &quot;Low GPS accuracy&quot; pill on the drive detail
+        page. The pill fires when any of these is exceeded: percentage of
+        samples with no fix, max stale-fix age, or count of implausible
+        spatial jumps (&gt; 0.5&nbsp;mi at &gt; 150&nbsp;mph).
+      </p>
+      <div className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Missing-fix %</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={missingPctStr}
+            onChange={(e) => setMissingPctStr(e.target.value)}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          />
+          <span className="text-xs text-neutral-600">flag when &gt; this</span>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Stale-fix seconds</span>
+          <input
+            type="number"
+            min={0}
+            value={staleSecStr}
+            onChange={(e) => setStaleSecStr(e.target.value)}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          />
+          <span className="text-xs text-neutral-600">flag when max age &gt; this</span>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-400">Jump count</span>
+          <input
+            type="number"
+            min={1}
+            value={jumpCountStr}
+            onChange={(e) => setJumpCountStr(e.target.value)}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          />
+          <span className="text-xs text-neutral-600">flag when ≥ this many</span>
+        </label>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={apply}
+          disabled={mut.isPending}
+          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+        >
+          {mut.isPending ? "Saving…" : "Apply"}
+        </button>
+        {mut.isSuccess && (
+          <span className="text-xs text-emerald-400">Saved · reload the drive page to see the new behavior</span>
+        )}
+        {mut.isError && (
+          <span className="text-xs text-rose-400">{String(mut.error)}</span>
+        )}
+      </div>
     </div>
   );
 }

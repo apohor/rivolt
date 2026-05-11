@@ -61,6 +61,14 @@ export type RuntimeConfig = {
     // hidden. Admin toggles it from the Admin page.
     tripPlannerEnabled: boolean;
   };
+  // GPS accuracy heuristic thresholds. Used by DriveDetailPage to
+  // decide whether to render the "Low GPS accuracy" pill. Defaults
+  // are tuned for the typical Rivian WS feed; admin can override.
+  gps: {
+    missingPct: number;  // fraction of samples with no LocationFixAt
+    staleSec: number;    // max LocationFixAt age vs sample wall clock
+    jumpCount: number;   // min implausible jumps required to flag
+  };
 };
 
 const fallback: RuntimeConfig = {
@@ -69,6 +77,7 @@ const fallback: RuntimeConfig = {
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
   features: { tripPlannerEnabled: false },
+  gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
 };
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
@@ -83,6 +92,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean };
+      gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
     } | null;
     return {
       osrm: { path: j?.osrm?.path ?? "" },
@@ -93,6 +103,11 @@ async function loadConfig(): Promise<RuntimeConfig> {
       },
       ai: { enabled: !!j?.ai?.enabled },
       features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
+      gps: {
+        missingPct: typeof j?.gps?.missing_pct === "number" ? j.gps.missing_pct : fallback.gps.missingPct,
+        staleSec: typeof j?.gps?.stale_sec === "number" ? j.gps.stale_sec : fallback.gps.staleSec,
+        jumpCount: typeof j?.gps?.jump_count === "number" ? j.gps.jump_count : fallback.gps.jumpCount,
+      },
     };
   } catch {
     return fallback;
@@ -184,6 +199,24 @@ export function useAIEnabled(): boolean {
     };
   }, []);
   return enabled;
+}
+
+// useGPSThresholds returns the admin-configurable thresholds the
+// drive detail page uses to decide whether to render the "Low GPS
+// accuracy" pill. Components that mount before /api/config resolves
+// re-render with the fetched values when ready.
+export function useGPSThresholds(): RuntimeConfig["gps"] {
+  const [g, setG] = useState<RuntimeConfig["gps"]>(cached.gps);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setG(c.gps);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return g;
 }
 
 // useTripPlannerEnabled is the React-friendly accessor for the

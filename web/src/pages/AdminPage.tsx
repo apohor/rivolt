@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminUserRow, type InviteCode } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { AIProvidersPanel, RecapWeatherPanel } from "./SettingsPage";
+import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
 // the AppLayout nav check. We still defensively render an
@@ -46,6 +46,9 @@ export default function AdminPage() {
       </Card>
       <Card title="Recap weather">
         <RecapWeatherPanel />
+      </Card>
+      <Card title="GPS accuracy thresholds">
+        <GPSAccuracyPanel />
       </Card>
     </div>
   );

@@ -254,7 +254,7 @@ func New(d Deps) http.Handler {
 		// (today: whether the OSRM same-origin proxy is mounted).
 		// Public so the SPA can fetch it before login as well as
 		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags))
+		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags, d.SettingsMgr))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -505,6 +505,8 @@ func New(d Deps) http.Handler {
 			r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
 			r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
 			r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
+			r.Get("/settings/gps", handleGPSSettingsGet(d.SettingsMgr))
+			r.Put("/settings/gps", handleGPSSettingsPut(d.SettingsMgr))
 			if d.Invites != nil {
 				r.Post("/invite-codes", handleAdminInviteCodesCreate(d.DB, d.Invites))
 				r.Get("/invite-codes", handleAdminInviteCodesList(d.Invites))
@@ -694,7 +696,7 @@ func handleHealth(version string) http.HandlerFunc {
 // /route) and PMTiles (drive map basemap), falling back to the
 // public demos when a path is empty. Public so the SPA can fetch
 // it without a session.
-func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store) http.HandlerFunc {
+func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
 	type osrmCfg struct {
 		// Path is the same-origin URL prefix the SPA should hit
 		// (empty when the proxy is not configured server-side).
@@ -738,12 +740,21 @@ func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, fl
 		// shouldn't be offered as an engine option.
 		Path string `json:"path,omitempty"`
 	}
+	type gpsCfg struct {
+		// MissingPct, StaleSec, JumpCount drive the "Low GPS accuracy"
+		// pill on the drive detail page. Surfaced here so the SPA
+		// reads them once on boot instead of re-querying per drive.
+		MissingPct float64 `json:"missing_pct"`
+		StaleSec   int     `json:"stale_sec"`
+		JumpCount  int     `json:"jump_count"`
+	}
 	type cfg struct {
 		OSRM     osrmCfg     `json:"osrm"`
 		Valhalla valhallaCfg `json:"valhalla"`
 		Tiles    tilesCfg    `json:"tiles"`
 		AI       aiCfg       `json:"ai"`
 		Features featuresCfg `json:"features"`
+		GPS      gpsCfg      `json:"gps"`
 	}
 	base := cfg{}
 	if osrmEnabled {
@@ -766,6 +777,16 @@ func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, fl
 		c := base
 		if flagsStore != nil {
 			c.Features.TripPlannerEnabled = flagsStore.TripPlanner().Enabled
+		}
+		if settingsMgr != nil {
+			g := settingsMgr.GPSPublic()
+			c.GPS.MissingPct = g.MissingPct
+			c.GPS.StaleSec = g.StaleSec
+			c.GPS.JumpCount = g.JumpCount
+		} else {
+			c.GPS.MissingPct = settings.DefaultGPSMissingPct
+			c.GPS.StaleSec = settings.DefaultGPSStaleSec
+			c.GPS.JumpCount = settings.DefaultGPSJumpCount
 		}
 		writeJSON(w, http.StatusOK, c)
 	}
@@ -2606,6 +2627,38 @@ func handleRecapSettingsPut(mgr *settings.Manager) http.HandlerFunc {
 			return
 		}
 		pub, err := mgr.UpdateRecap(r.Context(), patch)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, pub)
+	}
+}
+
+// handleGPSSettingsGet returns the GPS accuracy thresholds.
+func handleGPSSettingsGet(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		writeJSON(w, http.StatusOK, mgr.GPSPublic())
+	}
+}
+
+// handleGPSSettingsPut accepts a partial patch for GPS thresholds.
+func handleGPSSettingsPut(mgr *settings.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if mgr == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "settings manager unavailable"})
+			return
+		}
+		var patch settings.GPSUpdate
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid json: " + err.Error()})
+			return
+		}
+		pub, err := mgr.UpdateGPS(r.Context(), patch)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
