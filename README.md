@@ -128,8 +128,12 @@ of:
 
 - Your Rivian credentials are AES-GCM sealed and decrypted only
   in-memory at request time. Disconnect Rivian in one click.
-- AI calls (when an AI provider is configured) go *directly* from
-  Rivolt to the provider you chose. No Rivolt-operated AI proxy.
+- AI features (when enabled by the operator) are powered by an
+  install-wide provider — OpenAI, Anthropic, or Google Gemini —
+  configured from the admin UI. Each user's drive / trip context
+  is sent to that provider only at the moment a recap or trip
+  analysis is generated; nothing is mirrored to a third-party
+  service in between.
 - All your drive, charge, and trip data is exportable as JSON from
   Settings → Data, and deletable from the same page.
 - Read-only against the Rivian API.
@@ -147,8 +151,10 @@ of:
 - **React 18 + TypeScript + Vite + Tailwind v3** for the SPA;
   TanStack Query for the data layer; uPlot for time-series
   charts; Leaflet + protomaps-leaflet for maps.
-- **Optional AI providers** — OpenAI, Anthropic, Google Gemini.
-  Hot-swappable from the admin UI. BYO key; calls are direct.
+- **Optional AI providers** — OpenAI, Anthropic, or Google Gemini,
+  selected install-wide by the operator from the admin UI.
+  Hot-swappable; calls go to the chosen provider only when an AI
+  feature actually runs (trip analysis, drive recap).
 
 ---
 
