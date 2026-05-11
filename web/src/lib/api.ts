@@ -506,6 +506,30 @@ export type GPSSettingsUpdate = {
   jump_count?: number;
 };
 
+// PushPreferences mirrors internal/push.Preferences — per-subscription
+// filters chosen by the user when subscribing or updating prefs.
+export type PushPreferences = {
+  on_charging_done: boolean;
+  on_plug_in_reminder: boolean;
+  on_anomaly: boolean;
+};
+
+// PushStatus is the aggregated state returned by GET /api/push/status.
+export type PushStatus = {
+  enabled: boolean;
+  subscription_count: number;
+};
+
+// PushSubscribeBody is the JSON body for POST /api/push/subscribe.
+// Mirrors the shape produced by browser PushSubscription.toJSON() with
+// the optional preferences + user_agent the server records.
+export type PushSubscribeBody = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  preferences?: PushPreferences;
+  user_agent?: string;
+};
+
 // DriveWeatherBackfillResult is one tick of progress returned by
 // POST /api/drives/weather/backfill. Each call processes a bounded
 // batch and reports `remaining` so the SPA can poll until zero.
@@ -707,6 +731,15 @@ export const backend = {
     api.get<GPSSettings>("/api/admin/settings/gps"),
   updateGPSSettings: (patch: GPSSettingsUpdate) =>
     api.put<GPSSettings>("/api/admin/settings/gps", patch),
+  pushVAPIDKey: () =>
+    api.get<{ public_key: string }>("/api/push/vapid-key"),
+  pushStatus: () => api.get<PushStatus>("/api/push/status"),
+  pushSubscribe: (body: PushSubscribeBody) =>
+    api.post<{ ok: boolean; preferences: PushPreferences }>("/api/push/subscribe", body),
+  pushUnsubscribe: (endpoint: string) =>
+    api.post<{ ok: boolean }>("/api/push/unsubscribe", { endpoint }),
+  pushTest: (endpoint: string) =>
+    api.post<{ ok: boolean }>("/api/push/test", { endpoint }),
   // Bulk-enrich historical drives with weather snapshots. The
   // server processes a bounded batch per call so a slow upstream
   // can't lock up a worker; callers should poll until

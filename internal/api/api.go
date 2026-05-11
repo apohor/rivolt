@@ -342,11 +342,17 @@ func New(d Deps) http.Handler {
 
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
+				r.Get("/status", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushStatus(d.PushService, d.Push.For(uid))(w, r)
+				}))
 				r.Post("/subscribe", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushSubscribe(d.Push.For(uid))(w, r)
 				}))
 				r.Post("/unsubscribe", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePushUnsubscribe(d.Push.For(uid))(w, r)
+				}))
+				r.Post("/test", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePushTest(d.PushService)(w, r)
 				}))
 			})
 

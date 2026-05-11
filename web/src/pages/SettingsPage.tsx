@@ -16,6 +16,7 @@ import {
   type ImportProgress,
   type RecapSettingsUpdate,
   type GPSSettingsUpdate,
+  type PushPreferences,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
@@ -100,11 +101,7 @@ export default function SettingsPage() {
       </Card>
 
       <Card title="Notifications">
-        <p className="text-sm text-neutral-400">
-          Push notifications (charging complete, plug-in reminders, anomaly alerts)
-          will land once the Rivian ingester is wired. The server-side VAPID keypair
-          is already generated and persisted.
-        </p>
+        <NotificationsPanel />
       </Card>
 
       <Card title="Danger zone">
@@ -1395,6 +1392,260 @@ function ProviderCard({
 
 // DangerZonePanel exposes the backup + reset flow. Reset wipes
 // every drive, charge, and raw sample for the current user;
+// NotificationsPanel handles the Web Push subscription flow for this
+// device: permission prompt → fetch VAPID key → pushManager.subscribe
+// → POST to /api/push/subscribe. Re-subscribing with new preferences
+// updates the existing row (the backend Upserts on endpoint). Test
+// button POSTs to /api/push/test which delivers a real notification
+// to the registered endpoint so the user can verify end-to-end.
+export function NotificationsPanel() {
+  const qc = useQueryClient();
+  const status = useQuery({
+    queryKey: ["push-status"],
+    queryFn: () => backend.pushStatus(),
+  });
+
+  // Device-local subscription state. Read once on mount from the
+  // browser's PushManager so we know whether THIS device is already
+  // subscribed (the backend status only reports the aggregate count
+  // across all the user's devices).
+  const [sub, setSub] = useState<PushSubscription | null>(null);
+  const [permission, setPermission] = useState<NotificationPermission>(
+    typeof Notification !== "undefined" ? Notification.permission : "denied",
+  );
+  const [prefs, setPrefs] = useState<PushPreferences>({
+    on_charging_done: true,
+    on_plug_in_reminder: true,
+    on_anomaly: true,
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [testedOk, setTestedOk] = useState(false);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.ready.then((reg) =>
+      reg.pushManager.getSubscription().then((s) => setSub(s)),
+    );
+  }, []);
+
+  const isSupported =
+    typeof window !== "undefined" &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window;
+  const serverEnabled = status.data?.enabled ?? false;
+
+  async function enable(newPrefs: PushPreferences) {
+    setErr(null);
+    setTestedOk(false);
+    setBusy("enable");
+    try {
+      if (Notification.permission !== "granted") {
+        const p = await Notification.requestPermission();
+        setPermission(p);
+        if (p !== "granted") {
+          setErr("Permission denied. Re-enable from browser site settings.");
+          return;
+        }
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const { public_key } = await backend.pushVAPIDKey();
+      if (!public_key) throw new Error("Server is missing a VAPID public key.");
+      let s = await reg.pushManager.getSubscription();
+      if (!s) {
+        s = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(public_key),
+        });
+      }
+      const json = s.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+        throw new Error("Subscription is missing endpoint or keys.");
+      }
+      const res = await backend.pushSubscribe({
+        endpoint: json.endpoint,
+        keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+        preferences: newPrefs,
+        user_agent: navigator.userAgent,
+      });
+      setPrefs(res.preferences);
+      setSub(s);
+      qc.invalidateQueries({ queryKey: ["push-status"] });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function disable() {
+    setErr(null);
+    setTestedOk(false);
+    setBusy("disable");
+    try {
+      if (sub) {
+        await backend.pushUnsubscribe(sub.endpoint);
+        await sub.unsubscribe();
+        setSub(null);
+      }
+      qc.invalidateQueries({ queryKey: ["push-status"] });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function test() {
+    setErr(null);
+    setTestedOk(false);
+    setBusy("test");
+    try {
+      if (!sub) throw new Error("Subscribe first.");
+      await backend.pushTest(sub.endpoint);
+      setTestedOk(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!isSupported) {
+    return (
+      <p className="text-sm text-neutral-400 max-w-2xl">
+        This browser doesn&apos;t expose the Web Push API. iOS requires the
+        site be added to the home screen (Share → Add to Home Screen) before
+        notifications can be enabled.
+      </p>
+    );
+  }
+  if (status.isLoading) return <Spinner />;
+  if (!serverEnabled) {
+    return (
+      <p className="text-sm text-neutral-400 max-w-2xl">
+        Push notifications are not configured on the server (no VAPID keypair).
+        Ask the operator to provision one before subscribing.
+      </p>
+    );
+  }
+
+  const subscribed = sub != null;
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <p className="text-sm text-neutral-400">
+        Receive a notification on this device when an event fires (charging
+        done, plug-in reminder, vehicle anomaly). Each device subscribes
+        independently — enable here on every browser / phone you want pinged.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span
+          className={`rounded-full px-2 py-0.5 ${
+            subscribed
+              ? "border border-emerald-700 bg-emerald-950 text-emerald-300"
+              : "border border-neutral-800 bg-neutral-900 text-neutral-400"
+          }`}
+        >
+          {subscribed ? "Subscribed on this device" : "Not subscribed"}
+        </span>
+        <span className="rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-neutral-500">
+          Permission: <span className="text-neutral-300">{permission}</span>
+        </span>
+        <span className="rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-neutral-500">
+          Devices on account: <span className="text-neutral-300">{status.data?.subscription_count ?? 0}</span>
+        </span>
+      </div>
+
+      <fieldset
+        disabled={!subscribed || busy !== null}
+        className="space-y-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-sm disabled:opacity-50"
+      >
+        <legend className="px-1 text-xs text-neutral-500">Notify me when…</legend>
+        {(
+          [
+            ["on_charging_done", "Charging session completes"],
+            ["on_plug_in_reminder", "I forget to plug in"],
+            ["on_anomaly", "An anomaly is detected"],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={prefs[key]}
+              onChange={(e) => {
+                const next = { ...prefs, [key]: e.target.checked };
+                setPrefs(next);
+                void enable(next);
+              }}
+              className="h-4 w-4 accent-emerald-600"
+            />
+            <span className="text-neutral-300">{label}</span>
+          </label>
+        ))}
+      </fieldset>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {!subscribed ? (
+          <button
+            type="button"
+            onClick={() => enable(prefs)}
+            disabled={busy !== null}
+            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+          >
+            {busy === "enable" ? "Enabling…" : "Enable on this device"}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={test}
+              disabled={busy !== null}
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50"
+            >
+              {busy === "test" ? "Sending…" : "Send test"}
+            </button>
+            <button
+              type="button"
+              onClick={disable}
+              disabled={busy !== null}
+              className="rounded-md border border-rose-900 bg-rose-950/40 px-3 py-1.5 text-sm text-rose-300 hover:border-rose-800 disabled:opacity-50"
+            >
+              {busy === "disable" ? "Disabling…" : "Disable on this device"}
+            </button>
+          </>
+        )}
+        {testedOk && (
+          <span className="text-xs text-emerald-400">Test delivered — check your notifications.</span>
+        )}
+      </div>
+
+      {err && (
+        <p className="text-xs text-rose-400">{err}</p>
+      )}
+      <p className="text-xs text-neutral-600">
+        Trigger sources are still being wired — the Test button delivers a real
+        push end-to-end, but charging-done / plug-in / anomaly events won&apos;t
+        fire automatically yet.
+      </p>
+    </div>
+  );
+}
+
+// urlBase64ToUint8Array converts the URL-safe base64 VAPID public key
+// the server returns into the raw byte array PushManager.subscribe
+// requires for applicationServerKey.
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const out = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
 // vehicles, settings, push subscriptions, and the user row are
 // preserved. Intended for re-importing after changing timezone
 // or pack size (the importer's session IDs are tz-derived, so
