@@ -212,6 +212,15 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 //     polyline ended halfway through the trip and the user reported
 //     "no GPS coordinates for the end of the route".
 func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sample, error) {
+	return s.ListBetween(ctx, since, time.Time{}, limit)
+}
+
+// ListBetween returns samples in (since, until], oldest first. Zero
+// `until` means "no upper bound" (back-compat with ListSince). The
+// upper bound matters for the drive detail page: without it, opening
+// any drive ages back pulls every sample from the drive's start
+// through now, which can be days of charging+parked rows.
+func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit int) ([]Sample, error) {
 	const maxLimit = 50000
 	if limit <= 0 {
 		limit = 1000
@@ -219,7 +228,12 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 	if limit > maxLimit {
 		limit = maxLimit
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	var (
+		query string
+		args  []any
+	)
+	if until.IsZero() {
+		query = `
 		SELECT v.rivian_vehicle_id, vs.at,
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
 		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
@@ -233,7 +247,27 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1 AND vs.at > $2
 		ORDER BY vs.at ASC
-		LIMIT $3`, s.userID, since.UTC(), limit)
+		LIMIT $3`
+		args = []any{s.userID, since.UTC(), limit}
+	} else {
+		query = `
+		SELECT v.rivian_vehicle_id, vs.at,
+		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
+		       COALESCE(vs.lat,0), COALESCE(vs.lon,0), vs.location_fix_at,
+		       COALESCE(vs.speed_mph,0),
+		       COALESCE(vs.shift_state,''), COALESCE(vs.drive_mode,''), COALESCE(vs.charging_state,''),
+		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
+		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
+		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
+		       vs.altitude_m, vs.tire_pressure_min_bar
+		FROM vehicle_state vs
+		JOIN vehicles v ON v.id = vs.vehicle_id
+		WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
+		ORDER BY vs.at ASC
+		LIMIT $4`
+		args = []any{s.userID, since.UTC(), until.UTC(), limit}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

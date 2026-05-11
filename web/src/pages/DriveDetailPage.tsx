@@ -93,10 +93,16 @@ export default function DriveDetailPage() {
     queryKey: ["samples", "drive", id],
     enabled: !!drive,
     queryFn: () => {
-      const since = new Date(
-        new Date(drive!.StartedAt).getTime() - 10 * 60_000,
-      );
-      return backend.samples(since, 20_000);
+      const startMs = new Date(drive!.StartedAt).getTime();
+      const endMs = new Date(drive!.EndedAt).getTime();
+      const since = new Date(startMs - 10 * 60_000);
+      // Bound the upper end so we only pull samples in this drive's
+      // window plus 10-min flanks. Without `until`, the server would
+      // stream every sample from drive-start through now — for old
+      // drives that's hours/days of post-drive parked + charging
+      // rows that the SPA throws away after a filter pass.
+      const until = new Date(endMs + 10 * 60_000);
+      return backend.samples(since, 20_000, until);
     },
   });
 

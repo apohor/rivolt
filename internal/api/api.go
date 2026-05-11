@@ -2178,6 +2178,8 @@ func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeRespons
 
 // handleSamples serves raw vehicle_state rows newer than ?since=<rfc3339>
 // (default: 24h ago), capped at ?limit= (default 1000, max 10000).
+// Optional ?until=<rfc3339> bounds the upper end so callers like the
+// drive detail page don't pull every post-drive sample through now.
 func handleSamples(store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
@@ -2190,8 +2192,14 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 				since = t
 			}
 		}
+		var until time.Time
+		if s := r.URL.Query().Get("until"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				until = t
+			}
+		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		out, err := store.ListSince(r.Context(), since, limit)
+		out, err := store.ListBetween(r.Context(), since, until, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

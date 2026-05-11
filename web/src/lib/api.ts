@@ -831,10 +831,14 @@ export const backend = {
     body: { cost?: number; currency?: string; price_per_kwh?: number },
   ) =>
     api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
-  samples: (since: Date, limit = 1000) =>
-    api.get<Sample[]>(
-      `/api/samples?since=${encodeURIComponent(since.toISOString())}&limit=${limit}`,
-    ),
+  samples: (since: Date, limit = 1000, until?: Date) => {
+    const params = new URLSearchParams({
+      since: since.toISOString(),
+      limit: String(limit),
+    });
+    if (until) params.set("until", until.toISOString());
+    return api.get<Sample[]>(`/api/samples?${params.toString()}`);
+  },
   // Efficiency analysis: AI-driven breakdown of what drove efficiency
   // variance for a drive, with actionable recommendations. POST runs
   // a fresh analysis (re-bills the LLM account) and persists the
