@@ -27,7 +27,7 @@ const steps: Step[] = [
           <span className="font-semibold">Recommended:</span> create a dedicated
           Rivian account and add it as an{" "}
           <a
-            href="https://rivian.com/support/article/can-i-grant-others-access-to-my-app"
+            href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#recommended-dedicated-authorized-driver-account"
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:text-amber-200"
@@ -35,7 +35,8 @@ const steps: Step[] = [
             Authorized Driver
           </a>{" "}
           on your vehicle. That way Rivolt uses its own credentials and your
-          primary account stays separate.
+          primary account stays separate. See the linked walkthrough for the
+          step-by-step.
         </div>
         <p>
           Once the account is set up, go to{" "}

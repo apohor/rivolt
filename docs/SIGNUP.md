@@ -50,9 +50,8 @@ endpoint and never will.
 ### Recommended: dedicated Authorized Driver account
 
 You *can* sign in with your primary Rivian credentials, but we
-recommend creating a second Rivian account (free) and adding it as an
-[Authorized Driver](https://rivian.com/support/article/can-i-grant-others-access-to-my-app)
-on your vehicle. Benefits:
+recommend creating a second Rivian account (free) and adding it as
+an Authorized Driver on your vehicle. Benefits:
 
 - Rivolt uses *its* credentials, not yours.
 - Removing Rivolt is a one-click revocation in the Rivian app —
