@@ -104,7 +104,12 @@ export default function SignupPage() {
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
 
-        <h1 className="mb-1 text-base font-semibold text-neutral-100">Create your account</h1>
+        <div className="mb-2 flex items-center gap-2">
+          <h1 className="text-base font-semibold text-neutral-100">Create your account</h1>
+          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+            Beta
+          </span>
+        </div>
         <p className="mb-3 text-sm text-neutral-400">
           Rivolt is your Rivian companion. Once you're signed in
           you'll get:
@@ -114,19 +119,20 @@ export default function SignupPage() {
           <li>• Every drive and charge tracked against your own $/kWh</li>
           <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
         </ul>
-        <p className="mb-5 text-xs text-neutral-600">
-          Access is invite-only during the beta. Paste your code
-          below to get started — no code yet?{" "}
+        <div className="mb-5 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+          <strong className="text-amber-200">Closed beta.</strong> Access is
+          invite-only while we shake out bugs. Paste your code below to get
+          started — no code yet?{" "}
           <a
             href="https://github.com/apohor/rivolt#readme"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-emerald-500 hover:underline"
+            className="underline hover:text-amber-100"
           >
             Learn more
           </a>
           .
-        </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Invite code */}
