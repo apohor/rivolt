@@ -1866,6 +1866,81 @@ function DangerZonePanel() {
           </p>
         )}
       </div>
+
+      <DeleteAccountBlock />
+    </div>
+  );
+}
+
+// DeleteAccountBlock is the self-service "burn it all" path: deletes
+// every per-user row (drives, charges, samples, settings, vehicle
+// profile, sealed Rivian credentials, push subscriptions, sessions),
+// removes the user from the IdP, and signs out. There's a confirm
+// gate because the action is irreversible.
+function DeleteAccountBlock() {
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function doDelete() {
+    setError(null);
+    setBusy(true);
+    try {
+      await backend.deleteAccount();
+      // Cookie is cleared by the server; navigate away so the SPA
+      // doesn't keep firing /api/me into a 401.
+      window.location.assign("/login");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="border-t border-rose-900/60 pt-4 mt-4">
+      <div className="text-rose-400 mb-1">Delete account</div>
+      <p className="text-xs text-neutral-500 mb-3 max-w-xl">
+        Permanently deletes your account and every drive, charge,
+        sample, setting, vehicle profile, sealed Rivian credential,
+        and push subscription tied to it. Removes you from the
+        identity provider. This is irreversible — back up first if
+        you want a copy.
+      </p>
+      {!confirming ? (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="rounded-md border border-rose-900 bg-rose-950/40 px-3 py-1.5 text-xs text-rose-300 hover:border-rose-800"
+        >
+          Delete my account…
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={doDelete}
+            disabled={busy}
+            className="rounded-md bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+          >
+            {busy ? "Deleting…" : "Yes, delete everything"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirming(false);
+              setError(null);
+            }}
+            disabled={busy}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-neutral-500"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="mt-2 text-xs text-rose-400">{error}</p>
+      )}
     </div>
   );
 }

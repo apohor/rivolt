@@ -1041,6 +1041,26 @@ export const backend = {
       "/api/data/sessions",
     ),
 
+  // Self-service account deletion. Cascades through every per-user
+  // table (drives, charges, samples, settings, vehicle profile,
+  // user_secrets, push_subscriptions, sessions) and removes the
+  // user from the IdP. Returns 204 No Content from the auth
+  // service's Logout handler — the session cookie is cleared so
+  // subsequent requests are unauthenticated. Refuses with 409 if
+  // the caller is the install's last admin.
+  deleteAccount: async () => {
+    const res = await fetch("/api/data/account", { method: "DELETE" });
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = text;
+      try {
+        const j = JSON.parse(text) as { error?: string };
+        if (j.error) msg = j.error;
+      } catch { /* keep text */ }
+      throw new ApiError(res.status, res.statusText, msg);
+    }
+  },
+
   // Uploads a JSON bundle previously produced by backupData() and
   // upserts every drive, charge, and sample back. Safe to re-run
   // (drives/charges upsert by external_id; samples dedupe by

@@ -676,6 +676,7 @@ func New(d Deps) http.Handler {
 			r.Get("/data/backup", handleDataBackup(d))
 			r.Post("/data/restore", handleDataRestore(d))
 			r.Delete("/data/sessions", handleDataReset(d))
+			r.Delete("/data/account", handleDataAccountDelete(d))
 		}) // end of bulk-data authenticated /api group
 	})
 
@@ -2466,16 +2467,60 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// User settings (charging cost, currency, home location,
+		// trip planner defaults, drive mode, display prefs, etc.).
+		// Flat key/value map — survives schema changes because the
+		// store itself is schemaless.
+		var userSettings map[string]string
+		if ss2 := d.Settings.For(uid); ss2 != nil {
+			if m, serr := ss2.GetAll(ctx); serr == nil {
+				userSettings = m
+			}
+		}
+		if userSettings == nil {
+			userSettings = map[string]string{}
+		}
+		// Per-vehicle profile (pack capacity, tire placard PSI,
+		// wheel size, accessories, frequently-tows flag). The
+		// vehicle row itself includes its rivian_vehicle_id so a
+		// future restore can match it back to the right truck.
+		type profileEntry struct {
+			RivianVehicleID string             `json:"rivian_vehicle_id"`
+			DisplayName     string             `json:"display_name,omitempty"`
+			Profile         db.VehicleProfile  `json:"profile"`
+		}
+		profiles := []profileEntry{}
+		if d.DB != nil {
+			vehs, verr := db.ListUserVehicles(ctx, d.DB, uid)
+			if verr == nil {
+				for _, v := range vehs {
+					p, perr := db.GetVehicleProfile(ctx, d.DB, uid, v.ID)
+					if perr != nil {
+						// best-effort: skip vehicles whose profile
+						// can't be read rather than failing the whole
+						// backup over one bad row.
+						continue
+					}
+					profiles = append(profiles, profileEntry{
+						RivianVehicleID: v.RivianVehicleID,
+						DisplayName:     v.DisplayName,
+						Profile:         p,
+					})
+				}
+			}
+		}
 		stamp := time.Now().UTC().Format("20060102-150405")
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition",
 			`attachment; filename="rivolt-backup-`+stamp+`.json"`)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"version":    d.Version,
-			"created_at": time.Now().UTC().Format(time.RFC3339),
-			"drives":     drv,
-			"charges":    chg,
-			"samples":    smp,
+			"version":          d.Version,
+			"created_at":       time.Now().UTC().Format(time.RFC3339),
+			"drives":           drv,
+			"charges":          chg,
+			"samples":          smp,
+			"user_settings":    userSettings,
+			"vehicle_profiles": profiles,
 		})
 	}
 }
@@ -2585,6 +2630,85 @@ func handleDataReset(d Deps) http.HandlerFunc {
 			"charges": chargesN,
 			"samples": samplesN,
 		})
+	}
+}
+
+// handleDataAccountDelete is the self-service counterpart to the
+// admin user-delete endpoint: a signed-in user can purge their own
+// account end-to-end. Mirrors the admin path's safety rails:
+//
+//   - "last admin" guard so the install never ends up with zero
+//     admins by self-service (the user has to ask another admin to
+//     promote a successor first).
+//   - resolve the IdP username BEFORE the cascade delete because
+//     the rivolt users row is gone afterward.
+//
+// Cascade order: rivolt DB delete (cascades through every FK'd
+// per-user table — drives, charges, samples, settings,
+// user_secrets, push_subscriptions, sessions, ...), then Kratos /
+// IdP delete, then clear the auth cookie. The next request from
+// the same browser is unauthenticated.
+func handleDataAccountDelete(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d.DB == nil {
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok || uid == uuid.Nil {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		// Last-admin guard. An admin can self-delete only if there's
+		// at least one other admin — otherwise the install ends up
+		// with no admin and recovery requires direct DB access.
+		role, rerr := db.RoleFor(r.Context(), d.DB, uid)
+		if rerr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": rerr.Error()})
+			return
+		}
+		if role == "admin" {
+			n, cerr := db.CountAdmins(r.Context(), d.DB)
+			if cerr != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": cerr.Error()})
+				return
+			}
+			if n <= 1 {
+				writeJSON(w, http.StatusConflict, map[string]any{
+					"error": "cannot delete the last admin — promote another user first",
+				})
+				return
+			}
+		}
+		// Resolve username for IdP cleanup before cascade delete.
+		var username string
+		if d.Users != nil && d.Users.Enabled() {
+			u, uerr := db.RawUsernameByID(r.Context(), d.DB, uid)
+			if uerr != nil && d.Logger != nil {
+				d.Logger.Warn("self-delete: lookup username for idp delete failed",
+					"id", uid.String(), "err", uerr.Error())
+			}
+			username = u
+		}
+		if err := db.DeleteUser(r.Context(), d.DB, uid); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		if d.Users != nil && d.Users.Enabled() && username != "" {
+			if err := d.Users.DeleteUser(r.Context(), username); err != nil && d.Logger != nil {
+				d.Logger.Warn("self-delete: idp delete failed (rivolt row already removed)",
+					"username", username, "err", err.Error())
+			}
+		}
+		// Clear the session cookie so the next request from this
+		// browser is unauthenticated. The session row was already
+		// cascaded out of `sessions` by DeleteUser; this just stops
+		// the now-orphan cookie from showing up in the next request.
+		if d.Auth != nil {
+			d.Auth.Logout(w, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": true})
 	}
 }
 
