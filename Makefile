@@ -1,4 +1,4 @@
-.PHONY: help dev dev-api dev-web web build test fmt tidy docker docker-dev clean
+.PHONY: help dev dev-api dev-web web build test fmt tidy docker clean
 
 BINARY ?= rivolt
 PKG := ./...
@@ -9,13 +9,10 @@ VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
 help:
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev: ## Run Go + Vite dev servers locally (two terminals recommended; this runs both via docker compose dev file)
-	docker compose -f docker-compose.dev.yml up --build
-
-dev-api: ## Run just the Go server locally (no docker)
+dev-api: ## Run the Go server locally (requires DATABASE_URL → a running Postgres)
 	go run ./cmd/rivolt
 
-dev-web: ## Run just the Vite dev server locally (no docker)
+dev-web: ## Run the Vite dev server locally; proxies /api → :8080
 	cd web && npm install && npm run dev
 
 web: ## Build the web bundle into internal/web/dist
@@ -38,9 +35,6 @@ docker: ## Build production docker image
 
 docker-up: ## Run production image via docker compose
 	docker compose up -d
-
-docker-dev: ## Run dev docker compose stack (Go + Vite with HMR)
-	docker compose -f docker-compose.dev.yml up --build
 
 clean:
 	rm -rf bin dist web/dist internal/web/dist
