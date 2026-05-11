@@ -105,8 +105,27 @@ export default function SignupPage() {
         </div>
 
         <h1 className="mb-1 text-base font-semibold text-neutral-100">Create your account</h1>
-        <p className="mb-5 text-sm text-neutral-400">
-          You'll need an invite code from the administrator.
+        <p className="mb-3 text-sm text-neutral-400">
+          Rivolt is your Rivian companion. Once you're signed in
+          you'll get:
+        </p>
+        <ul className="mb-4 space-y-1 text-xs text-neutral-500">
+          <li>• Live telemetry from your truck</li>
+          <li>• Every drive and charge tracked against your own $/kWh</li>
+          <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
+        </ul>
+        <p className="mb-5 text-xs text-neutral-600">
+          Access is invite-only during the beta. Paste your code
+          below to get started — no code yet?{" "}
+          <a
+            href="https://github.com/apohor/rivolt#readme"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-500 hover:underline"
+          >
+            Learn more
+          </a>
+          .
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
