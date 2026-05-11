@@ -31,82 +31,164 @@ import {
   type TemperatureUnit,
 } from "../lib/preferences";
 
+type TabId = "account" | "vehicle" | "charging" | "notifications" | "data";
+
+// Which tab "owns" a given section anchor id — used so a deep link
+// like /settings#rivian still auto-selects the right tab on mount.
+const HASH_TO_TAB: Record<string, TabId> = {
+  rivian: "account",
+  backend: "account",
+  display: "vehicle",
+  home: "vehicle",
+  profile: "vehicle",
+  cost: "charging",
+  networks: "charging",
+  planner: "charging",
+  notifications: "notifications",
+  import: "data",
+  danger: "data",
+};
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: "account", label: "Account" },
+  { id: "vehicle", label: "Vehicle" },
+  { id: "charging", label: "Charging" },
+  { id: "notifications", label: "Notifications" },
+  { id: "data", label: "Data" },
+];
+
 export default function SettingsPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
-
-  // Hash scroll. The browser only auto-scrolls to #anchor on a full
-  // page load; an SPA navigation from /onboarding → /settings#rivian
-  // mounts the page at top and the hash is silently dropped. This
-  // effect re-applies it on mount, queued through rAF so React has
-  // committed the DOM (the target Card renders before useEffect
-  // runs but its layout pass hasn't necessarily flushed).
   const location = useLocation();
+
+  // Tab state. Priority: ?tab=… query param > hash → owning tab >
+  // default "account". Query param wins so a bookmark like
+  // /settings?tab=charging always lands on the same tab.
+  const initialTab: TabId = (() => {
+    const sp = new URLSearchParams(location.search);
+    const t = sp.get("tab") as TabId | null;
+    if (t && TABS.some((x) => x.id === t)) return t;
+    if (location.hash) {
+      const owner = HASH_TO_TAB[location.hash.slice(1)];
+      if (owner) return owner;
+    }
+    return "account";
+  })();
+  const [tab, setTab] = useState<TabId>(initialTab);
+
+  // Hash scroll inside the active tab. Same rAF dance as before;
+  // the target card only exists in the DOM once its owning tab is
+  // selected, so flip the tab first then scroll on the next frame.
   useEffect(() => {
     if (!location.hash) return;
     const id = location.hash.slice(1);
+    const owner = HASH_TO_TAB[id];
+    if (owner && owner !== tab) {
+      setTab(owner);
+      return; // next render will re-run this effect (tab is in deps)
+    }
     requestAnimationFrame(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, [location.hash]);
+  }, [location.hash, tab]);
+
+  // Reflect tab into ?tab= so reloads / back nav land on the same
+  // pane. replace, not push, so each click doesn't fill history.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("tab") === tab) return;
+    sp.set("tab", tab);
+    const next = `${window.location.pathname}?${sp.toString()}${window.location.hash}`;
+    window.history.replaceState(null, "", next);
+  }, [tab]);
 
   return (
     <div className="space-y-4">
       <PageHeader title="Settings" />
 
-      <Card title="Backend">
-        {health.isLoading ? (
-          <Spinner />
-        ) : health.isError ? (
-          <ErrorBox title="Backend unreachable" detail={String(health.error)} />
-        ) : (
-          <dl className="text-sm grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
-            <dt className="text-neutral-500">Version</dt>
-            <dd className="text-neutral-200">{health.data?.version}</dd>
-            <dt className="text-neutral-500">Server time</dt>
-            <dd className="text-neutral-200">{health.data?.time}</dd>
-          </dl>
-        )}
-      </Card>
+      <div className="flex flex-wrap gap-1 border-b border-neutral-800 overflow-x-auto">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`px-3 py-2 text-sm transition-colors ${
+              tab === t.id
+                ? "border-b-2 border-emerald-500 text-neutral-100"
+                : "border-b-2 border-transparent text-neutral-400 hover:text-neutral-100"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      <Card title="Rivian account" id="rivian">
-        <RivianAccountPanel />
-      </Card>
+      {tab === "account" && (
+        <>
+          <Card title="Rivian account" id="rivian">
+            <RivianAccountPanel />
+          </Card>
+          <Card title="Backend" id="backend">
+            {health.isLoading ? (
+              <Spinner />
+            ) : health.isError ? (
+              <ErrorBox title="Backend unreachable" detail={String(health.error)} />
+            ) : (
+              <dl className="text-sm grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
+                <dt className="text-neutral-500">Version</dt>
+                <dd className="text-neutral-200">{health.data?.version}</dd>
+                <dt className="text-neutral-500">Server time</dt>
+                <dd className="text-neutral-200">{health.data?.time}</dd>
+              </dl>
+            )}
+          </Card>
+        </>
+      )}
 
-      <Card title="Display">
-        <DisplayPreferences />
-      </Card>
+      {tab === "vehicle" && (
+        <>
+          <Card title="Vehicle profile" id="profile">
+            <VehicleProfilePanel />
+          </Card>
+          <Card title="Display" id="display">
+            <DisplayPreferences />
+          </Card>
+          <Card title="Home location" id="home">
+            <HomeLocationPanel />
+          </Card>
+        </>
+      )}
 
-      <Card title="Home charging cost">
-        <ChargingCostPanel />
-      </Card>
+      {tab === "charging" && (
+        <>
+          <Card title="Home charging cost" id="cost">
+            <ChargingCostPanel />
+          </Card>
+          <Card title="Charging networks" id="networks">
+            <ChargingNetworksPanel />
+          </Card>
+          <Card title="Trip planner defaults" id="planner">
+            <PlannerPrefsPanel />
+          </Card>
+        </>
+      )}
 
-      <Card title="Charging networks">
-        <ChargingNetworksPanel />
-      </Card>
+      {tab === "notifications" && (
+        <Card title="Notifications" id="notifications">
+          <NotificationsPanel />
+        </Card>
+      )}
 
-      <Card title="Home location">
-        <HomeLocationPanel />
-      </Card>
-
-      <Card title="Trip planner defaults">
-        <PlannerPrefsPanel />
-      </Card>
-
-      <Card title="Import ElectraFi CSV">
-        <ImportPanel />
-      </Card>
-
-      <Card title="Vehicle profile">
-        <VehicleProfilePanel />
-      </Card>
-
-      <Card title="Notifications">
-        <NotificationsPanel />
-      </Card>
-
-      <Card title="Danger zone">
-        <DangerZonePanel />
-      </Card>
+      {tab === "data" && (
+        <>
+          <Card title="Import ElectraFi CSV" id="import">
+            <ImportPanel />
+          </Card>
+          <Card title="Danger zone" id="danger">
+            <DangerZonePanel />
+          </Card>
+        </>
+      )}
     </div>
   );
 }
