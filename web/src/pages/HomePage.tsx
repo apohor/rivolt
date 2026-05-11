@@ -226,7 +226,12 @@ export default function HomePage() {
                   points: trend,
                   color: "#10b981",
                   area: true,
-                  strokeWidth: 1.2,
+                  strokeWidth: 1.5,
+                  // Monotone cubic interpolation reads as a clean
+                  // arc through the daily / weekly points; Fritsch–
+                  // Carlson prevents the spline from overshooting
+                  // beyond local SoC peaks (no >100% bumps).
+                  curve: "monotone",
                 },
               ]}
               height={160}
