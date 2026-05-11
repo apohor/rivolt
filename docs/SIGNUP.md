@@ -73,12 +73,14 @@ To set up the dedicated account:
    add the new email.
 3. Open the invite email in the new account's inbox and click
    **Accept**.
-4. *(Optional but recommended)* Sign in to the Rivian app on a
-   phone with the *new* (dedicated) account and confirm the
-   vehicle shows up in its vehicle list. Until the dedicated
-   account authenticates in the app at least once, the invite
-   can sit in "Sent" status and the vehicle isn't fully linked —
-   signing in flips it to active.
+4. **Important:** sign in to the Rivian app on a phone with the
+   *new* (dedicated) account. Until the dedicated account
+   authenticates in the app at least once, the invite stays in
+   "Sent" status and the vehicle isn't actually added — Rivolt
+   won't see it. Once you sign in, the invite flips to active and
+   the vehicle appears in the dedicated account's vehicle list.
+5. Verify the new account can see your vehicle in the Rivian app
+   before continuing.
 
 ### Add to Rivolt
 
@@ -115,10 +117,11 @@ or session IDs won't line up.
 
 ---
 
-## 4. Configure your home charging cost
+## 4. (Optional) Configure your home charging cost
 
 Rivolt prices every charging session against the rate you actually
-pay. Set it once:
+pay. Set it once and every future session reflects it; sessions
+recorded before this is set will show $0 until you re-price them.
 
 1. **Settings → Charging → Home charging cost**.
 2. Enter your **$/kWh** rate (e.g. `0.12` for $0.12/kWh).
@@ -135,20 +138,7 @@ trip planner as soft hints.
 
 ---
 
-## 5. (Optional) Set your home location
-
-If you mark your home location, Rivolt:
-
-- Auto-tags charging sessions started near it as `Home` (instead
-  of waiting for DBSCAN to cluster enough sessions).
-- Pre-fills "Home" as a one-tap preset in the trip planner.
-
-**Settings → Vehicle → Home location** → click the map or paste
-lat/lon.
-
----
-
-## 6. Plan your first trip
+## 5. Plan your first trip
 
 You're set up. Try the planner:
 
@@ -187,7 +177,7 @@ page lands you back on the same trip.
 
 ---
 
-## 7. Notifications (optional)
+## 6. Notifications (optional)
 
 To get a push notification when your truck finishes charging
 overnight, opt in once per device:
@@ -213,6 +203,11 @@ before push works (Share → Add to Home Screen).
   analysis card breaks down DCFC spend + home-rate equivalent +
   weather/efficiency commentary, and the form remembers your
   last setup for the next trip.
+- **Set your home location.** **Settings → Vehicle → Home
+  location** → click the map or paste lat/lon. Once set, Rivolt
+  auto-tags charging sessions started near it as `Home` (instead
+  of waiting for clustering to converge) and the trip planner
+  offers "Home" as a one-tap preset.
 - The **Drives** page lists every drive with energy used, cost,
   speed averages, and a route preview. Click into one for the
   full timeline (speed / SoC / elevation / weather charts +
