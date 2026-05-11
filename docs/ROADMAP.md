@@ -18,24 +18,41 @@
 
 ## Status
 
-- ✅ MVP shipped (v0.1 → v0.7). Single self-hosted binary on Synology.
-  Rivian client, live panel, drive/charge history, AI smoke test,
-  push notifications, charge-location clustering (Home / Public /
-  Fast).
+- ✅ **In production at [rivolt.dev](https://rivolt.dev)**, preview
+  at [preview.rivolt.dev](https://preview.rivolt.dev) tracking `main`
+  via ArgoCD. v0.17.198 is the current prod release at time of
+  writing; preview rolls forward on every tag push.
+- ✅ MVP shipped (v0.1 → v0.7) — Rivian client, live panel,
+  drive/charge history, charge-location clustering (Home / Public /
+  Fast), push notification scaffolding.
+- ✅ **Trip planner shipped (v0.17.x)** — Rivian planTrip2-backed
+  routing with departure datetime picker, last-trip persistence,
+  self-hosted Protomaps basemap, NREL-AFDC chargers archive with
+  proper DCFC/L2 discrimination, route-corridor charger filter
+  (perpendicular distance + endpoint arc-length trim), structured
+  Trip analysis card (deterministic cost numbers + categorized
+  LLM commentary on cost / efficiency / weather / vehicle).
+- ✅ **Push notifications end-to-end** — VAPID, per-device subscribe
+  UI in Settings → Notifications, charge-close hook fires
+  NotifyChargingDone with the just-persisted session in the body.
+  Plug-in-reminder + anomaly triggers still placeholder.
+- ✅ **Forecast weather** — `weather.FetchHour` auto-routes to
+  Open-Meteo's `/v1/forecast` for hours within the 80-day window
+  (past or future) so trip advice for a planned future departure
+  sees real conditions, not "no archive data".
+- ✅ **Settings UX refactor** — 11-card scroll collapsed into 5
+  tabs (Account / Vehicle / Charging / Notifications / Data);
+  Backend version panel moved to /admin; admin-tunable GPS
+  accuracy thresholds.
 - ✅ **Phase 1 (correctness)** — all checklist items landed and
   load-bearing in production. RLS policies are declarative-dormant
   pending the Phase 2 app-role split.
-- 🟡 **Phase 2 (self-hosted k8s)** — most of the platform is in
-  place. ✅ Helm chart, container hardening, OIDC-only auth,
-  CloudNativePG, ExternalSecrets-from-Vault, cert-manager+LE,
+- ✅ **Phase 2 (k8s)** — Helm chart, container hardening, OIDC-only
+  auth, CloudNativePG, ExternalSecrets-from-Vault, cert-manager+LE,
   Loki+Promtail, kube-prometheus-stack, ArgoCD-managed everything,
-  CI to GHCR. The remaining work is mostly **app-side**:
-  multi-replica runtime correctness (lease reconciliation, Redis
-  token bucket, reconnect-storm controls), app-level structured
-  logs / metrics / traces, and self-hosted map tiles + routing.
-  v0.11.0 cut OIDC out of password login; v0.11.1 fixed Go's
-  `oauth2` auth-style probing against the IdP's strict
-  `client_secret_post`.
+  CI to GHCR. Multi-replica runtime correctness is the remaining
+  app-side work (lease reconciliation, Redis token bucket,
+  reconnect-storm controls).
 - 🟡 **iOS scaffold** landed (v0.9 track) — skeleton-only, runs via
   Xcode on a tethered iPhone. See [`../ios/README.md`](../ios/README.md).
 
@@ -728,6 +745,27 @@ Smaller cuts queued up; not phase-gated, ship as they make sense.
 - [ ] **"No reachable charging stations" banner** — promote the
       empty-state from a buried subtitle to a prominent CTA
       ("Add a custom via-stop", "Widen starting SoC").
+
+---
+
+## Notifications follow-ups
+
+Push delivery is wired end-to-end; what's missing is event sources
+for the non-charge-done categories.
+
+- [ ] **Plug-in reminder** — fire when the vehicle has been parked
+      at the configured home location below a configurable SoC
+      threshold for > N minutes without the charge port plugged
+      in. Needs a per-user state-watcher loop or a recorder hook
+      keyed on `chargePortStatus`. Wire `pushSvc.NotifyPlugInReminder`.
+- [ ] **Anomaly detector** — define what counts (phantom drain
+      spike, sudden range drop vs. rolling avg, BMS thermal
+      events). Either a deterministic rule pass after each
+      drive/charge close, or a recap-flagged-it path. Wire
+      `pushSvc.NotifyAnomaly`.
+- [ ] **iOS PWA reliability pass** — confirm push payload size,
+      tag-collapse behaviour, and the home-screen-required UX
+      gotcha against the current iOS version.
 
 ---
 
