@@ -232,6 +232,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
+		  AND ended_at - started_at >= interval '1 minute'
 		ORDER BY c.started_at DESC
 		LIMIT $2`, s.userID, limit)
 	if err != nil {
@@ -479,6 +480,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
+		  AND ended_at - started_at >= interval '1 minute'
 		ORDER BY c.started_at DESC`, s.userID)
 	if err != nil {
 		return nil, err
