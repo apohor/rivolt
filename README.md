@@ -20,41 +20,55 @@ will cost.
 The home view stitches together what you actually care about right
 now: current SoC and range, where the truck is, whether it's
 plugged in, the most recent drive, the most recent charge, and the
-rolling weekly totals (miles, kWh, $). Live telemetry comes off the
-Rivian WebSocket feed at 1–5 s while you're driving and ~30 s when
-parked, so the dot on the map is honest, not stale-mobile-app
-honest.
+rolling weekly totals (miles, kWh, $).
 
 ![Rivolt overview page](docs/screenshots/overview.png)
 
 ---
 
+## Live — real-time telemetry
+
+The Live page subscribes to Rivian's WebSocket feed and renders
+1–5 s frames while you're driving (~30 s when parked). SoC, range,
+gear, drive mode, charger state, inside / outside temp, tire
+pressures, and the GPS dot all move in real time. Useful in the
+passenger seat to verify a route, or from the kitchen to see if
+the truck actually started charging when you plugged it in.
+
+![Live panel](docs/screenshots/live.png)
+
+---
+
 ## Drives — every trip explained
 
-Each drive is a page, not a row. The map is road-snapped (OSRM or
-Valhalla, whichever the deployment wires) and coloured by speed —
-gray for parking-lot crawls, rose for interstate — over a
-self-hosted Protomaps basemap. Below the map, time-aligned charts
-for speed, SoC, elevation, temperature, headwind, and precipitation,
-plus per-drive totals: distance, average speed, energy used,
-cost at *your* home $/kWh rate, weather at the start.
+The Drives page lists every recorded drive with distance, duration,
+average speed, energy used, cost, and a route preview. Click in to
+land on the per-drive detail: the map is road-snapped (OSRM or
+Valhalla) and coloured by speed — gray for parking-lot crawls,
+rose for interstate — over a Protomaps basemap. Below the map,
+time-aligned charts for speed, SoC, elevation, temperature,
+headwind, and precipitation; weather context for the drive's start
+hour pulled from Open-Meteo when enabled.
 
 A "Low GPS accuracy" pill surfaces when the Rivian modem returned
 stale fixes or implausible jumps during the drive, with thresholds
 that are admin-tunable so the warning doesn't fire on every parking
 garage.
 
-![Drive detail page](docs/screenshots/drive-detail.png)
+![Drives list](docs/screenshots/drives.png)
+
+![Drive detail page](docs/screenshots/drive-details.png)
 
 ---
 
 ## Charges — every kWh, every dollar
 
-Charging sessions are recorded with the same fidelity as drives:
-the full power curve, peak and average kW, energy delivered, total
-session time, and — when the Parallax feed is available — the
-thermal split between energy going to the pack and energy spent on
-battery conditioning.
+The Charges page lists every charging session — date, location,
+energy delivered, peak kW, total cost. Click in for the full
+detail: power curve over time, peak and average kW, energy
+delivered, session duration, and — when the Parallax feed is
+available — the thermal split between energy going to the pack
+and energy spent on battery conditioning.
 
 Sessions are automatically bucketed `Home` / `Public` / `DCFC` by
 DBSCAN clustering on coordinates and peak kW; sessions in your
@@ -62,7 +76,9 @@ home cluster price against your configured home rate, sessions
 out in the wild price against the session's actual reported cost
 when Rivian provides it.
 
-![Charge detail page](docs/screenshots/charge-detail.png)
+![Charges list](docs/screenshots/charges.png)
+
+![Charge detail page](docs/screenshots/charge-details.png)
 
 ---
 
@@ -110,8 +126,6 @@ when there's something material — cold-snap, headwind > 15 kph,
 precipitation), and **Vehicle** (tire pressures, pack size, adapter
 dependency at any stop). Empty categories hide their headers.
 
-![Trip analysis card](docs/screenshots/trip-analysis.png)
-
 ---
 
 ## Settings — everything in one place
@@ -130,8 +144,6 @@ A five-tab layout for the per-user controls:
 - **Data** — ElectraFi CSV import + danger zone (full JSON
   backup, reset).
 
-![Settings](docs/screenshots/settings.png)
-
 ---
 
 ## Notifications — push that actually fires
@@ -142,8 +154,6 @@ Rivolt delivers an OS-level notification on the next matching
 event. Currently wired: **charging session completes** (with the
 final SoC + kWh added in the body). Plug-in reminders and
 anomaly alerts have the plumbing — event sources land next.
-
-![Notifications panel](docs/screenshots/notifications.png)
 
 ---
 
