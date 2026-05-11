@@ -205,7 +205,39 @@ export function socTrend(
     }
   }
   pts.sort((a, b) => a.x - b.x);
-  return pts;
+  // Coalesce points within the same minute (an end-drive and the
+  // immediately-following start-charge often share a timestamp at
+  // second-precision; deduping keeps the line monotone instead of
+  // drawing a vertical hairline).
+  const deduped: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    const last = deduped[deduped.length - 1];
+    if (last && Math.abs(p.x - last.x) < 60_000) {
+      // Keep the earlier point; skip the duplicate.
+      continue;
+    }
+    deduped.push(p);
+  }
+  // Spike rejection. Phantom drives or stale-telemetry rows can drop
+  // a single SoC sample to near-zero between two normal readings,
+  // producing the V-shaped artifacts that dominate the home-page
+  // trend over a month window. A 3-point rolling median replaces
+  // each interior point with the median of itself and its neighbors,
+  // which is exactly the transform that eats single-sample spikes
+  // while preserving real charge / discharge slopes.
+  if (deduped.length < 3) return deduped;
+  const out: { x: number; y: number }[] = new Array(deduped.length);
+  out[0] = deduped[0];
+  out[deduped.length - 1] = deduped[deduped.length - 1];
+  for (let i = 1; i < deduped.length - 1; i++) {
+    const a = deduped[i - 1].y;
+    const b = deduped[i].y;
+    const c = deduped[i + 1].y;
+    // median of three
+    const med = a + b + c - Math.min(a, b, c) - Math.max(a, b, c);
+    out[i] = { x: deduped[i].x, y: med };
+  }
+  return out;
 }
 
 function sum(xs: number[]): number {
