@@ -1,96 +1,179 @@
 # Rivolt
 
-> The first Rivian companion with a real AI copilot. Self-hosted. Your data, your keys, your rules.
+> A real Rivian companion. Live telemetry, per-trip analytics, a real
+> charging cost ledger, and a route planner that tells you what a road
+> trip will actually cost.
 
-**Rivolt** is an open-source, self-hosted companion for Rivian vehicles with an **AI copilot at its core**. It runs on your own hardware, uses your own AI API key, and turns your drive and charge data into plain-language insight — not just another dashboard of charts.
+**Rivolt** is an open-source companion app for Rivian vehicles. It
+streams live telemetry from your truck, records every drive and
+charging session against your *real* electricity rate, and plans road
+trips with cost / weather / efficiency analysis built in.
+
+The official Rivian app shows you numbers; Rivolt turns them into a
+ledger you own and a planner that actually accounts for what the trip
+will cost.
 
 ---
 
 ## Why Rivolt
 
-Current Rivian companion apps (Rivian Roamer, Outpost, ElectraFi) and the official app itself are **dashboards**. They show you numbers. None of them *explain* them. And all of them are closed SaaS.
+Rivolt sits between four kinds of tools and replaces all of them:
 
-| | Official app | Roamer | Outpost | ElectraFi | **Rivolt** |
-|---|---|---|---|---|---|
-| AI copilot | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Self-hosted | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Credentials stay on your LAN | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Open source | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Home-energy aware | ❌ | ❌ | ❌ | ❌ | 🛣️ |
-| Overland logbook | ❌ | ❌ | ❌ | ❌ | 🛣️ |
+|                                | Official app | Roamer | Outpost | ElectraFi | **Rivolt** |
+|---                             |:---:        |:---:   |:---:    |:---:      |:---:        |
+| Live vehicle telemetry         | ✅           | ✅      | ✅       | ✅         | ✅           |
+| Per-drive efficiency breakdown | ❌           | ⚠️      | ⚠️       | ✅         | ✅           |
+| Real charging-cost ledger      | ❌           | ❌      | ❌       | ⚠️         | ✅           |
+| Trip planner with cost/weather | ❌           | ❌      | ❌       | ❌         | ✅           |
+| Multi-user / household         | ⚠️           | ❌      | ❌       | ❌         | ✅           |
+| Open source, MIT               | ❌           | ❌      | ❌       | ❌         | ✅           |
+| Optional AI commentary         | ❌           | ❌      | ❌       | ❌         | ✅           |
 
-Rivolt is the first Rivian app to treat AI as a first-class primitive rather than a marketing afterthought.
+Rivolt's differentiators in one sentence each:
 
-## 🤖 AI copilot (the differentiator)
+- **Costs use *your* rate.** Configure your home $/kWh; every
+  charging session is priced against it. Trip planner shows DCFC
+  spend + home-rate equivalent before you leave the driveway.
+- **The trip planner is honest.** It surfaces total energy used,
+  arrival time at your chosen departure datetime, charger detour
+  cost, and weather impact for *this* corridor — not generic
+  "consider Conserve mode" tips.
+- **Per-drive analytics that explain the numbers.** Route maps,
+  speed and elevation overlays, temperature, headwind, energy
+  used vs. the rolling average, weather context. Not a wall of
+  charts you have to interpret.
+- **Read-only against Rivian.** Rivolt never sends commands to
+  your truck. It can't unlock doors, start charging, or change
+  drive mode. Telemetry only.
+- **Open source and yours to inspect.** MIT-licensed core; full
+  data export and one-click disconnect from the Settings page.
 
-Every other Rivian app hands you a chart and leaves you to interpret it. Rivolt turns your own vehicle data into a conversation.
+---
 
-**Hot-swappable providers.** OpenAI, Anthropic, and Google Gemini adapters ship in the box. Use the model you trust — or swap mid-week without losing history. Bring your own key; costs are yours and Rivolt never proxies calls.
+## What it does today
 
-**Grounded in *your* data, not generic advice.** Every prompt is hydrated with your real drive traces, charge curves, battery temperatures, tire pressures, weather at the time, and electricity rate schedule. No hallucinated "try hypermiling!" tips — the coach points at the specific drive, the specific charge, the specific hour.
+### Live + history
 
-**What it does today (v0.1):**
+- **Live panel** — real-time SoC, range, charge state, gear, GPS
+  via the Rivian WebSocket feed (1–5 s frames while driving).
+- **Drive timeline** — per-drive maps with road-snapped polyline
+  (OSRM / Valhalla), speed-coloured route, elevation, temperature,
+  weather overlay, headwind, precipitation bands. GPS staleness
+  detection with admin-tunable thresholds.
+- **Charge sessions** — per-session curve, BMS thermal split when
+  the Parallax feed is available, peak/avg kW, energy delivered,
+  cost. Public / Home / DCFC bucketed automatically with no AI
+  involved (DBSCAN clustering on coordinates).
+- **ElectraFi CSV import** — backfill years of history in minutes.
 
-- **Weekly driving digest** — 3-paragraph summary of your week: efficiency trend, cost, notable drives, anomalies
-- **"Why did my efficiency drop?"** — root-cause analysis across weather, payload, HVAC, tire pressure, route
-- **Trip planning** — given a destination, your historical curves, predicted weather, and home-charger schedule, recommend departure SoC + charging stops
-- **Charging strategy coach** — multi-leg road trip plans with fallbacks, tuned to *your* vehicle's observed DC fast-charge curve
-- **Anomaly alerts** — notifies when something in your data looks off (sudden range drop, phantom drain spike, unexpected BMS behavior)
+### Trip planner
 
-**What's coming (v0.2+):**
+Plan a road trip end-to-end:
 
-- **Natural-language queries** — "what was my most efficient drive this month?", "how much did I spend charging in April?"
-- **Voice-in via Web Speech API** — ask questions from the truck before a trip
-- **Photo understanding** — attach a charger screen photo; AI logs cost/kWh/session ID automatically
-- **Pre-departure brief** — a 30-second AI summary pushed as a notification before you leave the garage
-- **Self-learning trip model** — AI improves its efficiency predictions the more you drive
+- **Pick origin, destination, and via-stops** with a custom
+  date/time picker; departure defaults to "now" but anything on
+  the calendar works.
+- **Rivian's own planner picks charging stops** bounded by your
+  starting SoC, target arrival SoC, and adapter config (Tesla
+  NACS yes/no).
+- **Charger overlay** along the actual route corridor (perpendicular
+  distance to polyline, not bounding box), filterable DCFC / L2 /
+  All, sourced from NREL AFDC.
+- **Trip analysis** card surfaces: headline summary, DCFC spend in
+  USD plus home-rate-equivalent energy cost, and optional LLM-written
+  commentary across four named sections (cost framing, efficiency
+  tips, weather impact, vehicle config). The dollar figures are
+  computed deterministically from your home rate + stop SoC deltas;
+  the LLM frames them, never invents them.
+- **Last-trip persistence** — closing and reopening the page lands
+  you back on your previous inputs.
 
-**On privacy.** Your AI calls go *directly* from your Rivolt server to the provider you chose. Rivolt operates no AI proxy, no analytics, no telemetry. Caching happens on your disk.
+### Notifications
 
-## What else Rivolt does
+- **Web Push** (VAPID) — per-device subscribe in Settings →
+  Notifications. Charge-close events fire automatically with
+  final SoC + kWh added in the body; per-event toggles let
+  users opt in / out of charging-done, plug-in reminder, anomaly.
+- **PWA** — installable on iOS / Android / desktop; offline-capable
+  service worker; mobile-first chart cursor.
 
-Core (free, open-source, self-hosted):
+### Accounts
 
-- **Live vehicle dashboard** — SoC, range, charge state, last drive, last charge
-- **Drive analytics** — route maps, efficiency breakdowns, cost-per-mile using your actual electricity rate
-- **Charging analytics** — curves, temperature impact, session cost, BMS effects
-- **Home / Public / Fast detection** — peak-power ≥50 kW sessions are bucketed as `Fast` (DCFC) regardless of location; the remaining slow sessions are clustered by lat/lon (DBSCAN, 200 m), with the largest cluster tagged `Home` and the rest `Public`. No LLM involved; fully local.
-- **Installable PWA** — works on any browser; service-worker offline; web push for plug-in reminders, update alerts, departure prep
+- **OIDC** sign-in via Ory Hydra (any compliant OIDC provider
+  works). Invite-code signup flow for households + small fleets.
+- **Multi-user from day one.** Every data-plane store carries
+  `user_id`; Postgres Row-Level Security enforces isolation at
+  the database, not the application layer. Rivian credentials
+  are envelope-encrypted with the user ID bound as AES-GCM AAD
+  so ciphertext can't be swapped across tenants.
+- **Read-only** against the Rivian API. Rivolt sends commands to
+  no Rivian endpoint, period.
 
-Planned add-ons (not in the initial release):
+---
 
-- **Home energy integration** — Enphase Envoy, Tesla Powerwall, SolarEdge, Span panel adapters; schedule charges to solar peak or TOU off-peak
-- **Overland mode** — GPX traces, offline topo tiles, photo attachments per waypoint, trail logbook export
-- **Household fleet** — multi-vehicle aware, "best vehicle for this trip" recommendation, shared charger queue planning
-- **Managed hosting** — optional hosted instance for users who prefer not to self-host
+## Sign up
 
-## Data sovereignty
+See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
+of:
+- redeeming an invite code and creating your account,
+- connecting your Rivian account (with the dedicated Authorized
+  Driver account approach we recommend),
+- importing your history from ElectraFi,
+- configuring your home charging cost,
+- planning your first trip.
 
-- Credentials stored locally in SQLite, never transmitted outside your LAN on self-hosted deployments
-- BYO AI key (OpenAI / Anthropic / Gemini) — calls go directly from your server to the provider you chose
-- Full export any time
-- Disconnect your Rivian account in one click
-- Read-only against the Rivian API
+---
+
+## Data ownership
+
+- Your Rivian credentials are AES-GCM sealed and decrypted only
+  in-memory at request time. Disconnect Rivian in one click.
+- AI calls (when an AI provider is configured) go *directly* from
+  Rivolt to the provider you chose. No Rivolt-operated AI proxy.
+- All your drive, charge, and trip data is exportable as JSON from
+  Settings → Data, and deletable from the same page.
+- Read-only against the Rivian API.
+
+---
 
 ## Stack
 
-Same DNA as [Caffeine](https://github.com/apohor/caffeine):
+- **Single Go binary + embedded SPA.** Distroless multi-arch
+  container image; the same binary serves API + static assets.
+- **Go 1.25**, chi router, pgx-backed `database/sql`,
+  coder/websocket for the Rivian feed, webpush-go for VAPID.
+- **Postgres** with Row-Level Security, monthly partitioning on
+  `vehicle_state`, envelope-encrypted secrets in `user_secrets`.
+- **React 18 + TypeScript + Vite + Tailwind v3** for the SPA;
+  TanStack Query for the data layer; uPlot for time-series
+  charts; Leaflet + protomaps-leaflet for maps.
+- **Optional AI providers** — OpenAI, Anthropic, Google Gemini.
+  Hot-swappable from the admin UI. BYO key; calls are direct.
 
-- **Single Go binary + embedded web bundle** — distroless multi-arch Docker image
-- **Go 1.25** — chi, pure-Go SQLite, coder/websocket, webpush-go
-- **React 18 + TypeScript + Vite + Tailwind v3** — TanStack Query, uPlot for charts
-- **PWA** — Web Push (VAPID), offline-capable service worker
+---
 
 ## Status
 
-**Pre-release.** This repo is the starting point — architecture proposal in [`docs/PLAN.md`](docs/PLAN.md). See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the 2-week MVP slice.
+In production at [rivolt.dev](https://rivolt.dev). Preview at
+[preview.rivolt.dev](https://preview.rivolt.dev) tracks `main`.
+
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's queued and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the load-bearing
+design decisions.
+
+---
 
 ## License
 
-The core is MIT-licensed. Some future add-ons may ship under a separate commercial license; licensing details will be published alongside each add-on.
+Core is MIT-licensed. Some future add-ons may ship under a separate
+commercial license; details will be published alongside each add-on.
 
 ## Legal
 
-"Rivian" is a trademark of Rivian Automotive, Inc. Rivolt is an independent, community-built project with no affiliation to, endorsement by, or partnership with Rivian. Reference to Rivian is for descriptive purposes only.
+"Rivian" is a trademark of Rivian Automotive, Inc. Rivolt is an
+independent, community-built project with no affiliation to,
+endorsement by, or partnership with Rivian. Reference to Rivian is
+for descriptive purposes only.
 
-Use at your own risk. Rivolt relies on unofficial access to Rivian's APIs and may break at any time.
+Use at your own risk. Rivolt relies on unofficial access to Rivian's
+APIs and may break at any time.
