@@ -320,49 +320,85 @@ async function findInArchive(
 // a planned route — 20 miles expressed in kilometres.
 const CORRIDOR_KM = 32.2;
 
-// minMetersToPath returns the minimum perpendicular distance in
-// metres from (lat, lon) to any INTERIOR point of `path`. Returns
-// Infinity when the closest projection lies on the very first or
-// very last vertex — i.e., the point is "before origin" or "past
-// destination" rather than alongside the route. This rejects the
-// cluster of chargers radially around the start city that aren't
-// in the direction of travel.
-//
-// Uses an equirectangular projection centred on the test point —
-// accurate enough for the 20-mile corridor and ~50× cheaper than
-// spherical great-circle math for thousands of segments.
-function minMetersToPath(lat: number, lon: number, path: [number, number][]): number {
-  if (path.length < 2) return Infinity;
-  const cosLat = Math.cos((lat * Math.PI) / 180);
-  const x = lon * 111320 * cosLat;
-  const y = lat * 110540;
-  const lastSeg = path.length - 2;
-  let best = Infinity;
-  let bestIsRouteEndpoint = true;
+// projectedPath holds the per-segment projection of `path` into a
+// local equirectangular metre grid PLUS the cumulative arc length
+// at each vertex. Built once per route so per-candidate filtering
+// is just a tight inner loop over precomputed numbers.
+type ProjectedPath = {
+  xs: number[];        // vertex x in metres
+  ys: number[];        // vertex y in metres
+  cumLen: number[];    // cumulative arc length at each vertex (metres)
+  totalLen: number;    // total path length (metres)
+  cosLat: number;      // projection's reference cosine (path centroid)
+};
+
+function projectPath(path: [number, number][]): ProjectedPath {
+  // Use the path's centroid latitude as the projection reference.
+  // For routes spanning multiple latitudes the per-test-point
+  // cosLat used previously was correct only for that point;
+  // sharing one reference here lets us reuse the same projection
+  // for the cumulative-length math too.
+  let sumLat = 0;
+  for (const [la] of path) sumLat += la;
+  const cosLat = Math.cos(((sumLat / path.length) * Math.PI) / 180);
+  const xs: number[] = new Array(path.length);
+  const ys: number[] = new Array(path.length);
+  const cumLen: number[] = new Array(path.length);
+  for (let i = 0; i < path.length; i++) {
+    xs[i] = path[i][1] * 111320 * cosLat;
+    ys[i] = path[i][0] * 110540;
+  }
+  cumLen[0] = 0;
   for (let i = 1; i < path.length; i++) {
-    const [aLat, aLon] = path[i - 1];
-    const [bLat, bLon] = path[i];
-    const ax = aLon * 111320 * cosLat;
-    const ay = aLat * 110540;
-    const bx = bLon * 111320 * cosLat;
-    const by = bLat * 110540;
+    const dx = xs[i] - xs[i - 1];
+    const dy = ys[i] - ys[i - 1];
+    cumLen[i] = cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy);
+  }
+  return { xs, ys, cumLen, totalLen: cumLen[cumLen.length - 1], cosLat };
+}
+
+// routeFilterMeters returns the minimum perpendicular distance in
+// metres from (lat, lon) to `path` AFTER applying:
+//   - "interior only" gating: reject points whose closest projection
+//     is the very first or very last vertex of the route (clusters
+//     radially around start/destination that aren't in the
+//     direction of travel)
+//   - "endpoint arc-length buffer": for routes >MIN_TRIM_LEN, reject
+//     points that project to the first or last ENDPOINT_TRIM_M of
+//     the route's arc length (a Supercharger 5 mi from the start
+//     of a 500-mi trip isn't a road-trip stop)
+//
+// Returns Infinity when either gate rejects the point.
+function routeFilterMeters(lat: number, lon: number, pp: ProjectedPath): number {
+  if (pp.xs.length < 2) return Infinity;
+  // Endpoint arc-length trim — only kick in once the route is long
+  // enough to make "the first 20 mi" a meaningful filter rather
+  // than "everything".
+  const MIN_TRIM_LEN_M = 80_000; // 50 mi total route
+  const ENDPOINT_TRIM_M = 32_000; // 20 mi at each end when active
+  const applyTrim = pp.totalLen > MIN_TRIM_LEN_M;
+
+  const x = lon * 111320 * pp.cosLat;
+  const y = lat * 110540;
+  const lastSeg = pp.xs.length - 2;
+  let best = Infinity;
+  let bestAlong = -1;        // arc-length position of best projection
+  let bestIsRouteEndpoint = true;
+  for (let i = 1; i < pp.xs.length; i++) {
+    const ax = pp.xs[i - 1], ay = pp.ys[i - 1];
+    const bx = pp.xs[i], by = pp.ys[i];
     const dx = bx - ax;
     const dy = by - ay;
     const segLen2 = dx * dx + dy * dy;
+    const segLen = Math.sqrt(segLen2);
     const rawT = segLen2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / segLen2 : 0;
     let t = rawT;
     let endpoint = false;
     if (t < 0) {
       t = 0;
-      // Only the absolute route start counts as "behind origin".
-      // For any other segment, t<0 means the point is "between"
-      // this segment and the previous one (interior vertex), which
-      // is fine.
       if (i - 1 === 0) endpoint = true;
     } else if (t > 1) {
       t = 1;
-      // Mirror: only the route's last segment hitting t=1 means
-      // "past destination". Interior vertices are fine.
       if (i - 1 === lastSeg) endpoint = true;
     }
     const cx = ax + t * dx;
@@ -372,10 +408,15 @@ function minMetersToPath(lat: number, lon: number, path: [number, number][]): nu
     const d2 = ddx * ddx + ddy * ddy;
     if (d2 < best) {
       best = d2;
+      bestAlong = pp.cumLen[i - 1] + t * segLen;
       bestIsRouteEndpoint = endpoint;
     }
   }
   if (bestIsRouteEndpoint) return Infinity;
+  if (applyTrim) {
+    if (bestAlong < ENDPOINT_TRIM_M) return Infinity;
+    if (pp.totalLen - bestAlong < ENDPOINT_TRIM_M) return Infinity;
+  }
   return Math.sqrt(best);
 }
 
@@ -400,6 +441,10 @@ export async function findChargersAlongPath(
   const pm = getArchive(chargersURL, "chargers");
   if (!pm) return [];
   const z = chargersLookup.z;
+  // Precompute the projected path + cumulative arc length so every
+  // feature filter is a tight inner loop over numbers (no
+  // per-candidate trig).
+  const projected = projectPath(path);
 
   // Build the route bounding box.
   let minLat = path[0][0], maxLat = path[0][0];
@@ -469,11 +514,16 @@ export async function findChargersAlongPath(
           const isL2 = l2Count !== undefined ? l2Count > 0 : !isDCFC;
           if (filter === "dcfc" && !isDCFC) continue;
           if (filter === "l2" && !isL2) continue;
-          // Filter by perpendicular distance to the route line, not
-          // just the route's bounding box. A long mostly-east-west
-          // route otherwise drags in everything in the bbox rectangle
-          // (e.g. an entire metro area dozens of miles off-route).
-          if (minMetersToPath(flat, flon, path) > CORRIDOR_KM * 1000) continue;
+          // Filter by perpendicular distance to the route line PLUS
+          // arc-length distance from the endpoints. The bbox-only
+          // filter dragged in everything within the rectangle, and a
+          // pure perpendicular filter still kept the metro cluster
+          // around the destination (chargers project onto the last
+          // few segments at < 20 mi perp distance). routeFilterMeters
+          // rejects (a) closest-projection-is-an-endpoint and (b)
+          // closest-projection-within-20mi-arc-of-an-endpoint for
+          // long routes.
+          if (routeFilterMeters(flat, flon, projected) > CORRIDOR_KM * 1000) continue;
           const k = `${flat.toFixed(5)},${flon.toFixed(5)}`;
           if (!seen.has(k)) {
             seen.set(k, { ...chargersLookup.toPOI(props, {
