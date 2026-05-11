@@ -37,7 +37,6 @@ type TabId = "account" | "vehicle" | "charging" | "notifications" | "data";
 // like /settings#rivian still auto-selects the right tab on mount.
 const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
-  backend: "account",
   display: "vehicle",
   home: "vehicle",
   profile: "vehicle",
@@ -58,7 +57,6 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 export default function SettingsPage() {
-  const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
   const location = useLocation();
 
   // Tab state. Priority: ?tab=… query param > hash → owning tab >
@@ -124,25 +122,9 @@ export default function SettingsPage() {
       </div>
 
       {tab === "account" && (
-        <>
-          <Card title="Rivian account" id="rivian">
-            <RivianAccountPanel />
-          </Card>
-          <Card title="Backend" id="backend">
-            {health.isLoading ? (
-              <Spinner />
-            ) : health.isError ? (
-              <ErrorBox title="Backend unreachable" detail={String(health.error)} />
-            ) : (
-              <dl className="text-sm grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
-                <dt className="text-neutral-500">Version</dt>
-                <dd className="text-neutral-200">{health.data?.version}</dd>
-                <dt className="text-neutral-500">Server time</dt>
-                <dd className="text-neutral-200">{health.data?.time}</dd>
-              </dl>
-            )}
-          </Card>
-        </>
+        <Card title="Rivian account" id="rivian">
+          <RivianAccountPanel />
+        </Card>
       )}
 
       {tab === "vehicle" && (

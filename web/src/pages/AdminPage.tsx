@@ -31,6 +31,9 @@ export default function AdminPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Admin" />
+      <Card title="Backend" id="backend">
+        <BackendInfoPanel />
+      </Card>
       <Card title="Invite codes">
         <InviteCodesPanel />
       </Card>
@@ -51,6 +54,24 @@ export default function AdminPage() {
         <GPSAccuracyPanel />
       </Card>
     </div>
+  );
+}
+
+// BackendInfoPanel surfaces /api/health so the operator can verify
+// version + clock from the page instead of curl-ing the endpoint.
+// Lives on the admin page (not user settings) because the average
+// user has no use for the build SHA.
+function BackendInfoPanel() {
+  const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
+  if (health.isLoading) return <Spinner />;
+  if (health.isError) return <ErrorBox title="Backend unreachable" detail={String(health.error)} />;
+  return (
+    <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 text-sm">
+      <dt className="text-neutral-500">Version</dt>
+      <dd className="text-neutral-200">{health.data?.version}</dd>
+      <dt className="text-neutral-500">Server time</dt>
+      <dd className="text-neutral-200">{health.data?.time}</dd>
+    </dl>
   );
 }
 
