@@ -206,6 +206,7 @@ func New(d Deps) http.Handler {
 		r.Use(d.Metrics.HTTPMiddleware)
 	}
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
 	// NOTE: the global request timeout is applied per-group below,
 	// not here. CSV imports, backups, and restores can legitimately
 	// run for minutes on large exports, and a 30s ceiling cancels
@@ -684,6 +685,56 @@ func New(d Deps) http.Handler {
 	r.Handle("/*", spaHandler(d.WebFS))
 
 	return r
+}
+
+// securityHeaders applies a baseline set of HTTP security response
+// headers to every API + SPA response. Per-deployment hardening
+// (e.g. CSP tightening for an embedded admin) can layer on top.
+//
+//   - Content-Security-Policy:
+//     'self' for scripts and connections, 'unsafe-inline' on styles
+//     because the SPA paints Leaflet/DriveMap markers via inline
+//     style attributes — moving them off-thread would buy nothing
+//     versus the actual XSS hardening here. img-src allows data:
+//     and blob: so canvas-derived images (chart screenshots) and
+//     pmtiles glyph atlases render without a header break.
+//     frame-ancestors 'none' prevents clickjacking; the SPA never
+//     embeds in an iframe.
+//   - Strict-Transport-Security: 1 year with subdomains. Cloudflare
+//     in front already terminates TLS for rivolt.dev / preview.rivolt.dev,
+//     but the header makes the policy explicit on origin responses
+//     too (and protects self-hosted installs that put their own
+//     reverse proxy in front).
+//   - X-Content-Type-Options: nosniff. Belt-and-braces against
+//     content-type confusion attacks.
+//   - Referrer-Policy: strict-origin-when-cross-origin. Avoids
+//     leaking deep app URLs to third-party AI / weather providers
+//     when the SPA's about page or share button is used.
+//   - X-Frame-Options: DENY. Same intent as the CSP frame-ancestors
+//     directive; included for older browsers / proxies that don't
+//     parse CSP.
+func securityHeaders(next http.Handler) http.Handler {
+	const csp = "default-src 'self'; " +
+		"script-src 'self'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob:; " +
+		"font-src 'self' data:; " +
+		"connect-src 'self'; " +
+		"worker-src 'self'; " +
+		"manifest-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"object-src 'none'"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", csp)
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func handleHealth(version string) http.HandlerFunc {

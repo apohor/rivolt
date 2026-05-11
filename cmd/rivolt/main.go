@@ -1103,9 +1103,25 @@ func runServer() {
 	)
 
 	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           tracedHandler,
+		Addr:    *addr,
+		Handler: tracedHandler,
+		// ReadHeaderTimeout guards against slow-loris clients that
+		// open a TCP connection and dribble headers indefinitely.
 		ReadHeaderTimeout: 10 * time.Second,
+		// ReadTimeout bounds the full request (headers + body). Most
+		// endpoints have JSON bodies under 1 KB; the ElectraFi CSV
+		// import is the outlier — multipart, capped at 1 GiB in the
+		// handler, and big files happen at LAN speed, so 5 min is
+		// generous without being abusable.
+		ReadTimeout: 5 * time.Minute,
+		// WriteTimeout bounds how long we hold a response open. AI
+		// trip-analysis takes up to ~30 s; live WebSocket connections
+		// use their own write deadlines internally. 5 min covers the
+		// worst regular HTTP path with margin.
+		WriteTimeout: 5 * time.Minute,
+		// IdleTimeout closes idle keep-alive sockets so a misbehaving
+		// client can't accumulate fds. Browsers reconnect cheaply.
+		IdleTimeout: 90 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
