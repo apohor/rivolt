@@ -321,18 +321,24 @@ async function findInArchive(
 const CORRIDOR_KM = 32.2;
 
 // minMetersToPath returns the minimum perpendicular distance in
-// metres from (lat, lon) to any segment of `path`. Uses an
-// equirectangular projection centred on the test point — accurate
-// enough for the 20-mile corridor we care about and ~50× cheaper
-// than spherical great-circle math for a route with thousands of
-// segments. Returns Infinity for a path with fewer than 2 points.
+// metres from (lat, lon) to any INTERIOR point of `path`. Returns
+// Infinity when the closest projection lies on the very first or
+// very last vertex — i.e., the point is "before origin" or "past
+// destination" rather than alongside the route. This rejects the
+// cluster of chargers radially around the start city that aren't
+// in the direction of travel.
+//
+// Uses an equirectangular projection centred on the test point —
+// accurate enough for the 20-mile corridor and ~50× cheaper than
+// spherical great-circle math for thousands of segments.
 function minMetersToPath(lat: number, lon: number, path: [number, number][]): number {
   if (path.length < 2) return Infinity;
   const cosLat = Math.cos((lat * Math.PI) / 180);
-  // Project to a local x/y in metres for fast distance math.
   const x = lon * 111320 * cosLat;
   const y = lat * 110540;
+  const lastSeg = path.length - 2;
   let best = Infinity;
+  let bestIsRouteEndpoint = true;
   for (let i = 1; i < path.length; i++) {
     const [aLat, aLon] = path[i - 1];
     const [bLat, bLon] = path[i];
@@ -340,20 +346,36 @@ function minMetersToPath(lat: number, lon: number, path: [number, number][]): nu
     const ay = aLat * 110540;
     const bx = bLon * 111320 * cosLat;
     const by = bLat * 110540;
-    // Distance from point to segment AB.
     const dx = bx - ax;
     const dy = by - ay;
     const segLen2 = dx * dx + dy * dy;
-    let t = segLen2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / segLen2 : 0;
-    if (t < 0) t = 0;
-    else if (t > 1) t = 1;
+    const rawT = segLen2 > 0 ? ((x - ax) * dx + (y - ay) * dy) / segLen2 : 0;
+    let t = rawT;
+    let endpoint = false;
+    if (t < 0) {
+      t = 0;
+      // Only the absolute route start counts as "behind origin".
+      // For any other segment, t<0 means the point is "between"
+      // this segment and the previous one (interior vertex), which
+      // is fine.
+      if (i - 1 === 0) endpoint = true;
+    } else if (t > 1) {
+      t = 1;
+      // Mirror: only the route's last segment hitting t=1 means
+      // "past destination". Interior vertices are fine.
+      if (i - 1 === lastSeg) endpoint = true;
+    }
     const cx = ax + t * dx;
     const cy = ay + t * dy;
     const ddx = x - cx;
     const ddy = y - cy;
     const d2 = ddx * ddx + ddy * ddy;
-    if (d2 < best) best = d2;
+    if (d2 < best) {
+      best = d2;
+      bestIsRouteEndpoint = endpoint;
+    }
   }
+  if (bestIsRouteEndpoint) return Infinity;
   return Math.sqrt(best);
 }
 
