@@ -742,11 +742,11 @@ func New(d Deps) http.Handler {
 //     parse CSP.
 func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
-		"script-src 'self'; " +
+		"script-src 'self' https://static.cloudflareinsights.com; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com; " +
 		"font-src 'self' data:; " +
-		"connect-src 'self'; " +
+		"connect-src 'self' https://cloudflareinsights.com; " +
 		"worker-src 'self'; " +
 		"manifest-src 'self'; " +
 		"frame-ancestors 'none'; " +
