@@ -122,14 +122,23 @@ export default function SignupPage() {
         <div className="mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
           <strong className="text-amber-200">Closed beta.</strong> Access is
           invite-only while we shake out bugs. Paste your code below to get
-          started — no code yet? Email{" "}
+          started — no code yet?{" "}
+          <a
+            href="https://github.com/apohor/rivolt/issues/new?template=beta-invite-request.yml"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-amber-100"
+          >
+            Open a request on GitHub
+          </a>
+          {" "}or email{" "}
           <a
             href="mailto:anton@rivolt.dev?subject=Rivolt%20beta%20invite%20request&body=Hi%20Anton%2C%0A%0AI%27d%20like%20to%20try%20the%20Rivolt%20beta.%0A%0ATruck%20%2F%20trim%3A%0AHome%20charging%20(L1%20%2F%20L2%20%2F%20none)%3A%0AHow%20often%20I%20drive%3A%0A"
             className="underline hover:text-amber-100"
           >
             anton@rivolt.dev
-          </a>{" "}
-          with your truck, home charging setup, and how often you drive.
+          </a>
+          {" "}with your truck, home charging setup, and how often you drive.
         </div>
 
         <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
