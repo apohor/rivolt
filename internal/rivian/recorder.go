@@ -59,6 +59,21 @@ const (
 	// would silently ratchet the session peak to 400 kW. We discard
 	// the frame instead so the running max is unaffected.
 	maxLivePowerKW = 400.0
+
+	// l2PowerThresholdKW separates AC home charging from DC fast
+	// charging for the live power-integral fallback. J1772 / NACS AC
+	// tops out at 19.2 kW; the lowest DCFC stations start around 25 kW.
+	// Sessions whose peak stayed below this band are treated as L2 and
+	// allowed to use the integrated energy when Parallax stays silent.
+	l2PowerThresholdKW = 22.0
+
+	// maxIntegrationGap caps the dt fed into the trapezoidal energy
+	// integral. A WS dropout that goes silent for ten minutes shouldn't
+	// inflate the integral by ten minutes × last-known power — frame
+	// cadence is normally seconds, so a multi-minute gap is a signal
+	// we don't know what happened in between. Cap dt so the integral
+	// undercounts during silence rather than over.
+	maxIntegrationGap = 2 * time.Minute
 )
 
 // Pack size for the SoC-delta energy fallback is looked up
@@ -134,6 +149,37 @@ type liveCharge struct {
 	endAt      time.Time
 	endSoC     float64
 	finalState string
+
+	// Running trapezoidal integral of ChargerPowerKW over wall-clock
+	// time, in kWh. Used as the L2 energy fallback when Parallax never
+	// emits a TotalChargedEnergyKWh — Rivian's vehicleState feed pushes
+	// chargerPowerKW for L2 sessions even though Parallax stays silent.
+	energyIntKWh float64
+	lastPowerKW  float64
+	lastPowerAt  time.Time
+}
+
+// accumulateEnergy advances c.energyIntKWh by the trapezoidal area
+// between the previous power sample and (t, kw). Invalid frames (kw
+// out of physical range) are skipped without resetting the anchor so
+// the next valid frame still integrates against the last good one.
+// dt is clamped at maxIntegrationGap so a WS dropout can't inflate
+// the integral.
+func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
+	if kw < 0 || kw > maxLivePowerKW {
+		return
+	}
+	if !c.lastPowerAt.IsZero() {
+		dt := t.Sub(c.lastPowerAt)
+		if dt > 0 {
+			if dt > maxIntegrationGap {
+				dt = maxIntegrationGap
+			}
+			c.energyIntKWh += dt.Hours() * (c.lastPowerKW + kw) / 2
+		}
+	}
+	c.lastPowerAt = t
+	c.lastPowerKW = kw
 }
 
 // record is the central recorder entry point, called from every cache
@@ -592,6 +638,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
+			accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -612,6 +659,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -623,6 +671,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
 		if curr.At.After(s.charge.endAt) {
@@ -655,6 +704,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		s.charge.finalState = curr.ChargerState
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		// Snapshot the row before the hook fires (same pattern as the
@@ -889,15 +939,24 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		}
 	}
 
-	// SoC-delta fallback. Rivian's Parallax feed doesn't always
-	// surface TotalChargedEnergyKWh — home L2 sessions in particular
-	// report charger_power_kw frame-by-frame but never produce a
-	// rolling kWh total. Without this fallback the row lands with
-	// max_power_kw set but energy_added_kwh / cost NULL, which is
-	// what surfaced as "charging is broken" on the UI. Fall back to
-	// SoC delta × pack whenever we have no energy reading, even if
-	// we do have a peak power reading. DCFC sessions still take
-	// Rivian's reported energy because it's set first above.
+	// L2 energy: trapezoidal integral of chargerPowerKW × wall-clock.
+	// Parallax never emits TotalChargedEnergyKWh for AC home sessions,
+	// but vehicleState pushes chargerPowerKW frame-by-frame the entire
+	// time. Gated on peak power < l2PowerThresholdKW so a DCFC session
+	// that's transiently missing Parallax energy doesn't get its
+	// rolling integral (which would lag the true delivered kWh
+	// because of frame-cadence undersampling at high power) onto the
+	// row instead of Rivian's authoritative number.
+	if energy == 0 && c.maxPower > 0 && c.maxPower < l2PowerThresholdKW && c.energyIntKWh > 0 {
+		energy = c.energyIntKWh
+	}
+
+	// SoC-delta last resort. If neither Parallax nor the live integral
+	// produced an energy reading (e.g. session opened on a frame whose
+	// power was already 0, or pack-only events), back into kWh from
+	// the SoC delta times the per-vehicle pack capacity. Without this
+	// the row lands with max_power_kw set but energy_added_kwh / cost
+	// NULL, which surfaced as "charging is broken" on the UI.
 	if energy == 0 {
 		dSoC := c.endSoC - c.startSoC
 		if dSoC > 0 {
