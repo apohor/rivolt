@@ -677,7 +677,7 @@ function DrivingDetail({
   vehicle: Vehicle;
   state: VehicleState;
 }) {
-  const q = useQuery<LiveDrive | undefined>({
+  const q = useQuery<LiveDrive | null>({
     queryKey: ["rivian", "live-drive", vehicle.id],
     queryFn: () => backend.liveDrive(vehicle.id),
     refetchInterval: 5_000,

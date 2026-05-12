@@ -662,13 +662,17 @@ export const backend = {
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
-  // liveDrive returns undefined when the server replies 204 — no
-  // drive session is currently open for the vehicle. Callers should
-  // treat undefined the same as "not driving".
-  liveDrive: (vehicleID: string) =>
-    api.get<LiveDrive | undefined>(
+  // liveDrive returns null when the server replies 204 — no drive
+  // session is currently open for the vehicle. We coerce undefined →
+  // null at this boundary so TanStack Query's queryFn contract holds
+  // (v5 rejects undefined as a query return value); callers can keep
+  // treating null/undefined as "not driving" either way.
+  liveDrive: async (vehicleID: string): Promise<LiveDrive | null> => {
+    const r = await api.get<LiveDrive | undefined>(
       `/api/live-drive/${encodeURIComponent(vehicleID)}`,
-    ),
+    );
+    return r ?? null;
+  },
   rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
   rivianLogin: (email: string, password: string) =>
     api.post<{ authenticated: boolean; mfa_pending?: boolean; email?: string }>(

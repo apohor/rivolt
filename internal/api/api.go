@@ -717,9 +717,10 @@ func New(d Deps) http.Handler {
 //     versus the actual XSS hardening here. img-src allows data:
 //     and blob: so canvas-derived images (chart screenshots) and
 //     pmtiles glyph atlases render without a header break, plus
-//     https://*.rivian.com because the per-vehicle configurator
-//     hero image is hosted on Rivian's CDN (mobile-images-prod.rivian.com
-//     today; the wildcard absorbs future renames). The IP leak to
+//     https://rivian.com + https://*.rivian.com because the per-vehicle
+//     configurator hero image is served from rivian.com/mobile/static/img/...
+//     (bare host) today; the wildcard absorbs the eventual move to a
+//     proper CDN subdomain. The IP leak to
 //     Rivian on every page load is acceptable because the user has
 //     already authenticated to Rivian for telemetry — we're not
 //     widening the surface, just rendering an asset they already
@@ -743,7 +744,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
 		"script-src 'self'; " +
 		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: blob: https://*.rivian.com; " +
+		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com; " +
 		"font-src 'self' data:; " +
 		"connect-src 'self'; " +
 		"worker-src 'self'; " +
