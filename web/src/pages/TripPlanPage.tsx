@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { backend, type GeocodeResult, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { backend, type GeocodeResult, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -104,6 +104,31 @@ function writeLastTrip(t: LastTrip): void {
   } catch (e) {
     console.warn("[trip-planner] writeLastTrip failed:", e);
   }
+}
+
+// collectInputs folds the current form state into the SavedTripInputs
+// shape the backend persists. Centralized so save + future "what
+// changed since the snapshot?" comparisons stay in sync.
+function collectInputs(s: {
+  origin: NonNullable<Selection>;
+  destination: NonNullable<Selection>;
+  extraStops: NonNullable<Selection>[];
+  targetSoc: string;
+  startingSoc: string;
+  driveMode: DriveMode;
+  hasAdapter: boolean;
+  departureAt: string;
+}): SavedTripInputs {
+  return {
+    origin: s.origin,
+    destination: s.destination,
+    extra_stops: s.extraStops,
+    target_soc: s.targetSoc,
+    starting_soc: s.startingSoc,
+    drive_mode: s.driveMode,
+    has_adapter: s.hasAdapter,
+    departure_at: s.departureAt,
+  };
 }
 
 type DriveMode =
@@ -286,6 +311,7 @@ export default function TripPlanPage() {
     },
     onSuccess: (plan) => {
       adviceMutation.reset();
+      setLoadedSnapshot(null);
       // Persist the inputs that produced this plan so reopening the
       // page restores the same starting state.
       if (origin && destination) {
@@ -320,6 +346,88 @@ export default function TripPlanPage() {
   const adviceMutation = useMutation({
     mutationFn: backend.planTripAdvice,
   });
+
+  // Saved trips. loadedSnapshot, when non-null, is what the result
+  // card renders instead of the live planMutation.data — that's how
+  // clicking a saved trip can show the historical map + waypoint
+  // table instantly without a fresh Rivian round-trip. Replan clears
+  // it back to the live path.
+  const qc = useQueryClient();
+  const savedTripsQuery = useQuery({
+    queryKey: ["savedTrips"],
+    queryFn: backend.savedTripsList,
+    staleTime: 30 * 1000,
+  });
+  const [loadedSnapshot, setLoadedSnapshot] = useState<
+    { plan: TripPlan; advice?: TripAdvice; name: string; updatedAt: string } | null
+  >(null);
+  const [activeTripId, setActiveTripId] = useState<string | null>(null);
+  const saveTripMutation = useMutation({
+    mutationFn: async (vars: { name: string; id: string | null }) => {
+      if (!origin || !destination) {
+        throw new Error("plan a trip before saving");
+      }
+      const plan = loadedSnapshot?.plan ?? planMutation.data ?? undefined;
+      const advice = loadedSnapshot?.advice ?? adviceMutation.data ?? undefined;
+      const body = {
+        name: vars.name,
+        inputs: collectInputs({
+          origin,
+          destination,
+          extraStops,
+          targetSoc,
+          startingSoc,
+          driveMode,
+          hasAdapter,
+          departureAt,
+        }),
+        plan,
+        advice,
+      };
+      return vars.id
+        ? backend.savedTripUpdate(vars.id, body)
+        : backend.savedTripCreate(body);
+    },
+    onSuccess: (t) => {
+      qc.invalidateQueries({ queryKey: ["savedTrips"] });
+      setActiveTripId(t.id);
+    },
+  });
+  const deleteTripMutation = useMutation({
+    mutationFn: (id: string) => backend.savedTripDelete(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["savedTrips"] });
+      if (activeTripId === id) {
+        setActiveTripId(null);
+        setLoadedSnapshot(null);
+      }
+    },
+  });
+
+  const loadSavedTrip = (t: SavedTrip) => {
+    const i = t.inputs;
+    setOrigin(i.origin);
+    setDestination(i.destination);
+    setExtraStops(i.extra_stops ?? []);
+    if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
+    if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
+    if (typeof i.drive_mode === "string") setDriveMode(i.drive_mode as DriveMode);
+    if (typeof i.has_adapter === "boolean") setHasAdapter(i.has_adapter);
+    if (typeof i.departure_at === "string") setDepartureAt(i.departure_at);
+    setActiveTripId(t.id);
+    planMutation.reset();
+    adviceMutation.reset();
+    if (t.plan) {
+      setLoadedSnapshot({
+        plan: t.plan,
+        advice: t.advice,
+        name: t.name,
+        updatedAt: t.updated_at,
+      });
+    } else {
+      setLoadedSnapshot(null);
+    }
+  };
 
   // fireAdvice packages everything the advice handler needs to build
   // the LLM prompt. Reused by the auto-fire path on plan success AND
@@ -496,6 +604,18 @@ export default function TripPlanPage() {
         </form>
       </Card>
 
+      <SavedTripsCard
+        trips={savedTripsQuery.data ?? []}
+        loading={savedTripsQuery.isLoading}
+        activeId={activeTripId}
+        canSave={!!origin && !!destination}
+        saveDisabled={saveTripMutation.isPending}
+        onLoad={loadSavedTrip}
+        onDelete={(id) => deleteTripMutation.mutate(id)}
+        onSave={(name, id) => saveTripMutation.mutate({ name, id })}
+        saveError={(saveTripMutation.error as Error | null)?.message}
+      />
+
       {planMutation.error && (
         <ErrorBox
           title="Planner failed"
@@ -503,30 +623,209 @@ export default function TripPlanPage() {
         />
       )}
 
-      {planMutation.data && (
-        <TripPlanResult
-          plan={planMutation.data}
-          originLabel={origin?.label ?? ""}
-          destLabel={destination?.label ?? ""}
-          advice={adviceMutation.data}
-          adviceLoading={adviceMutation.isPending}
-          onAnalyze={() => fireAdvice(planMutation.data!)}
-          onAddStop={(stop) => {
-            const labeled = relabelIfHome(stop, home);
-            setExtraStops((prev) =>
-              prev.some(
-                (s) =>
-                  Math.abs(s.lat - labeled.lat) < 0.0005 &&
-                  Math.abs(s.lon - labeled.lon) < 0.0005,
-              )
-                ? prev
-                : [...prev, labeled],
-            );
-          }}
-          departureAt={departureAt}
-        />
-      )}
+      {(() => {
+        const displayPlan = loadedSnapshot?.plan ?? planMutation.data;
+        const displayAdvice = loadedSnapshot?.advice ?? adviceMutation.data;
+        if (!displayPlan) return null;
+        return (
+          <>
+            {loadedSnapshot && (
+              <SnapshotBanner
+                name={loadedSnapshot.name}
+                updatedAt={loadedSnapshot.updatedAt}
+                onReplan={() => {
+                  setLoadedSnapshot(null);
+                  planMutation.mutate();
+                }}
+                replanPending={planMutation.isPending}
+              />
+            )}
+            <TripPlanResult
+              plan={displayPlan}
+              originLabel={origin?.label ?? ""}
+              destLabel={destination?.label ?? ""}
+              advice={displayAdvice}
+              adviceLoading={adviceMutation.isPending}
+              onAnalyze={() => fireAdvice(displayPlan)}
+              onAddStop={(stop) => {
+                const labeled = relabelIfHome(stop, home);
+                setExtraStops((prev) =>
+                  prev.some(
+                    (s) =>
+                      Math.abs(s.lat - labeled.lat) < 0.0005 &&
+                      Math.abs(s.lon - labeled.lon) < 0.0005,
+                  )
+                    ? prev
+                    : [...prev, labeled],
+                );
+              }}
+              departureAt={departureAt}
+            />
+          </>
+        );
+      })()}
     </div>
+  );
+}
+
+// SAVED_SNAPSHOT_STALE_HOURS is when the "Replan against current
+// conditions?" banner switches from informational to amber. Below
+// this the snapshot is fresh enough that station availability,
+// weather, and ETA haven't meaningfully drifted.
+const SAVED_SNAPSHOT_STALE_HOURS = 6;
+
+function SnapshotBanner({
+  name,
+  updatedAt,
+  onReplan,
+  replanPending,
+}: {
+  name: string;
+  updatedAt: string;
+  onReplan: () => void;
+  replanPending: boolean;
+}) {
+  const ageMs = Date.now() - new Date(updatedAt).getTime();
+  const ageH = ageMs / 3_600_000;
+  const stale = ageH > SAVED_SNAPSHOT_STALE_HOURS;
+  const human =
+    ageH < 1
+      ? `${Math.max(1, Math.round(ageMs / 60_000))} min ago`
+      : ageH < 24
+        ? `${Math.round(ageH)}h ago`
+        : `${Math.round(ageH / 24)}d ago`;
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
+        stale
+          ? "border-amber-900/60 bg-amber-950/30 text-amber-200/90"
+          : "border-neutral-800 bg-neutral-900/60 text-neutral-300"
+      }`}
+    >
+      <span>
+        Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+        from {human}
+        {stale && " — charging stations, weather, and ETA may have drifted."}
+      </span>
+      <button
+        type="button"
+        onClick={onReplan}
+        disabled={replanPending}
+        className="shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+      >
+        {replanPending ? "Re-planning…" : "Re-plan now"}
+      </button>
+    </div>
+  );
+}
+
+function SavedTripsCard({
+  trips,
+  loading,
+  activeId,
+  canSave,
+  saveDisabled,
+  onLoad,
+  onDelete,
+  onSave,
+  saveError,
+}: {
+  trips: SavedTrip[];
+  loading: boolean;
+  activeId: string | null;
+  canSave: boolean;
+  saveDisabled: boolean;
+  onLoad: (t: SavedTrip) => void;
+  onDelete: (id: string) => void;
+  onSave: (name: string, id: string | null) => void;
+  saveError?: string;
+}) {
+  const [name, setName] = useState("");
+  const active = trips.find((t) => t.id === activeId) ?? null;
+  useEffect(() => {
+    setName(active?.name ?? "");
+  }, [active?.id, active?.name]);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n) return;
+    // If the typed name matches the active trip, treat as update;
+    // otherwise as create-with-this-name (which can 409 — surface as
+    // saveError).
+    const matched = active && active.name === n ? active.id : null;
+    onSave(n, matched);
+  };
+  return (
+    <Card title="Saved trips">
+      {loading ? (
+        <Spinner />
+      ) : trips.length === 0 ? (
+        <p className="text-xs text-neutral-500">
+          No saved trips yet. Plan a route, then save it below so you can
+          re-open or re-plan it later.
+        </p>
+      ) : (
+        <ul className="mb-4 space-y-1.5">
+          {trips.map((t) => {
+            const isActive = t.id === activeId;
+            return (
+              <li
+                key={t.id}
+                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                  isActive
+                    ? "border-emerald-700/60 bg-emerald-950/30"
+                    : "border-neutral-800 bg-neutral-950/40"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onLoad(t)}
+                  className="flex-1 text-left"
+                >
+                  <span className="text-neutral-100">{t.name}</span>
+                  <span className="ml-2 text-xs text-neutral-500">
+                    {t.inputs.origin?.label} → {t.inputs.destination?.label}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
+                  }}
+                  className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                >
+                  delete
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={active ? `Update "${active.name}"` : "Save current trip as…"}
+          className="flex-1 min-w-[12rem] rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!canSave || saveDisabled || !name.trim()}
+          className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm text-neutral-100 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {active && active.name === name.trim() ? "Update" : "Save"}
+        </button>
+      </form>
+      {!canSave && (
+        <p className="mt-2 text-xs text-neutral-600">
+          Pick a From + To above (and optionally hit Plan trip) before saving.
+        </p>
+      )}
+      {saveError && (
+        <p className="mt-2 text-xs text-red-400">{saveError}</p>
+      )}
+    </Card>
   );
 }
 

@@ -924,6 +924,17 @@ export const backend = {
     api.post<TripPlan>("/api/trips/plan", req),
   planTripAdvice: (req: TripAdviceRequest) =>
     api.post<TripAdvice>("/api/trips/plan/advice", req),
+  // Named trip templates. Inputs are the form state the user typed
+  // in; plan + advice are optional snapshots so reopening a saved
+  // trip can render the result instantly while still letting the
+  // user re-plan against current station / weather state.
+  savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
+  savedTripCreate: (body: SavedTripBody) =>
+    api.post<SavedTrip>("/api/trips/saved", body),
+  savedTripUpdate: (id: string, body: SavedTripBody) =>
+    api.put<SavedTrip>(`/api/trips/saved/${encodeURIComponent(id)}`, body),
+  savedTripDelete: (id: string) =>
+    api.del<void>(`/api/trips/saved/${encodeURIComponent(id)}`),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON
@@ -1309,4 +1320,36 @@ export type TripAdvice = {
     home_rate_used: number;
   };
   model: string;
+};
+
+// SavedTripInputs is the planner form state we persist. Kept loose
+// (Record<string, unknown>) at the boundary so the backend doesn't
+// have to track every form change; the TripPlanPage casts on the
+// way back in.
+export type SavedTripInputs = {
+  origin: { lat: number; lon: number; label: string };
+  destination: { lat: number; lon: number; label: string };
+  extra_stops: { lat: number; lon: number; label: string }[];
+  target_soc?: string;
+  starting_soc?: string;
+  drive_mode?: string;
+  has_adapter?: boolean;
+  departure_at?: string;
+};
+
+export type SavedTrip = {
+  id: string;
+  name: string;
+  inputs: SavedTripInputs;
+  plan?: TripPlan;
+  advice?: TripAdvice;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SavedTripBody = {
+  name: string;
+  inputs: SavedTripInputs;
+  plan?: TripPlan;
+  advice?: TripAdvice;
 };

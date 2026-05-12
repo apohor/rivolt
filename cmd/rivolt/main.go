@@ -53,6 +53,7 @@ import (
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tracing"
+	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
@@ -200,6 +201,7 @@ func runServer() {
 	samplesFactory := samples.NewFactory(pgPool, resolverFactory)
 	settingsFactory := settings.NewFactory(pgPool)
 	pushFactory := push.NewFactory(pgPool)
+	tripsFactory := trips.NewFactory(pgPool)
 
 	// Envelope-encrypted secret store. Backs the rivian.Session
 	// blob (previously plaintext in settings_kv) and, later, AI
@@ -1067,6 +1069,7 @@ func runServer() {
 		Samples:      samplesFactory,
 		Settings:     settingsFactory,
 		Push:         pushFactory,
+		Trips:        tripsFactory,
 		Monitors:     monitorRegistry,
 		SettingsMgr:  settingsMgr,
 		Auth:         authSvc,

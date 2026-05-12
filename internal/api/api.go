@@ -44,6 +44,7 @@ import (
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 )
 
@@ -77,6 +78,7 @@ type Deps struct {
 	Samples  *samples.Factory
 	Settings *settings.Factory
 	Push     *push.Factory
+	Trips    *trips.Factory
 	// SettingsMgr exposes install-wide AI provider config (keys,
 	// default models). Install-wide because the deployer pays the
 	// LLM bill for every user. May be nil; the admin track
@@ -620,6 +622,22 @@ func New(d Deps) http.Handler {
 			// 404'd when the trip-planner feature flag is off.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid)(w, r)
+			}))
+			// Saved trip templates. Inputs are required; plan/advice are
+			// optional snapshots so reopening a saved trip can render
+			// the map instantly while still letting the user re-plan
+			// against current station / weather state.
+			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSavedTripsList(d.Trips.For(uid))(w, r)
+			}))
+			r.Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSavedTripCreate(d.Trips.For(uid))(w, r)
+			}))
+			r.Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSavedTripUpdate(d.Trips.For(uid))(w, r)
+			}))
+			r.Delete("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSavedTripDelete(d.Trips.For(uid))(w, r)
 			}))
 			// Geocoding for the trip planner. Forwards a free-text
 			// query to Open-Meteo's geocoding endpoint (same
@@ -1386,6 +1404,150 @@ func handlePlannerPrefsPut(store *settings.Store) http.HandlerFunc {
 		out, _ := settings.GetPlannerPrefs(r.Context(), store)
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// savedTripBody is the wire shape for create/update. Name is the only
+// required field; plan/advice are optional snapshots from a successful
+// /api/trips/plan + /api/trips/plan/advice round-trip.
+type savedTripBody struct {
+	Name   string          `json:"name"`
+	Inputs json.RawMessage `json:"inputs"`
+	Plan   json.RawMessage `json:"plan,omitempty"`
+	Advice json.RawMessage `json:"advice,omitempty"`
+}
+
+func handleSavedTripsList(store *trips.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "no user", http.StatusUnauthorized)
+			return
+		}
+		out, err := store.List(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if out == nil {
+			out = []trips.SavedTrip{}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "no user", http.StatusUnauthorized)
+			return
+		}
+		var b savedTripBody
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSpace(b.Name)
+		if name == "" {
+			http.Error(w, "name required", http.StatusBadRequest)
+			return
+		}
+		if len(b.Inputs) == 0 {
+			http.Error(w, "inputs required", http.StatusBadRequest)
+			return
+		}
+		t, err := store.Create(r.Context(), name, b.Inputs, b.Plan, b.Advice)
+		if err != nil {
+			// Surface the unique (user_id, name) violation as 409 so
+			// the SPA can prompt "name already exists, overwrite?".
+			if isUniqueViolation(err) {
+				http.Error(w, "trip name already in use", http.StatusConflict)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusCreated, t)
+	}
+}
+
+func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "no user", http.StatusUnauthorized)
+			return
+		}
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		var b savedTripBody
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSpace(b.Name)
+		if name == "" {
+			http.Error(w, "name required", http.StatusBadRequest)
+			return
+		}
+		if len(b.Inputs) == 0 {
+			http.Error(w, "inputs required", http.StatusBadRequest)
+			return
+		}
+		t, err := store.Update(r.Context(), id, name, b.Inputs, b.Plan, b.Advice)
+		if errors.Is(err, trips.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			if isUniqueViolation(err) {
+				http.Error(w, "trip name already in use", http.StatusConflict)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, t)
+	}
+}
+
+func handleSavedTripDelete(store *trips.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "no user", http.StatusUnauthorized)
+			return
+		}
+		id, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		err = store.Delete(r.Context(), id)
+		if errors.Is(err, trips.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// isUniqueViolation returns true for Postgres SQLSTATE 23505 so the
+// saved-trips handlers can map "name already in use" to 409 without
+// pulling in a dedicated pq error import. lib/pq + pgx both surface
+// the code in the error string when wrapped in driver.Value Scanner;
+// the canonical match is the pgconn.PgError.Code path. To stay driver-
+// agnostic we string-match on the SQLSTATE prefix.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "SQLSTATE 23505") ||
+		strings.Contains(err.Error(), "unique constraint") ||
+		strings.Contains(err.Error(), "duplicate key value")
 }
 
 // handleTripPlan calls Rivian's planTripWithMultiStop. Slice 1 of
