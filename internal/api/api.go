@@ -716,7 +716,14 @@ func New(d Deps) http.Handler {
 //     style attributes — moving them off-thread would buy nothing
 //     versus the actual XSS hardening here. img-src allows data:
 //     and blob: so canvas-derived images (chart screenshots) and
-//     pmtiles glyph atlases render without a header break.
+//     pmtiles glyph atlases render without a header break, plus
+//     https://*.rivian.com because the per-vehicle configurator
+//     hero image is hosted on Rivian's CDN (mobile-images-prod.rivian.com
+//     today; the wildcard absorbs future renames). The IP leak to
+//     Rivian on every page load is acceptable because the user has
+//     already authenticated to Rivian for telemetry — we're not
+//     widening the surface, just rendering an asset they already
+//     associated with their account.
 //     frame-ancestors 'none' prevents clickjacking; the SPA never
 //     embeds in an iframe.
 //   - Strict-Transport-Security: 1 year with subdomains. Cloudflare
@@ -736,7 +743,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
 		"script-src 'self'; " +
 		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: blob:; " +
+		"img-src 'self' data: blob: https://*.rivian.com; " +
 		"font-src 'self' data:; " +
 		"connect-src 'self'; " +
 		"worker-src 'self'; " +
