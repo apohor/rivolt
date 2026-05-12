@@ -889,26 +889,35 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		}
 	}
 
-	// SoC-delta fallback for home AC charging: Rivian's live endpoints
-	// don't report charger_power or energy_added for those sessions.
-	// Estimate energy from the SoC delta × pack capacity. Same
-	// fallback the ElectraFi importer uses for post-2026-03-24
-	// sessions.
-	if energy == 0 && maxPower == 0 {
+	// SoC-delta fallback. Rivian's Parallax feed doesn't always
+	// surface TotalChargedEnergyKWh — home L2 sessions in particular
+	// report charger_power_kw frame-by-frame but never produce a
+	// rolling kWh total. Without this fallback the row lands with
+	// max_power_kw set but energy_added_kwh / cost NULL, which is
+	// what surfaced as "charging is broken" on the UI. Fall back to
+	// SoC delta × pack whenever we have no energy reading, even if
+	// we do have a peak power reading. DCFC sessions still take
+	// Rivian's reported energy because it's set first above.
+	if energy == 0 {
 		dSoC := c.endSoC - c.startSoC
 		if dSoC > 0 {
-			energy = dSoC / 100.0 * m.PackKWhFor(vehicleID)
+			if pack := m.PackKWhFor(vehicleID); pack > 0 {
+				energy = dSoC / 100.0 * pack
+			}
 		}
 	}
 
 	// Session average = energy delivered ÷ wall-clock duration. Folds
-	// in ramp-up, taper, and any idle gaps. For the SoC-fallback
-	// case where we have no live power readings, this is also the
-	// only sensible peak we can report, so we mirror it into
-	// maxPower when the live feed didn't surface one.
+	// in ramp-up, taper, and any idle gaps. Cap at maxLivePowerKW
+	// because a stale TotalChargedEnergyKWh leaking into a very
+	// short same-tick session produced 25000+ kW averages on
+	// charge rows in the past.
 	avg := 0.0
 	if hours := c.endAt.Sub(c.startedAt).Hours(); hours > 0 && energy > 0 {
 		avg = energy / hours
+		if avg > maxLivePowerKW {
+			avg = maxLivePowerKW
+		}
 	}
 	if maxPower == 0 && avg > 0 {
 		maxPower = avg
