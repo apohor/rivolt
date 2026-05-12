@@ -808,6 +808,22 @@ export const backend = {
     api.post<{ codes: string[] }>("/api/admin/invite-codes", { count }),
   adminListInviteCodes: () =>
     api.get<{ codes: InviteCode[] }>("/api/admin/invite-codes"),
+  // Pre-account waitlist. Public requestSignup is used by /signup
+  // when the visitor has no invite code. Admin endpoints sit under
+  // the same role gate as the rest of /api/admin.
+  requestSignup: (body: { email: string; message?: string }) =>
+    api.post<{ ok: boolean; already_pending?: boolean }>("/api/signup/request", body),
+  adminListSignupRequests: (status: "pending" | "approved" | "rejected" | "" = "pending") =>
+    api.get<{ requests: SignupRequest[] }>(
+      `/api/admin/signup-requests${status ? `?status=${status}` : ""}`,
+    ),
+  adminApproveSignupRequest: (id: string) =>
+    api.post<{ request: SignupRequest; email_sent: boolean }>(
+      `/api/admin/signup-requests/${id}/approve`,
+      {},
+    ),
+  adminRejectSignupRequest: (id: string) =>
+    api.post<{ request: SignupRequest }>(`/api/admin/signup-requests/${id}/reject`, {}),
   // Local DBSCAN clustering of charge locations. Returns one row per
   // cluster, largest-first, with "Home" / "Public" / "Fast" labels.
   chargeClusters: () =>
@@ -1157,6 +1173,18 @@ export type InviteCode = {
   CreatedAt: string;
   UsedAt?: string | null;
   UsedBy?: string | null;
+};
+
+// SignupRequest is one row from GET /api/admin/signup-requests.
+export type SignupRequest = {
+  id: string;
+  email: string;
+  message: string;
+  status: "pending" | "approved" | "rejected";
+  invite_code?: string | null;
+  decided_by?: string | null;
+  decided_at?: string | null;
+  requested_at: string;
 };
 
 // OIDCProvider is one entry in /api/auth/oidc/. The SPA renders

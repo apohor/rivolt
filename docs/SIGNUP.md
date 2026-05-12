@@ -10,9 +10,10 @@ the OIDC steps and use the docker-compose login instead.
 ## 1. Redeem your invite code
 
 Rivolt is invite-only while it's growing. If you don't have a code
-yet, [open a request on GitHub](https://github.com/apohor/rivolt/issues/new?template=beta-invite-request.yml)
-or email <anton@rivolt.dev> with your truck, home charging setup,
-and how often you drive.
+yet, visit <https://rivolt.dev/signup>, click **request access →**,
+and leave your email plus a short note about your truck, home
+charging setup, and how often you drive. We'll email you a code
+when you're approved.
 
 1. Open <https://rivolt.dev/signup>.
 2. Paste the invite code (20-character alphanumeric string).

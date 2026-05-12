@@ -26,6 +26,16 @@ export default function SignupPage() {
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState(false);
 
+  // Request-access sub-form state. Replaces the old GitHub-issue /
+  // email links — anyone without a code can leave their email + a
+  // short note here and we'll come back via email with a code.
+  const [showRequest, setShowRequest] = useState(false);
+  const [reqEmail, setReqEmail] = useState("");
+  const [reqMessage, setReqMessage] = useState("");
+  const [reqError, setReqError] = useState<string | null>(null);
+  const [reqSubmitting, setReqSubmitting] = useState(false);
+  const [reqSent, setReqSent] = useState(false);
+
   const passwordChecks = useMemo(
     () => rules.map((r) => ({ ...r, ok: r.test(password) })),
     [password],
@@ -67,6 +77,37 @@ export default function SignupPage() {
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleRequestSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (reqSubmitting) return;
+    const trimmed = reqEmail.trim();
+    if (!trimmed) {
+      setReqError("Email is required");
+      return;
+    }
+    setReqError(null);
+    setReqSubmitting(true);
+    try {
+      await backend.requestSignup({
+        email: trimmed,
+        message: reqMessage.trim() || undefined,
+      });
+      // Backend returns ok=true for both fresh requests and
+      // already-pending duplicates; either way the user-facing
+      // outcome is identical so we don't differentiate.
+      setReqSent(true);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const msg = (err.body as { error?: string } | null)?.error;
+        setReqError(msg ?? `Error ${err.status}`);
+      } else {
+        setReqError("Unexpected error. Please try again.");
+      }
+    } finally {
+      setReqSubmitting(false);
     }
   }
 
@@ -121,24 +162,49 @@ export default function SignupPage() {
         </ul>
         <div className="mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
           <strong className="text-amber-200">Closed beta.</strong> Access is
-          invite-only while we shake out bugs. Paste your code below to get
-          started — no code yet?{" "}
-          <a
-            href="https://github.com/apohor/rivolt/issues/new?template=beta-invite-request.yml"
-            target="_blank"
-            rel="noopener noreferrer"
+          invite-only while we shake out bugs. Paste your code below — no
+          code yet?{" "}
+          <button
+            type="button"
+            onClick={() => setShowRequest((v) => !v)}
             className="underline hover:text-amber-100"
           >
-            Open a request on GitHub
-          </a>
-          {" "}or email{" "}
-          <a
-            href="mailto:anton@rivolt.dev?subject=Rivolt%20beta%20invite%20request&body=Hi%20Anton%2C%0A%0AI%27d%20like%20to%20try%20the%20Rivolt%20beta.%0A%0ATruck%20%2F%20trim%3A%0AHome%20charging%20(L1%20%2F%20L2%20%2F%20none)%3A%0AHow%20often%20I%20drive%3A%0A"
-            className="underline hover:text-amber-100"
-          >
-            anton@rivolt.dev
-          </a>
-          {" "}with your truck, home charging setup, and how often you drive.
+            {showRequest ? "hide request form" : "request access →"}
+          </button>
+          {showRequest && !reqSent && (
+            <form onSubmit={handleRequestSubmit} className="mt-3 flex flex-col gap-2">
+              <input
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={reqEmail}
+                onChange={(e) => setReqEmail(e.target.value)}
+                className="w-full rounded-md border border-amber-900/60 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:border-amber-500 focus:outline-none"
+              />
+              <textarea
+                placeholder="Truck / trim, home charging (L1 / L2 / none), how often you drive…"
+                rows={3}
+                value={reqMessage}
+                onChange={(e) => setReqMessage(e.target.value)}
+                className="w-full rounded-md border border-amber-900/60 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:border-amber-500 focus:outline-none"
+              />
+              {reqError && (
+                <p className="text-xs text-rose-400">{reqError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={reqSubmitting}
+                className="self-start rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {reqSubmitting ? "Sending…" : "Send request"}
+              </button>
+            </form>
+          )}
+          {showRequest && reqSent && (
+            <p className="mt-3 text-xs text-amber-100">
+              Thanks — we'll email you when you're approved.
+            </p>
+          )}
         </div>
 
         <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">

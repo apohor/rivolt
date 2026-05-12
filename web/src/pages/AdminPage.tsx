@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type AdminUserRow, type InviteCode } from "../lib/api";
+import { backend, type AdminUserRow, type InviteCode, type SignupRequest } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -33,6 +33,9 @@ export default function AdminPage() {
       <PageHeader title="Admin" />
       <Card title="Backend" id="backend">
         <BackendInfoPanel />
+      </Card>
+      <Card title="Signup requests">
+        <SignupRequestsPanel />
       </Card>
       <Card title="Invite codes">
         <InviteCodesPanel />
@@ -653,5 +656,193 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+// SignupRequestsPanel renders the pre-account waitlist. Approve mints
+// a single-use invite code, links it on the row, and triggers an
+// email to the requester via Resend. The mint result is reflected in
+// the row immediately so the admin can copy the code if the email
+// failed to send (the response carries email_sent=false in that case).
+function SignupRequestsPanel() {
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<"pending" | "approved" | "rejected" | "">("pending");
+  const [lastApproved, setLastApproved] = useState<{ email: string; code: string; sent: boolean } | null>(null);
+
+  const list = useQuery({
+    queryKey: ["admin", "signup-requests", filter],
+    queryFn: () => backend.adminListSignupRequests(filter),
+  });
+
+  const approve = useMutation({
+    mutationFn: (id: string) => backend.adminApproveSignupRequest(id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["admin", "signup-requests"] });
+      qc.invalidateQueries({ queryKey: ["admin", "invite-codes"] });
+      if (data.request.invite_code) {
+        setLastApproved({
+          email: data.request.email,
+          code: data.request.invite_code,
+          sent: data.email_sent,
+        });
+      }
+    },
+  });
+
+  const reject = useMutation({
+    mutationFn: (id: string) => backend.adminRejectSignupRequest(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "signup-requests"] }),
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Filter row */}
+      <div className="flex items-center gap-2">
+        {(["pending", "approved", "rejected", ""] as const).map((s) => (
+          <button
+            key={s || "all"}
+            type="button"
+            onClick={() => setFilter(s)}
+            className={`rounded-md px-2 py-1 text-xs ${
+              filter === s
+                ? "bg-emerald-700 text-white"
+                : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800"
+            }`}
+          >
+            {s || "all"}
+          </button>
+        ))}
+      </div>
+
+      {/* Latest-approval banner — shown until the next action so the
+          admin can copy the code if the email didn't go through. */}
+      {lastApproved && (
+        <div className="rounded-md border border-emerald-900 bg-emerald-950/40 p-3 text-xs">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-emerald-400">
+              Approved {lastApproved.email}
+              {lastApproved.sent ? " — email sent" : " — email failed, copy the code below"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setLastApproved(null)}
+              className="text-[10px] text-neutral-500 hover:text-neutral-300"
+            >
+              dismiss
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <code className="font-mono text-emerald-300">{lastApproved.code}</code>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText(lastApproved.code)}
+              className="text-[10px] text-neutral-500 hover:text-neutral-300"
+            >
+              copy
+            </button>
+          </div>
+        </div>
+      )}
+
+      {list.isLoading && <p className="text-sm text-neutral-500">Loading…</p>}
+      {list.isError && <ErrorBox title="Failed to load signup requests" />}
+      {list.data && (
+        <SignupRequestsTable
+          rows={list.data.requests}
+          onApprove={(id) => approve.mutate(id)}
+          onReject={(id) => reject.mutate(id)}
+          pending={approve.isPending || reject.isPending}
+        />
+      )}
+      {(approve.error || reject.error) && (
+        <p className="mt-2 text-xs text-red-400">
+          {String(approve.error ?? reject.error)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SignupRequestsTable({
+  rows,
+  onApprove,
+  onReject,
+  pending,
+}: {
+  rows: SignupRequest[];
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  pending: boolean;
+}) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-neutral-500">No signup requests in this view.</p>;
+  }
+  return (
+    <table className="w-full table-fixed text-xs">
+      <thead className="text-left text-neutral-500">
+        <tr>
+          <th className="w-1/4 py-1.5">Email</th>
+          <th className="py-1.5">Message</th>
+          <th className="w-24 py-1.5">Requested</th>
+          <th className="w-20 py-1.5">Status</th>
+          <th className="w-32 py-1.5 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-neutral-900 text-neutral-300">
+        {rows.map((r) => (
+          <tr key={r.id} className="align-top">
+            <td className="break-all py-1.5 font-mono">{r.email}</td>
+            <td className="whitespace-pre-wrap py-1.5 text-neutral-400">
+              {r.message || <span className="text-neutral-600">—</span>}
+            </td>
+            <td className="py-1.5 text-neutral-500">
+              {new Date(r.requested_at).toLocaleDateString()}
+            </td>
+            <td className="py-1.5">
+              <span
+                className={
+                  r.status === "approved"
+                    ? "text-emerald-400"
+                    : r.status === "rejected"
+                      ? "text-rose-400"
+                      : "text-amber-400"
+                }
+              >
+                {r.status}
+              </span>
+              {r.invite_code && (
+                <div className="mt-0.5">
+                  <code className="font-mono text-[10px] text-emerald-300">{r.invite_code}</code>
+                </div>
+              )}
+            </td>
+            <td className="py-1.5 text-right">
+              {r.status === "pending" ? (
+                <div className="flex justify-end gap-1">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => onApprove(r.id)}
+                    className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => onReject(r.id)}
+                    className="rounded-md bg-neutral-800 px-2 py-1 text-[10px] font-medium text-neutral-300 hover:bg-neutral-700 disabled:opacity-50"
+                  >
+                    Reject
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-neutral-600">decided</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

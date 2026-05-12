@@ -38,7 +38,9 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/invites"
+	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
@@ -1060,6 +1062,26 @@ func runServer() {
 		inviteStore = invites.New(pgPool)
 	}
 
+	// Signup-request store. Same nil-safe convention as invites; the
+	// "request beta access" form on /signup and the admin review
+	// surface stay unmounted when there is no DB.
+	var signupRequestStore *signuprequests.Store
+	if pgPool != nil {
+		signupRequestStore = signuprequests.New(pgPool)
+	}
+
+	// Resend email client. Both vars must be set for the client to
+	// actually send; otherwise the approval handler still works but
+	// returns the invite code in the response so the admin can
+	// forward it manually.
+	mailer := email.New(email.Config{
+		APIKey: os.Getenv("RIVOLT_RESEND_API_KEY"),
+		From:   os.Getenv("RIVOLT_EMAIL_FROM"),
+	})
+	if mailer != nil {
+		logger.Info("email sender enabled", "from", os.Getenv("RIVOLT_EMAIL_FROM"))
+	}
+
 	handler := api.New(api.Deps{
 		Rivian:       rivianClient,
 		Accounts:     accountRegistry,
@@ -1082,8 +1104,10 @@ func runServer() {
 		Flags:        flagsStore,
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
-		Users:        userProvider,
-		Invites:      inviteStore,
+		Users:           userProvider,
+		Invites:         inviteStore,
+		SignupRequests:  signupRequestStore,
+		Email:           mailer,
 		OSRMProxy:     osrmProxy,
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,

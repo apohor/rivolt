@@ -32,7 +32,9 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
+	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/invites"
+	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -157,6 +159,17 @@ type Deps struct {
 	// codes. nil disables the signup route (existing installs that
 	// don't need invite-based onboarding are unaffected).
 	Invites *invites.Store
+	// SignupRequests, when non-nil, enables the public-facing
+	// "request beta access" form at POST /api/signup/request and
+	// the admin review surface at /api/admin/signup-requests/*.
+	// Approve mints an invite via the Invites store and (if Email
+	// is wired) emails the requester.
+	SignupRequests *signuprequests.Store
+	// Email, when non-nil, sends transactional mail (currently just
+	// signup approvals) via the Resend HTTP API. nil disables the
+	// approval-email send; the admin still gets the code in the
+	// approval response so it can be forwarded manually.
+	Email *email.Client
 	// OSRMProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/osrm/* that forwards to a self-hosted
 	// OSRM (cluster Service typically). nil leaves the route
@@ -291,6 +304,22 @@ func New(d Deps) http.Handler {
 		// does not have a session yet.
 		if d.Invites != nil {
 			r.Post("/signup", handleSignup(d.DB, d.Invites, d.Users, d.Logger))
+		}
+		// Public "request access" form companion to /signup. Anyone
+		// without an invite code can submit an email + short note;
+		// admins decide the row in /admin/signup-requests.
+		//
+		// Per-IP in-memory limiter: 5 requests/hour/IP with a burst
+		// of 5. The real DDoS defense is the Cloudflare edge rule;
+		// this is the in-pod fallback if CF ever lets traffic
+		// through. Beta scale: 5/hr is generous for a human filling
+		// out the form and trivial to enforce.
+		if d.SignupRequests != nil {
+			signupReqLimiter := newIPLimiter(5, time.Hour, time.Hour)
+			r.With(signupReqLimiter.Middleware).Post(
+				"/signup/request",
+				handleSignupRequestCreate(d.SignupRequests, d.Logger),
+			)
 		}
 
 		// Everything else sits behind requireUser when auth is
@@ -519,6 +548,11 @@ func New(d Deps) http.Handler {
 			if d.Invites != nil {
 				r.Post("/invite-codes", handleAdminInviteCodesCreate(d.DB, d.Invites))
 				r.Get("/invite-codes", handleAdminInviteCodesList(d.Invites))
+			}
+			if d.SignupRequests != nil {
+				r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
+				r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Invites, d.Email, d.Logger))
+				r.Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 			}
 			// Trip-planner debug: send arbitrary planTripWithMultiStop
 			// variables and get the gateway response (data + errors)
