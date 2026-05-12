@@ -35,6 +35,43 @@ type Selection = {
 // build can't crash the page on rehydrate.
 const LAST_TRIP_KEY = "rivolt:trip-planner:last-trip:v1";
 
+// HOME_LABEL_RADIUS_M is how close a selected point must be to the
+// saved home location before the planner relabels it. 150 m covers
+// driveway-vs-street-address geocode jitter without false-positiving
+// onto a neighbor's lot.
+const HOME_LABEL_RADIUS_M = 150;
+
+function haversineMeters(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+): number {
+  const R = 6371000;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const sLat = Math.sin(dLat / 2);
+  const sLon = Math.sin(dLon / 2);
+  const h =
+    sLat * sLat +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sLon * sLon;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+type HomePoint = { latitude: number; longitude: number; label?: string };
+
+function relabelIfHome<T extends { lat: number; lon: number; label: string }>(
+  sel: T,
+  home: HomePoint | null,
+): T {
+  if (!home) return sel;
+  const d = haversineMeters(
+    { lat: sel.lat, lon: sel.lon },
+    { lat: home.latitude, lon: home.longitude },
+  );
+  if (d > HOME_LABEL_RADIUS_M) return sel;
+  return { ...sel, label: home.label || "Home" };
+}
+
 type LastTrip = {
   origin: NonNullable<Selection>;
   destination: NonNullable<Selection>;
@@ -148,44 +185,55 @@ export default function TripPlanPage() {
     }
   }
 
-  // Hydrate from the last successful plan on mount. Runs before the
-  // current-position prefill below so a saved trip wins; the user
-  // can clear / change any field from there. Skipped silently when
-  // there's no entry or the JSON is malformed.
-  const [lastTripApplied, setLastTripApplied] = useState(false);
-  useEffect(() => {
-    if (lastTripApplied) return;
-    const last = readLastTrip();
-    setLastTripApplied(true);
-    if (!last) return;
-    setOrigin(last.origin);
-    setDestination(last.destination);
-    setExtraStops(last.extraStops ?? []);
-    if (last.targetSoc) setTargetSoc(last.targetSoc);
-    if (last.driveMode) setDriveMode(last.driveMode);
-    if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
-  }, [lastTripApplied]);
-
-  // Pre-fill origin to current vehicle position once on mount when
-  // the user hasn't already picked something. Skipped when the
-  // last-trip hydrator above already supplied an origin.
-  useEffect(() => {
-    if (origin) return;
-    if (!currentPosition) return;
-    setOrigin({
-      lat: currentPosition.lat,
-      lon: currentPosition.lon,
-      label: "Current vehicle position",
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition?.lat, currentPosition?.lon]);
-
   const homeQuery = useQuery({
     queryKey: ["settings", "homeLocation"],
     queryFn: backend.homeLocationGet,
     staleTime: 60 * 1000,
   });
   const home = homeQuery.data?.set ? homeQuery.data : null;
+
+  // Hydrate from the last successful plan on mount. Runs before the
+  // current-position prefill below so a saved trip wins; the user
+  // can clear / change any field from there. Skipped silently when
+  // there's no entry or the JSON is malformed. Saved selections are
+  // re-passed through relabelIfHome so a trip persisted before the
+  // user set their home location upgrades to the "Home" label on
+  // re-open without forcing a re-plan.
+  const [lastTripApplied, setLastTripApplied] = useState(false);
+  useEffect(() => {
+    if (lastTripApplied) return;
+    if (homeQuery.isLoading) return;
+    const last = readLastTrip();
+    setLastTripApplied(true);
+    if (!last) return;
+    setOrigin(relabelIfHome(last.origin, home));
+    setDestination(relabelIfHome(last.destination, home));
+    setExtraStops((last.extraStops ?? []).map((s) => relabelIfHome(s, home)));
+    if (last.targetSoc) setTargetSoc(last.targetSoc);
+    if (last.driveMode) setDriveMode(last.driveMode);
+    if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
+  }, [lastTripApplied, homeQuery.isLoading, home]);
+
+  // Pre-fill origin to current vehicle position once on mount when
+  // the user hasn't already picked something. Skipped when the
+  // last-trip hydrator above already supplied an origin. If the
+  // vehicle is parked at home, label the prefill as "Home" instead
+  // of the generic "Current vehicle position".
+  useEffect(() => {
+    if (origin) return;
+    if (!currentPosition) return;
+    setOrigin(
+      relabelIfHome(
+        {
+          lat: currentPosition.lat,
+          lon: currentPosition.lon,
+          label: "Current vehicle position",
+        },
+        home,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition?.lat, currentPosition?.lon, home]);
 
   // Pre-fill drive mode + adapter from saved planner prefs. The
   // user can still override per-trip; we don't write back unless
@@ -390,7 +438,7 @@ export default function TripPlanPage() {
           <LocationField
             heading="From"
             value={origin}
-            onChange={setOrigin}
+            onChange={(s) => setOrigin(s ? relabelIfHome(s, home) : null)}
             presets={[
               ...(currentPosition
                 ? [{
@@ -408,22 +456,23 @@ export default function TripPlanPage() {
             stops={extraStops}
             onRemove={(i) => setExtraStops((prev) => prev.filter((_, j) => j !== i))
             }
-            onAdd={(stop) =>
+            onAdd={(stop) => {
+              const labeled = relabelIfHome(stop, home);
               setExtraStops((prev) =>
                 prev.some(
                   (s) =>
-                    Math.abs(s.lat - stop.lat) < 0.0005 &&
-                    Math.abs(s.lon - stop.lon) < 0.0005,
+                    Math.abs(s.lat - labeled.lat) < 0.0005 &&
+                    Math.abs(s.lon - labeled.lon) < 0.0005,
                 )
                   ? prev
-                  : [...prev, stop],
-              )
-            }
+                  : [...prev, labeled],
+              );
+            }}
           />
           <LocationField
             heading="To"
             value={destination}
-            onChange={setDestination}
+            onChange={(s) => setDestination(s ? relabelIfHome(s, home) : null)}
             presets={[
               ...(home
                 ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
@@ -462,17 +511,18 @@ export default function TripPlanPage() {
           advice={adviceMutation.data}
           adviceLoading={adviceMutation.isPending}
           onAnalyze={() => fireAdvice(planMutation.data!)}
-          onAddStop={(stop) =>
+          onAddStop={(stop) => {
+            const labeled = relabelIfHome(stop, home);
             setExtraStops((prev) =>
               prev.some(
                 (s) =>
-                  Math.abs(s.lat - stop.lat) < 0.0005 &&
-                  Math.abs(s.lon - stop.lon) < 0.0005,
+                  Math.abs(s.lat - labeled.lat) < 0.0005 &&
+                  Math.abs(s.lon - labeled.lon) < 0.0005,
               )
                 ? prev
-                : [...prev, stop],
-            )
-          }
+                : [...prev, labeled],
+            );
+          }}
           departureAt={departureAt}
         />
       )}
