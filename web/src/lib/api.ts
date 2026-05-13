@@ -600,9 +600,7 @@ export const backend = {
   },
   logout: () => api.post<void>("/api/auth/logout"),
   signup: (body: {
-    invite_code?: string;
-    signup_token?: string;
-    email?: string;
+    signup_token: string;
     display_name?: string;
     password: string;
   }) => api.post<{ ok: boolean }>("/api/signup", body),
@@ -805,10 +803,6 @@ export const backend = {
       if (!res.ok) throw new ApiError(res.status, parsed);
       return parsed as { ok: true };
     }),
-  adminGenerateInviteCodes: (count = 1) =>
-    api.post<{ codes: string[] }>("/api/admin/invite-codes", { count }),
-  adminListInviteCodes: () =>
-    api.get<{ codes: InviteCode[] }>("/api/admin/invite-codes"),
   // Pre-account waitlist. Public requestSignup is used by /signup
   // when the visitor has no invite code. Admin endpoints sit under
   // the same role gate as the rest of /api/admin.
@@ -1180,21 +1174,12 @@ export type AdminUserRow = {
   last_seen_at?: string | null;
 };
 
-// InviteCode is one row from GET /api/admin/invite-codes.
-export type InviteCode = {
-  Code: string;
-  CreatedAt: string;
-  UsedAt?: string | null;
-  UsedBy?: string | null;
-};
-
 // SignupRequest is one row from GET /api/admin/signup-requests.
 export type SignupRequest = {
   id: string;
   email: string;
   message: string;
   status: "pending" | "approved" | "rejected";
-  invite_code?: string | null;
   signup_token?: string | null;
   token_expires_at?: string | null;
   token_used_at?: string | null;

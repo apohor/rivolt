@@ -814,6 +814,20 @@ to land eventually.
       that pins `app.user_id` per request. The application code
       is already fully scoped — this moves enforcement from
       "by convention" to "by the database."
+- [ ] **Drop OSRM, migrate drive map-matching to Valhalla
+      `/trace_route`.** OSRM is currently kept around only for the
+      drive detail page's GPS snap-to-road via `/match`; the trip
+      planner and route geometry already go through Valhalla.
+      Valhalla supports `trace_route` and `trace_attributes` with
+      a different request/response shape than OSRM's `/match` —
+      `DriveMap.tsx` needs to be rewritten to emit Valhalla's
+      `shape_match=map_snap` request and decode the polyline +
+      matched leg array it returns. Worth it because OSRM is a
+      second routing engine running on nuc11 with its own ~3.5 Gi
+      working set and a Texas-only graph (the trip planner needs
+      US-wide so Valhalla is already authoritative). Until this
+      lands, the cluster OSRM Deployment + the SPA's public-demo
+      fallback at `router.project-osrm.org` both stay wired.
 
 ---
 

@@ -30,7 +30,6 @@ type signupRequestRow struct {
 	Email          string  `json:"email"`
 	Message        string  `json:"message"`
 	Status         string  `json:"status"`
-	InviteCode     *string `json:"invite_code,omitempty"`
 	SignupToken    *string `json:"signup_token,omitempty"`
 	TokenExpiresAt *string `json:"token_expires_at,omitempty"`
 	TokenUsedAt    *string `json:"token_used_at,omitempty"`
@@ -45,7 +44,6 @@ func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
 		Email:       r.Email,
 		Message:     r.Message,
 		Status:      r.Status,
-		InviteCode:  r.InviteCode,
 		SignupToken: r.SignupToken,
 		RequestedAt: r.RequestedAt.UTC().Format(time.RFC3339),
 	}

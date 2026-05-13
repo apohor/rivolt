@@ -39,7 +39,6 @@ import (
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/email"
-	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/leases"
@@ -1053,27 +1052,18 @@ func runServer() {
 		logger.Info("photon geocoder enabled", "upstream", photonClient.BaseURL)
 	}
 
-	// Invite-code store. Always wired when a DB is available so
-	// the admin panel can generate codes even on existing installs.
-	// nil-safe in api.Deps — disables the /api/signup and
-	// /api/admin/invite-codes routes gracefully when no DB is present.
-	var inviteStore *invites.Store
-	if pgPool != nil {
-		inviteStore = invites.New(pgPool)
-	}
-
-	// Signup-request store. Same nil-safe convention as invites; the
-	// "request beta access" form on /signup and the admin review
-	// surface stay unmounted when there is no DB.
+	// Signup-request store backs the public POST /api/signup/request
+	// + admin approval flow. nil-safe in api.Deps — when there is
+	// no DB the entire signup surface stays unmounted.
 	var signupRequestStore *signuprequests.Store
 	if pgPool != nil {
 		signupRequestStore = signuprequests.New(pgPool)
 	}
 
 	// Resend email client. Both vars must be set for the client to
-	// actually send; otherwise the approval handler still works but
-	// returns the invite code in the response so the admin can
-	// forward it manually.
+	// actually send; otherwise the approve handler still returns the
+	// magic-link in the response so the admin can forward it
+	// manually.
 	mailer := email.New(email.Config{
 		APIKey: os.Getenv("RIVOLT_RESEND_API_KEY"),
 		From:   os.Getenv("RIVOLT_EMAIL_FROM"),
@@ -1105,7 +1095,6 @@ func runServer() {
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
 		Users:           userProvider,
-		Invites:         inviteStore,
 		SignupRequests:  signupRequestStore,
 		Email:           mailer,
 		BaseURL:         os.Getenv("RIVOLT_BASE_URL"),

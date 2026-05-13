@@ -1,7 +1,7 @@
 // Package signuprequests manages the pre-account waitlist: someone
-// visits /signup without a code, fills the "request access" form, and
-// lands as a pending row that an admin later approves (minting a real
-// invite_code) or rejects.
+// visits /signup without an invite, fills the "request access" form,
+// and lands as a pending row that an admin later approves (minting a
+// single-use magic-link signup token) or rejects.
 //
 // Rows live outside the multi-tenant grain — there is no user_id and
 // no RLS, because the row exists before the requester has an account.
@@ -54,7 +54,6 @@ type Request struct {
 	Email          string
 	Message        string
 	Status         string
-	InviteCode     *string
 	SignupToken    *string
 	TokenExpiresAt *time.Time
 	TokenUsedAt    *time.Time
@@ -82,12 +81,13 @@ func (s *Store) Create(ctx context.Context, email, message string) (Request, err
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO signup_requests (email, message)
 		VALUES ($1, $2)
-		RETURNING id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 	`, email, message).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		// invite_code / decided_by / decided_at are NULL on insert; use
-		// nullable scan helpers.
-		nullStringScanner{&r.InviteCode},
+		// token + decided_* are NULL on insert; use nullable scanners.
+		nullStringScanner{&r.SignupToken},
+		nullTimeScanner{&r.TokenExpiresAt},
+		nullTimeScanner{&r.TokenUsedAt},
 		nullUUIDScanner{&r.DecidedBy},
 		nullTimeScanner{&r.DecidedAt},
 		&r.RequestedAt,
@@ -109,7 +109,7 @@ func (s *Store) List(ctx context.Context, status string) ([]Request, error) {
 		err  error
 	)
 	q := `
-		SELECT id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		SELECT id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 		  FROM signup_requests
 	`
 	if status != "" {
@@ -126,7 +126,6 @@ func (s *Store) List(ctx context.Context, status string) ([]Request, error) {
 		var r Request
 		if err := rows.Scan(
 			&r.ID, &r.Email, &r.Message, &r.Status,
-			nullStringScanner{&r.InviteCode},
 			nullStringScanner{&r.SignupToken},
 			nullTimeScanner{&r.TokenExpiresAt},
 			nullTimeScanner{&r.TokenUsedAt},
@@ -145,12 +144,11 @@ func (s *Store) List(ctx context.Context, status string) ([]Request, error) {
 func (s *Store) Get(ctx context.Context, id uuid.UUID) (Request, error) {
 	var r Request
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		SELECT id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 		  FROM signup_requests
 		 WHERE id = $1
 	`, id).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
 		nullTimeScanner{&r.TokenUsedAt},
@@ -197,10 +195,9 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 		       decided_by = $3,
 		       decided_at = NOW()
 		 WHERE id = $4 AND status = 'pending'
-		 RETURNING id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 	`, token, expires, decidedBy, id).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
 		nullTimeScanner{&r.TokenUsedAt},
@@ -228,12 +225,11 @@ func (s *Store) LookupToken(ctx context.Context, token string) (Request, error) 
 	}
 	var r Request
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		SELECT id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 		  FROM signup_requests
 		 WHERE signup_token = $1
 	`, token).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
 		nullTimeScanner{&r.TokenUsedAt},
@@ -276,10 +272,9 @@ func (s *Store) ConsumeToken(ctx context.Context, token string) (Request, error)
 		   AND status = 'approved'
 		   AND token_used_at IS NULL
 		   AND (token_expires_at IS NULL OR token_expires_at > NOW())
-		 RETURNING id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 	`, token).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
 		nullTimeScanner{&r.TokenUsedAt},
@@ -311,43 +306,6 @@ func newSignupToken() (string, error) {
 	return strings.ToUpper(s), nil
 }
 
-// Approve transitions a pending row to approved, attaching the
-// invite_code minted by the caller. Single-statement so the pending →
-// approved transition is atomic; ErrNotPending if the row was already
-// decided.
-//
-// Kept for legacy compatibility; new approvals should go through
-// ApproveWithToken. Will be removed once all in-flight invite codes
-// are redeemed.
-func (s *Store) Approve(ctx context.Context, id, decidedBy uuid.UUID, inviteCode string) (Request, error) {
-	var r Request
-	err := s.db.QueryRowContext(ctx, `
-		UPDATE signup_requests
-		   SET status = 'approved',
-		       invite_code = $1,
-		       decided_by = $2,
-		       decided_at = NOW()
-		 WHERE id = $3 AND status = 'pending'
-		 RETURNING id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
-	`, inviteCode, decidedBy, id).Scan(
-		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
-		nullStringScanner{&r.SignupToken},
-		nullTimeScanner{&r.TokenExpiresAt},
-		nullTimeScanner{&r.TokenUsedAt},
-		nullUUIDScanner{&r.DecidedBy},
-		nullTimeScanner{&r.DecidedAt},
-		&r.RequestedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Request{}, ErrNotPending
-	}
-	if err != nil {
-		return Request{}, fmt.Errorf("signuprequests: approve: %w", err)
-	}
-	return r, nil
-}
-
 // Reject transitions a pending row to rejected.
 func (s *Store) Reject(ctx context.Context, id, decidedBy uuid.UUID) (Request, error) {
 	var r Request
@@ -357,10 +315,9 @@ func (s *Store) Reject(ctx context.Context, id, decidedBy uuid.UUID) (Request, e
 		       decided_by = $1,
 		       decided_at = NOW()
 		 WHERE id = $2 AND status = 'pending'
-		 RETURNING id, email, message, status, invite_code, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
+		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
 	`, decidedBy, id).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
-		nullStringScanner{&r.InviteCode},
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
 		nullTimeScanner{&r.TokenUsedAt},

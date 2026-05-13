@@ -15,7 +15,6 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
-	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/signuprequests"
 )
 
@@ -69,34 +68,26 @@ func isValidEmail(s string) bool {
 
 // handleSignup — POST /api/signup (public)
 //
-// Body — either flow:
+// Body:
 //
 //	{
-//	  "signup_token":  "ABCDEFGHIJKLMNOPQRSTUV234X",  // new: magic link
-//	  "display_name":  "Alice",                       // optional
-//	  "password":      "S3cur3P@ssword!"
-//	}
-//	{
-//	  "invite_code":   "ABCDEFGHIJKLMNOPQRST",        // legacy: in-flight codes
-//	  "email":         "alice@example.com",
-//	  "display_name":  "Alice",
+//	  "signup_token":  "ABCDEFGHIJKLMNOPQRSTUV234X",
+//	  "display_name":  "Alice",        // optional
 //	  "password":      "S3cur3P@ssword!"
 //	}
 //
-// Token path: the email comes from the signup_requests row the admin
-// approved, so the client doesn't supply it (and can't override it).
-// Code path: client supplies email + code, kept for already-distributed
-// invite codes until the legacy pool drains.
+// Email comes from the signup_requests row the admin approved, so
+// the client doesn't supply it (and can't override it). The legacy
+// invite_code path was removed in v0.18.29 once the token flow
+// drained any in-flight codes.
 //
 // Success: 201 {"ok": true}
 // Client errors: 400 / 409 / 410
 // Backend errors: 502 / 500
-func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
+func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			InviteCode  string `json:"invite_code"`
 			SignupToken string `json:"signup_token"`
-			Email       string `json:"email"`
 			DisplayName string `json:"display_name"`
 			Password    string `json:"password"`
 		}
@@ -105,41 +96,29 @@ func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac i
 			return
 		}
 
-		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
-		body.InviteCode = strings.TrimSpace(body.InviteCode)
 		body.SignupToken = strings.TrimSpace(body.SignupToken)
 		body.DisplayName = strings.TrimSpace(body.DisplayName)
 
-		// --- Branch on credential type ---
-		// Token path is preferred when present; we look up the row,
-		// use its email server-side, and ignore any client-supplied
-		// email so the requester can't redirect the account to a
-		// different inbox.
-		var tokenReq signuprequests.Request
-		usingToken := body.SignupToken != ""
-		if usingToken {
-			if srs == nil {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "token signup disabled"})
-				return
-			}
-			req, err := srs.LookupToken(r.Context(), body.SignupToken)
-			if err != nil {
-				writeJSON(w, http.StatusGone, map[string]any{"error": "signup link is invalid or expired"})
-				return
-			}
-			tokenReq = req
-			body.Email = req.Email
-		} else if body.InviteCode == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "signup_token or invite_code is required"})
+		if body.SignupToken == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "signup_token is required"})
 			return
 		}
-
+		if srs == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "token signup disabled"})
+			return
+		}
+		tokenReq, err := srs.LookupToken(r.Context(), body.SignupToken)
+		if err != nil {
+			writeJSON(w, http.StatusGone, map[string]any{"error": "signup link is invalid or expired"})
+			return
+		}
+		email := tokenReq.Email
 		if body.DisplayName == "" {
-			body.DisplayName = body.Email
+			body.DisplayName = email
 		}
 
 		// --- Validate ---
-		if !isValidEmail(body.Email) {
+		if !isValidEmail(email) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "valid email is required"})
 			return
 		}
@@ -148,21 +127,8 @@ func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac i
 			return
 		}
 
-		// --- Check invite code (legacy path only; tokens were
-		//     validated in LookupToken above) ---
-		if !usingToken {
-			if err := inv.Validate(r.Context(), body.InviteCode); err != nil {
-				if errors.Is(err, invites.ErrInvalidCode) {
-					writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid or already-used invite code"})
-					return
-				}
-				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "invite validation failed"})
-				return
-			}
-		}
-
 		// --- Create the user row (username = email) ---
-		userID, err := db.CreateUser(r.Context(), d, body.Email, body.Email, body.DisplayName, "user")
+		userID, err := db.CreateUser(r.Context(), d, email, email, body.DisplayName, "user")
 		if err != nil {
 			if errors.Is(err, db.ErrUserExists) {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "email already registered"})
@@ -178,8 +144,8 @@ func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac i
 		// --- Provision into IdP ---
 		if ac != nil && ac.Enabled() {
 			if err := ac.CreateUser(r.Context(), idp.CreateRequest{
-				Username:    body.Email,
-				Email:       body.Email,
+				Username:    email,
+				Email:       email,
 				DisplayName: body.DisplayName,
 				Role:        "user",
 				Password:    body.Password,
@@ -197,22 +163,14 @@ func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac i
 			}
 		}
 
-		// --- Consume the credential ---
-		// Redeem the invite code OR mark the signup token used. Done
-		// after provisioning so a failed IdP create (above) leaves the
-		// code/token available for the next attempt. A race that
-		// double-consumes is logged but not rolled back — the account
-		// is already created.
-		if usingToken {
-			if _, err := srs.ConsumeToken(r.Context(), body.SignupToken); err != nil && log != nil {
-				log.Warn("signup: consume token after successful create",
-					"request_id", tokenReq.ID.String(), "user_id", userID.String(), "err", err.Error())
-			}
-		} else {
-			if err := inv.Redeem(r.Context(), body.InviteCode, userID); err != nil && log != nil {
-				log.Warn("signup: redeem invite code after successful create",
-					"code", body.InviteCode, "user_id", userID.String(), "err", err.Error())
-			}
+		// --- Consume the token ---
+		// Mark the signup token used after provisioning so a failed
+		// IdP create leaves the token available for the user to
+		// retry. A race that double-consumes is logged but not
+		// rolled back — the account is already created.
+		if _, err := srs.ConsumeToken(r.Context(), body.SignupToken); err != nil && log != nil {
+			log.Warn("signup: consume token after successful create",
+				"request_id", tokenReq.ID.String(), "user_id", userID.String(), "err", err.Error())
 		}
 
 		writeJSON(w, http.StatusCreated, map[string]any{"ok": true})
@@ -268,46 +226,3 @@ func handleOnboardingComplete(d *sql.DB) func(uuid.UUID, http.ResponseWriter, *h
 	}
 }
 
-// handleAdminInviteCodesCreate — POST /api/admin/invite-codes
-//
-// Body: {"count": 1}   (count 1–100, default 1)
-// Returns: {"codes": ["ABCDE…", …]}
-func handleAdminInviteCodesCreate(d *sql.DB, inv *invites.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		uid, ok := auth.UserFromContext(r.Context())
-		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-			return
-		}
-		var body struct {
-			Count int `json:"count"`
-		}
-		body.Count = 1
-		if r.ContentLength > 0 {
-			_ = json.NewDecoder(r.Body).Decode(&body)
-		}
-		if body.Count < 1 {
-			body.Count = 1
-		}
-		codes, err := inv.Generate(r.Context(), uid, body.Count)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusCreated, map[string]any{"codes": codes})
-	}
-}
-
-// handleAdminInviteCodesList — GET /api/admin/invite-codes
-//
-// Returns all codes, most-recently-created first.
-func handleAdminInviteCodesList(inv *invites.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		list, err := inv.List(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"codes": list})
-	}
-}

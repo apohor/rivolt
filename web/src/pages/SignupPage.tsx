@@ -18,7 +18,6 @@ export default function SignupPage() {
   const [search] = useSearchParams();
   const token = search.get("token") ?? "";
 
-  const [inviteCode, setInviteCode] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -71,11 +70,12 @@ export default function SignupPage() {
   const passwordValid = passwordChecks.every((c) => c.ok);
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
 
-  // Token-mode: invite_code field is hidden; email is locked. Legacy
-  // code-mode: both invite_code and email are required.
+  // Token-mode is the only mode now — the user got here via a magic
+  // link from an admin approval. Without a valid token the page
+  // shows the "request access" form instead of a signup form.
   const tokenMode = tokenStatus === "valid";
   const canSubmit =
-    (tokenMode || inviteCode.trim().length > 0) &&
+    tokenMode &&
     email.trim().length > 0 &&
     passwordValid &&
     passwordsMatch &&
@@ -87,20 +87,11 @@ export default function SignupPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await backend.signup(
-        tokenMode
-          ? {
-              signup_token: token,
-              display_name: displayName.trim() || undefined,
-              password,
-            }
-          : {
-              invite_code: inviteCode.trim(),
-              email: email.trim(),
-              display_name: displayName.trim() || undefined,
-              password,
-            },
-      );
+      await backend.signup({
+        signup_token: token,
+        display_name: displayName.trim() || undefined,
+        password,
+      });
       // Drop any existing session before showing the success screen so a
       // previously-logged-in user (e.g. admin testing signup) isn't
       // silently kept in their old account by the login page's whoami
@@ -220,8 +211,8 @@ export default function SignupPage() {
           className={`mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90 ${tokenMode ? "hidden" : ""}`}
         >
           <strong className="text-amber-200">Closed beta.</strong> Access is
-          invite-only while we shake out bugs. Paste your code below — no
-          code yet?{" "}
+          invite-only while we shake out bugs. Request access below — when
+          we approve, you'll get a one-click signup link by email.{" "}
           <button
             type="button"
             onClick={() => setShowRequest((v) => !v)}
@@ -281,25 +272,8 @@ export default function SignupPage() {
           for the recommended pattern.
         </div>
 
+        {tokenMode && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Invite code — hidden in token mode (the link IS the code) */}
-          {!tokenMode && (
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-neutral-400">
-                Invite code
-              </label>
-              <input
-                type="text"
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                placeholder="ABCDEFGHIJKLMNOPQRST"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
-              />
-            </div>
-          )}
 
           {/* Email — read-only in token mode (server set it on approve) */}
           <div>
@@ -413,6 +387,7 @@ export default function SignupPage() {
             {submitting ? "Creating account…" : "Create account"}
           </button>
         </form>
+        )}
 
         <p className="mt-4 text-center text-xs text-neutral-600">
           Already have an account?{" "}

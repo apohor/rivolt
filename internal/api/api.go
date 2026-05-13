@@ -33,7 +33,6 @@ import (
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/email"
-	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/logging"
@@ -153,17 +152,12 @@ type Deps struct {
 	// the rivolt DB row is still created, callers must create
 	// the OIDC identity out-of-band. See internal/idp.
 	Users idp.UserProvider
-	// Invites, when non-nil, enables the invite-code signup flow:
-	// POST /api/signup validates + redeems a code and creates the
-	// user, and POST+GET /api/admin/invite-codes generate / list
-	// codes. nil disables the signup route (existing installs that
-	// don't need invite-based onboarding are unaffected).
-	Invites *invites.Store
 	// SignupRequests, when non-nil, enables the public-facing
 	// "request beta access" form at POST /api/signup/request and
 	// the admin review surface at /api/admin/signup-requests/*.
-	// Approve mints an invite via the Invites store and (if Email
-	// is wired) emails the requester.
+	// Approve mints a magic-link signup token on the request row
+	// and (if Email is wired) emails the requester. POST /api/signup
+	// redeems that token to create the user.
 	SignupRequests *signuprequests.Store
 	// Email, when non-nil, sends transactional mail (currently just
 	// signup approvals) via the Resend HTTP API. nil disables the
@@ -308,8 +302,8 @@ func New(d Deps) http.Handler {
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
-		if d.Invites != nil {
-			r.Post("/signup", handleSignup(d.DB, d.Invites, d.SignupRequests, d.Users, d.Logger))
+		if d.SignupRequests != nil {
+			r.Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, d.Logger))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -555,10 +549,6 @@ func New(d Deps) http.Handler {
 			r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 			r.Get("/settings/gps", handleGPSSettingsGet(d.SettingsMgr))
 			r.Put("/settings/gps", handleGPSSettingsPut(d.SettingsMgr))
-			if d.Invites != nil {
-				r.Post("/invite-codes", handleAdminInviteCodesCreate(d.DB, d.Invites))
-				r.Get("/invite-codes", handleAdminInviteCodesList(d.Invites))
-			}
 			if d.SignupRequests != nil {
 				r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
 				r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
