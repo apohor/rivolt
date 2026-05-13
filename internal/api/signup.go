@@ -16,6 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/invites"
+	"github.com/apohor/rivolt/internal/signuprequests"
 )
 
 // passwordMinLen is the minimum accepted password length.
@@ -68,22 +69,33 @@ func isValidEmail(s string) bool {
 
 // handleSignup — POST /api/signup (public)
 //
-// Body:
+// Body — either flow:
 //
 //	{
-//	  "invite_code":   "ABCDEFGHIJKLMNOPQRST",
+//	  "signup_token":  "ABCDEFGHIJKLMNOPQRSTUV234X",  // new: magic link
+//	  "display_name":  "Alice",                       // optional
+//	  "password":      "S3cur3P@ssword!"
+//	}
+//	{
+//	  "invite_code":   "ABCDEFGHIJKLMNOPQRST",        // legacy: in-flight codes
 //	  "email":         "alice@example.com",
-//	  "display_name":  "Alice",          // optional, defaults to email
+//	  "display_name":  "Alice",
 //	  "password":      "S3cur3P@ssword!"
 //	}
 //
+// Token path: the email comes from the signup_requests row the admin
+// approved, so the client doesn't supply it (and can't override it).
+// Code path: client supplies email + code, kept for already-distributed
+// invite codes until the legacy pool drains.
+//
 // Success: 201 {"ok": true}
-// Client errors: 400 / 409
+// Client errors: 400 / 409 / 410
 // Backend errors: 502 / 500
-func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
+func handleSignup(d *sql.DB, inv *invites.Store, srs *signuprequests.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			InviteCode  string `json:"invite_code"`
+			SignupToken string `json:"signup_token"`
 			Email       string `json:"email"`
 			DisplayName string `json:"display_name"`
 			Password    string `json:"password"`
@@ -95,16 +107,38 @@ func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.
 
 		body.Email = strings.ToLower(strings.TrimSpace(body.Email))
 		body.InviteCode = strings.TrimSpace(body.InviteCode)
+		body.SignupToken = strings.TrimSpace(body.SignupToken)
 		body.DisplayName = strings.TrimSpace(body.DisplayName)
+
+		// --- Branch on credential type ---
+		// Token path is preferred when present; we look up the row,
+		// use its email server-side, and ignore any client-supplied
+		// email so the requester can't redirect the account to a
+		// different inbox.
+		var tokenReq signuprequests.Request
+		usingToken := body.SignupToken != ""
+		if usingToken {
+			if srs == nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "token signup disabled"})
+				return
+			}
+			req, err := srs.LookupToken(r.Context(), body.SignupToken)
+			if err != nil {
+				writeJSON(w, http.StatusGone, map[string]any{"error": "signup link is invalid or expired"})
+				return
+			}
+			tokenReq = req
+			body.Email = req.Email
+		} else if body.InviteCode == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "signup_token or invite_code is required"})
+			return
+		}
+
 		if body.DisplayName == "" {
 			body.DisplayName = body.Email
 		}
 
 		// --- Validate ---
-		if body.InviteCode == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invite_code is required"})
-			return
-		}
 		if !isValidEmail(body.Email) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "valid email is required"})
 			return
@@ -114,14 +148,17 @@ func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.
 			return
 		}
 
-		// --- Check invite code (pre-flight; the actual redeem is post-create) ---
-		if err := inv.Validate(r.Context(), body.InviteCode); err != nil {
-			if errors.Is(err, invites.ErrInvalidCode) {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid or already-used invite code"})
+		// --- Check invite code (legacy path only; tokens were
+		//     validated in LookupToken above) ---
+		if !usingToken {
+			if err := inv.Validate(r.Context(), body.InviteCode); err != nil {
+				if errors.Is(err, invites.ErrInvalidCode) {
+					writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid or already-used invite code"})
+					return
+				}
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "invite validation failed"})
 				return
 			}
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "invite validation failed"})
-			return
 		}
 
 		// --- Create the user row (username = email) ---
@@ -160,14 +197,22 @@ func handleSignup(d *sql.DB, inv *invites.Store, ac idp.UserProvider, log *slog.
 			}
 		}
 
-		// --- Redeem invite code ---
-		// Redeem after provisioning; if IdP creation fails we rolled back so
-		// the code remains available for the next attempt. If Redeem itself
-		// fails (extremely unlikely race) the user is created and provisioned — not
-		// worth rolling back for that; log and continue.
-		if err := inv.Redeem(r.Context(), body.InviteCode, userID); err != nil && log != nil {
-			log.Warn("signup: redeem invite code after successful create",
-				"code", body.InviteCode, "user_id", userID.String(), "err", err.Error())
+		// --- Consume the credential ---
+		// Redeem the invite code OR mark the signup token used. Done
+		// after provisioning so a failed IdP create (above) leaves the
+		// code/token available for the next attempt. A race that
+		// double-consumes is logged but not rolled back — the account
+		// is already created.
+		if usingToken {
+			if _, err := srs.ConsumeToken(r.Context(), body.SignupToken); err != nil && log != nil {
+				log.Warn("signup: consume token after successful create",
+					"request_id", tokenReq.ID.String(), "user_id", userID.String(), "err", err.Error())
+			}
+		} else {
+			if err := inv.Redeem(r.Context(), body.InviteCode, userID); err != nil && log != nil {
+				log.Warn("signup: redeem invite code after successful create",
+					"code", body.InviteCode, "user_id", userID.String(), "err", err.Error())
+			}
 		}
 
 		writeJSON(w, http.StatusCreated, map[string]any{"ok": true})

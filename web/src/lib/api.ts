@@ -600,8 +600,9 @@ export const backend = {
   },
   logout: () => api.post<void>("/api/auth/logout"),
   signup: (body: {
-    invite_code: string;
-    email: string;
+    invite_code?: string;
+    signup_token?: string;
+    email?: string;
     display_name?: string;
     password: string;
   }) => api.post<{ ok: boolean }>("/api/signup", body),
@@ -813,12 +814,19 @@ export const backend = {
   // the same role gate as the rest of /api/admin.
   requestSignup: (body: { email: string; message?: string }) =>
     api.post<{ ok: boolean; already_pending?: boolean }>("/api/signup/request", body),
+  // Magic-link prefill. Returns 410 when the token is invalid /
+  // expired / used; the SPA branches on that to show a "request a
+  // new invite" view.
+  signupTokenLookup: (token: string) =>
+    api.get<{ email: string; expires_at?: string }>(
+      `/api/signup/token/${encodeURIComponent(token)}`,
+    ),
   adminListSignupRequests: (status: "pending" | "approved" | "rejected" | "" = "pending") =>
     api.get<{ requests: SignupRequest[] }>(
       `/api/admin/signup-requests${status ? `?status=${status}` : ""}`,
     ),
   adminApproveSignupRequest: (id: string) =>
-    api.post<{ request: SignupRequest; email_sent: boolean }>(
+    api.post<{ request: SignupRequest; link?: string; email_sent: boolean }>(
       `/api/admin/signup-requests/${id}/approve`,
       {},
     ),
@@ -1187,6 +1195,9 @@ export type SignupRequest = {
   message: string;
   status: "pending" | "approved" | "rejected";
   invite_code?: string | null;
+  signup_token?: string | null;
+  token_expires_at?: string | null;
+  token_used_at?: string | null;
   decided_by?: string | null;
   decided_at?: string | null;
   requested_at: string;

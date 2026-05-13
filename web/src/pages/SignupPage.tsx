@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { backend, ApiError } from "../lib/api";
 import Logo from "../components/Logo";
 
@@ -15,6 +15,8 @@ const rules = [
 
 export default function SignupPage() {
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const token = search.get("token") ?? "";
 
   const [inviteCode, setInviteCode] = useState("");
   const [email, setEmail] = useState("");
@@ -25,6 +27,32 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState(false);
+
+  // Token-prefill state: when the URL carries ?token=…, we ask the
+  // server to resolve it to an email so the user only fills password
+  // + (optional) display name. tokenStatus: "checking" while the
+  // lookup is in flight; "valid" after success; "invalid" on 410.
+  const [tokenStatus, setTokenStatus] = useState<"none" | "checking" | "valid" | "invalid">(
+    token ? "checking" : "none",
+  );
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    backend
+      .signupTokenLookup(token)
+      .then((res) => {
+        if (cancelled) return;
+        setEmail(res.email);
+        setTokenStatus("valid");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTokenStatus("invalid");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   // Request-access sub-form state. Replaces the old GitHub-issue /
   // email links — anyone without a code can leave their email + a
@@ -43,8 +71,11 @@ export default function SignupPage() {
   const passwordValid = passwordChecks.every((c) => c.ok);
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
 
+  // Token-mode: invite_code field is hidden; email is locked. Legacy
+  // code-mode: both invite_code and email are required.
+  const tokenMode = tokenStatus === "valid";
   const canSubmit =
-    inviteCode.trim().length > 0 &&
+    (tokenMode || inviteCode.trim().length > 0) &&
     email.trim().length > 0 &&
     passwordValid &&
     passwordsMatch &&
@@ -56,12 +87,20 @@ export default function SignupPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await backend.signup({
-        invite_code: inviteCode.trim(),
-        email: email.trim(),
-        display_name: displayName.trim() || undefined,
-        password,
-      });
+      await backend.signup(
+        tokenMode
+          ? {
+              signup_token: token,
+              display_name: displayName.trim() || undefined,
+              password,
+            }
+          : {
+              invite_code: inviteCode.trim(),
+              email: email.trim(),
+              display_name: displayName.trim() || undefined,
+              password,
+            },
+      );
       // Drop any existing session before showing the success screen so a
       // previously-logged-in user (e.g. admin testing signup) isn't
       // silently kept in their old account by the login page's whoami
@@ -160,7 +199,26 @@ export default function SignupPage() {
           <li>• Every drive and charge tracked against your own $/kWh</li>
           <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
         </ul>
-        <div className="mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+        {tokenStatus === "checking" && (
+          <div className="mb-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-300">
+            Checking your signup link…
+          </div>
+        )}
+        {tokenStatus === "invalid" && (
+          <div className="mb-4 rounded-md border border-rose-900 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+            This signup link is invalid or has expired. If you still want to
+            join, request a new invite below.
+          </div>
+        )}
+        {tokenStatus === "valid" && (
+          <div className="mb-4 rounded-md border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
+            You're approved! Finish your account below — your email is already
+            set, you just need to pick a password.
+          </div>
+        )}
+        <div
+          className={`mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90 ${tokenMode ? "hidden" : ""}`}
+        >
           <strong className="text-amber-200">Closed beta.</strong> Access is
           invite-only while we shake out bugs. Paste your code below — no
           code yet?{" "}
@@ -224,24 +282,26 @@ export default function SignupPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Invite code */}
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-neutral-400">
-              Invite code
-            </label>
-            <input
-              type="text"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              placeholder="ABCDEFGHIJKLMNOPQRST"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
-            />
-          </div>
+          {/* Invite code — hidden in token mode (the link IS the code) */}
+          {!tokenMode && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+                Invite code
+              </label>
+              <input
+                type="text"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                placeholder="ABCDEFGHIJKLMNOPQRST"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+              />
+            </div>
+          )}
 
-          {/* Email */}
+          {/* Email — read-only in token mode (server set it on approve) */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-neutral-400">
               Email address
@@ -252,7 +312,12 @@ export default function SignupPage() {
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+              readOnly={tokenMode}
+              className={`w-full rounded-md border border-neutral-700 px-3 py-2 text-sm placeholder-neutral-600 focus:outline-none ${
+                tokenMode
+                  ? "bg-neutral-900/60 text-neutral-400"
+                  : "bg-neutral-900 text-neutral-100 focus:border-emerald-600"
+              }`}
             />
           </div>
 

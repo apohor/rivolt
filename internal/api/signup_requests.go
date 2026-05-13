@@ -17,7 +17,6 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/email"
-	"github.com/apohor/rivolt/internal/invites"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -27,14 +26,17 @@ import (
 // Mirrors signuprequests.Request with stringified ids/times so the
 // frontend can render directly.
 type signupRequestRow struct {
-	ID          string  `json:"id"`
-	Email       string  `json:"email"`
-	Message     string  `json:"message"`
-	Status      string  `json:"status"`
-	InviteCode  *string `json:"invite_code,omitempty"`
-	DecidedBy   *string `json:"decided_by,omitempty"`
-	DecidedAt   *string `json:"decided_at,omitempty"`
-	RequestedAt string  `json:"requested_at"`
+	ID             string  `json:"id"`
+	Email          string  `json:"email"`
+	Message        string  `json:"message"`
+	Status         string  `json:"status"`
+	InviteCode     *string `json:"invite_code,omitempty"`
+	SignupToken    *string `json:"signup_token,omitempty"`
+	TokenExpiresAt *string `json:"token_expires_at,omitempty"`
+	TokenUsedAt    *string `json:"token_used_at,omitempty"`
+	DecidedBy      *string `json:"decided_by,omitempty"`
+	DecidedAt      *string `json:"decided_at,omitempty"`
+	RequestedAt    string  `json:"requested_at"`
 }
 
 func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
@@ -44,7 +46,16 @@ func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
 		Message:     r.Message,
 		Status:      r.Status,
 		InviteCode:  r.InviteCode,
+		SignupToken: r.SignupToken,
 		RequestedAt: r.RequestedAt.UTC().Format(time.RFC3339),
+	}
+	if r.TokenExpiresAt != nil {
+		s := r.TokenExpiresAt.UTC().Format(time.RFC3339)
+		row.TokenExpiresAt = &s
+	}
+	if r.TokenUsedAt != nil {
+		s := r.TokenUsedAt.UTC().Format(time.RFC3339)
+		row.TokenUsedAt = &s
 	}
 	if r.DecidedBy != nil {
 		s := r.DecidedBy.String()
@@ -143,12 +154,16 @@ func handleAdminSignupRequestsList(store *signuprequests.Store) http.HandlerFunc
 
 // handleAdminSignupRequestApprove — POST /api/admin/signup-requests/{id}/approve
 //
-// Atomically: mints a single-use invite_code owned by the admin,
-// links it on the row, and emails the requester. Failure to send
-// the email is logged but does NOT roll back the approval — the
-// admin can copy the code from the list view and forward it
-// manually (the response always includes the code).
-func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, inv *invites.Store, mailer *email.Client, logger *slog.Logger) http.HandlerFunc {
+// Mints a single-use signup token + expiry on the row, stamps the
+// admin as decided_by, and emails the requester a magic link
+//    https://rivolt.dev/signup?token=<token>
+//
+// Email is best-effort: the response carries the token + link
+// regardless so the admin can copy/paste a manual forward when
+// Resend has a hiccup. We no longer mint invite_codes on approval;
+// the legacy code-redeem path stays only for codes already
+// distributed before this flow shipped.
+func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, mailer *email.Client, baseURL string, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		adminID, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -160,17 +175,11 @@ func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, inv
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
 			return
 		}
-		if store == nil || inv == nil {
+		if store == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "approval flow disabled"})
 			return
 		}
-		codes, err := inv.Generate(r.Context(), adminID, 1)
-		if err != nil || len(codes) == 0 {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "mint invite: " + errString(err)})
-			return
-		}
-		code := codes[0]
-		row, err := store.Approve(r.Context(), id, adminID, code)
+		row, err := store.ApproveWithToken(r.Context(), id, adminID, 0)
 		if err != nil {
 			if errors.Is(err, signuprequests.ErrNotPending) {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "request not pending"})
@@ -179,8 +188,13 @@ func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, inv
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
+		token := ""
+		if row.SignupToken != nil {
+			token = *row.SignupToken
+		}
+		link := signupLink(baseURL, token)
 		// Best-effort email; never blocks the approval response.
-		emailErr := sendApprovalEmail(r.Context(), mailer, row.Email, code)
+		emailErr := sendApprovalEmail(r.Context(), mailer, row.Email, link)
 		if emailErr != nil && logger != nil {
 			logger.WarnContext(r.Context(), "signup approval email failed",
 				slog.String("email", row.Email),
@@ -190,9 +204,53 @@ func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, inv
 		out := toSignupRequestRow(row)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"request":    out,
+			"link":       link,
 			"email_sent": emailErr == nil,
 		})
 		_ = d // reserved for future per-tx work
+	}
+}
+
+// signupLink composes the magic-link URL the requester clicks to
+// finish signup. baseURL is the install's public origin (e.g.
+// https://rivolt.dev); when empty we fall back to a relative path so
+// at least copy-paste-into-the-same-tab works.
+func signupLink(baseURL, token string) string {
+	if token == "" {
+		return ""
+	}
+	base := strings.TrimRight(baseURL, "/")
+	if base == "" {
+		return "/signup?token=" + token
+	}
+	return base + "/signup?token=" + token
+}
+
+// handleSignupTokenLookup — GET /api/signup/token/{token} (public)
+//
+// Returns {email, expires_at} when the token is valid. 410 Gone when
+// it is missing / used / expired so the SPA can branch to a friendly
+// "this link is no longer valid, please request a new invite" view
+// without leaking which condition failed.
+func handleSignupTokenLookup(store *signuprequests.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "signup tokens disabled"})
+			return
+		}
+		token := chi.URLParam(r, "token")
+		req, err := store.LookupToken(r.Context(), token)
+		if err != nil {
+			writeJSON(w, http.StatusGone, map[string]any{"error": "token invalid or expired"})
+			return
+		}
+		out := map[string]any{
+			"email": req.Email,
+		}
+		if req.TokenExpiresAt != nil {
+			out["expires_at"] = req.TokenExpiresAt.UTC().Format(time.RFC3339)
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -227,24 +285,31 @@ func handleAdminSignupRequestReject(store *signuprequests.Store) http.HandlerFun
 }
 
 // sendApprovalEmail composes the plaintext + HTML body and dispatches
-// via Resend. The HTML body is a deliberately small inline template;
-// Resend renders plaintext for clients that strip HTML.
-func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, code string) error {
+// via Resend. Magic-link rather than invite-code so the requester
+// can click straight through to a signup form with their email
+// already filled in.
+func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link string) error {
 	if mailer == nil {
 		return email.ErrNotConfigured
 	}
-	subject := "You're in: your Rivolt invite code"
+	subject := "You're in: finish your Rivolt signup"
 	text := "Hi,\n\n" +
 		"Your request for Rivolt beta access has been approved.\n\n" +
-		"Use this invite code at https://rivolt.dev/signup to create your account:\n\n" +
-		"    " + code + "\n\n" +
-		"The code is single-use and expires once redeemed.\n\n" +
+		"Click this link to finish signing up (it'll prefill your email\n" +
+		"so you only need to pick a password):\n\n" +
+		"    " + link + "\n\n" +
+		"The link is single-use and expires in 14 days.\n\n" +
 		"— Anton (anton@rivolt.dev)\n"
 	html := "<p>Hi,</p>" +
 		"<p>Your request for Rivolt beta access has been approved.</p>" +
-		"<p>Use this invite code at <a href=\"https://rivolt.dev/signup\">https://rivolt.dev/signup</a> to create your account:</p>" +
-		"<p style=\"font-family:monospace;font-size:16px;padding:12px;background:#f6f6f6;border-radius:6px;display:inline-block;\">" + code + "</p>" +
-		"<p>The code is single-use and expires once redeemed.</p>" +
+		"<p>Click below to finish signing up — your email is already filled in, " +
+		"you'll just need to pick a password.</p>" +
+		"<p><a href=\"" + link + "\" " +
+		"style=\"display:inline-block;padding:10px 18px;background:#10b981;color:#fff;" +
+		"font-weight:600;border-radius:6px;text-decoration:none;\">Finish signup</a></p>" +
+		"<p style=\"color:#666;font-size:13px;\">Or paste this URL into your browser:<br>" +
+		"<a href=\"" + link + "\">" + link + "</a></p>" +
+		"<p>The link is single-use and expires in 14 days.</p>" +
 		"<p>— Anton (<a href=\"mailto:anton@rivolt.dev\">anton@rivolt.dev</a>)</p>"
 	return mailer.Send(ctx, email.Message{
 		To:      to,

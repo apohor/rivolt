@@ -722,7 +722,11 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
 function SignupRequestsPanel() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<"pending" | "approved" | "rejected" | "">("pending");
-  const [lastApproved, setLastApproved] = useState<{ email: string; code: string; sent: boolean } | null>(null);
+  const [lastApproved, setLastApproved] = useState<{
+    email: string;
+    link: string;
+    sent: boolean;
+  } | null>(null);
 
   const list = useQuery({
     queryKey: ["admin", "signup-requests", filter],
@@ -733,11 +737,10 @@ function SignupRequestsPanel() {
     mutationFn: (id: string) => backend.adminApproveSignupRequest(id),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["admin", "signup-requests"] });
-      qc.invalidateQueries({ queryKey: ["admin", "invite-codes"] });
-      if (data.request.invite_code) {
+      if (data.link) {
         setLastApproved({
           email: data.request.email,
-          code: data.request.invite_code,
+          link: data.link,
           sent: data.email_sent,
         });
       }
@@ -770,13 +773,13 @@ function SignupRequestsPanel() {
       </div>
 
       {/* Latest-approval banner — shown until the next action so the
-          admin can copy the code if the email didn't go through. */}
+          admin can copy the magic link if the email didn't go through. */}
       {lastApproved && (
         <div className="rounded-md border border-emerald-900 bg-emerald-950/40 p-3 text-xs">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-emerald-400">
               Approved {lastApproved.email}
-              {lastApproved.sent ? " — email sent" : " — email failed, copy the code below"}
+              {lastApproved.sent ? " — email sent" : " — email failed, copy the link below"}
             </span>
             <button
               type="button"
@@ -787,10 +790,10 @@ function SignupRequestsPanel() {
             </button>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <code className="font-mono text-emerald-300">{lastApproved.code}</code>
+            <code className="break-all font-mono text-emerald-300">{lastApproved.link}</code>
             <button
               type="button"
-              onClick={() => navigator.clipboard.writeText(lastApproved.code)}
+              onClick={() => navigator.clipboard.writeText(lastApproved.link)}
               className="text-[10px] text-neutral-500 hover:text-neutral-300"
             >
               copy
@@ -865,7 +868,16 @@ function SignupRequestsTable({
               >
                 {r.status}
               </span>
-              {r.invite_code && (
+              {r.signup_token && (
+                <div className="mt-0.5 text-[10px] text-neutral-500">
+                  {r.token_used_at
+                    ? "token redeemed"
+                    : r.token_expires_at && new Date(r.token_expires_at) < new Date()
+                      ? "token expired"
+                      : "token pending"}
+                </div>
+              )}
+              {r.invite_code && !r.signup_token && (
                 <div className="mt-0.5">
                   <code className="font-mono text-[10px] text-emerald-300">{r.invite_code}</code>
                 </div>

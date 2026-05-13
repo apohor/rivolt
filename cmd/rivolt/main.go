@@ -1108,6 +1108,7 @@ func runServer() {
 		Invites:         inviteStore,
 		SignupRequests:  signupRequestStore,
 		Email:           mailer,
+		BaseURL:         os.Getenv("RIVOLT_BASE_URL"),
 		OSRMProxy:     osrmProxy,
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,

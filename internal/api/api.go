@@ -170,6 +170,12 @@ type Deps struct {
 	// approval-email send; the admin still gets the code in the
 	// approval response so it can be forwarded manually.
 	Email *email.Client
+	// BaseURL is the install's public origin (e.g. https://rivolt.dev),
+	// sourced from $RIVOLT_BASE_URL. Used today only for composing
+	// the magic-link signup URL in approval emails; safe to leave
+	// empty in tests — the link falls back to a relative path so
+	// copy-paste-into-the-same-tab still works.
+	BaseURL string
 	// OSRMProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/osrm/* that forwards to a self-hosted
 	// OSRM (cluster Service typically). nil leaves the route
@@ -303,7 +309,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.Invites != nil {
-			r.Post("/signup", handleSignup(d.DB, d.Invites, d.Users, d.Logger))
+			r.Post("/signup", handleSignup(d.DB, d.Invites, d.SignupRequests, d.Users, d.Logger))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -320,6 +326,10 @@ func New(d Deps) http.Handler {
 				"/signup/request",
 				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger),
 			)
+			// Magic-link prefill — the SPA hits this on /signup?token=…
+			// to resolve the token to its email before rendering the
+			// password form.
+			r.Get("/signup/token/{token}", handleSignupTokenLookup(d.SignupRequests))
 		}
 
 		// Everything else sits behind requireUser when auth is
@@ -551,7 +561,7 @@ func New(d Deps) http.Handler {
 			}
 			if d.SignupRequests != nil {
 				r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
-				r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Invites, d.Email, d.Logger))
+				r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
 				r.Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 			}
 			// Trip-planner debug: send arbitrary planTripWithMultiStop
