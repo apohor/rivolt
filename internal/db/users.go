@@ -10,17 +10,23 @@ import (
 )
 
 // AdminUserRow is the projection /api/admin/users serves. The
-// shape is deliberately small — the admin page is for "see who
-// is on this install / promote / delete", not a full user
-// dashboard. Add fields here as the SPA grows them.
+// activity counters (vehicles / drives / imports / rivian_connected
+// / last_seen_at) let the admin see "did this user actually do
+// anything?" without a per-user drill-down. Cheap scalar subqueries
+// at our scale (<100 users); paginate if that ever changes.
 type AdminUserRow struct {
-	ID          uuid.UUID `json:"id"`
-	Username    string    `json:"username"`
-	Email       string    `json:"email,omitempty"`
-	DisplayName string    `json:"display_name,omitempty"`
-	Role        string    `json:"role"`
-	Disabled    bool      `json:"disabled"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID              uuid.UUID  `json:"id"`
+	Username        string     `json:"username"`
+	Email           string     `json:"email,omitempty"`
+	DisplayName     string     `json:"display_name,omitempty"`
+	Role            string     `json:"role"`
+	Disabled        bool       `json:"disabled"`
+	CreatedAt       time.Time  `json:"created_at"`
+	VehicleCount    int        `json:"vehicle_count"`
+	DriveCount      int        `json:"drive_count"`
+	ImportCount     int        `json:"import_count"`
+	RivianConnected bool       `json:"rivian_connected"`
+	LastSeenAt      *time.Time `json:"last_seen_at,omitempty"`
 }
 
 // ListUsersForAdmin returns every user row, role-stamped and
@@ -33,9 +39,16 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		return nil, nil
 	}
 	rows, err := d.QueryContext(ctx, `
-		SELECT id, username, COALESCE(email, ''), COALESCE(display_name, ''), role, disabled, created_at
-		FROM users
-		ORDER BY created_at ASC
+		SELECT u.id, u.username, COALESCE(u.email, ''), COALESCE(u.display_name, ''),
+		       u.role, u.disabled, u.created_at,
+		       (SELECT COUNT(*) FROM vehicles WHERE user_id = u.id),
+		       (SELECT COUNT(*) FROM drives   WHERE user_id = u.id),
+		       (SELECT COUNT(*) FROM imports  WHERE user_id = u.id),
+		       EXISTS(SELECT 1 FROM user_secrets
+		               WHERE user_id = u.id AND name = 'rivian.session'),
+		       (SELECT MAX(last_seen_at) FROM sessions WHERE user_id = u.id)
+		FROM users u
+		ORDER BY u.created_at ASC
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list users for admin: %w", err)
@@ -44,8 +57,16 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		if err := rows.Scan(&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt); err != nil {
+		var lastSeen sql.NullTime
+		if err := rows.Scan(
+			&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt,
+			&r.VehicleCount, &r.DriveCount, &r.ImportCount, &r.RivianConnected, &lastSeen,
+		); err != nil {
 			return nil, fmt.Errorf("list users for admin scan: %w", err)
+		}
+		if lastSeen.Valid {
+			t := lastSeen.Time
+			r.LastSeenAt = &t
 		}
 		out = append(out, r)
 	}

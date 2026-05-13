@@ -467,6 +467,19 @@ function CreateUserForm() {
   );
 }
 
+// relativeTime renders a short "Xm ago" / "Xh ago" / "Xd ago" string
+// from an ISO timestamp. Used in the admin users table where seeing
+// "5m ago" vs "3d ago" is more useful than the full datetime.
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "—";
+  const diff = Math.floor((Date.now() - then) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 function UsersPanel({ currentUserID }: { currentUserID: string }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -507,6 +520,8 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
             <th className="py-2 pr-3">User</th>
             <th className="py-2 pr-3">Email</th>
             <th className="py-2 pr-3">Role</th>
+            <th className="py-2 pr-3">Activity</th>
+            <th className="py-2 pr-3">Last seen</th>
             <th className="py-2 pr-3">Created</th>
             <th className="py-2 pr-3 text-right">Actions</th>
           </tr>
@@ -540,6 +555,46 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       disabled
                     </span>
                   )}
+                </td>
+                <td className="py-2 pr-3">
+                  <div className="flex flex-wrap gap-1 text-[10px]">
+                    <span
+                      className={
+                        u.rivian_connected
+                          ? "rounded border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
+                          : "rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
+                      }
+                      title="Rivian credentials stored"
+                    >
+                      {u.rivian_connected ? "rivian" : "no rivian"}
+                    </span>
+                    <span
+                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
+                      title={`${u.vehicle_count} vehicle(s)`}
+                    >
+                      🚗 {u.vehicle_count}
+                    </span>
+                    <span
+                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
+                      title={`${u.drive_count} drive(s)`}
+                    >
+                      ↻ {u.drive_count}
+                    </span>
+                    <span
+                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
+                      title={`${u.import_count} import(s)`}
+                    >
+                      ⬇ {u.import_count}
+                    </span>
+                  </div>
+                </td>
+                <td
+                  className="py-2 pr-3 text-xs text-neutral-500"
+                  title={u.last_seen_at ?? ""}
+                >
+                  {u.last_seen_at
+                    ? relativeTime(u.last_seen_at)
+                    : <span className="text-neutral-700">never</span>}
                 </td>
                 <td className="py-2 pr-3 text-neutral-500">
                   {new Date(u.created_at).toLocaleDateString()}

@@ -1165,6 +1165,11 @@ export type AdminUserRow = {
   role: "user" | "admin";
   disabled: boolean;
   created_at: string;
+  vehicle_count: number;
+  drive_count: number;
+  import_count: number;
+  rivian_connected: boolean;
+  last_seen_at?: string | null;
 };
 
 // InviteCode is one row from GET /api/admin/invite-codes.
