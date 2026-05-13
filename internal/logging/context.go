@@ -31,6 +31,7 @@ const (
 	keyUserID
 	keyVehicleID
 	keyTraceID
+	keyUserIDSink
 )
 
 // WithRequestID returns a context that carries the given request ID.
@@ -43,12 +44,45 @@ func WithRequestID(ctx context.Context, id string) context.Context {
 }
 
 // WithUserID returns a context that carries the given user UUID.
-// uuid.Nil is treated as unset.
+// uuid.Nil is treated as unset. Also writes into the userIDSink
+// holder if HTTPMiddleware installed one — this lets the outer
+// access-log line see a user_id stamped by an inner middleware,
+// even though context updates don't propagate up the chain.
 func WithUserID(ctx context.Context, uid uuid.UUID) context.Context {
 	if uid == uuid.Nil {
 		return ctx
 	}
+	if sink, ok := ctx.Value(keyUserIDSink).(*userIDSink); ok && sink != nil {
+		sink.uid = uid
+	}
 	return context.WithValue(ctx, keyUserID, uid)
+}
+
+// userIDSink is a request-scoped writable holder for the resolved
+// user_id. Necessary because middleware-chain context mutations
+// (auth.WithUser) don't propagate back to the outer http access-log
+// middleware: each next.ServeHTTP only sees its own r.WithContext,
+// so by the time AccessLog runs the outer r.Context() still has no
+// user_id even though the inner handler did. HTTPMiddleware installs
+// a sink before next.ServeHTTP; WithUserID writes into it; the
+// access log reads from it.
+type userIDSink struct{ uid uuid.UUID }
+
+// withUserIDSink installs an empty sink and returns both the new
+// context and the sink pointer. Internal to the logging package —
+// only HTTPMiddleware is meant to call it.
+func withUserIDSink(ctx context.Context) (context.Context, *userIDSink) {
+	s := &userIDSink{}
+	return context.WithValue(ctx, keyUserIDSink, s), s
+}
+
+// readUserIDSink returns the user_id stamped during the request, or
+// uuid.Nil if none was set / no sink was installed.
+func readUserIDSink(s *userIDSink) uuid.UUID {
+	if s == nil {
+		return uuid.Nil
+	}
+	return s.uid
 }
 
 // WithVehicleID returns a context that carries the given Rivian

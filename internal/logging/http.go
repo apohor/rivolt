@@ -28,14 +28,17 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 		ctx := r.Context()
 		if rid := middleware.GetReqID(ctx); rid != "" {
 			ctx = WithRequestID(ctx, rid)
-			r = r.WithContext(ctx)
 		}
+		// userIDSink lets the auth middleware (which calls WithUserID
+		// on its inner r.WithContext) report back to this outer scope.
+		// Without it the access log fires with the pre-auth context
+		// and never sees user_id even though the inner handlers did.
+		ctx, sink := withUserIDSink(ctx)
+		r = r.WithContext(ctx)
 
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
-		// Use slog.Default so the ContextHandler picks up request_id
-		// (and user_id once auth has run) automatically.
-		AccessLog(r, ww, time.Since(start))
+		AccessLog(r, ww, time.Since(start), readUserIDSink(sink))
 	})
 }
