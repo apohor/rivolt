@@ -161,7 +161,8 @@ anomaly alerts have the plumbing — event sources land next.
 
 See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
 of:
-- redeeming an invite code and creating your account,
+- requesting beta access and finishing signup from the one-click
+  email link an admin sends,
 - connecting your Rivian account (with the dedicated Authorized
   Driver account approach we recommend),
 - importing your history from ElectraFi,

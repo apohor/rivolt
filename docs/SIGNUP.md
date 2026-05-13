@@ -1,34 +1,36 @@
 # Signing up for Rivolt
 
-This walks you from "I have an invite code" through your first
+This walks you from requesting beta access through your first
 planned trip. It assumes you're using the hosted instance at
 [rivolt.dev](https://rivolt.dev); local-development setups skip
 the OIDC steps and use the docker-compose login instead.
 
 ---
 
-## 1. Redeem your invite code
+## 1. Request access and finish signup
 
-Rivolt is invite-only while it's growing. If you don't have a code
-yet, visit <https://rivolt.dev/signup>, click **request access →**,
-and leave your email plus a short note about your truck, home
-charging setup, and how often you drive. We'll email you a code
-when you're approved.
+Rivolt is invite-only while it's growing. The flow has two steps:
+you ask for access, an admin reviews it, and a one-click signup
+link lands in your inbox.
 
-1. Open <https://rivolt.dev/signup>.
-2. Paste the invite code (20-character alphanumeric string).
-3. Enter:
-   - **Email** — used to sign in and to receive plug-in reminders /
-     anomaly notifications.
+1. Open <https://rivolt.dev/signup>, click **request access →**,
+   and submit your email plus a short note about your truck, home
+   charging setup, and how often you drive.
+2. Wait for the approval email from `anton@rivolt.dev` (usually
+   the same day — check spam if it doesn't appear; iCloud Mail
+   in particular tends to filter new senders). The link is
+   single-use and expires in 14 days.
+3. Click **Finish signup** in the email. The signup form opens
+   with your email already filled in — you only need to provide:
    - **Display name** — appears next to your drives and charges if
      the household has multiple users.
    - **Password** — 12+ characters. You can change it later from
      the IdP self-service flow at `auth.rivolt.dev`.
 4. Click **Create account**.
 
-A successful signup redeems the code (one-shot — keep the codes
-secret) and provisions your identity at `auth.rivolt.dev` (Ory
-Kratos under the hood). You're routed back to the sign-in screen.
+The token is consumed on success and your identity is provisioned
+at `auth.rivolt.dev` (Ory Kratos under the hood). You're routed
+back to the sign-in screen.
 
 ### Signing in
 
