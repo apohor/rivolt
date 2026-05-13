@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export function Spinner() {
   return (
@@ -107,4 +107,68 @@ export function Toggle({
       />
     </button>
   );
+}
+
+// ErrorBoundary catches render-time exceptions in its subtree and
+// shows a labeled fallback instead of letting the whole React tree
+// unmount (which manifests as a blank white screen on mobile, where
+// the user has no console to inspect).
+//
+// Resettable: when `resetKey` changes, internal state is cleared so
+// switching saved-trip selections doesn't get stuck on a previous
+// crash. Optional onReset gives the parent a chance to clear the
+// upstream state that caused the crash (e.g. loadedSnapshot).
+type ErrorBoundaryProps = {
+  fallback?: (err: Error, reset: () => void) => ReactNode;
+  resetKey?: unknown;
+  onReset?: () => void;
+  children: ReactNode;
+};
+
+type ErrorBoundaryState = { err: Error | null };
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { err: null };
+
+  static getDerivedStateFromError(err: Error): ErrorBoundaryState {
+    return { err };
+  }
+
+  componentDidUpdate(prev: ErrorBoundaryProps) {
+    if (prev.resetKey !== this.props.resetKey && this.state.err) {
+      this.setState({ err: null });
+    }
+  }
+
+  componentDidCatch(err: Error, info: ErrorInfo) {
+    // Surface the stack in DevTools — invisible on iOS Safari but
+    // invaluable in the rare desktop-repro case.
+    console.error("[ErrorBoundary]", err, info.componentStack);
+  }
+
+  reset = () => {
+    this.setState({ err: null });
+    this.props.onReset?.();
+  };
+
+  render() {
+    if (!this.state.err) return this.props.children;
+    if (this.props.fallback) return this.props.fallback(this.state.err, this.reset);
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200"
+      >
+        <div className="font-semibold">Something went wrong</div>
+        <div className="mt-1 break-words text-rose-300/80">{this.state.err.message}</div>
+        <button
+          type="button"
+          onClick={this.reset}
+          className="mt-2 rounded-md bg-rose-800 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 }

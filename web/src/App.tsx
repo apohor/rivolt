@@ -1,5 +1,6 @@
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
+import { ErrorBoundary } from "./components/ui";
 import HomePage from "./pages/HomePage";
 import DrivesPage from "./pages/DrivesPage";
 import DriveDetailPage from "./pages/DriveDetailPage";
@@ -26,7 +27,15 @@ function TripPlanGuard() {
 }
 
 export default function App() {
+  const location = useLocation();
   return (
+    <ErrorBoundary
+      // Reset on navigation — a crash on one route shouldn't lock
+      // the user out of every other route. Without this, the
+      // fallback persists across links because nothing tells the
+      // boundary that the user moved on.
+      resetKey={location.pathname}
+    >
     <Routes>
       {/*
         /login, /signup and /onboarding sit outside AppLayout so the
@@ -57,5 +66,6 @@ export default function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
+    </ErrorBoundary>
   );
 }

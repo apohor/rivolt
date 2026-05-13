@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type GeocodeResult, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
-import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
 
@@ -627,8 +627,40 @@ export default function TripPlanPage() {
         const displayPlan = loadedSnapshot?.plan ?? planMutation.data;
         const displayAdvice = loadedSnapshot?.advice ?? adviceMutation.data;
         if (!displayPlan) return null;
+        // The plan + advice shapes have evolved over releases; a
+        // snapshot saved against an older schema can throw during
+        // render. resetKey on activeTripId clears the boundary when
+        // the user switches trips, and onReset drops the loaded
+        // snapshot back to the live mutation path.
         return (
-          <>
+          <ErrorBoundary
+            resetKey={activeTripId ?? "live"}
+            onReset={() => setLoadedSnapshot(null)}
+            fallback={(err, reset) => (
+              <div
+                role="alert"
+                className="rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200"
+              >
+                <div className="font-semibold">
+                  {loadedSnapshot
+                    ? "This saved trip can't be rendered"
+                    : "Trip view crashed"}
+                </div>
+                <div className="mt-1 text-rose-300/80">
+                  {loadedSnapshot
+                    ? "Its snapshot is from an older version. Re-plan and re-save to refresh it."
+                    : err.message}
+                </div>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="mt-2 rounded-md bg-rose-800 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+                >
+                  {loadedSnapshot ? "Drop snapshot & re-plan" : "Dismiss"}
+                </button>
+              </div>
+            )}
+          >
             {loadedSnapshot && (
               <SnapshotBanner
                 name={loadedSnapshot.name}
@@ -661,7 +693,7 @@ export default function TripPlanPage() {
               }}
               departureAt={departureAt}
             />
-          </>
+          </ErrorBoundary>
         );
       })()}
     </div>
