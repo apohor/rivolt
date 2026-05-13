@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -8,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 )
@@ -122,7 +126,7 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
-func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry) http.HandlerFunc {
+func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, mailer *email.Client, d *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -174,10 +178,34 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			writeUpstreamError(w, err)
 			return
 		}
+		// First-connect detection BEFORE the persist: if the user has
+		// no stored session yet, this login is their initial Rivian
+		// connection — notify the admin once it lands. Re-logins (token
+		// rotation, password change) skip the notification.
+		var hadSession bool
+		if existing, lerr := secrets.LoadRivianSession(r.Context(), store, uid); lerr == nil {
+			hadSession = existing.UserSessionToken != ""
+		}
 		// Fully authenticated — persist.
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
+		}
+		if !hadSession {
+			username := ""
+			if d != nil {
+				if u, derr := db.LookupUsername(r.Context(), d, uid); derr == nil {
+					username = u
+				}
+			}
+			go notifyAdmin(context.Background(), mailer, logger,
+				"Rivolt user connected Rivian account",
+				"A user finished the Rivian sign-in step:\n\n"+
+					"  Rivolt user: "+username+" ("+uid.String()+")\n"+
+					"  Rivian email: "+lc.Email()+"\n\n"+
+					"Vehicles, drives, and charges should start appearing\n"+
+					"on the admin page within a few seconds.\n",
+			)
 		}
 		// Start (or no-op resume of) this user's StateMonitor so
 		// the recorder + WS subscription run under their identity.

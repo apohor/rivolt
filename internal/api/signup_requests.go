@@ -62,7 +62,7 @@ func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
 // Body: {"email": "...", "message": "..."}
 // 201 on success. Returns a generic 200 even on already-pending so
 // requesters can't enumerate prior submissions.
-func handleSignupRequestCreate(store *signuprequests.Store, logger *slog.Logger) http.HandlerFunc {
+func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "signup requests disabled"})
@@ -76,8 +76,8 @@ func handleSignupRequestCreate(store *signuprequests.Store, logger *slog.Logger)
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
 			return
 		}
-		email := strings.ToLower(strings.TrimSpace(body.Email))
-		if !isValidEmail(email) {
+		reqEmail := strings.ToLower(strings.TrimSpace(body.Email))
+		if !isValidEmail(reqEmail) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid email"})
 			return
 		}
@@ -86,9 +86,23 @@ func handleSignupRequestCreate(store *signuprequests.Store, logger *slog.Logger)
 		if len(message) > 2000 {
 			message = message[:2000]
 		}
-		_, err := store.Create(r.Context(), email, message)
+		_, err := store.Create(r.Context(), reqEmail, message)
 		switch {
 		case err == nil:
+			// Fire-and-forget admin notification. Don't block the
+			// requester on Resend latency.
+			go notifyAdmin(context.Background(), mailer, logger,
+				"New Rivolt signup request: "+reqEmail,
+				"A new beta-access request landed:\n\n"+
+					"  Email:   "+reqEmail+"\n"+
+					(func() string {
+						if message == "" {
+							return ""
+						}
+						return "  Message: " + message + "\n"
+					})()+
+					"\nReview at https://rivolt.dev/admin\n",
+			)
 			writeJSON(w, http.StatusCreated, map[string]any{"ok": true})
 		case errors.Is(err, signuprequests.ErrAlreadyPending):
 			// Same shape as success — the requester sees a friendly
@@ -97,7 +111,7 @@ func handleSignupRequestCreate(store *signuprequests.Store, logger *slog.Logger)
 		default:
 			if logger != nil {
 				logger.WarnContext(r.Context(), "signup request create failed",
-					slog.String("email", email),
+					slog.String("email", reqEmail),
 					slog.String("err", err.Error()),
 				)
 			}

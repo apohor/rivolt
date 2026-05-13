@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -65,6 +66,24 @@ type Message struct {
 // admin handlers can branch cleanly ("email not configured — copy the
 // code manually") without a separate has-email check at every site.
 var ErrNotConfigured = errors.New("email: client not configured")
+
+// FromAddress returns the bare email parsed out of the configured
+// `Name <addr>` From string (e.g. "Rivolt <anton@rivolt.dev>" →
+// "anton@rivolt.dev"). Empty when the client is nil or when the From
+// has no angle-bracketed address. Used by admin notifications so the
+// same env var that gates the verified sender also targets the
+// admin's inbox — no second env var to keep in sync.
+func (c *Client) FromAddress() string {
+	if c == nil {
+		return ""
+	}
+	if i := strings.LastIndexByte(c.from, '<'); i >= 0 {
+		if j := strings.IndexByte(c.from[i+1:], '>'); j >= 0 {
+			return strings.TrimSpace(c.from[i+1 : i+1+j])
+		}
+	}
+	return strings.TrimSpace(c.from)
+}
 
 // Send posts a single message. Returns nil on 2xx; the Resend body is
 // surfaced verbatim in the error otherwise so admin logs can show why.
