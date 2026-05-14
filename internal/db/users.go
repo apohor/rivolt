@@ -227,9 +227,9 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 		out.NewestSampleAt = &t
 	}
 
-	// Per-vehicle bundle. LEFT JOINs on drives/charges/vehicle_state
-	// so a vehicle with zero rows still surfaces (the admin needs to
-	// see "registered but never reported").
+	// Per-vehicle bundle. vehicle_state.vehicle_id is the internal
+	// UUID (vehicles.id), not the Rivian gateway string; the drives
+	// + charges tables follow the same convention.
 	rows, err := d.QueryContext(ctx, `
 		SELECT v.id, v.rivian_vehicle_id,
 		       COALESCE(v.vin, ''), COALESCE(v.display_name, ''),
@@ -237,8 +237,7 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 		       COALESCE(v.pack_kwh, 0),
 		       (SELECT COUNT(*) FROM drives WHERE vehicle_id = v.id),
 		       (SELECT COUNT(*) FROM charges WHERE vehicle_id = v.id),
-		       (SELECT MAX(at) FROM vehicle_state
-		          WHERE user_id = v.user_id AND vehicle_id = v.rivian_vehicle_id)
+		       (SELECT MAX(at) FROM vehicle_state WHERE vehicle_id = v.id)
 		FROM vehicles v
 		WHERE v.user_id = $1
 		ORDER BY v.created_at ASC
