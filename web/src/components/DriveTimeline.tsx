@@ -456,15 +456,15 @@ function TimelineSVG(props: {
                 y={SPEED_TOP}
                 width={w}
                 height={BATT_TOP + BATT_H - SPEED_TOP}
-                fill={isGap ? "#3f1d1d" : "#171717"}
-                fillOpacity={isGap ? 0.45 : 0.55}
+                fill="#171717"
+                fillOpacity={isGap ? 0.35 : 0.55}
               />
               {w > 50 && (
                 <text
                   x={mid}
                   y={SPEED_TOP + 12}
                   textAnchor="middle"
-                  className={isGap ? "fill-amber-300" : "fill-neutral-300"}
+                  className={isGap ? "fill-neutral-400" : "fill-neutral-300"}
                   fontSize="10"
                   fontWeight="600"
                 >
@@ -1491,7 +1491,12 @@ function buildParkBands(
   startMs: number,
   endMs: number,
 ): ParkBand[] {
+  // Two thresholds: a long pause to read as Parked, a shorter one
+  // to flag a telemetry gap mid-drive. Anything below GAP_MIN_MS is
+  // ignored — the normal D-to-D cadence has occasional 30-60s holes
+  // that aren't worth shading.
   const PARK_MIN_MS = 5 * 60_000;
+  const GAP_MIN_MS = 90_000; // 90s gap mid-drive becomes a band
   const SPEED_PARK_MAX = 5; // mph
   const DIST_PARK_MAX_M = 150;
   const out: ParkBand[] = [];
@@ -1521,46 +1526,39 @@ function buildParkBands(
       Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(x));
   };
-  const classify = (a: Sample | null, b: Sample | null): "parked" | "gap" => {
-    // Missing endpoints can't tell us anything — default to gap so we
-    // never mislabel a telemetry hole as parking.
-    if (!a || !b) return "gap";
-    const aMoving = Math.abs(a.SpeedMph ?? 0) > SPEED_PARK_MAX;
-    const bMoving = Math.abs(b.SpeedMph ?? 0) > SPEED_PARK_MAX;
+  // A band is "parked" only when both bounding samples are stationary
+  // and the GPS coords barely moved. Otherwise it's a telemetry hole.
+  // Missing endpoints (leading/trailing band) default to parked because
+  // we can't prove the car was moving across an open boundary.
+  const classify = (
+    a: Sample | null,
+    b: Sample | null,
+  ): "parked" | "gap" => {
+    if (!a && !b) return "parked";
+    const aMoving = a ? Math.abs(a.SpeedMph ?? 0) > SPEED_PARK_MAX : false;
+    const bMoving = b ? Math.abs(b.SpeedMph ?? 0) > SPEED_PARK_MAX : false;
     if (aMoving || bMoving) return "gap";
-    if (haversineM(a, b) > DIST_PARK_MAX_M) return "gap";
+    if (a && b && haversineM(a, b) > DIST_PARK_MAX_M) return "gap";
     return "parked";
   };
+  const push = (x0: number, x1: number, kind: "parked" | "gap") => {
+    const minMs = kind === "parked" ? PARK_MIN_MS : GAP_MIN_MS;
+    if (x1 - x0 >= minMs) out.push({ x0, x1, kind });
+  };
   if (driving.length === 0) {
-    if (endMs - startMs >= PARK_MIN_MS) {
-      out.push({ x0: startMs, x1: endMs, kind: "parked" });
-    }
+    push(startMs, endMs, "parked");
     return out;
   }
-  if (driving[0].ms - startMs >= PARK_MIN_MS) {
-    out.push({
-      x0: startMs,
-      x1: driving[0].ms,
-      kind: classify(null, driving[0].s),
-    });
-  }
+  push(startMs, driving[0].ms, classify(null, driving[0].s));
   for (let i = 1; i < driving.length; i++) {
-    if (driving[i].ms - driving[i - 1].ms >= PARK_MIN_MS) {
-      out.push({
-        x0: driving[i - 1].ms,
-        x1: driving[i].ms,
-        kind: classify(driving[i - 1].s, driving[i].s),
-      });
-    }
+    push(
+      driving[i - 1].ms,
+      driving[i].ms,
+      classify(driving[i - 1].s, driving[i].s),
+    );
   }
   const tail = driving[driving.length - 1];
-  if (endMs - tail.ms >= PARK_MIN_MS) {
-    out.push({
-      x0: tail.ms,
-      x1: endMs,
-      kind: classify(tail.s, null),
-    });
-  }
+  push(tail.ms, endMs, classify(tail.s, null));
   return out;
 }
 
