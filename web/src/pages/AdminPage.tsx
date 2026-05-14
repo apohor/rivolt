@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminUserRow, type SignupRequest } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
@@ -376,229 +376,537 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
   // the destructive action doesn't even appear clickable.
   const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
 
+  const [selectedID, setSelectedID] = useState<string | null>(null);
+  // Auto-select first row so the detail panel has something to render
+  // on initial load — picking explicitly afterwards just swaps the
+  // selection. The deselect-on-delete effect below clears this if
+  // the selected user disappears.
+  useEffect(() => {
+    if (selectedID == null && rows.length > 0) {
+      setSelectedID(rows[0].id);
+    } else if (selectedID != null && !rows.find((u) => u.id === selectedID)) {
+      setSelectedID(rows[0]?.id ?? null);
+    }
+  }, [rows, selectedID]);
+
   if (q.isLoading) return <Spinner />;
   if (q.isError)
     return <ErrorBox title="Failed to load users" detail={String(q.error)} />;
 
+  const selectedRow = rows.find((u) => u.id === selectedID) ?? null;
+  const isLastAdminFor = (u: AdminUserRow) =>
+    u.role === "admin" && adminCount <= 1;
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-left text-neutral-500">
-          <tr>
-            <th className="py-2 pr-3">User</th>
-            <th className="py-2 pr-3">Email</th>
-            <th className="py-2 pr-3">Role</th>
-            <th className="py-2 pr-3">Activity</th>
-            <th className="py-2 pr-3">Last seen</th>
-            <th className="py-2 pr-3">Created</th>
-            <th className="py-2 pr-3 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((u) => {
-            const isSelf = u.id === currentUserID;
-            const isLastAdmin = u.role === "admin" && adminCount <= 1;
-            const busy = busyID === u.id;
-            return (
-              <tr key={u.id} className="border-t border-neutral-800">
-                <td className="py-2 pr-3">
-                  <div className="text-neutral-100">
-                    {u.display_name || u.username}
-                  </div>
-                  <div className="text-xs text-neutral-500">{u.username}</div>
-                </td>
-                <td className="py-2 pr-3 text-neutral-400">{u.email || "—"}</td>
-                <td className="py-2 pr-3">
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-xs ${
-                      u.role === "admin"
-                        ? "border-emerald-700 bg-emerald-950 text-emerald-300"
-                        : "border-neutral-800 bg-neutral-900 text-neutral-400"
-                    }`}
-                  >
-                    {u.role}
-                  </span>
-                  {u.disabled && (
-                    <span className="ml-2 rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
-                      disabled
-                    </span>
-                  )}
-                </td>
-                <td className="py-2 pr-3">
-                  <div className="flex flex-wrap gap-1 text-[10px]">
-                    <span
-                      className={
-                        u.rivian_connected
-                          ? "rounded border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
-                          : "rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
-                      }
-                      title="Rivian credentials stored"
-                    >
-                      {u.rivian_connected ? "rivian" : "no rivian"}
-                    </span>
-                    <span
-                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
-                      title={`${u.vehicle_count} vehicle(s)`}
-                    >
-                      🚗 {u.vehicle_count}
-                    </span>
-                    <span
-                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
-                      title={`${u.drive_count} drive(s)`}
-                    >
-                      ↻ {u.drive_count}
-                    </span>
-                    <span
-                      className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400"
-                      title={`${u.import_count} import(s)`}
-                    >
-                      ⬇ {u.import_count}
-                    </span>
-                  </div>
-                </td>
-                <td
-                  className="py-2 pr-3 text-xs text-neutral-500"
-                  title={u.last_seen_at ?? ""}
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      {/* Master list — click to select, busy state still applies to
+          the selected row so async actions visibly lock it. */}
+      <div className="overflow-x-auto rounded-md border border-neutral-900">
+        <table className="w-full text-sm">
+          <thead className="text-left text-neutral-500">
+            <tr>
+              <th className="py-2 px-3">User</th>
+              <th className="py-2 px-3">Role</th>
+              <th className="py-2 px-3">Activity</th>
+              <th className="py-2 px-3">Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((u) => {
+              const active = u.id === selectedID;
+              return (
+                <tr
+                  key={u.id}
+                  onClick={() => setSelectedID(u.id)}
+                  className={`cursor-pointer border-t border-neutral-900 ${
+                    active
+                      ? "bg-emerald-950/30"
+                      : "hover:bg-neutral-900/50"
+                  }`}
                 >
-                  {u.last_seen_at
-                    ? relativeTime(u.last_seen_at)
-                    : <span className="text-neutral-700">never</span>}
-                </td>
-                <td className="py-2 pr-3 text-neutral-500">
-                  {new Date(u.created_at).toLocaleDateString()}
-                </td>
-                <td className="py-2 pr-3">
-                  <div className="flex items-center justify-end gap-2">
-                    {u.role === "user" ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          setBusyID(u.id);
-                          try {
-                            await setRole.mutateAsync({ id: u.id, role: "admin" });
-                          } finally {
-                            setBusyID(null);
-                          }
-                        }}
-                        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
-                      >
-                        Promote
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy || isLastAdmin}
-                        title={isLastAdmin ? "Cannot demote the last admin" : ""}
-                        onClick={async () => {
-                          setBusyID(u.id);
-                          try {
-                            await setRole.mutateAsync({ id: u.id, role: "user" });
-                          } finally {
-                            setBusyID(null);
-                          }
-                        }}
-                        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
-                      >
-                        Demote
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={
-                        busy ||
-                        (!u.disabled && isSelf) ||
-                        (!u.disabled && u.role === "admin" && isLastAdmin)
-                      }
-                      title={
-                        !u.disabled && isSelf
-                          ? "Cannot disable your own account"
-                          : !u.disabled && u.role === "admin" && isLastAdmin
-                          ? "Cannot disable the last admin"
-                          : u.disabled
-                          ? "Re-enable sign-in for this user"
-                          : "Block this user from minting new sessions"
-                      }
-                      onClick={async () => {
-                        setBusyID(u.id);
-                        try {
-                          await setDisabled.mutateAsync({
-                            id: u.id,
-                            disabled: !u.disabled,
-                          });
-                        } finally {
-                          setBusyID(null);
-                        }
-                      }}
-                      className={`rounded-md border px-2 py-1 text-xs disabled:opacity-40 ${
-                        u.disabled
-                          ? "border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:border-emerald-700 hover:text-emerald-200"
-                          : "border-amber-900 bg-amber-950/40 text-amber-300 hover:border-amber-800 hover:text-amber-200"
+                  <td className="py-2 px-3">
+                    <div className="text-neutral-100">
+                      {u.display_name || u.username}
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                      {u.email || u.username}
+                    </div>
+                  </td>
+                  <td className="py-2 px-3">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs ${
+                        u.role === "admin"
+                          ? "border-emerald-700 bg-emerald-950 text-emerald-300"
+                          : "border-neutral-800 bg-neutral-900 text-neutral-400"
                       }`}
                     >
-                      {u.disabled ? "Enable" : "Disable"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      title="Re-fetch this user's vehicles from Rivian and refresh the local vehicles table"
-                      onClick={async () => {
-                        setBusyID(u.id);
-                        try {
-                          const r = await syncRivian.mutateAsync(u.id);
-                          alert(
-                            `Synced — ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${u.username}.`,
-                          );
-                        } catch (e) {
-                          alert(`Sync failed: ${String(e)}`);
-                        } finally {
-                          setBusyID(null);
+                      {u.role}
+                    </span>
+                    {u.disabled && (
+                      <span className="ml-1 rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
+                        disabled
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3">
+                    <div className="flex flex-wrap gap-1 text-[10px]">
+                      <span
+                        className={
+                          u.rivian_connected
+                            ? "rounded border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
+                            : "rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
                         }
-                      }}
-                      className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
-                    >
-                      Sync Rivian
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || isSelf || isLastAdmin}
-                      title={
-                        isSelf
-                          ? "Cannot delete your own account"
-                          : isLastAdmin
-                          ? "Cannot delete the last admin"
-                          : ""
-                      }
-                      onClick={async () => {
-                        if (
-                          !confirm(
-                            `Permanently delete ${u.username}? Their drives, charges, and settings will be removed.`,
-                          )
-                        )
-                          return;
-                        setBusyID(u.id);
-                        try {
-                          await del.mutateAsync(u.id);
-                        } finally {
-                          setBusyID(null);
-                        }
-                      }}
-                      className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-xs text-red-300 hover:border-red-800 hover:text-red-200 disabled:opacity-40"
-                    >
-                      Delete
-                    </button>
+                      >
+                        {u.rivian_connected ? "rivian" : "no rivian"}
+                      </span>
+                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                        🚗 {u.vehicle_count}
+                      </span>
+                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                        ↻ {u.drive_count}
+                      </span>
+                    </div>
+                  </td>
+                  <td
+                    className="py-2 px-3 text-xs text-neutral-500"
+                    title={u.last_seen_at ?? ""}
+                  >
+                    {u.last_seen_at
+                      ? relativeTime(u.last_seen_at)
+                      : <span className="text-neutral-700">never</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail panel — fetches the deep-dive bundle for the
+          selected row and holds every per-user action. */}
+      <div>
+        {selectedRow ? (
+          <UserDetailPanel
+            row={selectedRow}
+            currentUserID={currentUserID}
+            isLastAdmin={isLastAdminFor(selectedRow)}
+            busy={busyID === selectedRow.id}
+            onPromote={async () => {
+              setBusyID(selectedRow.id);
+              try {
+                await setRole.mutateAsync({ id: selectedRow.id, role: "admin" });
+              } finally {
+                setBusyID(null);
+              }
+            }}
+            onDemote={async () => {
+              setBusyID(selectedRow.id);
+              try {
+                await setRole.mutateAsync({ id: selectedRow.id, role: "user" });
+              } finally {
+                setBusyID(null);
+              }
+            }}
+            onToggleDisabled={async () => {
+              setBusyID(selectedRow.id);
+              try {
+                await setDisabled.mutateAsync({
+                  id: selectedRow.id,
+                  disabled: !selectedRow.disabled,
+                });
+              } finally {
+                setBusyID(null);
+              }
+            }}
+            onSyncRivian={async () => {
+              setBusyID(selectedRow.id);
+              try {
+                const r = await syncRivian.mutateAsync(selectedRow.id);
+                alert(
+                  `Synced — ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${selectedRow.username}.`,
+                );
+              } catch (e) {
+                alert(`Sync failed: ${String(e)}`);
+              } finally {
+                setBusyID(null);
+              }
+            }}
+            onDelete={async () => {
+              if (
+                !confirm(
+                  `Permanently delete ${selectedRow.username}? Their drives, charges, and settings will be removed.`,
+                )
+              )
+                return;
+              setBusyID(selectedRow.id);
+              try {
+                await del.mutateAsync(selectedRow.id);
+              } finally {
+                setBusyID(null);
+              }
+            }}
+          />
+        ) : (
+          <div className="rounded-md border border-neutral-900 bg-neutral-950/40 px-4 py-6 text-sm text-neutral-500">
+            Select a user to see details.
+          </div>
+        )}
+        {(setRole.error || del.error) && (
+          <p className="mt-2 text-xs text-red-400">
+            {String(setRole.error ?? del.error)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// UserDetailPanel renders the deep-dive bundle for one selected user
+// plus every per-user action (promote/demote, enable/disable, sync
+// rivian, delete). Fetches the bundle on each selectedID change so
+// switching users feels live; row data from the master list paints
+// immediately while the detailed counters load.
+function UserDetailPanel({
+  row,
+  currentUserID,
+  isLastAdmin,
+  busy,
+  onPromote,
+  onDemote,
+  onToggleDisabled,
+  onSyncRivian,
+  onDelete,
+}: {
+  row: AdminUserRow;
+  currentUserID: string;
+  isLastAdmin: boolean;
+  busy: boolean;
+  onPromote: () => Promise<void>;
+  onDemote: () => Promise<void>;
+  onToggleDisabled: () => Promise<void>;
+  onSyncRivian: () => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const isSelf = row.id === currentUserID;
+  const detail = useQuery({
+    queryKey: ["admin", "user", row.id],
+    queryFn: () => backend.adminUserDetail(row.id),
+  });
+  const d = detail.data;
+  const headerName = row.display_name || row.username;
+
+  return (
+    <div className="rounded-md border border-neutral-900 bg-neutral-950/40">
+      <div className="border-b border-neutral-900 px-4 py-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <div className="text-base font-semibold text-neutral-100">
+              {headerName}
+            </div>
+            <div className="text-xs text-neutral-500">
+              {row.email || row.username} · {row.id}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`rounded-full border px-2 py-0.5 ${
+                row.role === "admin"
+                  ? "border-emerald-700 bg-emerald-950 text-emerald-300"
+                  : "border-neutral-800 bg-neutral-900 text-neutral-400"
+              }`}
+            >
+              {row.role}
+            </span>
+            {row.disabled && (
+              <span className="rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-amber-300">
+                disabled
+              </span>
+            )}
+            {d?.needs_reauth && (
+              <span
+                className="rounded-full border border-red-900 bg-red-950 px-2 py-0.5 text-red-300"
+                title={d.needs_reauth_reason || ""}
+              >
+                needs re-auth
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-4 sm:grid-cols-2">
+        {/* Identity */}
+        <Stat label="User ID" value={<code className="text-xs">{row.id}</code>} />
+        <Stat label="Created" value={new Date(row.created_at).toLocaleString()} />
+        <Stat
+          label="Last seen"
+          value={
+            row.last_seen_at
+              ? `${relativeTime(row.last_seen_at)} (${new Date(row.last_seen_at).toLocaleString()})`
+              : "never"
+          }
+        />
+        <Stat
+          label="Active sessions"
+          value={d ? `${d.active_sessions}` : "…"}
+        />
+
+        {/* Rivian */}
+        <Stat
+          label="Rivian"
+          value={
+            !d
+              ? "…"
+              : d.rivian_connected
+                ? d.rivian_session_at
+                  ? `Connected · session ${relativeTime(d.rivian_session_at)}`
+                  : "Connected"
+                : "Not connected"
+          }
+          tone={
+            d?.needs_reauth
+              ? "danger"
+              : d?.rivian_connected
+                ? "ok"
+                : "muted"
+          }
+        />
+        <Stat
+          label="Onboarding"
+          value={d ? (d.onboarding_completed ? "Completed" : "Pending") : "…"}
+          tone={d?.onboarding_completed ? "ok" : "muted"}
+        />
+
+        {/* Activity rollups */}
+        <Stat
+          label="Drives"
+          value={
+            d
+              ? `${d.drive_count} · ${d.drive_miles_total.toFixed(0)} mi`
+              : "…"
+          }
+        />
+        <Stat
+          label="Charges"
+          value={
+            d
+              ? `${d.charge_count} · ${d.charge_kwh_total.toFixed(0)} kWh`
+              : "…"
+          }
+        />
+        <Stat
+          label="Samples"
+          value={
+            d
+              ? `${d.sample_count.toLocaleString()}`
+              : "…"
+          }
+        />
+        <Stat
+          label="Telemetry span"
+          value={
+            d?.oldest_sample_at && d?.newest_sample_at
+              ? `${new Date(d.oldest_sample_at).toLocaleDateString()} → ${new Date(d.newest_sample_at).toLocaleDateString()}`
+              : d
+                ? "no samples"
+                : "…"
+          }
+        />
+      </div>
+
+      {/* Vehicles */}
+      <div className="border-t border-neutral-900 px-4 py-3">
+        <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
+          Vehicles ({d ? d.vehicles.length : "…"})
+        </div>
+        {!d ? (
+          <div className="text-sm text-neutral-500">Loading…</div>
+        ) : d.vehicles.length === 0 ? (
+          <div className="text-sm text-neutral-500">
+            No vehicles on file.
+            {row.rivian_connected && (
+              <>
+                {" "}
+                Try <strong>Sync Rivian</strong> below.
+              </>
+            )}
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {d.vehicles.map((v) => (
+              <li
+                key={v.id}
+                className="rounded-md border border-neutral-900 bg-neutral-950 px-3 py-2"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="text-sm text-neutral-200">
+                    {v.display_name || v.model || v.rivian_vehicle_id}
+                    {v.model_year ? ` · ${v.model_year}` : null}
+                    {v.pack_kwh ? ` · ${v.pack_kwh.toFixed(0)} kWh` : null}
                   </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {(setRole.error || del.error) && (
-        <p className="mt-2 text-xs text-red-400">
-          {String(setRole.error ?? del.error)}
-        </p>
+                  <div
+                    className="text-xs text-neutral-500"
+                    title={v.last_sample_at ?? ""}
+                  >
+                    {v.last_sample_at
+                      ? `last frame ${relativeTime(v.last_sample_at)}`
+                      : "no telemetry"}
+                  </div>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-neutral-500">
+                  {v.vin && <span>VIN {v.vin}</span>}
+                  <span>{v.drive_count} drives</span>
+                  <span>{v.charge_count} charges</span>
+                  <span className="text-neutral-700">
+                    rivian id {v.rivian_vehicle_id}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Signup origin */}
+      {d?.signup_request && (
+        <div className="border-t border-neutral-900 px-4 py-3">
+          <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">
+            Signup origin
+          </div>
+          <div className="text-sm text-neutral-300">
+            Requested {new Date(d.signup_request.requested_at).toLocaleString()}
+            {" · "}
+            <span
+              className={
+                d.signup_request.status === "approved"
+                  ? "text-emerald-400"
+                  : d.signup_request.status === "rejected"
+                    ? "text-red-400"
+                    : "text-amber-300"
+              }
+            >
+              {d.signup_request.status}
+            </span>
+            {d.signup_request.decided_at && (
+              <span>
+                {" "}
+                · decided{" "}
+                {new Date(d.signup_request.decided_at).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {d.signup_request.message && (
+            <div className="mt-1 whitespace-pre-wrap rounded bg-neutral-950 p-2 text-xs text-neutral-400">
+              {d.signup_request.message}
+            </div>
+          )}
+        </div>
       )}
+
+      {/* Actions */}
+      <div className="flex flex-wrap items-center gap-2 border-t border-neutral-900 px-4 py-3">
+        {row.role === "user" ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPromote}
+            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
+          >
+            Promote to admin
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || isLastAdmin}
+            title={isLastAdmin ? "Cannot demote the last admin" : ""}
+            onClick={onDemote}
+            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
+          >
+            Demote to user
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={
+            busy ||
+            (!row.disabled && isSelf) ||
+            (!row.disabled && row.role === "admin" && isLastAdmin)
+          }
+          title={
+            !row.disabled && isSelf
+              ? "Cannot disable your own account"
+              : !row.disabled && row.role === "admin" && isLastAdmin
+                ? "Cannot disable the last admin"
+                : row.disabled
+                  ? "Re-enable sign-in for this user"
+                  : "Block this user from minting new sessions"
+          }
+          onClick={onToggleDisabled}
+          className={`rounded-md border px-2 py-1 text-xs disabled:opacity-40 ${
+            row.disabled
+              ? "border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:border-emerald-700 hover:text-emerald-200"
+              : "border-amber-900 bg-amber-950/40 text-amber-300 hover:border-amber-800 hover:text-amber-200"
+          }`}
+        >
+          {row.disabled ? "Enable account" : "Disable account"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          title="Re-fetch this user's vehicles from Rivian"
+          onClick={onSyncRivian}
+          className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
+        >
+          Sync Rivian
+        </button>
+        <div className="ml-auto">
+          <button
+            type="button"
+            disabled={busy || isSelf || isLastAdmin}
+            title={
+              isSelf
+                ? "Cannot delete your own account"
+                : isLastAdmin
+                  ? "Cannot delete the last admin"
+                  : ""
+            }
+            onClick={onDelete}
+            className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-xs text-red-300 hover:border-red-800 hover:text-red-200 disabled:opacity-40"
+          >
+            Delete user
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Stat is a tiny label/value row used inside UserDetailPanel. `tone`
+// nudges the value colour so the eye can scan for problem cells
+// without reading every line.
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "ok" | "danger" | "muted";
+}) {
+  const valueClass =
+    tone === "danger"
+      ? "text-red-300"
+      : tone === "ok"
+        ? "text-emerald-300"
+        : tone === "muted"
+          ? "text-neutral-500"
+          : "text-neutral-200";
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+        {label}
+      </div>
+      <div className={`text-sm ${valueClass}`}>{value}</div>
     </div>
   );
 }

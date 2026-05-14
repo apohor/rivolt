@@ -347,6 +347,36 @@ func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, log *slog.Logger) htt
 	}
 }
 
+// handleAdminUserDetail — GET /api/admin/users/{id}
+//
+// Returns the full per-user bundle: identity, Rivian connection
+// state, lifetime activity rollups, vehicles with telemetry recency,
+// signup origin. Rendered by the admin drawer as a one-screen
+// "is this user healthy?" view.
+func handleAdminUserDetail(d *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if d == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
+			return
+		}
+		target, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid user id"})
+			return
+		}
+		detail, err := db.GetUserDetailForAdmin(r.Context(), d, target)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		if detail == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "user not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, detail)
+	}
+}
+
 // handleAdminUserSyncRivian — POST /api/admin/users/{id}/sync-rivian
 //
 // Force-runs primeUserVehicles for the target user from the calling

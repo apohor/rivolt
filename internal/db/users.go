@@ -73,6 +73,234 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	return out, rows.Err()
 }
 
+// AdminUserDetail is the deep-dive bundle the admin drawer renders
+// when the operator drills into a single user. Everything that helps
+// answer "is this user healthy / why aren't they seeing data?" in
+// one round-trip: identity, Rivian session age, per-vehicle telemetry
+// freshness, lifetime totals, signup source, active session count.
+type AdminUserDetail struct {
+	ID                uuid.UUID  `json:"id"`
+	Username          string     `json:"username"`
+	Email             string     `json:"email,omitempty"`
+	DisplayName       string     `json:"display_name,omitempty"`
+	Role              string     `json:"role"`
+	Disabled          bool       `json:"disabled"`
+	OnboardingDone    bool       `json:"onboarding_completed"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+
+	// Rivian state (DB-only — runtime in-memory state is per-pod and
+	// not authoritative; admins should trust what's persisted).
+	RivianConnected   bool       `json:"rivian_connected"`
+	RivianSessionAt   *time.Time `json:"rivian_session_at,omitempty"`
+	NeedsReauth       bool       `json:"needs_reauth"`
+	NeedsReauthReason string     `json:"needs_reauth_reason,omitempty"`
+	NeedsReauthAt     *time.Time `json:"needs_reauth_at,omitempty"`
+
+	// Activity rollups.
+	LastSeenAt        *time.Time `json:"last_seen_at,omitempty"`
+	ActiveSessions    int        `json:"active_sessions"`
+	DriveCount        int        `json:"drive_count"`
+	DriveMilesTotal   float64    `json:"drive_miles_total"`
+	ChargeCount       int        `json:"charge_count"`
+	ChargeKWhTotal    float64    `json:"charge_kwh_total"`
+	SampleCount       int64      `json:"sample_count"`
+	OldestSampleAt    *time.Time `json:"oldest_sample_at,omitempty"`
+	NewestSampleAt    *time.Time `json:"newest_sample_at,omitempty"`
+	ImportCount       int        `json:"import_count"`
+
+	Vehicles      []AdminUserVehicle   `json:"vehicles"`
+	SignupRequest *AdminSignupSnapshot `json:"signup_request,omitempty"`
+}
+
+// AdminUserVehicle is one vehicle row enriched with the bits the
+// admin drawer wants — telemetry recency and per-vehicle counts.
+type AdminUserVehicle struct {
+	ID              uuid.UUID  `json:"id"`
+	RivianVehicleID string     `json:"rivian_vehicle_id"`
+	VIN             string     `json:"vin,omitempty"`
+	DisplayName     string     `json:"display_name,omitempty"`
+	Model           string     `json:"model,omitempty"`
+	ModelYear       int        `json:"model_year,omitempty"`
+	PackKWh         float64    `json:"pack_kwh,omitempty"`
+	DriveCount      int        `json:"drive_count"`
+	ChargeCount     int        `json:"charge_count"`
+	LastSampleAt    *time.Time `json:"last_sample_at,omitempty"`
+}
+
+// AdminSignupSnapshot captures how this user came to exist when the
+// signup_requests waitlist was the entry path. Nil for users created
+// directly via the admin "create user" flow or seed scripts.
+type AdminSignupSnapshot struct {
+	RequestedAt time.Time  `json:"requested_at"`
+	DecidedAt   *time.Time `json:"decided_at,omitempty"`
+	Status      string     `json:"status"`
+	Message     string     `json:"message,omitempty"`
+}
+
+// GetUserDetailForAdmin assembles the per-user bundle as several
+// short queries against the same connection. Multi-statement single
+// query would be marginally faster but harder to reason about; with
+// <100 users and an indexed (user_id) on every dependent table the
+// fan-out cost is invisible.
+func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*AdminUserDetail, error) {
+	if d == nil || uid == uuid.Nil {
+		return nil, nil
+	}
+	out := &AdminUserDetail{ID: uid}
+
+	// Basic identity + Rivian flags + session-row presence/age in one
+	// shot. LEFT JOIN on user_secrets keeps a NULL-bearing row when
+	// the user hasn't connected Rivian yet.
+	var rivianAt sql.NullTime
+	var needsReauthAt sql.NullTime
+	err := d.QueryRowContext(ctx, `
+		SELECT u.username, COALESCE(u.email, ''), COALESCE(u.display_name, ''),
+		       u.role, u.disabled, COALESCE(u.onboarding_completed, false),
+		       u.created_at, u.updated_at,
+		       u.needs_reauth, COALESCE(u.needs_reauth_reason, ''), u.needs_reauth_at,
+		       s.updated_at IS NOT NULL,
+		       s.updated_at
+		FROM users u
+		LEFT JOIN user_secrets s
+		       ON s.user_id = u.id AND s.name = 'rivian.session'
+		WHERE u.id = $1
+	`, uid).Scan(
+		&out.Username, &out.Email, &out.DisplayName,
+		&out.Role, &out.Disabled, &out.OnboardingDone,
+		&out.CreatedAt, &out.UpdatedAt,
+		&out.NeedsReauth, &out.NeedsReauthReason, &needsReauthAt,
+		&out.RivianConnected, &rivianAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("admin user detail: %w", err)
+	}
+	if rivianAt.Valid {
+		t := rivianAt.Time
+		out.RivianSessionAt = &t
+	}
+	if needsReauthAt.Valid {
+		t := needsReauthAt.Time
+		out.NeedsReauthAt = &t
+	}
+
+	// Activity rollups in one round-trip. COALESCE wraps the
+	// aggregate SUMs so an empty drives/charges table returns 0
+	// instead of NULL.
+	var lastSeen, oldestSample, newestSample sql.NullTime
+	if err := d.QueryRowContext(ctx, `
+		SELECT
+		  (SELECT MAX(last_seen_at) FROM sessions
+		     WHERE user_id = $1),
+		  (SELECT COUNT(*) FROM sessions
+		     WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()),
+		  (SELECT COUNT(*) FROM drives WHERE user_id = $1),
+		  COALESCE((SELECT SUM(distance_mi) FROM drives WHERE user_id = $1), 0),
+		  (SELECT COUNT(*) FROM charges WHERE user_id = $1),
+		  COALESCE((SELECT SUM(energy_added_kwh) FROM charges WHERE user_id = $1), 0),
+		  (SELECT COUNT(*) FROM vehicle_state WHERE user_id = $1),
+		  (SELECT MIN(at) FROM vehicle_state WHERE user_id = $1),
+		  (SELECT MAX(at) FROM vehicle_state WHERE user_id = $1),
+		  (SELECT COUNT(*) FROM imports WHERE user_id = $1)
+	`, uid).Scan(
+		&lastSeen, &out.ActiveSessions,
+		&out.DriveCount, &out.DriveMilesTotal,
+		&out.ChargeCount, &out.ChargeKWhTotal,
+		&out.SampleCount, &oldestSample, &newestSample,
+		&out.ImportCount,
+	); err != nil {
+		return nil, fmt.Errorf("admin user detail rollups: %w", err)
+	}
+	if lastSeen.Valid {
+		t := lastSeen.Time
+		out.LastSeenAt = &t
+	}
+	if oldestSample.Valid {
+		t := oldestSample.Time
+		out.OldestSampleAt = &t
+	}
+	if newestSample.Valid {
+		t := newestSample.Time
+		out.NewestSampleAt = &t
+	}
+
+	// Per-vehicle bundle. LEFT JOINs on drives/charges/vehicle_state
+	// so a vehicle with zero rows still surfaces (the admin needs to
+	// see "registered but never reported").
+	rows, err := d.QueryContext(ctx, `
+		SELECT v.id, v.rivian_vehicle_id,
+		       COALESCE(v.vin, ''), COALESCE(v.display_name, ''),
+		       COALESCE(v.model, ''), COALESCE(v.model_year, 0),
+		       COALESCE(v.pack_kwh, 0),
+		       (SELECT COUNT(*) FROM drives WHERE vehicle_id = v.id),
+		       (SELECT COUNT(*) FROM charges WHERE vehicle_id = v.id),
+		       (SELECT MAX(at) FROM vehicle_state
+		          WHERE user_id = v.user_id AND vehicle_id = v.rivian_vehicle_id)
+		FROM vehicles v
+		WHERE v.user_id = $1
+		ORDER BY v.created_at ASC
+	`, uid)
+	if err != nil {
+		return nil, fmt.Errorf("admin user detail vehicles: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v AdminUserVehicle
+		var lastSample sql.NullTime
+		if err := rows.Scan(
+			&v.ID, &v.RivianVehicleID,
+			&v.VIN, &v.DisplayName,
+			&v.Model, &v.ModelYear, &v.PackKWh,
+			&v.DriveCount, &v.ChargeCount, &lastSample,
+		); err != nil {
+			return nil, fmt.Errorf("admin user detail vehicles scan: %w", err)
+		}
+		if lastSample.Valid {
+			t := lastSample.Time
+			v.LastSampleAt = &t
+		}
+		out.Vehicles = append(out.Vehicles, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("admin user detail vehicles iter: %w", err)
+	}
+
+	// Signup source. The signup_requests table joins by email rather
+	// than user_id, so we look up the most recent request matching
+	// the user's email. Absent for direct admin-created users.
+	if out.Email != "" {
+		var sr AdminSignupSnapshot
+		var decidedAt sql.NullTime
+		var msg sql.NullString
+		switch err := d.QueryRowContext(ctx, `
+			SELECT requested_at, decided_at, status, COALESCE(message, '')
+			FROM signup_requests
+			WHERE LOWER(email) = LOWER($1)
+			ORDER BY requested_at DESC
+			LIMIT 1
+		`, out.Email).Scan(&sr.RequestedAt, &decidedAt, &sr.Status, &msg); {
+		case err == sql.ErrNoRows:
+			// No signup request — direct admin-created user, fine.
+		case err != nil:
+			return nil, fmt.Errorf("admin user detail signup: %w", err)
+		default:
+			if decidedAt.Valid {
+				t := decidedAt.Time
+				sr.DecidedAt = &t
+			}
+			if msg.Valid {
+				sr.Message = msg.String
+			}
+			out.SignupRequest = &sr
+		}
+	}
+
+	return out, nil
+}
+
 // DeleteUser removes a user row. ON DELETE CASCADE on every
 // dependent table (vehicles, drives, charges, samples,
 // user_settings, user_secrets, sessions, push_subscriptions, …)

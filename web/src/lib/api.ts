@@ -794,6 +794,11 @@ export const backend = {
       `/api/admin/users/${encodeURIComponent(id)}/disabled`,
       { disabled },
     ),
+  // Deep-dive bundle for a single user, used by the admin drawer.
+  // Includes identity, Rivian session state, activity rollups,
+  // vehicles + telemetry recency, and signup origin.
+  adminUserDetail: (id: string) =>
+    api.get<AdminUserDetail>(`/api/admin/users/${encodeURIComponent(id)}`),
   // Force-prime the user's vehicles table from Rivian — used to fix
   // up accounts that connected before the eager-prime fix shipped or
   // any case where the local vehicles row drifted from the Rivian
@@ -1180,6 +1185,59 @@ export type AdminUserRow = {
   import_count: number;
   rivian_connected: boolean;
   last_seen_at?: string | null;
+};
+
+// AdminUserVehicle is one vehicle inside an AdminUserDetail bundle.
+export type AdminUserVehicle = {
+  id: string;
+  rivian_vehicle_id: string;
+  vin?: string;
+  display_name?: string;
+  model?: string;
+  model_year?: number;
+  pack_kwh?: number;
+  drive_count: number;
+  charge_count: number;
+  last_sample_at?: string | null;
+};
+
+// AdminSignupSnapshot captures how a user joined the system. Nil
+// for direct admin-created users.
+export type AdminSignupSnapshot = {
+  requested_at: string;
+  decided_at?: string | null;
+  status: "pending" | "approved" | "rejected";
+  message?: string;
+};
+
+// AdminUserDetail is the deep-dive bundle from GET /api/admin/users/{id}.
+export type AdminUserDetail = {
+  id: string;
+  username: string;
+  email?: string;
+  display_name?: string;
+  role: "user" | "admin";
+  disabled: boolean;
+  onboarding_completed: boolean;
+  created_at: string;
+  updated_at: string;
+  rivian_connected: boolean;
+  rivian_session_at?: string | null;
+  needs_reauth: boolean;
+  needs_reauth_reason?: string;
+  needs_reauth_at?: string | null;
+  last_seen_at?: string | null;
+  active_sessions: number;
+  drive_count: number;
+  drive_miles_total: number;
+  charge_count: number;
+  charge_kwh_total: number;
+  sample_count: number;
+  oldest_sample_at?: string | null;
+  newest_sample_at?: string | null;
+  import_count: number;
+  vehicles: AdminUserVehicle[];
+  signup_request?: AdminSignupSnapshot | null;
 };
 
 // SignupRequest is one row from GET /api/admin/signup-requests.

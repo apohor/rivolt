@@ -528,6 +528,7 @@ func New(d Deps) http.Handler {
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
+				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
 				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
