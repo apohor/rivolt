@@ -107,6 +107,10 @@ export function DriveTimeline({
     () => buildModeSegments(samples, driveStartMs, driveEndMs),
     [samples, driveStartMs, driveEndMs],
   );
+  const parkBands = useMemo(
+    () => buildParkBands(samples, driveStartMs, driveEndMs),
+    [samples, driveStartMs, driveEndMs],
+  );
   const precipBands = useMemo(
     () => buildPrecipBands(weatherPts, driveStartMs, driveEndMs),
     [weatherPts, driveStartMs, driveEndMs],
@@ -182,6 +186,7 @@ export function DriveTimeline({
         elevPts={elevPts}
         powerPts={powerPts}
         modeSegments={modeSegments}
+        parkBands={parkBands}
         precipBands={precipBands}
         moments={moments}
         cursorMs={cursorMs}
@@ -278,6 +283,7 @@ const AXIS_H = 16;
 const TOTAL_H = AXIS_TOP + AXIS_H + 4;
 
 type ModeSegment = { x0: number; x1: number; mode: Mode };
+type ParkBand = { x0: number; x1: number };
 type PrecipBand = {
   x0: number;
   x1: number;
@@ -299,6 +305,7 @@ function TimelineSVG(props: {
   elevPts: { x: number; y: number }[];
   powerPts: { x: number; y: number }[];
   modeSegments: ModeSegment[];
+  parkBands: ParkBand[];
   precipBands: PrecipBand[];
   moments: Moment[];
   cursorMs: number | null;
@@ -327,6 +334,7 @@ function TimelineSVG(props: {
     elevPts,
     powerPts,
     modeSegments,
+    parkBands,
     precipBands,
     moments,
     cursorMs,
@@ -428,6 +436,40 @@ function TimelineSVG(props: {
             fill={MODE_TINT[seg.mode]}
           />
         ))}
+      </g>
+
+      {/* ---- Park bands across speed + battery panels ------------- */}
+      <g clipPath="url(#dt-plot-clip)">
+        {parkBands.map((b, i) => {
+          const x = sx(b.x0);
+          const w = Math.max(2, sx(b.x1) - sx(b.x0));
+          const mid = x + w / 2;
+          const mins = Math.round((b.x1 - b.x0) / 60000);
+          const label = mins >= 60 ? `Parked ${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}` : `Parked ${mins}m`;
+          return (
+            <g key={`park-${i}`}>
+              <rect
+                x={x}
+                y={SPEED_TOP}
+                width={w}
+                height={BATT_TOP + BATT_H - SPEED_TOP}
+                fill="#a3a3a3"
+                fillOpacity={0.10}
+              />
+              {w > 50 && (
+                <text
+                  x={mid}
+                  y={SPEED_TOP + 11}
+                  textAnchor="middle"
+                  className="fill-neutral-400"
+                  fontSize="10"
+                >
+                  {label}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </g>
 
       {/* ---- Power ribbon ----------------------------------------- */}
@@ -1425,6 +1467,44 @@ function buildModeSegments(
     } else {
       out.push(seg);
     }
+  }
+  return out;
+}
+
+// buildParkBands returns shaded ranges where speed has been ≤ 0.5 mph
+// for ≥ 5 min. Used to make the "drove → parked → drove" structure
+// of a trip visible at a glance on the timeline.
+function buildParkBands(
+  samples: Sample[],
+  startMs: number,
+  endMs: number,
+): ParkBand[] {
+  const PARK_MIN_MS = 5 * 60_000;
+  const out: ParkBand[] = [];
+  if (samples.length === 0) return out;
+  let runStart = -1;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    const ms = new Date(s.At).getTime();
+    if (!Number.isFinite(ms)) continue;
+    const parked = (s.SpeedMph ?? 0) <= 0.5;
+    if (parked) {
+      if (runStart < 0) runStart = ms;
+      continue;
+    }
+    if (runStart >= 0 && ms - runStart >= PARK_MIN_MS) {
+      out.push({
+        x0: Math.max(runStart, startMs),
+        x1: Math.min(ms, endMs),
+      });
+    }
+    runStart = -1;
+  }
+  if (runStart >= 0 && endMs - runStart >= PARK_MIN_MS) {
+    out.push({
+      x0: Math.max(runStart, startMs),
+      x1: endMs,
+    });
   }
   return out;
 }
