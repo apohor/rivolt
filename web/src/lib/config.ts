@@ -54,6 +54,12 @@ export type RuntimeConfig = {
     // hidden. Admin toggles it from the Admin page.
     tripPlannerEnabled: boolean;
   };
+  grafana: {
+    // baseUrl is the operator's Grafana origin (e.g.
+    // "https://grafana.rivolt.dev"). Empty hides admin deep-links
+    // into Explore. Cross-origin, so the link opens in a new tab.
+    baseUrl: string;
+  };
   // GPS accuracy heuristic thresholds. Used by DriveDetailPage to
   // decide whether to render the "Low GPS accuracy" pill. Defaults
   // are tuned for the typical Rivian WS feed; admin can override.
@@ -69,6 +75,7 @@ const fallback: RuntimeConfig = {
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
   features: { tripPlannerEnabled: false },
+  grafana: { baseUrl: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
 };
 let cached: RuntimeConfig = fallback;
@@ -83,6 +90,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean };
+      grafana?: { base_url?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
     } | null;
     return {
@@ -93,6 +101,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       },
       ai: { enabled: !!j?.ai?.enabled },
       features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
+      grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       gps: {
         missingPct: typeof j?.gps?.missing_pct === "number" ? j.gps.missing_pct : fallback.gps.missingPct,
         staleSec: typeof j?.gps?.stale_sec === "number" ? j.gps.stale_sec : fallback.gps.staleSec,
@@ -139,6 +148,12 @@ export function valhallaBase(): string {
 // the legacy CARTO raster path.
 export function tilesPMTilesURL(): string {
   return cached.tiles.url;
+}
+
+// grafanaBaseURL returns the operator's Grafana origin or "" when
+// none is wired. Admin surfaces deep-link into Explore via this.
+export function grafanaBaseURL(): string {
+  return cached.grafana.baseUrl;
 }
 
 // chargersPMTilesURL returns the same-origin URL of the chargers

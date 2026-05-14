@@ -124,6 +124,15 @@ spec:
               value: {{ .tiles.baseUrl | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.grafana.baseUrl }}
+            # Operator's Grafana origin. Surfaced via /api/config so
+            # the admin user drawer can deep-link to Explore queries
+            # scoped to a user_id + time range. Empty/unset hides
+            # the links — no broken anchors on self-hosted installs
+            # without Grafana.
+            - name: RIVOLT_GRAFANA_BASE_URL
+              value: {{ .Values.grafana.baseUrl | quote }}
+            {{- end }}
             {{- with .Values.elevation }}
             {{- if .enabled }}
             # Elevation lookup is opt-in. ELEVATION_ENABLED gates the

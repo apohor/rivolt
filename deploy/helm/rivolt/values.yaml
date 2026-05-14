@@ -464,6 +464,17 @@ maps:
 # Recorder writes NULL altitude_m on cache misses; the frontend hides
 # the Elevation panel when fewer than two samples carry altitude, so
 # leaving this off (or unmounted) is invisible to existing drives.
+# ---------------------------------------------------------------------------
+# Grafana deep-links from the admin UI
+# ---------------------------------------------------------------------------
+# Operator's Grafana origin (e.g. https://grafana.example.com).
+# Surfaced via /api/config so the admin user drawer can render
+# clickable Explore deep-links for time-bounded user activity.
+# Empty/unset hides the links — self-hosted installs without
+# Grafana get plain text values, not broken anchors.
+grafana:
+  baseUrl: ""
+
 elevation:
   enabled: false
   # Terrarium tile template. Empty -> Mapzen on AWS Open Data

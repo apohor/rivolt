@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -846,6 +847,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		// shouldn't be offered as an engine option.
 		Path string `json:"path,omitempty"`
 	}
+	type grafanaCfg struct {
+		// BaseURL is the operator's Grafana origin (e.g.
+		// "https://grafana.rivolt.dev"). Surfaced so the admin user
+		// drawer can deep-link to Explore queries scoped to a
+		// user_id + time range. Empty hides the links.
+		BaseURL string `json:"base_url,omitempty"`
+	}
 	type gpsCfg struct {
 		// MissingPct, StaleSec, JumpCount drive the "Low GPS accuracy"
 		// pill on the drive detail page. Surfaced here so the SPA
@@ -860,8 +868,9 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		AI       aiCfg       `json:"ai"`
 		Features featuresCfg `json:"features"`
 		GPS      gpsCfg      `json:"gps"`
+		Grafana  grafanaCfg  `json:"grafana"`
 	}
-	base := cfg{}
+	base := cfg{Grafana: grafanaCfg{BaseURL: strings.TrimRight(os.Getenv("RIVOLT_GRAFANA_BASE_URL"), "/")}}
 	if valhallaEnabled {
 		base.Valhalla.Path = "/api/maps/valhalla"
 	}

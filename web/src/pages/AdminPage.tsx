@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminUserRow, type SignupRequest } from "../lib/api";
+import { grafanaBaseURL } from "../lib/config";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -34,6 +35,38 @@ export default function AdminPage() {
       <AdminTabs currentUserID={me.data.user_id} />
     </div>
   );
+}
+
+// grafanaUserExploreURL builds a Grafana Loki Explore deep link
+// scoped to one user_id over a time window. Returns "" when no
+// Grafana origin is wired so callers can fall back to plain text.
+// The query matches the structured-log fields the request-id
+// middleware injects (`user_id="<uid>"`).
+function grafanaUserExploreURL(
+  userID: string,
+  fromISO: string,
+  toISO: string,
+): string {
+  const base = grafanaBaseURL();
+  if (!base) return "";
+  const from = new Date(fromISO).getTime();
+  const to = new Date(toISO).getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
+  const left = {
+    datasource: "loki",
+    queries: [
+      {
+        refId: "A",
+        // |~ does a regex match against the JSON line so we hit
+        // both "user_id":"<uid>" (server logs) and any other place
+        // the uid is mentioned (e.g. trace events that include it
+        // as a free-form field).
+        expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
+      },
+    ],
+    range: { from: String(from), to: String(to) },
+  };
+  return `${base}/explore?orgId=1&left=${encodeURIComponent(JSON.stringify(left))}`;
 }
 
 // AdminTabs groups admin-only surfaces under a single tab nav. The
@@ -773,11 +806,31 @@ function UserDetailPanel({
         <Stat
           label="Telemetry span"
           value={
-            d?.oldest_sample_at && d?.newest_sample_at
-              ? `${new Date(d.oldest_sample_at).toLocaleDateString()} → ${new Date(d.newest_sample_at).toLocaleDateString()}`
-              : d
-                ? "no samples"
-                : "…"
+            !d
+              ? "…"
+              : d.oldest_sample_at && d.newest_sample_at
+                ? (() => {
+                    const label = `${new Date(d.oldest_sample_at).toLocaleDateString()} → ${new Date(d.newest_sample_at).toLocaleDateString()}`;
+                    const href = grafanaUserExploreURL(
+                      row.id,
+                      d.oldest_sample_at,
+                      d.newest_sample_at,
+                    );
+                    return href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-emerald-300 underline-offset-2 hover:underline"
+                        title="Open logs for this user in Grafana"
+                      >
+                        {label} ↗
+                      </a>
+                    ) : (
+                      label
+                    );
+                  })()
+                : "no samples"
           }
         />
       </div>
