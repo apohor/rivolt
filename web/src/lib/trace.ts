@@ -18,7 +18,7 @@ const GAP_TIME_S = 120; // ≥2 min between samples = end-of-segment
 const GAP_DIST_M = 500; // ≥500 m jump between samples = end-of-segment
 
 // haversine distance in meters.
-function haversine(a: TracePoint, b: TracePoint): number {
+export function haversine(a: TracePoint, b: TracePoint): number {
   const R = 6371000;
   const φ1 = (a.lat * Math.PI) / 180;
   const φ2 = (b.lat * Math.PI) / 180;

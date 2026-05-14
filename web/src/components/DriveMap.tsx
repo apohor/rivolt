@@ -23,6 +23,7 @@ import {
   cleanTrace,
   classifySegment,
   splitTraceOnGaps,
+  haversine,
   type TraceGap,
 } from "../lib/trace";
 
@@ -280,7 +281,44 @@ async function snapToRoads(
     }
     if (signal.aborted) return null;
     if (snapped && snapped.length > 1) {
-      out.segments.push({ coords: snapped, raw: false });
+      // Tail-coverage check. The matcher sometimes bails part-way
+      // through a noisy segment and returns only a prefix — we'd
+      // then silently drop the rest of the drive. If the snapped
+      // polyline's last vertex lands far from the segment's last
+      // input coord, find the first input point that the matcher
+      // skipped, draw the snapped prefix as one sub-segment, emit
+      // a dashed connector across the unmatched gap, and render
+      // the remaining tail as a raw chord.
+      const TAIL_TOLERANCE_M = 200;
+      const last = snapped[snapped.length - 1];
+      const tailPt = seg[seg.length - 1];
+      const tailDist = haversine(
+        { lat: last[0], lon: last[1] },
+        { lat: tailPt.lat, lon: tailPt.lon },
+      );
+      if (tailDist > TAIL_TOLERANCE_M) {
+        out.segments.push({ coords: snapped, raw: false });
+        // Find the first input point > TAIL_TOLERANCE_M from the
+        // snapped end — that's where the unmatched tail begins.
+        let cutIdx = seg.length - 1;
+        for (let i = 0; i < seg.length; i++) {
+          const d = haversine(
+            { lat: last[0], lon: last[1] },
+            { lat: seg[i].lat, lon: seg[i].lon },
+          );
+          if (d > TAIL_TOLERANCE_M) {
+            cutIdx = i;
+            break;
+          }
+        }
+        out.gaps.push({ from: last, to: [seg[cutIdx].lat, seg[cutIdx].lon] });
+        const tail = seg.slice(cutIdx);
+        if (tail.length >= 2) {
+          out.segments.push({ coords: rawPolyline(tail), raw: true });
+        }
+      } else {
+        out.segments.push({ coords: snapped, raw: false });
+      }
     } else {
       // Any snap failure falls back to the raw trace — even for
       // a normal-quality segment the raw chord polyline is more

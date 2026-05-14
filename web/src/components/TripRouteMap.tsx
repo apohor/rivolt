@@ -271,17 +271,17 @@ function chargerDotIcon(isDCFC = true): L.DivIcon {
 function chargerPopupHTML(poi: POI, addable: boolean): string {
   const name = poi.name || poi.network || "Charging station";
   const lines: string[] = [
-    `<div style="font:12px/1.4 ui-sans-serif,system-ui;color:#111;min-width:150px">`,
+    `<div style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:150px">`,
     `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
   ];
   if (poi.maxPowerKW && poi.maxPowerKW > 0) {
     lines.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
   }
   if (poi.network && poi.network !== name) {
-    lines.push(`<div style="color:#555">${escapeHTML(poi.network)}</div>`);
+    lines.push(`<div style="color:#a3a3a3">${escapeHTML(poi.network)}</div>`);
   }
   if (poi.capacity && poi.capacity > 0) {
-    lines.push(`<div style="color:#555">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
+    lines.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
   }
   if (addable) {
     lines.push(
