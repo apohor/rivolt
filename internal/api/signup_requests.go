@@ -291,12 +291,16 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		return email.ErrNotConfigured
 	}
 	subject := "You're in: finish your Rivolt signup"
+	const discordURL = "https://discord.gg/kdKqbK3pz"
 	text := "Hi,\n\n" +
 		"Your request for Rivolt beta access has been approved.\n\n" +
 		"Click this link to finish signing up (it'll prefill your email\n" +
 		"so you only need to pick a password):\n\n" +
 		"    " + link + "\n\n" +
 		"The link is single-use and expires in 14 days.\n\n" +
+		"Join the Rivolt community on Discord for help, feedback, and\n" +
+		"early access to new features:\n\n" +
+		"    " + discordURL + "\n\n" +
 		"— Anton (anton@rivolt.dev)\n"
 	html := "<p>Hi,</p>" +
 		"<p>Your request for Rivolt beta access has been approved.</p>" +
@@ -308,6 +312,9 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		"<p style=\"color:#666;font-size:13px;\">Or paste this URL into your browser:<br>" +
 		"<a href=\"" + link + "\">" + link + "</a></p>" +
 		"<p>The link is single-use and expires in 14 days.</p>" +
+		"<p>Join the community on " +
+		"<a href=\"" + discordURL + "\" style=\"color:#5865f2;font-weight:600;\">Discord</a> " +
+		"for help, feedback, and early access to new features.</p>" +
 		"<p>— Anton (<a href=\"mailto:anton@rivolt.dev\">anton@rivolt.dev</a>)</p>"
 	return mailer.Send(ctx, email.Message{
 		To:      to,

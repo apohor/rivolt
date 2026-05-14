@@ -214,6 +214,15 @@ function Footer() {
         >
           Docs
         </a>
+        <span className="text-neutral-700">·</span>
+        <a
+          href="https://discord.gg/kdKqbK3pz"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-neutral-200"
+        >
+          Discord
+        </a>
         {health.data?.version && (
           <>
             <span className="text-neutral-700">·</span>
