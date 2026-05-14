@@ -31,47 +31,104 @@ export default function AdminPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Admin" />
-      <Card title="Backend" id="backend">
-        <BackendInfoPanel />
-      </Card>
-      <Card title="Signup requests">
-        <SignupRequestsPanel />
-      </Card>
-      <Card title="Users">
-        <CreateUserForm />
-        <UsersPanel currentUserID={me.data.user_id} />
-      </Card>
-      <Card title="Feature flags">
-        <FeatureFlagsPanel />
-      </Card>
-      <Card title="AI providers">
-        <AIProvidersPanel />
-      </Card>
-      <Card title="Recap weather">
-        <RecapWeatherPanel />
-      </Card>
-      <Card title="GPS accuracy thresholds">
-        <GPSAccuracyPanel />
-      </Card>
+      <AdminTabs currentUserID={me.data.user_id} />
     </div>
   );
 }
 
-// BackendInfoPanel surfaces /api/health so the operator can verify
-// version + clock from the page instead of curl-ing the endpoint.
-// Lives on the admin page (not user settings) because the average
-// user has no use for the build SHA.
-function BackendInfoPanel() {
-  const health = useQuery({ queryKey: ["health"], queryFn: () => backend.health() });
-  if (health.isLoading) return <Spinner />;
-  if (health.isError) return <ErrorBox title="Backend unreachable" detail={String(health.error)} />;
+// AdminTabs groups admin-only surfaces under a single tab nav. The
+// active tab is mirrored in the URL hash so a reload (or a copy-
+// pasted link to /admin#ai) keeps the position the operator was on.
+type AdminTab = "users" | "signups" | "ai" | "operations" | "tuning";
+
+const ADMIN_TABS: { id: AdminTab; label: string }[] = [
+  { id: "users", label: "Users" },
+  { id: "signups", label: "Signups" },
+  { id: "ai", label: "AI" },
+  { id: "operations", label: "Operations" },
+  { id: "tuning", label: "Tuning" },
+];
+
+function isAdminTab(s: string): s is AdminTab {
+  return ADMIN_TABS.some((t) => t.id === s);
+}
+
+function AdminTabs({ currentUserID }: { currentUserID: string }) {
+  const initial: AdminTab = (() => {
+    const h = window.location.hash.replace(/^#/, "");
+    return isAdminTab(h) ? h : "users";
+  })();
+  const [tab, setTab] = useState<AdminTab>(initial);
+  // Keep the hash in sync so a reload restores the active tab and
+  // a deep link (`/admin#ai`) opens the right pane. Listen for
+  // hashchange too — the back button moves between tabs cleanly.
+  useEffect(() => {
+    if (window.location.hash.replace(/^#/, "") !== tab) {
+      window.history.replaceState(null, "", `#${tab}`);
+    }
+  }, [tab]);
+  useEffect(() => {
+    const onHash = () => {
+      const h = window.location.hash.replace(/^#/, "");
+      if (isAdminTab(h)) setTab(h);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   return (
-    <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 text-sm">
-      <dt className="text-neutral-500">Version</dt>
-      <dd className="text-neutral-200">{health.data?.version}</dd>
-      <dt className="text-neutral-500">Server time</dt>
-      <dd className="text-neutral-200">{health.data?.time}</dd>
-    </dl>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1 border-b border-neutral-800">
+        {ADMIN_TABS.map((t) => {
+          const active = t.id === tab;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${
+                active
+                  ? "border-emerald-500 text-neutral-100"
+                  : "border-transparent text-neutral-500 hover:text-neutral-300"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {tab === "users" && (
+        <Card title="Users">
+          <CreateUserForm />
+          <UsersPanel currentUserID={currentUserID} />
+        </Card>
+      )}
+      {tab === "signups" && (
+        <Card title="Signup requests">
+          <SignupRequestsPanel />
+        </Card>
+      )}
+      {tab === "ai" && (
+        <Card title="AI providers">
+          <AIProvidersPanel />
+        </Card>
+      )}
+      {tab === "operations" && (
+        <Card title="Feature flags">
+          <FeatureFlagsPanel />
+        </Card>
+      )}
+      {tab === "tuning" && (
+        <div className="space-y-4">
+          <Card title="Recap weather">
+            <RecapWeatherPanel />
+          </Card>
+          <Card title="GPS accuracy thresholds">
+            <GPSAccuracyPanel />
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
