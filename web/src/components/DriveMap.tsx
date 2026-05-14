@@ -187,7 +187,13 @@ async function valhallaSnap(
     ),
     costing: "auto",
     shape_match: "walk_or_snap",
-    trace_options: { search_radius: 100, gps_accuracy: 25 },
+    // breakage_distance keeps Valhalla from splitting a continuous
+    // trip on multi-km GPS dropouts (e.g. tunnel, parking garage).
+    trace_options: {
+      search_radius: 100,
+      gps_accuracy: 25,
+      breakage_distance: 50000,
+    },
     directions_options: { units: "miles" },
   };
   try {
