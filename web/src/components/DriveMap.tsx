@@ -159,11 +159,14 @@ async function routeAll(
   }
 }
 
-// valhallaSnap runs Valhalla's POST /trace_attributes. /trace_route
-// collapses the matched trace into a turn-by-turn route summary that
-// can shrink to a tiny leg when the matcher is uncertain;
-// /trace_attributes returns the full road-snapped polyline of every
-// matched edge in the top-level `shape` field, which is what we want.
+// valhallaSnap runs two Valhalla calls in series. /trace_attributes
+// snaps each GPS sample to its nearest road edge; its top-level
+// `shape` is just the matched-points sequence and includes straight
+// chords across non-adjacent edges. To draw road geometry between
+// those snaps we then call /route with the high-confidence matched
+// points as via-locations, which returns the road-following
+// polyline that visits each via in order. /trace_route on its own
+// bails out early on noisy traces and returns a tiny fragment.
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
@@ -179,16 +182,16 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
-  // Drop consecutive duplicate coords (vehicle stopped at light). The
-  // matcher discounts repeated identical points and the route can
-  // collapse to the first segment otherwise.
+  // Dedup consecutive same-coord samples (stopped at light) — the
+  // matcher loses confidence on long runs of identical points.
   const dedup: SnapPoint[] = [];
   for (const p of trace) {
     const last = dedup[dedup.length - 1];
     if (!last || last.lat !== p.lat || last.lon !== p.lon) dedup.push(p);
   }
   if (dedup.length < 2) return null;
-  const body = {
+
+  const attrBody = {
     shape: dedup.map((p) =>
       Number.isFinite(p.t)
         ? { lat: p.lat, lon: p.lon, time: p.t as number }
@@ -199,16 +202,61 @@ async function valhallaSnap(
     trace_options: { search_radius: 100, gps_accuracy: 10 },
   };
   try {
-    const r = await fetch(`${base}/trace_attributes`, {
+    const attrResp = await fetch(`${base}/trace_attributes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(attrBody),
       signal,
     });
-    if (!r.ok) return null;
-    const j = (await r.json()) as { shape?: string };
-    if (!j.shape) return null;
-    const out = decodePolyline(j.shape, 6);
+    if (!attrResp.ok) return null;
+    const attrs = (await attrResp.json()) as {
+      matched_points?: {
+        lat: number;
+        lon: number;
+        type: string;
+        distance_from_trace_point?: number;
+      }[];
+    };
+    // Keep only high-confidence snaps (within 30 m of the trace).
+    const good = (attrs.matched_points ?? []).filter(
+      (p) =>
+        p.type === "matched" && (p.distance_from_trace_point ?? 999) < 30,
+    );
+    if (good.length < 2) return null;
+    // /route caps at 50 locations. Sample evenly when we exceed.
+    const MAX_VIA = 50;
+    let via = good;
+    if (via.length > MAX_VIA) {
+      const step = via.length / MAX_VIA;
+      via = Array.from({ length: MAX_VIA }, (_, i) => good[Math.floor(i * step)]);
+    }
+    const routeBody = {
+      locations: via.map((p, i) => ({
+        lat: p.lat,
+        lon: p.lon,
+        type: i === 0 || i === via.length - 1 ? "break" : "through",
+      })),
+      costing: "auto",
+      directions_options: { units: "miles" },
+    };
+    const routeResp = await fetch(`${base}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(routeBody),
+      signal,
+    });
+    if (!routeResp.ok) return null;
+    const route = (await routeResp.json()) as {
+      trip?: { legs?: { shape?: string }[] };
+    };
+    const legs = route.trip?.legs ?? [];
+    if (legs.length === 0) return null;
+    const out: [number, number][] = [];
+    for (let i = 0; i < legs.length; i++) {
+      const seg = decodePolyline(legs[i].shape, 6);
+      if (i > 0 && seg.length > 0) seg.shift();
+      out.push(...seg);
+    }
     return out.length > 1 ? out : null;
   } catch {
     return null;
