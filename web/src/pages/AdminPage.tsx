@@ -59,29 +59,35 @@ function grafanaUserExploreURL(
   const from = new Date(fromISO).getTime();
   const to = new Date(toISO).getTime();
   if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
-  const left =
+  // Grafana's `left` schema accepts datasource as a UID string OR
+  // a {type, uid} object. The object form is what's blessed in
+  // recent docs and the only form that still works if the UID
+  // ever changes — pin both fields so a typo in either still
+  // produces a useful error in Grafana instead of silently
+  // falling back to the default datasource and rendering a
+  // homepage that looks like "wrong data".
+  const ds =
+    kind === "logs"
+      ? { type: "loki", uid: "loki" }
+      : { type: "tempo", uid: "tempo" };
+  const query =
     kind === "logs"
       ? {
-          datasource: "loki",
-          queries: [
-            {
-              refId: "A",
-              expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
-            },
-          ],
-          range: { from: String(from), to: String(to) },
+          refId: "A",
+          datasource: ds,
+          expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
         }
       : {
-          datasource: "tempo",
-          queries: [
-            {
-              refId: "A",
-              queryType: "traceql",
-              query: `{ .user.id = "${userID}" }`,
-            },
-          ],
-          range: { from: String(from), to: String(to) },
+          refId: "A",
+          datasource: ds,
+          queryType: "traceql",
+          query: `{ .user.id = "${userID}" }`,
         };
+  const left = {
+    datasource: ds,
+    queries: [query],
+    range: { from: String(from), to: String(to) },
+  };
   return `${base}/explore?orgId=1&left=${encodeURIComponent(JSON.stringify(left))}`;
 }
 
