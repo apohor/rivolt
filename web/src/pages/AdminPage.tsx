@@ -732,7 +732,7 @@ function UserDetailPanel({
         </div>
         {!d ? (
           <div className="text-sm text-neutral-500">Loading…</div>
-        ) : d.vehicles.length === 0 ? (
+        ) : !d.vehicles || d.vehicles.length === 0 ? (
           <div className="text-sm text-neutral-500">
             No vehicles on file.
             {row.rivian_connected && (

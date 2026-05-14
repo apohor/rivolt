@@ -147,7 +147,10 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 	if d == nil || uid == uuid.Nil {
 		return nil, nil
 	}
-	out := &AdminUserDetail{ID: uid}
+	// Initialise Vehicles to an empty slice so the JSON encoder
+	// emits `[]` instead of `null` for users with zero vehicles —
+	// the SPA reads `.vehicles.length` directly.
+	out := &AdminUserDetail{ID: uid, Vehicles: []AdminUserVehicle{}}
 
 	// Basic identity + Rivian flags + session-row presence/age in one
 	// shot. LEFT JOIN on user_secrets keeps a NULL-bearing row when
