@@ -1472,43 +1472,42 @@ function buildModeSegments(
   return out;
 }
 
-// buildParkBands returns shaded ranges where speed has stayed below
-// the noise floor for ≥ 5 min. The 5 mph cutoff (vs the more obvious
-// 0 mph) absorbs Rivian's idle-state speed jitter — sitting at a
-// light reads ~4 mph in the telemetry even when the vehicle is
-// fully stopped.
+// buildParkBands shades the windows where the vehicle wasn't driving
+// (shift_state D/R) for ≥ 5 min. Rivian stops sending telemetry when
+// the car is asleep, so absence of D/R samples is the real signal —
+// raw speed reads ~4 mph at idle and never crosses zero, and only a
+// handful of P samples land per trip.
 function buildParkBands(
   samples: Sample[],
   startMs: number,
   endMs: number,
 ): ParkBand[] {
   const PARK_MIN_MS = 5 * 60_000;
-  const PARK_SPEED = 5;
   const out: ParkBand[] = [];
-  if (samples.length === 0) return out;
-  let runStart = -1;
-  for (let i = 0; i < samples.length; i++) {
-    const s = samples[i];
+  const driving: number[] = [];
+  for (const s of samples) {
+    const g = (s.ShiftState ?? "").trim().toUpperCase();
+    if (g !== "D" && g !== "R" && g !== "DRIVE" && g !== "REVERSE") continue;
     const ms = new Date(s.At).getTime();
-    if (!Number.isFinite(ms)) continue;
-    const parked = (s.SpeedMph ?? 0) <= PARK_SPEED;
-    if (parked) {
-      if (runStart < 0) runStart = ms;
-      continue;
-    }
-    if (runStart >= 0 && ms - runStart >= PARK_MIN_MS) {
-      out.push({
-        x0: Math.max(runStart, startMs),
-        x1: Math.min(ms, endMs),
-      });
-    }
-    runStart = -1;
+    if (Number.isFinite(ms)) driving.push(ms);
   }
-  if (runStart >= 0 && endMs - runStart >= PARK_MIN_MS) {
-    out.push({
-      x0: Math.max(runStart, startMs),
-      x1: endMs,
-    });
+  driving.sort((a, b) => a - b);
+  if (driving.length === 0) {
+    if (endMs - startMs >= PARK_MIN_MS) {
+      out.push({ x0: startMs, x1: endMs });
+    }
+    return out;
+  }
+  if (driving[0] - startMs >= PARK_MIN_MS) {
+    out.push({ x0: startMs, x1: driving[0] });
+  }
+  for (let i = 1; i < driving.length; i++) {
+    if (driving[i] - driving[i - 1] >= PARK_MIN_MS) {
+      out.push({ x0: driving[i - 1], x1: driving[i] });
+    }
+  }
+  if (endMs - driving[driving.length - 1] >= PARK_MIN_MS) {
+    out.push({ x0: driving[driving.length - 1], x1: endMs });
   }
   return out;
 }
