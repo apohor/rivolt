@@ -180,18 +180,21 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
-  // map_match (HMM) over map_snap (strict point-by-point): map_snap
-  // returns empty legs when individual GPS samples can't be snapped
-  // to a road within the default 35 m search_radius — common at
-  // trip start/end (driveway, parking lot) and through GPS-lag in
-  // urban canyons. The user-visible symptom was a polyline that
-  // ended a few meters into a multi-mile drive. HMM walks the road
-  // graph and tolerates outliers; search_radius=100 m gives it more
-  // room to find the right edge for noisy points.
+  // walk_or_snap is Valhalla's "try strict, fall back to relaxed"
+  // mode: it attempts edge_walk first (follow the road graph point
+  // by point) and, when a point can't be walked to, falls back to
+  // map_snap (project to nearest edge within search_radius). This
+  // is what we want — strict snapping on the highway portions plus
+  // tolerance for noisy start/end / urban-canyon samples. The
+  // earlier "map_match" string is not a valid Valhalla value and
+  // returned HTTP 400, leaving the SPA to fall back to the raw GPS
+  // chord polyline (visible as straight-line triangles in v0.18.31).
+  // search_radius=100 m doubles the default so noisy points still
+  // land on a plausible edge.
   const body = {
     shape: trace.map((p) => ({ lat: p.lat, lon: p.lon })),
     costing: "auto",
-    shape_match: "map_match",
+    shape_match: "walk_or_snap",
     trace_options: { search_radius: 100 },
     directions_options: { units: "miles" },
   };
