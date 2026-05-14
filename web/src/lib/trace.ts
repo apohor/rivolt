@@ -1,6 +1,6 @@
 // GPS trace pre-processing for map-matching.
 //
-// HMM-based matchers (OSRM, Valhalla) are sensitive to a handful of
+// HMM-based map matchers (Valhalla) are sensitive to a handful of
 // noise patterns that arise in raw Rivian telemetry:
 //   - identical points repeated while the vehicle sits at a light;
 //   - GPS jumps (single sample tens or hundreds of meters off the

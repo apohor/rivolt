@@ -1,14 +1,14 @@
 // Package maps wires same-origin reverse-proxies that let the SPA
-// reach self-hosted map services (OSRM for routing, an nginx-served
-// PMTiles bundle for vector basemaps) through the existing rivolt
-// origin and session cookie.
+// reach self-hosted map services (Valhalla for routing + map
+// matching, an nginx-served PMTiles bundle for vector basemaps)
+// through the existing rivolt origin and session cookie.
 //
 // Why proxy instead of CORS-on-the-upstream:
 //
-//   - OSRM 5.x has no native CORS. nginx for tiles can be configured
-//     for it, but exposing each upstream behind its own ingress +
-//     cert burns hostnames for what is effectively the SPA's own
-//     data path.
+//   - Most upstreams (Valhalla, the tile nginx) have no native CORS.
+//     nginx can be configured for it, but exposing each upstream
+//     behind its own ingress + cert burns hostnames for what is
+//     effectively the SPA's own data path.
 //   - Proxying through the rivolt API keeps drive maps same-origin,
 //     reuses the existing auth middleware (routes are mounted inside
 //     the requireUser group), and lets us add per-user rate limits
@@ -35,7 +35,7 @@ import (
 // as "feature off" and skip mounting the route.
 //
 // baseURL is typically a cluster-internal Service address
-// ("http://osrm.osrm.svc.cluster.local",
+// ("http://valhalla.valhalla.svc.cluster.local",
 // "http://tiles.tiles.svc.cluster.local").
 func NewProxy(baseURL string) (http.Handler, error) {
 	baseURL = strings.TrimSpace(baseURL)
@@ -68,6 +68,7 @@ func NewProxy(baseURL string) (http.Handler, error) {
 
 // ErrInvalidURL is returned when a configured base URL parses but
 // is missing a scheme or host. Treated as fatal at startup so a
-// typo in RIVOLT_OSRM_BASE_URL / RIVOLT_TILES_BASE_URL fails fast
-// instead of silently dropping every drive map back to public CDNs.
+// typo in RIVOLT_VALHALLA_BASE_URL / RIVOLT_TILES_BASE_URL fails
+// fast instead of silently dropping every drive map back to public
+// CDNs.
 var ErrInvalidURL = errors.New("maps: base URL must include scheme and host")

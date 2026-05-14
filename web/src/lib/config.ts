@@ -1,15 +1,15 @@
 // Runtime config is fetched once from /api/config and cached for the
-// life of the SPA tab. Today it carries the OSRM same-origin proxy
-// path; future knobs (tile server URL, feature flags) can ride here
-// without round-tripping the env into the bundle at build time.
+// life of the SPA tab. Carries the same-origin proxy paths (Valhalla,
+// PMTiles) and admin-tunable thresholds without round-tripping the
+// env into the bundle at build time.
 //
 // Why a dedicated module instead of import.meta.env:
 //   - The SPA bundle is built once and served from the same image
 //     across deploys (single docker-compose, k3s, prod cluster).
 //     A build-time env var would force a rebuild per deploy.
 //   - Operators choose at deploy time whether to wire a self-hosted
-//     OSRM. Same image, different behavior — exactly what runtime
-//     config is for.
+//     Valhalla / PMTiles server. Same image, different behavior —
+//     exactly what runtime config is for.
 //
 // The fetch is fire-and-forget at module load. Consumers read via
 // `getConfig()` which returns the cached value once resolved or
@@ -18,12 +18,6 @@
 // match call returns; a one-tick delay on first render is invisible.
 import { useEffect, useState } from "react";
 export type RuntimeConfig = {
-  osrm: {
-    // path is the same-origin URL prefix to use for /match, /route,
-    // etc. Empty means the server didn't wire an OSRM proxy and the
-    // SPA falls back to the public OSRM demo.
-    path: string;
-  };
   tiles: {
     // url is the same-origin URL of the served .pmtiles bundle.
     // protomaps-leaflet pulls tiles out of it via HTTP byte-range
@@ -39,10 +33,9 @@ export type RuntimeConfig = {
     chargersUrl: string;
   };
   valhalla: {
-    // path mirrors osrm.path: same-origin URL prefix to the
-    // Valhalla HTTP API, empty when no proxy is wired. The SPA
-    // offers Valhalla as an alternate routing engine when this
-    // is set; otherwise OSRM is the only option.
+    // path is the same-origin URL prefix to the Valhalla HTTP API,
+    // empty when no proxy is wired. When empty the SPA renders raw
+    // GPS chord polylines without snapping.
     path: string;
   };
   ai: {
@@ -72,7 +65,6 @@ export type RuntimeConfig = {
 };
 
 const fallback: RuntimeConfig = {
-  osrm: { path: "" },
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
@@ -87,7 +79,6 @@ async function loadConfig(): Promise<RuntimeConfig> {
     const r = await fetch("/api/config", { credentials: "same-origin" });
     if (!r.ok) return fallback;
     const j = (await r.json()) as {
-      osrm?: { path?: string };
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
@@ -95,7 +86,6 @@ async function loadConfig(): Promise<RuntimeConfig> {
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
     } | null;
     return {
-      osrm: { path: j?.osrm?.path ?? "" },
       valhalla: { path: j?.valhalla?.path ?? "" },
       tiles: {
         url: j?.tiles?.url ?? "",
@@ -133,14 +123,6 @@ export function ensureConfig(): Promise<RuntimeConfig> {
 // must await ensureConfig() first.
 export function getConfig(): RuntimeConfig {
   return cached;
-}
-
-// osrmBase returns the base URL for OSRM HTTP endpoints. When the
-// server has wired the same-origin proxy this is "/api/maps/osrm";
-// otherwise it falls back to the public demo. /match etc. paths
-// are appended by the caller.
-export function osrmBase(): string {
-  return cached.osrm.path || "https://router.project-osrm.org";
 }
 
 // valhallaBase returns the base URL for the Valhalla HTTP API, or

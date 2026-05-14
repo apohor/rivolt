@@ -44,13 +44,13 @@ func TestProxy_forwardsAndStripsCreds(t *testing.T) {
 		t.Fatalf("NewProxy: %v", err)
 	}
 
-	// Mounted at /api/maps/osrm, path stripped before reaching us.
+	// Mounted at /api/maps/valhalla, path stripped before reaching us.
 	mux := http.NewServeMux()
-	mux.Handle("/api/maps/osrm/", http.StripPrefix("/api/maps/osrm", h))
+	mux.Handle("/api/maps/valhalla/", http.StripPrefix("/api/maps/valhalla", h))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/api/maps/osrm/match/v1/driving/0,0;1,1?geometries=geojson", nil)
+	req, _ := http.NewRequest("GET", srv.URL+"/api/maps/valhalla/route?json=%7B%7D", nil)
 	req.Header.Set("Cookie", "rivolt_session=should-not-leak")
 	req.Header.Set("Authorization", "Bearer should-not-leak")
 	resp, err := http.DefaultClient.Do(req)
@@ -61,7 +61,7 @@ func TestProxy_forwardsAndStripsCreds(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: %d", resp.StatusCode)
 	}
-	if !strings.HasPrefix(gotPath, "/match/v1/driving/0,0;1,1") {
+	if !strings.HasPrefix(gotPath, "/route") {
 		t.Fatalf("path forwarded wrong: %q", gotPath)
 	}
 	if gotCookie != "" {

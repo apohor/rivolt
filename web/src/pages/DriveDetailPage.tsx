@@ -208,7 +208,7 @@ export default function DriveDetailPage() {
   }, [drive, samples.data]);
 
   // Samples to feed the route map. Same window as `driveSamples`,
-  // but with two extra constraints that matter for OSRM /match:
+  // but with two extra constraints that matter for Valhalla /trace_route:
   //
   //   1. Hard-cap at EndedAt (no post-end pad). The 60 s pad on
   //      driveSamples exists so the speed chart can visibly return
@@ -258,7 +258,7 @@ export default function DriveDetailPage() {
       mapPathSamples.map((p) => ({
         lat: p.Lat,
         lon: p.Lon,
-        // Unix seconds — OSRM /match needs a monotonic time axis,
+        // Unix seconds — the matcher needs a monotonic time axis,
         // and the cursor marker uses it to find the nearest sample.
         t: Math.floor(new Date(p.At).getTime() / 1000),
         // Speed in mph for the speed-colored polyline. DriveMap

@@ -1009,25 +1009,13 @@ func runServer() {
 		userProvider = idp.Disabled()
 	}
 
-	// OSRM same-origin proxy. RIVOLT_OSRM_BASE_URL points at the
-	// cluster Service (e.g. http://osrm.osrm.svc.cluster.local).
-	// Empty disables the feature; the SPA falls back to the public
-	// OSRM demo via /api/config advertising an empty path.
-	osrmProxy, err := maps.NewProxy(os.Getenv("RIVOLT_OSRM_BASE_URL"))
-	if err != nil {
-		logger.Error("osrm proxy init", "err", err.Error())
-		os.Exit(1)
-	}
-	if osrmProxy != nil {
-		logger.Info("osrm same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_OSRM_BASE_URL"))
-	}
-
 	// Valhalla same-origin proxy. RIVOLT_VALHALLA_BASE_URL points
 	// at the cluster Service serving the routing API (e.g.
-	// http://valhalla.valhalla.svc.cluster.local). Mirrors the
-	// OSRM proxy pattern: when set, /api/maps/valhalla/* forwards
-	// to this URL and /api/config advertises the path so the SPA
-	// can offer Valhalla as a routing-engine choice.
+	// http://valhalla.valhalla.svc.cluster.local). When set,
+	// /api/maps/valhalla/* forwards to this URL and /api/config
+	// advertises the path so the SPA uses it for /trace_route and
+	// /route. Empty disables snap entirely — the SPA renders the
+	// raw GPS chord.
 	valhallaProxy, err := maps.NewProxy(os.Getenv("RIVOLT_VALHALLA_BASE_URL"))
 	if err != nil {
 		logger.Error("valhalla proxy init", "err", err.Error())
@@ -1114,7 +1102,6 @@ func runServer() {
 		SignupRequests:  signupRequestStore,
 		Email:           mailer,
 		BaseURL:         os.Getenv("RIVOLT_BASE_URL"),
-		OSRMProxy:     osrmProxy,
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,
 		Photon:        photonClient,

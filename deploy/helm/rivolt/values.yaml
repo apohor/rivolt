@@ -407,23 +407,15 @@ ratelimit:
     addr: ""
 
 # ---------------------------------------------------------------------------
-# Maps: self-hosted OSRM + PMTiles same-origin proxies
+# Maps: self-hosted Valhalla + PMTiles same-origin proxies
 # ---------------------------------------------------------------------------
-#
-# When `osrm.baseUrl` is set, the rivolt API:
-#   - mounts /api/maps/osrm/* and reverse-proxies to this URL,
-#   - advertises that path on /api/config so the SPA uses it for
-#     /match and /route instead of the public OSRM demo.
-# Typical in-cluster value: "http://osrm.osrm.svc.cluster.local".
-# Empty falls back to router.project-osrm.org.
 #
 # When `valhalla.baseUrl` is set, the rivolt API:
 #   - mounts /api/maps/valhalla/* and reverse-proxies to this URL,
-#   - advertises that path on /api/config so the SPA can offer
-#     Valhalla as a routing-engine choice alongside OSRM.
+#   - advertises that path on /api/config so the SPA uses it for
+#     /trace_route (drive map snap) and /route (gap fill).
 # Typical in-cluster value: "http://valhalla.valhalla.svc.cluster.local".
-# Both engines can be wired simultaneously — the user picks per
-# install which to use.
+# Empty disables snap — the SPA renders raw GPS chords.
 #
 # When `tiles.baseUrl` is set, the rivolt API:
 #   - mounts /api/maps/tiles/* and reverse-proxies to this URL,
@@ -433,8 +425,6 @@ ratelimit:
 # Typical in-cluster value: "http://tiles.tiles.svc.cluster.local".
 # Empty falls back to CARTO's public dark raster basemap.
 maps:
-  osrm:
-    baseUrl: ""
   valhalla:
     baseUrl: ""
   photon:

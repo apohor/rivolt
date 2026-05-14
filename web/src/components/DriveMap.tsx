@@ -10,9 +10,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
-  osrmBase,
   valhallaBase,
-  getConfig,
   ensureConfig,
   tilesPMTilesURL,
 } from "../lib/config";
@@ -27,144 +25,10 @@ import {
   type TraceGap,
 } from "../lib/trace";
 
-// hasSelfHostedOSRM is true when the server wired a same-origin
-// OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
-// public demo's 9-coord cap on /match (we run with
-// --max-matching-size 1000), so we can send the entire trace in
-// one request instead of walking overlapping chunks.
-function hasSelfHostedOSRM(): boolean {
-  return getConfig().osrm.path !== "";
-}
-
-// Snap raw GPS samples to actual roads using OSRM's map-matching
-// endpoint (/match). Map-matching is the right primitive for this:
-// it takes a noisy GPS trace plus timestamps and returns the road
-// geometry the vehicle most likely traveled, given the kinematic
-// constraints of the road network.
-//
-// Why /match and not /route:
-//   /route returns the *cheapest drivable path* between a list of
-//   waypoints, ignoring everything between them. With sparse or
-//   jittery samples — e.g., low-speed parking-lot maneuvers where
-//   GPS lands on the wrong side of a building — /route happily
-//   picks a different path than was actually driven, often 20–30%
-//   longer. We saw exactly this on a real 2.5 mi drive that /route
-//   stretched into a 3.1 mi reroute.
-//
-//   /match instead treats the trace as evidence: it walks the road
-//   graph using a Hidden Markov Model, weighted by point-to-road
-//   distance and travel-time plausibility. The result hugs the
-//   actual driven roads even when individual fixes are noisy.
-//
-// Why we chunk:
-//   The public OSRM demo caps /match at 9 trace coordinates per
-//   request — far below the 100-coord cap on /route. To use /match
-//   on a multi-mile drive we walk the trace in overlapping chunks
-//   of CHUNK_SIZE points (overlap of 1 keeps adjacent chunks
-//   geometrically continuous). Self-hosted OSRM (which we run with
-//   --max-matching-size 1000) lifts this cap, at which point the
-//   chunking becomes pure overhead — we send the whole trace in
-//   one shot instead.
-//
-// Trace requirements & tradeoffs:
-//   - We downsample to MAX_TRACE so the request count stays bounded
-//     for long drives (otherwise rate limits will start denying us).
-//   - `tidy=true` lets OSRM drop pathological points itself, which
-//     materially improves match quality on stop-and-go traces.
-//   - /match can split a chunk into multiple `matchings` if it
-//     loses confidence (signal gap, U-turn, off-road segment); we
-//     concatenate their geometries in order.
-//   - On any chunk failure we fall through to a single /route call,
-//     and on /route failure to the raw straight-line polyline.
-//
-// For production scale you'd self-host OSRM (or use Mapbox/Valhalla)
-// instead of the public demo server, which is rate-limited.
+// SnapPoint is the per-sample shape consumed by the snap pipeline.
+// Caller fills in {lat, lon}; t (unix seconds) and s (speed mph) are
+// optional and only used to help the matcher / colour the polyline.
 type SnapPoint = { lat: number; lon: number; t?: number; s?: number };
-
-const MATCH_CHUNK_SIZE = 9; // public OSRM demo cap per /match request
-const MATCH_CHUNK_OVERLAP = 1; // shared anchor point between chunks
-const MAX_TRACE = 49; // = 6 × (9 − 1) + 1, i.e. ≤ 6 /match calls
-
-async function matchChunk(
-  pts: SnapPoint[],
-  signal: AbortSignal,
-): Promise<[number, number][] | null> {
-  if (pts.length < 2) return null;
-  const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
-  const url =
-    `${osrmBase()}/match/v1/driving/${coords}` +
-    `?geometries=geojson&overview=full&tidy=true`;
-  try {
-    const r = await fetch(url, { signal });
-    if (!r.ok) return null;
-    const j = (await r.json()) as {
-      code?: string;
-      matchings?: { geometry: { coordinates: [number, number][] } }[];
-    };
-    if (j.code !== "Ok" || !j.matchings?.length) return null;
-    // OSRM splits the response into multiple matchings when it
-    // can't confidently connect the whole trace as one path
-    // (typical at parking lots / off-graph drift). Naïvely
-    // concatenating draws a straight chord between matching N's
-    // end and matching N+1's start — visibly cuts through
-    // buildings. Bridge each gap with a /route call so the
-    // polyline follows the road network all the way through.
-    const out: [number, number][] = [];
-    for (let i = 0; i < j.matchings.length; i++) {
-      const seg = j.matchings[i].geometry.coordinates.map(
-        ([lon, lat]) => [lat, lon] as [number, number],
-      );
-      if (i === 0) {
-        out.push(...seg);
-        continue;
-      }
-      const from = out[out.length - 1];
-      const to = seg[0];
-      const bridge = await routeAll(
-        [
-          { lat: from[0], lon: from[1] },
-          { lat: to[0], lon: to[1] },
-        ],
-        signal,
-      );
-      if (bridge && bridge.length > 1) {
-        // bridge[0] === from (already in out); bridge.at(-1) === to
-        // (also seg[0]) — drop both endpoints to avoid duplicates.
-        out.push(...bridge.slice(1, -1));
-      }
-      out.push(...seg);
-    }
-    return out.length > 1 ? out : null;
-  } catch {
-    return null;
-  }
-}
-
-async function routeAll(
-  pts: SnapPoint[],
-  signal: AbortSignal,
-): Promise<[number, number][] | null> {
-  if (pts.length < 2) return null;
-  const coords = pts.map((p) => `${p.lon},${p.lat}`).join(";");
-  const url =
-    `${osrmBase()}/route/v1/driving/${coords}` +
-    `?geometries=geojson&overview=full`;
-  try {
-    const r = await fetch(url, { signal });
-    if (!r.ok) return null;
-    const j = (await r.json()) as {
-      routes?: { geometry: { coordinates: [number, number][] } }[];
-    };
-    const route = j.routes?.[0];
-    if (!route) return null;
-    const out: [number, number][] = route.geometry.coordinates.map(
-      ([lon, lat]) => [lat, lon],
-    );
-    return out.length > 1 ? out : null;
-  } catch {
-    return null;
-  }
-}
 
 // valhallaRoutePair returns a road-routed polyline between two coords
 // or null on failure. Used to fill gaps where map-matching gave up
@@ -369,9 +233,6 @@ async function snapToRoads(
         chunks = v.chunks;
         innerGaps = v.gaps;
       }
-    } else {
-      const osrmOut = await osrmSnap(seg, signal);
-      if (osrmOut && osrmOut.length > 1) chunks = [osrmOut];
     }
     if (signal.aborted) return null;
     if (chunks && chunks.length > 0) {
@@ -440,49 +301,6 @@ async function snapToRoads(
   }
 
   return out.segments.length > 0 ? out : null;
-}
-
-// osrmSnap wraps the legacy chunked /match + /route path so
-// snapToRoads can dispatch per-segment uniformly. Returns the
-// concatenated matched polyline (or a /route fallback).
-async function osrmSnap(
-  points: SnapPoint[],
-  signal: AbortSignal,
-): Promise<[number, number][] | null> {
-  if (hasSelfHostedOSRM()) {
-    const MAX_TRACE_SELFHOSTED = 500;
-    let trace = points;
-    if (trace.length > MAX_TRACE_SELFHOSTED) {
-      const step = Math.ceil(trace.length / MAX_TRACE_SELFHOSTED);
-      const sampled = trace.filter((_, i) => i % step === 0);
-      if (sampled[sampled.length - 1] !== trace[trace.length - 1]) {
-        sampled.push(trace[trace.length - 1]);
-      }
-      trace = sampled;
-    }
-    const m = await matchChunk(trace, signal);
-    if (m && m.length > 1) return m;
-    return await routeAll(trace, signal);
-  }
-  const step = Math.max(1, Math.ceil(points.length / MAX_TRACE));
-  const sampled = points.filter((_, i) => i % step === 0);
-  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
-    sampled.push(points[points.length - 1]);
-  }
-  const stride = MATCH_CHUNK_SIZE - MATCH_CHUNK_OVERLAP;
-  const matched: [number, number][] = [];
-  for (let i = 0; i < sampled.length - 1; i += stride) {
-    if (signal.aborted) return null;
-    const chunk = sampled.slice(i, i + MATCH_CHUNK_SIZE);
-    if (chunk.length < 2) break;
-    const m = await matchChunk(chunk, signal);
-    if (!m) return await routeAll(sampled, signal);
-    if (matched.length > 0 && m.length > 0) m.shift();
-    matched.push(...m);
-    if (i + MATCH_CHUNK_SIZE >= sampled.length) break;
-  }
-  if (matched.length > 1) return matched;
-  return await routeAll(sampled, signal);
 }
 
 // Tile config shared by both maps. CARTO's dark basemap split into a
@@ -1120,41 +938,13 @@ export function DriveMap({
         ? stalenessBadge(map, fixAgeSeconds)
         : null;
 
-    // Best-effort: replace the straight-line polyline with a road-snapped
-    // geometry from OSRM. If the request fails (rate limit, offline,
-    // non-drivable terrain) we keep the raw trace. The abort controller
-    // cancels the in-flight request if the component unmounts or props
-    // change before OSRM responds.
-    //
-    // We only invoke /match when the GPS sample density is too sparse
-    // for the raw trace to look like a road (e.g. a drive with only
-    // a handful of mid-trip fixes). Rivian normally streams 3–5 s
-    // samples that already lie within ~3 m of the actual road, and
-    // running them through OSRM's HMM downsamples + sometimes snaps
-    // the trace to a parallel arterial (Reagan Blvd in our test
-    // round trip) instead of the residential streets actually driven.
-    // For dense traces, the raw polyline is more faithful than any
-    // /match output we can get out of the public OSRM demo (capped
-    // at 9 coordinates per request).
+    // Best-effort: replace the straight-line polyline with a
+    // road-snapped geometry from Valhalla. If the request fails
+    // (offline, non-drivable terrain) we keep the raw trace. The
+    // abort controller cancels the in-flight request if the
+    // component unmounts or props change before Valhalla responds.
     const ac = new AbortController();
-    // Always snap with Valhalla (no coord cap, handles dense + noisy
-    // traces). Sparse-only gate stays for the OSRM-demo fallback.
-    let avgGap = 0;
-    if (valid.length >= 2) {
-      let total = 0;
-      for (let i = 1; i < valid.length; i++) {
-        const a = valid[i - 1];
-        const b = valid[i];
-        const dy = (b.lat - a.lat) * 111111;
-        const dx =
-          (b.lon - a.lon) * 111111 * Math.cos((a.lat * Math.PI) / 180);
-        total += Math.hypot(dx, dy);
-      }
-      avgGap = total / (valid.length - 1);
-    }
     const valhallaAvailable = valhallaBase() !== "";
-    const SPARSE_MIN_GAP_M = 200;
-    const useOsrm = valhallaAvailable || avgGap >= SPARSE_MIN_GAP_M;
     // Synthesize bracketing timestamps for the parked start/end pins
     // so the trace stays monotonic. We anchor them ~60 s outside the
     // first/last in-drive sample, which mirrors how Rivian's
@@ -1172,7 +962,7 @@ export function DriveMap({
       ...valid,
       ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
     ];
-    if (useOsrm) {
+    if (valhallaAvailable) {
       snapToRoads(tracePoints, ac.signal).then((plan) => {
         if (!plan || plan.segments.length === 0 || !mapRef.current) return;
         if (line) line.remove();
@@ -1697,8 +1487,8 @@ export function ChargesOverviewMap({
 // decodePolyline decodes a Google-format encoded polyline into
 // [lat, lon] pairs. Matches the encoder in
 // internal/rivian/polyline.go on the backend at the default
-// precision. precision defaults to 5 (Google / OSRM); pass 6 for
-// Valhalla shapes. Returns an empty array for empty / nullish /
+// precision. precision defaults to 5 (Google encoded polyline);
+// pass 6 for Valhalla shapes. Returns an empty array for empty / nullish /
 // malformed input so callers can do a simple length check and
 // fall back to a straight start→end line.
 function decodePolyline(
@@ -1743,11 +1533,9 @@ function decodePolyline(
 
 // routeOverview fetches a road-snapped start→end geometry for drives
 // that don't have a stored RoutePolyline. Lightweight: only two
-// coordinates, no GPS trace required. Dispatches on the user's
-// routing-engine preference (same as snapToRoads); falls back to OSRM
-// when Valhalla fails or isn't wired so the overview map always
-// populates. Returns null on total failure so the caller can keep
-// the straight-line fallback.
+// coordinates, no GPS trace required. Returns null when Valhalla
+// isn't wired or the call fails, so the caller can keep the
+// straight-line fallback.
 async function routeOverview(
   startLat: number,
   startLon: number,
@@ -1757,14 +1545,12 @@ async function routeOverview(
 ): Promise<[number, number][] | null> {
   await ensureConfig();
   if (signal.aborted) return null;
+  if (valhallaBase() === "") return null;
   const pts: SnapPoint[] = [
     { lat: startLat, lon: startLon },
     { lat: endLat, lon: endLon },
   ];
-  if (valhallaBase() !== "") {
-    return await valhallaRoute(pts, signal);
-  }
-  return routeAll(pts, signal);
+  return await valhallaRoute(pts, signal);
 }
 
 // valhallaRoute is the cheapest-path equivalent of routeAll, used by
@@ -1806,12 +1592,10 @@ async function valhallaRoute(
   }
 }
 
-// DrivesOverviewMap renders every drive's route on a single map. Drives
-// with a stored RoutePolyline (live recorder) show the real GPS trace.
-// Legacy drives (ElectraFi imports) fetch a road-snapped geometry from
-// OSRM using just the start/end coordinates. Self-hosted OSRM has no
-// rate limits so concurrency is set high; the public demo fallback
-// would need a lower value but we don't expect it in production.
+// DrivesOverviewMap renders every drive's route on a single map.
+// Drives with a stored RoutePolyline (live recorder) show the real
+// GPS trace. Legacy drives (ElectraFi imports) fetch a road-snapped
+// geometry from Valhalla using just the start/end coordinates.
 const ROUTE_CONCURRENCY = 20;
 
 export function DrivesOverviewMap({
@@ -1866,8 +1650,8 @@ export function DrivesOverviewMap({
     const ac = new AbortController();
     const allLatLngs: [number, number][] = [];
 
-    // Render initial polylines (stored trace or straight-line placeholder)
-    // and collect drives that need an OSRM route fetch.
+    // Render initial polylines (stored trace or straight-line
+    // placeholder) and collect drives that need a Valhalla /route fetch.
     const needsRoute: {
       d: (typeof valid)[0];
       line: L.Polyline;
@@ -1905,7 +1689,7 @@ export function DrivesOverviewMap({
         .addTo(map)
         .on("click", () => onSelectRef.current?.(d.ID));
 
-      // Queue an OSRM fetch only for drives without a stored polyline.
+      // Queue a Valhalla /route fetch only for drives without a stored polyline.
       if (trace.length < 2) {
         needsRoute.push({ d, line });
       }

@@ -170,19 +170,12 @@ type Deps struct {
 	// empty in tests — the link falls back to a relative path so
 	// copy-paste-into-the-same-tab still works.
 	BaseURL string
-	// OSRMProxy, when non-nil, mounts a same-origin reverse
-	// proxy at /api/maps/osrm/* that forwards to a self-hosted
-	// OSRM (cluster Service typically). nil leaves the route
-	// unmounted; the SPA falls back to the public OSRM demo.
-	// /api/config advertises whether the proxy is mounted so the
-	// SPA picks the right base URL at boot.
-	OSRMProxy http.Handler
-	// ValhallaProxy mirrors OSRMProxy for the Valhalla routing
-	// engine. When non-nil, /api/maps/valhalla/* forwards to a
-	// self-hosted Valhalla. /api/config advertises which engines
-	// are available so the SPA can offer them as a user choice.
-	// Both proxies can be set simultaneously — the user picks per
-	// install which engine to use, OSRM stays as a fallback.
+	// ValhallaProxy, when non-nil, mounts a same-origin reverse
+	// proxy at /api/maps/valhalla/* that forwards to a self-hosted
+	// Valhalla. /api/config advertises whether the proxy is
+	// mounted so the SPA picks the right base URL at boot. nil
+	// leaves the route unmounted; the SPA renders raw GPS chords
+	// without snapping.
 	ValhallaProxy http.Handler
 	// TilesProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/tiles/* that forwards to a self-hosted
@@ -267,10 +260,10 @@ func New(d Deps) http.Handler {
 		// otherwise the browser has no way to log in.
 		r.Get("/health", handleHealth(d.Version))
 		// /api/config advertises optional runtime knobs to the SPA
-		// (today: whether the OSRM same-origin proxy is mounted).
-		// Public so the SPA can fetch it before login as well as
-		// after; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.OSRMProxy != nil, d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags, d.SettingsMgr))
+		// (which same-origin proxies are mounted, feature flags,
+		// admin-configurable GPS thresholds). Public so the SPA can
+		// fetch it before login; reveals no user-scoped data.
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags, d.SettingsMgr))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -355,14 +348,12 @@ func New(d Deps) http.Handler {
 			// 2026-05-07).
 			r.Use(middleware.Timeout(30 * time.Second))
 
-			// Same-origin OSRM proxy. Mounted only when the operator
-			// configured RIVOLT_OSRM_BASE_URL — otherwise the route is
-			// absent entirely and the SPA falls back to the public
-			// demo. chi's Mount strips the prefix from r.URL.Path
-			// itself; the proxy.Director then forwards as-is.
-			if d.OSRMProxy != nil {
-				r.Mount("/maps/osrm", http.StripPrefix("/api/maps/osrm", d.OSRMProxy))
-			}
+			// Same-origin Valhalla proxy. Mounted only when the
+			// operator configured RIVOLT_VALHALLA_BASE_URL —
+			// otherwise the route is absent entirely and the SPA
+			// renders raw GPS chords without snapping. chi's Mount
+			// strips the prefix from r.URL.Path itself; the
+			// proxy.Director then forwards as-is.
 			if d.ValhallaProxy != nil {
 				r.Mount("/maps/valhalla", http.StripPrefix("/api/maps/valhalla", d.ValhallaProxy))
 			}
@@ -811,16 +802,11 @@ func handleHealth(version string) http.HandlerFunc {
 
 // handleConfig advertises optional runtime knobs to the SPA. Today
 // it returns whether the same-origin map proxies are mounted; the
-// SPA uses the paths it returns as base URLs for OSRM (/match,
-// /route) and PMTiles (drive map basemap), falling back to the
-// public demos when a path is empty. Public so the SPA can fetch
-// it without a session.
-func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
-	type osrmCfg struct {
-		// Path is the same-origin URL prefix the SPA should hit
-		// (empty when the proxy is not configured server-side).
-		Path string `json:"path,omitempty"`
-	}
+// SPA uses the paths it returns as base URLs for Valhalla
+// (/trace_route, /route) and PMTiles (drive map basemap), falling
+// back to a raw chord polyline when no snapping engine is wired.
+// Public so the SPA can fetch it without a session.
+func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
 	type tilesCfg struct {
 		// URL is the full same-origin URL of the served basemap
 		// .pmtiles file (empty when not configured). protomaps-leaflet
@@ -868,7 +854,6 @@ func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, fl
 		JumpCount  int     `json:"jump_count"`
 	}
 	type cfg struct {
-		OSRM     osrmCfg     `json:"osrm"`
 		Valhalla valhallaCfg `json:"valhalla"`
 		Tiles    tilesCfg    `json:"tiles"`
 		AI       aiCfg       `json:"ai"`
@@ -876,9 +861,6 @@ func handleConfig(osrmEnabled, valhallaEnabled, tilesEnabled, aiEnabled bool, fl
 		GPS      gpsCfg      `json:"gps"`
 	}
 	base := cfg{}
-	if osrmEnabled {
-		base.OSRM.Path = "/api/maps/osrm"
-	}
 	if valhallaEnabled {
 		base.Valhalla.Path = "/api/maps/valhalla"
 	}
