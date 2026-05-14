@@ -433,6 +433,21 @@ function chargerSpecListHTML(poi: POI): string {
   if (poi.socketTypes && poi.socketTypes.length > 0) {
     const labels = poi.socketTypes.map(prettySocket).join(", ");
     row("Connectors", escapeHTML(labels));
+    // Tesla Superchargers expose the NACS plug. Rivians need a
+    // NACS↔CCS1 adapter to use them, unless the station also
+    // advertises CCS1 (Magic Dock retrofits, type1_combo) — in
+    // which case there's a native CCS1 cable on-site and no
+    // adapter is needed. Same logic the trip planner uses for
+    // its "Tesla adapter required" hint.
+    const hasTesla = poi.socketTypes.includes("tesla_supercharger");
+    const hasCCS1 = poi.socketTypes.includes("type1_combo");
+    if (hasTesla && !hasCCS1) {
+      rows.push(
+        `<div style="font-size:11px;line-height:1.5;color:#fbbf24;margin-top:2px">` +
+          "Tesla adapter required" +
+          `</div>`,
+      );
+    }
   }
   if (poi.fee) {
     const v = poi.fee.toLowerCase();
