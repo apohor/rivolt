@@ -166,6 +166,50 @@ async function routeAll(
   }
 }
 
+// valhallaRoutePair returns a road-routed polyline between two coords
+// or null on failure. Used to fill gaps where map-matching gave up
+// (between sub-matchings, or across true GPS dropouts) with a path
+// that follows actual roads instead of a straight chord.
+async function valhallaRoutePair(
+  from: [number, number],
+  to: [number, number],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
+  const base = valhallaBase();
+  if (base === "") return null;
+  const body = {
+    locations: [
+      { lat: from[0], lon: from[1], type: "break" },
+      { lat: to[0], lon: to[1], type: "break" },
+    ],
+    costing: "auto",
+    directions_options: { units: "miles" },
+  };
+  try {
+    const r = await fetch(`${base}/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      trip?: { legs?: { shape?: string }[] };
+    };
+    const legs = j.trip?.legs ?? [];
+    if (legs.length === 0) return null;
+    const out: [number, number][] = [];
+    for (let i = 0; i < legs.length; i++) {
+      const seg = decodePolyline(legs[i].shape, 6);
+      if (i > 0 && seg.length > 0) seg.shift();
+      out.push(...seg);
+    }
+    return out.length > 1 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 // valhallaSnap calls /trace_route with walk_or_snap in OSRM-compatible
 // response format. Returns an ordered list of snapped sub-segments
 // plus dashed gap connectors for the input ranges Valhalla couldn't
@@ -256,7 +300,16 @@ async function valhallaSnap(
 
 type SnapPlan = {
   segments: { coords: [number, number][]; raw: boolean }[];
+  // Gaps the renderer couldn't fill with a routed polyline — drawn
+  // as dashed neutral connectors so the user can tell the matcher
+  // gave up here.
   gaps: TraceGap[];
+  // Routed gap-fills: where the matcher gave up between sub-matches
+  // (or between split segments) but Valhalla's /route engine could
+  // produce a road-following polyline between the endpoints. Drawn
+  // as solid neutral lines so the eye reads them as "inferred path"
+  // rather than recorded telemetry.
+  routedGaps: [number, number][][];
 };
 
 // Render the raw GPS chord polyline for a segment we don't want to
@@ -283,6 +336,7 @@ async function snapToRoads(
     return {
       segments: [{ coords: rawPolyline(raw), raw: true }],
       gaps: [],
+      routedGaps: [],
     };
   }
   await ensureConfig();
@@ -293,10 +347,11 @@ async function snapToRoads(
     return {
       segments: [{ coords: rawPolyline(points), raw: true }],
       gaps: [],
+      routedGaps: [],
     };
   }
 
-  const out: SnapPlan = { segments: [], gaps };
+  const out: SnapPlan = { segments: [], gaps, routedGaps: [] };
   const valhalla = valhallaBase() !== "";
 
   for (const seg of segments) {
@@ -358,6 +413,30 @@ async function snapToRoads(
       // Snap failure: render the raw chord — better than nothing.
       out.segments.push({ coords: rawPolyline(seg), raw: true });
     }
+  }
+
+  // Route-fill the gaps. For each unfilled gap, ask Valhalla's /route
+  // engine for a road-following polyline between the endpoints. On
+  // success the gap becomes a routedGaps polyline (rendered solid +
+  // neutral so it reads as "inferred path") and the dashed connector
+  // is dropped. On failure we keep the dashed gap so the user can
+  // still tell the matcher gave up here. Issued in parallel since
+  // each /route call is independent.
+  if (valhalla && out.gaps.length > 0) {
+    const filled = await Promise.all(
+      out.gaps.map((g) => valhallaRoutePair(g.from, g.to, signal)),
+    );
+    if (signal.aborted) return null;
+    const remaining: TraceGap[] = [];
+    for (let i = 0; i < out.gaps.length; i++) {
+      const routed = filled[i];
+      if (routed && routed.length > 1) {
+        out.routedGaps.push(routed);
+      } else {
+        remaining.push(out.gaps[i]);
+      }
+    }
+    out.gaps = remaining;
   }
 
   return out.segments.length > 0 ? out : null;
@@ -1123,10 +1202,21 @@ export function DriveMap({
           }
           allCoords.push(...matched);
         }
-        // Dashed neutral connectors across GPS dropouts: the car
-        // drove between these two coords but telemetry didn't
-        // capture the path. Drawn distinctly so the user can tell
-        // it apart from a real snapped polyline.
+        // Routed gap-fills: Valhalla's /route engine produced a
+        // road-following polyline across an unmatched stretch. Solid
+        // neutral colour so the eye distinguishes inferred path from
+        // GPS-recorded (speed-coloured) telemetry.
+        for (const routed of plan.routedGaps) {
+          L.polyline(routed, {
+            color: "#737373",
+            weight: 2.5,
+            opacity: 0.75,
+          }).addTo(layers);
+          allCoords.push(...routed);
+        }
+        // Dashed connectors only when /route also failed — true
+        // unknown stretches where the matcher gave up and the
+        // router couldn't connect the endpoints either.
         for (const gap of plan.gaps) {
           L.polyline([gap.from, gap.to], {
             color: "#737373",
