@@ -44,6 +44,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/apohor/rivolt/internal/logging"
 )
@@ -372,6 +374,15 @@ func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
 	// downstream carries `user_id` automatically. Cheap; the helper
 	// no-ops on uuid.Nil.
 	ctx = logging.WithUserID(ctx, uid)
+	// Stamp the active OTel span with user.id so Tempo can filter
+	// traces by user (TraceQL: `{ .user.id = "<uid>" }`). No-op when
+	// no span is recording (e.g. health checks excluded from
+	// sampling) or uuid.Nil.
+	if uid != uuid.Nil {
+		if span := trace.SpanFromContext(ctx); span.IsRecording() {
+			span.SetAttributes(attribute.String("user.id", uid.String()))
+		}
+	}
 	return context.WithValue(ctx, ctxKey{}, uid)
 }
 
