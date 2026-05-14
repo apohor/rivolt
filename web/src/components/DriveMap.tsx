@@ -997,9 +997,10 @@ export function DriveMap({
       snapToRoads(tracePoints, ac.signal).then((segments) => {
         if (!segments || segments.length === 0 || !mapRef.current) return;
         if (line) line.remove();
-        // Render each snapped segment as its own colored polyline.
-        // Real gaps in the trace (GPS dropouts, parking garages)
-        // appear as visible breaks rather than invented chords.
+        // Flatten each segment's polylines into one parent group so
+        // map.addLayer / remove / cleanup all stay simple. Real gaps
+        // in the trace (GPS dropouts, parking garages) appear as
+        // visible breaks rather than invented chords.
         const layers = L.layerGroup();
         const allCoords: [number, number][] = [];
         for (const matched of segments) {
@@ -1021,7 +1022,9 @@ export function DriveMap({
               return tracePoints[bestI].s;
             },
           );
-          drawRoute(map, matched, matchedSpeeds).addTo(layers);
+          for (const inner of drawRoute(map, matched, matchedSpeeds).getLayers()) {
+            layers.addLayer(inner);
+          }
           allCoords.push(...matched);
         }
         layers.addTo(map);
