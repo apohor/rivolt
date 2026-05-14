@@ -37,35 +37,51 @@ export default function AdminPage() {
   );
 }
 
-// grafanaUserExploreURL builds a Grafana Loki Explore deep link
-// scoped to one user_id over a time window. Returns "" when no
-// Grafana origin is wired so callers can fall back to plain text.
-// The query matches the structured-log fields the request-id
-// middleware injects (`user_id="<uid>"`).
+// grafanaUserExploreURL builds Grafana Explore deep links scoped
+// to one user_id over a time window. Returns "" when no Grafana
+// origin is wired so callers fall back to plain text.
+//
+// We emit two flavours of link:
+//   - logs:   {namespace=~"rivolt.*"} |~ "<uid>" against Loki —
+//             matches both server slog lines and any free-form
+//             mention of the uid.
+//   - traces: { .user.id = "<uid>" } against Tempo TraceQL —
+//             relies on the user.id span attribute stamped in
+//             auth.WithUser (v0.18.69+). Older spans won't match.
 function grafanaUserExploreURL(
   userID: string,
   fromISO: string,
   toISO: string,
+  kind: "logs" | "traces" = "logs",
 ): string {
   const base = grafanaBaseURL();
   if (!base) return "";
   const from = new Date(fromISO).getTime();
   const to = new Date(toISO).getTime();
   if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
-  const left = {
-    datasource: "loki",
-    queries: [
-      {
-        refId: "A",
-        // |~ does a regex match against the JSON line so we hit
-        // both "user_id":"<uid>" (server logs) and any other place
-        // the uid is mentioned (e.g. trace events that include it
-        // as a free-form field).
-        expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
-      },
-    ],
-    range: { from: String(from), to: String(to) },
-  };
+  const left =
+    kind === "logs"
+      ? {
+          datasource: "loki",
+          queries: [
+            {
+              refId: "A",
+              expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
+            },
+          ],
+          range: { from: String(from), to: String(to) },
+        }
+      : {
+          datasource: "tempo",
+          queries: [
+            {
+              refId: "A",
+              queryType: "traceql",
+              query: `{ .user.id = "${userID}" }`,
+            },
+          ],
+          range: { from: String(from), to: String(to) },
+        };
   return `${base}/explore?orgId=1&left=${encodeURIComponent(JSON.stringify(left))}`;
 }
 
@@ -823,23 +839,51 @@ function UserDetailPanel({
               : d.oldest_sample_at && d.newest_sample_at
                 ? (() => {
                     const label = `${new Date(d.oldest_sample_at).toLocaleDateString()} → ${new Date(d.newest_sample_at).toLocaleDateString()}`;
-                    const href = grafanaUserExploreURL(
+                    const logsHref = grafanaUserExploreURL(
                       row.id,
                       d.oldest_sample_at,
                       d.newest_sample_at,
+                      "logs",
                     );
-                    return href ? (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener"
-                        className="text-emerald-300 underline-offset-2 hover:underline"
-                        title="Open logs for this user in Grafana"
-                      >
-                        {label} ↗
-                      </a>
-                    ) : (
-                      label
+                    const tracesHref = grafanaUserExploreURL(
+                      row.id,
+                      d.oldest_sample_at,
+                      d.newest_sample_at,
+                      "traces",
+                    );
+                    if (!logsHref && !tracesHref) return label;
+                    return (
+                      <span>
+                        {label}
+                        {logsHref && (
+                          <>
+                            {" · "}
+                            <a
+                              href={logsHref}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-emerald-300 underline-offset-2 hover:underline"
+                              title="Open Loki logs for this user in Grafana"
+                            >
+                              logs ↗
+                            </a>
+                          </>
+                        )}
+                        {tracesHref && (
+                          <>
+                            {" · "}
+                            <a
+                              href={tracesHref}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-emerald-300 underline-offset-2 hover:underline"
+                              title="Open Tempo traces filtered by user.id"
+                            >
+                              traces ↗
+                            </a>
+                          </>
+                        )}
+                      </span>
                     );
                   })()
                 : "no samples"
