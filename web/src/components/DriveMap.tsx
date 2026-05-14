@@ -183,10 +183,21 @@ async function valhallaSnap(
   // walk_or_snap: strict edge_walk with map_snap fallback for noisy
   // points. 100 m radius tolerates GPS drift at trip endpoints.
   const body = {
-    shape: trace.map((p) => ({ lat: p.lat, lon: p.lon })),
+    // Include timestamps when available — Valhalla's matcher uses
+    // them to enforce temporal ordering on parking-lot loops and
+    // backtracks that share the same coordinates.
+    shape: trace.map((p) =>
+      Number.isFinite(p.t)
+        ? { lat: p.lat, lon: p.lon, time: p.t as number }
+        : { lat: p.lat, lon: p.lon },
+    ),
     costing: "auto",
     shape_match: "walk_or_snap",
-    trace_options: { search_radius: 100 },
+    trace_options: {
+      search_radius: 100,
+      gps_accuracy: 25,
+      breakage_distance: 50000,
+    },
     directions_options: { units: "miles" },
   };
   try {
