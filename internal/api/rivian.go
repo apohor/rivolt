@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -91,7 +93,30 @@ type rivianStatusDTO struct {
 	NeedsReauthReason string `json:"needs_reauth_reason,omitempty"`
 }
 
-func handleRivianStatus(reg rivian.AccountRegistry) http.HandlerFunc {
+// primeAttempts debounces lazy-prime kicks from handleRivianStatus.
+// The SPA polls /api/settings/rivian every few seconds, and without
+// this we'd hit Rivian's getUserInfo on every poll for any user
+// whose vehicles row hasn't landed yet. One attempt per pod per
+// user per 5 minutes is more than enough to self-heal accounts that
+// connected before the eager-prime fix shipped.
+var (
+	primeAttempts   = make(map[uuid.UUID]time.Time)
+	primeAttemptsMu sync.Mutex
+)
+
+const primeAttemptInterval = 5 * time.Minute
+
+func shouldAttemptPrime(uid uuid.UUID) bool {
+	primeAttemptsMu.Lock()
+	defer primeAttemptsMu.Unlock()
+	if last, ok := primeAttempts[uid]; ok && time.Since(last) < primeAttemptInterval {
+		return false
+	}
+	primeAttempts[uid] = time.Now()
+	return true
+}
+
+func handleRivianStatus(reg rivian.AccountRegistry, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
@@ -112,14 +137,39 @@ func handleRivianStatus(reg rivian.AccountRegistry) http.HandlerFunc {
 			return
 		}
 		needs, reason := lc.NeedsReauth()
+		authd := lc.Authenticated()
 		writeJSON(w, http.StatusOK, rivianStatusDTO{
 			Enabled:           true,
-			Authenticated:     lc.Authenticated(),
+			Authenticated:     authd,
 			MFAPending:        lc.MFAPending(),
 			Email:             lc.Email(),
 			NeedsReauth:       needs,
 			NeedsReauthReason: reason,
 		})
+		// Self-heal accounts that connected Rivian before the eager
+		// prime shipped: when the user is authenticated but has no
+		// vehicles row, kick off a one-shot prime in the background.
+		// Fire-and-forget — the response has already gone out.
+		if authd && !needs && sqlDB != nil && shouldAttemptPrime(uid) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				var n int
+				if err := sqlDB.QueryRowContext(ctx,
+					`SELECT COUNT(*) FROM vehicles WHERE user_id = $1`, uid,
+				).Scan(&n); err != nil {
+					if logger != nil {
+						logger.Warn("rivian lazy prime: vehicle count failed",
+							"user_id", uid.String(), "err", err.Error())
+					}
+					return
+				}
+				if n > 0 {
+					return
+				}
+				primeUserVehicles(ctx, lc, sqlDB, uid, logger)
+			}()
+		}
 	}
 }
 
