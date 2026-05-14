@@ -45,19 +45,27 @@ body {
    shell to match the rest of the dark map UI. The tip (the small
    triangle pointing at the marker) gets the same treatment, plus
    we recolor the close button so it doesn't disappear. */
+.leaflet-container .leaflet-popup-content-wrapper,
 .leaflet-popup-content-wrapper {
   background: #171717 !important;
   color: #fafafa !important;
-  border: 1px solid #262626;
+  border: 1px solid #262626 !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
 }
+.leaflet-container .leaflet-popup-content-wrapper *,
+.leaflet-popup-content-wrapper * {
+  color: #fafafa;
+}
+.leaflet-container .leaflet-popup-tip,
 .leaflet-popup-tip {
   background: #171717 !important;
-  border: 1px solid #262626;
+  border: 1px solid #262626 !important;
 }
+.leaflet-container .leaflet-popup-close-button,
 .leaflet-popup-close-button {
   color: #a3a3a3 !important;
 }
+.leaflet-container .leaflet-popup-close-button:hover,
 .leaflet-popup-close-button:hover {
   color: #fafafa !important;
 }
