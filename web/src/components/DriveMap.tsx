@@ -159,18 +159,17 @@ async function routeAll(
   }
 }
 
-// valhallaSnap runs Valhalla's POST /trace_route — the equivalent of
-// OSRM /match. The shape comes back as an encoded polyline at
-// precision 6 (Valhalla's default). One round trip handles the whole
-// trace; Valhalla doesn't have OSRM's 9-coord-per-call cap.
+// valhallaSnap runs Valhalla's POST /trace_attributes. /trace_route
+// collapses the matched trace into a turn-by-turn route summary that
+// can shrink to a tiny leg when the matcher is uncertain;
+// /trace_attributes returns the full road-snapped polyline of every
+// matched edge in the top-level `shape` field, which is what we want.
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
 ): Promise<[number, number][] | null> {
   const base = valhallaBase();
   if (base === "" || pts.length < 2) return null;
-  // Defensive ceiling. Valhalla scales much further than OSRM but a
-  // multi-thousand-point GPX import shouldn't go in one shot.
   const MAX_TRACE = 1500;
   let trace = pts;
   if (trace.length > MAX_TRACE) {
@@ -180,45 +179,36 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
-  // walk_or_snap: strict edge_walk with map_snap fallback for noisy
-  // points. 100 m radius tolerates GPS drift at trip endpoints.
+  // Drop consecutive duplicate coords (vehicle stopped at light). The
+  // matcher discounts repeated identical points and the route can
+  // collapse to the first segment otherwise.
+  const dedup: SnapPoint[] = [];
+  for (const p of trace) {
+    const last = dedup[dedup.length - 1];
+    if (!last || last.lat !== p.lat || last.lon !== p.lon) dedup.push(p);
+  }
+  if (dedup.length < 2) return null;
   const body = {
-    // Include timestamps when available — Valhalla's matcher uses
-    // them to enforce temporal ordering on parking-lot loops and
-    // backtracks that share the same coordinates.
-    shape: trace.map((p) =>
+    shape: dedup.map((p) =>
       Number.isFinite(p.t)
         ? { lat: p.lat, lon: p.lon, time: p.t as number }
         : { lat: p.lat, lon: p.lon },
     ),
     costing: "auto",
-    shape_match: "walk_or_snap",
-    trace_options: {
-      search_radius: 100,
-      gps_accuracy: 25,
-      breakage_distance: 50000,
-    },
-    directions_options: { units: "miles" },
+    shape_match: "map_snap",
+    trace_options: { search_radius: 100, gps_accuracy: 10 },
   };
   try {
-    const r = await fetch(`${base}/trace_route`, {
+    const r = await fetch(`${base}/trace_attributes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal,
     });
     if (!r.ok) return null;
-    const j = (await r.json()) as {
-      trip?: { legs?: { shape?: string }[] };
-    };
-    const legs = j.trip?.legs ?? [];
-    if (legs.length === 0) return null;
-    const out: [number, number][] = [];
-    for (let i = 0; i < legs.length; i++) {
-      const seg = decodePolyline(legs[i].shape, 6);
-      if (i > 0 && seg.length > 0) seg.shift();
-      out.push(...seg);
-    }
+    const j = (await r.json()) as { shape?: string };
+    if (!j.shape) return null;
+    const out = decodePolyline(j.shape, 6);
     return out.length > 1 ? out : null;
   } catch {
     return null;
