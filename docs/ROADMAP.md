@@ -725,6 +725,12 @@ by expected value, not by time.
 
 Smaller cuts queued up; not phase-gated, ship as they make sense.
 
+- [ ] **Park bands on the drive timeline** — overlay a subtle grey
+      band over the speed/battery panels for any contiguous parked
+      window ≥ 5 min (speed ≤ 0.5 mph). A drive that includes a long
+      mid-trip stop currently reads as one continuous event; the
+      band makes the "drive → park → drive" structure visible at a
+      glance without altering the time axis.
 - [ ] **Tappable route-table rows synced to map** — tap a charging
       stop in the table → map pans + the marker pulses. Tap a
       charger marker on the map → its row highlights and scrolls

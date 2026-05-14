@@ -19,6 +19,7 @@ import {
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
+import { cleanTrace } from "../lib/trace";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
 // OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
@@ -159,14 +160,10 @@ async function routeAll(
   }
 }
 
-// valhallaSnap runs two Valhalla calls in series. /trace_attributes
-// snaps each GPS sample to its nearest road edge; its top-level
-// `shape` is just the matched-points sequence and includes straight
-// chords across non-adjacent edges. To draw road geometry between
-// those snaps we then call /route with the high-confidence matched
-// points as via-locations, which returns the road-following
-// polyline that visits each via in order. /trace_route on its own
-// bails out early on noisy traces and returns a tiny fragment.
+// valhallaSnap calls /trace_route with walk_or_snap and decodes the
+// concatenated leg shapes. Expects the caller to have cleaned the
+// trace upstream — outliers, dedup, and stop-run compression all
+// happen in lib/trace.cleanTrace.
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
@@ -182,74 +179,29 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
-  // Dedup consecutive same-coord samples (stopped at light) — the
-  // matcher loses confidence on long runs of identical points.
-  const dedup: SnapPoint[] = [];
-  for (const p of trace) {
-    const last = dedup[dedup.length - 1];
-    if (!last || last.lat !== p.lat || last.lon !== p.lon) dedup.push(p);
-  }
-  if (dedup.length < 2) return null;
-
-  const attrBody = {
-    shape: dedup.map((p) =>
+  const body = {
+    shape: trace.map((p) =>
       Number.isFinite(p.t)
         ? { lat: p.lat, lon: p.lon, time: p.t as number }
         : { lat: p.lat, lon: p.lon },
     ),
     costing: "auto",
-    shape_match: "map_snap",
-    trace_options: { search_radius: 100, gps_accuracy: 10 },
+    shape_match: "walk_or_snap",
+    trace_options: { search_radius: 100, gps_accuracy: 25 },
+    directions_options: { units: "miles" },
   };
   try {
-    const attrResp = await fetch(`${base}/trace_attributes`, {
+    const r = await fetch(`${base}/trace_route`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(attrBody),
+      body: JSON.stringify(body),
       signal,
     });
-    if (!attrResp.ok) return null;
-    const attrs = (await attrResp.json()) as {
-      matched_points?: {
-        lat: number;
-        lon: number;
-        type: string;
-        distance_from_trace_point?: number;
-      }[];
-    };
-    // Keep only high-confidence snaps (within 30 m of the trace).
-    const good = (attrs.matched_points ?? []).filter(
-      (p) =>
-        p.type === "matched" && (p.distance_from_trace_point ?? 999) < 30,
-    );
-    if (good.length < 2) return null;
-    // /route caps at 50 locations. Sample evenly when we exceed.
-    const MAX_VIA = 50;
-    let via = good;
-    if (via.length > MAX_VIA) {
-      const step = via.length / MAX_VIA;
-      via = Array.from({ length: MAX_VIA }, (_, i) => good[Math.floor(i * step)]);
-    }
-    const routeBody = {
-      locations: via.map((p, i) => ({
-        lat: p.lat,
-        lon: p.lon,
-        type: i === 0 || i === via.length - 1 ? "break" : "through",
-      })),
-      costing: "auto",
-      directions_options: { units: "miles" },
-    };
-    const routeResp = await fetch(`${base}/route`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(routeBody),
-      signal,
-    });
-    if (!routeResp.ok) return null;
-    const route = (await routeResp.json()) as {
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
       trip?: { legs?: { shape?: string }[] };
     };
-    const legs = route.trip?.legs ?? [];
+    const legs = j.trip?.legs ?? [];
     if (legs.length === 0) return null;
     const out: [number, number][] = [];
     for (let i = 0; i < legs.length; i++) {
@@ -264,9 +216,13 @@ async function valhallaSnap(
 }
 
 async function snapToRoads(
-  points: SnapPoint[],
+  rawPoints: SnapPoint[],
   signal: AbortSignal,
 ): Promise<[number, number][] | null> {
+  // Strip noise + dedup + collapse stops once, before either matcher
+  // sees the trace. Both OSRM and Valhalla degrade in the same ways
+  // on identical-coord runs and impossible-speed jumps.
+  const points = cleanTrace(rawPoints);
   if (points.length < 2) return null;
 
   // Make sure /api/config has resolved before we pick a base URL.
