@@ -462,7 +462,7 @@ func New(d Deps) http.Handler {
 			r.Route("/settings/rivian", func(r chi.Router) {
 				r.Get("/", handleRivianStatus(d.Accounts))
 				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Logger))
-				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors))
+				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors, d.DB, d.Logger))
 				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets, d.Monitors))
 			})
 

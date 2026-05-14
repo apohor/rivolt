@@ -14,6 +14,8 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
+
+	"github.com/google/uuid"
 )
 
 // httpStatusForUpstream picks an HTTP status for an error that
@@ -212,6 +214,11 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 		if monitors != nil {
 			monitors.Start(r.Context(), uid)
 		}
+		// Seed the local vehicles table from the Rivian account so
+		// /api/vehicles/owned, ownership middleware, and the import
+		// picker all see the user's cars immediately — without this
+		// the table only fills lazily on the first Live-tab visit.
+		primeUserVehicles(r.Context(), lc, d, uid, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
@@ -219,11 +226,68 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 	}
 }
 
+// primeUserVehicles fetches the user's vehicles from Rivian and
+// upserts them into the local vehicles table. Best-effort: any
+// upstream/database failure logs and returns without surfacing an
+// error to the caller, since the same upsert path runs lazily from
+// /api/vehicles on next Live-tab visit. Idempotent on the
+// (user_id, rivian_vehicle_id) unique constraint.
+func primeUserVehicles(
+	ctx context.Context,
+	lc rivian.Account,
+	sqlDB *sql.DB,
+	uid uuid.UUID,
+	logger *slog.Logger,
+) {
+	if sqlDB == nil || lc == nil {
+		return
+	}
+	// rivian.Account doesn't expose Vehicles() — that lives on the
+	// fuller Client interface that *LiveClient and *MockClient both
+	// satisfy. Type-assert so we can reuse the same prime helper from
+	// both login and MFA paths without coupling them to the concrete
+	// LiveClient type.
+	c, ok := lc.(rivian.Client)
+	if !ok {
+		return
+	}
+	vs, err := c.Vehicles(ctx)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("rivian vehicles prime failed",
+				"user_id", uid.String(), "err", err.Error())
+		}
+		return
+	}
+	for i := range vs {
+		if vs[i].ID == "" {
+			continue
+		}
+		_, uerr := sqlDB.ExecContext(ctx, `
+			INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, pack_kwh)
+			VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, 0)::double precision)
+			ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
+				vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
+				display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
+				model        = COALESCE(EXCLUDED.model,        vehicles.model),
+				model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
+				pack_kwh     = COALESCE(EXCLUDED.pack_kwh,     vehicles.pack_kwh),
+				updated_at   = NOW()
+		`, uid, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
+		if uerr != nil && logger != nil {
+			logger.Warn("rivian vehicles prime upsert failed",
+				"user_id", uid.String(),
+				"rivian_vehicle_id", vs[i].ID,
+				"err", uerr.Error())
+		}
+	}
+}
+
 type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry) http.HandlerFunc {
+func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, d *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -278,6 +342,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		if monitors != nil {
 			monitors.Start(r.Context(), uid)
 		}
+		primeUserVehicles(r.Context(), lc, d, uid, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
