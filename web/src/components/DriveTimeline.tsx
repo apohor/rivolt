@@ -283,7 +283,7 @@ const AXIS_H = 16;
 const TOTAL_H = AXIS_TOP + AXIS_H + 4;
 
 type ModeSegment = { x0: number; x1: number; mode: Mode };
-type ParkBand = { x0: number; x1: number };
+type ParkBand = { x0: number; x1: number; kind: "parked" | "gap" };
 type PrecipBand = {
   x0: number;
   x1: number;
@@ -438,14 +438,17 @@ function TimelineSVG(props: {
         ))}
       </g>
 
-      {/* ---- Park bands across speed + battery panels ------------- */}
+      {/* ---- Park / gap bands across speed + battery panels -------- */}
       <g clipPath="url(#dt-plot-clip)">
         {parkBands.map((b, i) => {
           const x = sx(b.x0);
           const w = Math.max(2, sx(b.x1) - sx(b.x0));
           const mid = x + w / 2;
           const mins = Math.round((b.x1 - b.x0) / 60000);
-          const label = mins >= 60 ? `Parked ${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}` : `Parked ${mins}m`;
+          const fmtDur = (m: number) =>
+            m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
+          const isGap = b.kind === "gap";
+          const label = isGap ? `No telemetry ${fmtDur(mins)}` : `Parked ${fmtDur(mins)}`;
           return (
             <g key={`park-${i}`}>
               <rect
@@ -453,15 +456,15 @@ function TimelineSVG(props: {
                 y={SPEED_TOP}
                 width={w}
                 height={BATT_TOP + BATT_H - SPEED_TOP}
-                fill="#171717"
-                fillOpacity={0.55}
+                fill={isGap ? "#3f1d1d" : "#171717"}
+                fillOpacity={isGap ? 0.45 : 0.55}
               />
               {w > 50 && (
                 <text
                   x={mid}
                   y={SPEED_TOP + 12}
                   textAnchor="middle"
-                  className="fill-neutral-300"
+                  className={isGap ? "fill-amber-300" : "fill-neutral-300"}
                   fontSize="10"
                   fontWeight="600"
                 >
@@ -1477,37 +1480,86 @@ function buildModeSegments(
 // the car is asleep, so absence of D/R samples is the real signal —
 // raw speed reads ~4 mph at idle and never crosses zero, and only a
 // handful of P samples land per trip.
+//
+// A band is classified as a true "parked" stretch only if both
+// bounding samples are stationary (≤ 5 mph) AND their GPS coords
+// barely moved (< 150 m). Otherwise the band is a telemetry "gap" —
+// the car was driving but the recorder lost samples (cell dead zone,
+// subscription churn, gateway throttling).
 function buildParkBands(
   samples: Sample[],
   startMs: number,
   endMs: number,
 ): ParkBand[] {
   const PARK_MIN_MS = 5 * 60_000;
+  const SPEED_PARK_MAX = 5; // mph
+  const DIST_PARK_MAX_M = 150;
   const out: ParkBand[] = [];
-  const driving: number[] = [];
+  type Marker = { ms: number; s: Sample };
+  const driving: Marker[] = [];
   for (const s of samples) {
     const g = (s.ShiftState ?? "").trim().toUpperCase();
     if (g !== "D" && g !== "R" && g !== "DRIVE" && g !== "REVERSE") continue;
     const ms = new Date(s.At).getTime();
-    if (Number.isFinite(ms)) driving.push(ms);
+    if (Number.isFinite(ms)) driving.push({ ms, s });
   }
-  driving.sort((a, b) => a - b);
+  driving.sort((a, b) => a.ms - b.ms);
+  const haversineM = (a: Sample, b: Sample): number => {
+    if (
+      !Number.isFinite(a.Lat) ||
+      !Number.isFinite(a.Lon) ||
+      !Number.isFinite(b.Lat) ||
+      !Number.isFinite(b.Lon)
+    )
+      return Infinity;
+    const R = 6371000;
+    const f1 = (a.Lat * Math.PI) / 180;
+    const f2 = (b.Lat * Math.PI) / 180;
+    const df = ((b.Lat - a.Lat) * Math.PI) / 180;
+    const dl = ((b.Lon - a.Lon) * Math.PI) / 180;
+    const x =
+      Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  };
+  const classify = (a: Sample | null, b: Sample | null): "parked" | "gap" => {
+    // Missing endpoints can't tell us anything — default to gap so we
+    // never mislabel a telemetry hole as parking.
+    if (!a || !b) return "gap";
+    const aMoving = Math.abs(a.SpeedMph ?? 0) > SPEED_PARK_MAX;
+    const bMoving = Math.abs(b.SpeedMph ?? 0) > SPEED_PARK_MAX;
+    if (aMoving || bMoving) return "gap";
+    if (haversineM(a, b) > DIST_PARK_MAX_M) return "gap";
+    return "parked";
+  };
   if (driving.length === 0) {
     if (endMs - startMs >= PARK_MIN_MS) {
-      out.push({ x0: startMs, x1: endMs });
+      out.push({ x0: startMs, x1: endMs, kind: "parked" });
     }
     return out;
   }
-  if (driving[0] - startMs >= PARK_MIN_MS) {
-    out.push({ x0: startMs, x1: driving[0] });
+  if (driving[0].ms - startMs >= PARK_MIN_MS) {
+    out.push({
+      x0: startMs,
+      x1: driving[0].ms,
+      kind: classify(null, driving[0].s),
+    });
   }
   for (let i = 1; i < driving.length; i++) {
-    if (driving[i] - driving[i - 1] >= PARK_MIN_MS) {
-      out.push({ x0: driving[i - 1], x1: driving[i] });
+    if (driving[i].ms - driving[i - 1].ms >= PARK_MIN_MS) {
+      out.push({
+        x0: driving[i - 1].ms,
+        x1: driving[i].ms,
+        kind: classify(driving[i - 1].s, driving[i].s),
+      });
     }
   }
-  if (endMs - driving[driving.length - 1] >= PARK_MIN_MS) {
-    out.push({ x0: driving[driving.length - 1], x1: endMs });
+  const tail = driving[driving.length - 1];
+  if (endMs - tail.ms >= PARK_MIN_MS) {
+    out.push({
+      x0: tail.ms,
+      x1: endMs,
+      kind: classify(tail.s, null),
+    });
   }
   return out;
 }
