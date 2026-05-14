@@ -453,16 +453,17 @@ function TimelineSVG(props: {
                 y={SPEED_TOP}
                 width={w}
                 height={BATT_TOP + BATT_H - SPEED_TOP}
-                fill="#a3a3a3"
-                fillOpacity={0.10}
+                fill="#171717"
+                fillOpacity={0.55}
               />
               {w > 50 && (
                 <text
                   x={mid}
-                  y={SPEED_TOP + 11}
+                  y={SPEED_TOP + 12}
                   textAnchor="middle"
-                  className="fill-neutral-400"
+                  className="fill-neutral-300"
                   fontSize="10"
+                  fontWeight="600"
                 >
                   {label}
                 </text>
@@ -1471,15 +1472,18 @@ function buildModeSegments(
   return out;
 }
 
-// buildParkBands returns shaded ranges where speed has been ≤ 0.5 mph
-// for ≥ 5 min. Used to make the "drove → parked → drove" structure
-// of a trip visible at a glance on the timeline.
+// buildParkBands returns shaded ranges where speed has stayed below
+// the noise floor for ≥ 5 min. The 5 mph cutoff (vs the more obvious
+// 0 mph) absorbs Rivian's idle-state speed jitter — sitting at a
+// light reads ~4 mph in the telemetry even when the vehicle is
+// fully stopped.
 function buildParkBands(
   samples: Sample[],
   startMs: number,
   endMs: number,
 ): ParkBand[] {
   const PARK_MIN_MS = 5 * 60_000;
+  const PARK_SPEED = 5;
   const out: ParkBand[] = [];
   if (samples.length === 0) return out;
   let runStart = -1;
@@ -1487,7 +1491,7 @@ function buildParkBands(
     const s = samples[i];
     const ms = new Date(s.At).getTime();
     if (!Number.isFinite(ms)) continue;
-    const parked = (s.SpeedMph ?? 0) <= 0.5;
+    const parked = (s.SpeedMph ?? 0) <= PARK_SPEED;
     if (parked) {
       if (runStart < 0) runStart = ms;
       continue;
