@@ -936,7 +936,16 @@ export function DriveMap({
     // /match output we can get out of the public OSRM demo (capped
     // at 9 coordinates per request).
     const ac = new AbortController();
-    const SPARSE_MIN_GAP_M = 200; // average spacing that justifies /match
+    // Snap-to-road policy. Originally we only snapped sparse traces
+    // (avg sample gap ≥ 200 m) because the public OSRM demo capped
+    // /match at 9 coords per request, so dense drives couldn't be
+    // round-tripped without chunking that produced visible seams.
+    // Self-hosted Valhalla has no such cap and snaps dense traces
+    // cleanly — and crucially, it projects noisy points (GPS-lag,
+    // urban canyon drift) onto the nearest road, which is what the
+    // user wants regardless of trace density. So: always snap when
+    // Valhalla is wired; fall back to the legacy avg-gap gate only
+    // for the OSRM-demo path.
     let avgGap = 0;
     if (valid.length >= 2) {
       let total = 0;
@@ -950,7 +959,9 @@ export function DriveMap({
       }
       avgGap = total / (valid.length - 1);
     }
-    const useOsrm = avgGap >= SPARSE_MIN_GAP_M;
+    const valhallaAvailable = valhallaBase() !== "";
+    const SPARSE_MIN_GAP_M = 200;
+    const useOsrm = valhallaAvailable || avgGap >= SPARSE_MIN_GAP_M;
     // Synthesize bracketing timestamps for the parked start/end pins
     // so the trace stays monotonic. We anchor them ~60 s outside the
     // first/last in-drive sample, which mirrors how Rivian's
