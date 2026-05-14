@@ -394,7 +394,16 @@ function osmLinkURL(poi: POI): string {
 // is known (basemap fallback path) — the popup falls back to just
 // the name + snap-distance footer.
 function chargerSpecListHTML(poi: POI): string {
-  if (poi.source !== "chargers") return "";
+  if (poi.source !== "chargers") {
+    // Basemap fallback strips POI tags down to name only. Surface
+    // a "limited data" hint so the user knows we matched something,
+    // it just doesn't carry network/power/socket metadata.
+    return (
+      '<div style="color:#a3a3a3;font-size:11px;line-height:1.5;font-style:italic">' +
+      "Limited data — basemap snap (no network or power info)" +
+      "</div>"
+    );
+  }
   const rows: string[] = [];
   const row = (label: string, value: string) =>
     rows.push(
@@ -1211,9 +1220,12 @@ export function ChargeMap({
     let cancelled = false;
 
     // Only attempt the snap when the self-hosted vector basemap is
-    // wired — the CARTO raster fallback path has no POI data.
+    // wired — the CARTO raster fallback path has no POI data. 750m
+    // radius covers the typical "GPS landed at parking-lot entrance,
+    // OSM marker is in the middle of the lot" geometry; 250m was too
+    // tight for big-box and travel-plaza stations.
     if (tilesPMTilesURL()) {
-      void findNearestCharger(lat, lon, 250).then((poi) => {
+      void findNearestCharger(lat, lon, 750).then((poi) => {
         if (cancelled || !poi) return;
         applyChargerSnap(poi);
       });
