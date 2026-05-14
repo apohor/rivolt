@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { registerServiceWorker } from "./pwa";
+// Leaflet stylesheet first so index.css can override the popup theme.
+// DriveMap's lazy import would otherwise land it after index.css and
+// the popup renders with Leaflet's default white background.
+import "leaflet/dist/leaflet.css";
 import "./index.css";
 
 const queryClient = new QueryClient({
