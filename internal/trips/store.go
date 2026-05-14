@@ -98,13 +98,13 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*SavedTrip, error) {
 // turns a duplicate name into a Postgres unique-violation error; the
 // caller (handler) is responsible for surfacing that as 409.
 func (s *Store) Create(ctx context.Context, name string, inputs, plan, advice json.RawMessage) (*SavedTrip, error) {
-	var t SavedTrip
-	err := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO saved_trips (user_id, name, inputs, plan, advice)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, name, inputs, plan, advice, created_at, updated_at`,
 		s.userID, name, inputs, nilIfEmpty(plan), nilIfEmpty(advice),
-	).Scan(&t.ID, &t.Name, &t.Inputs, &t.Plan, &t.Advice, &t.CreatedAt, &t.UpdatedAt)
+	)
+	t, err := scanRow(row)
 	if err != nil {
 		return nil, err
 	}
@@ -114,14 +114,14 @@ func (s *Store) Create(ctx context.Context, name string, inputs, plan, advice js
 // Update overwrites name + inputs + plan + advice on an existing row.
 // Returns ErrNotFound if the id doesn't belong to this user.
 func (s *Store) Update(ctx context.Context, id uuid.UUID, name string, inputs, plan, advice json.RawMessage) (*SavedTrip, error) {
-	var t SavedTrip
-	err := s.db.QueryRowContext(ctx, `
+	row := s.db.QueryRowContext(ctx, `
 		UPDATE saved_trips
 		   SET name = $3, inputs = $4, plan = $5, advice = $6, updated_at = NOW()
 		 WHERE user_id = $1 AND id = $2
 		RETURNING id, name, inputs, plan, advice, created_at, updated_at`,
 		s.userID, id, name, inputs, nilIfEmpty(plan), nilIfEmpty(advice),
-	).Scan(&t.ID, &t.Name, &t.Inputs, &t.Plan, &t.Advice, &t.CreatedAt, &t.UpdatedAt)
+	)
+	t, err := scanRow(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
