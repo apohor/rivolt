@@ -74,9 +74,12 @@ function grafanaUserExploreURL(
 // pasted link to /admin#ai) keeps the position the operator was on.
 type AdminTab = "users" | "signups" | "ai" | "operations" | "tuning";
 
+// Signups is first because pending waitlist requests are the
+// most time-sensitive thing on this page — every other tab is
+// reactive ops (a user reported X) or background tuning.
 const ADMIN_TABS: { id: AdminTab; label: string }[] = [
-  { id: "users", label: "Users" },
   { id: "signups", label: "Signups" },
+  { id: "users", label: "Users" },
   { id: "ai", label: "AI" },
   { id: "operations", label: "Operations" },
   { id: "tuning", label: "Tuning" },
@@ -89,7 +92,7 @@ function isAdminTab(s: string): s is AdminTab {
 function AdminTabs({ currentUserID }: { currentUserID: string }) {
   const initial: AdminTab = (() => {
     const h = window.location.hash.replace(/^#/, "");
-    return isAdminTab(h) ? h : "users";
+    return isAdminTab(h) ? h : "signups";
   })();
   const [tab, setTab] = useState<AdminTab>(initial);
   // Keep the hash in sync so a reload restores the active tab and
@@ -492,16 +495,16 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
       {/* Master list — full-width row of summary columns. Click a
           row to populate the detail panel below; the active row is
           tinted so the selection is obvious. */}
-      <div className="overflow-x-auto rounded-md border border-neutral-900">
+      <div className="rounded-md border border-neutral-900">
         <table className="w-full text-sm">
           <thead className="text-left text-neutral-500">
             <tr>
               <th className="py-2 px-3">User</th>
-              <th className="py-2 px-3">Email</th>
+              <th className="py-2 px-3 hidden md:table-cell">Email</th>
               <th className="py-2 px-3">Role</th>
-              <th className="py-2 px-3">Activity</th>
-              <th className="py-2 px-3">Last seen</th>
-              <th className="py-2 px-3">Created</th>
+              <th className="py-2 px-3 hidden sm:table-cell">Activity</th>
+              <th className="py-2 px-3 hidden sm:table-cell">Last seen</th>
+              <th className="py-2 px-3 hidden lg:table-cell">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -521,9 +524,18 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                     <div className="text-neutral-100">
                       {u.display_name || u.username}
                     </div>
-                    <div className="text-xs text-neutral-500">{u.username}</div>
+                    {/* Username/email under the display name. On
+                        narrow viewports we collapse Email into this
+                        sub-line so the operator still sees how to
+                        contact the user without horizontal scroll. */}
+                    <div className="text-xs text-neutral-500 md:hidden">
+                      {u.email || u.username}
+                    </div>
+                    <div className="text-xs text-neutral-500 hidden md:block">
+                      {u.username}
+                    </div>
                   </td>
-                  <td className="py-2 px-3 text-neutral-400">
+                  <td className="py-2 px-3 text-neutral-400 hidden md:table-cell">
                     {u.email || "—"}
                   </td>
                   <td className="py-2 px-3">
@@ -542,7 +554,7 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       </span>
                     )}
                   </td>
-                  <td className="py-2 px-3">
+                  <td className="py-2 px-3 hidden sm:table-cell">
                     <div className="flex flex-wrap gap-1 text-[10px]">
                       <span
                         className={
@@ -565,14 +577,14 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                     </div>
                   </td>
                   <td
-                    className="py-2 px-3 text-xs text-neutral-500"
+                    className="py-2 px-3 text-xs text-neutral-500 hidden sm:table-cell"
                     title={u.last_seen_at ?? ""}
                   >
                     {u.last_seen_at
                       ? relativeTime(u.last_seen_at)
                       : <span className="text-neutral-700">never</span>}
                   </td>
-                  <td className="py-2 px-3 text-xs text-neutral-500">
+                  <td className="py-2 px-3 text-xs text-neutral-500 hidden lg:table-cell">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                 </tr>
