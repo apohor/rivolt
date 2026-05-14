@@ -238,12 +238,29 @@ async function snapToRoads(
   signal: AbortSignal,
 ): Promise<SnapPlan | null> {
   const points = cleanTrace(rawPoints);
-  if (points.length < 2) return null;
+  // Fallback to the unfiltered raw points when cleaning leaves too
+  // little to work with — a sparsely-sampled drive should still
+  // render a polyline rather than nothing at all.
+  if (points.length < 2) {
+    const raw = rawPoints.filter(
+      (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),
+    );
+    if (raw.length < 2) return null;
+    return {
+      segments: [{ coords: rawPolyline(raw), raw: true }],
+      gaps: [],
+    };
+  }
   await ensureConfig();
   if (signal.aborted) return null;
 
   const { segments, gaps } = splitTraceOnGaps(points);
-  if (segments.length === 0) return null;
+  if (segments.length === 0) {
+    return {
+      segments: [{ coords: rawPolyline(points), raw: true }],
+      gaps: [],
+    };
+  }
 
   const out: SnapPlan = { segments: [], gaps };
   const valhalla = valhallaBase() !== "";
@@ -264,12 +281,12 @@ async function snapToRoads(
     if (signal.aborted) return null;
     if (snapped && snapped.length > 1) {
       out.segments.push({ coords: snapped, raw: false });
-    } else if (quality === "short") {
-      // Snap failed on a borderline-length segment; the raw trace is
-      // better than nothing.
+    } else {
+      // Any snap failure falls back to the raw trace — even for
+      // a normal-quality segment the raw chord polyline is more
+      // useful than nothing.
       out.segments.push({ coords: rawPolyline(seg), raw: true });
     }
-    // quality "normal" snap failure → drop the segment.
   }
 
   return out.segments.length > 0 ? out : null;
