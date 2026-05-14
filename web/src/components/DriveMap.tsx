@@ -180,17 +180,8 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
-  // walk_or_snap is Valhalla's "try strict, fall back to relaxed"
-  // mode: it attempts edge_walk first (follow the road graph point
-  // by point) and, when a point can't be walked to, falls back to
-  // map_snap (project to nearest edge within search_radius). This
-  // is what we want — strict snapping on the highway portions plus
-  // tolerance for noisy start/end / urban-canyon samples. The
-  // earlier "map_match" string is not a valid Valhalla value and
-  // returned HTTP 400, leaving the SPA to fall back to the raw GPS
-  // chord polyline (visible as straight-line triangles in v0.18.31).
-  // search_radius=100 m doubles the default so noisy points still
-  // land on a plausible edge.
+  // walk_or_snap: strict edge_walk with map_snap fallback for noisy
+  // points. 100 m radius tolerates GPS drift at trip endpoints.
   const body = {
     shape: trace.map((p) => ({ lat: p.lat, lon: p.lon })),
     costing: "auto",
@@ -948,16 +939,8 @@ export function DriveMap({
     // /match output we can get out of the public OSRM demo (capped
     // at 9 coordinates per request).
     const ac = new AbortController();
-    // Snap-to-road policy. Originally we only snapped sparse traces
-    // (avg sample gap ≥ 200 m) because the public OSRM demo capped
-    // /match at 9 coords per request, so dense drives couldn't be
-    // round-tripped without chunking that produced visible seams.
-    // Self-hosted Valhalla has no such cap and snaps dense traces
-    // cleanly — and crucially, it projects noisy points (GPS-lag,
-    // urban canyon drift) onto the nearest road, which is what the
-    // user wants regardless of trace density. So: always snap when
-    // Valhalla is wired; fall back to the legacy avg-gap gate only
-    // for the OSRM-demo path.
+    // Always snap with Valhalla (no coord cap, handles dense + noisy
+    // traces). Sparse-only gate stays for the OSRM-demo fallback.
     let avgGap = 0;
     if (valid.length >= 2) {
       let total = 0;
