@@ -133,6 +133,17 @@ spec:
             - name: RIVOLT_GRAFANA_BASE_URL
               value: {{ .Values.grafana.baseUrl | quote }}
             {{- end }}
+            {{- if .Values.tracing }}
+            {{- if .Values.tracing.environment }}
+            # Stamp deployment.environment on every OTel span (and
+            # any resource-attribute-aware metric) so Grafana can
+            # distinguish prod traces from preview traces. The
+            # tracing package already runs resource.WithFromEnv(),
+            # which picks up OTEL_RESOURCE_ATTRIBUTES.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment={{ .Values.tracing.environment }}"
+            {{- end }}
+            {{- end }}
             {{- with .Values.elevation }}
             {{- if .enabled }}
             # Elevation lookup is opt-in. ELEVATION_ENABLED gates the

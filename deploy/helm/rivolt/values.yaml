@@ -475,6 +475,14 @@ maps:
 grafana:
   baseUrl: ""
 
+# Tracing tags applied to every emitted OTel span. The intent is
+# to distinguish prod from preview (or any other deploy slice) in
+# Grafana / Tempo without having to filter by k8s namespace. Set
+# environment per-deploy; OTEL_RESOURCE_ATTRIBUTES will carry
+# `deployment.environment=<value>` to the OTel SDK at boot.
+tracing:
+  environment: ""
+
 elevation:
   enabled: false
   # Terrarium tile template. Empty -> Mapzen on AWS Open Data
