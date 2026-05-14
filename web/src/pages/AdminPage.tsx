@@ -364,6 +364,10 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
       backend.adminSetUserDisabled(id, disabled),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
   });
+  const syncRivian = useMutation({
+    mutationFn: (id: string) => backend.adminSyncRivian(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
 
   const rows: AdminUserRow[] = useMemo(() => q.data?.users ?? [], [q.data]);
   const [busyID, setBusyID] = useState<string | null>(null);
@@ -533,6 +537,27 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       }`}
                     >
                       {u.disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      title="Re-fetch this user's vehicles from Rivian and refresh the local vehicles table"
+                      onClick={async () => {
+                        setBusyID(u.id);
+                        try {
+                          const r = await syncRivian.mutateAsync(u.id);
+                          alert(
+                            `Synced — ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${u.username}.`,
+                          );
+                        } catch (e) {
+                          alert(`Sync failed: ${String(e)}`);
+                        } finally {
+                          setBusyID(null);
+                        }
+                      }}
+                      className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
+                    >
+                      Sync Rivian
                     </button>
                     <button
                       type="button"

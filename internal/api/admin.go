@@ -16,6 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -343,5 +344,44 @@ func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, log *slog.Logger) htt
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+// handleAdminUserSyncRivian — POST /api/admin/users/{id}/sync-rivian
+//
+// Force-runs primeUserVehicles for the target user from the calling
+// pod's AccountRegistry. Used to seed the vehicles table for users
+// who connected Rivian before the eager-prime fix shipped, without
+// asking them to reload the app. Idempotent — re-running on a user
+// who already has rows just refreshes their metadata.
+func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if reg == nil || d == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "rivian or db unavailable"})
+			return
+		}
+		target, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid user id"})
+			return
+		}
+		lc := reg.For(target)
+		if lc == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no rivian client for user"})
+			return
+		}
+		if !lc.Authenticated() {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "user has no active rivian session"})
+			return
+		}
+		primeUserVehicles(r.Context(), lc, d, target, log)
+		var n int
+		if err := d.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM vehicles WHERE user_id = $1`, target,
+		).Scan(&n); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "vehicle_count": n})
 	}
 }

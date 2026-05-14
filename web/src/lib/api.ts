@@ -794,6 +794,14 @@ export const backend = {
       `/api/admin/users/${encodeURIComponent(id)}/disabled`,
       { disabled },
     ),
+  // Force-prime the user's vehicles table from Rivian — used to fix
+  // up accounts that connected before the eager-prime fix shipped or
+  // any case where the local vehicles row drifted from the Rivian
+  // account. Idempotent.
+  adminSyncRivian: (id: string) =>
+    api.post<{ ok: true; vehicle_count: number }>(
+      `/api/admin/users/${encodeURIComponent(id)}/sync-rivian`,
+    ),
   adminDeleteUser: (id: string) =>
     fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: "DELETE",
