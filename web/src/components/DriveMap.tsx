@@ -1219,17 +1219,16 @@ export function ChargeMap({
     let connector: L.Polyline | null = null;
     let cancelled = false;
 
-    // Only attempt the snap when the self-hosted vector basemap is
-    // wired — the CARTO raster fallback path has no POI data. 750m
-    // radius covers the typical "GPS landed at parking-lot entrance,
-    // OSM marker is in the middle of the lot" geometry; 250m was too
-    // tight for big-box and travel-plaza stations.
-    if (tilesPMTilesURL()) {
-      void findNearestCharger(lat, lon, 750).then((poi) => {
-        if (cancelled || !poi) return;
-        applyChargerSnap(poi);
-      });
-    }
+    // Attempt the snap unconditionally — findNearestCharger awaits
+    // /api/config internally and exits cleanly if neither archive is
+    // wired. 750m radius covers the typical "GPS landed at
+    // parking-lot entrance, OSM marker is in the middle of the lot"
+    // geometry; 250m was too tight for big-box and travel-plaza
+    // stations.
+    void findNearestCharger(lat, lon, 750).then((poi) => {
+      if (cancelled || !poi) return;
+      applyChargerSnap(poi);
+    });
 
     function applyChargerSnap(poi: POI) {
       // Demote recorded-GPS to a muted dot with a clarifying

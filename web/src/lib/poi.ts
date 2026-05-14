@@ -25,7 +25,7 @@
 import Pbf from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
-import { tilesPMTilesURL, chargersPMTilesURL } from "./config";
+import { tilesPMTilesURL, chargersPMTilesURL, ensureConfig } from "./config";
 
 export type POI = {
   // Snapped coords from the OSM POI node.
@@ -436,6 +436,7 @@ export async function findChargersAlongPath(
   filter: "dcfc" | "l2" | "all" = "dcfc",
 ): Promise<POI[]> {
   if (path.length < 2) return [];
+  await ensureConfig();
   const chargersURL = chargersPMTilesURL();
   if (!chargersURL) return [];
   const pm = getArchive(chargersURL, "chargers");
@@ -552,6 +553,10 @@ export async function findNearestCharger(
   lon: number,
   radiusM = 250,
 ): Promise<POI | null> {
+  // Wait for /api/config before reading the archive URLs — synchronous
+  // callers (e.g. ChargeMap's effect on mount) would otherwise see ""
+  // and silently fall through to the metadata-stripped basemap layer.
+  await ensureConfig();
   // Prefer the rich chargers archive.
   const chargersURL = chargersPMTilesURL();
   const chargersKey = memoKey("chargers", lat, lon, "charging_station", radiusM);
