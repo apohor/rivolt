@@ -19,7 +19,7 @@ import {
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
-import { cleanTrace } from "../lib/trace";
+import { cleanTrace, splitTraceOnGaps } from "../lib/trace";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
 // OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
@@ -187,13 +187,7 @@ async function valhallaSnap(
     ),
     costing: "auto",
     shape_match: "walk_or_snap",
-    // breakage_distance keeps Valhalla from splitting a continuous
-    // trip on multi-km GPS dropouts (e.g. tunnel, parking garage).
-    trace_options: {
-      search_radius: 100,
-      gps_accuracy: 25,
-      breakage_distance: 50000,
-    },
+    trace_options: { search_radius: 100, gps_accuracy: 25 },
     directions_options: { units: "miles" },
   };
   try {
@@ -224,7 +218,7 @@ async function valhallaSnap(
 async function snapToRoads(
   rawPoints: SnapPoint[],
   signal: AbortSignal,
-): Promise<[number, number][] | null> {
+): Promise<[number, number][][] | null> {
   // Strip noise + dedup + collapse stops once, before either matcher
   // sees the trace. Both OSRM and Valhalla degrade in the same ways
   // on identical-coord runs and impossible-speed jumps.
@@ -238,11 +232,19 @@ async function snapToRoads(
   await ensureConfig();
   if (signal.aborted) return null;
 
-  // Valhalla is preferred whenever the server advertises it; no
-  // OSRM fallback in that case so a Valhalla failure surfaces as a
-  // straight line rather than a silently different engine result.
+  // Valhalla is preferred. Split on real gaps (signal loss, parking
+  // garages) and snap each segment independently — the matcher
+  // never has to invent a route across a multi-km dropout.
   if (valhallaBase() !== "") {
-    return await valhallaSnap(points, signal);
+    const segs = splitTraceOnGaps(points);
+    if (segs.length === 0) return null;
+    const out: [number, number][][] = [];
+    for (const seg of segs) {
+      const snapped = await valhallaSnap(seg, signal);
+      if (signal.aborted) return null;
+      if (snapped && snapped.length > 1) out.push(snapped);
+    }
+    return out.length > 0 ? out : null;
   }
 
   // Self-hosted OSRM: send the whole trace as a single /match.
@@ -262,9 +264,10 @@ async function snapToRoads(
       trace = sampled;
     }
     const m = await matchChunk(trace, signal);
-    if (m && m.length > 1) return m;
+    if (m && m.length > 1) return [m];
     // /match gave up on the whole trace — fall back to /route.
-    return await routeAll(trace, signal);
+    const r = await routeAll(trace, signal);
+    return r ? [r] : null;
   }
 
   const step = Math.max(1, Math.ceil(points.length / MAX_TRACE));
@@ -289,16 +292,18 @@ async function snapToRoads(
       // entirely and try a single /route over the whole trace —
       // less faithful to the actual driven path, but better than
       // returning a partial polyline.
-      return await routeAll(sampled, signal);
+      const r = await routeAll(sampled, signal);
+      return r ? [r] : null;
     }
     if (matched.length > 0 && m.length > 0) m.shift();
     matched.push(...m);
     if (i + MATCH_CHUNK_SIZE >= sampled.length) break;
   }
-  if (matched.length > 1) return matched;
+  if (matched.length > 1) return [matched];
 
   // Final fallback: /route, then raw.
-  return await routeAll(sampled, signal);
+  const r = await routeAll(sampled, signal);
+  return r ? [r] : null;
 }
 
 // Tile config shared by both maps. CARTO's dark basemap split into a
@@ -678,8 +683,12 @@ function speedColor(mph: number | undefined): string {
 // single emerald wash so the line still reads as one continuous path
 // on the dark basemap. When speeds are absent we fall back to the
 // uniform emerald stroke.
+// drawRoute composes the polyline layers into a LayerGroup and
+// returns it without attaching to the map — the caller decides where
+// it goes (top-level for single-segment, nested under a parent group
+// for multi-segment trips).
 function drawRoute(
-  map: L.Map,
+  _map: L.Map,
   latlngs: [number, number][],
   speeds?: (number | undefined)[],
 ): L.LayerGroup {
@@ -703,7 +712,6 @@ function drawRoute(
       lineCap: "round",
       lineJoin: "round",
     }).addTo(group);
-    group.addTo(map);
     return group;
   }
   // Walk the line and emit a sub-polyline whenever the speed bucket
@@ -732,7 +740,6 @@ function drawRoute(
     lineCap: "round",
     lineJoin: "round",
   }).addTo(group);
-  group.addTo(map);
   return group;
 }
 
@@ -917,6 +924,7 @@ export function DriveMap({
     let line: L.LayerGroup | null = null;
     if (latlngs.length > 1) {
       line = drawRoute(map, latlngs, speeds);
+      line.addTo(map);
       map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
     }
     // Show the speed legend whenever we have any per-point speed data.
@@ -986,35 +994,41 @@ export function DriveMap({
       ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
     ];
     if (useOsrm) {
-      snapToRoads(tracePoints, ac.signal).then((matched) => {
-        if (!matched || !mapRef.current) return;
+      snapToRoads(tracePoints, ac.signal).then((segments) => {
+        if (!segments || segments.length === 0 || !mapRef.current) return;
         if (line) line.remove();
-        // OSRM returns a denser geometry than the input trace, so
-        // we no longer have a 1:1 speed mapping. Project each
-        // returned coord to its nearest input point and steal
-        // that point's speed bucket. Cheap O(n*m) loop — m is
-        // capped at MAX_TRACE so this stays fast.
-        const matchedSpeeds: (number | undefined)[] = matched.map(
-          ([lat, lon]) => {
-            let bestI = 0;
-            let bestD = Infinity;
-            for (let i = 0; i < tracePoints.length; i++) {
-              const p = tracePoints[i];
-              const dy = (p.lat - lat) * 111111;
-              const dx =
-                (p.lon - lon) * 111111 * Math.cos((lat * Math.PI) / 180);
-              const d = dx * dx + dy * dy;
-              if (d < bestD) {
-                bestD = d;
-                bestI = i;
+        // Render each snapped segment as its own colored polyline.
+        // Real gaps in the trace (GPS dropouts, parking garages)
+        // appear as visible breaks rather than invented chords.
+        const layers = L.layerGroup();
+        const allCoords: [number, number][] = [];
+        for (const matched of segments) {
+          const matchedSpeeds: (number | undefined)[] = matched.map(
+            ([lat, lon]) => {
+              let bestI = 0;
+              let bestD = Infinity;
+              for (let i = 0; i < tracePoints.length; i++) {
+                const p = tracePoints[i];
+                const dy = (p.lat - lat) * 111111;
+                const dx =
+                  (p.lon - lon) * 111111 * Math.cos((lat * Math.PI) / 180);
+                const d = dx * dx + dy * dy;
+                if (d < bestD) {
+                  bestD = d;
+                  bestI = i;
+                }
               }
-            }
-            return tracePoints[bestI].s;
-          },
-        );
-        const snapped = drawRoute(map, matched, matchedSpeeds);
-        map.fitBounds(L.latLngBounds(matched), { padding: [20, 20] });
-        line = snapped;
+              return tracePoints[bestI].s;
+            },
+          );
+          drawRoute(map, matched, matchedSpeeds).addTo(layers);
+          allCoords.push(...matched);
+        }
+        layers.addTo(map);
+        if (allCoords.length > 0) {
+          map.fitBounds(L.latLngBounds(allCoords), { padding: [20, 20] });
+        }
+        line = layers;
       });
     }
 

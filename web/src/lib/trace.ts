@@ -14,6 +14,8 @@
 export type TracePoint = { lat: number; lon: number; t?: number };
 
 const MAX_SANE_SPEED_MPS = 45; // ~100 mph implied between adjacent points
+const GAP_TIME_S = 120; // ≥2 min between samples = end-of-segment
+const GAP_DIST_M = 500; // ≥500 m jump between samples = end-of-segment
 
 // haversine distance in meters.
 function haversine(a: TracePoint, b: TracePoint): number {
@@ -116,4 +118,28 @@ export function cleanTrace<T extends TracePoint>(pts: T[]): T[] {
     s = kept;
   }
   return s;
+}
+
+// splitTraceOnGaps cuts the cleaned trace wherever consecutive
+// samples are separated by ≥ GAP_TIME_S seconds OR ≥ GAP_DIST_M
+// meters of straight-line distance. The matcher should never be
+// asked to bridge a real gap by inventing a route — each segment is
+// snapped independently and the rendered map shows visible breaks
+// where data is honestly missing.
+export function splitTraceOnGaps<T extends TracePoint>(pts: T[]): T[][] {
+  if (pts.length === 0) return [];
+  const segs: T[][] = [[pts[0]]];
+  for (let i = 1; i < pts.length; i++) {
+    const cur = pts[i];
+    const prev = pts[i - 1];
+    const dt =
+      cur.t != null && prev.t != null ? cur.t - prev.t : 0;
+    const dist = haversine(prev, cur);
+    if (dt >= GAP_TIME_S || dist >= GAP_DIST_M) {
+      segs.push([cur]);
+    } else {
+      segs[segs.length - 1].push(cur);
+    }
+  }
+  return segs.filter((s) => s.length >= 2);
 }
