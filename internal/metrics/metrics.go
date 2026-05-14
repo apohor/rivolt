@@ -66,6 +66,13 @@ type Metrics struct {
 	// Postgres; surface those via a Grafana SQL data source if/when
 	// we want to chart them.
 	AIRequestsTotal *prometheus.CounterVec
+
+	// Transactional email outcomes. `provider` is the wired email
+	// backend (today: "resend"), `status` is "ok" / "error" /
+	// "rate_limited" / "not_configured". An alert rule watches the
+	// monthly increase against Resend's free-tier cap (3000) so we
+	// see the wall coming a few days out, not the morning after.
+	EmailSendTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -144,6 +151,13 @@ func New() *Metrics {
 			},
 			[]string{"provider", "outcome"},
 		),
+		EmailSendTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_email_send_total",
+				Help: "Transactional emails attempted, partitioned by provider and outcome.",
+			},
+			[]string{"provider", "status"},
+		),
 	}
 
 	reg.MustRegister(
@@ -155,6 +169,7 @@ func New() *Metrics {
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,
 		m.AIRequestsTotal,
+		m.EmailSendTotal,
 	)
 	return m
 }

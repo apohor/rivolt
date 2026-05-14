@@ -1069,8 +1069,9 @@ func runServer() {
 	// magic-link in the response so the admin can forward it
 	// manually.
 	mailer := email.New(email.Config{
-		APIKey: os.Getenv("RIVOLT_RESEND_API_KEY"),
-		From:   os.Getenv("RIVOLT_EMAIL_FROM"),
+		APIKey:  os.Getenv("RIVOLT_RESEND_API_KEY"),
+		From:    os.Getenv("RIVOLT_EMAIL_FROM"),
+		Counter: emailMetricsAdapter{m: appMetrics},
 	})
 	if mailer != nil {
 		logger.Info("email sender enabled", "from", os.Getenv("RIVOLT_EMAIL_FROM"))
@@ -1379,4 +1380,17 @@ func (r *rateLimitMetrics) Allow(ctx context.Context, class string) (bool, time.
 		r.m.RivianRateLimitBlocked.WithLabelValues(class).Inc()
 	}
 	return ok, retry
+}
+
+// emailMetricsAdapter forwards email.Client send outcomes into the
+// appMetrics counter. Same dependency-inversion shape as the other
+// adapters above: internal/email defines the Counter interface so it
+// stays import-free; main owns the actual metric.
+type emailMetricsAdapter struct{ m *metrics.Metrics }
+
+func (a emailMetricsAdapter) IncEmailSend(provider, status string) {
+	if a.m == nil {
+		return
+	}
+	a.m.EmailSendTotal.WithLabelValues(provider, status).Inc()
 }

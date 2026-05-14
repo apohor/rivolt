@@ -23,19 +23,30 @@ import (
 	"time"
 )
 
+// Counter is the metric-recording surface the Resend client uses
+// without taking a hard dependency on internal/metrics (avoids a
+// package-level import cycle: metrics imports nothing application,
+// application imports metrics from main, email is a leaf).
+// Implementations must be safe for concurrent use.
+type Counter interface {
+	IncEmailSend(provider, status string)
+}
+
 // Client posts to https://api.resend.com/emails.
 type Client struct {
-	apiKey string
-	from   string
-	hc     *http.Client
-	base   string // override target for tests
+	apiKey  string
+	from    string
+	hc      *http.Client
+	base    string // override target for tests
+	counter Counter
 }
 
 // Config carries the construction parameters. From must be a verified
 // sender on the Resend account (e.g. "Rivolt <hello@rivolt.dev>").
 type Config struct {
-	APIKey string
-	From   string
+	APIKey  string
+	From    string
+	Counter Counter // optional; nil is fine
 }
 
 // New returns a Client, or nil when APIKey/From are empty so the
@@ -46,10 +57,11 @@ func New(cfg Config) *Client {
 		return nil
 	}
 	return &Client{
-		apiKey: cfg.APIKey,
-		from:   cfg.From,
-		hc:     &http.Client{Timeout: 10 * time.Second},
-		base:   "https://api.resend.com",
+		apiKey:  cfg.APIKey,
+		from:    cfg.From,
+		hc:      &http.Client{Timeout: 10 * time.Second},
+		base:    "https://api.resend.com",
+		counter: cfg.Counter,
 	}
 }
 
@@ -89,6 +101,9 @@ func (c *Client) FromAddress() string {
 // surfaced verbatim in the error otherwise so admin logs can show why.
 func (c *Client) Send(ctx context.Context, m Message) error {
 	if c == nil {
+		// "not_configured" lands as its own status so the alert
+		// rule can tell "we tried to email but no client wired"
+		// from "we tried and the provider barked".
 		return ErrNotConfigured
 	}
 	body := map[string]any{
@@ -102,22 +117,44 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
+		c.observe("error")
 		return fmt.Errorf("email: marshal: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/emails", bytes.NewReader(buf))
 	if err != nil {
+		c.observe("error")
 		return fmt.Errorf("email: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		c.observe("error")
 		return fmt.Errorf("email: post: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.observe("ok")
 		return nil
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	// Rate-limit + quota signals get their own status so the
+	// "approaching cap" alert can fire on the daily-volume
+	// counter before we hit the actual wall.
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests, http.StatusPaymentRequired:
+		c.observe("rate_limited")
+	default:
+		c.observe("error")
+	}
 	return fmt.Errorf("email: resend status %d: %s", resp.StatusCode, string(respBody))
+}
+
+// observe is the metric-emit shim; nil-safe so tests don't have to
+// thread a counter through every fixture.
+func (c *Client) observe(status string) {
+	if c == nil || c.counter == nil {
+		return
+	}
+	c.counter.IncEmailSend("resend", status)
 }
