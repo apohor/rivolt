@@ -166,14 +166,20 @@ async function routeAll(
   }
 }
 
-// valhallaSnap calls /trace_route with walk_or_snap and decodes the
-// concatenated leg shapes. Expects the caller to have cleaned the
-// trace upstream — outliers, dedup, and stop-run compression all
-// happen in lib/trace.cleanTrace.
+// valhallaSnap calls /trace_route with walk_or_snap in OSRM-compatible
+// response format. Returns an ordered list of snapped sub-segments
+// plus dashed gap connectors for the input ranges Valhalla couldn't
+// match continuously. Walk_or_snap routinely splits a noisy trace
+// into 2+ `matchings` — the previous Valhalla-native response shape
+// surfaced only the longest match in `trip` and buried the rest in
+// `alternates`, which we'd silently drop. OSRM format gives us the
+// `tracepoints` array (one entry per input shape point) mapping each
+// input point to its matching index, which is how we know where the
+// matcher gave up.
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
-): Promise<[number, number][] | null> {
+): Promise<{ chunks: [number, number][][]; gaps: TraceGap[] } | null> {
   const base = valhallaBase();
   if (base === "" || pts.length < 2) return null;
   const MAX_TRACE = 1500;
@@ -194,7 +200,7 @@ async function valhallaSnap(
     costing: "auto",
     shape_match: "walk_or_snap",
     trace_options: { search_radius: 100, gps_accuracy: 25 },
-    directions_options: { units: "miles" },
+    format: "osrm",
   };
   try {
     const r = await fetch(`${base}/trace_route`, {
@@ -205,17 +211,44 @@ async function valhallaSnap(
     });
     if (!r.ok) return null;
     const j = (await r.json()) as {
-      trip?: { legs?: { shape?: string }[] };
+      code?: string;
+      matchings?: { geometry?: string; confidence?: number }[];
+      tracepoints?: ({ matchings_index: number } | null)[];
     };
-    const legs = j.trip?.legs ?? [];
-    if (legs.length === 0) return null;
-    const out: [number, number][] = [];
-    for (let i = 0; i < legs.length; i++) {
-      const seg = decodePolyline(legs[i].shape, 6);
-      if (i > 0 && seg.length > 0) seg.shift();
-      out.push(...seg);
+    const matchings = j.matchings ?? [];
+    const tps = j.tracepoints ?? [];
+    if (matchings.length === 0) return null;
+    // OSRM polylines from Valhalla are precision-6.
+    const chunks: [number, number][][] = matchings.map((m) =>
+      m.geometry ? decodePolyline(m.geometry, 6) : [],
+    );
+    // Walk the tracepoints to find each matching's input-span boundaries.
+    // The last input point of matching N and the first input point of
+    // matching N+1 frame the unmatched stretch we render as a dashed
+    // connector. We use the input coords (not the snapped endpoints)
+    // because the gap really lives in input-space — Valhalla doesn't
+    // emit a polyline for it.
+    const lastInputOf: number[] = new Array(matchings.length).fill(-1);
+    const firstInputOf: number[] = new Array(matchings.length).fill(-1);
+    for (let i = 0; i < tps.length; i++) {
+      const tp = tps[i];
+      if (!tp) continue;
+      const k = tp.matchings_index;
+      if (k < 0 || k >= matchings.length) continue;
+      if (firstInputOf[k] === -1) firstInputOf[k] = i;
+      lastInputOf[k] = i;
     }
-    return out.length > 1 ? out : null;
+    const gaps: TraceGap[] = [];
+    for (let k = 1; k < matchings.length; k++) {
+      const prevEnd = lastInputOf[k - 1];
+      const curStart = firstInputOf[k];
+      if (prevEnd < 0 || curStart < 0) continue;
+      const a = trace[prevEnd];
+      const b = trace[curStart];
+      gaps.push({ from: [a.lat, a.lon], to: [b.lat, b.lon] });
+    }
+    const valid = chunks.filter((c) => c.length > 1);
+    return valid.length > 0 ? { chunks: valid, gaps } : null;
   } catch {
     return null;
   }
@@ -273,56 +306,56 @@ async function snapToRoads(
       out.segments.push({ coords: rawPolyline(seg), raw: true });
       continue;
     }
-    let snapped: [number, number][] | null = null;
+    let chunks: [number, number][][] | null = null;
+    let innerGaps: TraceGap[] = [];
     if (valhalla) {
-      snapped = await valhallaSnap(seg, signal);
+      const v = await valhallaSnap(seg, signal);
+      if (v) {
+        chunks = v.chunks;
+        innerGaps = v.gaps;
+      }
     } else {
-      snapped = await osrmSnap(seg, signal);
+      const osrmOut = await osrmSnap(seg, signal);
+      if (osrmOut && osrmOut.length > 1) chunks = [osrmOut];
     }
     if (signal.aborted) return null;
-    if (snapped && snapped.length > 1) {
-      // Tail-coverage check. The matcher sometimes bails part-way
-      // through a noisy segment and returns only a prefix — we'd
-      // then silently drop the rest of the drive. If the snapped
-      // polyline's last vertex lands far from the segment's last
-      // input coord, find the first input point that the matcher
-      // skipped, draw the snapped prefix as one sub-segment, emit
-      // a dashed connector across the unmatched gap, and render
-      // the remaining tail as a raw chord.
+    if (chunks && chunks.length > 0) {
+      // Push each snapped sub-segment as its own out.segment so the
+      // renderer can draw dashed connectors between them. innerGaps
+      // (Valhalla telling us where it gave up matching) bubble up to
+      // out.gaps alongside the trace-level gaps from splitTraceOnGaps.
+      for (const c of chunks) out.segments.push({ coords: c, raw: false });
+      out.gaps.push(...innerGaps);
+      // Head/tail coverage: the first matching may not start at the
+      // segment's first input point, and the last may not end at the
+      // last input point. Wrap with raw chords so the full recorded
+      // trace remains visible end-to-end.
       const TAIL_TOLERANCE_M = 200;
-      const last = snapped[snapped.length - 1];
+      const firstSnap = chunks[0][0];
+      const headDist = haversine(
+        { lat: seg[0].lat, lon: seg[0].lon },
+        { lat: firstSnap[0], lon: firstSnap[1] },
+      );
+      if (headDist > TAIL_TOLERANCE_M) {
+        out.gaps.push({
+          from: [seg[0].lat, seg[0].lon],
+          to: firstSnap,
+        });
+      }
+      const lastSnap = chunks[chunks.length - 1][chunks[chunks.length - 1].length - 1];
       const tailPt = seg[seg.length - 1];
       const tailDist = haversine(
-        { lat: last[0], lon: last[1] },
+        { lat: lastSnap[0], lon: lastSnap[1] },
         { lat: tailPt.lat, lon: tailPt.lon },
       );
       if (tailDist > TAIL_TOLERANCE_M) {
-        out.segments.push({ coords: snapped, raw: false });
-        // Find the first input point > TAIL_TOLERANCE_M from the
-        // snapped end — that's where the unmatched tail begins.
-        let cutIdx = seg.length - 1;
-        for (let i = 0; i < seg.length; i++) {
-          const d = haversine(
-            { lat: last[0], lon: last[1] },
-            { lat: seg[i].lat, lon: seg[i].lon },
-          );
-          if (d > TAIL_TOLERANCE_M) {
-            cutIdx = i;
-            break;
-          }
-        }
-        out.gaps.push({ from: last, to: [seg[cutIdx].lat, seg[cutIdx].lon] });
-        const tail = seg.slice(cutIdx);
-        if (tail.length >= 2) {
-          out.segments.push({ coords: rawPolyline(tail), raw: true });
-        }
-      } else {
-        out.segments.push({ coords: snapped, raw: false });
+        out.gaps.push({
+          from: lastSnap,
+          to: [tailPt.lat, tailPt.lon],
+        });
       }
     } else {
-      // Any snap failure falls back to the raw trace — even for
-      // a normal-quality segment the raw chord polyline is more
-      // useful than nothing.
+      // Snap failure: render the raw chord — better than nothing.
       out.segments.push({ coords: rawPolyline(seg), raw: true });
     }
   }
