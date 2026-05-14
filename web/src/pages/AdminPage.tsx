@@ -59,13 +59,13 @@ function grafanaUserExploreURL(
   const from = new Date(fromISO).getTime();
   const to = new Date(toISO).getTime();
   if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
-  // Grafana's `left` schema accepts datasource as a UID string OR
-  // a {type, uid} object. The object form is what's blessed in
-  // recent docs and the only form that still works if the UID
-  // ever changes — pin both fields so a typo in either still
-  // produces a useful error in Grafana instead of silently
-  // falling back to the default datasource and rendering a
-  // homepage that looks like "wrong data".
+  // Grafana 11+ replaced the `?left=` URL param with a new
+  // `?panes=<encoded>&schemaVersion=1` shape keyed by a
+  // randomly-generated pane id. The legacy `left` param is
+  // still parsed but the datasource field gets dropped on the
+  // floor — Grafana then defaults to the first provisioned
+  // datasource of any type (Tempo, in our case), which is the
+  // "logs link opens Tempo" symptom. Build the new format.
   const ds =
     kind === "logs"
       ? { type: "loki", uid: "loki" }
@@ -83,12 +83,17 @@ function grafanaUserExploreURL(
           queryType: "traceql",
           query: `{ .user.id = "${userID}" }`,
         };
-  const left = {
-    datasource: ds,
+  const pane = {
+    datasource: ds.uid,
     queries: [query],
     range: { from: String(from), to: String(to) },
   };
-  return `${base}/explore?orgId=1&left=${encodeURIComponent(JSON.stringify(left))}`;
+  // Pane id is an arbitrary short key Grafana uses to identify
+  // each split. Keep it deterministic per-kind for predictable
+  // URLs but it could be any string.
+  const paneID = kind === "logs" ? "lg" : "tr";
+  const panes = { [paneID]: pane };
+  return `${base}/explore?schemaVersion=1&orgId=1&panes=${encodeURIComponent(JSON.stringify(panes))}`;
 }
 
 // AdminTabs groups admin-only surfaces under a single tab nav. The
