@@ -382,6 +382,22 @@ func runServer() {
 				logger.Info("rivian client: needs re-auth (from Postgres)",
 					"user_id", boundUID.String(), "reason", reason)
 			}
+			// Lazy-restore any persisted Rivian session from Postgres.
+			// Without this, a user who signs in to Rivian on Pod A
+			// stays "not connected" on Pod B until the next restart —
+			// the boot hydrate sweep only fires once, and per-user
+			// LiveClients constructed on-demand after boot would
+			// otherwise start unauthenticated. Both code paths now
+			// converge on the same Restore() so /api/settings/rivian
+			// answers identically from any replica.
+			if secretsStore != nil {
+				if sess, err := secrets.LoadRivianSession(ctx, secretsStore, boundUID); err != nil {
+					logger.Warn("rivian session load (lazy)",
+						"user_id", boundUID.String(), "err", err.Error())
+				} else if sess.UserSessionToken != "" {
+					lc.Restore(sess)
+				}
+			}
 			return lc
 		}
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
