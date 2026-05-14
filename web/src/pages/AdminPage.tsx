@@ -398,17 +398,20 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
     u.role === "admin" && adminCount <= 1;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-      {/* Master list — click to select, busy state still applies to
-          the selected row so async actions visibly lock it. */}
+    <div className="space-y-4">
+      {/* Master list — full-width row of summary columns. Click a
+          row to populate the detail panel below; the active row is
+          tinted so the selection is obvious. */}
       <div className="overflow-x-auto rounded-md border border-neutral-900">
         <table className="w-full text-sm">
           <thead className="text-left text-neutral-500">
             <tr>
               <th className="py-2 px-3">User</th>
+              <th className="py-2 px-3">Email</th>
               <th className="py-2 px-3">Role</th>
               <th className="py-2 px-3">Activity</th>
               <th className="py-2 px-3">Last seen</th>
+              <th className="py-2 px-3">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -428,9 +431,10 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                     <div className="text-neutral-100">
                       {u.display_name || u.username}
                     </div>
-                    <div className="text-xs text-neutral-500">
-                      {u.email || u.username}
-                    </div>
+                    <div className="text-xs text-neutral-500">{u.username}</div>
+                  </td>
+                  <td className="py-2 px-3 text-neutral-400">
+                    {u.email || "—"}
                   </td>
                   <td className="py-2 px-3">
                     <span
@@ -465,6 +469,9 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
                         ↻ {u.drive_count}
                       </span>
+                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                        ⬇ {u.import_count}
+                      </span>
                     </div>
                   </td>
                   <td
@@ -475,6 +482,9 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       ? relativeTime(u.last_seen_at)
                       : <span className="text-neutral-700">never</span>}
                   </td>
+                  <td className="py-2 px-3 text-xs text-neutral-500">
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </td>
                 </tr>
               );
             })}
@@ -482,8 +492,9 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
         </table>
       </div>
 
-      {/* Detail panel — fetches the deep-dive bundle for the
-          selected row and holds every per-user action. */}
+      {/* Detail panel — full-width below the list so columns aren't
+          fighting for screen space. Fetches the deep-dive bundle
+          for the selected row and holds every per-user action. */}
       <div>
         {selectedRow ? (
           <UserDetailPanel
