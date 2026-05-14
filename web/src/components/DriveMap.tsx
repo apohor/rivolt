@@ -19,7 +19,12 @@ import {
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
 import { findNearestCharger, type POI } from "../lib/poi";
-import { cleanTrace, splitTraceOnGaps } from "../lib/trace";
+import {
+  cleanTrace,
+  classifySegment,
+  splitTraceOnGaps,
+  type TraceGap,
+} from "../lib/trace";
 
 // hasSelfHostedOSRM is true when the server wired a same-origin
 // OSRM proxy (RIVOLT_OSRM_BASE_URL set). Self-hosted OSRM lifts the
@@ -215,43 +220,68 @@ async function valhallaSnap(
   }
 }
 
+type SnapPlan = {
+  segments: { coords: [number, number][]; raw: boolean }[];
+  gaps: TraceGap[];
+};
+
+// Render the raw GPS chord polyline for a segment we don't want to
+// trust the matcher with — parking-lot maneuvers, sub-200m drives,
+// trace-too-short cases. The raw trace IS the actual recorded path,
+// snapping only adds hallucination.
+function rawPolyline(seg: SnapPoint[]): [number, number][] {
+  return seg.map((p) => [p.lat, p.lon]);
+}
+
 async function snapToRoads(
   rawPoints: SnapPoint[],
   signal: AbortSignal,
-): Promise<[number, number][][] | null> {
-  // Strip noise + dedup + collapse stops once, before either matcher
-  // sees the trace. Both OSRM and Valhalla degrade in the same ways
-  // on identical-coord runs and impossible-speed jumps.
+): Promise<SnapPlan | null> {
   const points = cleanTrace(rawPoints);
   if (points.length < 2) return null;
-
-  // Make sure /api/config has resolved before we pick a base URL.
-  // The module-level kick-off usually wins this race; awaiting here
-  // guarantees the very first map render uses the configured proxy
-  // instead of falling back to the public demo by accident.
   await ensureConfig();
   if (signal.aborted) return null;
 
-  // Valhalla is preferred. Split on real gaps (signal loss, parking
-  // garages) and snap each segment independently — the matcher
-  // never has to invent a route across a multi-km dropout.
-  if (valhallaBase() !== "") {
-    const segs = splitTraceOnGaps(points);
-    if (segs.length === 0) return null;
-    const out: [number, number][][] = [];
-    for (const seg of segs) {
-      const snapped = await valhallaSnap(seg, signal);
-      if (signal.aborted) return null;
-      if (snapped && snapped.length > 1) out.push(snapped);
+  const { segments, gaps } = splitTraceOnGaps(points);
+  if (segments.length === 0) return null;
+
+  const out: SnapPlan = { segments: [], gaps };
+  const valhalla = valhallaBase() !== "";
+
+  for (const seg of segments) {
+    if (signal.aborted) return null;
+    const quality = classifySegment(seg);
+    if (quality === "trivial") {
+      out.segments.push({ coords: rawPolyline(seg), raw: true });
+      continue;
     }
-    return out.length > 0 ? out : null;
+    let snapped: [number, number][] | null = null;
+    if (valhalla) {
+      snapped = await valhallaSnap(seg, signal);
+    } else {
+      snapped = await osrmSnap(seg, signal);
+    }
+    if (signal.aborted) return null;
+    if (snapped && snapped.length > 1) {
+      out.segments.push({ coords: snapped, raw: false });
+    } else if (quality === "short") {
+      // Snap failed on a borderline-length segment; the raw trace is
+      // better than nothing.
+      out.segments.push({ coords: rawPolyline(seg), raw: true });
+    }
+    // quality "normal" snap failure → drop the segment.
   }
 
-  // Self-hosted OSRM: send the whole trace as a single /match.
-  // Cap at MAX_TRACE_SELFHOSTED for a defensive ceiling — our
-  // runtime is configured for max-matching-size=1000 but we also
-  // don't want to push 5000-point GPX imports through OSRM in
-  // one shot.
+  return out.segments.length > 0 ? out : null;
+}
+
+// osrmSnap wraps the legacy chunked /match + /route path so
+// snapToRoads can dispatch per-segment uniformly. Returns the
+// concatenated matched polyline (or a /route fallback).
+async function osrmSnap(
+  points: SnapPoint[],
+  signal: AbortSignal,
+): Promise<[number, number][] | null> {
   if (hasSelfHostedOSRM()) {
     const MAX_TRACE_SELFHOSTED = 500;
     let trace = points;
@@ -264,22 +294,14 @@ async function snapToRoads(
       trace = sampled;
     }
     const m = await matchChunk(trace, signal);
-    if (m && m.length > 1) return [m];
-    // /match gave up on the whole trace — fall back to /route.
-    const r = await routeAll(trace, signal);
-    return r ? [r] : null;
+    if (m && m.length > 1) return m;
+    return await routeAll(trace, signal);
   }
-
   const step = Math.max(1, Math.ceil(points.length / MAX_TRACE));
   const sampled = points.filter((_, i) => i % step === 0);
   if (sampled[sampled.length - 1] !== points[points.length - 1]) {
     sampled.push(points[points.length - 1]);
   }
-
-  // Walk overlapping chunks through /match. The first point of each
-  // subsequent chunk duplicates the previous chunk's last point so
-  // the matched geometries connect without a visible seam — we drop
-  // that duplicated head when stitching.
   const stride = MATCH_CHUNK_SIZE - MATCH_CHUNK_OVERLAP;
   const matched: [number, number][] = [];
   for (let i = 0; i < sampled.length - 1; i += stride) {
@@ -287,23 +309,13 @@ async function snapToRoads(
     const chunk = sampled.slice(i, i + MATCH_CHUNK_SIZE);
     if (chunk.length < 2) break;
     const m = await matchChunk(chunk, signal);
-    if (!m) {
-      // /match gave up on this chunk. Bail out of the chunked path
-      // entirely and try a single /route over the whole trace —
-      // less faithful to the actual driven path, but better than
-      // returning a partial polyline.
-      const r = await routeAll(sampled, signal);
-      return r ? [r] : null;
-    }
+    if (!m) return await routeAll(sampled, signal);
     if (matched.length > 0 && m.length > 0) m.shift();
     matched.push(...m);
     if (i + MATCH_CHUNK_SIZE >= sampled.length) break;
   }
-  if (matched.length > 1) return [matched];
-
-  // Final fallback: /route, then raw.
-  const r = await routeAll(sampled, signal);
-  return r ? [r] : null;
+  if (matched.length > 1) return matched;
+  return await routeAll(sampled, signal);
 }
 
 // Tile config shared by both maps. CARTO's dark basemap split into a
@@ -994,16 +1006,12 @@ export function DriveMap({
       ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
     ];
     if (useOsrm) {
-      snapToRoads(tracePoints, ac.signal).then((segments) => {
-        if (!segments || segments.length === 0 || !mapRef.current) return;
+      snapToRoads(tracePoints, ac.signal).then((plan) => {
+        if (!plan || plan.segments.length === 0 || !mapRef.current) return;
         if (line) line.remove();
-        // Flatten each segment's polylines into one parent group so
-        // map.addLayer / remove / cleanup all stay simple. Real gaps
-        // in the trace (GPS dropouts, parking garages) appear as
-        // visible breaks rather than invented chords.
         const layers = L.layerGroup();
         const allCoords: [number, number][] = [];
-        for (const matched of segments) {
+        for (const { coords: matched } of plan.segments) {
           const matchedSpeeds: (number | undefined)[] = matched.map(
             ([lat, lon]) => {
               let bestI = 0;
@@ -1026,6 +1034,18 @@ export function DriveMap({
             layers.addLayer(inner);
           }
           allCoords.push(...matched);
+        }
+        // Dashed neutral connectors across GPS dropouts: the car
+        // drove between these two coords but telemetry didn't
+        // capture the path. Drawn distinctly so the user can tell
+        // it apart from a real snapped polyline.
+        for (const gap of plan.gaps) {
+          L.polyline([gap.from, gap.to], {
+            color: "#737373",
+            weight: 2,
+            opacity: 0.7,
+            dashArray: "6 6",
+          }).addTo(layers);
         }
         layers.addTo(map);
         if (allCoords.length > 0) {

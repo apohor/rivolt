@@ -122,13 +122,18 @@ export function cleanTrace<T extends TracePoint>(pts: T[]): T[] {
 
 // splitTraceOnGaps cuts the cleaned trace wherever consecutive
 // samples are separated by ≥ GAP_TIME_S seconds OR ≥ GAP_DIST_M
-// meters of straight-line distance. The matcher should never be
-// asked to bridge a real gap by inventing a route — each segment is
-// snapped independently and the rendered map shows visible breaks
-// where data is honestly missing.
-export function splitTraceOnGaps<T extends TracePoint>(pts: T[]): T[][] {
-  if (pts.length === 0) return [];
+// meters. Each cut returns the two endpoint coords so the renderer
+// can draw a "missing data" connector — the car drove between
+// them, telemetry just didn't capture it.
+export type TraceGap = { from: [number, number]; to: [number, number] };
+
+export function splitTraceOnGaps<T extends TracePoint>(pts: T[]): {
+  segments: T[][];
+  gaps: TraceGap[];
+} {
+  if (pts.length === 0) return { segments: [], gaps: [] };
   const segs: T[][] = [[pts[0]]];
+  const gaps: TraceGap[] = [];
   for (let i = 1; i < pts.length; i++) {
     const cur = pts[i];
     const prev = pts[i - 1];
@@ -136,10 +141,34 @@ export function splitTraceOnGaps<T extends TracePoint>(pts: T[]): T[][] {
       cur.t != null && prev.t != null ? cur.t - prev.t : 0;
     const dist = haversine(prev, cur);
     if (dt >= GAP_TIME_S || dist >= GAP_DIST_M) {
+      gaps.push({ from: [prev.lat, prev.lon], to: [cur.lat, cur.lon] });
       segs.push([cur]);
     } else {
       segs[segs.length - 1].push(cur);
     }
   }
-  return segs.filter((s) => s.length >= 2);
+  // A segment that ended up as a single sample isn't drawable as a
+  // line; drop it but keep the surrounding gaps intact.
+  return {
+    segments: segs.filter((s) => s.length >= 2),
+    gaps,
+  };
+}
+
+// classifySegment scores how much we trust a map-matcher to render
+// this stretch faithfully. Short, low-velocity, sample-sparse
+// segments are best rendered as the raw GPS polyline — snapping
+// hallucinates a route along whatever road the matcher picks
+// nearby, and the result is worse than the actual recorded trace.
+export type SegmentQuality = "trivial" | "short" | "normal";
+
+export function classifySegment<T extends TracePoint>(seg: T[]): SegmentQuality {
+  if (seg.length < 5) return "trivial";
+  let dist = 0;
+  for (let i = 1; i < seg.length; i++) {
+    dist += haversine(seg[i - 1], seg[i]);
+  }
+  if (dist < 200) return "trivial";
+  if (dist < 800) return "short";
+  return "normal";
 }
