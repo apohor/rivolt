@@ -180,10 +180,19 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
+  // map_match (HMM) over map_snap (strict point-by-point): map_snap
+  // returns empty legs when individual GPS samples can't be snapped
+  // to a road within the default 35 m search_radius — common at
+  // trip start/end (driveway, parking lot) and through GPS-lag in
+  // urban canyons. The user-visible symptom was a polyline that
+  // ended a few meters into a multi-mile drive. HMM walks the road
+  // graph and tolerates outliers; search_radius=100 m gives it more
+  // room to find the right edge for noisy points.
   const body = {
     shape: trace.map((p) => ({ lat: p.lat, lon: p.lon })),
     costing: "auto",
-    shape_match: "map_snap",
+    shape_match: "map_match",
+    trace_options: { search_radius: 100 },
     directions_options: { units: "miles" },
   };
   try {
