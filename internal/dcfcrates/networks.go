@@ -57,9 +57,15 @@ var Networks = []Network{
 		MemberPlan:    "Pass+ - $7/mo",
 	},
 	{
-		Slug:          "tesla_sc",
-		DisplayName:   "Tesla Supercharger",
-		MatchPatterns: []string{"tesla supercharger", "supercharger"},
+		Slug:        "tesla_sc",
+		DisplayName: "Tesla Supercharger",
+		// Rivian's planner tags Tesla Supercharger stops as
+		// "<location> [Tesla]" - the bracketed tag is the canonical
+		// form we see in production responses, more specific than
+		// the human-readable "Tesla Supercharger" string. Both
+		// kept because operators forking the catalog may use
+		// either shape; "supercharger" is the loose backup.
+		MatchPatterns: []string{"[tesla]", "tesla supercharger", "supercharger"},
 		GuestRate:     0.55,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "Supercharging Membership - $12.99/mo",
@@ -131,7 +137,7 @@ var Networks = []Network{
 	{
 		Slug:          "flo",
 		DisplayName:   "Flo",
-		MatchPatterns: []string{"flo charging", " flo "},
+		MatchPatterns: []string{"[flo]", "flo charging", " flo "},
 		GuestRate:     0.35,
 		MemberRate:    nil,
 		MemberPlan:    "",

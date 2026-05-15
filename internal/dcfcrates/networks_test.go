@@ -26,6 +26,12 @@ func TestMatchNetwork_RealRivianNames(t *testing.T) {
 		{"electrify america", "ea"},
 		{"Tesla Supercharger - Austin Domain", "tesla_sc"},
 		{"Supercharger - I-10 Junction", "tesla_sc"},
+		// Rivian's actual planner shape - bracketed [Tesla] tag
+		// after the human-readable site name. Was missing from
+		// the pattern list; Tesla stops on real plans were
+		// falling through to UnmatchedNetwork at $0.46.
+		{"Johnson City, TX - US-281 [Tesla]", "tesla_sc"},
+		{"Ozona, TX - 14th Street [Tesla]", "tesla_sc"},
 		{"Rivian Adventure Network - Bastrop", "ran"},
 		{"Rivian RAN - Austin", "ran"},
 		{"EVgo - Round Rock", "evgo"},
@@ -38,6 +44,7 @@ func TestMatchNetwork_RealRivianNames(t *testing.T) {
 		{"Francis Energy - Tulsa", "francis_energy"},
 		{"Ionna - Charlotte Pilot", "ionna"},
 		{"Flo Charging - Quebec", "flo"},
+		{"Montreal, QC - Rue Sainte-Catherine [Flo]", "flo"},
 		{"Some No-Name DCFC Co", "unmatched"},
 	}
 	for _, c := range cases {
