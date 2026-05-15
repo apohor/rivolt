@@ -2256,7 +2256,14 @@ func handleGraphQLIntrospect(c rivian.Client) http.HandlerFunc {
 		}
 		data, err := lc.IntrospectInputType(r.Context(), name)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			// Log so we can read the upstream error in pod logs.
+			// Cloudflare swallows 502 bodies (replaces with its own
+			// Bad-gateway HTML), so return 400 with the verbatim
+			// message: 4xx passes through, the operator sees the
+			// actual GraphQL response.
+			slog.WarnContext(r.Context(), "gql introspection failed",
+				"name", name, "err", err.Error())
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "name": name})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": data})
