@@ -1358,6 +1358,28 @@ export type TripPlan = {
   ChargeStationsAvailable: boolean;
   SoCBelowLimit: boolean;
   Routes: TripRoute[];
+  // weather_adjustment is the rivolt-side post-correction. Rivian's
+  // planner doesn't know about temperature, wind, or precipitation —
+  // this annotation reapplies a per-leg energy multiplier and
+  // surfaces "below target SoC" when the corrected arrival is worse
+  // than the user's floor. Server-omitted (and thus undefined here)
+  // when the weather toggle is off or every leg's fetch failed.
+  weather_adjustment?: TripWeatherAdjustment;
+};
+
+export type TripWeatherAdjustment = {
+  adjusted_arrival_soc: number[];
+  final_arrival_soc: number;
+  below_target: boolean;
+  target_arrival_soc: number;
+  legs: TripWeatherAdjLeg[];
+};
+
+export type TripWeatherAdjLeg = {
+  multiplier: number;
+  temp_c?: number;
+  headwind_kph?: number;
+  precip_mm?: number;
 };
 
 export type TripRoute = {

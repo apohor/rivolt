@@ -1106,6 +1106,8 @@ func runServer() {
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,
 		Photon:        photonClient,
+		WeatherClient: weather.NewClient(),
+		WeatherCache:  weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,
 		HydraRememberFor: hydraRememberFor,

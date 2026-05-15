@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,7 @@ import (
 	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/tripadvice"
+	"github.com/apohor/rivolt/internal/tripweather"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
@@ -188,6 +190,16 @@ type Deps struct {
 	// the client disables; /api/geocode falls through to
 	// Open-Meteo's city-level service.
 	Photon *geocoding.PhotonClient
+	// WeatherClient is the shared Open-Meteo HTTP client used by
+	// trip-planner weather adjustment. Distinct from the per-callsite
+	// weather.NewClient() instances used elsewhere because the
+	// planner reuses this in tight loops with MemCache. nil disables
+	// weather adjustment (the plan response just omits the field).
+	WeatherClient *weather.Client
+	// WeatherCache memoises FetchHour results across overlapping plan
+	// requests. Keyed on coarsened (lat, lon, hour). nil disables
+	// caching; FetchHourCached falls through to the client.
+	WeatherCache *weather.MemCache
 }
 
 // New builds the root mux with all routes mounted.
@@ -655,7 +667,7 @@ func New(d Deps) http.Handler {
 			// gateway computes charging stops and per-leg numbers.
 			// 404'd when the trip-planner feature flag is off.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid)(w, r)
+				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.WeatherClient, d.WeatherCache)(w, r)
 			}))
 			// Saved trip templates. Inputs are required; plan/advice are
 			// optional snapshots so reopening a saved trip can render
@@ -1642,7 +1654,7 @@ func isUniqueViolation(err error) bool {
 // doesn't own the vehicle's lease (multi-pod path: the lease holder
 // is a different replica, so this pod's monitor cache is empty for
 // that vehicle).
-func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID) http.HandlerFunc {
+func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, mgr *settings.Manager, wc *weather.Client, mc *weather.MemCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		if !ok || lc == nil {
@@ -1766,8 +1778,153 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			writeUpstreamError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, plan)
+		resp := tripPlanResponse{TripPlan: plan}
+		if mgr != nil && mgr.RecapWeatherEnabled() && wc != nil {
+			target := 10.0
+			if in.TargetArrivalSocPercent != nil {
+				target = *in.TargetArrivalSocPercent
+			}
+			resp.WeatherAdjustment = computeTripWeatherAdjustment(r.Context(), plan, in.StartingSoC, target, wc, mc)
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// tripPlanResponse extends Rivian's plan with our post-correction
+// payload. The embedded pointer means the SPA sees the same flat
+// JSON shape it always did plus a sibling weather_adjustment field;
+// older SPA bundles ignore the new field cleanly.
+type tripPlanResponse struct {
+	*rivian.TripPlan
+	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
+}
+
+// tripWeatherAdjustmentDTO is the wire shape. Per-leg metadata lets
+// the SPA explain *why* the arrival SoC moved (cold, wind, wet) per
+// stop rather than just showing the corrected number.
+type tripWeatherAdjustmentDTO struct {
+	AdjustedArrivalSoC []float64                `json:"adjusted_arrival_soc"`
+	FinalArrivalSoC    float64                  `json:"final_arrival_soc"`
+	BelowTarget        bool                     `json:"below_target"`
+	TargetArrivalSoC   float64                  `json:"target_arrival_soc"`
+	Legs               []tripWeatherAdjLegDTO   `json:"legs"`
+}
+
+type tripWeatherAdjLegDTO struct {
+	Multiplier  float64  `json:"multiplier"`
+	TempC       *float64 `json:"temp_c,omitempty"`
+	HeadwindKPH *float64 `json:"headwind_kph,omitempty"`
+	PrecipMM    *float64 `json:"precip_mm,omitempty"`
+}
+
+// computeTripWeatherAdjustment runs FetchHourCached for each leg in
+// parallel (3s budget, best-effort), then folds the snapshots through
+// tripweather.Adjust. Returns nil if the plan has no usable route or
+// nothing usable came back from upstream — caller renders the plan
+// without the chip in that case.
+func computeTripWeatherAdjustment(
+	ctx context.Context,
+	plan *rivian.TripPlan,
+	startingSoC, targetArrivalSoC float64,
+	wc *weather.Client,
+	mc *weather.MemCache,
+) *tripWeatherAdjustmentDTO {
+	if plan == nil || len(plan.Routes) == 0 {
+		return nil
+	}
+	wps := plan.Routes[0].Waypoints
+	if len(wps) < 2 {
+		return nil
+	}
+	// Drop the origin entry — arrivals start at waypoint index 1.
+	type legCtx struct {
+		lat, lon, bearing float64
+		hasBearing        bool
+		at                time.Time
+	}
+	legs := make([]legCtx, 0, len(wps)-1)
+	arrivals := make([]float64, 0, len(wps)-1)
+	for i := 1; i < len(wps); i++ {
+		from := wps[i-1]
+		to := wps[i]
+		midLat := (from.Latitude + to.Latitude) / 2
+		midLon := (from.Longitude + to.Longitude) / 2
+		bearing := weather.Bearing(from.Latitude, from.Longitude, to.Latitude, to.Longitude)
+		// Leg ETA = the arrival timestamp; falls back to now if Rivian
+		// omitted it (older response shapes).
+		at := time.Now().UTC()
+		if to.ArrivalTimeUTC != "" {
+			if parsed, err := time.Parse(time.RFC3339, to.ArrivalTimeUTC); err == nil {
+				at = parsed
+			}
+		}
+		legs = append(legs, legCtx{
+			lat: midLat, lon: midLon,
+			bearing: bearing, hasBearing: true,
+			at: at,
+		})
+		arrivals = append(arrivals, to.ArrivalSoC)
+	}
+
+	// Parallel fetch with a 3s budget — Rivian's plan already cost
+	// 1-2s and we don't want to compound. Per-leg fetches are
+	// best-effort: a fail on one leg lets that leg fall through to
+	// a 1.0 multiplier rather than blocking the whole response.
+	fctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	snaps := make([]*weather.Snapshot, len(legs))
+	var wg sync.WaitGroup
+	for i := range legs {
+		i := i
+		l := legs[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, _, err := mc.FetchHourCached(fctx, wc, l.lat, l.lon, l.at, l.bearing, l.hasBearing)
+			if err == nil {
+				snaps[i] = s
+			}
+		}()
+	}
+	wg.Wait()
+
+	twLegs := make([]tripweather.Leg, len(legs))
+	for i, s := range snaps {
+		twLegs[i] = tripweather.Leg{Weather: s}
+	}
+	adj := tripweather.Adjust(startingSoC, arrivals, twLegs, targetArrivalSoC)
+	if adj == nil {
+		return nil
+	}
+	dto := &tripWeatherAdjustmentDTO{
+		AdjustedArrivalSoC: adj.AdjustedArrivalSoC,
+		FinalArrivalSoC:    adj.FinalArrivalSoC,
+		BelowTarget:        adj.BelowTarget,
+		TargetArrivalSoC:   targetArrivalSoC,
+		Legs:               make([]tripWeatherAdjLegDTO, len(adj.Multipliers)),
+	}
+	for i, m := range adj.Multipliers {
+		leg := tripWeatherAdjLegDTO{Multiplier: m}
+		if s := snaps[i]; s != nil {
+			if s.HasApparent {
+				v := s.ApparentTempC
+				leg.TempC = &v
+			} else if s.HasTemp {
+				v := s.TempC
+				leg.TempC = &v
+			}
+			if s.HasHeadwind {
+				v := s.HeadwindKPH
+				leg.HeadwindKPH = &v
+			}
+			if s.HasPrecip {
+				v := s.PrecipMM
+				leg.PrecipMM = &v
+			}
+		}
+		dto.Legs[i] = leg
+	}
+	return dto
 }
 
 // handleTripPlanAdvice takes a completed TripPlan (returned by
