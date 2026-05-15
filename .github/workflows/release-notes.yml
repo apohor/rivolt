@@ -29,16 +29,35 @@ jobs:
           # what changed in this release.
           fetch-depth: 0
 
-      - name: Create release with auto-generated notes
+      - name: Create release with commit-derived notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists — skipping."
             exit 0
           fi
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes
+          # `--generate-notes` only enumerates merged PRs and this
+          # repo lands every change as a direct push to main, so the
+          # GitHub-side generator produces an empty list. Build the
+          # body from `git log` between the previous tag and HEAD
+          # instead — first-line subjects, bullet-formatted.
+          PREV="$(git describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)"
+          {
+            if [ -n "$PREV" ]; then
+              echo "## Changes since $PREV"
+              echo
+              git log --pretty=format:'- %s (%h)' "$PREV..$TAG"
+              echo
+              echo
+              echo "**Full Changelog**: https://github.com/$REPO/compare/$PREV...$TAG"
+            else
+              echo "## Initial release"
+              echo
+              git log --pretty=format:'- %s (%h)' "$TAG"
+            fi
+          } > /tmp/notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
