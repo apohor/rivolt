@@ -226,7 +226,19 @@ function Footer() {
         {health.data?.version && (
           <>
             <span className="text-neutral-700">·</span>
-            <span className="font-mono text-neutral-600">v{health.data.version}</span>
+            {/* Link the running version to its GitHub release page
+                so the user can read the changelog for what's
+                currently deployed. Tag format mirrors what CI
+                pushes: vX.Y.Z (semver). */}
+            <a
+              href={`https://github.com/apohor/rivolt/releases/tag/v${health.data.version}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono text-neutral-600 hover:text-neutral-300"
+              title="What changed in this release"
+            >
+              v{health.data.version}
+            </a>
           </>
         )}
       </div>

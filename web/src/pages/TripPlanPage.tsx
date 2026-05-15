@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type GeocodeResult, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -12,13 +12,10 @@ const TripRouteMap = lazy(() =>
   import("../components/TripRouteMap").then((m) => ({ default: m.TripRouteMap })),
 );
 
-// TX_PRESETS are city-hall lat/lon for one-click destination testing.
-const TX_PRESETS: { label: string; lat: number; lon: number }[] = [
-  { label: "Dallas", lat: 32.7767, lon: -96.797 },
-  { label: "Houston", lat: 29.7604, lon: -95.3698 },
-  { label: "San Antonio", lat: 29.4241, lon: -98.4936 },
-  { label: "Big Bend NP", lat: 29.3267, lon: -103.207 },
-];
+// Preset destinations come from the user's saved favorites
+// (settings.planner.favorites) now; the planner used to ship a
+// hardcoded Texas list but that's wrong as soon as a user lives
+// anywhere else.
 
 // Selection is what the form actually plans against. lat/lon are
 // resolved (search result, preset, or current vehicle position);
@@ -210,12 +207,55 @@ export default function TripPlanPage() {
     }
   }
 
+  // Pulled up earlier than the savedTrips block below so the
+  // favorites mutation can reference it for cache updates.
+  const qcEarly = useQueryClient();
   const homeQuery = useQuery({
     queryKey: ["settings", "homeLocation"],
     queryFn: backend.homeLocationGet,
     staleTime: 60 * 1000,
   });
   const home = homeQuery.data?.set ? homeQuery.data : null;
+  const favoritesQuery = useQuery({
+    queryKey: ["settings", "plannerFavorites"],
+    queryFn: backend.plannerFavoritesGet,
+    staleTime: 60 * 1000,
+  });
+  const favorites = favoritesQuery.data ?? [];
+  const favoritesMutation = useMutation({
+    mutationFn: (list: PlannerFavorite[]) => backend.plannerFavoritesPut(list),
+    onSuccess: (data) => {
+      qcEarly.setQueryData(["settings", "plannerFavorites"], data);
+    },
+  });
+  // Add the current selection to favorites with a user-supplied
+  // name. We prompt rather than auto-name because the geocoded
+  // label is often a full address — see the same compactness
+  // tradeoff that drove the Home rename. Idempotent: if a
+  // coordinate within 100m is already saved, skip the add.
+  const saveAsFavorite = (sel: { lat: number; lon: number; label: string }) => {
+    const dupe = favorites.find(
+      (f) =>
+        haversineMeters(
+          { lat: f.latitude, lon: f.longitude },
+          { lat: sel.lat, lon: sel.lon },
+        ) < 100,
+    );
+    if (dupe) return;
+    const defaultName = sel.label.length > 30 ? "" : sel.label;
+    const name = window.prompt("Save as favorite — pick a short name:", defaultName);
+    if (!name || !name.trim()) return;
+    const next: PlannerFavorite[] = [
+      ...favorites,
+      {
+        id: crypto.randomUUID(),
+        label: name.trim(),
+        latitude: sel.lat,
+        longitude: sel.lon,
+      },
+    ];
+    favoritesMutation.mutate(next);
+  };
 
   // Hydrate from the last successful plan on mount. Runs before the
   // current-position prefill below so a saved trip wins; the user
@@ -547,6 +587,7 @@ export default function TripPlanPage() {
             heading="From"
             value={origin}
             onChange={(s) => setOrigin(s ? relabelIfHome(s, home) : null)}
+            onSaveAsFavorite={saveAsFavorite}
             presets={[
               ...(currentPosition
                 ? [{
@@ -558,6 +599,11 @@ export default function TripPlanPage() {
               ...(home
                 ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
                 : []),
+              ...favorites.map((f) => ({
+                label: f.label,
+                lat: f.latitude,
+                lon: f.longitude,
+              })),
             ]}
           />
           <ViaStopList
@@ -581,11 +627,16 @@ export default function TripPlanPage() {
             heading="To"
             value={destination}
             onChange={(s) => setDestination(s ? relabelIfHome(s, home) : null)}
+            onSaveAsFavorite={saveAsFavorite}
             presets={[
               ...(home
                 ? [{ label: home.label || "Home", lat: home.latitude, lon: home.longitude }]
                 : []),
-              ...TX_PRESETS,
+              ...favorites.map((f) => ({
+                label: f.label,
+                lat: f.latitude,
+                lon: f.longitude,
+              })),
             ]}
           />
           <div className="flex items-center gap-3">
@@ -1177,11 +1228,13 @@ function LocationField({
   value,
   onChange,
   presets,
+  onSaveAsFavorite,
 }: {
   heading: string;
   value: Selection;
   onChange: (s: Selection) => void;
   presets: { label: string; lat: number; lon: number }[];
+  onSaveAsFavorite?: (s: { lat: number; lon: number; label: string }) => void;
 }) {
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
@@ -1201,13 +1254,25 @@ function LocationField({
           )}
         </div>
         {value && (
-          <button
-            type="button"
-            onClick={() => onChange(null)}
-            className="text-xs text-neutral-500 hover:text-neutral-300"
-          >
-            clear
-          </button>
+          <div className="flex items-center gap-3 text-xs">
+            {onSaveAsFavorite && value.label !== "Home" && (
+              <button
+                type="button"
+                onClick={() => onSaveAsFavorite(value)}
+                className="text-amber-400 hover:text-amber-200"
+                title="Save this place as a one-tap preset"
+              >
+                ☆ save
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="text-neutral-500 hover:text-neutral-300"
+            >
+              clear
+            </button>
+          </div>
         )}
       </div>
       <div className="mt-3">

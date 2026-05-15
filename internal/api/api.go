@@ -500,6 +500,12 @@ func New(d Deps) http.Handler {
 				r.Put("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handlePlannerPrefsPut(d.Settings.For(uid))(w, r)
 				}))
+				r.Get("/favorites", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePlannerFavoritesGet(d.Settings.For(uid))(w, r)
+				}))
+				r.Put("/favorites", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handlePlannerFavoritesPut(d.Settings.For(uid))(w, r)
+				}))
 			})
 
 			// AI provider configuration moved to /api/admin/settings/ai.
@@ -1437,6 +1443,46 @@ func handlePlannerPrefsPut(store *settings.Store) http.HandlerFunc {
 			return
 		}
 		out, _ := settings.GetPlannerPrefs(r.Context(), store)
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handlePlannerFavoritesGet returns the user's list of favorite
+// planner destinations. Empty array is a normal response — the
+// SPA renders it the same way it renders a populated list.
+func handlePlannerFavoritesGet(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		list, err := settings.GetPlannerFavorites(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = []settings.PlannerFavorite{}
+		}
+		writeJSON(w, http.StatusOK, list)
+	}
+}
+
+// handlePlannerFavoritesPut overwrites the favorites list wholesale.
+// The SPA always sends the full array (no partial-update PATCH)
+// because the storage is a single JSON blob — partial semantics
+// would require split-merge logic for little gain at this scale.
+func handlePlannerFavoritesPut(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body []settings.PlannerFavorite
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := settings.SetPlannerFavorites(r.Context(), store, body); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, _ := settings.GetPlannerFavorites(r.Context(), store)
+		if out == nil {
+			out = []settings.PlannerFavorite{}
+		}
 		writeJSON(w, http.StatusOK, out)
 	}
 }

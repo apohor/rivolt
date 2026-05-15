@@ -940,6 +940,10 @@ export const backend = {
     api.put<HomeLocation>("/api/settings/home-location", h),
   // Trip-planner default drive mode + Tesla NACS adapter flag.
   // SPA pre-fills the per-trip form from these.
+  plannerFavoritesGet: () =>
+    api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
+  plannerFavoritesPut: (list: PlannerFavorite[]) =>
+    api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
   plannerPrefsGet: () => api.get<PlannerPrefs>("/api/settings/planner"),
   plannerPrefsPut: (p: PlannerPrefs) =>
     api.put<PlannerPrefs>("/api/settings/planner", p),
@@ -1277,6 +1281,16 @@ export type PlannerPrefs = {
     | "WINTER"
     | "OFF_ROAD_AUTO";
   has_adapter?: boolean;
+};
+
+// PlannerFavorite is one user-saved place surfaced as a preset on
+// the trip planner's From/To rows. id is a stable client-minted
+// UUID so renames/deletes can target a single entry.
+export type PlannerFavorite = {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
 };
 
 // HomeLocation is the user's saved "home" base. set=false means no
