@@ -158,15 +158,22 @@ type rowScanner interface {
 
 func scanRow(r rowScanner) (SavedTrip, error) {
 	var t SavedTrip
-	var plan, advice sql.RawBytes
+	// Plain []byte rather than sql.RawBytes — RawBytes is a
+	// zero-copy view into the driver's buffer and is rejected by
+	// *sql.Row.Scan (the single-row path used by Get/Create/Update
+	// via QueryRowContext), which releases the underlying
+	// connection before the caller can copy out of it. []byte is
+	// copied by the driver and works for both Rows.Scan and
+	// Row.Scan; NULL columns come through as nil.
+	var plan, advice []byte
 	if err := r.Scan(&t.ID, &t.Name, &t.Inputs, &plan, &advice, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return t, err
 	}
 	if len(plan) > 0 {
-		t.Plan = append(json.RawMessage(nil), plan...)
+		t.Plan = json.RawMessage(plan)
 	}
 	if len(advice) > 0 {
-		t.Advice = append(json.RawMessage(nil), advice...)
+		t.Advice = json.RawMessage(advice)
 	}
 	return t, nil
 }
