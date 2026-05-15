@@ -963,7 +963,16 @@ function PricingCard({
               onChange={(e) => {
                 const n = networks.data!.find((x) => x.name === e.target.value);
                 if (n) {
-                  setPpk(n.price_per_kwh.toFixed(3));
+                  // Honour the user's member toggle: when they've
+                  // marked the network as active in Settings, prefill
+                  // the member rate (e.g. $0.36 EA Pass+) instead of
+                  // the guest $0.48. Falls back to guest when no
+                  // member tier exists or the toggle is off.
+                  const effective =
+                    n.member_active && (n.member_price_per_kwh ?? 0) > 0
+                      ? n.member_price_per_kwh!
+                      : n.price_per_kwh;
+                  setPpk(effective.toFixed(3));
                   setCurrency(n.currency || "USD");
                 }
                 // Reset back to placeholder so the same option can
@@ -975,11 +984,23 @@ function PricingCard({
               <option value="" disabled>
                 Pick a network…
               </option>
-              {networks.data.map((n) => (
-                <option key={n.name} value={n.name}>
-                  {n.name} — {n.price_per_kwh.toFixed(3)} {n.currency}/kWh
-                </option>
-              ))}
+              {networks.data.map((n) => {
+                const memberActive =
+                  n.member_active && (n.member_price_per_kwh ?? 0) > 0;
+                const effective = memberActive
+                  ? n.member_price_per_kwh!
+                  : n.price_per_kwh;
+                const suffix = memberActive
+                  ? " member"
+                  : (n.member_price_per_kwh ?? 0) > 0
+                    ? " guest"
+                    : "";
+                return (
+                  <option key={n.name} value={n.name}>
+                    {n.name} - {effective.toFixed(3)} {n.currency}/kWh{suffix}
+                  </option>
+                );
+              })}
             </select>
           </label>
         ) : null}
