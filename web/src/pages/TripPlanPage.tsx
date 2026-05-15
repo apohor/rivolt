@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -338,6 +338,10 @@ export default function TripPlanPage() {
         target_arrival_soc_percent: target,
         drive_mode: driveMode || undefined,
         has_adapter: hasAdapter,
+        pack_kwh:
+          typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0
+            ? firstVehicle.pack_kwh
+            : undefined,
         waypoints: [
           { latitude: origin.lat, longitude: origin.lon, waypoint_type: "OTHER" },
           ...extraStops.map((s) => ({
@@ -1518,7 +1522,18 @@ function TripPlanResult({
       <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />
       <WeatherAdjustmentChip plan={plan} />
       {plan.Routes.map((route, i) => (
-        <RouteCard key={i} route={route} index={i} originLabel={originLabel} destLabel={destLabel} onAddStop={onAddStop} departureAt={departureAt} />
+        <RouteCard
+          key={i}
+          route={route}
+          index={i}
+          routeCount={plan.Routes.length}
+          allRoutes={plan.Routes}
+          originLabel={originLabel}
+          destLabel={destLabel}
+          onAddStop={onAddStop}
+          departureAt={departureAt}
+          cost={plan.costs?.[i]}
+        />
       ))}
       {plan.SoCBelowLimit && (
         <ErrorBox
@@ -1607,20 +1622,61 @@ function formatDuration(seconds: number): string {
   return `${h}h ${rem}m`;
 }
 
+// routeLabel picks a human-readable name for a route relative to the
+// rest of Rivian's response. With one route it's just "Recommended"
+// (Rivian's top pick). With multiple routes, the primary stays
+// "Recommended"; alternatives are labelled by their strongest
+// distinguishing feature vs. the primary (Faster / Cheaper / Fewer
+// stops / Higher arrival SoC). Falls back to "Alternative" when no
+// dimension shows a meaningful gap, so the title never reads as a
+// tautology.
+function routeLabel(
+  index: number,
+  route: TripRoute,
+  allRoutes: TripRoute[],
+  _cost: TripCostEstimate | undefined,
+): string {
+  if (allRoutes.length <= 1) return "Recommended route";
+  if (index === 0) return "Recommended";
+  const primary = allRoutes[0];
+  const countStops = (r: TripRoute) =>
+    r.Waypoints.filter((w) => {
+      const t = w.WaypointType.toLowerCase();
+      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+    }).length;
+  const dTime = primary.TotalTripDurationSec - route.TotalTripDurationSec;
+  const dStops = countStops(primary) - countStops(route);
+  const dArrival = route.ArrivalSoC - primary.ArrivalSoC;
+  // Priority order: time first (most visceral), then stops (fewer
+  // = less hassle), then arrival margin. Cost isn't in the label
+  // because the title line already shows $; surfacing "Cheaper"
+  // here too would be redundant.
+  if (dTime > 5 * 60) return `Faster by ${formatDuration(dTime)}`;
+  if (dStops > 0) return `${dStops} fewer stop${dStops === 1 ? "" : "s"}`;
+  if (dArrival > 3) return `Arrives ${dArrival.toFixed(0)}% higher`;
+  return `Alternative ${index}`;
+}
+
 function RouteCard({
   route,
   index,
+  routeCount,
+  allRoutes,
   originLabel,
   destLabel,
   onAddStop,
   departureAt,
+  cost,
 }: {
   route: TripRoute;
   index: number;
+  routeCount: number;
+  allRoutes: TripRoute[];
   originLabel: string;
   destLabel: string;
   onAddStop?: StopAdder;
   departureAt?: string;
+  cost?: TripCostEstimate;
 }) {
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -1645,8 +1701,32 @@ function RouteCard({
       : Date.now();
     return userDep - rivianDep;
   })();
+  const fmtCurrency = (v: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: cost?.currency || "USD",
+    }).format(v);
+  // Per-stop $ keyed by the same index the stops table walks. The
+  // breakdown is server-computed from the same Waypoints array, so
+  // index alignment is safe.
+  const stopBreakdown = cost?.breakdown ?? [];
+  const totalGuest = cost?.dcfc_spend ?? 0;
+  const totalUser = cost?.dcfc_spend_user_member ?? 0;
+  const userSavings = totalGuest - totalUser;
+  const label = routeLabel(index, route, allRoutes, cost);
+  const titleParts = [
+    `${label}${routeCount > 1 ? ` (route ${index + 1})` : ""}`,
+  ];
+  if (totalGuest > 0) {
+    titleParts.push(
+      userSavings > 0.5
+        ? `${fmtCurrency(totalGuest)} / ${fmtCurrency(totalUser)} mem`
+        : fmtCurrency(totalGuest),
+    );
+  }
+  if (!route.DestinationReached) titleParts.push("destination unreachable");
   return (
-    <Card title={`Route ${index + 1}${route.DestinationReached ? "" : " — destination unreachable"}`}>
+    <Card title={titleParts.join(" · ")}>
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap route={route} onAddStop={onAddStop} />
@@ -1707,6 +1787,7 @@ function RouteCard({
                 <th className="px-2 py-2">Charge</th>
                 <th className="px-2 py-2">Max kW</th>
                 <th className="px-2 py-2">Adapter?</th>
+                {stopBreakdown.length > 0 && <th className="px-2 py-2 text-right">Cost</th>}
               </tr>
             </thead>
             <tbody>
@@ -1724,29 +1805,49 @@ function RouteCard({
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2"></td>
+                  {stopBreakdown.length > 0 && <td className="px-2 py-2"></td>}
                 </tr>
               )}
-              {charging.map((w, j) => (
-                <tr key={j} className="border-b border-neutral-900">
-                  <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
-                  <td className="px-2 py-2">{w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`}</td>
-                  <td className="px-2 py-2 font-mono">
-                    {formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs) && (
-                      <div className="text-xs text-neutral-500">{formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs)}</div>
+              {charging.map((w, j) => {
+                const stopCost = stopBreakdown[j];
+                return (
+                  <tr key={j} className="border-b border-neutral-900">
+                    <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
+                    <td className="px-2 py-2">{w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`}</td>
+                    <td className="px-2 py-2 font-mono">
+                      {formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs) && (
+                        <div className="text-xs text-neutral-500">{formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs)}</div>
+                      )}
+                      {w.ArrivalSoC.toFixed(0)}%
+                    </td>
+                    <td className="px-2 py-2 font-mono">
+                      {formatWaypointTime(w.DepartureTimeUTC, timeShiftMs) && (
+                        <div className="text-xs text-neutral-500">{formatWaypointTime(w.DepartureTimeUTC, timeShiftMs)}</div>
+                      )}
+                      {w.DepartureSoC.toFixed(0)}%
+                    </td>
+                    <td className="px-2 py-2 font-mono">{Math.round(w.ChargeDurationSec / 60)} min</td>
+                    <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
+                    <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
+                    {stopBreakdown.length > 0 && (
+                      <td className="px-2 py-2 font-mono text-right">
+                        {stopCost ? (
+                          <>
+                            <div>{fmtCurrency(stopCost.energy_kwh * stopCost.guest_rate)}</div>
+                            {stopCost.user_rate < stopCost.guest_rate && (
+                              <div className="text-xs text-emerald-400/80">
+                                {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)} mem
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     )}
-                    {w.ArrivalSoC.toFixed(0)}%
-                  </td>
-                  <td className="px-2 py-2 font-mono">
-                    {formatWaypointTime(w.DepartureTimeUTC, timeShiftMs) && (
-                      <div className="text-xs text-neutral-500">{formatWaypointTime(w.DepartureTimeUTC, timeShiftMs)}</div>
-                    )}
-                    {w.DepartureSoC.toFixed(0)}%
-                  </td>
-                  <td className="px-2 py-2 font-mono">{Math.round(w.ChargeDurationSec / 60)} min</td>
-                  <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
-                  <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
               {dest && (
                 <tr className="border-b border-neutral-900 text-neutral-400">
                   <td className="px-2 py-2">E</td>
@@ -1761,6 +1862,16 @@ function RouteCard({
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2"></td>
+                  {stopBreakdown.length > 0 && (
+                    <td className="px-2 py-2 font-mono text-right text-neutral-200">
+                      {fmtCurrency(totalGuest)}
+                      {userSavings > 0.5 && (
+                        <div className="text-xs text-emerald-400/80">
+                          {fmtCurrency(totalUser)} mem
+                        </div>
+                      )}
+                    </td>
+                  )}
                 </tr>
               )}
             </tbody>
@@ -1833,67 +1944,23 @@ function TripAdviceCard({
 // purely-DCFC trips show only the DCFC line, home-energy trips show
 // only the home equivalent.
 function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
-  const hasDCFC = cost.dcfc_spend > 0;
-  const hasHome = cost.home_equivalent > 0;
-  if (!hasDCFC && !hasHome) return null;
+  // Totals + per-network breakdown moved into each RouteCard. This
+  // strip survives only as the trip-wide "you could save $X more by
+  // joining every applicable plan" hint, which is a membership
+  // upsell and naturally belongs in the analysis card. Render
+  // nothing when nothing is actionable.
+  const maxExtra = cost.dcfc_spend_user_member - cost.dcfc_spend_all_member;
+  if (cost.dcfc_spend <= 0 || maxExtra < 0.5) return null;
   const fmt = (v: number) =>
     new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: cost.currency || "USD",
     }).format(v);
-  // Compress the per-stop breakdown to "1× EA · 1× Tesla SC" — same
-  // network's repeat stops collapse into a count prefix so the line
-  // stays readable on trips with many short hops.
-  const networkSummary = (() => {
-    if (!cost.breakdown || cost.breakdown.length === 0) return "";
-    const order: string[] = [];
-    const counts: Record<string, number> = {};
-    cost.breakdown.forEach((s) => {
-      if (!(s.network_name in counts)) order.push(s.network_name);
-      counts[s.network_name] = (counts[s.network_name] ?? 0) + 1;
-    });
-    return order.map((n) => `${counts[n]}× ${n}`).join(" · ");
-  })();
-  const userSavings = hasDCFC ? cost.dcfc_spend - cost.dcfc_spend_user_member : 0;
-  const maxExtra = hasDCFC ? cost.dcfc_spend_user_member - cost.dcfc_spend_all_member : 0;
   return (
-    <div className="flex flex-wrap gap-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm">
-      {hasDCFC && (
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-neutral-500">DCFC spend</div>
-          <div className="font-mono text-neutral-100">
-            {fmt(cost.dcfc_spend)} guest
-            {userSavings > 0.5 && (
-              <>
-                {" / "}
-                <span className="text-emerald-300">{fmt(cost.dcfc_spend_user_member)}</span>
-                <span className="text-neutral-500"> with your memberships</span>
-              </>
-            )}
-          </div>
-          <div className="text-[10px] text-neutral-600">
-            @ {fmt(cost.dcfc_rate_used)}
-            {userSavings > 0.5 && (
-              <> / <span className="text-emerald-400/70">{fmt(cost.dcfc_rate_used_user_member)}</span></>
-            )} per kWh
-            {networkSummary && <span className="ml-2">· {networkSummary}</span>}
-          </div>
-          {maxExtra > 0.5 && (
-            <div className="text-[10px] text-amber-400/80 mt-0.5">
-              Save another {fmt(maxExtra)} on this trip by joining every
-              applicable plan ({fmt(cost.dcfc_spend_all_member)} floor at{" "}
-              {fmt(cost.dcfc_rate_used_all_member)}/kWh).
-            </div>
-          )}
-        </div>
-      )}
-      {hasHome && (
-        <div>
-          <div className="text-xs uppercase tracking-wide text-neutral-500">Home-rate equivalent</div>
-          <div className="font-mono text-neutral-100">{fmt(cost.home_equivalent)}</div>
-          <div className="text-[10px] text-neutral-600">@ {fmt(cost.home_rate_used)}/kWh</div>
-        </div>
-      )}
+    <div className="rounded-md border border-amber-700/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-300/80">
+      Save another <span className="font-semibold text-amber-100">{fmt(maxExtra)}</span> on
+      this trip by joining every applicable plan ({fmt(cost.dcfc_spend_all_member)} floor at{" "}
+      {fmt(cost.dcfc_rate_used_all_member)}/kWh).
     </div>
   );
 }

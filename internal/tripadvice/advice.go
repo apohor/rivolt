@@ -155,11 +155,26 @@ func Generate(ctx context.Context, a *ai.Analyzer, plan *rivian.TripPlan, tc Con
 }
 
 // estimateCost projects DCFC spend + home-rate-equivalent for the
-// first route in the plan. Done in Go (not the LLM) so the dollar
-// figures stay accurate. Each charger stop's rate comes from the
-// Networks table, matching on the planner's charger name, so the
-// per-stop quote tracks the operator instead of a flat average.
+// first route in the plan. Kept as a thin shim around EstimateRoute
+// so the AI advice prompt - which only cares about the recommended
+// route - doesn't have to change. The plan response uses
+// EstimateRoute directly to attach a cost to every route.
 func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
+	if len(plan.Routes) == 0 {
+		cur := tc.HomeCurrency
+		if cur == "" {
+			cur = "USD"
+		}
+		return CostEstimate{Currency: cur, HomeRateUsed: tc.HomePricePerKWh}
+	}
+	return EstimateRoute(&plan.Routes[0], tc)
+}
+
+// EstimateRoute projects DCFC spend + home-rate-equivalent for a
+// single route. Exported so the /api/trips/plan handler can attach a
+// cost to every route in the response without making the SPA round-
+// trip through the AI advice endpoint just to see numbers.
+func EstimateRoute(r *rivian.TripRoute, tc Context) CostEstimate {
 	cur := tc.HomeCurrency
 	if cur == "" {
 		cur = "USD"
@@ -168,10 +183,9 @@ func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
 		Currency:     cur,
 		HomeRateUsed: tc.HomePricePerKWh,
 	}
-	if len(plan.Routes) == 0 {
+	if r == nil {
 		return est
 	}
-	r := plan.Routes[0]
 	// Falls back to 0 when pack capacity is unknown - we don't want
 	// to bake in a guess pack size and quote a dollar figure off it.
 	if tc.PackKWh > 0 {

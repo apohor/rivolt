@@ -670,7 +670,7 @@ func New(d Deps) http.Handler {
 			// gateway computes charging stops and per-leg numbers.
 			// 404'd when the trip-planner feature flag is off.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.WeatherClient, d.WeatherCache)(w, r)
+				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
 			}))
 			// Saved trip templates. Inputs are required; plan/advice are
 			// optional snapshots so reopening a saved trip can render
@@ -1342,6 +1342,11 @@ type tripPlanRequest struct {
 	AvoidAdapterRequired    bool                    `json:"avoid_adapter_required,omitempty"`
 	SupportedConnectorTypes []string                `json:"supported_connector_types,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref   `json:"network_preferences,omitempty"`
+	// PackKWh is the vehicle's usable pack capacity. The SPA already
+	// has it from /api/vehicles/.../profile; the handler uses it for
+	// per-route DCFC cost computation. Zero means "don't price the
+	// route" (cost fields stay zero).
+	PackKWh float64 `json:"pack_kwh,omitempty"`
 }
 
 type tripPlanWaypoint struct {
@@ -1657,7 +1662,7 @@ func isUniqueViolation(err error) bool {
 // doesn't own the vehicle's lease (multi-pod path: the lease holder
 // is a different replica, so this pod's monitor cache is empty for
 // that vehicle).
-func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, mgr *settings.Manager, wc *weather.Client, mc *weather.MemCache) http.HandlerFunc {
+func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, mgr *settings.Manager, settingsStore *settings.Store, wc *weather.Client, mc *weather.MemCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		if !ok || lc == nil {
@@ -1789,6 +1794,25 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			}
 			resp.WeatherAdjustment = computeTripWeatherAdjustment(r.Context(), plan, in.StartingSoC, target, wc, mc)
 		}
+		// Always-on per-route DCFC cost. Needs pack_kwh from the SPA;
+		// without it we just don't price (cost fields stay zero on
+		// every route).
+		if req.PackKWh > 0 && len(plan.Routes) > 0 {
+			tc := tripadvice.Context{PackKWh: req.PackKWh}
+			if settingsStore != nil {
+				if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
+					tc.HomePricePerKWh = cfg.HomePricePerKWh
+					tc.HomeCurrency = cfg.HomeCurrency
+				}
+				if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
+					tc.DCFCNetworks = settings.AsOverrides(nets)
+				}
+			}
+			resp.Costs = make([]tripadvice.CostEstimate, len(plan.Routes))
+			for i := range plan.Routes {
+				resp.Costs[i] = tripadvice.EstimateRoute(&plan.Routes[i], tc)
+			}
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -1800,6 +1824,11 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 type tripPlanResponse struct {
 	*rivian.TripPlan
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
+	// Costs is aligned with TripPlan.Routes - Costs[i] is the
+	// DCFC + home-equivalent estimate for Routes[i]. Empty when the
+	// caller didn't pass pack_kwh; the SPA renders the route table
+	// without a $ column in that case.
+	Costs []tripadvice.CostEstimate `json:"costs,omitempty"`
 }
 
 // tripWeatherAdjustmentDTO is the wire shape. Per-leg metadata lets

@@ -1352,6 +1352,11 @@ export type TripPlanRequest = {
   avoid_adapter_required?: boolean;
   supported_connector_types?: string[];
   network_preferences?: { network_id: string; preference: number }[];
+  // pack_kwh enables server-side per-route cost computation. The
+  // SPA pulls this from the vehicle profile and forwards it; without
+  // it the response omits costs[] and the route table renders
+  // without a $ column.
+  pack_kwh?: number;
 };
 
 export type TripPlanInputWaypoint = {
@@ -1379,6 +1384,26 @@ export type TripPlan = {
   // than the user's floor. Server-omitted (and thus undefined here)
   // when the weather toggle is off or every leg's fetch failed.
   weather_adjustment?: TripWeatherAdjustment;
+  // costs is aligned with Routes - costs[i] is the DCFC + home
+  // equivalent estimate for Routes[i]. Omitted when the caller
+  // didn't pass pack_kwh on the plan request.
+  costs?: TripCostEstimate[];
+};
+
+// TripCostEstimate is the deterministic per-route cost projection.
+// Shared between the plan response (per-route) and the advice
+// response (Routes[0] convenience).
+export type TripCostEstimate = {
+  currency: string;
+  dcfc_spend: number;
+  dcfc_spend_user_member: number;
+  dcfc_spend_all_member: number;
+  home_equivalent: number;
+  dcfc_rate_used: number;
+  dcfc_rate_used_user_member: number;
+  dcfc_rate_used_all_member: number;
+  home_rate_used: number;
+  breakdown?: TripCostStop[];
 };
 
 export type TripWeatherAdjustment = {
@@ -1464,18 +1489,7 @@ export type TripAdvice = {
   efficiency: string[];
   weather: string[];
   vehicle: string[];
-  cost_estimate: {
-    currency: string;
-    dcfc_spend: number;
-    dcfc_spend_user_member: number;
-    dcfc_spend_all_member: number;
-    home_equivalent: number;
-    dcfc_rate_used: number;
-    dcfc_rate_used_user_member: number;
-    dcfc_rate_used_all_member: number;
-    home_rate_used: number;
-    breakdown?: TripCostStop[];
-  };
+  cost_estimate: TripCostEstimate;
   model: string;
 };
 
