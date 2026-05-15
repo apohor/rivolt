@@ -14,7 +14,7 @@ import "testing"
 //   - Plain "ChargePoint Network" without a city suffix.
 //
 // Regressions on any of these silently push the affected stop to
-// UnmatchedNetwork at $0.46/kWh — the cost strip would still render,
+// UnmatchedNetwork at $0.46/kWh - the cost strip would still render,
 // just with the wrong number, so explicit assertion is the only
 // safety net.
 func TestMatchNetwork_RealRivianNames(t *testing.T) {
@@ -64,7 +64,7 @@ func TestMatchNetwork_Ordering(t *testing.T) {
 }
 
 // TestMemberRateOrGuest: networks without a member tier fall back to
-// guest rate in the "with-memberships" total — they don't get
+// guest rate in the "with-memberships" total - they don't get
 // double-counted at zero.
 func TestMemberRateOrGuest(t *testing.T) {
 	cases := []struct {
@@ -101,7 +101,7 @@ func TestRateTableSanity(t *testing.T) {
 			t.Errorf("%s guest rate out of plausible range: %v", n.Slug, n.GuestRate)
 		}
 		if n.MemberRate != nil && *n.MemberRate >= n.GuestRate {
-			t.Errorf("%s member rate %v ≥ guest %v — table edit error", n.Slug, *n.MemberRate, n.GuestRate)
+			t.Errorf("%s member rate %v ≥ guest %v - table edit error", n.Slug, *n.MemberRate, n.GuestRate)
 		}
 	}
 	if UnmatchedNetwork.GuestRate <= 0 || UnmatchedNetwork.GuestRate >= 2 {

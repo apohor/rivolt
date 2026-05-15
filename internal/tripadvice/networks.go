@@ -4,13 +4,13 @@ import "strings"
 
 // Network is one DCFC operator with a guest rate and, where it
 // exists, a member rate. The "is the user a member?" question is
-// deliberately not modeled here — we show BOTH totals on the
+// deliberately not modeled here - we show BOTH totals on the
 // planner and let the user do the comparison. Keeps the data model
 // trivial (no settings panel, no migration) and the savings line
 // reads as a one-glance number.
 //
 // Rates are USD/kWh for US deployments at time of writing
-// (mid-2025). They will go stale — Rivolt's user-history pricing
+// (mid-2025). They will go stale - Rivolt's user-history pricing
 // (deferred slice C) is the long-term fix; this table is the
 // best-effort fallback when we have no per-user data for that
 // network yet.
@@ -20,14 +20,14 @@ type Network struct {
 	// MatchPatterns are substrings checked (case-insensitive) against
 	// the charger name returned by Rivian's planTrip waypoint.
 	// Order matters: more specific patterns must come first. The
-	// Tesla / Tesla Supercharger pair is the canonical example —
+	// Tesla / Tesla Supercharger pair is the canonical example -
 	// "tesla supercharger" appears before "tesla" so destination
 	// chargers don't accidentally claim the Supercharger rate.
 	MatchPatterns []string
 	GuestRate     float64
 	// MemberRate is the rate after paying for the network's
 	// subscription. Nil = no membership tier exists (ChargePoint,
-	// Francis, etc.) or the user is automatically a member (RAN —
+	// Francis, etc.) or the user is automatically a member (RAN -
 	// every Rivolt user is by definition a Rivian owner).
 	MemberRate *float64
 	// MemberPlan is the human-readable plan name + monthly cost
@@ -39,7 +39,7 @@ func f64(v float64) *float64 { return &v }
 
 // Networks is the lookup table, ordered most-specific-first so the
 // substring matcher returns the right hit. Last entry (slug
-// "unmatched") is the fallthrough — its patterns never match, but
+// "unmatched") is the fallthrough - its patterns never match, but
 // MatchNetwork returns it when nothing else does.
 var Networks = []Network{
 	{
@@ -48,7 +48,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"electrify america"},
 		GuestRate:     0.48,
 		MemberRate:    f64(0.36),
-		MemberPlan:    "Pass+ — $7/mo",
+		MemberPlan:    "Pass+ - $7/mo",
 	},
 	{
 		Slug:          "tesla_sc",
@@ -56,7 +56,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"tesla supercharger", "supercharger"},
 		GuestRate:     0.55,
 		MemberRate:    f64(0.40),
-		MemberPlan:    "Supercharging Membership — $12.99/mo",
+		MemberPlan:    "Supercharging Membership - $12.99/mo",
 	},
 	{
 		Slug:          "ran",
@@ -72,7 +72,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"evgo"},
 		GuestRate:     0.42,
 		MemberRate:    f64(0.34),
-		MemberPlan:    "Rewards+ — $6.99/mo",
+		MemberPlan:    "Rewards+ - $6.99/mo",
 	},
 	{
 		Slug:          "blink",
@@ -80,7 +80,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"blink"},
 		GuestRate:     0.49,
 		MemberRate:    f64(0.39),
-		MemberPlan:    "Blink Member — annual",
+		MemberPlan:    "Blink Member - annual",
 	},
 	{
 		Slug:          "bp_pulse",
@@ -88,7 +88,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"bp pulse", "volta"},
 		GuestRate:     0.45,
 		MemberRate:    f64(0.39),
-		MemberPlan:    "bp pulse Plus — $4/mo",
+		MemberPlan:    "bp pulse Plus - $4/mo",
 	},
 	{
 		Slug:          "shell_recharge",
@@ -96,7 +96,7 @@ var Networks = []Network{
 		MatchPatterns: []string{"shell recharge", "shell ev", "greenlots"},
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
-		MemberPlan:    "GO+ — free",
+		MemberPlan:    "GO+ - free",
 	},
 	{
 		Slug:          "chargepoint",
@@ -134,7 +134,7 @@ var Networks = []Network{
 
 // UnmatchedNetwork is the fallback when MatchNetwork can't pin a
 // stop to a known operator. Pinned at "unknown" rather than guessing
-// — every per-stop quote should be traceable to a row in this file.
+// - every per-stop quote should be traceable to a row in this file.
 var UnmatchedNetwork = Network{
 	Slug:        "unmatched",
 	DisplayName: "Unknown DCFC",
@@ -145,7 +145,7 @@ var UnmatchedNetwork = Network{
 
 // MatchNetwork returns the network entry whose first MatchPattern
 // appears (case-insensitive) in the charger name. Falls back to
-// UnmatchedNetwork — caller never has to nil-check.
+// UnmatchedNetwork - caller never has to nil-check.
 //
 // The match is on the bare charger name as Rivian's planner returned
 // it (e.g. "Electrify America - Pflugerville Crossing"). Whitespace
@@ -166,7 +166,7 @@ func MatchNetwork(name string) Network {
 
 // MemberRateOrGuest returns the network's MemberRate when set,
 // otherwise its GuestRate. Used by the cost estimator's
-// "with-all-memberships" total — networks that don't have a
+// "with-all-memberships" total - networks that don't have a
 // membership simply contribute their guest rate to both totals.
 func (n Network) MemberRateOrGuest() float64 {
 	if n.MemberRate != nil {
