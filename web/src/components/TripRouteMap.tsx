@@ -23,14 +23,26 @@ export function TripRouteMap({
   route,
   height = 320,
   onAddStop,
+  selectedIdx,
+  onSelectStop,
 }: {
   route: TripRoute;
   height?: number;
   onAddStop?: AddStop;
+  // Bidirectional selection between the stops table and the map.
+  // selectedIdx is the index into route.Waypoints of the currently
+  // highlighted waypoint, or null when nothing is selected. Marker
+  // click fires onSelectStop with that waypoint's index so the
+  // parent's table row can highlight in sync.
+  selectedIdx?: number | null;
+  onSelectStop?: (idx: number | null) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const chargerLayerRef = useRef<L.LayerGroup | null>(null);
+  // Markers keyed by their index in route.Waypoints, so external
+  // selection (row click in the table) can pulse the right one.
+  const wpMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
   const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "all">("dcfc");
   const [chargerCount, setChargerCount] = useState<number | null>(null);
@@ -39,16 +51,23 @@ export function TripRouteMap({
   // being in the dep array (which would re-mount the map on every render).
   const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
+  const onSelectStopRef = useRef<typeof onSelectStop>(onSelectStop);
+  useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
 
   // Effect 1: build map + Valhalla path. Re-runs only on route change.
   useEffect(() => {
     if (!ref.current) return;
-    const ws = route.Waypoints.filter(
-      (w) =>
+    // Filter waypoints with invalid lat/lon but keep their original
+    // index in route.Waypoints so marker click can echo the right
+    // index back to the parent's selection state.
+    const wsWithIdx = route.Waypoints
+      .map((w, i) => ({ w, i }))
+      .filter(({ w }) =>
         Number.isFinite(w.Latitude) &&
         Number.isFinite(w.Longitude) &&
         !(w.Latitude === 0 && w.Longitude === 0),
-    );
+      );
+    const ws = wsWithIdx.map((x) => x.w);
     if (ws.length < 2) return;
 
     const map = L.map(ref.current, {
@@ -94,17 +113,30 @@ export function TripRouteMap({
       dashArray: "4 6",
     }).addTo(map);
 
+    wpMarkersRef.current.clear();
     for (let i = 0; i < ws.length; i++) {
       const w = ws[i];
+      const origIdx = wsWithIdx[i].i;
       const isFirst = i === 0;
       const isLast = i === ws.length - 1;
       const color = isFirst ? "#10b981" : isLast ? "#f43f5e" : "#f59e0b";
       const tooltipBody = waypointTooltip(w, i, ws.length);
-      L.marker([w.Latitude, w.Longitude], {
+      const marker = L.marker([w.Latitude, w.Longitude], {
         icon: dotIcon(color, isFirst || isLast ? 12 : 10),
       })
         .addTo(map)
         .bindTooltip(tooltipBody, { sticky: true, opacity: 0.95 });
+      // Marker click fires the parent's selection callback so the
+      // stops-table row for this waypoint highlights in sync.
+      // Closures capture origIdx + color so the click handler and
+      // the external-selection effect can both swap icons.
+      (marker as L.Marker & { _color?: string; _isEnd?: boolean })._color = color;
+      (marker as L.Marker & { _color?: string; _isEnd?: boolean })._isEnd =
+        isFirst || isLast;
+      marker.on("click", () => {
+        onSelectStopRef.current?.(origIdx);
+      });
+      wpMarkersRef.current.set(origIdx, marker);
     }
 
     // Dedicated layer group so the charger overlay can be swapped on
@@ -145,6 +177,29 @@ export function TripRouteMap({
       setChargerCount(null);
     };
   }, [route]);
+
+  // Effect: external selection. When the parent (e.g. a table-row
+  // click) flips selectedIdx, swap the matched marker's icon to a
+  // bigger, ringed variant and pan the map onto it. Reverts the
+  // previously-selected marker back to its plain icon so only one
+  // is highlighted at a time.
+  useEffect(() => {
+    const markers = wpMarkersRef.current;
+    if (markers.size === 0) return;
+    for (const [idx, m] of markers.entries()) {
+      const extra = m as L.Marker & { _color?: string; _isEnd?: boolean };
+      const color = extra._color ?? "#f59e0b";
+      const baseSize = extra._isEnd ? 12 : 10;
+      const isSelected = selectedIdx === idx;
+      m.setIcon(isSelected ? selectedDotIcon(color, baseSize + 6) : dotIcon(color, baseSize));
+      if (isSelected) m.setZIndexOffset(1000);
+      else m.setZIndexOffset(0);
+    }
+    if (mapRef.current && typeof selectedIdx === "number") {
+      const m = markers.get(selectedIdx);
+      if (m) mapRef.current.panTo(m.getLatLng(), { animate: true, duration: 0.3 });
+    }
+  }, [selectedIdx]);
 
   // Effect 2: charger overlay. Re-runs on filter or routePath change.
   // Clears + re-populates only the charger layer group — the basemap
@@ -276,6 +331,18 @@ function dotIcon(color: string, size = 10): L.DivIcon {
     html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #0a0a0a;box-shadow:0 0 0 1px ${color}88"></span>`,
     iconSize: [size + 4, size + 4],
     iconAnchor: [(size + 4) / 2, (size + 4) / 2],
+  });
+}
+
+// selectedDotIcon is the larger / ringed variant used when the
+// stops-table row for this waypoint is selected. The wider outer
+// glow doubles as a hit target on touch devices.
+function selectedDotIcon(color: string, size: number): L.DivIcon {
+  return L.divIcon({
+    className: "trip-route-dot-selected",
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:3px solid #fafafa;box-shadow:0 0 0 4px ${color}55, 0 0 12px ${color}99"></span>`,
+    iconSize: [size + 10, size + 10],
+    iconAnchor: [(size + 10) / 2, (size + 10) / 2],
   });
 }
 

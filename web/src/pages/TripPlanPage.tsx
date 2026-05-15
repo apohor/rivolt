@@ -1800,6 +1800,14 @@ function RouteCard({
   const totalGuest = cost?.dcfc_spend ?? 0;
   const totalUser = cost?.dcfc_spend_user_member ?? 0;
   const userSavings = totalGuest - totalUser;
+  // Bidirectional selection between the stops table and the map.
+  // Holds the index in route.Waypoints of the highlighted stop, or
+  // null for "nothing selected". Reset to null when the route prop
+  // changes so an old selection doesn't leak across plans.
+  const [selectedStop, setSelectedStop] = useState<number | null>(null);
+  useEffect(() => { setSelectedStop(null); }, [route]);
+  const toggleStop = (idx: number) =>
+    setSelectedStop((prev) => (prev === idx ? null : idx));
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
   // leg = current - previous. Hidden when Rivian didn't populate the
   // field (legacy plans). All values converted to miles for display.
@@ -1863,7 +1871,12 @@ function RouteCard({
       })()}
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
-          <TripRouteMap route={route} onAddStop={onAddStop} />
+          <TripRouteMap
+            route={route}
+            onAddStop={onAddStop}
+            selectedIdx={selectedStop}
+            onSelectStop={(idx) => setSelectedStop(idx)}
+          />
         </Suspense>
       </div>
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
@@ -1933,7 +1946,12 @@ function RouteCard({
             </thead>
             <tbody>
               {origin && (
-                <tr className="border-b border-neutral-900 text-neutral-400">
+                <tr
+                  onClick={() => toggleStop(originIdx)}
+                  className={`border-b border-neutral-900 text-neutral-400 cursor-pointer transition-colors ${
+                    selectedStop === originIdx ? "bg-emerald-900/20" : "hover:bg-neutral-900/40"
+                  }`}
+                >
                   <td className="px-2 py-2">S</td>
                   <td className="px-2 py-2">{originLabel || origin.Name || "Origin"}</td>
                   {haveDistances && distanceCell(originIdx)}
@@ -1953,7 +1971,13 @@ function RouteCard({
               {chargingWithIdx.map(({ w, i: wpIdx }, j) => {
                 const stopCost = stopBreakdown[j];
                 return (
-                  <tr key={j} className="border-b border-neutral-900">
+                  <tr
+                    key={j}
+                    onClick={() => toggleStop(wpIdx)}
+                    className={`border-b border-neutral-900 cursor-pointer transition-colors ${
+                      selectedStop === wpIdx ? "bg-emerald-900/20" : "hover:bg-neutral-900/40"
+                    }`}
+                  >
                     <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
                     <td className="px-2 py-2">{w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`}</td>
                     {haveDistances && distanceCell(wpIdx)}
@@ -2008,7 +2032,12 @@ function RouteCard({
                 );
               })}
               {dest && (
-                <tr className="border-b border-neutral-900 text-neutral-400">
+                <tr
+                  onClick={() => toggleStop(destIdx)}
+                  className={`border-b border-neutral-900 text-neutral-400 cursor-pointer transition-colors ${
+                    selectedStop === destIdx ? "bg-emerald-900/20" : "hover:bg-neutral-900/40"
+                  }`}
+                >
                   <td className="px-2 py-2">E</td>
                   <td className="px-2 py-2">{destLabel || dest.Name || "Destination"}</td>
                   {haveDistances && distanceCell(destIdx)}
