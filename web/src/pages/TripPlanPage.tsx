@@ -652,9 +652,18 @@ export default function TripPlanPage() {
               Plan trip
             </button>
             {planMutation.isPending && <Spinner />}
-            <span className="text-xs text-neutral-500">
-              Set Home in <a href="/settings" className="underline hover:text-neutral-300">Settings</a> for one-click presets.
-            </span>
+            {!home && !homeQuery.isLoading && (
+              <span className="text-xs text-neutral-500">
+                Tip: save your home in{" "}
+                <a
+                  href="/settings?tab=vehicle#home"
+                  className="underline hover:text-neutral-300"
+                >
+                  Settings &rarr; Vehicle &rarr; Home location
+                </a>{" "}
+                to one-click it as the trip's origin or destination.
+              </span>
+            )}
           </div>
         </form>
       </Card>
