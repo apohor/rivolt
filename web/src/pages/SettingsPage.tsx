@@ -1977,11 +1977,18 @@ function HomeLocationPanel() {
 
   const home = homeQ.data;
   const onSelect = (r: GeocodeResult) => {
+    // Label is the user-visible name everywhere this point appears
+    // (trip planner "From: Home", drive map "leaves Home at 8:42").
+    // Default to "Home" so the planner UI stays compact — the full
+    // geocoded address goes into `address`, surfaced as a subtitle
+    // on the Settings card for context but never as the location's
+    // primary name. Users can rename via the Display name field below.
     save.mutate({
       set: true,
       latitude: r.latitude,
       longitude: r.longitude,
-      label: [r.name, r.admin1, r.country].filter(Boolean).join(", "),
+      label: "Home",
+      address: [r.name, r.admin1, r.country].filter(Boolean).join(", "),
     });
     setQuery("");
   };
@@ -1997,7 +2004,10 @@ function HomeLocationPanel() {
         <div className="flex items-baseline justify-between gap-3">
           <div>
             <span className="text-neutral-400">Home: </span>
-            <span className="text-neutral-100">{home.label || "(unnamed)"}</span>
+            <span className="text-neutral-100">{home.label || "Home"}</span>
+            {home.address && (
+              <div className="text-xs text-neutral-500">{home.address}</div>
+            )}
           </div>
           <button
             type="button"

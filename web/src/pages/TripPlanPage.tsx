@@ -1188,9 +1188,17 @@ function LocationField({
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-sm">
           <span className="text-neutral-400">{heading}: </span>
-          <span className="text-neutral-100">
-            {value ? value.label : <span className="text-neutral-500">— pick a place —</span>}
-          </span>
+          {value ? (
+            value.label === "Home" ? (
+              <span className="rounded border border-emerald-700 bg-emerald-950/40 px-1.5 py-0.5 text-emerald-300">
+                🏠 Home
+              </span>
+            ) : (
+              <span className="text-neutral-100">{value.label}</span>
+            )
+          ) : (
+            <span className="text-neutral-500">— pick a place —</span>
+          )}
         </div>
         {value && (
           <button
@@ -1216,16 +1224,27 @@ function LocationField({
       </div>
       {presets.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {presets.map((p) => (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
-            >
-              {p.label}
-            </button>
-          ))}
+          {presets.map((p) => {
+            // Highlight Home so it stands out from regional
+            // presets (TX cities etc.) — Home is the one a user
+            // taps most often, so it earns an emerald outline
+            // instead of the muted neutral chip.
+            const isHome = p.label === "Home";
+            return (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}
+                className={
+                  isHome
+                    ? "rounded-md border border-emerald-700 bg-emerald-950/40 px-2 py-1 text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950"
+                    : "rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 hover:border-neutral-500 hover:bg-neutral-800"
+                }
+              >
+                {isHome ? "🏠 " : ""}{p.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

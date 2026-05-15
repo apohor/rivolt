@@ -1285,7 +1285,10 @@ export type HomeLocation = {
   set: boolean;
   latitude: number;
   longitude: number;
+  // Short user-visible name ("Home"). Defaults to "Home" server-side.
   label?: string;
+  // Full geocoded address, kept as Settings-card subtitle context.
+  address?: string;
 };
 
 // GeocodeResult is one match from /api/geocode (Open-Meteo).

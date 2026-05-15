@@ -13,9 +13,10 @@ import (
 // these on (user_id, key). Today's deploy is single-user so the flat
 // key works.
 const (
-	keyHomeLocationLat   = "home_location.latitude"
-	keyHomeLocationLon   = "home_location.longitude"
-	keyHomeLocationLabel = "home_location.label"
+	keyHomeLocationLat     = "home_location.latitude"
+	keyHomeLocationLon     = "home_location.longitude"
+	keyHomeLocationLabel   = "home_location.label"
+	keyHomeLocationAddress = "home_location.address"
 )
 
 // HomeLocation is the user's "home" base — used by the trip planner
@@ -30,7 +31,14 @@ type HomeLocation struct {
 	Set       bool    `json:"set"`
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
-	Label     string  `json:"label,omitempty"`
+	// Label is the short, user-visible name surfaced everywhere
+	// the point is referenced (trip planner From: Home, drive
+	// timeline "departed Home"). Defaults to "Home" on save when
+	// the client doesn't provide one — keeps planner UI compact.
+	Label string `json:"label,omitempty"`
+	// Address is the full geocoded address kept for context on
+	// the Settings card. Never used as the primary label.
+	Address string `json:"address,omitempty"`
 }
 
 // GetHomeLocation reads the saved home location. Returns Set=false
@@ -63,7 +71,32 @@ func GetHomeLocation(ctx context.Context, s *Store) (HomeLocation, error) {
 	if v, ok := all[keyHomeLocationLabel]; ok {
 		h.Label = v
 	}
+	if v, ok := all[keyHomeLocationAddress]; ok {
+		h.Address = v
+	}
+	// Backfill: pre-Address writes stored the full geocoded
+	// address in `label`. If the loaded label looks like an
+	// address (contains a comma or > 30 chars) and Address is
+	// empty, treat the label-as-address and rename the label.
+	// Cheap one-pass migration for existing rows.
+	if h.Address == "" && (len(h.Label) > 30 || stringsContains(h.Label, ",")) {
+		h.Address = h.Label
+		h.Label = "Home"
+	}
+	if h.Label == "" {
+		h.Label = "Home"
+	}
 	return h, nil
+}
+
+// stringsContains avoids pulling the strings package import for one use.
+func stringsContains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 // SetHomeLocation persists a home location. Pass an empty
@@ -88,5 +121,12 @@ func SetHomeLocation(ctx context.Context, s *Store, h HomeLocation) error {
 	if err := s.Set(ctx, keyHomeLocationLon, strconv.FormatFloat(h.Longitude, 'f', -1, 64)); err != nil {
 		return err
 	}
-	return s.Set(ctx, keyHomeLocationLabel, h.Label)
+	label := h.Label
+	if label == "" {
+		label = "Home"
+	}
+	if err := s.Set(ctx, keyHomeLocationLabel, label); err != nil {
+		return err
+	}
+	return s.Set(ctx, keyHomeLocationAddress, h.Address)
 }
