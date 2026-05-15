@@ -325,6 +325,11 @@ export default function TripPlanPage() {
     setPrefsApplied(true);
   }, [prefsQuery.data, prefsApplied]);
 
+  // autoReplanAfterAddRef: ref-flag set by the map's onAddStop /
+  // preview-confirm path so the next render auto-fires the planner.
+  // Ref (not state) because we only care about latch-and-fire on the
+  // immediately-following render, not as a render input itself.
+  const autoReplanAfterAddRef = useRef(false);
   const planMutation = useMutation({
     mutationFn: () => {
       if (!origin || !destination) {
@@ -394,6 +399,20 @@ export default function TripPlanPage() {
   const adviceMutation = useMutation({
     mutationFn: backend.planTripAdvice,
   });
+
+  // Auto-replan trigger: when extraStops grows from the map (preview
+  // confirm or legacy add-as-waypoint), planMutation re-fires once
+  // React has flushed the new extraStops into the mutationFn closure.
+  // Latch-and-clear via ref so the effect doesn't fire on unrelated
+  // extraStops changes (saved-trip load, ViaStopList edits, etc.).
+  useEffect(() => {
+    if (!autoReplanAfterAddRef.current) return;
+    autoReplanAfterAddRef.current = false;
+    planMutation.mutate();
+    // planMutation.mutate is stable; intentionally excluding it to
+    // avoid re-firing when the mutation completes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraStops]);
 
   // Saved trips. loadedSnapshot, when non-null, is what the result
   // card renders instead of the live planMutation.data — that's how
@@ -794,15 +813,22 @@ export default function TripPlanPage() {
               }}
               onAddStop={(stop) => {
                 const labeled = relabelIfHome(stop, home);
-                setExtraStops((prev) =>
-                  prev.some(
+                setExtraStops((prev) => {
+                  const dup = prev.some(
                     (s) =>
                       Math.abs(s.lat - labeled.lat) < 0.0005 &&
                       Math.abs(s.lon - labeled.lon) < 0.0005,
-                  )
-                    ? prev
-                    : [...prev, labeled],
-                );
+                  );
+                  if (dup) return prev;
+                  // Mark the next render's effect to fire a replan.
+                  // queueMicrotask would race the React render cycle
+                  // (mutationFn would still see the old extraStops);
+                  // the autoReplanAfterAddRef flag below threads the
+                  // intent through a useEffect so the mutation reads
+                  // the post-render closure.
+                  autoReplanAfterAddRef.current = true;
+                  return [...prev, labeled];
+                });
               }}
               departureAt={departureAt}
             />
