@@ -17,6 +17,7 @@ package signuprequests_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +31,27 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/signuprequests"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+// expireToken backdates a token's expiry directly in SQL. The store
+// coerces a negative TTL to the 14-day default, so the test has to
+// reach into the row to produce the "already-expired" condition.
+func expireToken(ctx context.Context, t *testing.T, dsn, token string) {
+	t.Helper()
+	conn, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE signup_requests SET token_expires_at = NOW() - interval '1 minute' WHERE signup_token = $1`,
+		token,
+	); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+}
 
 func pgDSN(ctx context.Context, t *testing.T) string {
 	t.Helper()
@@ -68,11 +89,12 @@ func pgDSN(ctx context.Context, t *testing.T) string {
 	return fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
 }
 
-func setupStore(t *testing.T) (*signuprequests.Store, uuid.UUID) {
+func setupStore(t *testing.T) (*signuprequests.Store, uuid.UUID, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	dsn := pgDSN(ctx, t)
+	pool, err := db.Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
@@ -81,7 +103,7 @@ func setupStore(t *testing.T) (*signuprequests.Store, uuid.UUID) {
 	if err != nil {
 		t.Fatalf("EnsureUser: %v", err)
 	}
-	return signuprequests.New(pool), adminID
+	return signuprequests.New(pool), adminID, dsn
 }
 
 // TestCreate_DuplicatePendingRejected pins the unique-on-pending
@@ -90,7 +112,7 @@ func setupStore(t *testing.T) (*signuprequests.Store, uuid.UUID) {
 // "we already received your request" instead of silently creating
 // duplicate admin work.
 func TestCreate_DuplicatePendingRejected(t *testing.T) {
-	store, _ := setupStore(t)
+	store, _, _ := setupStore(t)
 	ctx := context.Background()
 	if _, err := store.Create(ctx, "user@example.com", "first"); err != nil {
 		t.Fatalf("Create 1: %v", err)
@@ -110,7 +132,7 @@ func TestCreate_DuplicatePendingRejected(t *testing.T) {
 // token + expiry stamped, and the row's SignupToken+TokenExpiresAt
 // non-nil. Then LookupToken returns the same row.
 func TestApproveWithToken_HappyPath(t *testing.T) {
-	store, admin := setupStore(t)
+	store, admin, _ := setupStore(t)
 	ctx := context.Background()
 	created, err := store.Create(ctx, "approve@example.com", "")
 	if err != nil {
@@ -146,7 +168,7 @@ func TestApproveWithToken_HappyPath(t *testing.T) {
 // surfaces ErrNotPending. The state machine is strict so the admin UI
 // can't double-mint a token by impatiently clicking.
 func TestApproveWithToken_NotPending(t *testing.T) {
-	store, admin := setupStore(t)
+	store, admin, _ := setupStore(t)
 	ctx := context.Background()
 	r, _ := store.Create(ctx, "x@example.com", "")
 	if _, err := store.ApproveWithToken(ctx, r.ID, admin, 0); err != nil {
@@ -164,7 +186,7 @@ func TestApproveWithToken_NotPending(t *testing.T) {
 // IS NULL is what gates this; a future refactor to a SELECT-then-
 // UPDATE would break the guarantee and let a token mint two accounts.
 func TestConsumeToken_SingleUse(t *testing.T) {
-	store, admin := setupStore(t)
+	store, admin, _ := setupStore(t)
 	ctx := context.Background()
 	r, _ := store.Create(ctx, "single@example.com", "")
 	approved, err := store.ApproveWithToken(ctx, r.ID, admin, 0)
@@ -218,14 +240,17 @@ func TestConsumeToken_SingleUse(t *testing.T) {
 // has already passed — using a negative TTL forces that state without
 // needing time travel.
 func TestConsumeToken_Expired(t *testing.T) {
-	store, admin := setupStore(t)
+	store, admin, dsn := setupStore(t)
 	ctx := context.Background()
 	r, _ := store.Create(ctx, "expired@example.com", "")
-	approved, err := store.ApproveWithToken(ctx, r.ID, admin, -1*time.Hour)
+	approved, err := store.ApproveWithToken(ctx, r.ID, admin, time.Hour)
 	if err != nil {
-		t.Fatalf("ApproveWithToken (expired): %v", err)
+		t.Fatalf("ApproveWithToken: %v", err)
 	}
 	token := *approved.SignupToken
+	// ApproveWithToken coerces non-positive TTLs to the default, so we
+	// have to backdate the row directly to get an expired state.
+	expireToken(ctx, t, dsn, token)
 
 	if _, err := store.LookupToken(ctx, token); !errors.Is(err, signuprequests.ErrTokenInvalid) {
 		t.Errorf("expired lookup got %v want ErrTokenInvalid", err)
@@ -240,7 +265,7 @@ func TestConsumeToken_Expired(t *testing.T) {
 // sentinel-uniformity is deliberate so the public endpoint can't be
 // used to enumerate row states.
 func TestLookupToken_RejectedAndEmpty(t *testing.T) {
-	store, _ := setupStore(t)
+	store, _, _ := setupStore(t)
 	ctx := context.Background()
 	// Empty + clearly-bogus.
 	if _, err := store.LookupToken(ctx, ""); !errors.Is(err, signuprequests.ErrTokenInvalid) {
@@ -254,7 +279,7 @@ func TestLookupToken_RejectedAndEmpty(t *testing.T) {
 // TestReject_PendingOnly mirrors the Approve state-machine guard:
 // rejecting a row that isn't pending returns ErrNotPending.
 func TestReject_PendingOnly(t *testing.T) {
-	store, admin := setupStore(t)
+	store, admin, _ := setupStore(t)
 	ctx := context.Background()
 	r, _ := store.Create(ctx, "reject@example.com", "")
 	if _, err := store.Reject(ctx, r.ID, admin); err != nil {
