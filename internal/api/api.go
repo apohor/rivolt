@@ -1777,36 +1777,15 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				Preference: np.Preference,
 			})
 		}
-		// Auto-inject preferences from the user's saved Charging
-		// Networks (Settings -> Charging -> Preferred toggle). The
-		// SPA's tripPlanRequest typically passes none; the toggles
-		// in Settings are the long-lived signal we want to honour.
-		// Skipped when the request already carries explicit prefs
-		// so a one-off planner override still wins.
-		if len(in.NetworkPreferences) == 0 && settingsStore != nil {
-			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
-				ids := settings.PreferredRivianIDs(nets)
-				for _, id := range ids {
-					in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{
-						NetworkID:  id,
-						Preference: 1,
-					})
-				}
-			}
-		}
-		// Spike logging: print exactly what we forward so we can
-		// learn from production traffic whether Rivian honours the
-		// IDs (or rejects them with a GraphQL error / silently
-		// ignores them). Remove once the format is confirmed.
-		if len(in.NetworkPreferences) > 0 {
-			ids := make([]string, len(in.NetworkPreferences))
-			for i, np := range in.NetworkPreferences {
-				ids[i] = np.NetworkID
-			}
-			slog.InfoContext(r.Context(), "trip plan with network preferences",
-				"vehicle_id", in.VehicleID,
-				"network_ids", strings.Join(ids, ","))
-		}
+		// Auto-inject of preferred-network preferences is parked
+		// pending iOS-sniff data on the right networkId format.
+		// Rivian's gateway accepted "Electrify America" without a
+		// validation error but the plan picks didn't visibly shift
+		// (v0.19.1 spike); introspection is locked down so we can't
+		// query the enum directly. settings.PreferredRivianIDs and
+		// the Settings UI toggle stay in place so the data model is
+		// ready - we just don't forward the prefs to Rivian until
+		// we know they're honoured. See notes/ios-sniff.md.
 
 		plan, err := lc.PlanTrip(r.Context(), in)
 		if err != nil {

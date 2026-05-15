@@ -40,5 +40,8 @@ _local_overrides.*
 # AI assistant local notes (kept out of source tree)
 CLAUDE.md
 
+# Operator scratch notes (sniff guides, debug recipes, etc.)
+/notes/
+
 # Editor / IDE local config
 .cursor/
