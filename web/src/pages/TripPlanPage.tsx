@@ -793,19 +793,87 @@ export default function TripPlanPage() {
                   const r0 = displayPlan.Routes?.[0];
                   const r1 = hypo.Routes?.[0];
                   if (!r0 || !r1) return null;
-                  const stopCount = (r: TripRoute) =>
-                    r.Waypoints.filter((w) => {
-                      const t = w.WaypointType.toLowerCase();
-                      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
-                    }).length;
+                  const isCharger = (w: { WaypointType: string }) => {
+                    const t = w.WaypointType.toLowerCase();
+                    return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+                  };
+                  const origStops = r0.Waypoints.filter(isCharger);
+                  const newStops = r1.Waypoints.filter(isCharger);
+                  // Proximity threshold for "kept" vs "dropped/added".
+                  // 25 mi covers reasonable lat/lon jitter Rivian
+                  // sometimes shows for the same charging site
+                  // across replans (entity IDs aren't always stable).
+                  const PROX_MI = 25;
+                  const distMi = (
+                    a: { Latitude: number; Longitude: number },
+                    b: { Latitude: number; Longitude: number },
+                  ) => {
+                    // Equirectangular approximation; fine at the
+                    // 25-mi scale where lat/lon distortion is < 1%.
+                    const toRad = (d: number) => (d * Math.PI) / 180;
+                    const lat = ((a.Latitude + b.Latitude) / 2) * (Math.PI / 180);
+                    const dx = (toRad(a.Longitude) - toRad(b.Longitude)) * Math.cos(lat);
+                    const dy = toRad(a.Latitude) - toRad(b.Latitude);
+                    return Math.sqrt(dx * dx + dy * dy) * 3958.8;
+                  };
+                  // Hungarian-flavoured matching but greedy is plenty
+                  // for ~5-stop trips: pair each new stop with its
+                  // nearest unused original if within threshold.
+                  const usedOrig = new Set<number>();
+                  let kept = 0;
+                  const droppedNames: string[] = [];
+                  for (const ns of newStops) {
+                    let bestIdx = -1;
+                    let bestD = Infinity;
+                    for (let i = 0; i < origStops.length; i++) {
+                      if (usedOrig.has(i)) continue;
+                      const d = distMi(ns, origStops[i]);
+                      if (d < bestD) {
+                        bestD = d;
+                        bestIdx = i;
+                      }
+                    }
+                    if (bestIdx >= 0 && bestD <= PROX_MI) {
+                      usedOrig.add(bestIdx);
+                      kept++;
+                    }
+                  }
+                  // Original stops with no match in the new plan = dropped.
+                  for (let i = 0; i < origStops.length; i++) {
+                    if (!usedOrig.has(i)) droppedNames.push(origStops[i].Name || "Stop");
+                  }
+                  const added = Math.max(0, newStops.length - kept);
+                  // Substitution detection: a stop dropped AND the
+                  // candidate appears as a charging stop in the new
+                  // plan within proximity of the dropped one.
+                  let substitutedFor = "";
+                  if (droppedNames.length > 0) {
+                    const droppedOriginals = origStops.filter((_, i) => !usedOrig.has(i));
+                    const candidateNearby = newStops.find(
+                      (ns) =>
+                        distMi(ns, { Latitude: stop.lat, Longitude: stop.lon }) <= PROX_MI,
+                    );
+                    if (candidateNearby) {
+                      const closestDropped = droppedOriginals
+                        .map((d) => ({ d, dist: distMi(candidateNearby, d) }))
+                        .sort((a, b) => a.dist - b.dist)[0];
+                      if (closestDropped && closestDropped.dist <= 60) {
+                        substitutedFor = closestDropped.d.Name || "a planned stop";
+                      }
+                    }
+                  }
                   const c0 = displayPlan.costs?.[0];
                   const c1 = hypo.costs?.[0];
                   return {
                     delta_total_time_sec: r1.TotalTripDurationSec - r0.TotalTripDurationSec,
                     delta_arrival_soc_pct: r1.ArrivalSoC - r0.ArrivalSoC,
-                    delta_stop_count: stopCount(r1) - stopCount(r0),
+                    delta_stop_count: newStops.length - origStops.length,
                     delta_cost: (c1?.dcfc_spend ?? 0) - (c0?.dcfc_spend ?? 0),
                     currency: c1?.currency || c0?.currency || "USD",
+                    stops_kept: kept,
+                    stops_dropped: droppedNames.length,
+                    stops_added: added,
+                    substituted_for: substitutedFor || undefined,
                   };
                 } catch {
                   return null;
@@ -1513,12 +1581,26 @@ type StopAdder = (stop: { lat: number; lon: number; label: string }) => void;
 // commits. Negative values mean "this candidate would improve",
 // positive means "would worsen", except for delta_arrival_soc_pct
 // where positive = arrives higher (better).
+//
+// Stop-by-stop comparison fields make Rivian's reoptimization
+// visible: if the planner drops an existing stop because the
+// candidate provides the same energy on the corridor, the popup
+// can call that out instead of just showing "+55 min" with no
+// explanation of where the time went.
 export type PreviewResult = {
   delta_total_time_sec: number;
   delta_arrival_soc_pct: number;
   delta_stop_count: number;
   delta_cost: number;
   currency: string;
+  stops_kept: number;
+  stops_dropped: number;
+  stops_added: number;
+  // Name of an existing planned stop the candidate effectively
+  // replaced (existing dropped AND candidate is in the new plan's
+  // charging list within proximity). Empty when no substitution
+  // happened.
+  substituted_for?: string;
 };
 
 type StopPreviewer = (

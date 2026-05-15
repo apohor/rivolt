@@ -29,6 +29,10 @@ type PreviewResult = {
   delta_stop_count: number;
   delta_cost: number;
   currency: string;
+  stops_kept: number;
+  stops_dropped: number;
+  stops_added: number;
+  substituted_for?: string;
 };
 type PreviewStop = (
   stop: { lat: number; lon: number; label: string },
@@ -432,12 +436,13 @@ function chargerPopupHTML(poi: POI, addable: boolean, previewable: boolean): str
     out.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
   }
   if (previewable) {
-    // Preview-first path. Shows what adding this stop would cost
-    // before the user commits.
+    // Preview-first path. Rivian's planner re-runs with this stop
+    // added; the result names which planned stops the candidate
+    // keeps, drops, or replaces.
     out.push(
       `<button class="charger-preview-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
       `background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
-      `Preview impact</button>`,
+      `Preview detour</button>`,
     );
   } else if (addable) {
     // Fallback (no preview wiring): direct add.
@@ -491,13 +496,28 @@ function chargerPreviewBodyHTML(poi: POI, r: PreviewResult): string {
   // user reads at a glance whether this stop is worth taking.
   const slower = r.delta_total_time_sec > 0;
   const tone = slower ? "#fbbf24" : "#34d399";
+  // Substitution + kept/dropped story. The honest version of
+  // "swap": Rivian replanned around the new waypoint; here's what
+  // it actually did to your original stops.
+  const planChanges: string[] = [];
+  if (r.substituted_for) {
+    planChanges.push(`replaces ${escapeHTML(r.substituted_for)}`);
+  } else if (r.stops_dropped > 0) {
+    planChanges.push(`Rivian dropped ${r.stops_dropped} planned stop${r.stops_dropped === 1 ? "" : "s"}`);
+  }
+  if (r.stops_kept > 0) {
+    planChanges.push(`keeps ${r.stops_kept} planned stop${r.stops_kept === 1 ? "" : "s"}`);
+  }
   return [
     `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
     parts.length > 0
       ? `<div style="color:${tone};margin:4px 0">${parts.join(" · ")}</div>`
       : `<div style="color:#a3a3a3;margin:4px 0">No meaningful change</div>`,
+    planChanges.length > 0
+      ? `<div style="color:#a3a3a3;font-size:11px;margin:2px 0 4px">${planChanges.join(" · ")}</div>`
+      : "",
     `<div style="display:flex;gap:4px;margin-top:6px">`,
-    `<button class="charger-confirm-btn" style="flex:1;padding:3px 8px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Add to trip</button>`,
+    `<button class="charger-confirm-btn" style="flex:1;padding:3px 8px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">${r.substituted_for ? "Swap in" : "Add detour"}</button>`,
     `<button class="charger-cancel-btn" style="padding:3px 8px;background:transparent;color:#a3a3a3;border:1px solid #404040;border-radius:4px;cursor:pointer;font-size:11px">Cancel</button>`,
     `</div>`,
   ].join("");
