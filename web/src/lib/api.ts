@@ -1453,11 +1453,27 @@ export type TripAdvice = {
   cost_estimate: {
     currency: string;
     dcfc_spend: number;
+    dcfc_spend_member: number;
     home_equivalent: number;
     dcfc_rate_used: number;
+    dcfc_rate_used_member: number;
     home_rate_used: number;
+    breakdown?: TripCostStop[];
   };
   model: string;
+};
+
+// TripCostStop is one DCFC stop's contribution to the spend totals.
+// Surfaces network attribution so the UI can render "1× EA · 1× Tesla
+// SC · 1× RAN" beside the totals.
+export type TripCostStop = {
+  network_slug: string;
+  network_name: string;
+  charger_name: string;
+  energy_kwh: number;
+  guest_rate: number;
+  member_rate: number;
+  member_plan?: string;
 };
 
 // SavedTripInputs is the planner form state we persist. Kept loose

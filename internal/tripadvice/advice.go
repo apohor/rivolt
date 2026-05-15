@@ -66,23 +66,45 @@ type Result struct {
 }
 
 // CostEstimate is a deterministic, code-computed projection of trip
-// cost. Two views the user cares about:
-//   - DCFCSpend is real out-of-pocket money at fast chargers on the
-//     planned trip (sum of stop energies × DCFC rate).
+// cost. Three views the user cares about:
+//   - DCFCSpend is real out-of-pocket money at guest rates (no
+//     network memberships).
+//   - DCFCSpendMember is what it costs if the user holds every
+//     applicable network membership (EA Pass+, Tesla Supercharging
+//     Membership, EVgo Rewards+, etc.). Surfacing both lets the
+//     user see the delta at a glance without us tracking per-user
+//     membership state.
 //   - HomeEquivalent is the all-in energy cost if every kWh used
-//     came from the home meter at the user's configured rate — a
-//     useful "what is this trip costing me really" number.
+//     came from the home meter at the user's configured rate.
+//
+// Breakdown is the per-stop attribution that drives both totals,
+// so the SPA can show "1× EA · 1× Tesla SC · 1× RAN".
 type CostEstimate struct {
-	Currency       string  `json:"currency"`
-	DCFCSpend      float64 `json:"dcfc_spend"`
-	HomeEquivalent float64 `json:"home_equivalent"`
-	// DCFCRateUsed is the per-kWh rate (in Currency) the estimate
-	// assumed for DCFC stops. Industry average when the user
-	// hasn't configured per-network rates.
-	DCFCRateUsed float64 `json:"dcfc_rate_used"`
+	Currency        string             `json:"currency"`
+	DCFCSpend       float64            `json:"dcfc_spend"`
+	DCFCSpendMember float64            `json:"dcfc_spend_member"`
+	HomeEquivalent  float64            `json:"home_equivalent"`
+	// DCFCRateUsed is the avg per-kWh guest rate weighted by energy.
+	// Industry average when no waypoints matched a network.
+	DCFCRateUsed       float64 `json:"dcfc_rate_used"`
+	DCFCRateUsedMember float64 `json:"dcfc_rate_used_member"`
 	// HomeRateUsed is the user's configured at-home rate, 0 when
 	// unconfigured.
 	HomeRateUsed float64 `json:"home_rate_used"`
+	// Breakdown lists each priced stop. Empty when no DCFC stops
+	// were on the route (all-from-home trip).
+	Breakdown []CostStop `json:"breakdown,omitempty"`
+}
+
+// CostStop is one waypoint's contribution to the DCFC total.
+type CostStop struct {
+	NetworkSlug   string  `json:"network_slug"`
+	NetworkName   string  `json:"network_name"`
+	ChargerName   string  `json:"charger_name"`
+	EnergyKWh     float64 `json:"energy_kwh"`
+	GuestRate     float64 `json:"guest_rate"`
+	MemberRate    float64 `json:"member_rate"`
+	MemberPlan    string  `json:"member_plan,omitempty"`
 }
 
 // Parsed is the structured JSON shape the model emits. Each list
@@ -96,10 +118,11 @@ type Parsed struct {
 	Vehicle    []string `json:"vehicle"`
 }
 
-// DefaultDCFCRateUSD is the per-kWh DCFC rate the cost estimator
-// uses when the user hasn't configured per-network rates. Industry
-// average for US public DC fast charging at time of writing.
-const DefaultDCFCRateUSD = 0.43
+// DefaultDCFCRateUSD is the per-kWh fallback used in the rare case
+// where the cost estimator runs without a route (pre-network-table
+// API consumers, tests). The real per-stop pricing flows through
+// the Networks table in networks.go.
+const DefaultDCFCRateUSD = 0.46
 
 // Generate calls the AI provider with a compact trip-plan summary
 // and returns structured advice. The context's deadline should be
@@ -124,7 +147,9 @@ func Generate(ctx context.Context, a *ai.Analyzer, plan *rivian.TripPlan, tc Con
 
 // estimateCost projects DCFC spend + home-rate-equivalent for the
 // first route in the plan. Done in Go (not the LLM) so the dollar
-// figures stay accurate.
+// figures stay accurate. Each charger stop's rate comes from the
+// Networks table — matching on the planner's charger name — so the
+// per-stop quote tracks the operator instead of a flat average.
 func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
 	cur := tc.HomeCurrency
 	if cur == "" {
@@ -132,17 +157,16 @@ func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
 	}
 	est := CostEstimate{
 		Currency:     cur,
-		DCFCRateUsed: DefaultDCFCRateUSD,
 		HomeRateUsed: tc.HomePricePerKWh,
 	}
 	if len(plan.Routes) == 0 {
 		return est
 	}
 	r := plan.Routes[0]
-	// DCFC spend = per-stop (depSoC - arrSoC)/100 × pack × DCFC rate.
 	// Falls back to 0 when pack capacity is unknown — we don't want
 	// to bake in a guess pack size and quote a dollar figure off it.
 	if tc.PackKWh > 0 {
+		var totalKWh float64
 		for _, w := range r.Waypoints {
 			t := strings.ToUpper(w.WaypointType)
 			if t == "ORIGIN" || t == "DESTINATION" || t == "WAYPOINT" || t == "OTHER" {
@@ -152,7 +176,29 @@ func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
 			if delta <= 0 {
 				continue
 			}
-			est.DCFCSpend += (delta / 100) * tc.PackKWh * est.DCFCRateUsed
+			energy := (delta / 100) * tc.PackKWh
+			net := MatchNetwork(w.Name)
+			memberRate := net.MemberRateOrGuest()
+			est.DCFCSpend += energy * net.GuestRate
+			est.DCFCSpendMember += energy * memberRate
+			est.Breakdown = append(est.Breakdown, CostStop{
+				NetworkSlug: net.Slug,
+				NetworkName: net.DisplayName,
+				ChargerName: w.Name,
+				EnergyKWh:   energy,
+				GuestRate:   net.GuestRate,
+				MemberRate:  memberRate,
+				MemberPlan:  net.MemberPlan,
+			})
+			totalKWh += energy
+		}
+		// Energy-weighted average rate for the strip's "@ $X / $Y per kWh" line.
+		if totalKWh > 0 {
+			est.DCFCRateUsed = est.DCFCSpend / totalKWh
+			est.DCFCRateUsedMember = est.DCFCSpendMember / totalKWh
+		} else {
+			est.DCFCRateUsed = DefaultDCFCRateUSD
+			est.DCFCRateUsedMember = DefaultDCFCRateUSD
 		}
 	}
 	if tc.HomePricePerKWh > 0 && r.EnergyConsumptionKWh > 0 {

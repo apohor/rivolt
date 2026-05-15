@@ -1841,13 +1841,44 @@ function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
       style: "currency",
       currency: cost.currency || "USD",
     }).format(v);
+  // Compress the per-stop breakdown to "1× EA · 1× Tesla SC" — same
+  // network's repeat stops collapse into a count prefix so the line
+  // stays readable on trips with many short hops.
+  const networkSummary = (() => {
+    if (!cost.breakdown || cost.breakdown.length === 0) return "";
+    const order: string[] = [];
+    const counts: Record<string, number> = {};
+    cost.breakdown.forEach((s) => {
+      if (!(s.network_name in counts)) order.push(s.network_name);
+      counts[s.network_name] = (counts[s.network_name] ?? 0) + 1;
+    });
+    return order.map((n) => `${counts[n]}× ${n}`).join(" · ");
+  })();
+  const memberSavings = hasDCFC && cost.dcfc_spend_member > 0
+    ? cost.dcfc_spend - cost.dcfc_spend_member
+    : 0;
   return (
     <div className="flex flex-wrap gap-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm">
       {hasDCFC && (
-        <div>
+        <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-neutral-500">DCFC spend</div>
-          <div className="font-mono text-neutral-100">{fmt(cost.dcfc_spend)}</div>
-          <div className="text-[10px] text-neutral-600">@ {fmt(cost.dcfc_rate_used)}/kWh</div>
+          <div className="font-mono text-neutral-100">
+            {fmt(cost.dcfc_spend)} guest
+            {memberSavings > 0.5 && (
+              <>
+                {" / "}
+                <span className="text-emerald-300">{fmt(cost.dcfc_spend_member)}</span>
+                <span className="text-neutral-500"> with memberships</span>
+              </>
+            )}
+          </div>
+          <div className="text-[10px] text-neutral-600">
+            @ {fmt(cost.dcfc_rate_used)}
+            {memberSavings > 0.5 && (
+              <> / <span className="text-emerald-400/70">{fmt(cost.dcfc_rate_used_member)}</span></>
+            )} per kWh
+            {networkSummary && <span className="ml-2">· {networkSummary}</span>}
+          </div>
         </div>
       )}
       {hasHome && (
