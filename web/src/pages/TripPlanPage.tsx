@@ -1539,6 +1539,7 @@ function TripPlanResult({
           onAddStop={onAddStop}
           departureAt={departureAt}
           cost={plan.costs?.[i]}
+          primaryCost={plan.costs?.[0]}
           adjustment={i === 0 ? plan.weather_adjustment : undefined}
         />
       ))}
@@ -1668,6 +1669,63 @@ function routeLabel(index: number, allRoutes: TripRoute[]): string {
   return `Alternative ${index}`;
 }
 
+// countChargingStops applies the same waypoint-type filter the
+// stops table uses: drop origin / destination / waypoint / other.
+function countChargingStops(r: TripRoute): number {
+  return r.Waypoints.filter((w) => {
+    const t = w.WaypointType.toLowerCase();
+    return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+  }).length;
+}
+
+// routeDiff builds the "saves $12 · 18 min slower · 1 fewer stop"
+// summary line shown under each alternative's title. Each dimension
+// has a small noise threshold so a trivially-different route doesn't
+// pretend to be meaningfully different. Currency-format the cost
+// delta with the route's own currency so EU / GB users see € / £.
+function routeDiff(
+  route: TripRoute,
+  cost: TripCostEstimate | undefined,
+  primary: TripRoute,
+  primaryCost: TripCostEstimate | undefined,
+): string[] {
+  const parts: string[] = [];
+  const fmtMoney = (v: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: cost?.currency || primaryCost?.currency || "USD",
+      maximumFractionDigits: 0,
+    }).format(v);
+
+  const dCost = (primaryCost?.dcfc_spend ?? 0) - (cost?.dcfc_spend ?? 0);
+  if (Math.abs(dCost) >= 0.5) {
+    parts.push(dCost > 0 ? `saves ${fmtMoney(dCost)}` : `+${fmtMoney(Math.abs(dCost))}`);
+  }
+  const dTime = primary.TotalTripDurationSec - route.TotalTripDurationSec;
+  if (Math.abs(dTime) >= 120) {
+    parts.push(
+      dTime > 0 ? `${formatDuration(dTime)} faster` : `${formatDuration(-dTime)} slower`,
+    );
+  }
+  const dStops = countChargingStops(primary) - countChargingStops(route);
+  if (dStops !== 0) {
+    parts.push(
+      dStops > 0
+        ? `${dStops} fewer stop${dStops === 1 ? "" : "s"}`
+        : `${-dStops} more stop${dStops === -1 ? "" : "s"}`,
+    );
+  }
+  const dArr = route.ArrivalSoC - primary.ArrivalSoC;
+  if (Math.abs(dArr) >= 2) {
+    parts.push(
+      dArr > 0
+        ? `arrives ${dArr.toFixed(0)}% higher`
+        : `arrives ${Math.abs(dArr).toFixed(0)}% lower`,
+    );
+  }
+  return parts;
+}
+
 function RouteCard({
   route,
   index,
@@ -1677,6 +1735,7 @@ function RouteCard({
   onAddStop,
   departureAt,
   cost,
+  primaryCost,
   adjustment,
 }: {
   route: TripRoute;
@@ -1687,6 +1746,7 @@ function RouteCard({
   onAddStop?: StopAdder;
   departureAt?: string;
   cost?: TripCostEstimate;
+  primaryCost?: TripCostEstimate;
   adjustment?: TripPlan["weather_adjustment"];
 }) {
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
@@ -1787,6 +1847,20 @@ function RouteCard({
   );
   return (
     <Card title={title}>
+      {index > 0 && allRoutes.length > 1 && (() => {
+        // Alternative comparison line. Renders below the title so the
+        // user can see at a glance how this route diverges from
+        // Recommended (route 0) - "saves $12 · 18 min slower · 1
+        // fewer stop". Dropped entirely when no dimension crossed
+        // the noise threshold.
+        const parts = routeDiff(route, cost, allRoutes[0], primaryCost);
+        if (parts.length === 0) return null;
+        return (
+          <div className="-mt-1 mb-3 text-xs text-neutral-400">
+            vs Recommended: {parts.join(" · ")}
+          </div>
+        );
+      })()}
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap route={route} onAddStop={onAddStop} />
