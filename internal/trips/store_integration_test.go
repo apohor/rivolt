@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,6 +29,23 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/trips"
 )
+
+// jsonEq compares two JSON byte slices for semantic equality. Postgres
+// JSONB re-orders keys and adds whitespace after colons, so byte-equal
+// is wrong; deep-equal on decoded values is what we actually want.
+func jsonEq(t *testing.T, label string, got, want []byte) {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got, &g); err != nil {
+		t.Fatalf("%s: invalid JSON in got: %v (%s)", label, err, got)
+	}
+	if err := json.Unmarshal(want, &w); err != nil {
+		t.Fatalf("%s: invalid JSON in want: %v (%s)", label, err, want)
+	}
+	if !reflect.DeepEqual(g, w) {
+		t.Errorf("%s mismatch:\n  got:  %s\n  want: %s", label, got, want)
+	}
+}
 
 // pgDSN spins up postgres:16-alpine and returns a host-reachable
 // DSN. Same pattern as internal/integration/boot_to_record_test.go;
@@ -115,20 +133,18 @@ func TestCreateAndGet_AllFields(t *testing.T) {
 	if created.Name != "Austin → Dallas" {
 		t.Errorf("Name: got %q", created.Name)
 	}
-	if string(created.Plan) != string(plan) {
-		t.Errorf("Plan roundtrip: got %s want %s", created.Plan, plan)
-	}
-	if string(created.Advice) != string(advice) {
-		t.Errorf("Advice roundtrip: got %s want %s", created.Advice, advice)
-	}
+	jsonEq(t, "Plan after Create", created.Plan, plan)
+	jsonEq(t, "Advice after Create", created.Advice, advice)
 
 	got, err := store.Get(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.ID != created.ID || string(got.Plan) != string(plan) || string(got.Advice) != string(advice) {
-		t.Errorf("Get roundtrip mismatch: %+v", got)
+	if got.ID != created.ID {
+		t.Errorf("Get ID mismatch: %s vs %s", got.ID, created.ID)
 	}
+	jsonEq(t, "Plan after Get", got.Plan, plan)
+	jsonEq(t, "Advice after Get", got.Advice, advice)
 }
 
 // TestCreateAndGet_NullPlanAdvice is the regression test for
@@ -195,9 +211,11 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if updated.Name != "renamed" || string(updated.Plan) != `{"second":true}` || string(updated.Advice) != `{"hint":"ok"}` {
-		t.Errorf("Update roundtrip wrong: %+v", updated)
+	if updated.Name != "renamed" {
+		t.Errorf("Update name: got %q want renamed", updated.Name)
 	}
+	jsonEq(t, "Plan after Update", updated.Plan, []byte(`{"second":true}`))
+	jsonEq(t, "Advice after Update", updated.Advice, []byte(`{"hint":"ok"}`))
 
 	// Update again, clearing plan + advice. Without the v0.18.78 fix
 	// this would 500 with the RawBytes error.
