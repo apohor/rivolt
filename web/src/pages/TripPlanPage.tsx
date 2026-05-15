@@ -1645,38 +1645,23 @@ function formatDuration(seconds: number): string {
   return `${h}h ${rem}m`;
 }
 
-// routeLabel picks a human-readable name for a route relative to the
-// rest of Rivian's response. With one route it's just "Recommended"
-// (Rivian's top pick). With multiple routes, the primary stays
-// "Recommended"; alternatives are labelled by their strongest
-// distinguishing feature vs. the primary (Faster / Cheaper / Fewer
-// stops / Higher arrival SoC). Falls back to "Alternative" when no
-// dimension shows a meaningful gap, so the title never reads as a
-// tautology.
-function routeLabel(
-  index: number,
-  route: TripRoute,
-  allRoutes: TripRoute[],
-  _cost: TripCostEstimate | undefined,
-): string {
-  if (allRoutes.length <= 1) return "Recommended route";
+// shortPlanName trims the verbose "Pass+ - $7/mo" / "Supercharging
+// Membership - $12.99/mo" form to the bare plan name. The cost
+// column has narrow horizontal space; the pricing detail belongs
+// in Settings, not the trip table.
+function shortPlanName(plan: string): string {
+  return plan.replace(/\s*[-,].*/, "").trim();
+}
+
+// routeLabel picks the route's name. Simple two-tier scheme:
+// Rivian's top pick is "Recommended"; everything after is
+// "Alternative N". The descriptive variants ("Faster by 22 min",
+// etc.) competed for screen space with the cost line and lost -
+// the user can see Distance / Total time / Arrival in the stat
+// grid right below the title.
+function routeLabel(index: number, allRoutes: TripRoute[]): string {
+  if (allRoutes.length <= 1) return "Recommended";
   if (index === 0) return "Recommended";
-  const primary = allRoutes[0];
-  const countStops = (r: TripRoute) =>
-    r.Waypoints.filter((w) => {
-      const t = w.WaypointType.toLowerCase();
-      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
-    }).length;
-  const dTime = primary.TotalTripDurationSec - route.TotalTripDurationSec;
-  const dStops = countStops(primary) - countStops(route);
-  const dArrival = route.ArrivalSoC - primary.ArrivalSoC;
-  // Priority order: time first (most visceral), then stops (fewer
-  // = less hassle), then arrival margin. Cost isn't in the label
-  // because the title line already shows $; surfacing "Cheaper"
-  // here too would be redundant.
-  if (dTime > 5 * 60) return `Faster by ${formatDuration(dTime)}`;
-  if (dStops > 0) return `${dStops} fewer stop${dStops === 1 ? "" : "s"}`;
-  if (dArrival > 3) return `Arrives ${dArrival.toFixed(0)}% higher`;
   return `Alternative ${index}`;
 }
 
@@ -1736,18 +1721,31 @@ function RouteCard({
   const totalGuest = cost?.dcfc_spend ?? 0;
   const totalUser = cost?.dcfc_spend_user_member ?? 0;
   const userSavings = totalGuest - totalUser;
-  const label = routeLabel(index, route, allRoutes, cost);
-  const titleParts = [label];
-  if (totalGuest > 0) {
-    titleParts.push(
-      userSavings > 0.5
-        ? `${fmtCurrency(totalGuest)} guest / ${fmtCurrency(totalUser)} with memberships`
-        : fmtCurrency(totalGuest),
-    );
-  }
-  if (!route.DestinationReached) titleParts.push("destination unreachable");
+  const label = routeLabel(index, allRoutes);
+  // Title is JSX so the member price can render in green inline
+  // without a verbal "with memberships" suffix - color carries the
+  // meaning. Falls back to a single number when no savings exist.
+  const title = (
+    <span className="flex flex-wrap items-baseline gap-x-2">
+      <span>{label}</span>
+      {totalGuest > 0 && (
+        <span className="text-neutral-400">
+          · <span className="text-neutral-200 font-mono">{fmtCurrency(totalGuest)}</span>
+          {userSavings > 0.5 && (
+            <>
+              {" / "}
+              <span className="text-emerald-400 font-mono">{fmtCurrency(totalUser)}</span>
+            </>
+          )}
+        </span>
+      )}
+      {!route.DestinationReached && (
+        <span className="text-amber-400">· destination unreachable</span>
+      )}
+    </span>
+  );
   return (
-    <Card title={titleParts.join(" · ")}>
+    <Card title={title}>
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap route={route} onAddStop={onAddStop} />
@@ -1860,14 +1858,25 @@ function RouteCard({
                         {stopCost ? (
                           <>
                             <div>{fmtCurrency(stopCost.energy_kwh * stopCost.guest_rate)}</div>
-                            {stopCost.user_rate < stopCost.guest_rate && (
+                            {stopCost.user_rate < stopCost.guest_rate ? (
+                              // Membership active: green, no upsell.
                               <div className="text-xs text-emerald-400/80">
                                 {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)}
                                 {stopCost.member_plan
-                                  ? ` with ${stopCost.member_plan.replace(/ -.*/, "").replace(/,.*/, "")}`
+                                  ? ` with ${shortPlanName(stopCost.member_plan)}`
                                   : " with membership"}
                               </div>
-                            )}
+                            ) : stopCost.all_member_rate < stopCost.guest_rate ? (
+                              // Membership available but not activated:
+                              // muted upsell so the user sees what
+                              // joining would save at this specific stop.
+                              <div className="text-xs text-neutral-500">
+                                {fmtCurrency(stopCost.energy_kwh * stopCost.all_member_rate)}
+                                {stopCost.member_plan
+                                  ? ` with ${shortPlanName(stopCost.member_plan)}`
+                                  : " with membership"}
+                              </div>
+                            ) : null}
                           </>
                         ) : (
                           "—"
@@ -1899,6 +1908,13 @@ function RouteCard({
                           {fmtCurrency(totalUser)} with memberships
                         </div>
                       )}
+                      {userSavings <= 0.5 &&
+                        (cost?.dcfc_spend_all_member ?? 0) > 0 &&
+                        cost!.dcfc_spend_all_member < totalGuest - 0.5 && (
+                          <div className="text-xs text-neutral-500">
+                            {fmtCurrency(cost!.dcfc_spend_all_member)} with memberships
+                          </div>
+                        )}
                     </td>
                   )}
                   <td className="px-2 py-2"></td>

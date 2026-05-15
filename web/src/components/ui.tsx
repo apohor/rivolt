@@ -30,7 +30,7 @@ export function Card({
   actions,
   id,
 }: {
-  title?: string;
+  title?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
   id?: string;
