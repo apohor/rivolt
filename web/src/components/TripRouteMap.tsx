@@ -65,6 +65,25 @@ export function TripRouteMap({
     map.on("mouseout", () => map.scrollWheelZoom.disable());
     addBasemap(map);
 
+    // Leaflet measures the container exactly once at construction. When
+    // the wrapping Card mounts inside a flex/grid that hasn't finished
+    // layout yet — common after Suspense swaps the lazy chunk in, or
+    // when the tab was backgrounded during the lazy load — the
+    // measurement comes back 0×0 and the map renders blank forever.
+    // Two safety nets:
+    //   1. requestAnimationFrame'd invalidateSize on the next paint
+    //      handles the "0×0 at mount, real size one frame later" case.
+    //   2. A ResizeObserver redoes it on every container resize so a
+    //      later orientation change / window resize / parent expand
+    //      always catches up.
+    const raf = requestAnimationFrame(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    });
+    const ro = new ResizeObserver(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    });
+    ro.observe(ref.current);
+
     const wpLatLngs = ws.map((w) => [w.Latitude, w.Longitude] as [number, number]);
     map.fitBounds(L.latLngBounds(wpLatLngs), { padding: [24, 24], maxZoom: 12 });
 
@@ -117,6 +136,8 @@ export function TripRouteMap({
 
     return () => {
       ac.abort();
+      cancelAnimationFrame(raf);
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       chargerLayerRef.current = null;

@@ -1543,23 +1543,29 @@ function TripPlanResult({
 function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
   const adj = plan.weather_adjustment;
   if (!adj) return null;
+  const rivianArrival = plan.Routes[0]?.ArrivalSoC ?? 0;
+  // Only fire when WEATHER is what crossed the target line. If Rivian's
+  // own plan was already below the target, the existing SoCBelowLimit
+  // banner / Rivian-side warning is the right surface — this chip
+  // claiming weather is to blame would be misleading. Likewise if the
+  // weather correction didn't meaningfully move the number (< 2pp),
+  // showing the chip just adds noise.
   if (!adj.below_target) return null;
-  const dominant = (() => {
-    // Pick the worst leg and its dominant factor for the headline.
+  if (rivianArrival < adj.target_arrival_soc) return null;
+  const delta = rivianArrival - adj.final_arrival_soc;
+  if (delta < 2) return null;
+  const reasons = (() => {
+    // Pick the worst leg and describe its dominant factor(s).
     let worst = adj.legs[0];
-    let worstIdx = 0;
-    adj.legs.forEach((leg, i) => {
-      if (leg.multiplier > worst.multiplier) {
-        worst = leg;
-        worstIdx = i;
-      }
+    adj.legs.forEach((leg) => {
+      if (leg.multiplier > worst.multiplier) worst = leg;
     });
-    const reasons: string[] = [];
-    if (worst.temp_c != null && worst.temp_c < 10) reasons.push(`cold (${worst.temp_c.toFixed(0)}°C)`);
-    if (worst.temp_c != null && worst.temp_c > 30) reasons.push(`heat (${worst.temp_c.toFixed(0)}°C)`);
-    if (worst.headwind_kph != null && worst.headwind_kph > 10) reasons.push(`${worst.headwind_kph.toFixed(0)} kph headwind`);
-    if (worst.precip_mm != null && worst.precip_mm > 0.5) reasons.push("rain");
-    return { reasons, legIdx: worstIdx, mult: worst.multiplier };
+    const out: string[] = [];
+    if (worst.temp_c != null && worst.temp_c < 10) out.push(`cold (${worst.temp_c.toFixed(0)}°C)`);
+    if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${worst.temp_c.toFixed(0)}°C)`);
+    if (worst.headwind_kph != null && worst.headwind_kph > 10) out.push(`${worst.headwind_kph.toFixed(0)} kph headwind`);
+    if (worst.precip_mm != null && worst.precip_mm > 0.5) out.push("rain");
+    return out;
   })();
   return (
     <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-3 text-sm">
@@ -1567,15 +1573,16 @@ function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
         Weather pushes arrival below your target
       </div>
       <div className="mt-1 text-amber-300/80">
-        Rivian's planner shows {plan.Routes[0]?.ArrivalSoC?.toFixed(0) ?? "—"}% at
-        the destination, but corrected for{" "}
-        {dominant.reasons.length > 0 ? dominant.reasons.join(" + ") : "current conditions"} along
-        the route the realistic arrival is{" "}
+        Rivian's planner shows{" "}
+        <span className="font-semibold text-amber-100">{rivianArrival.toFixed(0)}%</span>{" "}
+        at the destination. Correcting for{" "}
+        {reasons.length > 0 ? reasons.join(" + ") : "weather along the route"},
+        the realistic arrival is{" "}
         <span className="font-semibold text-amber-100">
           {adj.final_arrival_soc.toFixed(0)}%
         </span>{" "}
-        — below your {adj.target_arrival_soc.toFixed(0)}% target. Consider adding
-        a stop or padding the target.
+        — below your {adj.target_arrival_soc.toFixed(0)}% target. Consider
+        adding a stop or padding the target.
       </div>
     </div>
   );
