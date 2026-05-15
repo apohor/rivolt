@@ -745,6 +745,29 @@ Smaller cuts queued up; not phase-gated, ship as they make sense.
 - [ ] **"No reachable charging stations" banner** — promote the
       empty-state from a buried subtitle to a prominent CTA
       ("Add a custom via-stop", "Widen starting SoC").
+- [ ] **Weather-aware range adjustment (v1+).** v1 ships a per-leg
+      energy multiplier on top of Rivian's planner response — cold
+      derate, headwind/tailwind, wet — fetched from Open-Meteo at each
+      leg's midpoint + ETA. Output: corrected ArrivalSoC and a
+      "below your target" warning chip when the multiplier eats
+      through the margin. Pure post-correction — Rivian's
+      `planTripWithMultiStopV2` does not accept these as inputs.
+      Deferred to v2+:
+      - **Trailer / payload mass.** No signal source today (Rivian
+        gateway doesn't expose trailer mode reliably and we have no
+        UI for payload).
+      - **Tire pressure.** We capture it for advice but the range
+        impact is noisy and small relative to weather.
+      - **Elevation gain along route.** Open-Meteo doesn't return
+        terrain; would require a second call to Valhalla's
+        `/elevation` or a DEM lookup per leg.
+      - **Speed-dependent cold derate.** Real but second-order;
+        v1's apparent-temp model captures most of the signal.
+      - **Auto-retry with bumped `TargetArrivalSocPercent`** when
+        the corrected arrival falls below the user's floor. Adds
+        stops automatically; held until v1 multipliers are
+        validated against the recap weather data we already store
+        per drive.
 - [ ] **Weather overlay on the trip planner map.** Toggle next to
       the charger filter:
       - *Radar* — RainViewer precipitation tiles (free, no API
