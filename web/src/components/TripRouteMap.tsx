@@ -19,16 +19,39 @@ import type { PlannedWaypoint, TripRoute } from "../lib/api";
 // resolves in a single round trip. Shape is returned as polyline6.
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
 
+// PreviewResult mirrors the shape returned by the trip planner
+// page's onPreviewStop callback. Kept local so this component
+// doesn't import from pages/. Marker popup uses the deltas to
+// render "+18 min · +$4 · arrives 7% higher" before committing.
+type PreviewResult = {
+  delta_total_time_sec: number;
+  delta_arrival_soc_pct: number;
+  delta_stop_count: number;
+  delta_cost: number;
+  currency: string;
+};
+type PreviewStop = (
+  stop: { lat: number; lon: number; label: string },
+) => Promise<PreviewResult | null>;
+
 export function TripRouteMap({
   route,
   height = 320,
   onAddStop,
+  onPreviewStop,
   selectedIdx,
   onSelectStop,
 }: {
   route: TripRoute;
   height?: number;
   onAddStop?: AddStop;
+  // When provided, the charger popup gains a "Preview impact"
+  // button. Clicking fires a hypothetical replan with the
+  // candidate stop inserted and rewrites the popup with the
+  // resulting time / SoC / cost delta before the user commits via
+  // "Add to trip". Falls back to direct "Add as waypoint" when
+  // unset.
+  onPreviewStop?: PreviewStop;
   // Bidirectional selection between the stops table and the map.
   // selectedIdx is the index into route.Waypoints of the currently
   // highlighted waypoint, or null when nothing is selected. Marker
@@ -53,6 +76,8 @@ export function TripRouteMap({
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
   const onSelectStopRef = useRef<typeof onSelectStop>(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
+  const onPreviewStopRef = useRef<PreviewStop | undefined>(onPreviewStop);
+  useEffect(() => { onPreviewStopRef.current = onPreviewStop; }, [onPreviewStop]);
 
   // Effect 1: build map + Valhalla path. Re-runs only on route change.
   useEffect(() => {
@@ -218,18 +243,53 @@ export function TripRouteMap({
       setChargersLoading(false);
       for (const poi of chargers) {
         const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(poi.isDCFC !== false) })
-          .bindPopup(chargerPopupHTML(poi, !!onAddStopRef.current));
+          .bindPopup(
+            chargerPopupHTML(
+              poi,
+              !!onAddStopRef.current,
+              !!onPreviewStopRef.current,
+            ),
+          );
         m.on("popupopen", (e) => {
-          const btn = (e.popup.getElement() as HTMLElement | null)
-            ?.querySelector<HTMLButtonElement>(".charger-add-btn");
-          if (btn) {
-            btn.addEventListener("click", () => {
-              const label =
-                poi.name ||
-                poi.network ||
-                `${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`;
-              onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
-              map.closePopup();
+          const el = e.popup.getElement() as HTMLElement | null;
+          if (!el) return;
+          const label =
+            poi.name ||
+            poi.network ||
+            `${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`;
+          // Bare "Add as waypoint" path, used when preview isn't wired.
+          const addBtn = el.querySelector<HTMLButtonElement>(".charger-add-btn");
+          addBtn?.addEventListener("click", () => {
+            onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
+            map.closePopup();
+          });
+          // Preview path. Click fires the hypothetical replan, then
+          // rewrites the popup body with the deltas + Confirm/Cancel.
+          const previewBtn = el.querySelector<HTMLButtonElement>(".charger-preview-btn");
+          if (previewBtn && onPreviewStopRef.current) {
+            previewBtn.addEventListener("click", async () => {
+              previewBtn.disabled = true;
+              previewBtn.textContent = "Computing impact…";
+              try {
+                const r = await onPreviewStopRef.current!({ lat: poi.lat, lon: poi.lon, label });
+                const body = el.querySelector<HTMLDivElement>(".charger-popup-body");
+                if (!body) return;
+                if (!r) {
+                  previewBtn.textContent = "Preview unavailable";
+                  return;
+                }
+                body.innerHTML = chargerPreviewBodyHTML(poi, r);
+                // Wire the freshly-injected Confirm + Cancel.
+                body.querySelector<HTMLButtonElement>(".charger-confirm-btn")?.addEventListener("click", () => {
+                  onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
+                  map.closePopup();
+                });
+                body.querySelector<HTMLButtonElement>(".charger-cancel-btn")?.addEventListener("click", () => {
+                  map.closePopup();
+                });
+              } catch {
+                previewBtn.textContent = "Preview failed";
+              }
             });
           }
         });
@@ -356,30 +416,91 @@ function chargerDotIcon(isDCFC = true): L.DivIcon {
   });
 }
 
-function chargerPopupHTML(poi: POI, addable: boolean): string {
+function chargerPopupHTML(poi: POI, addable: boolean, previewable: boolean): string {
   const name = poi.name || poi.network || "Charging station";
-  const lines: string[] = [
-    `<div style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:150px">`,
+  const out: string[] = [
+    `<div class="charger-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px">`,
     `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
   ];
   if (poi.maxPowerKW && poi.maxPowerKW > 0) {
-    lines.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
+    out.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
   }
   if (poi.network && poi.network !== name) {
-    lines.push(`<div style="color:#a3a3a3">${escapeHTML(poi.network)}</div>`);
+    out.push(`<div style="color:#a3a3a3">${escapeHTML(poi.network)}</div>`);
   }
   if (poi.capacity && poi.capacity > 0) {
-    lines.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
+    out.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
   }
-  if (addable) {
-    lines.push(
+  if (previewable) {
+    // Preview-first path. Shows what adding this stop would cost
+    // before the user commits.
+    out.push(
+      `<button class="charger-preview-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
+      `background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
+      `Preview impact</button>`,
+    );
+  } else if (addable) {
+    // Fallback (no preview wiring): direct add.
+    out.push(
       `<button class="charger-add-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
       `background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
       `Add as waypoint</button>`,
     );
   }
-  lines.push(`</div>`);
-  return lines.join("");
+  out.push(`</div>`);
+  return out.join("");
+}
+
+// chargerPreviewBodyHTML is the popup contents AFTER the preview
+// resolves. Same outer .charger-popup-body so subsequent re-clicks
+// still hit the wired buttons. Format mirrors the alternative-route
+// diff line so the user reads "deltas" the same way across both
+// surfaces.
+function chargerPreviewBodyHTML(poi: POI, r: PreviewResult): string {
+  const name = poi.name || poi.network || "Charging station";
+  const fmtMoney = (v: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: r.currency || "USD",
+      maximumFractionDigits: 0,
+    }).format(v);
+  const fmtMin = (sec: number) => `${Math.round(Math.abs(sec) / 60)} min`;
+  const parts: string[] = [];
+  if (Math.abs(r.delta_total_time_sec) >= 60) {
+    parts.push(r.delta_total_time_sec > 0 ? `+${fmtMin(r.delta_total_time_sec)}` : `-${fmtMin(r.delta_total_time_sec)}`);
+  }
+  if (Math.abs(r.delta_cost) >= 0.5) {
+    parts.push(r.delta_cost > 0 ? `+${fmtMoney(r.delta_cost)}` : `-${fmtMoney(Math.abs(r.delta_cost))}`);
+  }
+  if (Math.abs(r.delta_arrival_soc_pct) >= 1) {
+    parts.push(
+      r.delta_arrival_soc_pct > 0
+        ? `arrives ${r.delta_arrival_soc_pct.toFixed(0)}% higher`
+        : `arrives ${Math.abs(r.delta_arrival_soc_pct).toFixed(0)}% lower`,
+    );
+  }
+  if (r.delta_stop_count !== 0) {
+    parts.push(
+      r.delta_stop_count > 0
+        ? `+${r.delta_stop_count} stop${r.delta_stop_count === 1 ? "" : "s"}`
+        : `${r.delta_stop_count} stop${r.delta_stop_count === -1 ? "" : "s"}`,
+    );
+  }
+  // Color the delta line by net direction: time is the dominant
+  // signal - faster = green, slower = amber. Tied to time so the
+  // user reads at a glance whether this stop is worth taking.
+  const slower = r.delta_total_time_sec > 0;
+  const tone = slower ? "#fbbf24" : "#34d399";
+  return [
+    `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
+    parts.length > 0
+      ? `<div style="color:${tone};margin:4px 0">${parts.join(" · ")}</div>`
+      : `<div style="color:#a3a3a3;margin:4px 0">No meaningful change</div>`,
+    `<div style="display:flex;gap:4px;margin-top:6px">`,
+    `<button class="charger-confirm-btn" style="flex:1;padding:3px 8px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Add to trip</button>`,
+    `<button class="charger-cancel-btn" style="padding:3px 8px;background:transparent;color:#a3a3a3;border:1px solid #404040;border-radius:4px;cursor:pointer;font-size:11px">Cancel</button>`,
+    `</div>`,
+  ].join("");
 }
 
 const PROTOMAPS_ATTRIB =

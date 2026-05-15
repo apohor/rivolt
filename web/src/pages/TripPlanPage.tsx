@@ -741,6 +741,57 @@ export default function TripPlanPage() {
               advice={displayAdvice}
               adviceLoading={adviceMutation.isPending}
               onAnalyze={() => fireAdvice(displayPlan)}
+              onPreviewStop={async (stop) => {
+                if (!origin || !destination) return null;
+                const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
+                const vid = firstVehicle?.rivian_vehicle_id;
+                const liveSoc = stateQuery.data?.battery_level_pct;
+                const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
+                const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
+                try {
+                  const hypo = await backend.planTrip({
+                    vehicle_id: vid,
+                    starting_soc: soc,
+                    origin_bearing: 0,
+                    target_arrival_soc_percent: target,
+                    drive_mode: driveMode || undefined,
+                    has_adapter: hasAdapter,
+                    pack_kwh:
+                      typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0
+                        ? firstVehicle.pack_kwh
+                        : undefined,
+                    waypoints: [
+                      { latitude: origin.lat, longitude: origin.lon, waypoint_type: "OTHER" },
+                      ...extraStops.map((s) => ({
+                        latitude: s.lat,
+                        longitude: s.lon,
+                        waypoint_type: "OTHER",
+                      })),
+                      { latitude: stop.lat, longitude: stop.lon, waypoint_type: "OTHER" },
+                      { latitude: destination.lat, longitude: destination.lon, waypoint_type: "OTHER" },
+                    ],
+                  });
+                  const r0 = displayPlan.Routes?.[0];
+                  const r1 = hypo.Routes?.[0];
+                  if (!r0 || !r1) return null;
+                  const stopCount = (r: TripRoute) =>
+                    r.Waypoints.filter((w) => {
+                      const t = w.WaypointType.toLowerCase();
+                      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+                    }).length;
+                  const c0 = displayPlan.costs?.[0];
+                  const c1 = hypo.costs?.[0];
+                  return {
+                    delta_total_time_sec: r1.TotalTripDurationSec - r0.TotalTripDurationSec,
+                    delta_arrival_soc_pct: r1.ArrivalSoC - r0.ArrivalSoC,
+                    delta_stop_count: stopCount(r1) - stopCount(r0),
+                    delta_cost: (c1?.dcfc_spend ?? 0) - (c0?.dcfc_spend ?? 0),
+                    currency: c1?.currency || c0?.currency || "USD",
+                  };
+                } catch {
+                  return null;
+                }
+              }}
               onAddStop={(stop) => {
                 const labeled = relabelIfHome(stop, home);
                 setExtraStops((prev) =>
@@ -1431,6 +1482,23 @@ function formatGeocode(r: GeocodeResult): string {
 
 type StopAdder = (stop: { lat: number; lon: number; label: string }) => void;
 
+// PreviewResult is the deltas the map's "Preview impact" popup uses
+// to show what adding a candidate stop would do BEFORE the user
+// commits. Negative values mean "this candidate would improve",
+// positive means "would worsen", except for delta_arrival_soc_pct
+// where positive = arrives higher (better).
+export type PreviewResult = {
+  delta_total_time_sec: number;
+  delta_arrival_soc_pct: number;
+  delta_stop_count: number;
+  delta_cost: number;
+  currency: string;
+};
+
+type StopPreviewer = (
+  stop: { lat: number; lon: number; label: string },
+) => Promise<PreviewResult | null>;
+
 // ViaStopList renders existing via stops with remove buttons and a
 // search field for adding new ones by geocode.
 function ViaStopList({
@@ -1502,6 +1570,7 @@ function TripPlanResult({
   adviceLoading,
   onAnalyze,
   onAddStop,
+  onPreviewStop,
   departureAt,
 }: {
   plan: TripPlan;
@@ -1511,6 +1580,7 @@ function TripPlanResult({
   adviceLoading?: boolean;
   onAnalyze?: () => void;
   onAddStop?: StopAdder;
+  onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
   if (plan.Routes.length === 0) {
@@ -1537,6 +1607,7 @@ function TripPlanResult({
           originLabel={originLabel}
           destLabel={destLabel}
           onAddStop={onAddStop}
+          onPreviewStop={onPreviewStop}
           departureAt={departureAt}
           cost={plan.costs?.[i]}
           primaryCost={plan.costs?.[0]}
@@ -1733,6 +1804,7 @@ function RouteCard({
   originLabel,
   destLabel,
   onAddStop,
+  onPreviewStop,
   departureAt,
   cost,
   primaryCost,
@@ -1744,6 +1816,7 @@ function RouteCard({
   originLabel: string;
   destLabel: string;
   onAddStop?: StopAdder;
+  onPreviewStop?: StopPreviewer;
   departureAt?: string;
   cost?: TripCostEstimate;
   primaryCost?: TripCostEstimate;
@@ -1874,6 +1947,7 @@ function RouteCard({
           <TripRouteMap
             route={route}
             onAddStop={onAddStop}
+            onPreviewStop={onPreviewStop}
             selectedIdx={selectedStop}
             onSelectStop={(idx) => setSelectedStop(idx)}
           />
