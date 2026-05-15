@@ -1720,7 +1720,7 @@ function RouteCard({
   if (totalGuest > 0) {
     titleParts.push(
       userSavings > 0.5
-        ? `${fmtCurrency(totalGuest)} / ${fmtCurrency(totalUser)} mem`
+        ? `${fmtCurrency(totalGuest)} guest / ${fmtCurrency(totalUser)} with memberships`
         : fmtCurrency(totalGuest),
     );
   }
@@ -1786,8 +1786,8 @@ function RouteCard({
                 <th className="px-2 py-2">Depart</th>
                 <th className="px-2 py-2">Charge</th>
                 <th className="px-2 py-2">Max kW</th>
-                <th className="px-2 py-2">Adapter?</th>
                 {stopBreakdown.length > 0 && <th className="px-2 py-2 text-right">Cost</th>}
+                <th className="px-2 py-2">Adapter?</th>
               </tr>
             </thead>
             <tbody>
@@ -1804,8 +1804,8 @@ function RouteCard({
                   </td>
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2">—</td>
-                  <td className="px-2 py-2"></td>
                   {stopBreakdown.length > 0 && <td className="px-2 py-2"></td>}
+                  <td className="px-2 py-2"></td>
                 </tr>
               )}
               {charging.map((w, j) => {
@@ -1828,7 +1828,6 @@ function RouteCard({
                     </td>
                     <td className="px-2 py-2 font-mono">{Math.round(w.ChargeDurationSec / 60)} min</td>
                     <td className="px-2 py-2 font-mono">{w.MaxPowerKW > 0 ? w.MaxPowerKW.toFixed(0) : "—"}</td>
-                    <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
                     {stopBreakdown.length > 0 && (
                       <td className="px-2 py-2 font-mono text-right">
                         {stopCost ? (
@@ -1836,7 +1835,10 @@ function RouteCard({
                             <div>{fmtCurrency(stopCost.energy_kwh * stopCost.guest_rate)}</div>
                             {stopCost.user_rate < stopCost.guest_rate && (
                               <div className="text-xs text-emerald-400/80">
-                                {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)} mem
+                                {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)}
+                                {stopCost.member_plan
+                                  ? ` with ${stopCost.member_plan.replace(/ -.*/, "").replace(/,.*/, "")}`
+                                  : " with membership"}
                               </div>
                             )}
                           </>
@@ -1845,6 +1847,7 @@ function RouteCard({
                         )}
                       </td>
                     )}
+                    <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
                   </tr>
                 );
               })}
@@ -1861,17 +1864,17 @@ function RouteCard({
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2">—</td>
-                  <td className="px-2 py-2"></td>
                   {stopBreakdown.length > 0 && (
                     <td className="px-2 py-2 font-mono text-right text-neutral-200">
                       {fmtCurrency(totalGuest)}
                       {userSavings > 0.5 && (
                         <div className="text-xs text-emerald-400/80">
-                          {fmtCurrency(totalUser)} mem
+                          {fmtCurrency(totalUser)} with memberships
                         </div>
                       )}
                     </td>
                   )}
+                  <td className="px-2 py-2"></td>
                 </tr>
               )}
             </tbody>
@@ -1958,9 +1961,10 @@ function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
     }).format(v);
   return (
     <div className="rounded-md border border-amber-700/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-300/80">
-      Save another <span className="font-semibold text-amber-100">{fmt(maxExtra)}</span> on
-      this trip by joining every applicable plan ({fmt(cost.dcfc_spend_all_member)} floor at{" "}
-      {fmt(cost.dcfc_rate_used_all_member)}/kWh).
+      You could save another{" "}
+      <span className="font-semibold text-amber-100">{fmt(maxExtra)}</span> on
+      this trip by joining the charging-network memberships you don't have yet
+      (lowest possible cost: {fmt(cost.dcfc_spend_all_member)}).
     </div>
   );
 }
