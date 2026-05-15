@@ -39,6 +39,10 @@ type ChargingNetwork struct {
 	MemberActive bool    `json:"member_active,omitempty"`
 	MemberPlan   string  `json:"member_plan,omitempty"`
 	Slug         string  `json:"slug,omitempty"`
+	// Preferred = "rank this network high in Rivian's planner".
+	// Forwarded as networkPreferences[].preference=1 on plan
+	// requests. Unset / false sends nothing for that network.
+	Preferred bool `json:"preferred,omitempty"`
 }
 
 // GetChargingNetworks returns the configured price book. When the
@@ -113,6 +117,39 @@ func DefaultChargingNetworks() []ChargingNetwork {
 	return out
 }
 
+// PreferredRivianIDs returns the Rivian-side networkId strings for
+// every network row the user has marked Preferred. Built by joining
+// each persisted row against the built-in dcfcrates.Networks table
+// on Slug, so a custom row without a slug gets dropped here even if
+// it has the toggle on (we don't know what RivianID to send).
+//
+// The result feeds Rivian's planTrip2 networkPreferences field.
+// First-spike behaviour: preference=1 (most-preferred). We learn
+// whether Rivian honors the IDs from logs + the resulting plan.
+func PreferredRivianIDs(networks []ChargingNetwork) []string {
+	out := make([]string, 0, len(networks))
+	seen := make(map[string]bool)
+	bySlug := make(map[string]dcfcrates.Network, len(dcfcrates.Networks))
+	for _, n := range dcfcrates.Networks {
+		bySlug[n.Slug] = n
+	}
+	for _, n := range networks {
+		if !n.Preferred {
+			continue
+		}
+		base, ok := bySlug[n.Slug]
+		if !ok || base.RivianID == "" {
+			continue
+		}
+		if seen[base.RivianID] {
+			continue
+		}
+		seen[base.RivianID] = true
+		out = append(out, base.RivianID)
+	}
+	return out
+}
+
 // AsOverrides converts a persisted network list into the
 // slug-keyed override slice the tripadvice cost estimator consumes.
 // Custom user-added rows (no Slug) are passed through with their
@@ -158,6 +195,7 @@ func normalizeNetworks(in []ChargingNetwork) []ChargingNetwork {
 			Currency:    cur,
 			MemberPlan:  strings.TrimSpace(n.MemberPlan),
 			Slug:        strings.TrimSpace(n.Slug),
+			Preferred:   n.Preferred,
 		}
 		// Member price must be positive AND below guest to count -
 		// matches the sanity test in tripadvice/networks_test.go.

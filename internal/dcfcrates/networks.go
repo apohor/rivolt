@@ -39,6 +39,14 @@ type Network struct {
 	// MemberPlan is the human-readable plan name + monthly cost
 	// surfaced in the cost-strip tooltip later. Empty when no plan.
 	MemberPlan string
+	// RivianID is the value passed to Rivian's planTrip2
+	// networkPreferences[].networkId field. Best-effort guess based
+	// on the bracket form Rivian uses in their charger names
+	// ("<location> [Tesla]" -> "Tesla"). Confirmed on the wire as
+	// the spike rolls out; rows where the gateway rejects the ID
+	// will get corrected here as we learn. Empty when we don't
+	// have a guess (user-added custom rows).
+	RivianID string
 }
 
 func f64(v float64) *float64 { return &v }
@@ -55,6 +63,7 @@ var Networks = []Network{
 		GuestRate:     0.48,
 		MemberRate:    f64(0.36),
 		MemberPlan:    "Pass+ - $7/mo",
+		RivianID:      "Electrify America",
 	},
 	{
 		Slug:        "tesla_sc",
@@ -69,6 +78,7 @@ var Networks = []Network{
 		GuestRate:     0.55,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "Supercharging Membership - $12.99/mo",
+		RivianID:      "Tesla",
 	},
 	{
 		Slug:          "ran",
@@ -77,6 +87,7 @@ var Networks = []Network{
 		GuestRate:     0.45, // Rivian owner rate; non-owners can't use it.
 		MemberRate:    nil,
 		MemberPlan:    "",
+		RivianID:      "Rivian Adventure Network",
 	},
 	{
 		Slug:          "evgo",
@@ -85,6 +96,7 @@ var Networks = []Network{
 		GuestRate:     0.42,
 		MemberRate:    f64(0.34),
 		MemberPlan:    "Rewards+ - $6.99/mo",
+		RivianID:      "EVgo",
 	},
 	{
 		Slug:          "blink",
@@ -93,6 +105,7 @@ var Networks = []Network{
 		GuestRate:     0.49,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "Blink Member - annual",
+		RivianID:      "Blink",
 	},
 	{
 		Slug:          "bp_pulse",
@@ -101,6 +114,7 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "bp pulse Plus - $4/mo",
+		RivianID:      "bp pulse",
 	},
 	{
 		Slug:          "shell_recharge",
@@ -109,6 +123,7 @@ var Networks = []Network{
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "GO+ - free",
+		RivianID:      "Shell Recharge",
 	},
 	{
 		Slug:          "chargepoint",
@@ -117,6 +132,7 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    nil,
 		MemberPlan:    "",
+		RivianID:      "ChargePoint",
 	},
 	{
 		Slug:          "francis_energy",
@@ -125,6 +141,7 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
+		RivianID:      "Francis Energy",
 	},
 	{
 		Slug:          "ionna",
@@ -133,6 +150,7 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
+		RivianID:      "Ionna",
 	},
 	{
 		Slug:          "flo",
@@ -141,6 +159,7 @@ var Networks = []Network{
 		GuestRate:     0.35,
 		MemberRate:    nil,
 		MemberPlan:    "",
+		RivianID:      "Flo",
 	},
 }
 

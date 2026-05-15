@@ -309,6 +309,9 @@ export type ChargingNetwork = {
   // Slug ties this row to a built-in network for match-pattern
   // lookup. Empty = user-added custom network (matches by name).
   slug?: string;
+  // preferred = "rank this network high in Rivian's planner".
+  // Forwarded as networkPreferences[].preference=1 on plan requests.
+  preferred?: boolean;
 };
 
 // LiveDrive is the in-flight drive snapshot returned by

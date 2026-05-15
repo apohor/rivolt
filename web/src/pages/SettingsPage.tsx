@@ -544,6 +544,17 @@ function ChargingNetworksPanel() {
                     />
                     <span>I have {r.member_plan || "this plan"}</span>
                   </label>
+                  {r.slug && (
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer ml-3">
+                      <input
+                        type="checkbox"
+                        checked={!!r.preferred}
+                        onChange={(e) => update(i, { preferred: e.target.checked })}
+                        className="h-3 w-3"
+                      />
+                      <span>Prefer in planner</span>
+                    </label>
+                  )}
                 </div>
               ) : null}
             </div>

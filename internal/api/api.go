@@ -1774,6 +1774,36 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				Preference: np.Preference,
 			})
 		}
+		// Auto-inject preferences from the user's saved Charging
+		// Networks (Settings -> Charging -> Preferred toggle). The
+		// SPA's tripPlanRequest typically passes none; the toggles
+		// in Settings are the long-lived signal we want to honour.
+		// Skipped when the request already carries explicit prefs
+		// so a one-off planner override still wins.
+		if len(in.NetworkPreferences) == 0 && settingsStore != nil {
+			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
+				ids := settings.PreferredRivianIDs(nets)
+				for _, id := range ids {
+					in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{
+						NetworkID:  id,
+						Preference: 1,
+					})
+				}
+			}
+		}
+		// Spike logging: print exactly what we forward so we can
+		// learn from production traffic whether Rivian honours the
+		// IDs (or rejects them with a GraphQL error / silently
+		// ignores them). Remove once the format is confirmed.
+		if len(in.NetworkPreferences) > 0 {
+			ids := make([]string, len(in.NetworkPreferences))
+			for i, np := range in.NetworkPreferences {
+				ids[i] = np.NetworkID
+			}
+			slog.InfoContext(r.Context(), "trip plan with network preferences",
+				"vehicle_id", in.VehicleID,
+				"network_ids", strings.Join(ids, ","))
+		}
 
 		plan, err := lc.PlanTrip(r.Context(), in)
 		if err != nil {
