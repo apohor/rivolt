@@ -141,7 +141,7 @@ jobs:
         # class (NULL scan, RawBytes, cross-tenant scoping) gets caught
         # in PR. internal/api/... covers the end-to-end isolation
         # contract over the real handlers.
-        run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/api/...
+        run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/leases/... ./internal/api/...
 
   publish:
     name: publish

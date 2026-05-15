@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type AdminUserRow, type SignupRequest } from "../lib/api";
+import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
 import { grafanaBaseURL } from "../lib/config";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
@@ -224,7 +224,7 @@ function FeatureFlagsPanel() {
   const plannerMut = useMutation({
     mutationFn: (enabled: boolean) => backend.adminFlagsTripPlannerPut(enabled),
     onSuccess: (data) => {
-      qc.setQueryData(["admin", "flags"], (prev: any) => ({
+      qc.setQueryData(["admin", "flags"], (prev: AdminFlagsState | undefined) => ({
         kill_switch: prev?.kill_switch ?? { paused: false },
         trip_planner: data.trip_planner,
       }));
