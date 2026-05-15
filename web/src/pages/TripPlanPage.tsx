@@ -652,18 +652,16 @@ export default function TripPlanPage() {
               Plan trip
             </button>
             {planMutation.isPending && <Spinner />}
-            {!home && !homeQuery.isLoading && (
-              <span className="text-xs text-neutral-500">
-                Tip: save your home in{" "}
-                <a
-                  href="/settings?tab=vehicle#home"
-                  className="underline hover:text-neutral-300"
-                >
-                  Settings &rarr; Vehicle &rarr; Home location
-                </a>{" "}
-                to one-click it as the trip's origin or destination.
-              </span>
-            )}
+            <span className="text-xs text-neutral-500">
+              Tip: configure your charging settings in{" "}
+              <a
+                href="/settings?tab=charging"
+                className="underline hover:text-neutral-300"
+              >
+                Settings &rarr; Charging
+              </a>{" "}
+              to see accurate per-stop costs and membership savings.
+            </span>
           </div>
         </form>
       </Card>
@@ -1535,7 +1533,6 @@ function TripPlanResult({
           key={i}
           route={route}
           index={i}
-          routeCount={plan.Routes.length}
           allRoutes={plan.Routes}
           originLabel={originLabel}
           destLabel={destLabel}
@@ -1669,7 +1666,6 @@ function routeLabel(
 function RouteCard({
   route,
   index,
-  routeCount,
   allRoutes,
   originLabel,
   destLabel,
@@ -1679,7 +1675,6 @@ function RouteCard({
 }: {
   route: TripRoute;
   index: number;
-  routeCount: number;
   allRoutes: TripRoute[];
   originLabel: string;
   destLabel: string;
@@ -1723,9 +1718,7 @@ function RouteCard({
   const totalUser = cost?.dcfc_spend_user_member ?? 0;
   const userSavings = totalGuest - totalUser;
   const label = routeLabel(index, route, allRoutes, cost);
-  const titleParts = [
-    `${label}${routeCount > 1 ? ` (route ${index + 1})` : ""}`,
-  ];
+  const titleParts = [label];
   if (totalGuest > 0) {
     titleParts.push(
       userSavings > 0.5
