@@ -44,6 +44,7 @@ import (
 	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/tripadvice"
+	"github.com/apohor/rivolt/internal/tripprofile"
 	"github.com/apohor/rivolt/internal/tripweather"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -1787,12 +1788,37 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		resp := tripPlanResponse{TripPlan: plan}
-		if mgr != nil && mgr.RecapWeatherEnabled() && wc != nil {
+		// Resolve the user's saved vehicle profile so we can apply a
+		// trip-wide energy multiplier (wheel size, tire type,
+		// accessories, payload). Rivian's planTrip2 doesn't accept
+		// these inputs, so the correction lives client-side on top
+		// of the response. Profile is loaded best-effort: missing
+		// rows / lookup errors fall through to multiplier=1.0.
+		profileMult := 1.0
+		var profileReasons []tripprofile.Reason
+		if pool != nil && req.VehicleID != "" {
+			var vid uuid.UUID
+			err := pool.QueryRowContext(r.Context(),
+				`SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2 LIMIT 1`,
+				uid, req.VehicleID,
+			).Scan(&vid)
+			if err == nil {
+				if prof, err := db.GetVehicleProfile(r.Context(), pool, uid, vid); err == nil {
+					profileMult = tripprofile.Multiplier(prof)
+					profileReasons = tripprofile.Reasons(prof)
+				}
+			}
+		}
+		// Either weather or profile (or both) can contribute. Fire
+		// the adjustment pipeline whenever either has signal.
+		weatherOn := mgr != nil && mgr.RecapWeatherEnabled() && wc != nil
+		hasProfileSignal := profileMult != 1.0
+		if weatherOn || hasProfileSignal {
 			target := 10.0
 			if in.TargetArrivalSocPercent != nil {
 				target = *in.TargetArrivalSocPercent
 			}
-			resp.WeatherAdjustment = computeTripWeatherAdjustment(r.Context(), plan, in.StartingSoC, target, wc, mc)
+			resp.WeatherAdjustment = computeTripWeatherAdjustment(r.Context(), plan, in.StartingSoC, target, wc, mc, profileMult, profileReasons, weatherOn)
 		}
 		// Always-on per-route DCFC cost. Needs pack_kwh from the SPA;
 		// without it we just don't price (cost fields stay zero on
@@ -1832,14 +1858,19 @@ type tripPlanResponse struct {
 }
 
 // tripWeatherAdjustmentDTO is the wire shape. Per-leg metadata lets
-// the SPA explain *why* the arrival SoC moved (cold, wind, wet) per
-// stop rather than just showing the corrected number.
+// the SPA explain *why* the arrival SoC moved (cold, wind, wet,
+// plus profile factors) rather than just showing the corrected
+// number. ProfileReasons is trip-wide (wheels/tires/accessories/
+// payload don't vary by leg) and surfaces in the chip's reason
+// list alongside the weather factors.
 type tripWeatherAdjustmentDTO struct {
-	AdjustedArrivalSoC []float64                `json:"adjusted_arrival_soc"`
-	FinalArrivalSoC    float64                  `json:"final_arrival_soc"`
-	BelowTarget        bool                     `json:"below_target"`
-	TargetArrivalSoC   float64                  `json:"target_arrival_soc"`
-	Legs               []tripWeatherAdjLegDTO   `json:"legs"`
+	AdjustedArrivalSoC []float64                  `json:"adjusted_arrival_soc"`
+	FinalArrivalSoC    float64                    `json:"final_arrival_soc"`
+	BelowTarget        bool                       `json:"below_target"`
+	TargetArrivalSoC   float64                    `json:"target_arrival_soc"`
+	Legs               []tripWeatherAdjLegDTO     `json:"legs"`
+	ProfileMultiplier  float64                    `json:"profile_multiplier,omitempty"`
+	ProfileReasons     []string                   `json:"profile_reasons,omitempty"`
 }
 
 type tripWeatherAdjLegDTO struct {
@@ -1860,6 +1891,9 @@ func computeTripWeatherAdjustment(
 	startingSoC, targetArrivalSoC float64,
 	wc *weather.Client,
 	mc *weather.MemCache,
+	profileMult float64,
+	profileReasons []tripprofile.Reason,
+	weatherOn bool,
 ) *tripWeatherAdjustmentDTO {
 	if plan == nil || len(plan.Routes) == 0 {
 		return nil
@@ -1898,33 +1932,40 @@ func computeTripWeatherAdjustment(
 		arrivals = append(arrivals, to.ArrivalSoC)
 	}
 
-	// Parallel fetch with a 3s budget — Rivian's plan already cost
+	// Parallel fetch with a 3s budget - Rivian's plan already cost
 	// 1-2s and we don't want to compound. Per-leg fetches are
 	// best-effort: a fail on one leg lets that leg fall through to
 	// a 1.0 multiplier rather than blocking the whole response.
-	fctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+	// Skipped entirely when the operator hasn't enabled weather -
+	// then the adjustment is profile-only.
 	snaps := make([]*weather.Snapshot, len(legs))
-	var wg sync.WaitGroup
-	for i := range legs {
-		i := i
-		l := legs[i]
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s, _, err := mc.FetchHourCached(fctx, wc, l.lat, l.lon, l.at, l.bearing, l.hasBearing)
-			if err == nil {
-				snaps[i] = s
-			}
-		}()
+	if weatherOn {
+		fctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		var wg sync.WaitGroup
+		for i := range legs {
+			i := i
+			l := legs[i]
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s, _, err := mc.FetchHourCached(fctx, wc, l.lat, l.lon, l.at, l.bearing, l.hasBearing)
+				if err == nil {
+					snaps[i] = s
+				}
+			}()
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 
 	twLegs := make([]tripweather.Leg, len(legs))
 	for i, s := range snaps {
 		twLegs[i] = tripweather.Leg{Weather: s}
 	}
-	adj := tripweather.Adjust(startingSoC, arrivals, twLegs, targetArrivalSoC)
+	if profileMult <= 0 {
+		profileMult = 1.0
+	}
+	adj := tripweather.Adjust(startingSoC, arrivals, twLegs, targetArrivalSoC, profileMult)
 	if adj == nil {
 		return nil
 	}
@@ -1934,6 +1975,16 @@ func computeTripWeatherAdjustment(
 		BelowTarget:        adj.BelowTarget,
 		TargetArrivalSoC:   targetArrivalSoC,
 		Legs:               make([]tripWeatherAdjLegDTO, len(adj.Multipliers)),
+	}
+	if profileMult != 1.0 {
+		dto.ProfileMultiplier = profileMult
+		labels := make([]string, 0, len(profileReasons))
+		for _, r := range profileReasons {
+			if r.Label != "" {
+				labels = append(labels, r.Label)
+			}
+		}
+		dto.ProfileReasons = labels
 	}
 	for i, m := range adj.Multipliers {
 		leg := tripWeatherAdjLegDTO{Multiplier: m}

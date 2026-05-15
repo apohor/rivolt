@@ -112,9 +112,18 @@ func Multiplier(s *weather.Snapshot) float64 {
 //
 // targetArrivalSoC is the user's floor; the returned BelowTarget is
 // true when the corrected final arrival is below it.
-func Adjust(startingSoC float64, waypointArrivalSoC []float64, legs []Leg, targetArrivalSoC float64) *Adjustment {
+//
+// baseMultiplier is a trip-wide multiplier applied to every leg's
+// consumption on top of the per-leg weather multiplier. Pass 1.0
+// when there's no profile correction. Profile contribution
+// (wheels, tires, accessories, payload) comes through here from
+// internal/tripprofile so the pipeline stays single-pass.
+func Adjust(startingSoC float64, waypointArrivalSoC []float64, legs []Leg, targetArrivalSoC, baseMultiplier float64) *Adjustment {
 	if len(legs) != len(waypointArrivalSoC) {
 		return nil
+	}
+	if baseMultiplier <= 0 {
+		baseMultiplier = 1.0
 	}
 	out := &Adjustment{
 		AdjustedArrivalSoC: make([]float64, len(waypointArrivalSoC)),
@@ -126,9 +135,9 @@ func Adjust(startingSoC float64, waypointArrivalSoC []float64, legs []Leg, targe
 		delta := prev - arr // SoC drop on this leg
 		// Charging stops produce arr > prev (Rivian's arrival here is
 		// post-charging in some response shapes). Don't multiply a
-		// negative delta — that would amplify the charge instead of
+		// negative delta - that would amplify the charge instead of
 		// the consumption.
-		mult := Multiplier(legs[i].Weather)
+		mult := Multiplier(legs[i].Weather) * baseMultiplier
 		out.Multipliers[i] = mult
 		if delta > 0 {
 			soc -= delta * mult

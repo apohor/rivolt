@@ -114,7 +114,7 @@ func TestAdjust_HappyPath(t *testing.T) {
 	cold := &weather.Snapshot{HasApparent: true, ApparentTempC: 0, HasHeadwind: true, HeadwindKPH: 15}
 	legs := []Leg{{Weather: cold}, {Weather: cold}}
 	// Rivian planned: 80 → 50 (drop 30) → 25 (drop 25). Target 20%.
-	adj := Adjust(80, []float64{50, 25}, legs, 20)
+	adj := Adjust(80, []float64{50, 25}, legs, 20, 1.0)
 	if adj == nil {
 		t.Fatal("Adjust returned nil")
 	}
@@ -142,7 +142,7 @@ func TestAdjust_HappyPath(t *testing.T) {
 // (mult=1) on every leg must produce exactly Rivian's planned SoCs.
 func TestAdjust_NeutralWeatherPassThrough(t *testing.T) {
 	mild := &weather.Snapshot{HasApparent: true, ApparentTempC: 21}
-	adj := Adjust(80, []float64{60, 40}, []Leg{{Weather: mild}, {Weather: mild}}, 20)
+	adj := Adjust(80, []float64{60, 40}, []Leg{{Weather: mild}, {Weather: mild}}, 20, 1.0)
 	if adj.AdjustedArrivalSoC[0] != 60 || adj.AdjustedArrivalSoC[1] != 40 {
 		t.Errorf("pass-through broken: %v", adj.AdjustedArrivalSoC)
 	}
@@ -159,7 +159,7 @@ func TestAdjust_NeutralWeatherPassThrough(t *testing.T) {
 func TestAdjust_ChargingLegPassThrough(t *testing.T) {
 	cold := &weather.Snapshot{HasApparent: true, ApparentTempC: 0}
 	// 80 → 30 (drive, drop 50, corrected) → 80 (charge, arrives at 80) → 20 (drive)
-	adj := Adjust(80, []float64{30, 80, 20}, []Leg{{Weather: cold}, {Weather: cold}, {Weather: cold}}, 15)
+	adj := Adjust(80, []float64{30, 80, 20}, []Leg{{Weather: cold}, {Weather: cold}, {Weather: cold}}, 15, 1.0)
 	if adj.AdjustedArrivalSoC[1] != 80 {
 		t.Errorf("charging stop got multiplied: %v want 80", adj.AdjustedArrivalSoC[1])
 	}
@@ -176,7 +176,7 @@ func TestAdjust_ChargingLegPassThrough(t *testing.T) {
 func TestAdjust_NilLegWeather(t *testing.T) {
 	cold := &weather.Snapshot{HasApparent: true, ApparentTempC: 0}
 	// Two-leg plan: leg 1 has cold weather, leg 2 has no data.
-	adj := Adjust(80, []float64{50, 25}, []Leg{{Weather: cold}, {Weather: nil}}, 20)
+	adj := Adjust(80, []float64{50, 25}, []Leg{{Weather: cold}, {Weather: nil}}, 20, 1.0)
 	if adj.Multipliers[1] != 1.0 {
 		t.Errorf("nil-weather leg should be 1.0, got %v", adj.Multipliers[1])
 	}
@@ -195,7 +195,7 @@ func TestAdjust_NilLegWeather(t *testing.T) {
 // cold derate exceed pack) must clamp at 0, not produce negative SoC.
 func TestAdjust_NegativeFloor(t *testing.T) {
 	cold := &weather.Snapshot{HasApparent: true, ApparentTempC: -20}
-	adj := Adjust(50, []float64{10}, []Leg{{Weather: cold}}, 5)
+	adj := Adjust(50, []float64{10}, []Leg{{Weather: cold}}, 5, 1.0)
 	if adj.AdjustedArrivalSoC[0] < 0 {
 		t.Errorf("SoC went negative: %v", adj.AdjustedArrivalSoC[0])
 	}
@@ -207,7 +207,7 @@ func TestAdjust_NegativeFloor(t *testing.T) {
 // TestAdjust_LengthMismatchReturnsNil: defensive — a caller that
 // passes mismatched lengths must get nil back, not garbage.
 func TestAdjust_LengthMismatchReturnsNil(t *testing.T) {
-	if adj := Adjust(80, []float64{50, 25}, []Leg{{}}, 20); adj != nil {
+	if adj := Adjust(80, []float64{50, 25}, []Leg{{}}, 20, 1.0); adj != nil {
 		t.Errorf("mismatched lengths should return nil, got %+v", adj)
 	}
 }

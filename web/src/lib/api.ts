@@ -1412,6 +1412,13 @@ export type TripWeatherAdjustment = {
   below_target: boolean;
   target_arrival_soc: number;
   legs: TripWeatherAdjLeg[];
+  // profile_multiplier is the trip-wide energy multiplier derived
+  // from the user's vehicle profile (wheel size, tire type,
+  // accessories, default cargo). 1.0 (or absent) means the profile
+  // had no effect. profile_reasons is the human-readable list the
+  // chip uses to explain what's contributing.
+  profile_multiplier?: number;
+  profile_reasons?: string[];
 };
 
 export type TripWeatherAdjLeg = {

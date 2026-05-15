@@ -115,6 +115,11 @@ type PlannedWaypoint struct {
 	// time as departure. Empty string when Rivian omitted them.
 	ArrivalTimeUTC   string
 	DepartureTimeUTC string
+	// DistanceFromOriginMeters is Rivian's cumulative distance from
+	// the route origin to this waypoint. Powers the "180 mi from
+	// origin · +120 mi from prev" columns in the SPA stops table.
+	// Zero on legacy response shapes that don't include the field.
+	DistanceFromOriginMeters float64
 }
 
 // PlanTrip runs the gateway's planTripWithMultiStop operation and
@@ -209,6 +214,7 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 				DepartureReachableMeters: w.DepartureRangeMeters,
 				ArrivalTimeUTC:           w.ArrivalTimeUTC,
 				DepartureTimeUTC:         w.DepartureTimeUTC,
+				DistanceFromOriginMeters: w.DistanceFromOriginMeters,
 			}
 			// charger is null on origin/destination/manual waypoints,
 			// populated only on planner-picked charging stops.

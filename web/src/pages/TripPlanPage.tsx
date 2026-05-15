@@ -1539,6 +1539,7 @@ function TripPlanResult({
           onAddStop={onAddStop}
           departureAt={departureAt}
           cost={plan.costs?.[i]}
+          adjustment={i === 0 ? plan.weather_adjustment : undefined}
         />
       ))}
       {plan.SoCBelowLimit && (
@@ -1576,7 +1577,9 @@ function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
   const delta = rivianArrival - adj.final_arrival_soc;
   if (delta < 2) return null;
   const reasons = (() => {
-    // Pick the worst leg and describe its dominant factor(s).
+    // Pick the worst leg and describe its dominant weather factor(s).
+    // Profile reasons (wheels/tires/accessories/payload) are
+    // trip-wide so they slot in alongside per-leg weather.
     let worst = adj.legs[0];
     adj.legs.forEach((leg) => {
       if (leg.multiplier > worst.multiplier) worst = leg;
@@ -1586,18 +1589,32 @@ function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
     if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${worst.temp_c.toFixed(0)}°C)`);
     if (worst.headwind_kph != null && worst.headwind_kph > 10) out.push(`${worst.headwind_kph.toFixed(0)} kph headwind`);
     if (worst.precip_mm != null && worst.precip_mm > 0.5) out.push("rain");
+    if (adj.profile_reasons) out.push(...adj.profile_reasons);
     return out;
   })();
+  // Title leans on the dominant signal: profile-only correction
+  // reads "Your vehicle config..."; pure weather reads "Weather...";
+  // both reads as a combined headline.
+  const hasProfile = (adj.profile_reasons?.length ?? 0) > 0;
+  const hasWeather = adj.legs.some(
+    (l) =>
+      (l.temp_c != null && (l.temp_c < 10 || l.temp_c > 30)) ||
+      (l.headwind_kph != null && l.headwind_kph > 10) ||
+      (l.precip_mm != null && l.precip_mm > 0.5),
+  );
+  const title = hasProfile && hasWeather
+    ? "Weather + your config push arrival below target"
+    : hasProfile
+      ? "Your vehicle config pushes arrival below target"
+      : "Weather pushes arrival below your target";
   return (
     <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-3 text-sm">
-      <div className="font-medium text-amber-200">
-        Weather pushes arrival below your target
-      </div>
+      <div className="font-medium text-amber-200">{title}</div>
       <div className="mt-1 text-amber-300/80">
         Rivian's planner shows{" "}
         <span className="font-semibold text-amber-100">{rivianArrival.toFixed(0)}%</span>{" "}
         at the destination. Correcting for{" "}
-        {reasons.length > 0 ? reasons.join(" + ") : "weather along the route"},
+        {reasons.length > 0 ? reasons.join(" + ") : "conditions along the route"},
         the realistic arrival is{" "}
         <span className="font-semibold text-amber-100">
           {adj.final_arrival_soc.toFixed(0)}%
@@ -1672,6 +1689,7 @@ function RouteCard({
   onAddStop,
   departureAt,
   cost,
+  adjustment,
 }: {
   route: TripRoute;
   index: number;
@@ -1681,6 +1699,7 @@ function RouteCard({
   onAddStop?: StopAdder;
   departureAt?: string;
   cost?: TripCostEstimate;
+  adjustment?: TripPlan["weather_adjustment"];
 }) {
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -1763,7 +1782,13 @@ function RouteCard({
                 const arriveMs = originDep + route.TotalTripDurationSec * 1000 + timeShiftMs;
                 t = new Date(arriveMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
               }
-              const soc = route.ArrivalSoC > 0 ? `${route.ArrivalSoC.toFixed(0)}%` : "—";
+              // Prefer the corrected arrival SoC when the
+              // adjustment pipeline ran (weather and/or profile);
+              // it's the realistic number the user will actually
+              // see at the destination, not Rivian's
+              // weather/config-blind projection.
+              const arrSoC = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
+              const soc = arrSoC > 0 ? `${arrSoC.toFixed(0)}%` : "—";
               return t ? `${t} · ${soc}` : soc;
             })()
           }
