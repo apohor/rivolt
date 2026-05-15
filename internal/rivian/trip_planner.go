@@ -374,12 +374,10 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
 	}
 	// Admin debug — bypass breaker (see RawGraphQL doc).
 	ctx = withBypassBreaker(ctx)
-	// Wider introspection: union the input-object and enum shapes
-	// so a single call answers both "what fields does this input
-	// have?" and "what values does this enum allow?". Critical for
-	// reverse-engineering NetworkPreferenceInput.networkId whose
-	// real type (free string vs enum) determines the spike
-	// strategy.
+	// Rivian's gateway rejects __type queries that include
+	// `enumValues` (GRAPHQL_VALIDATION_FAILED), so we use
+	// inputFields-only here. To inspect an enum's allowed values,
+	// use IntrospectEnum which sends a separate query.
 	const q = `query IntrospectInput($name: String!) {
   __type(name: $name) {
     name
@@ -401,6 +399,36 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
       }
       defaultValue
     }
+  }
+}`
+	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
+		OperationName: "IntrospectInput",
+		Query:         q,
+		Variables:     map[string]any{"name": typeName},
+	}, c.authHeaders())
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// IntrospectEnum returns the enumValues of a named GraphQL enum
+// type. Separate query from IntrospectInputType because Rivian's
+// gateway validates __type subselections strictly: a query that
+// asks for both `inputFields` and `enumValues` fails with
+// GRAPHQL_VALIDATION_FAILED. Splitting them keeps each query valid
+// against whatever shape the gateway exposes.
+func (c *LiveClient) IntrospectEnum(ctx context.Context, typeName string) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, ErrNotAuthenticated
+	}
+	ctx = withBypassBreaker(ctx)
+	const q = `query IntrospectEnum($name: String!) {
+  __type(name: $name) {
+    name
+    kind
     enumValues {
       name
       description
@@ -410,7 +438,7 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
   }
 }`
 	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
-		OperationName: "IntrospectInput",
+		OperationName: "IntrospectEnum",
 		Query:         q,
 		Variables:     map[string]any{"name": typeName},
 	}, c.authHeaders())

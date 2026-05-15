@@ -584,6 +584,9 @@ func New(d Deps) http.Handler {
 			r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleGraphQLIntrospect(clientFor(d, uid))(w, r)
 			}))
+			r.Get("/gql/enum", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleGraphQLIntrospectEnum(clientFor(d, uid))(w, r)
+			}))
 			// Generic raw-GraphQL probe. POST {operation, query,
 			// variables} → gateway response. Used to exercise
 			// arbitrary query shapes (different operation names,
@@ -2262,6 +2265,33 @@ func handleGraphQLIntrospect(c rivian.Client) http.HandlerFunc {
 			// message: 4xx passes through, the operator sees the
 			// actual GraphQL response.
 			slog.WarnContext(r.Context(), "gql introspection failed",
+				"name", name, "err", err.Error())
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "name": name})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": data})
+	}
+}
+
+// handleGraphQLIntrospectEnum runs an __type introspection for the
+// enum subselection. Used to read the value list of an enum type
+// (e.g. the real list of Rivian network IDs once we know the enum
+// name from the inputFields probe).
+func handleGraphQLIntrospectEnum(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "live rivian client required", http.StatusNotFound)
+			return
+		}
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "name query parameter required (e.g. ?name=ChargingNetwork)", http.StatusBadRequest)
+			return
+		}
+		data, err := lc.IntrospectEnum(r.Context(), name)
+		if err != nil {
+			slog.WarnContext(r.Context(), "gql enum introspection failed",
 				"name", name, "err", err.Error())
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "name": name})
 			return
