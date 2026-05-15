@@ -1460,6 +1460,10 @@ export type PlannedWaypoint = {
   // UTC timestamps from Rivian's planner (computed from request time).
   ArrivalTimeUTC?: string;
   DepartureTimeUTC?: string;
+  // Cumulative distance from the route origin (meters). Powers the
+  // "180 mi from prev / 360 mi total" columns in the stops table.
+  // 0 on legacy responses; we treat 0 as "missing".
+  DistanceFromOriginMeters?: number;
 };
 
 // TripAdviceRequest is the body for POST /api/trips/plan/advice.

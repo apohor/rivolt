@@ -1693,11 +1693,27 @@ function RouteCard({
   // "destination" / "waypoint"); compare case-insensitively so the
   // table renders correctly regardless of casing.
   const wpType = (w: { WaypointType: string }) => w.WaypointType.toLowerCase();
-  const charging = route.Waypoints.filter(
-    (w) => wpType(w) !== "origin" && wpType(w) !== "destination" && wpType(w) !== "waypoint" && wpType(w) !== "other",
-  );
-  const origin = route.Waypoints.find((w) => wpType(w) === "origin");
-  const dest = route.Waypoints.find((w) => wpType(w) === "destination");
+  // Track each charging stop's original index in route.Waypoints so
+  // distanceCell can look up the predecessor for leg-distance math.
+  const chargingWithIdx = route.Waypoints
+    .map((w, i) => ({ w, i }))
+    .filter(({ w }) => {
+      const t = wpType(w);
+      return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+    });
+  const charging = chargingWithIdx.map(({ w }) => w);
+  const originIdx = route.Waypoints.findIndex((w) => wpType(w) === "origin");
+  const destIdx = (() => {
+    // Avoid findLastIndex - target lib predates ES2023. Walk in
+    // reverse so multi-segment routes still find the trailing
+    // destination row.
+    for (let i = route.Waypoints.length - 1; i >= 0; i--) {
+      if (wpType(route.Waypoints[i]) === "destination") return i;
+    }
+    return -1;
+  })();
+  const origin = originIdx >= 0 ? route.Waypoints[originIdx] : undefined;
+  const dest = destIdx >= 0 ? route.Waypoints[destIdx] : undefined;
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   const showTable = origin || dest || charging.length > 0;
 
@@ -1724,6 +1740,28 @@ function RouteCard({
   const totalGuest = cost?.dcfc_spend ?? 0;
   const totalUser = cost?.dcfc_spend_user_member ?? 0;
   const userSavings = totalGuest - totalUser;
+  // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
+  // leg = current - previous. Hidden when Rivian didn't populate the
+  // field (legacy plans). All values converted to miles for display.
+  const haveDistances = route.Waypoints.some((w) => (w.DistanceFromOriginMeters ?? 0) > 0);
+  const mFmt = (m: number) => `${(m / 1609.344).toFixed(0)} mi`;
+  const distanceCell = (idx: number) => {
+    const w = route.Waypoints[idx];
+    const cum = w?.DistanceFromOriginMeters ?? 0;
+    if (idx === 0) {
+      return <td className="px-2 py-2 font-mono text-xs text-neutral-500">0 mi</td>;
+    }
+    const prev = route.Waypoints[idx - 1];
+    const leg = cum - (prev?.DistanceFromOriginMeters ?? 0);
+    return (
+      <td className="px-2 py-2 font-mono text-neutral-200">
+        {leg > 0 ? `+${mFmt(leg)}` : "—"}
+        {cum > 0 && (
+          <div className="text-xs text-neutral-500">{mFmt(cum)} total</div>
+        )}
+      </td>
+    );
+  };
   const label = routeLabel(index, allRoutes);
   // Title is JSX so the member price can render in green inline
   // without a verbal "with Membership" suffix - color carries the
@@ -1810,6 +1848,7 @@ function RouteCard({
               <tr>
                 <th className="px-2 py-2">#</th>
                 <th className="px-2 py-2">Stop</th>
+                {haveDistances && <th className="px-2 py-2">Distance</th>}
                 <th className="px-2 py-2">Arrive</th>
                 <th className="px-2 py-2">Depart</th>
                 <th className="px-2 py-2">Charge</th>
@@ -1823,6 +1862,7 @@ function RouteCard({
                 <tr className="border-b border-neutral-900 text-neutral-400">
                   <td className="px-2 py-2">S</td>
                   <td className="px-2 py-2">{originLabel || origin.Name || "Origin"}</td>
+                  {haveDistances && distanceCell(originIdx)}
                   <td className="px-2 py-2">—</td>
                   <td className="px-2 py-2 font-mono text-neutral-100">
                     {formatWaypointTime(origin.DepartureTimeUTC, timeShiftMs) && (
@@ -1836,12 +1876,13 @@ function RouteCard({
                   <td className="px-2 py-2"></td>
                 </tr>
               )}
-              {charging.map((w, j) => {
+              {chargingWithIdx.map(({ w, i: wpIdx }, j) => {
                 const stopCost = stopBreakdown[j];
                 return (
                   <tr key={j} className="border-b border-neutral-900">
                     <td className="px-2 py-2 text-neutral-500">{j + 1}</td>
                     <td className="px-2 py-2">{w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`}</td>
+                    {haveDistances && distanceCell(wpIdx)}
                     <td className="px-2 py-2 font-mono">
                       {formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs) && (
                         <div className="text-xs text-neutral-500">{formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs)}</div>
@@ -1896,6 +1937,7 @@ function RouteCard({
                 <tr className="border-b border-neutral-900 text-neutral-400">
                   <td className="px-2 py-2">E</td>
                   <td className="px-2 py-2">{destLabel || dest.Name || "Destination"}</td>
+                  {haveDistances && distanceCell(destIdx)}
                   <td className="px-2 py-2 font-mono text-neutral-100">
                     {formatWaypointTime(dest.ArrivalTimeUTC, timeShiftMs) && (
                       <div className="text-xs text-neutral-500">{formatWaypointTime(dest.ArrivalTimeUTC, timeShiftMs)}</div>
