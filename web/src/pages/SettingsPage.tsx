@@ -441,6 +441,13 @@ function ChargingNetworksPanel() {
       ...prev,
       { name: "", price_per_kwh: 0, currency: "USD" },
     ]);
+  const reset = useMutation({
+    mutationFn: () => backend.resetChargingNetworks(),
+    onSuccess: (defaults) => {
+      setRows(defaults);
+      qc.invalidateQueries({ queryKey: ["charging-networks"] });
+    },
+  });
   if (q.isLoading) return <Spinner />;
   if (q.isError)
     return <ErrorBox title="Failed to load" detail={String(q.error)} />;
@@ -512,6 +519,33 @@ function ChargingNetworksPanel() {
               >
                 Remove
               </button>
+              {(r.member_price_per_kwh ?? 0) > 0 || r.slug ? (
+                <div className="basis-full flex flex-wrap items-center gap-2 pl-2 mt-1 text-xs text-neutral-400">
+                  <span>Member rate:</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    inputMode="decimal"
+                    value={r.member_price_per_kwh || ""}
+                    onChange={(e) =>
+                      update(i, { member_price_per_kwh: Number(e.target.value) || 0 })
+                    }
+                    placeholder="0.36"
+                    className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 tabular-nums"
+                  />
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!r.member_active}
+                      onChange={(e) => update(i, { member_active: e.target.checked })}
+                      disabled={!((r.member_price_per_kwh ?? 0) > 0)}
+                      className="h-3 w-3"
+                    />
+                    <span>I have {r.member_plan || "this plan"}</span>
+                  </label>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -531,12 +565,26 @@ function ChargingNetworksPanel() {
         >
           {mut.isPending ? "Saving…" : "Save"}
         </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm("Reset all networks to the built-in defaults? Your customizations will be lost.")) {
+              reset.mutate();
+            }
+          }}
+          disabled={reset.isPending}
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800 disabled:opacity-50"
+        >
+          {reset.isPending ? "Resetting…" : "Reset to defaults"}
+        </button>
       </div>
       <p className="text-xs text-neutral-500">
-        Empty rows and zero-priced rows are dropped on save. Available as
-        one-click prefill on each charge's pricing card.
+        Member rates and the "I have this plan" toggle feed the trip
+        planner cost strip. Guest rate doubles as the one-click prefill
+        on each charge's pricing card.
       </p>
       {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}
+      {reset.isError && <ErrorBox title="Reset failed" detail={String(reset.error)} />}
     </form>
   );
 }

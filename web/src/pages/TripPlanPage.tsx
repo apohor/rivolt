@@ -1581,7 +1581,7 @@ function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
         <span className="font-semibold text-amber-100">
           {adj.final_arrival_soc.toFixed(0)}%
         </span>{" "}
-        — below your {adj.target_arrival_soc.toFixed(0)}% target. Consider
+        - below your {adj.target_arrival_soc.toFixed(0)}% target. Consider
         adding a stop or padding the target.
       </div>
     </div>
@@ -1854,9 +1854,8 @@ function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
     });
     return order.map((n) => `${counts[n]}× ${n}`).join(" · ");
   })();
-  const memberSavings = hasDCFC && cost.dcfc_spend_member > 0
-    ? cost.dcfc_spend - cost.dcfc_spend_member
-    : 0;
+  const userSavings = hasDCFC ? cost.dcfc_spend - cost.dcfc_spend_user_member : 0;
+  const maxExtra = hasDCFC ? cost.dcfc_spend_user_member - cost.dcfc_spend_all_member : 0;
   return (
     <div className="flex flex-wrap gap-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm">
       {hasDCFC && (
@@ -1864,21 +1863,28 @@ function AdviceCostStrip({ cost }: { cost: TripAdvice["cost_estimate"] }) {
           <div className="text-xs uppercase tracking-wide text-neutral-500">DCFC spend</div>
           <div className="font-mono text-neutral-100">
             {fmt(cost.dcfc_spend)} guest
-            {memberSavings > 0.5 && (
+            {userSavings > 0.5 && (
               <>
                 {" / "}
-                <span className="text-emerald-300">{fmt(cost.dcfc_spend_member)}</span>
-                <span className="text-neutral-500"> with memberships</span>
+                <span className="text-emerald-300">{fmt(cost.dcfc_spend_user_member)}</span>
+                <span className="text-neutral-500"> with your memberships</span>
               </>
             )}
           </div>
           <div className="text-[10px] text-neutral-600">
             @ {fmt(cost.dcfc_rate_used)}
-            {memberSavings > 0.5 && (
-              <> / <span className="text-emerald-400/70">{fmt(cost.dcfc_rate_used_member)}</span></>
+            {userSavings > 0.5 && (
+              <> / <span className="text-emerald-400/70">{fmt(cost.dcfc_rate_used_user_member)}</span></>
             )} per kWh
             {networkSummary && <span className="ml-2">· {networkSummary}</span>}
           </div>
+          {maxExtra > 0.5 && (
+            <div className="text-[10px] text-amber-400/80 mt-0.5">
+              Save another {fmt(maxExtra)} on this trip by joining every
+              applicable plan ({fmt(cost.dcfc_spend_all_member)} floor at{" "}
+              {fmt(cost.dcfc_rate_used_all_member)}/kWh).
+            </div>
+          )}
         </div>
       )}
       {hasHome && (

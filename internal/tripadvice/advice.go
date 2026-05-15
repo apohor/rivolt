@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/apohor/rivolt/internal/ai"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/weather"
 )
@@ -49,6 +50,12 @@ type Context struct {
 	// section degrades to a pure-DCFC estimate.
 	HomePricePerKWh float64
 	HomeCurrency    string
+	// DCFCNetworks is the user's edited price book from Settings.
+	// Pass nil or empty to use the built-in defaults from dcfcrates.
+	// Per-stop rates honour each row's MemberActive flag so the
+	// estimate's user-totals match what the user has actually
+	// signed up for.
+	DCFCNetworks []dcfcrates.NetworkOverride
 }
 
 // Result is what Generate returns to the handler.
@@ -66,28 +73,29 @@ type Result struct {
 }
 
 // CostEstimate is a deterministic, code-computed projection of trip
-// cost. Three views the user cares about:
-//   - DCFCSpend is real out-of-pocket money at guest rates (no
-//     network memberships).
-//   - DCFCSpendMember is what it costs if the user holds every
-//     applicable network membership (EA Pass+, Tesla Supercharging
-//     Membership, EVgo Rewards+, etc.). Surfacing both lets the
-//     user see the delta at a glance without us tracking per-user
-//     membership state.
-//   - HomeEquivalent is the all-in energy cost if every kWh used
-//     came from the home meter at the user's configured rate.
+// cost. Four views the user cares about:
+//   - DCFCSpend (guest): what a walk-up driver pays.
+//   - DCFCSpendUserMember: cost given the user's active memberships
+//     (toggled in Settings). Equal to DCFCSpend when the user has
+//     no memberships on.
+//   - DCFCSpendAllMember: hypothetical "you have every plan" floor,
+//     so the strip can hint "you could save $X more by joining
+//     Tesla Supercharging Membership".
+//   - HomeEquivalent: every kWh at the home meter rate.
 //
-// Breakdown is the per-stop attribution that drives both totals,
-// so the SPA can show "1× EA · 1× Tesla SC · 1× RAN".
+// Breakdown is the per-stop attribution that drives the totals, so
+// the SPA can show "1× EA · 1× Tesla SC · 1× RAN".
 type CostEstimate struct {
-	Currency        string             `json:"currency"`
-	DCFCSpend       float64            `json:"dcfc_spend"`
-	DCFCSpendMember float64            `json:"dcfc_spend_member"`
-	HomeEquivalent  float64            `json:"home_equivalent"`
+	Currency            string  `json:"currency"`
+	DCFCSpend           float64 `json:"dcfc_spend"`
+	DCFCSpendUserMember float64 `json:"dcfc_spend_user_member"`
+	DCFCSpendAllMember  float64 `json:"dcfc_spend_all_member"`
+	HomeEquivalent      float64 `json:"home_equivalent"`
 	// DCFCRateUsed is the avg per-kWh guest rate weighted by energy.
-	// Industry average when no waypoints matched a network.
-	DCFCRateUsed       float64 `json:"dcfc_rate_used"`
-	DCFCRateUsedMember float64 `json:"dcfc_rate_used_member"`
+	// Falls back to DefaultDCFCRateUSD when no waypoints priced.
+	DCFCRateUsed           float64 `json:"dcfc_rate_used"`
+	DCFCRateUsedUserMember float64 `json:"dcfc_rate_used_user_member"`
+	DCFCRateUsedAllMember  float64 `json:"dcfc_rate_used_all_member"`
 	// HomeRateUsed is the user's configured at-home rate, 0 when
 	// unconfigured.
 	HomeRateUsed float64 `json:"home_rate_used"`
@@ -103,7 +111,8 @@ type CostStop struct {
 	ChargerName   string  `json:"charger_name"`
 	EnergyKWh     float64 `json:"energy_kwh"`
 	GuestRate     float64 `json:"guest_rate"`
-	MemberRate    float64 `json:"member_rate"`
+	UserRate      float64 `json:"user_rate"`
+	AllMemberRate float64 `json:"all_member_rate"`
 	MemberPlan    string  `json:"member_plan,omitempty"`
 }
 
@@ -177,28 +186,31 @@ func estimateCost(plan *rivian.TripPlan, tc Context) CostEstimate {
 				continue
 			}
 			energy := (delta / 100) * tc.PackKWh
-			net := MatchNetwork(w.Name)
-			memberRate := net.MemberRateOrGuest()
-			est.DCFCSpend += energy * net.GuestRate
-			est.DCFCSpendMember += energy * memberRate
+			rr := dcfcrates.ResolveRate(w.Name, tc.DCFCNetworks)
+			est.DCFCSpend += energy * rr.GuestRate
+			est.DCFCSpendUserMember += energy * rr.UserRate
+			est.DCFCSpendAllMember += energy * rr.AllMemberRate
 			est.Breakdown = append(est.Breakdown, CostStop{
-				NetworkSlug: net.Slug,
-				NetworkName: net.DisplayName,
-				ChargerName: w.Name,
-				EnergyKWh:   energy,
-				GuestRate:   net.GuestRate,
-				MemberRate:  memberRate,
-				MemberPlan:  net.MemberPlan,
+				NetworkSlug:   rr.Slug,
+				NetworkName:   rr.DisplayName,
+				ChargerName:   w.Name,
+				EnergyKWh:     energy,
+				GuestRate:     rr.GuestRate,
+				UserRate:      rr.UserRate,
+				AllMemberRate: rr.AllMemberRate,
+				MemberPlan:    rr.MemberPlan,
 			})
 			totalKWh += energy
 		}
-		// Energy-weighted average rate for the strip's "@ $X / $Y per kWh" line.
+		// Energy-weighted averages for the strip's "@ $X / $Y / $Z per kWh" line.
 		if totalKWh > 0 {
 			est.DCFCRateUsed = est.DCFCSpend / totalKWh
-			est.DCFCRateUsedMember = est.DCFCSpendMember / totalKWh
+			est.DCFCRateUsedUserMember = est.DCFCSpendUserMember / totalKWh
+			est.DCFCRateUsedAllMember = est.DCFCSpendAllMember / totalKWh
 		} else {
 			est.DCFCRateUsed = DefaultDCFCRateUSD
-			est.DCFCRateUsedMember = DefaultDCFCRateUSD
+			est.DCFCRateUsedUserMember = DefaultDCFCRateUSD
+			est.DCFCRateUsedAllMember = DefaultDCFCRateUSD
 		}
 	}
 	if tc.HomePricePerKWh > 0 && r.EnergyConsumptionKWh > 0 {

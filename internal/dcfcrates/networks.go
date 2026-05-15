@@ -1,4 +1,10 @@
-package tripadvice
+// Package dcfcrates owns the DCFC network table used by trip
+// planning. It lives in its own package so the settings layer (which
+// stores user-edited overrides) and the tripadvice layer (which
+// consumes both) can share it without the settings -> tripadvice ->
+// rivian -> settings import cycle that the older single-package
+// layout produced.
+package dcfcrates
 
 import "strings"
 
@@ -173,4 +179,105 @@ func (n Network) MemberRateOrGuest() float64 {
 		return *n.MemberRate
 	}
 	return n.GuestRate
+}
+
+// NetworkOverride is the bridge type the user-settings layer passes
+// to the cost estimator so we can wire user-edited rates +
+// per-membership-toggle into trip planning without tripadvice having
+// to import the settings package. Slug ties the override to a row
+// in the built-in Networks table so the match-pattern lookup keeps
+// working; Name is the fallback substring for user-added custom
+// rows that have no slug.
+type NetworkOverride struct {
+	Slug         string
+	Name         string
+	GuestRate    float64
+	MemberRate   float64 // 0 = no member tier
+	MemberActive bool
+	MemberPlan   string
+}
+
+// ResolvedRate is what the cost estimator works with per stop.
+// Three rates so the strip can show guest / your-memberships /
+// max-if-you-joined-everything; DisplayName + Slug feed the
+// breakdown attribution line.
+type ResolvedRate struct {
+	Slug         string
+	DisplayName  string
+	GuestRate    float64
+	UserRate     float64 // honours the user's MemberActive toggle
+	AllMemberRate float64 // hypothetical "you have every plan"
+	MemberPlan   string
+}
+
+// ResolveRate picks the right rate for a planned stop. First the
+// user's overrides (slug-keyed against the built-in match patterns,
+// falling back to substring against Name for custom rows), then the
+// built-in Networks defaults, then UnmatchedNetwork.
+func ResolveRate(stopName string, overrides []NetworkOverride) ResolvedRate {
+	hay := " " + strings.ToLower(strings.TrimSpace(stopName)) + " "
+	// User overrides win. The lookup walks the override list, checks
+	// each row's slug against the built-in match patterns, and
+	// returns on first hit. Slugless custom rows match by substring
+	// on Name so a user can add a one-off operator.
+	for _, ov := range overrides {
+		if ov.GuestRate <= 0 {
+			continue
+		}
+		if ov.Slug != "" {
+			if base, ok := networkBySlug(ov.Slug); ok {
+				for _, p := range base.MatchPatterns {
+					if strings.Contains(hay, p) {
+						return resolvedFromOverride(ov, base.DisplayName)
+					}
+				}
+				continue
+			}
+		}
+		// Slugless / unknown-slug override: try the network's Name as
+		// a substring. Lower-cased to match hay; padded so a single-
+		// word name like "EA" doesn't accidentally match "TESLA".
+		needle := " " + strings.ToLower(strings.TrimSpace(ov.Name)) + " "
+		if needle != "  " && strings.Contains(hay, strings.TrimSpace(needle)) {
+			return resolvedFromOverride(ov, ov.Name)
+		}
+	}
+	// Fall back to the built-in defaults.
+	n := MatchNetwork(stopName)
+	rr := ResolvedRate{
+		Slug:        n.Slug,
+		DisplayName: n.DisplayName,
+		GuestRate:   n.GuestRate,
+		UserRate:    n.GuestRate, // user has no override, so no membership
+		AllMemberRate: n.MemberRateOrGuest(),
+		MemberPlan:  n.MemberPlan,
+	}
+	return rr
+}
+
+func networkBySlug(slug string) (Network, bool) {
+	for _, n := range Networks {
+		if n.Slug == slug {
+			return n, true
+		}
+	}
+	return Network{}, false
+}
+
+func resolvedFromOverride(ov NetworkOverride, displayName string) ResolvedRate {
+	rr := ResolvedRate{
+		Slug:        ov.Slug,
+		DisplayName: displayName,
+		GuestRate:   ov.GuestRate,
+		UserRate:    ov.GuestRate,
+		AllMemberRate: ov.GuestRate,
+		MemberPlan:  ov.MemberPlan,
+	}
+	if ov.MemberRate > 0 && ov.MemberRate < ov.GuestRate {
+		rr.AllMemberRate = ov.MemberRate
+		if ov.MemberActive {
+			rr.UserRate = ov.MemberRate
+		}
+	}
+	return rr
 }

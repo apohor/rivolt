@@ -297,6 +297,18 @@ export type ChargingNetwork = {
   name: string;
   price_per_kwh: number;
   currency: string;
+  // Member rate at this network. 0 means no membership tier exists
+  // (ChargePoint, Francis Energy, etc.). Must be < price_per_kwh
+  // when present.
+  member_price_per_kwh?: number;
+  // member_active = "I pay for this membership", drives the
+  // user-totals column on the trip planner cost strip.
+  member_active?: boolean;
+  // Display hint for the membership row, e.g. "Pass+ $7/mo".
+  member_plan?: string;
+  // Slug ties this row to a built-in network for match-pattern
+  // lookup. Empty = user-added custom network (matches by name).
+  slug?: string;
 };
 
 // LiveDrive is the in-flight drive snapshot returned by
@@ -704,6 +716,8 @@ export const backend = {
     api.get<ChargingNetwork[]>("/api/settings/charging/networks"),
   setChargingNetworks: (networks: ChargingNetwork[]) =>
     api.put<ChargingNetwork[]>("/api/settings/charging/networks", networks),
+  resetChargingNetworks: () =>
+    api.post<ChargingNetwork[]>("/api/settings/charging/networks/reset", null),
   // AI provider configuration is admin-only — the keys are install-
   // wide and the operator pays the LLM bill. Routes live under
   // /api/admin/* behind the requireAdminMW gate. Non-admins get a
@@ -1453,10 +1467,12 @@ export type TripAdvice = {
   cost_estimate: {
     currency: string;
     dcfc_spend: number;
-    dcfc_spend_member: number;
+    dcfc_spend_user_member: number;
+    dcfc_spend_all_member: number;
     home_equivalent: number;
     dcfc_rate_used: number;
-    dcfc_rate_used_member: number;
+    dcfc_rate_used_user_member: number;
+    dcfc_rate_used_all_member: number;
     home_rate_used: number;
     breakdown?: TripCostStop[];
   };
@@ -1465,14 +1481,16 @@ export type TripAdvice = {
 
 // TripCostStop is one DCFC stop's contribution to the spend totals.
 // Surfaces network attribution so the UI can render "1× EA · 1× Tesla
-// SC · 1× RAN" beside the totals.
+// SC · 1× RAN" beside the totals, plus the per-stop rates so the
+// "could save $X more" hint can be computed in the SPA.
 export type TripCostStop = {
   network_slug: string;
   network_name: string;
   charger_name: string;
   energy_kwh: number;
   guest_rate: number;
-  member_rate: number;
+  user_rate: number;
+  all_member_rate: number;
   member_plan?: string;
 };
 

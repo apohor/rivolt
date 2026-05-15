@@ -94,3 +94,25 @@ func handleChargingNetworksPut(store *settings.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
+
+// handleChargingNetworksReset clears the user's persisted price book
+// so the next Get returns the seed defaults from dcfcrates.Networks.
+// Drives the "Reset to defaults" button on the Settings panel.
+func handleChargingNetworksReset(store *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "settings store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := settings.ResetChargingNetworks(r.Context(), store); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, err := settings.GetChargingNetworks(r.Context(), store)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}

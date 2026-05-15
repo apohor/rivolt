@@ -2,7 +2,7 @@
 
 The trip planner's cost strip ("DCFC spend: $X guest / $Y with
 memberships") is computed from a small per-network rate table in
-[`internal/tripadvice/networks.go`](../internal/tripadvice/networks.go).
+[`internal/dcfcrates/networks.go`](../internal/dcfcrates/networks.go).
 Rivian's `planTripWithMultiStopV2` returns each stop's charger name
 but no pricing - we substring-match the name to a network row in
 this table to get a rate.
@@ -39,7 +39,7 @@ update them when the operator changes their pricing page.
 
 ## How matching works
 
-Per planned stop, [`MatchNetwork(name)`](../internal/tripadvice/networks.go)
+Per planned stop, [`MatchNetwork(name)`](../internal/dcfcrates/networks.go)
 lowercases the charger name and substring-checks against each
 network's `MatchPatterns` in table order. First hit wins.
 **Order matters**: `tesla supercharger` is listed before any
@@ -89,7 +89,7 @@ No formal cadence today. Triggers for updating a row:
   average from their own `charges` history. Until then the
   table is the bridge.
 
-The test in `internal/tripadvice/networks_test.go` pins the
+The test in `internal/dcfcrates/networks_test.go` pins the
 match-substring -> slug pairs against real Rivian planner names
 sampled in production, so a name format change ("Electrify
 America - Pflugerville" to some new format) gets flagged on the
@@ -98,7 +98,7 @@ next CI run.
 ## Adding a network
 
 1. Add a `Network` row to `Networks` in
-   [`internal/tripadvice/networks.go`](../internal/tripadvice/networks.go).
+   [`internal/dcfcrates/networks.go`](../internal/dcfcrates/networks.go).
    Order by specificity (more specific patterns first).
 2. Add at least one substring pattern that matches the planner's
    charger name. Lowercase, with leading/trailing spaces if you
@@ -106,6 +106,6 @@ next CI run.
 3. Drop a test case into `TestMatchNetwork_RealRivianNames` with
    a name you've actually seen from Rivian's planner.
 4. Update this docs table with the source URL.
-5. Run `go test ./internal/tripadvice/...` to make sure the
+5. Run `go test ./internal/dcfcrates/...` to make sure the
    sanity test (`TestRateTableSanity`) still passes. It pins
    guest > member and rates in (0, $2/kWh).

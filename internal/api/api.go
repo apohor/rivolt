@@ -486,6 +486,9 @@ func New(d Deps) http.Handler {
 				r.Put("/networks", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleChargingNetworksPut(d.Settings.For(uid))(w, r)
 				}))
+				r.Post("/networks/reset", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleChargingNetworksReset(d.Settings.For(uid))(w, r)
+				}))
 			})
 
 			// User's saved home location, used by the trip planner
@@ -1977,6 +1980,12 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 			if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
 				tc.HomePricePerKWh = cfg.HomePricePerKWh
 				tc.HomeCurrency = cfg.HomeCurrency
+			}
+			// Same source feeds the per-stop DCFC pricing. Empty list
+			// (or a settings.GetChargingNetworks error) lets the
+			// resolver fall back to the built-in defaults.
+			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
+				tc.DCFCNetworks = settings.AsOverrides(nets)
 			}
 		}
 		// Fetch weather at the origin when the operator has enabled the
