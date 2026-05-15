@@ -15,7 +15,7 @@ update them when the operator changes their pricing page.
 | Network | Guest | Member | Plan | Source |
 |---|---|---|---|---|
 | Electrify America | 0.48 | 0.36 | Pass+, $7/mo | [electrifyamerica.com/pricing](https://www.electrifyamerica.com/pricing/) |
-| Tesla Supercharger (non-Tesla) | 0.55 | 0.40 | Supercharging Membership, $12.99/mo | [tesla.com/support/charging](https://www.tesla.com/support/charging) |
+| Tesla Supercharger (non-Tesla) | 0.55 | 0.40 | Supercharging Membership, $12.99/mo | [tesla.com/support/non-tesla-supercharging](https://www.tesla.com/support/non-tesla-supercharging) |
 | Rivian Adventure Network | 0.45 | n/a | Rivian owner only (no separate tier) | [rivian.com/support/article/rivian-adventure-network](https://rivian.com/support/article/rivian-adventure-network) |
 | EVgo | 0.42 | 0.34 | Rewards+, $6.99/mo | [evgo.com/charging-plans](https://www.evgo.com/charging-plans/) |
 | Blink | 0.49 | 0.39 | Member, annual fee | [blinkcharging.com](https://www.blinkcharging.com/) |
@@ -32,10 +32,10 @@ update them when the operator changes their pricing page.
 > rate is auto-applied. The table shows the same number in both
 > columns.
 
-> **Links verified manually.** Tesla's deep-link to a non-Tesla
-> pricing page churns regularly, so this table points at the
-> stable top-level support page; navigate from there to "Using
-> Superchargers with non-Tesla vehicles".
+> **Links verified manually.** Per-network operator pages move
+> often; if a link 404s, search the operator's site for "charging
+> plans" or "pricing" and update the row here + the test case in
+> `networks_test.go`.
 
 ## How matching works
 
