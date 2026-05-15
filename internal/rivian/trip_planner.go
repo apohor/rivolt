@@ -374,6 +374,12 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
 	}
 	// Admin debug — bypass breaker (see RawGraphQL doc).
 	ctx = withBypassBreaker(ctx)
+	// Wider introspection: union the input-object and enum shapes
+	// so a single call answers both "what fields does this input
+	// have?" and "what values does this enum allow?". Critical for
+	// reverse-engineering NetworkPreferenceInput.networkId whose
+	// real type (free string vs enum) determines the spike
+	// strategy.
 	const q = `query IntrospectInput($name: String!) {
   __type(name: $name) {
     name
@@ -394,6 +400,12 @@ func (c *LiveClient) IntrospectInputType(ctx context.Context, typeName string) (
         }
       }
       defaultValue
+    }
+    enumValues {
+      name
+      description
+      isDeprecated
+      deprecationReason
     }
   }
 }`
