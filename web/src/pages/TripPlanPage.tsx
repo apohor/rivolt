@@ -128,13 +128,17 @@ function collectInputs(s: {
   };
 }
 
-type DriveMode =
-  | ""
-  | "EVERYDAY"
-  | "DISTANCE"
-  | "SPORT"
-  | "WINTER"
-  | "OFF_ROAD_AUTO";
+// DriveMode is restricted to the two values the dropdown surfaces.
+// Older saved-trip / planner-prefs payloads may still carry empty
+// or now-retired values (SPORT/WINTER/OFF_ROAD_AUTO); the
+// normalizeDriveMode helper below coerces them to EVERYDAY so the
+// controlled select always matches an option and Rivian gets a
+// valid enum.
+type DriveMode = "EVERYDAY" | "DISTANCE";
+
+function normalizeDriveMode(v: unknown): DriveMode {
+  return v === "DISTANCE" ? "DISTANCE" : "EVERYDAY";
+}
 
 export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
@@ -143,7 +147,7 @@ export default function TripPlanPage() {
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
-  const [driveMode, setDriveMode] = useState<DriveMode>("");
+  const [driveMode, setDriveMode] = useState<DriveMode>("EVERYDAY");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
   // departureAt is a datetime-local string (local time, no timezone).
   // Empty = depart now; Rivian's planner always plans from "now", so
@@ -275,7 +279,7 @@ export default function TripPlanPage() {
     setDestination(relabelIfHome(last.destination, home));
     setExtraStops((last.extraStops ?? []).map((s) => relabelIfHome(s, home)));
     if (last.targetSoc) setTargetSoc(last.targetSoc);
-    if (last.driveMode) setDriveMode(last.driveMode);
+    if (last.driveMode) setDriveMode(normalizeDriveMode(last.driveMode));
     if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
   }, [lastTripApplied, homeQuery.isLoading, home]);
 
@@ -313,7 +317,7 @@ export default function TripPlanPage() {
     if (prefsApplied) return;
     if (!prefsQuery.data) return;
     if (prefsQuery.data.drive_mode) {
-      setDriveMode(prefsQuery.data.drive_mode);
+      setDriveMode(normalizeDriveMode(prefsQuery.data.drive_mode));
     }
     if (typeof prefsQuery.data.has_adapter === "boolean") {
       setHasAdapter(prefsQuery.data.has_adapter);
@@ -455,7 +459,7 @@ export default function TripPlanPage() {
     setExtraStops(i.extra_stops ?? []);
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
-    if (typeof i.drive_mode === "string") setDriveMode(i.drive_mode as DriveMode);
+    if (typeof i.drive_mode === "string") setDriveMode(normalizeDriveMode(i.drive_mode));
     if (typeof i.has_adapter === "boolean") setHasAdapter(i.has_adapter);
     if (typeof i.departure_at === "string") setDepartureAt(i.departure_at);
     setActiveTripId(t.id);
@@ -557,7 +561,7 @@ export default function TripPlanPage() {
                 onChange={(e) => setDriveMode(e.target.value as DriveMode)}
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
               >
-                <option value="">Default (All-purpose)</option>
+                <option value="EVERYDAY">All-Purpose</option>
                 <option value="DISTANCE">Conserve</option>
               </select>
             </label>
@@ -1641,12 +1645,15 @@ function formatDuration(seconds: number): string {
   return `${h}h ${rem}m`;
 }
 
-// shortPlanName trims the verbose "Pass+ - $7/mo" / "Supercharging
-// Membership - $12.99/mo" form to the bare plan name. The cost
-// column has narrow horizontal space; the pricing detail belongs
-// in Settings, not the trip table.
-function shortPlanName(plan: string): string {
-  return plan.replace(/\s*[-,].*/, "").trim();
+// planForTable trims a verbose plan label down to what fits the
+// narrow Cost column. "Pass+ - $7/mo" -> "Pass+". Tesla's "Supercharging
+// Membership" is the one outlier where the bare plan word is already
+// generic enough that the network name in the Stop column carries
+// the meaning - collapse to "Membership" so "Tesla Supercharger -
+// X" / "$Y with Supercharging Membership" stops being a stutter.
+function planForTable(plan: string): string {
+  const short = plan.replace(/\s*[-,].*/, "").trim();
+  return short === "Supercharging Membership" ? "Membership" : short;
 }
 
 // routeLabel picks the route's name. Simple two-tier scheme:
@@ -1719,7 +1726,7 @@ function RouteCard({
   const userSavings = totalGuest - totalUser;
   const label = routeLabel(index, allRoutes);
   // Title is JSX so the member price can render in green inline
-  // without a verbal "with memberships" suffix - color carries the
+  // without a verbal "with Membership" suffix - color carries the
   // meaning. Falls back to a single number when no savings exist.
   const title = (
     <span className="flex flex-wrap items-baseline gap-x-2">
@@ -1855,22 +1862,24 @@ function RouteCard({
                           <>
                             <div>{fmtCurrency(stopCost.energy_kwh * stopCost.guest_rate)}</div>
                             {stopCost.user_rate < stopCost.guest_rate ? (
-                              // Membership active: green, no upsell.
-                              <div className="text-xs text-emerald-400/80">
+                              // Membership active: bare green
+                              // dollar; plan name in title for
+                              // hover detail. Color codes the
+                              // meaning so the cell stays compact.
+                              <div
+                                className="text-xs text-emerald-400/80 cursor-help"
+                                title={`With ${planForTable(stopCost.member_plan ?? "Membership")}`}
+                              >
                                 {fmtCurrency(stopCost.energy_kwh * stopCost.user_rate)}
-                                {stopCost.member_plan
-                                  ? ` with ${shortPlanName(stopCost.member_plan)}`
-                                  : " with membership"}
                               </div>
                             ) : stopCost.all_member_rate < stopCost.guest_rate ? (
                               // Membership available but not activated:
-                              // muted upsell so the user sees what
-                              // joining would save at this specific stop.
-                              <div className="text-xs text-neutral-500">
+                              // muted gray with the upsell on hover.
+                              <div
+                                className="text-xs text-neutral-500 cursor-help"
+                                title={`With ${planForTable(stopCost.member_plan ?? "Membership")} (you'd save here)`}
+                              >
                                 {fmtCurrency(stopCost.energy_kwh * stopCost.all_member_rate)}
-                                {stopCost.member_plan
-                                  ? ` with ${shortPlanName(stopCost.member_plan)}`
-                                  : " with membership"}
                               </div>
                             ) : null}
                           </>
@@ -1900,15 +1909,21 @@ function RouteCard({
                     <td className="px-2 py-2 font-mono text-right text-neutral-200">
                       {fmtCurrency(totalGuest)}
                       {userSavings > 0.5 && (
-                        <div className="text-xs text-emerald-400/80">
-                          {fmtCurrency(totalUser)} with memberships
+                        <div
+                          className="text-xs text-emerald-400/80 cursor-help"
+                          title="With your active memberships"
+                        >
+                          {fmtCurrency(totalUser)}
                         </div>
                       )}
                       {userSavings <= 0.5 &&
                         (cost?.dcfc_spend_all_member ?? 0) > 0 &&
                         cost!.dcfc_spend_all_member < totalGuest - 0.5 && (
-                          <div className="text-xs text-neutral-500">
-                            {fmtCurrency(cost!.dcfc_spend_all_member)} with memberships
+                          <div
+                            className="text-xs text-neutral-500 cursor-help"
+                            title="If you held every applicable membership"
+                          >
+                            {fmtCurrency(cost!.dcfc_spend_all_member)}
                           </div>
                         )}
                     </td>

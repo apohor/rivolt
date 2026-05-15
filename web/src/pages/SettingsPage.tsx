@@ -2160,7 +2160,7 @@ function PlannerPrefsPanel() {
           onChange={(e) => setMode(e.target.value as PlannerPrefs["drive_mode"])}
           className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
         >
-          <option value="">Default (All-purpose)</option>
+          <option value="EVERYDAY">All-Purpose</option>
           <option value="DISTANCE">Conserve</option>
         </select>
       </label>
