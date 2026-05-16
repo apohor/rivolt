@@ -768,6 +768,52 @@ Smaller cuts queued up; not phase-gated, ship as they make sense.
         stops automatically; held until v1 multipliers are
         validated against the recap weather data we already store
         per drive.
+- [ ] **Multi-day trips with hotel L2 overnight stops.** Today
+      every via-stop is a forced detour, no concept of "this is
+      where I sleep." A real road-trip planner needs four
+      missing pieces:
+      1. **Overnight marker** — a per-stop "Overnight here" flag
+         that distinguishes a sleep stop from a charging detour.
+      2. **Daily leg boundaries** — Rivian's `planTripWithMultiStopV2`
+         plans one day at a time. A 3-day trip becomes N
+         sequential planTrip2 calls (origin -> hotel-1, hotel-1
+         -> hotel-2, hotel-2 -> destination) stitched into one
+         multi-day plan.
+      3. **Overnight charging math.** Hotel L2 overnight != full
+         charge. At 7 kW × 10 hr = ~70 kWh = ~50% SoC on an R1S
+         Max. Departure SoC tomorrow = `arrival_SoC + L2_kw ×
+         hours_parked / pack_kWh`, capped at the user's max-
+         overnight-SoC preference (default 80%).
+      4. **Day N of N UI** — stacked daily route cards
+         (Day 1, Day 2, ...) each rendering the existing single-
+         day RouteCard with its own stops table + map + Day N
+         summary line.
+      Recommended v1 shape: **manual hotel selection** (user
+      picks via the Hotels (L2) filter + "Overnight here"
+      toggle), **server-side multi-leg orchestrator**
+      (`/api/trips/plan-multiday` fires N planTrip2 calls and
+      returns the aggregated plan), **per-trip max-overnight-SoC
+      slider** in the planner form. ~3-4 days of work.
+      Auto-suggest hotels (rank candidates near each daily target
+      distance by `(distance_from_route, L2_kw, hotel_density)`)
+      is v2+ - the ranking signal isn't strong without booking
+      availability, and rural corridors break the optimizer.
+      Pitfalls to know:
+      - L2 power coverage in NREL is patchy; falls back to a
+        conservative 6 kW assumption when missing.
+      - Hotel availability/booking isn't real-time without the
+        Booking Affiliate API (slice b of the hotel-pricing
+        roadmap, separate item).
+      - Weather correction (already shipped per-leg) needs to
+        extend to per-day - each day has its own departure time
+        and weather window.
+      - Cost: hotel L2 is sometimes free, sometimes metered.
+        NREL `ev_pricing` is free-text; v1 trusts it
+        verbatim or treats unmarked as free.
+      Open questions captured: daily drive limit as hard cap vs
+      informational, whether days can end at a no-charging
+      waypoint (friend's house), separate "+Add overnight" button
+      vs unified add-stop with checkbox.
 - [ ] **Weather overlay on the trip planner map.** Toggle next to
       the charger filter:
       - *Radar* — RainViewer precipitation tiles (free, no API
