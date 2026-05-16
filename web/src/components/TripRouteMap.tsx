@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
 import { valhallaBase, tilesPMTilesURL, ensureConfig } from "../lib/config";
-import { findChargersAlongPath } from "../lib/poi";
+import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
 
@@ -246,7 +246,19 @@ export function TripRouteMap({
       setChargerCount(chargers.length);
       setChargersLoading(false);
       for (const poi of chargers) {
-        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(poi.isDCFC !== false) })
+        // Hotels-with-L2 get their own marker color so they stand
+        // out on multi-day route planning. Detected by NREL
+        // facility_type; falls through to DCFC/L2 otherwise.
+        const isHotel = !!(
+          poi.facilityType &&
+          HOTEL_FACILITY_TYPES.has(poi.facilityType.toUpperCase())
+        );
+        const variant: "dcfc" | "l2" | "hotel" = isHotel
+          ? "hotel"
+          : poi.isDCFC !== false
+            ? "dcfc"
+            : "l2";
+        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(variant) })
           .bindPopup(
             chargerPopupHTML(
               poi,
@@ -336,7 +348,13 @@ export function TripRouteMap({
         {chargerFilter === "all" && (
           <span className="text-xs text-neutral-600 ml-1">
             <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;
-            <span style={{ color: "#a3e635" }}>●</span> L2
+            <span style={{ color: "#a3e635" }}>●</span> L2 &nbsp;
+            <span style={{ color: "#a78bfa" }}>●</span> Hotel L2
+          </span>
+        )}
+        {chargerFilter === "hotels" && (
+          <span className="text-xs text-neutral-600 ml-1">
+            <span style={{ color: "#a78bfa" }}>●</span> Hotel L2
           </span>
         )}
       </div>
@@ -411,13 +429,29 @@ function selectedDotIcon(color: string, size: number): L.DivIcon {
   });
 }
 
-function chargerDotIcon(isDCFC = true): L.DivIcon {
-  const color = isDCFC ? "#06b6d4" : "#a3e635";
+// Marker colors:
+//   - dcfc:  cyan,   the default highway DCFC stop
+//   - l2:    lime,   plain Level-2 stop
+//   - hotel: violet, L2 at an overnight venue (HOTEL/MOTEL/INN/
+//           B_AND_B/RESORT per NREL facility_type)
+const CHARGER_DOT_COLORS: Record<"dcfc" | "l2" | "hotel", string> = {
+  dcfc: "#06b6d4",
+  l2: "#a3e635",
+  hotel: "#a78bfa",
+};
+
+function chargerDotIcon(variant: "dcfc" | "l2" | "hotel" = "dcfc"): L.DivIcon {
+  const color = CHARGER_DOT_COLORS[variant];
+  // Hotel markers render slightly larger and with a brighter
+  // outline so they're easy to spot at z9-z11 where the rest of
+  // the corridor's chargers blend together.
+  const size = variant === "hotel" ? 10 : 8;
+  const border = variant === "hotel" ? "2px solid #fafafa" : "1.5px solid #0a0a0a";
   return L.divIcon({
     className: "trip-charger-dot",
-    html: `<span style="display:block;width:8px;height:8px;border-radius:9999px;background:${color};border:1.5px solid #0a0a0a;opacity:0.85"></span>`,
-    iconSize: [11, 11],
-    iconAnchor: [5, 5],
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:${border};opacity:0.92"></span>`,
+    iconSize: [size + 4, size + 4],
+    iconAnchor: [(size + 4) / 2, (size + 4) / 2],
   });
 }
 
