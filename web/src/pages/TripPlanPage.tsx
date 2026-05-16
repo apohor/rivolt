@@ -2058,6 +2058,7 @@ function RouteCard({
             onPreviewStop={onPreviewStop}
             selectedIdx={selectedStop}
             onSelectStop={(idx) => setSelectedStop(idx)}
+            departureAt={departureAt}
           />
         </Suspense>
       </div>

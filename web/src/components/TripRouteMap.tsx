@@ -3,7 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
-import { valhallaBase, tilesPMTilesURL, ensureConfig } from "../lib/config";
+import { valhallaBase, tilesPMTilesURL, ensureConfig, bookingAffiliateID } from "../lib/config";
 import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
 import type { PlannedWaypoint, TripRoute } from "../lib/api";
@@ -45,10 +45,15 @@ export function TripRouteMap({
   onPreviewStop,
   selectedIdx,
   onSelectStop,
+  departureAt,
 }: {
   route: TripRoute;
   height?: number;
   onAddStop?: AddStop;
+  // ISO 8601 departure datetime from the planner form. Used to
+  // compute the check-in date on hotel-marker Booking.com
+  // deep-links. Empty / undefined falls back to today.
+  departureAt?: string;
   // When provided, the charger popup gains a "Preview impact"
   // button. Clicking fires a hypothetical replan with the
   // candidate stop inserted and rewrites the popup with the
@@ -264,6 +269,7 @@ export function TripRouteMap({
               poi,
               !!onAddStopRef.current,
               !!onPreviewStopRef.current,
+              isHotel ? bookingDeepLink(poi, departureAt) : "",
             ),
           );
         m.on("popupopen", (e) => {
@@ -316,7 +322,7 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, chargerFilter]);
+  }, [routePath, chargerFilter, departureAt]);
 
   const filterLabels: Record<typeof chargerFilter, string> = {
     dcfc: "DCFC",
@@ -455,7 +461,46 @@ function chargerDotIcon(variant: "dcfc" | "l2" | "hotel" = "dcfc"): L.DivIcon {
   });
 }
 
-function chargerPopupHTML(poi: POI, addable: boolean, previewable: boolean): string {
+// bookingDeepLink builds a Booking.com search URL pre-filled with
+// the hotel's name + a check-in date inferred from the trip's
+// departure datetime. Check-out defaults to next day. Affiliate
+// ID is appended when the operator has set RIVOLT_BOOKING_AFFILIATE_ID
+// so the operator captures commission on user bookings; missing
+// affiliate is harmless (link still opens, just unattributed).
+function bookingDeepLink(poi: POI, departureAt: string | undefined): string {
+  const name = poi.name || poi.network || "";
+  if (!name) return "";
+  const baseDate = departureAt ? new Date(departureAt) : new Date();
+  if (isNaN(baseDate.getTime())) return "";
+  const checkin = isoDate(baseDate);
+  const checkout = isoDate(new Date(baseDate.getTime() + 24 * 60 * 60 * 1000));
+  const url = new URL("https://www.booking.com/searchresults.html");
+  url.searchParams.set("ss", name);
+  url.searchParams.set("checkin", checkin);
+  url.searchParams.set("checkout", checkout);
+  // group_adults=2 + no_rooms=1 = sensible Booking.com defaults
+  // that match the search-bar autofill so the user lands on a
+  // results page instead of a form.
+  url.searchParams.set("group_adults", "2");
+  url.searchParams.set("no_rooms", "1");
+  const aid = bookingAffiliateID();
+  if (aid) url.searchParams.set("aid", aid);
+  return url.toString();
+}
+
+function isoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function chargerPopupHTML(
+  poi: POI,
+  addable: boolean,
+  previewable: boolean,
+  bookingURL: string,
+): string {
   const name = poi.name || poi.network || "Charging station";
   const out: string[] = [
     `<div class="charger-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px">`,
@@ -469,6 +514,19 @@ function chargerPopupHTML(poi: POI, addable: boolean, previewable: boolean): str
   }
   if (poi.capacity && poi.capacity > 0) {
     out.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
+  }
+  if (bookingURL) {
+    // Hotel-with-L2 row: deep-link to Booking.com's search for
+    // this property + the trip's check-in date. Opens in a new
+    // tab so the planner state isn't lost. No live price yet -
+    // user sees rates on Booking.com (slice b adds inline prices
+    // once we have an affiliate API key).
+    out.push(
+      `<a href="${bookingURL}" target="_blank" rel="noopener noreferrer" ` +
+      `style="display:block;margin-top:6px;padding:3px 8px;background:#7c3aed;color:#fff;` +
+      `border-radius:4px;font-size:11px;text-align:center;text-decoration:none">` +
+      `Check rates on Booking.com &rarr;</a>`,
+    );
   }
   if (previewable) {
     // Preview-first path. Rivian's planner re-runs with this stop

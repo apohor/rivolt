@@ -887,6 +887,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		StaleSec   int     `json:"stale_sec"`
 		JumpCount  int     `json:"jump_count"`
 	}
+	type bookingCfg struct {
+		// AffiliateID is the operator's Booking.com partner ID
+		// (aid query param). Empty means we still deep-link to
+		// Booking.com search but don't capture any commission.
+		// Sourced from RIVOLT_BOOKING_AFFILIATE_ID env.
+		AffiliateID string `json:"affiliate_id,omitempty"`
+	}
 	type cfg struct {
 		Valhalla valhallaCfg `json:"valhalla"`
 		Tiles    tilesCfg    `json:"tiles"`
@@ -894,8 +901,12 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		Features featuresCfg `json:"features"`
 		GPS      gpsCfg      `json:"gps"`
 		Grafana  grafanaCfg  `json:"grafana"`
+		Booking  bookingCfg  `json:"booking"`
 	}
-	base := cfg{Grafana: grafanaCfg{BaseURL: strings.TrimRight(os.Getenv("RIVOLT_GRAFANA_BASE_URL"), "/")}}
+	base := cfg{
+		Grafana: grafanaCfg{BaseURL: strings.TrimRight(os.Getenv("RIVOLT_GRAFANA_BASE_URL"), "/")},
+		Booking: bookingCfg{AffiliateID: strings.TrimSpace(os.Getenv("RIVOLT_BOOKING_AFFILIATE_ID"))},
+	}
 	if valhallaEnabled {
 		base.Valhalla.Path = "/api/maps/valhalla"
 	}

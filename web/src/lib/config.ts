@@ -60,6 +60,12 @@ export type RuntimeConfig = {
     // into Explore. Cross-origin, so the link opens in a new tab.
     baseUrl: string;
   };
+  booking: {
+    // affiliateId is the operator's Booking.com partner ID (the
+    // `aid` query param). Empty means we still deep-link to
+    // Booking.com search results, just without capturing commission.
+    affiliateId: string;
+  };
   // GPS accuracy heuristic thresholds. Used by DriveDetailPage to
   // decide whether to render the "Low GPS accuracy" pill. Defaults
   // are tuned for the typical Rivian WS feed; admin can override.
@@ -76,6 +82,7 @@ const fallback: RuntimeConfig = {
   ai: { enabled: false },
   features: { tripPlannerEnabled: false },
   grafana: { baseUrl: "" },
+  booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
 };
 let cached: RuntimeConfig = fallback;
@@ -91,6 +98,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean };
       grafana?: { base_url?: string };
+      booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
     } | null;
     return {
@@ -102,6 +110,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       ai: { enabled: !!j?.ai?.enabled },
       features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
+      booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
       gps: {
         missingPct: typeof j?.gps?.missing_pct === "number" ? j.gps.missing_pct : fallback.gps.missingPct,
         staleSec: typeof j?.gps?.stale_sec === "number" ? j.gps.stale_sec : fallback.gps.staleSec,
@@ -148,6 +157,14 @@ export function valhallaBase(): string {
 // the legacy CARTO raster path.
 export function tilesPMTilesURL(): string {
   return cached.tiles.url;
+}
+
+// bookingAffiliateID returns the operator's Booking.com partner
+// ID, or "" when not configured. Empty just means hotel deep-links
+// don't carry an affiliate tag - they still work, the operator
+// just doesn't capture commission on user bookings.
+export function bookingAffiliateID(): string {
+  return getConfig().booking.affiliateId;
 }
 
 // grafanaBaseURL returns the operator's Grafana origin or "" when
