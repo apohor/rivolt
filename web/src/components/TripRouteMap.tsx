@@ -71,7 +71,7 @@ export function TripRouteMap({
   // selection (row click in the table) can pulse the right one.
   const wpMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const [routePath, setRoutePath] = useState<[number, number][]>([]);
-  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "all">("dcfc");
+  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "hotels" | "all">("dcfc");
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
   // Ref so the async effect can call the latest callback without
@@ -309,6 +309,7 @@ export function TripRouteMap({
   const filterLabels: Record<typeof chargerFilter, string> = {
     dcfc: "DCFC",
     l2: "L2",
+    hotels: "Hotels (L2)",
     all: "All",
   };
 
@@ -316,7 +317,7 @@ export function TripRouteMap({
     <div>
       <div className="flex items-center gap-1 mb-1">
         <span className="text-xs text-neutral-500 mr-1">Chargers:</span>
-        {(["dcfc", "l2", "all"] as const).map((f) => (
+        {(["dcfc", "l2", "hotels", "all"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setChargerFilter(f)}

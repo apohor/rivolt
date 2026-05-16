@@ -58,7 +58,22 @@ export type POI = {
   source: "chargers" | "basemap";
   // True when detection found DC connectors or maxPowerKW ≥ 50.
   isDCFC?: boolean;
+  // NREL `facility_type` (HOTEL, MOTEL, INN, B_AND_B, RESORT,
+  // PARKING_GARAGE, RESTAURANT, WORKPLACE, REST_STOP, ...) when
+  // known. Empty / undefined for stations that didn't carry it in
+  // the upstream catalog.
+  facilityType?: string;
 };
+
+// HOTEL_FACILITY_TYPES drives the "hotels-with-L2" filter chip.
+// All overnight-stay venue codes NREL AFDC ships.
+export const HOTEL_FACILITY_TYPES: ReadonlySet<string> = new Set([
+  "HOTEL",
+  "MOTEL",
+  "INN",
+  "B_AND_B",
+  "RESORT",
+]);
 
 type ArchiveCache = {
   url: string;
@@ -242,6 +257,7 @@ const chargersLookup: LookupConfig = {
     fee: strProp(p, "fee"),
     openingHours: strProp(p, "opening_hours"),
     osmId: extractOSMId(p),
+    facilityType: strProp(p, "facility_type"),
   }),
 };
 
@@ -431,9 +447,11 @@ function routeFilterMeters(lat: number, lon: number, pp: ProjectedPath): number 
 // minPowerKW OR if it carries a DC connector tag (CCS1 / CHAdeMO /
 // Tesla SC). The NREL AFDC source omits kW at the station level, so
 // connector-type fallback is required for the primary archive.
+export type ChargerFilter = "dcfc" | "l2" | "hotels" | "all";
+
 export async function findChargersAlongPath(
   path: [number, number][],
-  filter: "dcfc" | "l2" | "all" = "dcfc",
+  filter: ChargerFilter = "dcfc",
 ): Promise<POI[]> {
   if (path.length < 2) return [];
   await ensureConfig();
@@ -515,6 +533,18 @@ export async function findChargersAlongPath(
           const isL2 = l2Count !== undefined ? l2Count > 0 : !isDCFC;
           if (filter === "dcfc" && !isDCFC) continue;
           if (filter === "l2" && !isL2) continue;
+          if (filter === "hotels") {
+            // Hotels-with-L2: must carry an overnight-venue
+            // facility_type AND have at least one L2 stall.
+            // Strict on facility_type (no keyword fallback in
+            // basic version) so we don't false-positive on a
+            // "Hilton Garden" road sign at a random parking lot.
+            const ft = (typeof props["facility_type"] === "string"
+              ? (props["facility_type"] as string)
+              : "").toUpperCase();
+            if (!HOTEL_FACILITY_TYPES.has(ft)) continue;
+            if (!isL2) continue;
+          }
           // Filter by perpendicular distance to the route line PLUS
           // arc-length distance from the endpoints. The bbox-only
           // filter dragged in everything within the rectangle, and a
