@@ -269,6 +269,11 @@ func New(d Deps) http.Handler {
 		r.Handle("/metrics", d.Metrics.Handler())
 	}
 
+	// Same-domain redirect so email links stay aligned with the sender domain (DMARC/Resend warning).
+	r.Get("/discord", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://discord.com/invite/kdKqbK3pz", http.StatusFound)
+	})
+
 	r.Route("/api", func(r chi.Router) {
 		// Health + auth endpoints stay reachable without a session,
 		// otherwise the browser has no way to log in.

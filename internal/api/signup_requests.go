@@ -291,7 +291,8 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		return email.ErrNotConfigured
 	}
 	subject := "You're in: finish your Rivolt signup"
-	const discordURL = "https://discord.gg/kdKqbK3pz"
+	// Same-domain redirect (served by GET /discord) so the email's links align with the sender domain.
+	const discordURL = "https://rivolt.dev/discord"
 	text := "Hi,\n\n" +
 		"Your request for Rivolt beta access has been approved.\n\n" +
 		"Click this link to finish signing up (it'll prefill your email\n" +
