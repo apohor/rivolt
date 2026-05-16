@@ -2287,6 +2287,17 @@ function TripAdviceCard({
   loading: boolean;
   onAnalyze?: () => void;
 }) {
+  // Collapsed-by-default once advice arrives: keeps the card a single
+  // line so the map below doesn't jump when the LLM response lands.
+  // User opts in to the full breakdown by tapping the "ready" row.
+  const [expanded, setExpanded] = useState(false);
+  // Reset when a new plan's advice replaces the prior one - the
+  // user should re-opt-in to view each fresh analysis. Keyed on
+  // headline because object identity isn't stable across renders.
+  useEffect(() => {
+    setExpanded(false);
+  }, [advice?.headline]);
+
   return (
     <Card title="Trip analysis">
       {!loading && !advice && (
@@ -2305,7 +2316,21 @@ function TripAdviceCard({
           <span>Analyzing plan…</span>
         </div>
       )}
-      {advice && (
+      {advice && !expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="flex items-center gap-2 text-sm text-left rounded-md w-full hover:bg-neutral-900/50 transition-colors py-1 -my-1 px-1"
+        >
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700/40 text-emerald-300 text-[10px]">✓</span>
+          <span className="text-neutral-200">Analysis ready</span>
+          {advice.headline && (
+            <span className="text-neutral-500 truncate">- {advice.headline}</span>
+          )}
+          <span className="ml-auto text-xs text-neutral-500">Tap to view</span>
+        </button>
+      )}
+      {advice && expanded && (
         <div className="space-y-4">
           {advice.headline && (
             <p className="font-medium text-neutral-100">{advice.headline}</p>
@@ -2315,9 +2340,18 @@ function TripAdviceCard({
           <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
           <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
           <AdviceSection label="Vehicle" items={advice.vehicle} accent="amber" />
-          {advice.model && (
-            <p className="text-xs text-neutral-600">{advice.model}</p>
-          )}
+          <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60">
+            {advice.model ? (
+              <p className="text-xs text-neutral-600">{advice.model}</p>
+            ) : <span />}
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="text-xs text-neutral-500 hover:text-neutral-300"
+            >
+              Collapse
+            </button>
+          </div>
         </div>
       )}
     </Card>
