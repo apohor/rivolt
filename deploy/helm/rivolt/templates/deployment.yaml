@@ -77,6 +77,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # Deploy-time version stamp. The image bytes are built once
+            # on main (with VERSION=v0.X.Y+sha-...) and retagged for
+            # prod, so the binary's compile-time identity stays on the
+            # main SHA. The chart knows which tag was deployed; pass
+            # that through so /api/health reports the deployed tag.
+            - name: RIVOLT_DEPLOYED_AS
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
             {{- with .Values.ratelimit }}
             {{- if .redis.addr }}
             # Global token bucket: when set, every
