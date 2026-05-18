@@ -558,9 +558,12 @@ function chargerPopupHTML(
     // Hotel L2: dedicated overnight-stop button. Replaces the
     // preview-detour path for hotels — pushing a hotel through the
     // single-leg replan doesn't make sense; it always ends the day.
+    // Emerald (primary action / "add to my plan") rather than the
+    // violet of the external Booking.com link above, so the two
+    // buttons read as distinct intents.
     out.push(
       `<button class="charger-overnight-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
-      `background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
+      `background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
       `Add as overnight stop</button>`,
     );
   } else if (previewable) {
