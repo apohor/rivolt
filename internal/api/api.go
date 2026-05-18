@@ -846,10 +846,24 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func handleHealth(version string) http.HandlerFunc {
+	// The retag flow attaches vX.Y.Z to a main-built image without
+	// rebuilding, so the binary's compile-time VERSION stamp still
+	// reflects the main commit a retag was based on. The Helm chart
+	// projects the actual deployed tag (.Values.image.tag) into the
+	// pod via the downward API at /etc/podinfo/image-tag. Read it
+	// once and prefer it when present; fall back to the build-time
+	// stamp for local dev / raw docker run where there's no chart
+	// in the loop.
+	effective := version
+	if b, err := os.ReadFile("/etc/podinfo/image-tag"); err == nil {
+		if tag := strings.TrimSpace(string(b)); tag != "" {
+			effective = tag
+		}
+	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
-			"version": version,
+			"version": effective,
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	}
