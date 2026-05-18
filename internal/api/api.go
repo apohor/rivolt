@@ -681,9 +681,10 @@ func New(d Deps) http.Handler {
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
 			}))
-			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanMultiday(clientFor(d, uid), d.Settings.For(uid))(w, r)
-			}))
+			// Multi-day plan is mounted in the AI-bound group below
+			// (5-minute timeout). N sequential planTrip2 calls easily
+			// blow this group's 30s budget; chi cancels mid-second-leg
+			// and the SPA sees "Bad Gateway".
 			// Saved trip templates. Inputs are required; plan/advice are
 			// optional snapshots so reopening a saved trip can render
 			// the map instantly while still letting the user re-plan
@@ -727,6 +728,12 @@ func New(d Deps) http.Handler {
 			}))
 			r.Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid))(w, r)
+			}))
+			// Multi-day orchestrator: N sequential planTrip2 calls.
+			// Lives here so it inherits the 5-minute timeout — three
+			// legs at ~10s each blow the timed-group's 30s budget.
+			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleTripPlanMultiday(clientFor(d, uid), d.Settings.For(uid))(w, r)
 			}))
 		})
 
