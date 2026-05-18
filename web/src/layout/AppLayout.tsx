@@ -224,16 +224,17 @@ function Footer() {
           Discord
         </a>
         {health.data?.version && (() => {
-          // Two CI tag shapes:
-          //   - vX.Y.Z   → release page (prod tags)
-          //   - sha-abc  → commit page (preview, main-branch builds)
+          // Three CI-stamped shapes:
+          //   vX.Y.Z+sha-<hex>  → preview / main builds (link to commit)
+          //   sha-<hex>         → legacy preview stamp (link to commit)
+          //   X.Y.Z             → tagged prod build (link to release)
           const v = health.data.version;
-          const isSha = v.startsWith("sha-");
-          const href = isSha
-            ? `https://github.com/apohor/rivolt/commit/${v.slice(4)}`
+          const shaMatch = v.match(/sha-([0-9a-f]{7,})$/);
+          const href = shaMatch
+            ? `https://github.com/apohor/rivolt/commit/${shaMatch[1]}`
             : `https://github.com/apohor/rivolt/releases/tag/v${v}`;
-          const label = isSha ? v : `v${v}`;
-          const title = isSha ? "Open commit on GitHub" : "What changed in this release";
+          const label = v.startsWith("v") ? v : `v${v}`;
+          const title = shaMatch ? "Open commit on GitHub" : "What changed in this release";
           return (
             <>
               <span className="text-neutral-700">·</span>

@@ -157,6 +157,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # fetch-tags so the version stamp below can read the prior
+          # release with `git describe`.
+          fetch-tags: true
+          fetch-depth: 0
+
+      # Compose a human-legible VERSION stamp for the binary. On main:
+      # "<last-release-tag>+sha-<short>" so the SPA footer can show
+      # "v0.19.13+sha-6001e6a" instead of an opaque hash. Tag pushes
+      # take the retag path (separate job below) and don't reach here.
+      - name: Compute VERSION stamp
+        id: ver
+        run: |
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)
+          short="sha-${GITHUB_SHA:0:7}"
+          echo "version=${last_tag}+${short}" >> "$GITHUB_OUTPUT"
 
       # No QEMU needed: the Dockerfile runs web/go stages on $BUILDPLATFORM
       # and cross-compiles Go to linux/arm64 via GOOS/GOARCH. The runtime
@@ -182,10 +198,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            # priority=1000 makes sha- the steps.meta.outputs.version on
-            # main pushes; without it the lower-priority raw=main wins and
-            # the binary is stamped 'main', which breaks the footer link.
-            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }},priority=1000
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build & push
@@ -201,11 +214,11 @@ jobs:
           platforms: ${{ github.event.inputs.platforms || 'linux/amd64' }}
           push: true
           provenance: false
-          # Stamp the semver derived by metadata-action into the Go
-          # binary so /api/health and the Overview subtitle report it
-          # (e.g. "Rivolt v0.1.0" on DSM instead of "Rivolt dev").
+          # Stamp our computed VERSION into the Go binary so /api/health
+          # and the Overview subtitle report it (e.g. v0.19.13+sha-... on
+          # preview, bare semver on workflow_dispatch-rebuilt tags).
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ steps.ver.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
