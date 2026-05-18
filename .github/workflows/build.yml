@@ -1,23 +1,15 @@
 # Build, test, and publish the rivolt container image.
 #
-# Two jobs:
-#   1. test    — go vet/test + web typecheck/build. Runs on every push + PR.
-#   2. publish — image push to GHCR. Only runs on vX.Y.Z tags or manual
-#                workflow_dispatch. Pushes to main only run tests.
+# Triggers / outputs:
+#   - Push to main        → tests + publish 'sha-<short>' & 'main' →
+#                          auto-bump rivolt-infra preview values
+#   - Push of vX.Y.Z tag  → tests + publish 'vX.Y.Z', 'X.Y', 'latest'
+#                          (prod path; manual prod bump in rivolt-infra)
+#   - Pull request        → tests only
+#   - workflow_dispatch   → tests + publish (manual re-releases)
 #
-# Triggers:
-#   - Push to main        → test only
-#   - Push of vX.Y.Z tag  → test, then publish 'vX.Y.Z', 'X.Y', 'latest'
-#                          (linux/amd64 only)
-#   - Pull request        → test only
-#   - workflow_dispatch   → test + publish; the `platforms` input picks
-#                          amd64 (default) or amd64+arm64
-#
-# Triggers:
-#   - Push to main        → test only
-#   - Push of vX.Y.Z tag  → test, then publish 'vX.Y.Z', 'X.Y', 'latest'
-#   - Pull request        → test only
-#   - workflow_dispatch   → test + publish (manual re-releases)
+# Preview deploys continuously off main; prod stays pinned to whatever
+# tag apps/rivolt/app.yaml in rivolt-infra points at.
 name: build
 
 on:
@@ -146,11 +138,11 @@ jobs:
   publish:
     name: publish
     needs: [web, go, integration]
-    # Publish only on version tags or explicit manual dispatch. Pushes to
-    # main run tests but don't produce an image — nothing consumes the
-    # main/main-<sha> tags, and every merge re-publishing :latest-shaped
-    # artifacts just burns CI minutes.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Publish on tags (prod) and main pushes (preview). PRs still skip.
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -181,10 +173,16 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Tag set is split by trigger:
+          #   - vX.Y.Z tag push   → vX.Y.Z, X.Y, latest
+          #   - main branch push  → sha-<7char>, main
+          # workflow_dispatch picks up whichever subset matches its ref.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build & push
         uses: docker/build-push-action@v7
@@ -208,3 +206,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  bump-preview:
+    name: bump-preview
+    needs: publish
+    # Only after a successful main-push image publish — tag pushes go to
+    # prod manually, not via this auto-bump.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout rivolt-infra
+        uses: actions/checkout@v6
+        with:
+          repository: apohor/rivolt-infra
+          # Fine-scoped PAT with contents:write on apohor/rivolt-infra.
+          # The default GITHUB_TOKEN only has access to this repo.
+          token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
+
+      - name: Bump preview image.tag
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          short="sha-${SHA:0:7}"
+          file=apps/rivolt-preview/values.yaml
+          # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
+          sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
+          if git diff --quiet "$file"; then
+            echo "image.tag unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "rivolt-ci"
+          git config user.email "ci@rivolt.dev"
+          git add "$file"
+          git commit -m "rivolt-preview: bump image.tag to ${short}"
+          git push origin main
