@@ -586,27 +586,15 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
 	}
-	// networkPreferences: inline as a literal NetworkPreferenceInput
-	// list. Matches the Rivian Android app's wire shape (confirmed in
-	// j30/c pswitch, app 3.12.0-4572): each entry is just
-	// {networkId:"NNNNN"} — no preference field. Sending only the
-	// user's preferred IDs; omitting one signals "no opinion" (the
-	// app's behaviour). networkId values from
-	// com.rivian.android.consumer.charging.config.InternalNetwork.
-	if len(in.NetworkPreferences) > 0 {
-		entries := make([]string, 0, len(in.NetworkPreferences))
-		for _, np := range in.NetworkPreferences {
-			if np.NetworkID == "" {
-				continue
-			}
-			entries = append(entries, fmt.Sprintf("{networkId: %q}", np.NetworkID))
-		}
-		if len(entries) > 0 {
-			args = append(args, fmt.Sprintf("networkPreferences: [%s]", strings.Join(entries, ", ")))
-		}
-	}
-	// trailerProfile omitted — not yet user-facing. Surface when
-	// needed.
+	// networkPreferences is plumbed through PlanTripInput but NOT
+	// inlined in the query: Rivian's gateway returns
+	// GRAPHQL_VALIDATION_FAILED for the literal
+	// `[{networkId: "..."}]` form, even though the field name + JSON
+	// shape match the official Android app exactly (confirmed via
+	// apktool decompile). Other args (waypoints, driveMode, ...)
+	// inline fine, so this is a per-input-type validator quirk.
+	// Re-introduce as a $variable + variables map in a follow-up.
+	// trailerProfile omitted — not yet user-facing.
 	return fmt.Sprintf(`query planTripWithMultiStopV2 {
   planTrip2(%s) {
     status
