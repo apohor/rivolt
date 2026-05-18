@@ -1641,6 +1641,15 @@ export type SavedTripInputs = {
   drive_mode?: string;
   has_adapter?: boolean;
   departure_at?: string;
+  // Multi-day overnight metadata. overnight_flags is a parallel
+  // array to extra_stops; any `true` flips the saved trip into the
+  // multi-day flow on load. The other fields control the overnight
+  // SoC/time/depart limit. All optional — single-day saves omit them.
+  overnight_flags?: boolean[];
+  max_overnight_soc_pct?: number;
+  overnight_limit_mode?: "soc" | "time" | "depart";
+  overnight_parked_hours?: number;
+  overnight_departure_local?: string;
 };
 
 export type SavedTrip = {

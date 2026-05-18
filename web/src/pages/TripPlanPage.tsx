@@ -110,12 +110,18 @@ function collectInputs(s: {
   origin: NonNullable<Selection>;
   destination: NonNullable<Selection>;
   extraStops: NonNullable<Selection>[];
+  overnightFlags: boolean[];
+  maxOvernightSoCPct: number;
+  overnightLimitMode: "soc" | "time" | "depart";
+  overnightParkedHours: number;
+  overnightDepartureLocal: string;
   targetSoc: string;
   startingSoc: string;
   driveMode: DriveMode;
   hasAdapter: boolean;
   departureAt: string;
 }): SavedTripInputs {
+  const hasOvernight = s.overnightFlags.some(Boolean);
   return {
     origin: s.origin,
     destination: s.destination,
@@ -125,6 +131,17 @@ function collectInputs(s: {
     drive_mode: s.driveMode,
     has_adapter: s.hasAdapter,
     departure_at: s.departureAt,
+    // Only persist multi-day fields when actually used — single-day
+    // saves stay byte-compatible with the pre-multi-day schema.
+    ...(hasOvernight
+      ? {
+          overnight_flags: s.overnightFlags,
+          max_overnight_soc_pct: s.maxOvernightSoCPct,
+          overnight_limit_mode: s.overnightLimitMode,
+          overnight_parked_hours: s.overnightParkedHours,
+          overnight_departure_local: s.overnightDepartureLocal,
+        }
+      : {}),
   };
 }
 
@@ -516,20 +533,30 @@ export default function TripPlanPage() {
       }
       const plan = loadedSnapshot?.plan ?? planMutation.data ?? undefined;
       const advice = loadedSnapshot?.advice ?? adviceMutation.data ?? undefined;
+      const inputs = collectInputs({
+        origin,
+        destination,
+        extraStops,
+        overnightFlags,
+        maxOvernightSoCPct,
+        overnightLimitMode,
+        overnightParkedHours,
+        overnightDepartureLocal,
+        targetSoc,
+        startingSoc,
+        driveMode,
+        hasAdapter,
+        departureAt,
+      });
+      // Multi-day plans aren't snapshotted yet (orchestrator response
+      // shape doesn't match the single-day TripPlan stored on saved
+      // trips); reopening re-plans against current Rivian state.
+      const isMultiday = !!inputs.overnight_flags?.some(Boolean);
       const body = {
         name: vars.name,
-        inputs: collectInputs({
-          origin,
-          destination,
-          extraStops,
-          targetSoc,
-          startingSoc,
-          driveMode,
-          hasAdapter,
-          departureAt,
-        }),
-        plan,
-        advice,
+        inputs,
+        plan: isMultiday ? undefined : plan,
+        advice: isMultiday ? undefined : advice,
       };
       return vars.id
         ? backend.savedTripUpdate(vars.id, body)
@@ -555,8 +582,21 @@ export default function TripPlanPage() {
     const i = t.inputs;
     setOrigin(i.origin);
     setDestination(i.destination);
-    setExtraStops(i.extra_stops ?? []);
-    setOvernightFlags((i.extra_stops ?? []).map(() => false));
+    const stops = i.extra_stops ?? [];
+    setExtraStops(stops);
+    // Restore overnight flags if saved (multi-day trip); else zero them
+    // to the new stop count. Snap saved length to current stops length
+    // in case the saved payload is out of sync.
+    if (Array.isArray(i.overnight_flags)) {
+      const flags = stops.map((_, idx) => !!i.overnight_flags?.[idx]);
+      setOvernightFlags(flags);
+    } else {
+      setOvernightFlags(stops.map(() => false));
+    }
+    if (typeof i.max_overnight_soc_pct === "number") setMaxOvernightSoCPct(i.max_overnight_soc_pct);
+    if (i.overnight_limit_mode) setOvernightLimitMode(i.overnight_limit_mode);
+    if (typeof i.overnight_parked_hours === "number") setOvernightParkedHours(i.overnight_parked_hours);
+    if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
     if (typeof i.drive_mode === "string") setDriveMode(normalizeDriveMode(i.drive_mode));
@@ -565,6 +605,7 @@ export default function TripPlanPage() {
     setActiveTripId(t.id);
     planMutation.reset();
     adviceMutation.reset();
+    multidayMutation.reset();
     if (t.plan) {
       setLoadedSnapshot({
         plan: t.plan,
