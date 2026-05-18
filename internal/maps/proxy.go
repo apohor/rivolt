@@ -24,10 +24,12 @@ package maps
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // NewProxy builds a reverse-proxy handler that forwards to baseURL.
@@ -51,6 +53,26 @@ func NewProxy(baseURL string) (http.Handler, error) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(u)
+	// http.DefaultTransport caps MaxIdleConnsPerHost at 2. PMTiles
+	// fetches the chargers archive via many parallel byte-range
+	// requests; serialising them behind 2 keep-alive conns turns
+	// "self-hosted in-cluster" into "slow as molasses." Bump the
+	// pool and remove the per-host conn ceiling for tile traffic.
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   64,
+		MaxConnsPerHost:       0, // unlimited
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
 	defaultDirector := proxy.Director
 	proxy.Director = func(r *http.Request) {
 		defaultDirector(r)
