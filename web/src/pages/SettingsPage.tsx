@@ -469,99 +469,129 @@ function ChargingNetworksPanel() {
           rate when pricing a session.
         </p>
       ) : (
-        <div className="space-y-2">
-          {rows.map((r, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2">
-              <div className="flex-1 min-w-[10rem]">
-                <label className="block text-xs text-neutral-400 mb-1">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={r.name}
-                  onChange={(e) => update(i, { name: e.target.value })}
-                  placeholder="EVgo"
-                  className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">
-                  $/kWh
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  inputMode="decimal"
-                  value={r.price_per_kwh || ""}
-                  onChange={(e) =>
-                    update(i, { price_per_kwh: Number(e.target.value) || 0 })
-                  }
-                  placeholder="0.36"
-                  className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-neutral-400 mb-1">
-                  Currency
-                </label>
-                <input
-                  type="text"
-                  maxLength={3}
-                  value={r.currency}
-                  onChange={(e) =>
-                    update(i, { currency: e.target.value.toUpperCase() })
-                  }
-                  className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-400 hover:text-red-300 hover:border-red-700"
+        <div className="grid gap-3 sm:grid-cols-2">
+          {rows.map((r, i) => {
+            const hasMembership = (r.member_price_per_kwh ?? 0) > 0 || !!r.slug;
+            const savings =
+              r.member_active && (r.member_price_per_kwh ?? 0) > 0 && r.price_per_kwh > 0
+                ? Math.max(0, r.price_per_kwh - (r.member_price_per_kwh ?? 0))
+                : 0;
+            const isPreferred = !!r.preferred;
+            return (
+              <div
+                key={i}
+                className={
+                  "rounded-lg border bg-neutral-950/40 p-3 transition-colors " +
+                  (isPreferred
+                    ? "border-emerald-700/60 ring-1 ring-emerald-700/40"
+                    : "border-neutral-800")
+                }
               >
-                Remove
-              </button>
-              {(r.member_price_per_kwh ?? 0) > 0 || r.slug ? (
-                <div className="basis-full flex flex-wrap items-center gap-2 pl-2 mt-1 text-xs text-neutral-400">
-                  <span>Member rate:</span>
+                <div className="mb-2 flex items-start gap-2">
                   <input
-                    type="number"
-                    step="0.001"
-                    min="0"
-                    inputMode="decimal"
-                    value={r.member_price_per_kwh || ""}
-                    onChange={(e) =>
-                      update(i, { member_price_per_kwh: Number(e.target.value) || 0 })
-                    }
-                    placeholder="0.36"
-                    className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 tabular-nums"
+                    type="text"
+                    value={r.name}
+                    onChange={(e) => update(i, { name: e.target.value })}
+                    placeholder="Network name"
+                    className="flex-1 rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm font-medium text-neutral-100"
                   />
-                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!r.member_active}
-                      onChange={(e) => update(i, { member_active: e.target.checked })}
-                      disabled={!((r.member_price_per_kwh ?? 0) > 0)}
-                      className="h-3 w-3"
-                    />
-                    <span>I have {r.member_plan || "this plan"}</span>
-                  </label>
-                  {r.slug && (
-                    <label className="inline-flex items-center gap-1.5 cursor-pointer ml-3">
+                  <button
+                    type="button"
+                    onClick={() => remove(i)}
+                    title="Remove this network"
+                    className="rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-500 hover:border-rose-800 hover:text-rose-300"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col">
+                    <span className="text-[11px] uppercase tracking-wide text-neutral-500">Guest</span>
+                    <div className="flex items-center gap-1">
                       <input
-                        type="checkbox"
-                        checked={!!r.preferred}
-                        onChange={(e) => update(i, { preferred: e.target.checked })}
-                        className="h-3 w-3"
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        inputMode="decimal"
+                        value={r.price_per_kwh || ""}
+                        onChange={(e) => update(i, { price_per_kwh: Number(e.target.value) || 0 })}
+                        placeholder="0.42"
+                        className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100 tabular-nums"
                       />
-                      <span>Prefer in planner</span>
+                      <span className="text-xs text-neutral-500">/kWh</span>
+                    </div>
+                  </label>
+                  {hasMembership && (
+                    <label className="flex flex-col">
+                      <span className="text-[11px] uppercase tracking-wide text-neutral-500">Member</span>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          inputMode="decimal"
+                          value={r.member_price_per_kwh || ""}
+                          onChange={(e) =>
+                            update(i, { member_price_per_kwh: Number(e.target.value) || 0 })
+                          }
+                          placeholder="0.36"
+                          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-emerald-300 tabular-nums"
+                        />
+                        <span className="text-xs text-neutral-500">/kWh</span>
+                      </div>
                     </label>
                   )}
+                  <label className="flex flex-col">
+                    <span className="text-[11px] uppercase tracking-wide text-neutral-500">Cur</span>
+                    <input
+                      type="text"
+                      maxLength={3}
+                      value={r.currency}
+                      onChange={(e) => update(i, { currency: e.target.value.toUpperCase() })}
+                      className="w-14 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
+                    />
+                  </label>
+                  {savings > 0 && (
+                    <span className="text-[11px] text-emerald-400 mb-1.5">
+                      save {savings.toFixed(2)}/kWh
+                    </span>
+                  )}
                 </div>
-              ) : null}
-            </div>
-          ))}
+
+                {hasMembership && (
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={!!r.member_active}
+                        onChange={(e) => update(i, { member_active: e.target.checked })}
+                        disabled={!((r.member_price_per_kwh ?? 0) > 0)}
+                        className="h-3.5 w-3.5 accent-emerald-500"
+                      />
+                      <span>
+                        I have{" "}
+                        <span className="text-neutral-200">{r.member_plan || "this plan"}</span>
+                      </span>
+                    </label>
+                    {r.slug && (
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={isPreferred}
+                          onChange={(e) => update(i, { preferred: e.target.checked })}
+                          className="h-3.5 w-3.5 accent-emerald-500"
+                        />
+                        <span className="inline-flex items-center gap-1">
+                          {isPreferred ? "★" : "☆"} Prefer in planner
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">

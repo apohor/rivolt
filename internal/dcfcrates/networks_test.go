@@ -35,13 +35,17 @@ func TestMatchNetwork_RealRivianNames(t *testing.T) {
 		{"Rivian Adventure Network - Bastrop", "ran"},
 		{"Rivian RAN - Austin", "ran"},
 		{"EVgo - Round Rock", "evgo"},
-		{"Blink - Capitol Plaza", "blink"},
-		{"bp pulse - Houston", "bp_pulse"},
-		{"Volta - Westlake", "bp_pulse"},
+		// Blink / bp pulse / Volta / Francis Energy not in the seed
+		// anymore (Rivian's planner doesn't expose them as a
+		// networkPreference target). Unmatched falls through to the
+		// $0.46 default. Users can still add custom rows by name.
+		{"Blink - Capitol Plaza", "unmatched"},
+		{"bp pulse - Houston", "unmatched"},
+		{"Volta - Westlake", "unmatched"},
 		{"Shell Recharge - I-35", "shell_recharge"},
 		{"Greenlots - Legacy Site", "shell_recharge"},
 		{"ChargePoint Network", "chargepoint"},
-		{"Francis Energy - Tulsa", "francis_energy"},
+		{"Francis Energy - Tulsa", "unmatched"},
 		{"Ionna - Charlotte Pilot", "ionna"},
 		{"Flo Charging - Quebec", "flo"},
 		{"Montreal, QC - Rue Sainte-Catherine [Flo]", "flo"},

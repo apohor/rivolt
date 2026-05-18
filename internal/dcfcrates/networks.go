@@ -126,28 +126,6 @@ var Networks = []Network{
 		RivianIDs:     []string{"10031"},
 	},
 	{
-		Slug:          "blink",
-		DisplayName:   "Blink",
-		MatchPatterns: []string{"blink"},
-		GuestRate:     0.49,
-		MemberRate:    f64(0.39),
-		MemberPlan:    "Blink Member - annual",
-		// Not in Rivian's InternalNetwork enum — leave empty so we don't
-		// invent an ID the gateway might reject (or worse, silently match
-		// the wrong operator).
-		RivianIDs:     nil,
-	},
-	{
-		Slug:          "bp_pulse",
-		DisplayName:   "bp pulse",
-		MatchPatterns: []string{"bp pulse", "volta"},
-		GuestRate:     0.45,
-		MemberRate:    f64(0.39),
-		MemberPlan:    "bp pulse Plus - $4/mo",
-		// Not in Rivian's InternalNetwork enum.
-		RivianIDs:     nil,
-	},
-	{
 		Slug:          "shell_recharge",
 		DisplayName:   "Shell Recharge",
 		MatchPatterns: []string{"shell recharge", "shell ev", "greenlots"},
@@ -164,16 +142,6 @@ var Networks = []Network{
 		MemberRate:    nil,
 		MemberPlan:    "",
 		RivianIDs:     []string{"10025"},
-	},
-	{
-		Slug:          "francis_energy",
-		DisplayName:   "Francis Energy",
-		MatchPatterns: []string{"francis energy"},
-		GuestRate:     0.40,
-		MemberRate:    nil,
-		MemberPlan:    "",
-		// Not in Rivian's InternalNetwork enum.
-		RivianIDs:     nil,
 	},
 	{
 		Slug:          "ionna",
