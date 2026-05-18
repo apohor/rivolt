@@ -394,7 +394,15 @@ function waypointTooltip(w: PlannedWaypoint, i: number, total: number): string {
         `<div>Charge ${Math.round(w.ChargeDurationSec / 60)} min · ${w.ArrivalSoC.toFixed(0)}% → ${w.DepartureSoC.toFixed(0)}%</div>`,
       );
     }
-    if (w.AdapterRequired) {
+    // Only surface the adapter warning when the station name actually
+    // looks like a Tesla one. Rivian's planTrip2 has been observed
+    // flagging adapterRequired=true on Rivian Adventure Network /
+    // EA / EVgo stops, which is nonsensical — those connectors are
+    // CCS-native for an R1. The name pattern Rivian uses for
+    // Supercharger picks is "<location> [Tesla]" (sometimes
+    // "Tesla Supercharger" in older responses); fall back to
+    // suppressing the line otherwise.
+    if (w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name)) {
       lines.push(`<div style="color:#fbbf24">Tesla adapter required</div>`);
     }
   } else if (isLast) {

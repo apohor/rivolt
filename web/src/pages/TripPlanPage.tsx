@@ -2359,7 +2359,9 @@ function RouteCard({
                         )}
                       </td>
                     )}
-                    <td className="px-2 py-2">{w.AdapterRequired ? "yes" : ""}</td>
+                    <td className="px-2 py-2">
+                      {w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name) ? "yes" : ""}
+                    </td>
                   </tr>
                 );
               })}
