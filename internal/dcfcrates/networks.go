@@ -39,19 +39,29 @@ type Network struct {
 	// MemberPlan is the human-readable plan name + monthly cost
 	// surfaced in the cost-strip tooltip later. Empty when no plan.
 	MemberPlan string
-	// RivianID is the value passed to Rivian's planTrip2
-	// networkPreferences[].networkId field. The gateway expects a
-	// numeric-string ID (per kaedenbrinkman/rivian-api docs:
-	// "10001"/"10002"/...). Working assumption is that IDs 10001-
-	// 10009 follow the alphabetical-ish order the Rivian app shows
-	// in its filter list: 10001=RAN, 10002=ChargePoint, 10003=EA,
-	// 10004=EV Connect, 10005=EVgo, 10006=FLO, 10007=IONNA,
-	// 10008=Shell Recharge, 10009=Tesla. Networks outside that
-	// sequence (Blink, bp pulse, Francis Energy) leave RivianID
-	// empty until an iOS sniff confirms their IDs — preference
-	// suppression is the safe default. Custom user-added rows also
-	// stay empty.
-	RivianID string
+	// RivianIDs are the values passed to Rivian's planTrip2
+	// networkPreferences[].networkId field. Some networks span
+	// multiple operator IDs (RAN = Adventure + Wayfinder; FLO =
+	// FLOC + FLOU for Canada/US), so this is a list. Mapping is
+	// lifted from the Android app's InternalNetwork enum
+	// (apk decompile, 2026-05-18):
+	//
+	//   10001, 10002 → RAN (Adventure + Wayfinder, "RAN, RWN")
+	//   10025         → ChargePoint
+	//   10027         → Electrify America
+	//   10030         → EV Connect
+	//   10031         → EVgo
+	//   10032, 10033 → FLO ("FLOC, FLOU" — Canada + US)
+	//   10045         → Shell Recharge
+	//   10050         → Tesla
+	//   10056         → IONNA
+	//
+	// Networks outside that enum (Blink, bp pulse, Francis Energy)
+	// leave RivianIDs empty — Rivian's planner doesn't recognise
+	// them, so sending an arbitrary ID would risk being treated as
+	// "exclude everything else." Custom user-added rows also stay
+	// empty.
+	RivianIDs []string
 	// DefaultMemberActive is the initial MemberActive state for a
 	// freshly-seeded ChargingNetwork row. True for networks every
 	// Rivolt user qualifies for by definition (RAN — every user
@@ -74,7 +84,7 @@ var Networks = []Network{
 		GuestRate:     0.48,
 		MemberRate:    f64(0.36),
 		MemberPlan:    "Pass+ - $7/mo",
-		RivianID:      "10003",
+		RivianIDs:     []string{"10027"},
 	},
 	{
 		Slug:        "tesla_sc",
@@ -89,7 +99,7 @@ var Networks = []Network{
 		GuestRate:     0.55,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "Supercharging Membership - $12.99/mo",
-		RivianID:      "10009",
+		RivianIDs:     []string{"10050"},
 	},
 	{
 		Slug:          "ran",
@@ -103,7 +113,7 @@ var Networks = []Network{
 		GuestRate:           0.60,
 		MemberRate:          f64(0.54),
 		MemberPlan:          "Rivian owner (10% off)",
-		RivianID:            "10001",
+		RivianIDs:           []string{"10001", "10002"},
 		DefaultMemberActive: true,
 	},
 	{
@@ -113,7 +123,7 @@ var Networks = []Network{
 		GuestRate:     0.42,
 		MemberRate:    f64(0.34),
 		MemberPlan:    "Rewards+ - $6.99/mo",
-		RivianID:      "10005",
+		RivianIDs:     []string{"10031"},
 	},
 	{
 		Slug:          "blink",
@@ -122,9 +132,10 @@ var Networks = []Network{
 		GuestRate:     0.49,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "Blink Member - annual",
-		// RivianID unset — outside the 10001-10009 sequence; iOS sniff
-		// will fill this in once we capture a real plan with this network.
-		RivianID:      "",
+		// Not in Rivian's InternalNetwork enum — leave empty so we don't
+		// invent an ID the gateway might reject (or worse, silently match
+		// the wrong operator).
+		RivianIDs:     nil,
 	},
 	{
 		Slug:          "bp_pulse",
@@ -133,8 +144,8 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "bp pulse Plus - $4/mo",
-		// RivianID unset — outside the 10001-10009 sequence.
-		RivianID:      "",
+		// Not in Rivian's InternalNetwork enum.
+		RivianIDs:     nil,
 	},
 	{
 		Slug:          "shell_recharge",
@@ -143,7 +154,7 @@ var Networks = []Network{
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "GO+ - free",
-		RivianID:      "10008",
+		RivianIDs:     []string{"10045"},
 	},
 	{
 		Slug:          "chargepoint",
@@ -152,7 +163,7 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "10002",
+		RivianIDs:     []string{"10025"},
 	},
 	{
 		Slug:          "francis_energy",
@@ -161,8 +172,8 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		// RivianID unset — outside the 10001-10009 sequence.
-		RivianID:      "",
+		// Not in Rivian's InternalNetwork enum.
+		RivianIDs:     nil,
 	},
 	{
 		Slug:          "ionna",
@@ -171,7 +182,7 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "10007",
+		RivianIDs:     []string{"10056"},
 	},
 	{
 		Slug:          "flo",
@@ -180,7 +191,7 @@ var Networks = []Network{
 		GuestRate:     0.35,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "10006",
+		RivianIDs:     []string{"10032", "10033"},
 	},
 	{
 		Slug:          "ev_connect",
@@ -189,7 +200,7 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "10004",
+		RivianIDs:     []string{"10030"},
 	},
 }
 

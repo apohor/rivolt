@@ -151,15 +151,19 @@ func NetworkPreferenceList(networks []ChargingNetwork) []NetworkPref {
 	out := make([]NetworkPref, 0, len(dcfcrates.Networks))
 	seen := make(map[string]bool)
 	for _, base := range dcfcrates.Networks {
-		if base.RivianID == "" || seen[base.RivianID] {
-			continue
-		}
-		seen[base.RivianID] = true
 		pref := 0
 		if preferred[base.Slug] {
 			pref = 1
 		}
-		out = append(out, NetworkPref{NetworkID: base.RivianID, Preference: pref})
+		// Some networks span multiple operator IDs (RAN = RAN+RWN;
+		// FLO = FLOC+FLOU). All share the user's per-slug toggle.
+		for _, id := range base.RivianIDs {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, NetworkPref{NetworkID: id, Preference: pref})
+		}
 	}
 	return out
 }
