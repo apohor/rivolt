@@ -586,20 +586,33 @@ func buildPlanTrip2Query(in PlanTripInput) (string, map[string]any) {
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
 	}
-	// networkPreferences is parked. Two wire shapes attempted, both
-	// rejected by Rivian's gateway despite matching the Android app's
-	// generated request byte-for-byte (verified via apktool):
-	//   - inline `[{networkId: "..."}]` → GRAPHQL_VALIDATION_FAILED at the list
-	//   - $networkPreferences variable form → BAD_USER_INPUT at the $
-	// Suspect: the gateway runtime enforces a persisted-query
-	// whitelist for this operation, and ad-hoc queries that select
-	// the same shape but aren't on the whitelist get rejected
-	// regardless of validity. Unblock requires either capturing the
-	// exact persisted-query hash the app sends (mitmproxy) or
-	// discovering a different operation. trailerProfile likewise
-	// omitted.
+	// networkPreferences: $variable form with the full app wire shape.
+	// Earlier inline `[{networkId: "..."}]` got GRAPHQL_VALIDATION_FAILED.
+	// Earlier `[{networkId: "..."}]` (no preference) variable form got
+	// BAD_USER_INPUT — turns out the app's Apollo input adapter
+	// (j30/c pswitch_14 for Li30/b8) writes BOTH networkId AND a
+	// hardcoded preference=1; I had stopped reading at the first
+	// `return-void` and missed the second field. Sending the full
+	// shape: {"networkId": "...", "preference": 1} per entry.
 	var vars map[string]any
 	header := "query planTripWithMultiStopV2 {"
+	if len(in.NetworkPreferences) > 0 {
+		prefs := make([]map[string]any, 0, len(in.NetworkPreferences))
+		for _, np := range in.NetworkPreferences {
+			if np.NetworkID == "" {
+				continue
+			}
+			prefs = append(prefs, map[string]any{
+				"networkId":  np.NetworkID,
+				"preference": 1,
+			})
+		}
+		if len(prefs) > 0 {
+			args = append(args, "networkPreferences: $networkPreferences")
+			header = "query planTripWithMultiStopV2($networkPreferences: [NetworkPreference!]) {"
+			vars = map[string]any{"networkPreferences": prefs}
+		}
+	}
 	query := fmt.Sprintf(`%s
   planTrip2(%s) {
     status
