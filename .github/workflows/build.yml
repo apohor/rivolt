@@ -55,6 +55,11 @@ permissions:
 jobs:
   web:
     name: web
+    # Skip on tag pushes — the retag job aliases an already-tested
+    # main-built image, so the SPA bundle / Go vet / Go test results
+    # would just repeat themselves. PRs + main pushes + workflow_dispatch
+    # still run.
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -88,6 +93,7 @@ jobs:
 
   go:
     name: go
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -113,6 +119,7 @@ jobs:
 
   integration:
     name: integration
+    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
     # talks to over the default unix socket — no extra service: block
