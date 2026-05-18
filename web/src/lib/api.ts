@@ -999,6 +999,8 @@ export const backend = {
   // back-filled by the server from the live state cache when omitted.
   planTrip: (req: TripPlanRequest) =>
     api.post<TripPlan>("/api/trips/plan", req),
+  planTripMultiday: (req: TripPlanMultidayRequest) =>
+    api.post<TripPlanMultidayResponse>("/api/trips/plan-multiday", req),
   planTripAdvice: (req: TripAdviceRequest) =>
     api.post<TripAdvice>("/api/trips/plan/advice", req),
   // Named trip templates. Inputs are the form state the user typed
@@ -1491,6 +1493,60 @@ export type PlannedWaypoint = {
   // "180 mi from prev / 360 mi total" columns in the stops table.
   // 0 on legacy responses; we treat 0 as "missing".
   DistanceFromOriginMeters?: number;
+};
+
+// TripPlanMultidayRequest is the body for POST /api/trips/plan-multiday.
+// Used when the user marks one or more via-stops as overnights. Each
+// overnight ends a day; the orchestrator chains N+1 single-day plans
+// daisied on departure SoC. See internal/tripmultiday.
+export type TripPlanMultidayRequest = {
+  vehicle_id: string;
+  starting_soc: number;
+  pack_kwh: number;
+  drive_mode?: string;
+  has_adapter?: boolean;
+  target_arrival_soc_percent?: number;
+  network_preferences?: { network_id: string; preference: number }[];
+  origin: { latitude: number; longitude: number; entity_id?: string; waypoint_type: "origin" };
+  destination: { latitude: number; longitude: number; entity_id?: string; waypoint_type: "destination" };
+  overnights: TripPlanOvernight[];
+  // Cap on post-overnight SoC %; 0 means use server default (80).
+  max_overnight_soc_pct: number;
+};
+
+export type TripPlanOvernight = {
+  latitude: number;
+  longitude: number;
+  entity_id?: string;
+  name?: string;
+  // Hours plugged in overnight. Server defaults to 10 when omitted.
+  parked_hours?: number;
+  // Available L2 power in kW. 0 (or omitted) means no charging — arrival
+  // SoC carries through to next-day departure.
+  l2_kw?: number;
+};
+
+export type TripPlanMultidayResponse = {
+  days: TripPlanMultidayDay[];
+  total: { distance_meters: number; drive_duration_sec: number; charging_duration_sec: number };
+};
+
+export type TripPlanMultidayDay = {
+  index: number;
+  plan: TripPlan;
+  departure_soc: number;
+  arrival_soc: number;
+  overnight?: TripPlanOvernightResult;
+  costs?: TripCostEstimate[];
+};
+
+export type TripPlanOvernightResult = {
+  name?: string;
+  parked_hours: number;
+  l2_kw: number;
+  added_kwh: number;
+  post_charge_soc_pct: number;
+  capped: boolean;
 };
 
 // TripAdviceRequest is the body for POST /api/trips/plan/advice.

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -144,6 +144,10 @@ export default function TripPlanPage() {
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
   const [extraStops, setExtraStops] = useState<NonNullable<Selection>[]>([]);
+  // Parallel array to extraStops: true marks that stop as an overnight
+  // (ends one day, starts the next). Any true value flips planning to
+  // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
+  const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
@@ -277,7 +281,11 @@ export default function TripPlanPage() {
     if (!last) return;
     setOrigin(relabelIfHome(last.origin, home));
     setDestination(relabelIfHome(last.destination, home));
-    setExtraStops((last.extraStops ?? []).map((s) => relabelIfHome(s, home)));
+    {
+      const restored = (last.extraStops ?? []).map((s) => relabelIfHome(s, home));
+      setExtraStops(restored);
+      setOvernightFlags(restored.map(() => false));
+    }
     if (last.targetSoc) setTargetSoc(last.targetSoc);
     if (last.driveMode) setDriveMode(normalizeDriveMode(last.driveMode));
     if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
@@ -400,6 +408,49 @@ export default function TripPlanPage() {
     mutationFn: backend.planTripAdvice,
   });
 
+  // Multi-day mutation. Fires instead of planMutation when any
+  // via-stop is marked Overnight. Server orchestrates N+1 planTrip2
+  // calls and returns one Day per leg.
+  const hasOvernightStops = overnightFlags.some(Boolean);
+  const multidayMutation = useMutation({
+    mutationFn: () => {
+      if (!origin || !destination) {
+        return Promise.reject(new Error("origin + destination required"));
+      }
+      const vid = firstVehicle?.rivian_vehicle_id;
+      const liveSoc = stateQuery.data?.battery_level_pct;
+      const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
+      const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
+      const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
+      if (!vid || !soc || !firstVehicle?.pack_kwh) {
+        return Promise.reject(new Error("vehicle, starting SoC, and pack capacity required"));
+      }
+      const overnights = extraStops
+        .map((s, i) => ({ stop: s, on: !!overnightFlags[i] }))
+        .filter((x) => x.on)
+        .map((x) => ({
+          latitude: x.stop.lat,
+          longitude: x.stop.lon,
+          name: x.stop.label,
+          // v1 defaults baked in; future UI exposes these per-stop.
+          parked_hours: 10,
+          l2_kw: 7,
+        }));
+      return backend.planTripMultiday({
+        vehicle_id: vid,
+        starting_soc: soc,
+        pack_kwh: firstVehicle.pack_kwh,
+        drive_mode: driveMode || undefined,
+        has_adapter: hasAdapter,
+        target_arrival_soc_percent: target,
+        origin: { latitude: origin.lat, longitude: origin.lon, waypoint_type: "origin" },
+        destination: { latitude: destination.lat, longitude: destination.lon, waypoint_type: "destination" },
+        overnights,
+        max_overnight_soc_pct: 0, // server default (80)
+      });
+    },
+  });
+
   // Auto-replan trigger: when extraStops grows from the map (preview
   // confirm or legacy add-as-waypoint), planMutation re-fires once
   // React has flushed the new extraStops into the mutationFn closure.
@@ -476,6 +527,7 @@ export default function TripPlanPage() {
     setOrigin(i.origin);
     setDestination(i.destination);
     setExtraStops(i.extra_stops ?? []);
+    setOvernightFlags((i.extra_stops ?? []).map(() => false));
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
     if (typeof i.drive_mode === "string") setDriveMode(normalizeDriveMode(i.drive_mode));
@@ -526,7 +578,13 @@ export default function TripPlanPage() {
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     adviceMutation.reset();
-    planMutation.mutate();
+    if (hasOvernightStops) {
+      planMutation.reset();
+      multidayMutation.mutate();
+    } else {
+      multidayMutation.reset();
+      planMutation.mutate();
+    }
   };
 
   return (
@@ -633,7 +691,18 @@ export default function TripPlanPage() {
           />
           <ViaStopList
             stops={extraStops}
-            onRemove={(i) => setExtraStops((prev) => prev.filter((_, j) => j !== i))
+            overnightFlags={overnightFlags}
+            onRemove={(i) => {
+              setExtraStops((prev) => prev.filter((_, j) => j !== i));
+              setOvernightFlags((prev) => prev.filter((_, j) => j !== i));
+            }}
+            onToggleOvernight={(i, on) =>
+              setOvernightFlags((prev) => {
+                const next = [...prev];
+                while (next.length < extraStops.length) next.push(false);
+                next[i] = on;
+                return next;
+              })
             }
             onAdd={(stop) => {
               const labeled = relabelIfHome(stop, home);
@@ -646,6 +715,7 @@ export default function TripPlanPage() {
                   ? prev
                   : [...prev, labeled],
               );
+              setOvernightFlags((prev) => [...prev, false]);
             }}
           />
           <LocationField
@@ -667,12 +737,12 @@ export default function TripPlanPage() {
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              disabled={planMutation.isPending || !origin || !destination}
+              disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
               className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
-              Plan trip
+              {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
-            {planMutation.isPending && <Spinner />}
+            {(planMutation.isPending || multidayMutation.isPending) && <Spinner />}
             <span className="text-xs text-neutral-500">
               Tip: configure your charging settings in{" "}
               <a
@@ -706,7 +776,25 @@ export default function TripPlanPage() {
         />
       )}
 
+      {multidayMutation.isError && (
+        <ErrorBox
+          title="Multi-day plan failed"
+          detail={(multidayMutation.error as Error).message}
+        />
+      )}
+
+      {multidayMutation.data && (
+        <MultidayResult
+          response={multidayMutation.data}
+          originLabel={origin?.label ?? ""}
+          destLabel={destination?.label ?? ""}
+        />
+      )}
+
       {(() => {
+        // Don't render the single-day card if the user just produced
+        // a multi-day plan — the form's current state is multi-day.
+        if (multidayMutation.data) return null;
         const displayPlan = loadedSnapshot?.plan ?? planMutation.data;
         const displayAdvice = loadedSnapshot?.advice ?? adviceMutation.data;
         if (!displayPlan) return null;
@@ -899,6 +987,7 @@ export default function TripPlanPage() {
                   autoReplanAfterAddRef.current = true;
                   return [...prev, labeled];
                 });
+                setOvernightFlags((prev) => [...prev, false]);
               }}
               departureAt={departureAt}
             />
@@ -1613,12 +1702,16 @@ type StopPreviewer = (
 // search field for adding new ones by geocode.
 function ViaStopList({
   stops,
+  overnightFlags,
   onRemove,
   onAdd,
+  onToggleOvernight,
 }: {
   stops: NonNullable<Selection>[];
+  overnightFlags: boolean[];
   onRemove: (i: number) => void;
   onAdd: StopAdder;
+  onToggleOvernight: (i: number, on: boolean) => void;
 }) {
   const [adding, setAdding] = useState(false);
   return (
@@ -1626,10 +1719,22 @@ function ViaStopList({
       {stops.map((stop, i) => (
         <div
           key={i}
-          className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
         >
           <span className="shrink-0 text-neutral-500">Via:</span>
           <span className="flex-1 text-neutral-100">{stop.label}</span>
+          <label
+            className="flex shrink-0 items-center gap-1 text-xs text-neutral-400"
+            title="Treat this stop as an overnight: ends one day's drive, starts the next. Assumes 10 h plugged in at 7 kW L2."
+          >
+            <input
+              type="checkbox"
+              checked={!!overnightFlags[i]}
+              onChange={(e) => onToggleOvernight(i, e.target.checked)}
+              className="h-3.5 w-3.5 accent-emerald-500"
+            />
+            Overnight
+          </label>
           <button
             type="button"
             onClick={() => onRemove(i)}
@@ -2443,5 +2548,86 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dt className="text-xs uppercase tracking-wide text-neutral-500">{label}</dt>
       <dd className="font-mono text-neutral-100">{value}</dd>
     </div>
+  );
+}
+
+// MultidayResult renders a multi-day trip as a stack of compact day
+// cards plus a trip-total header. v1: each day is a summary (distance,
+// drive time, stop count, SoC range, optional overnight); the full
+// RouteCard render isn't reused here yet. Saved trips and AI advice
+// don't flow through this path in v1.
+function MultidayResult({
+  response,
+  originLabel,
+  destLabel,
+}: {
+  response: TripPlanMultidayResponse;
+  originLabel: string;
+  destLabel: string;
+}) {
+  const totalMiles = response.total.distance_meters / 1609.344;
+  const totalHrs = response.total.drive_duration_sec / 3600;
+  const chargeMin = Math.round(response.total.charging_duration_sec / 60);
+  return (
+    <Card title={`${response.days.length}-day trip: ${originLabel || "Origin"} → ${destLabel || "Destination"}`}>
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Days" value={String(response.days.length)} />
+        <Stat label="Total distance" value={`${totalMiles.toFixed(0)} mi`} />
+        <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
+        <Stat label="Charging" value={`${chargeMin} min`} />
+      </div>
+      <div className="space-y-3">
+        {response.days.map((d) => {
+          const r = d.plan.Routes?.[0];
+          const stopCount = r
+            ? r.Waypoints.filter((w) => {
+                const t = w.WaypointType.toLowerCase();
+                return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
+              }).length
+            : 0;
+          const miles = r ? r.TotalDriveDistanceMeters / 1609.344 : 0;
+          const hrs = r ? r.TotalDriveDurationSec / 3600 : 0;
+          return (
+            <div key={d.index} className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-sm font-semibold text-neutral-100">Day {d.index}</span>
+                <span className="text-xs text-neutral-400 font-mono">
+                  {miles.toFixed(0)} mi · {hrs.toFixed(1)} h · {stopCount} stop{stopCount === 1 ? "" : "s"}
+                </span>
+                <span className="text-xs text-neutral-500">
+                  start <span className="text-neutral-300 font-mono">{d.departure_soc.toFixed(0)}%</span>
+                  {" → "}
+                  arrive <span className="text-neutral-300 font-mono">{d.arrival_soc.toFixed(0)}%</span>
+                </span>
+              </div>
+              {d.overnight && (
+                <div className="text-xs text-neutral-400">
+                  Overnight {d.overnight.name ? <span className="text-neutral-300">at {d.overnight.name}</span> : null}
+                  {" · "}
+                  {d.overnight.l2_kw > 0 ? (
+                    <>
+                      +{d.overnight.added_kwh.toFixed(0)} kWh @ {d.overnight.l2_kw} kW
+                      {" · "}
+                      depart{" "}
+                      <span className="text-emerald-400 font-mono">
+                        {d.overnight.post_charge_soc_pct.toFixed(0)}%
+                      </span>
+                      {d.overnight.capped && (
+                        <span className="text-amber-400" title="Hit max overnight SoC cap">
+                          {" "}
+                          (capped)
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>no L2 — carry {d.arrival_soc.toFixed(0)}% to next day</>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
