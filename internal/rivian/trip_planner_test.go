@@ -44,7 +44,13 @@ func TestBuildPlanTrip2QueryWithDriveModeAndAdapter(t *testing.T) {
 	}
 }
 
-func TestBuildPlanTrip2Query_NetworkPreferencesVariableForm(t *testing.T) {
+// TestBuildPlanTrip2Query_NetworkPreferencesParked guards the current
+// no-op behaviour: even when the user has Preferred toggles set, no
+// networkPreferences arg / variable / declaration leaks into the
+// outgoing query. Two prior wire shapes were rejected by Rivian's
+// gateway; until we have the persisted-query hash from the app,
+// emitting *anything* on this field re-introduces the 502.
+func TestBuildPlanTrip2Query_NetworkPreferencesParked(t *testing.T) {
 	in := PlanTripInput{
 		VehicleID:   "v1",
 		StartingSoC: 80,
@@ -53,42 +59,18 @@ func TestBuildPlanTrip2Query_NetworkPreferencesVariableForm(t *testing.T) {
 			{Latitude: 29.4241, Longitude: -98.4936, WaypointType: "destination"},
 		},
 		NetworkPreferences: []NetworkPreference{
-			{NetworkID: "10027"}, // EA
-			{NetworkID: ""},      // skipped (empty)
-			{NetworkID: "10050"}, // Tesla
+			{NetworkID: "10027"},
+			{NetworkID: "10050"},
 		},
 	}
 	q, vars := buildPlanTrip2Query(in)
-	// Query header declares the variable; planTrip2 references it.
-	if !strings.Contains(q, "$networkPreferences: [NetworkPreference!]") {
-		t.Errorf("query missing $networkPreferences declaration:\n%s", q)
-	}
-	if !strings.Contains(q, "networkPreferences: $networkPreferences") {
-		t.Errorf("planTrip2 args don't reference the variable:\n%s", q)
-	}
-	// Variables map carries the IDs (empty entry filtered out).
-	prefs, ok := vars["networkPreferences"].([]map[string]any)
-	if !ok {
-		t.Fatalf("vars.networkPreferences wrong type: %T", vars["networkPreferences"])
-	}
-	if len(prefs) != 2 {
-		t.Fatalf("want 2 prefs (empty entry filtered), got %d: %v", len(prefs), prefs)
-	}
-	if prefs[0]["networkId"] != "10027" || prefs[1]["networkId"] != "10050" {
-		t.Errorf("preserve order: got %v", prefs)
-	}
-	// No inline literal — that was the form Rivian rejected.
-	if strings.Contains(q, `{networkId:`) {
-		t.Errorf("must not inline networkPreferences literal:\n%s", q)
-	}
-
-	// Empty input → no $networkPreferences anywhere, vars nil.
-	in.NetworkPreferences = nil
-	q, vars = buildPlanTrip2Query(in)
 	if strings.Contains(q, "networkPreferences") {
-		t.Errorf("with no prefs, query should not mention networkPreferences:\n%s", q)
+		t.Errorf("networkPreferences must not appear in the query (parked):\n%s", q)
+	}
+	if strings.Contains(q, "$networkPreferences") {
+		t.Errorf("no $networkPreferences variable should be declared:\n%s", q)
 	}
 	if vars != nil {
-		t.Errorf("with no prefs, vars should be nil, got %v", vars)
+		t.Errorf("variables must be nil; got %v", vars)
 	}
 }

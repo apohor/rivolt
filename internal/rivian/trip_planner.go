@@ -586,28 +586,20 @@ func buildPlanTrip2Query(in PlanTripInput) (string, map[string]any) {
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
 	}
-	// networkPreferences: variable form. Rivian's gateway rejects the
-	// inline `[{networkId: "..."}]` literal with
-	// GRAPHQL_VALIDATION_FAILED — even though the wire shape matches
-	// the official Android app. The app uses Apollo's $variable form,
-	// which the gateway accepts. trailerProfile omitted — not yet
-	// user-facing.
+	// networkPreferences is parked. Two wire shapes attempted, both
+	// rejected by Rivian's gateway despite matching the Android app's
+	// generated request byte-for-byte (verified via apktool):
+	//   - inline `[{networkId: "..."}]` → GRAPHQL_VALIDATION_FAILED at the list
+	//   - $networkPreferences variable form → BAD_USER_INPUT at the $
+	// Suspect: the gateway runtime enforces a persisted-query
+	// whitelist for this operation, and ad-hoc queries that select
+	// the same shape but aren't on the whitelist get rejected
+	// regardless of validity. Unblock requires either capturing the
+	// exact persisted-query hash the app sends (mitmproxy) or
+	// discovering a different operation. trailerProfile likewise
+	// omitted.
 	var vars map[string]any
 	header := "query planTripWithMultiStopV2 {"
-	if len(in.NetworkPreferences) > 0 {
-		prefs := make([]map[string]any, 0, len(in.NetworkPreferences))
-		for _, np := range in.NetworkPreferences {
-			if np.NetworkID == "" {
-				continue
-			}
-			prefs = append(prefs, map[string]any{"networkId": np.NetworkID})
-		}
-		if len(prefs) > 0 {
-			args = append(args, "networkPreferences: $networkPreferences")
-			header = "query planTripWithMultiStopV2($networkPreferences: [NetworkPreference!]) {"
-			vars = map[string]any{"networkPreferences": prefs}
-		}
-	}
 	query := fmt.Sprintf(`%s
   planTrip2(%s) {
     status
