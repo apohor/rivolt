@@ -269,6 +269,31 @@ func ClassifyGraphQL(extCode, message string) (ErrorClass, string) {
 	return ClassUnknown, ""
 }
 
+// IsAuthFlavoredReason reports whether a UserAction reason names a
+// real auth problem (expired session, rejected credentials, MFA
+// challenge, locked account) versus a generic 4xx like "HTTP 404"
+// or "HTTP 422" that ClassifyHTTP's catch-all also routes through
+// ClassUserAction. Used to gate needs_reauth: a stray 404 should
+// not poison the user's session, but a 401 should.
+//
+// Keep this aligned with the reasons emitted by classifyFromBody +
+// statusReason for 401/403 + ClassifyGraphQL — every reason string
+// any of those produce for ClassUserAction must appear here.
+func IsAuthFlavoredReason(reason string) bool {
+	switch reason {
+	case "session expired",
+		"password rejected",
+		"credentials rejected",
+		"token revoked",
+		"token expired",
+		"MFA required",
+		"account locked",
+		"forbidden":
+		return true
+	}
+	return false
+}
+
 // statusReason picks a stable short reason for HTTP-status-only
 // classifications so needs_reauth_reason is human-readable in
 // the users row.

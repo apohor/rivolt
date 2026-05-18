@@ -209,3 +209,89 @@ func TestReauthSinkFiresOnceForStorm(t *testing.T) {
 		t.Fatalf("re-flip: want 3 sink calls, got %d", sinkCalls)
 	}
 }
+
+// TestIsAuthFlavoredReason is the explicit truth table. Every reason
+// emitted by ClassifyHTTP / ClassifyGraphQL / classifyFromBody for a
+// ClassUserAction outcome must be answered here, and every "HTTP NNN"
+// fallback from statusReason must answer false (so a 404 / 422 / etc.
+// doesn't poison needs_reauth).
+func TestIsAuthFlavoredReason(t *testing.T) {
+	cases := []struct {
+		reason string
+		want   bool
+	}{
+		// Real auth failures — should flip needs_reauth.
+		{"session expired", true},
+		{"password rejected", true},
+		{"credentials rejected", true},
+		{"token revoked", true},
+		{"token expired", true},
+		{"MFA required", true},
+		{"account locked", true},
+		{"forbidden", true},
+		// Generic HTTP-status fallbacks from statusReason — must NOT
+		// flip needs_reauth. ClassifyHTTP's catch-all for 4xx is
+		// ClassUserAction with reason="HTTP <n>", which is exactly the
+		// false-positive that flagged a working session as expired.
+		{"HTTP 404", false},
+		{"HTTP 422", false},
+		{"HTTP 409", false},
+		{"", false},
+		// Reasons used for other classes — should be false too.
+		{"rate limited", false},
+		{"context canceled", false},
+		{"network timeout", false},
+		{"bad request", false},
+	}
+	for _, tc := range cases {
+		if got := IsAuthFlavoredReason(tc.reason); got != tc.want {
+			t.Errorf("IsAuthFlavoredReason(%q)=%v want %v", tc.reason, got, tc.want)
+		}
+	}
+}
+
+// TestNon401_4xxDoesNotPoisonReauth is the regression test for the
+// bug where a multi-day trip leg getting a 404 from Rivian flipped
+// the user's needs_reauth flag, locking them out of unrelated calls
+// even though their session was still valid.
+func TestNon401_4xxDoesNotPoisonReauth(t *testing.T) {
+	var hits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if strings.Contains(r.URL.Path, "gateway") && hits == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":{"createCsrfToken":{"csrfToken":"c","appSessionToken":"a"}}}`)
+			return
+		}
+		// 404 on the actual query — a non-auth 4xx that the
+		// catch-all branch of ClassifyHTTP routes through
+		// ClassUserAction but should NOT flip needs_reauth.
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"vehicle not found"}]}`)
+	}))
+	defer server.Close()
+
+	var sinkCalls int
+	c := NewLive()
+	c.endpoint = server.URL + "/gateway"
+	c.WithReauthSink(func(_ context.Context, _ string) { sinkCalls++ })
+
+	err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"})
+	if err == nil {
+		t.Fatal("expected Login to fail with 404, got nil")
+	}
+	var ue *UpstreamError
+	if !errors.As(err, &ue) {
+		t.Fatalf("want *UpstreamError, got %T: %v", err, err)
+	}
+	if ue.Class != ClassUserAction {
+		t.Errorf("want ClassUserAction (catch-all 4xx), got %v", ue.Class)
+	}
+	// The whole point: needs_reauth must NOT have been flipped.
+	if needs, _ := c.NeedsReauth(); needs {
+		t.Error("needs_reauth flipped on non-auth 4xx — would lock user out of unrelated calls")
+	}
+	if sinkCalls != 0 {
+		t.Errorf("sink fired on non-auth 4xx: want 0, got %d", sinkCalls)
+	}
+}
