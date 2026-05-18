@@ -78,9 +78,9 @@ func TestMemberRateOrGuest(t *testing.T) {
 		slug string
 		want float64
 	}{
-		{"ea", 0.36},        // has member tier
-		{"tesla_sc", 0.40},  // has member tier
-		{"ran", 0.45},       // no membership; fall through to guest
+		{"ea", 0.36},       // has member tier
+		{"tesla_sc", 0.40}, // has member tier
+		{"ran", 0.54},      // Rivian-owner 10% off guest
 		{"chargepoint", 0.45},
 		{"unmatched", 0.46},
 	}

@@ -47,6 +47,12 @@ type Network struct {
 	// will get corrected here as we learn. Empty when we don't
 	// have a guess (user-added custom rows).
 	RivianID string
+	// DefaultMemberActive is the initial MemberActive state for a
+	// freshly-seeded ChargingNetwork row. True for networks every
+	// Rivolt user qualifies for by definition (RAN — every user
+	// owns a Rivian). False for opt-in subscriptions (EA Pass+,
+	// Tesla SC Membership, EVgo Rewards+).
+	DefaultMemberActive bool
 }
 
 func f64(v float64) *float64 { return &v }
@@ -84,10 +90,16 @@ var Networks = []Network{
 		Slug:          "ran",
 		DisplayName:   "Rivian Adventure Network",
 		MatchPatterns: []string{"rivian adventure", "adventure network", "rivian ran"},
-		GuestRate:     0.45, // Rivian owner rate; non-owners can't use it.
-		MemberRate:    nil,
-		MemberPlan:    "",
-		RivianID:      "Rivian Adventure Network",
+		// RAN is Rivian-only — every Rivolt user qualifies for the
+		// "Rivian owner" rate by definition, so MemberRate should
+		// apply automatically (settings.AsOverrides defaults
+		// MemberActive=true for RAN). Guest = walk-up sticker; the
+		// 10% off Rivian-owner discount is the member tier.
+		GuestRate:           0.60,
+		MemberRate:          f64(0.54),
+		MemberPlan:          "Rivian owner (10% off)",
+		RivianID:            "Rivian Adventure Network",
+		DefaultMemberActive: true,
 	},
 	{
 		Slug:          "evgo",

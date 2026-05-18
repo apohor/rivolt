@@ -103,10 +103,11 @@ func DefaultChargingNetworks() []ChargingNetwork {
 	out := make([]ChargingNetwork, 0, len(dcfcrates.Networks))
 	for _, n := range dcfcrates.Networks {
 		row := ChargingNetwork{
-			Name:        n.DisplayName,
-			PricePerKWh: n.GuestRate,
-			Currency:    DefaultHomeCurrency,
-			Slug:        n.Slug,
+			Name:         n.DisplayName,
+			PricePerKWh:  n.GuestRate,
+			Currency:     DefaultHomeCurrency,
+			Slug:         n.Slug,
+			MemberActive: n.DefaultMemberActive,
 		}
 		if n.MemberRate != nil {
 			row.MemberPrice = *n.MemberRate
