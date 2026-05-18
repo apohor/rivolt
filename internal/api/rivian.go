@@ -38,6 +38,20 @@ import (
 // 5xx is reserved for genuine upstream gateway failures the user
 // cannot fix.
 func httpStatusForUpstream(err error) int {
+	// Per-user re-auth sentinel: rivolt's classifier has already
+	// flagged this user as needing to re-link their Rivian account
+	// (token rotation / hard expiry / 401 on a prior call). The
+	// gateway was never reached for this request. Map to 401 so the
+	// SPA shows the re-auth banner instead of "Bad Gateway".
+	if errors.Is(err, rivian.ErrNeedsReauth) {
+		return http.StatusUnauthorized
+	}
+	// Operator kill switch — close to "service unavailable" on the
+	// rivolt side, not "upstream wobble." 503 lets the SPA back off
+	// instead of treating it as a retryable network blip.
+	if errors.Is(err, rivian.ErrUpstreamPaused) {
+		return http.StatusServiceUnavailable
+	}
 	var ue *rivian.UpstreamError
 	if !errors.As(err, &ue) {
 		return http.StatusBadGateway
