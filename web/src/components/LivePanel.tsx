@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { backend, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
+import { ApiError, backend, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatTemperature, usePreferences } from "../lib/preferences";
@@ -57,6 +57,30 @@ export function LivePanel() {
 
   if (vehicles.isLoading) return null;
   if (vehicles.isError) {
+    // 401/503 from a Rivian-backed endpoint means rivolt has flagged
+    // the session as expired or paused. The raw "Bad gateway" /
+    // "unauthorized" text is useless to the user; surface the
+    // actionable path instead.
+    const isAuthErr =
+      vehicles.error instanceof ApiError &&
+      (vehicles.error.status === 401 || vehicles.error.status === 503);
+    if (isAuthErr) {
+      return (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="font-medium text-amber-200">Rivian session expired</div>
+          <p className="mt-1 text-xs text-amber-100/80">
+            Rivian rejected our stored session token. Live state, drives, and
+            trip planning are paused until you re-sign in.
+          </p>
+          <Link
+            to="/settings?tab=connections#rivian"
+            className="mt-2 inline-block rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+          >
+            Re-link Rivian in Settings
+          </Link>
+        </div>
+      );
+    }
     return (
       <ErrorBox
         title="Rivian connection error"
