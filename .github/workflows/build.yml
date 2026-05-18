@@ -267,18 +267,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Retag sha-<short> → vX.Y.Z / X.Y / latest
+      - name: Retag sha-<short> → X.Y.Z / X.Y / latest
         env:
           VERSION: ${{ github.ref_name }}   # e.g. v0.19.13
           SHA: ${{ github.sha }}
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
           short="sha-${SHA:0:7}"
+          # Strip leading 'v' — GHCR tags are bare semver to match
+          # docker/metadata-action's {{version}} output.
           v="${VERSION#v}"                  # 0.19.13
           minor="${v%.*}"                   # 0.19
-          echo "Retagging ${IMAGE}:${short} → ${VERSION} / ${minor} / latest"
+          echo "Retagging ${IMAGE}:${short} → ${v} / ${minor} / latest"
           docker buildx imagetools create \
-            --tag "${IMAGE}:${VERSION}" \
+            --tag "${IMAGE}:${v}" \
             --tag "${IMAGE}:${minor}" \
             --tag "${IMAGE}:latest" \
             "${IMAGE}:${short}"
