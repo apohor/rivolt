@@ -846,22 +846,10 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func handleHealth(version string) http.HandlerFunc {
-	// Prefer the deploy-time tag (RIVOLT_DEPLOYED_AS env, set by the
-	// chart from .Values.image.tag) over the build-time VERSION stamp.
-	// The retag flow tags an already-built main image as vX.Y.Z without
-	// rebuilding, so the binary's compile-time stamp still reads as the
-	// main commit. The Helm chart knows which tag it deployed; surface
-	// that instead. Falls back to the build-time value when unset
-	// (local dev, raw docker run, etc.).
-	deployed := strings.TrimSpace(os.Getenv("RIVOLT_DEPLOYED_AS"))
-	effective := version
-	if deployed != "" {
-		effective = deployed
-	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
-			"version": effective,
+			"version": version,
 			"time":    time.Now().UTC().Format(time.RFC3339),
 		})
 	}
