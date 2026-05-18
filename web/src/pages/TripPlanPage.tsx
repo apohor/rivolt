@@ -148,11 +148,14 @@ export default function TripPlanPage() {
   // (ends one day, starts the next). Any true value flips planning to
   // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
   const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
-  // Post-overnight SoC cap (%). Only relevant when at least one
-  // overnight has L2 — the orchestrator will hit this ceiling before
-  // it would otherwise top off above it. 80 matches Rivian's "daily"
-  // recommendation; users can push it up for long-day starts.
+  // Overnight charging limit. Two modes: cap the post-charge SoC at
+  // a percentage ("soc", default 80 — Rivian's daily-charge guidance),
+  // or cap by parked hours instead ("time"). Time mode sets the cap
+  // to 100% and overrides parked_hours per overnight; SoC mode uses
+  // the L2 default (10 h on the server).
+  const [overnightLimitMode, setOvernightLimitMode] = useState<"soc" | "time">("soc");
   const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
+  const [overnightParkedHours, setOvernightParkedHours] = useState<number>(8);
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
@@ -430,6 +433,10 @@ export default function TripPlanPage() {
       if (!vid || !soc || !firstVehicle?.pack_kwh) {
         return Promise.reject(new Error("vehicle, starting SoC, and pack capacity required"));
       }
+      // In SoC mode let the server default parked hours (10 h); in
+      // Time mode lift the SoC cap and apply the user's hours to
+      // every overnight. l2_kw stays a 7 kW bake-in until we wire
+      // per-stop overrides.
       const overnights = extraStops
         .map((s, i) => ({ stop: s, on: !!overnightFlags[i] }))
         .filter((x) => x.on)
@@ -437,8 +444,7 @@ export default function TripPlanPage() {
           latitude: x.stop.lat,
           longitude: x.stop.lon,
           name: x.stop.label,
-          // v1 defaults baked in; future UI exposes these per-stop.
-          parked_hours: 10,
+          parked_hours: overnightLimitMode === "time" ? overnightParkedHours : 10,
           l2_kw: 7,
         }));
       return backend.planTripMultiday({
@@ -451,7 +457,7 @@ export default function TripPlanPage() {
         origin: { latitude: origin.lat, longitude: origin.lon, waypoint_type: "origin" },
         destination: { latitude: destination.lat, longitude: destination.lon, waypoint_type: "destination" },
         overnights,
-        max_overnight_soc_pct: maxOvernightSoCPct,
+        max_overnight_soc_pct: overnightLimitMode === "soc" ? maxOvernightSoCPct : 100,
       });
     },
   });
@@ -724,24 +730,58 @@ export default function TripPlanPage() {
             }}
           />
           {hasOvernightStops && (
-            <label className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm">
-              <span className="flex items-baseline justify-between text-neutral-300">
-                <span>Max overnight SoC</span>
-                <span className="font-mono text-emerald-400">{maxOvernightSoCPct}%</span>
-              </span>
-              <input
-                type="range"
-                min={50}
-                max={100}
-                step={5}
-                value={maxOvernightSoCPct}
-                onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value))}
-                className="accent-emerald-500"
-              />
-              <span className="text-xs text-neutral-500">
-                Cap on how much L2 will top off before each next-day departure. 80% follows Rivian's daily-charge guidance; raise it for big morning legs.
-              </span>
-            </label>
+            <div
+              className="flex flex-wrap items-center gap-2 text-xs text-neutral-300"
+              title="How to limit overnight L2 charging: cap the post-charge SoC, or cap by hours plugged in."
+            >
+              <span className="text-neutral-400">Limit overnight by</span>
+              <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
+                {(["soc", "time"] as const).map((m) => {
+                  const active = overnightLimitMode === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setOvernightLimitMode(m)}
+                      className={`px-2 py-0.5 transition-colors ${
+                        active
+                          ? "bg-emerald-600/20 text-emerald-300"
+                          : "text-neutral-400 hover:text-neutral-200"
+                      }`}
+                    >
+                      {m === "soc" ? "SoC" : "Time"}
+                    </button>
+                  );
+                })}
+              </div>
+              {overnightLimitMode === "soc" ? (
+                <label className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={50}
+                    max={100}
+                    step={5}
+                    value={maxOvernightSoCPct}
+                    onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value) || 80)}
+                    className="w-16 rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
+                  />
+                  <span className="text-neutral-400">%</span>
+                </label>
+              ) : (
+                <label className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={24}
+                    step={1}
+                    value={overnightParkedHours}
+                    onChange={(e) => setOvernightParkedHours(Number(e.target.value) || 8)}
+                    className="w-16 rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
+                  />
+                  <span className="text-neutral-400">h plugged in</span>
+                </label>
+              )}
+            </div>
           )}
           <LocationField
             heading="To"
