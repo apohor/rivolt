@@ -223,24 +223,32 @@ function Footer() {
         >
           Discord
         </a>
-        {health.data?.version && (
-          <>
-            <span className="text-neutral-700">·</span>
-            {/* Link the running version to its GitHub release page
-                so the user can read the changelog for what's
-                currently deployed. Tag format mirrors what CI
-                pushes: vX.Y.Z (semver). */}
-            <a
-              href={`https://github.com/apohor/rivolt/releases/tag/v${health.data.version}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-mono text-neutral-600 hover:text-neutral-300"
-              title="What changed in this release"
-            >
-              v{health.data.version}
-            </a>
-          </>
-        )}
+        {health.data?.version && (() => {
+          // Two CI tag shapes:
+          //   - vX.Y.Z   → release page (prod tags)
+          //   - sha-abc  → commit page (preview, main-branch builds)
+          const v = health.data.version;
+          const isSha = v.startsWith("sha-");
+          const href = isSha
+            ? `https://github.com/apohor/rivolt/commit/${v.slice(4)}`
+            : `https://github.com/apohor/rivolt/releases/tag/v${v}`;
+          const label = isSha ? v : `v${v}`;
+          const title = isSha ? "Open commit on GitHub" : "What changed in this release";
+          return (
+            <>
+              <span className="text-neutral-700">·</span>
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-neutral-600 hover:text-neutral-300"
+                title={title}
+              >
+                {label}
+              </a>
+            </>
+          );
+        })()}
       </div>
     </footer>
   );
