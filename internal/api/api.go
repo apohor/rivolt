@@ -1803,26 +1803,28 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				Preference: np.Preference,
 			})
 		}
-		// Auto-inject Preferred networks from Settings → Charging
-		// networks. networkId values are the assumed 10001-10009
-		// sequence (RAN/ChargePoint/EA/EV Connect/EVgo/FLO/IONNA/
-		// Shell Recharge/Tesla, alphabetical-ish) seeded in
-		// dcfcrates.Networks. Replace once an iOS sniff confirms or
-		// corrects the mapping. preference=1 on every Preferred row;
-		// Rivian's response will tell us whether they're honored.
+		// Auto-inject the full networkPreferences list from Settings →
+		// Charging networks. Working hypothesis: Rivian's gateway
+		// expects every known networkId in every request, with
+		// preference=1 on the user's picks and preference=0 on the
+		// rest (omitting an ID is interpreted as "no opinion", not
+		// "deprioritise"). networkId values are the assumed
+		// 10001-10009 sequence in dcfcrates.Networks. If the user
+		// has no Preferred toggles set, NetworkPreferenceList returns
+		// nil and we omit the field entirely.
 		if settingsStore != nil {
 			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
 				existing := make(map[string]bool, len(in.NetworkPreferences))
 				for _, np := range in.NetworkPreferences {
 					existing[np.NetworkID] = true
 				}
-				for _, id := range settings.PreferredRivianIDs(nets) {
-					if existing[id] {
+				for _, p := range settings.NetworkPreferenceList(nets) {
+					if existing[p.NetworkID] {
 						continue
 					}
 					in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{
-						NetworkID:  id,
-						Preference: 1,
+						NetworkID:  p.NetworkID,
+						Preference: p.Preference,
 					})
 				}
 			}

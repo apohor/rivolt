@@ -118,35 +118,48 @@ func DefaultChargingNetworks() []ChargingNetwork {
 	return out
 }
 
-// PreferredRivianIDs returns the Rivian-side networkId strings for
-// every network row the user has marked Preferred. Built by joining
-// each persisted row against the built-in dcfcrates.Networks table
-// on Slug, so a custom row without a slug gets dropped here even if
-// it has the toggle on (we don't know what RivianID to send).
+// NetworkPref is one entry in a Rivian networkPreferences[] array.
+// Defined here (not in rivian/) because settings is imported by
+// rivian; the api layer maps these to rivian.NetworkPreference.
+type NetworkPref struct {
+	NetworkID  string
+	Preference int // 1 = preferred, 0 = not preferred (deprioritise / exclude)
+}
+
+// NetworkPreferenceList builds the full set of known Rivian
+// networkId entries with preference=1 for rows the user has marked
+// Preferred and preference=0 for the rest. Returns nil when the
+// user has no Preferred toggles set — caller then omits the
+// networkPreferences field entirely (don't tell Rivian "exclude
+// everything" by sending all zeros).
 //
-// The result feeds Rivian's planTrip2 networkPreferences field.
-// First-spike behaviour: preference=1 (most-preferred). We learn
-// whether Rivian honors the IDs from logs + the resulting plan.
-func PreferredRivianIDs(networks []ChargingNetwork) []string {
-	out := make([]string, 0, len(networks))
-	seen := make(map[string]bool)
-	bySlug := make(map[string]dcfcrates.Network, len(dcfcrates.Networks))
-	for _, n := range dcfcrates.Networks {
-		bySlug[n.Slug] = n
-	}
+// Built by walking dcfcrates.Networks (so the list is consistent
+// across users), keyed on Slug. Rows with empty RivianID — networks
+// we haven't pinned to a Rivian-side ID yet — are skipped.
+func NetworkPreferenceList(networks []ChargingNetwork) []NetworkPref {
+	preferred := make(map[string]bool, len(networks))
+	any := false
 	for _, n := range networks {
-		if !n.Preferred {
-			continue
+		if n.Preferred {
+			preferred[n.Slug] = true
+			any = true
 		}
-		base, ok := bySlug[n.Slug]
-		if !ok || base.RivianID == "" {
-			continue
-		}
-		if seen[base.RivianID] {
+	}
+	if !any {
+		return nil
+	}
+	out := make([]NetworkPref, 0, len(dcfcrates.Networks))
+	seen := make(map[string]bool)
+	for _, base := range dcfcrates.Networks {
+		if base.RivianID == "" || seen[base.RivianID] {
 			continue
 		}
 		seen[base.RivianID] = true
-		out = append(out, base.RivianID)
+		pref := 0
+		if preferred[base.Slug] {
+			pref = 1
+		}
+		out = append(out, NetworkPref{NetworkID: base.RivianID, Preference: pref})
 	}
 	return out
 }
