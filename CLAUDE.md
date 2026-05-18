@@ -33,16 +33,21 @@ Two cadences:
 re-reads the chart at `main` and rolls preview within ~2 min. No
 chart-version bump required for preview iteration.
 
-**Prod (tag, manual promote).** Once the work has soaked on
-`preview.rivolt.dev` and you want to ship it:
+**Prod (tag = promote, retag-only).** Once the work has soaked on
+`preview.rivolt.dev`:
 
-1. Bump `deploy/helm/rivolt/Chart.yaml` to the next `vX.Y.Z` (both
-   `version` and `appVersion`).
-2. Commit, tag `vX.Y.Z`, push the tag (`git push origin vX.Y.Z` —
-   `--follow-tags` skips lightweight tags).
-3. CI publishes `vX.Y.Z` / `X.Y` / `latest`. **Preview is not touched.**
-4. Bump `rivolt-infra/apps/rivolt/app.yaml` `chart.version: vX.Y.Z`
-   and push. ArgoCD reconciles prod.
+1. Tag the soaked main SHA: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+2. CI's `retag` job attaches `vX.Y.Z` / `X.Y` / `latest` to the existing
+   `sha-<short>` manifest — no rebuild, no test re-run. Prod and
+   preview ship the *same image bytes*.
+3. Bump `rivolt-infra/apps/rivolt/values.yaml` `image.tag: vX.Y.Z` and
+   `rivolt-infra/apps/rivolt/app.yaml` `chart.version: vX.Y.Z`, push.
+   ArgoCD reconciles prod.
+
+`deploy/helm/rivolt/Chart.yaml` is **not** bumped per release. Its
+`appVersion` is no longer load-bearing — both preview and prod
+override `image.tag` in values. Only bump Chart.yaml when the chart
+templates themselves change in a backward-incompatible way.
 
 The chart version on the prod app **must equal** a pushed git tag,
 otherwise ArgoCD fails with `unable to resolve 'vX.Y.Z' to a commit
