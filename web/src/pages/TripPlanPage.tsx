@@ -1090,6 +1090,28 @@ export default function TripPlanPage() {
                 });
                 setOvernightFlags((prev) => [...prev, false]);
               }}
+              onAddOvernight={(stop) => {
+                // Hotel-L2 popup path. Append to extraStops AND mark
+                // the new index as overnight so the next submit fires
+                // the multi-day endpoint. Skip the autoReplan ref —
+                // the SPA route stays on the single-day render until
+                // the user clicks "Plan N-day trip"; otherwise the
+                // single-day mutation fires against a now-multi-day
+                // form state and 502s.
+                const labeled = relabelIfHome(stop, home);
+                let added = false;
+                setExtraStops((prev) => {
+                  const dup = prev.some(
+                    (s) =>
+                      Math.abs(s.lat - labeled.lat) < 0.0005 &&
+                      Math.abs(s.lon - labeled.lon) < 0.0005,
+                  );
+                  if (dup) return prev;
+                  added = true;
+                  return [...prev, labeled];
+                });
+                setOvernightFlags((prev) => (added ? [...prev, true] : prev));
+              }}
               departureAt={departureAt}
             />
           </ErrorBoundary>
@@ -1886,6 +1908,7 @@ function TripPlanResult({
   adviceLoading,
   onAnalyze,
   onAddStop,
+  onAddOvernight,
   onPreviewStop,
   departureAt,
 }: {
@@ -1896,6 +1919,7 @@ function TripPlanResult({
   adviceLoading?: boolean;
   onAnalyze?: () => void;
   onAddStop?: StopAdder;
+  onAddOvernight?: StopAdder;
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
@@ -1923,6 +1947,7 @@ function TripPlanResult({
           originLabel={originLabel}
           destLabel={destLabel}
           onAddStop={onAddStop}
+          onAddOvernight={onAddOvernight}
           onPreviewStop={onPreviewStop}
           departureAt={departureAt}
           cost={plan.costs?.[i]}
@@ -2120,6 +2145,7 @@ function RouteCard({
   originLabel,
   destLabel,
   onAddStop,
+  onAddOvernight,
   onPreviewStop,
   departureAt,
   cost,
@@ -2132,6 +2158,7 @@ function RouteCard({
   originLabel: string;
   destLabel: string;
   onAddStop?: StopAdder;
+  onAddOvernight?: StopAdder;
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
   cost?: TripCostEstimate;
@@ -2279,6 +2306,7 @@ function RouteCard({
           <TripRouteMap
             route={route}
             onAddStop={onAddStop}
+            onAddOvernight={onAddOvernight}
             onPreviewStop={onPreviewStop}
             selectedIdx={selectedStop}
             onSelectStop={(idx) => setSelectedStop(idx)}

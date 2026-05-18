@@ -42,6 +42,7 @@ export function TripRouteMap({
   route,
   height = 320,
   onAddStop,
+  onAddOvernight,
   onPreviewStop,
   selectedIdx,
   onSelectStop,
@@ -50,6 +51,11 @@ export function TripRouteMap({
   route: TripRoute;
   height?: number;
   onAddStop?: AddStop;
+  // Hotel-L2 popups get a dedicated "Add as overnight stop" button.
+  // Same shape as onAddStop; the parent appends to extraStops AND
+  // sets overnightFlags[i] = true so the next submit flips to the
+  // multi-day path.
+  onAddOvernight?: AddStop;
   // ISO 8601 departure datetime from the planner form. Used to
   // compute the check-in date on hotel-marker Booking.com
   // deep-links. Empty / undefined falls back to today.
@@ -83,6 +89,8 @@ export function TripRouteMap({
   // being in the dep array (which would re-mount the map on every render).
   const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
+  const onAddOvernightRef = useRef<AddStop | undefined>(onAddOvernight);
+  useEffect(() => { onAddOvernightRef.current = onAddOvernight; }, [onAddOvernight]);
   const onSelectStopRef = useRef<typeof onSelectStop>(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
   const onPreviewStopRef = useRef<PreviewStop | undefined>(onPreviewStop);
@@ -270,6 +278,7 @@ export function TripRouteMap({
               !!onAddStopRef.current,
               !!onPreviewStopRef.current,
               isHotel ? bookingDeepLink(poi, departureAt) : "",
+              isHotel && !!onAddOvernightRef.current,
             ),
           );
         m.on("popupopen", (e) => {
@@ -283,6 +292,14 @@ export function TripRouteMap({
           const addBtn = el.querySelector<HTMLButtonElement>(".charger-add-btn");
           addBtn?.addEventListener("click", () => {
             onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
+            map.closePopup();
+          });
+          // Hotel L2: "Add as overnight stop" path. Same stop shape;
+          // the parent flips overnightFlags so the next submit fires
+          // the multi-day endpoint.
+          const overnightBtn = el.querySelector<HTMLButtonElement>(".charger-overnight-btn");
+          overnightBtn?.addEventListener("click", () => {
+            onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label });
             map.closePopup();
           });
           // Preview path. Click fires the hypothetical replan, then
@@ -508,6 +525,7 @@ function chargerPopupHTML(
   addable: boolean,
   previewable: boolean,
   bookingURL: string,
+  overnightable: boolean,
 ): string {
   const name = poi.name || poi.network || "Charging station";
   const out: string[] = [
@@ -536,7 +554,16 @@ function chargerPopupHTML(
       `Check rates on Booking.com &rarr;</a>`,
     );
   }
-  if (previewable) {
+  if (overnightable) {
+    // Hotel L2: dedicated overnight-stop button. Replaces the
+    // preview-detour path for hotels — pushing a hotel through the
+    // single-leg replan doesn't make sense; it always ends the day.
+    out.push(
+      `<button class="charger-overnight-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
+      `background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
+      `Add as overnight stop</button>`,
+    );
+  } else if (previewable) {
     // Preview-first path. Rivian's planner re-runs with this stop
     // added; the result names which planned stops the candidate
     // keeps, drops, or replaces.
