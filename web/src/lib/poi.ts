@@ -80,6 +80,31 @@ type ArchiveCache = {
   pm: PMTiles;
 };
 
+// asyncPool runs `worker` over `items` with at most `limit` in-flight
+// at a time. Drop-in replacement for Promise.all when the work fans
+// out to a network resource — uncapped fan-out triggers Chrome's
+// net::ERR_INSUFFICIENT_RESOURCES once the per-origin socket pool
+// saturates (observed on chargers.pmtiles range reads for long
+// corridors, hundreds of tiles × multiple PMTiles fetches each).
+async function asyncPool<T>(
+  limit: number,
+  items: readonly T[],
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  async function run(): Promise<void> {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      await worker(items[i], i);
+    }
+  }
+  const runners: Promise<void>[] = [];
+  const n = Math.min(limit, items.length);
+  for (let k = 0; k < n; k++) runners.push(run());
+  await Promise.all(runners);
+}
+
 let chargersCache: ArchiveCache | null = null;
 let basemapCache: ArchiveCache | null = null;
 
@@ -497,8 +522,11 @@ export async function findChargersAlongPath(
   }
 
   const seen = new Map<string, POI>();
-  await Promise.all(
-    tiles.map(async ([tx, ty]) => {
+  // 8 concurrent tile fetches matches Chrome's per-origin HTTP/1.1
+  // socket limit; HTTP/2 sites can go higher but 8 is a safe ceiling
+  // that leaves room for the basemap layer + app API on the same
+  // origin.
+  await asyncPool(8, tiles, async ([tx, ty]) => {
       try {
         const result = await pm.getZxy(z, tx, ty);
         if (!result) return;
@@ -568,7 +596,7 @@ export async function findChargersAlongPath(
       } catch {
         // Missing tile or corrupted MVT — skip
       }
-    }),
+    },
   );
   return Array.from(seen.values());
 }
