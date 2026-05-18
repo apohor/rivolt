@@ -148,6 +148,11 @@ export default function TripPlanPage() {
   // (ends one day, starts the next). Any true value flips planning to
   // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
   const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
+  // Post-overnight SoC cap (%). Only relevant when at least one
+  // overnight has L2 — the orchestrator will hit this ceiling before
+  // it would otherwise top off above it. 80 matches Rivian's "daily"
+  // recommendation; users can push it up for long-day starts.
+  const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
@@ -446,7 +451,7 @@ export default function TripPlanPage() {
         origin: { latitude: origin.lat, longitude: origin.lon, waypoint_type: "origin" },
         destination: { latitude: destination.lat, longitude: destination.lon, waypoint_type: "destination" },
         overnights,
-        max_overnight_soc_pct: 0, // server default (80)
+        max_overnight_soc_pct: maxOvernightSoCPct,
       });
     },
   });
@@ -718,6 +723,26 @@ export default function TripPlanPage() {
               setOvernightFlags((prev) => [...prev, false]);
             }}
           />
+          {hasOvernightStops && (
+            <label className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm">
+              <span className="flex items-baseline justify-between text-neutral-300">
+                <span>Max overnight SoC</span>
+                <span className="font-mono text-emerald-400">{maxOvernightSoCPct}%</span>
+              </span>
+              <input
+                type="range"
+                min={50}
+                max={100}
+                step={5}
+                value={maxOvernightSoCPct}
+                onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value))}
+                className="accent-emerald-500"
+              />
+              <span className="text-xs text-neutral-500">
+                Cap on how much L2 will top off before each next-day departure. 80% follows Rivian's daily-charge guidance; raise it for big morning legs.
+              </span>
+            </label>
+          )}
           <LocationField
             heading="To"
             value={destination}
@@ -788,6 +813,7 @@ export default function TripPlanPage() {
           response={multidayMutation.data}
           originLabel={origin?.label ?? ""}
           destLabel={destination?.label ?? ""}
+          departureAt={departureAt}
         />
       )}
 
@@ -2551,19 +2577,29 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-// MultidayResult renders a multi-day trip as a stack of compact day
-// cards plus a trip-total header. v1: each day is a summary (distance,
-// drive time, stop count, SoC range, optional overnight); the full
-// RouteCard render isn't reused here yet. Saved trips and AI advice
-// don't flow through this path in v1.
+// LONG_DAY_THRESHOLD_MI / LONG_DAY_THRESHOLD_HR drive the "long day"
+// chip on each day card. Picked from the road-trip rule of thumb that
+// driving more than ~10 hours or ~600 miles in a single day is fatigue
+// territory.
+const LONG_DAY_THRESHOLD_MI = 600;
+const LONG_DAY_THRESHOLD_HR = 9;
+
+// MultidayResult renders a multi-day trip as a stack of full per-day
+// RouteCards (with map + stops table) plus a trip-total header. Each
+// day carries its own departure/arrival SoC pill, a long-day warning
+// when distance or time exceeds the threshold, and an overnight
+// footer showing the L2 math. AI advice + saved trips don't flow
+// through this path yet.
 function MultidayResult({
   response,
   originLabel,
   destLabel,
+  departureAt,
 }: {
   response: TripPlanMultidayResponse;
   originLabel: string;
   destLabel: string;
+  departureAt?: string;
 }) {
   const totalMiles = response.total.distance_meters / 1609.344;
   const totalHrs = response.total.drive_duration_sec / 3600;
@@ -2576,33 +2612,69 @@ function MultidayResult({
         <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
         <Stat label="Charging" value={`${chargeMin} min`} />
       </div>
-      <div className="space-y-3">
-        {response.days.map((d) => {
+      <div className="space-y-4">
+        {response.days.map((d, i) => {
           const r = d.plan.Routes?.[0];
-          const stopCount = r
-            ? r.Waypoints.filter((w) => {
-                const t = w.WaypointType.toLowerCase();
-                return t !== "origin" && t !== "destination" && t !== "waypoint" && t !== "other";
-              }).length
-            : 0;
+          // Per-day origin label = previous day's overnight name, or
+          // the trip origin on Day 1. Destination label = this day's
+          // overnight name, or the trip destination on the last day.
+          const dayOrigin = i === 0
+            ? (originLabel || "Origin")
+            : (response.days[i - 1].overnight?.name || `Overnight ${i}`);
+          const dayDest = d.overnight?.name
+            ?? (i === response.days.length - 1 ? (destLabel || "Destination") : `Overnight ${i + 1}`);
           const miles = r ? r.TotalDriveDistanceMeters / 1609.344 : 0;
           const hrs = r ? r.TotalDriveDurationSec / 3600 : 0;
+          const isLongDay = miles > LONG_DAY_THRESHOLD_MI || hrs > LONG_DAY_THRESHOLD_HR;
           return (
             <div key={d.index} className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-              <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="text-sm font-semibold text-neutral-100">Day {d.index}</span>
-                <span className="text-xs text-neutral-400 font-mono">
-                  {miles.toFixed(0)} mi · {hrs.toFixed(1)} h · {stopCount} stop{stopCount === 1 ? "" : "s"}
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="rounded bg-emerald-900/40 px-1.5 py-0.5 text-xs font-semibold text-emerald-200">
+                  Day {d.index}
+                </span>
+                <span className="text-sm text-neutral-300">
+                  {dayOrigin} → {dayDest}
                 </span>
                 <span className="text-xs text-neutral-500">
                   start <span className="text-neutral-300 font-mono">{d.departure_soc.toFixed(0)}%</span>
                   {" → "}
                   arrive <span className="text-neutral-300 font-mono">{d.arrival_soc.toFixed(0)}%</span>
                 </span>
+                {isLongDay && (
+                  <span
+                    className="rounded bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-300"
+                    title={`Long day: ${miles.toFixed(0)} mi / ${hrs.toFixed(1)} h drive. Consider splitting into two days.`}
+                  >
+                    long day
+                  </span>
+                )}
               </div>
+              {r ? (
+                <Suspense
+                  fallback={
+                    <div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />
+                  }
+                >
+                  <RouteCard
+                    route={r}
+                    index={0}
+                    allRoutes={d.plan.Routes ?? [r]}
+                    originLabel={dayOrigin}
+                    destLabel={dayDest}
+                    departureAt={departureAt}
+                    cost={d.costs?.[0]}
+                    primaryCost={d.costs?.[0]}
+                  />
+                </Suspense>
+              ) : (
+                <div className="text-xs text-rose-300">
+                  Rivian returned no route for this day.
+                </div>
+              )}
               {d.overnight && (
-                <div className="text-xs text-neutral-400">
-                  Overnight {d.overnight.name ? <span className="text-neutral-300">at {d.overnight.name}</span> : null}
+                <div className="mt-3 text-xs text-neutral-400">
+                  Overnight{" "}
+                  {d.overnight.name ? <span className="text-neutral-300">at {d.overnight.name}</span> : null}
                   {" · "}
                   {d.overnight.l2_kw > 0 ? (
                     <>
