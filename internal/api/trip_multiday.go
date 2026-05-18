@@ -115,6 +115,26 @@ func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http
 				Preference: np.Preference,
 			})
 		}
+		// Auto-inject Preferred networks from Settings (same as the
+		// single-day handler). See handleTripPlan for the
+		// 10001-10009 mapping rationale.
+		if settingsStore != nil {
+			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
+				existing := make(map[string]bool, len(mreq.NetworkPreferences))
+				for _, np := range mreq.NetworkPreferences {
+					existing[np.NetworkID] = true
+				}
+				for _, id := range settings.PreferredRivianIDs(nets) {
+					if existing[id] {
+						continue
+					}
+					mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
+						NetworkID:  id,
+						Preference: 1,
+					})
+				}
+			}
+		}
 
 		out, err := tripmultiday.Plan(r.Context(), lc, mreq)
 		if err != nil {

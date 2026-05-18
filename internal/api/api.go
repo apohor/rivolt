@@ -1803,15 +1803,30 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				Preference: np.Preference,
 			})
 		}
-		// Auto-inject of preferred-network preferences is parked
-		// pending iOS-sniff data on the right networkId format.
-		// Rivian's gateway accepted "Electrify America" without a
-		// validation error but the plan picks didn't visibly shift
-		// (v0.19.1 spike); introspection is locked down so we can't
-		// query the enum directly. settings.PreferredRivianIDs and
-		// the Settings UI toggle stay in place so the data model is
-		// ready - we just don't forward the prefs to Rivian until
-		// we know they're honoured. See notes/ios-sniff.md.
+		// Auto-inject Preferred networks from Settings → Charging
+		// networks. networkId values are the assumed 10001-10009
+		// sequence (RAN/ChargePoint/EA/EV Connect/EVgo/FLO/IONNA/
+		// Shell Recharge/Tesla, alphabetical-ish) seeded in
+		// dcfcrates.Networks. Replace once an iOS sniff confirms or
+		// corrects the mapping. preference=1 on every Preferred row;
+		// Rivian's response will tell us whether they're honored.
+		if settingsStore != nil {
+			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
+				existing := make(map[string]bool, len(in.NetworkPreferences))
+				for _, np := range in.NetworkPreferences {
+					existing[np.NetworkID] = true
+				}
+				for _, id := range settings.PreferredRivianIDs(nets) {
+					if existing[id] {
+						continue
+					}
+					in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{
+						NetworkID:  id,
+						Preference: 1,
+					})
+				}
+			}
+		}
 
 		plan, err := lc.PlanTrip(r.Context(), in)
 		if err != nil {

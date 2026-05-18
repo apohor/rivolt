@@ -40,12 +40,17 @@ type Network struct {
 	// surfaced in the cost-strip tooltip later. Empty when no plan.
 	MemberPlan string
 	// RivianID is the value passed to Rivian's planTrip2
-	// networkPreferences[].networkId field. Best-effort guess based
-	// on the bracket form Rivian uses in their charger names
-	// ("<location> [Tesla]" -> "Tesla"). Confirmed on the wire as
-	// the spike rolls out; rows where the gateway rejects the ID
-	// will get corrected here as we learn. Empty when we don't
-	// have a guess (user-added custom rows).
+	// networkPreferences[].networkId field. The gateway expects a
+	// numeric-string ID (per kaedenbrinkman/rivian-api docs:
+	// "10001"/"10002"/...). Working assumption is that IDs 10001-
+	// 10009 follow the alphabetical-ish order the Rivian app shows
+	// in its filter list: 10001=RAN, 10002=ChargePoint, 10003=EA,
+	// 10004=EV Connect, 10005=EVgo, 10006=FLO, 10007=IONNA,
+	// 10008=Shell Recharge, 10009=Tesla. Networks outside that
+	// sequence (Blink, bp pulse, Francis Energy) leave RivianID
+	// empty until an iOS sniff confirms their IDs — preference
+	// suppression is the safe default. Custom user-added rows also
+	// stay empty.
 	RivianID string
 	// DefaultMemberActive is the initial MemberActive state for a
 	// freshly-seeded ChargingNetwork row. True for networks every
@@ -69,7 +74,7 @@ var Networks = []Network{
 		GuestRate:     0.48,
 		MemberRate:    f64(0.36),
 		MemberPlan:    "Pass+ - $7/mo",
-		RivianID:      "Electrify America",
+		RivianID:      "10003",
 	},
 	{
 		Slug:        "tesla_sc",
@@ -84,7 +89,7 @@ var Networks = []Network{
 		GuestRate:     0.55,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "Supercharging Membership - $12.99/mo",
-		RivianID:      "Tesla",
+		RivianID:      "10009",
 	},
 	{
 		Slug:          "ran",
@@ -98,7 +103,7 @@ var Networks = []Network{
 		GuestRate:           0.60,
 		MemberRate:          f64(0.54),
 		MemberPlan:          "Rivian owner (10% off)",
-		RivianID:            "Rivian Adventure Network",
+		RivianID:            "10001",
 		DefaultMemberActive: true,
 	},
 	{
@@ -108,7 +113,7 @@ var Networks = []Network{
 		GuestRate:     0.42,
 		MemberRate:    f64(0.34),
 		MemberPlan:    "Rewards+ - $6.99/mo",
-		RivianID:      "EVgo",
+		RivianID:      "10005",
 	},
 	{
 		Slug:          "blink",
@@ -117,7 +122,9 @@ var Networks = []Network{
 		GuestRate:     0.49,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "Blink Member - annual",
-		RivianID:      "Blink",
+		// RivianID unset — outside the 10001-10009 sequence; iOS sniff
+		// will fill this in once we capture a real plan with this network.
+		RivianID:      "",
 	},
 	{
 		Slug:          "bp_pulse",
@@ -126,7 +133,8 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    f64(0.39),
 		MemberPlan:    "bp pulse Plus - $4/mo",
-		RivianID:      "bp pulse",
+		// RivianID unset — outside the 10001-10009 sequence.
+		RivianID:      "",
 	},
 	{
 		Slug:          "shell_recharge",
@@ -135,7 +143,7 @@ var Networks = []Network{
 		GuestRate:     0.43,
 		MemberRate:    f64(0.40),
 		MemberPlan:    "GO+ - free",
-		RivianID:      "Shell Recharge",
+		RivianID:      "10008",
 	},
 	{
 		Slug:          "chargepoint",
@@ -144,7 +152,7 @@ var Networks = []Network{
 		GuestRate:     0.45,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "ChargePoint",
+		RivianID:      "10002",
 	},
 	{
 		Slug:          "francis_energy",
@@ -153,7 +161,8 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "Francis Energy",
+		// RivianID unset — outside the 10001-10009 sequence.
+		RivianID:      "",
 	},
 	{
 		Slug:          "ionna",
@@ -162,7 +171,7 @@ var Networks = []Network{
 		GuestRate:     0.40,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "Ionna",
+		RivianID:      "10007",
 	},
 	{
 		Slug:          "flo",
@@ -171,7 +180,16 @@ var Networks = []Network{
 		GuestRate:     0.35,
 		MemberRate:    nil,
 		MemberPlan:    "",
-		RivianID:      "Flo",
+		RivianID:      "10006",
+	},
+	{
+		Slug:          "ev_connect",
+		DisplayName:   "EV Connect",
+		MatchPatterns: []string{"ev connect", "evconnect"},
+		GuestRate:     0.40,
+		MemberRate:    nil,
+		MemberPlan:    "",
+		RivianID:      "10004",
 	},
 }
 
