@@ -213,14 +213,14 @@ var hotelFacilityTypes = map[string]bool{
 // apps/maps/tiles/manifests/chargers.yaml.
 const chargersZoom uint8 = 14
 
-// defaultCorridorKM is the SPA's CORRIDOR_KM. Kept in sync; passed
-// through QueryCorridorOptions for callers that want to widen.
-const defaultCorridorKM = 25.0
+// defaultCorridorKM is the half-width of the search band around the
+// route — 20 mi, matching the SPA's CORRIDOR_KM = 32.2 km.
+const defaultCorridorKM = 32.2
 
 // endpointTrimMeters trims the route at both endpoints by this much
 // to drop the metro-cluster of chargers that project onto the last
-// few segments. Mirrors the SPA's ENDPOINT_TRIM_M.
-const endpointTrimMeters = 50_000.0
+// few segments. Mirrors the SPA's ENDPOINT_TRIM_M (20 mi).
+const endpointTrimMeters = 32_000.0
 
 // QueryCorridorOptions tunes the corridor scan; zero values pick the
 // SPA defaults.
@@ -306,7 +306,7 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			pois, err := a.featuresInTile(chargersZoom, tx, ty, filter, proj, trimM, opts)
+			pois, err := a.featuresInTile(chargersZoom, tx, ty, filter, proj, trimM, corridorKM*1000, opts)
 			if err != nil || len(pois) == 0 {
 				out <- nil
 				return
@@ -351,7 +351,7 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 // featuresInTile decodes one MVT tile, projects each feature back
 // to WGS84, and returns the subset that passes the filter + corridor
 // distance check.
-func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, trimM float64, opts QueryCorridorOptions) ([]POI, error) {
+func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, trimM, corridorM float64, opts QueryCorridorOptions) ([]POI, error) {
 	raw, err := a.tileBytes(z, x, y)
 	if err != nil || len(raw) == 0 {
 		return nil, err
@@ -431,9 +431,13 @@ func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj proje
 				}
 			}
 
-			// Corridor distance + endpoint trim.
+			// Corridor distance + endpoint trim. +Inf = endpoint-
+			// projection-rejected; any larger-than-corridor value =
+			// outside the band. Tile bbox is wider than the corridor
+			// by design (slippy-map tile grid doesn't align with the
+			// corridor band), so this is the real filter.
 			perp := proj.perpDistanceM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
-			if perp == math.Inf(1) {
+			if perp == math.Inf(1) || perp > corridorM {
 				continue
 			}
 			pois = append(pois, poi)
@@ -535,6 +539,7 @@ type projectedPath struct {
 	ys      []float64
 	cumLen  []float64 // meters, cumulative arc length
 	totalLn float64
+	cosRef  float64 // path-centroid cos(lat); shared for candidate points
 }
 
 // Web-Mercator-ish meter-projection: convert lat/lon to local meters
@@ -568,6 +573,7 @@ func projectPath(path [][2]float64) projectedPath {
 		pp.cumLen[i] = pp.cumLen[i-1] + math.Sqrt(dx*dx+dy*dy)
 	}
 	pp.totalLn = pp.cumLen[len(pp.cumLen)-1]
+	pp.cosRef = cosRef
 	return pp
 }
 
@@ -579,13 +585,13 @@ func (pp projectedPath) perpDistanceM(lat, lon, trimM float64, applyTrim bool) f
 	if len(pp.xs) < 2 {
 		return math.Inf(1)
 	}
-	refLat := pp.ys[0] / (earthRadiusM * math.Pi / 180)
-	_ = refLat
-	// Project the candidate point with the same flat-earth scale
-	// the path used. We approximate the cos factor with the path's
-	// centroid latitude — close enough for corridor decisions.
-	cosRef := math.Cos((lat) * math.Pi / 180)
-	px := lon * cosRef * (earthRadiusM * math.Pi / 180)
+	// Project the candidate point with the SAME flat-earth scale the
+	// path used (pp.cosRef = cos of path-centroid lat). Using the
+	// candidate's own latitude here gives a different coordinate
+	// system, so points ~30 deg north of the path centroid landed
+	// well inside the corridor even when they were hundreds of km
+	// off-route.
+	px := lon * pp.cosRef * (earthRadiusM * math.Pi / 180)
 	py := lat * (earthRadiusM * math.Pi / 180)
 	best := math.Inf(1)
 	var bestAlong float64
