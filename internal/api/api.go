@@ -1857,6 +1857,8 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
 					tc.HomePricePerKWh = cfg.HomePricePerKWh
 					tc.HomeCurrency = cfg.HomeCurrency
+					tc.GasPricePerGallon = cfg.GasPricePerGallon
+					tc.ComparisonMPG = cfg.ComparisonMPG
 				}
 				if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
 					tc.DCFCNetworks = settings.AsOverrides(nets)
@@ -2088,6 +2090,8 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 			if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
 				tc.HomePricePerKWh = cfg.HomePricePerKWh
 				tc.HomeCurrency = cfg.HomeCurrency
+				tc.GasPricePerGallon = cfg.GasPricePerGallon
+				tc.ComparisonMPG = cfg.ComparisonMPG
 			}
 			// Same source feeds the per-stop DCFC pricing. Empty list
 			// (or a settings.GetChargingNetworks error) lets the

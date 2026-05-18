@@ -288,6 +288,10 @@ export type Charge = {
 export type ChargingSettings = {
   home_price_per_kwh: number;
   home_currency: string;
+  // Inputs for the gas-equivalent chip on the trip planner. Zero on
+  // either input hides the chip.
+  gas_price_per_gallon: number;
+  comparison_mpg: number;
 };
 
 // ChargingNetwork is one entry in the user's price book for fast /
@@ -1402,6 +1406,9 @@ export type TripCostEstimate = {
   dcfc_spend_user_member: number;
   dcfc_spend_all_member: number;
   home_equivalent: number;
+  gas_equivalent: number;
+  gas_price_per_gallon: number;
+  gas_mpg: number;
   dcfc_rate_used: number;
   dcfc_rate_used_user_member: number;
   dcfc_rate_used_all_member: number;

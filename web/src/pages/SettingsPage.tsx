@@ -329,10 +329,14 @@ function ChargingCostPanel() {
   });
   const [price, setPrice] = useState<string>("");
   const [currency, setCurrency] = useState<string>("USD");
+  const [gasPrice, setGasPrice] = useState<string>("");
+  const [mpg, setMpg] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
   if (!loaded && q.data) {
     setPrice(q.data.home_price_per_kwh ? String(q.data.home_price_per_kwh) : "");
     setCurrency(q.data.home_currency || "USD");
+    setGasPrice(q.data.gas_price_per_gallon ? String(q.data.gas_price_per_gallon) : "");
+    setMpg(q.data.comparison_mpg ? String(q.data.comparison_mpg) : "");
     setLoaded(true);
   }
   const mut = useMutation({
@@ -340,6 +344,8 @@ function ChargingCostPanel() {
       backend.setChargingSettings({
         home_price_per_kwh: Number(price) || 0,
         home_currency: currency.toUpperCase() || "USD",
+        gas_price_per_gallon: Number(gasPrice) || 0,
+        comparison_mpg: Number(mpg) || 0,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["charging-settings"] });
@@ -388,6 +394,38 @@ function ChargingCostPanel() {
             className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
           />
         </div>
+        <div>
+          <label htmlFor="gas-price" className="block text-xs text-neutral-400 mb-1">
+            Gas $/gal
+          </label>
+          <input
+            id="gas-price"
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={gasPrice}
+            onChange={(e) => setGasPrice(e.target.value)}
+            placeholder="4.00"
+            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          />
+        </div>
+        <div>
+          <label htmlFor="comparison-mpg" className="block text-xs text-neutral-400 mb-1">
+            ICE MPG
+          </label>
+          <input
+            id="comparison-mpg"
+            type="number"
+            step="1"
+            min="0"
+            inputMode="decimal"
+            value={mpg}
+            onChange={(e) => setMpg(e.target.value)}
+            placeholder="20"
+            className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          />
+        </div>
         <button
           type="submit"
           disabled={mut.isPending}
@@ -397,8 +435,8 @@ function ChargingCostPanel() {
         </button>
       </div>
       <p className="text-xs text-neutral-500">
-        Applied locally to sessions Rivian reports as free (home AC, L2 on
-        non-RAN chargers). Leave at 0 to disable.
+        Per-kWh applies locally to sessions Rivian reports as free. Gas $/gal × ICE
+        MPG drives the gas-equivalent chip on the trip planner. Leave any at 0 to disable.
       </p>
       {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}
     </form>

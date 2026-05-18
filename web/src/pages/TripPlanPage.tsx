@@ -1981,6 +1981,7 @@ function RouteCard({
   const totalGuest = cost?.dcfc_spend ?? 0;
   const totalUser = cost?.dcfc_spend_user_member ?? 0;
   const userSavings = totalGuest - totalUser;
+  const gasEquiv = cost?.gas_equivalent ?? 0;
   // Bidirectional selection between the stops table and the map.
   // Holds the index in route.Waypoints of the highlighted stop, or
   // null for "nothing selected". Reset to null when the route prop
@@ -2025,6 +2026,17 @@ function RouteCard({
             <>
               {" / "}
               <span className="text-emerald-400 font-mono">{fmtCurrency(totalUser)}</span>
+            </>
+          )}
+          {gasEquiv > 0.5 && (
+            <>
+              {" / "}
+              <span
+                className="text-red-700 font-mono"
+                title={`Same trip in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal`}
+              >
+                {fmtCurrency(gasEquiv)} gas
+              </span>
             </>
           )}
         </span>

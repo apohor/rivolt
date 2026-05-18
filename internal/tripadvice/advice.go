@@ -50,6 +50,10 @@ type Context struct {
 	// section degrades to a pure-DCFC estimate.
 	HomePricePerKWh float64
 	HomeCurrency    string
+	// GasPricePerGallon × distance / ComparisonMPG drives the gas-
+	// equivalent chip. Both must be > 0 for the chip to render.
+	GasPricePerGallon float64
+	ComparisonMPG     float64
 	// DCFCNetworks is the user's edited price book from Settings.
 	// Pass nil or empty to use the built-in defaults from dcfcrates.
 	// Per-stop rates honour each row's MemberActive flag so the
@@ -91,6 +95,12 @@ type CostEstimate struct {
 	DCFCSpendUserMember float64 `json:"dcfc_spend_user_member"`
 	DCFCSpendAllMember  float64 `json:"dcfc_spend_all_member"`
 	HomeEquivalent      float64 `json:"home_equivalent"`
+	// GasEquivalent is what the same distance would cost in an ICE
+	// vehicle at the user's configured gas price + MPG. Zero when
+	// either input is unset.
+	GasEquivalent     float64 `json:"gas_equivalent"`
+	GasPricePerGallon float64 `json:"gas_price_per_gallon"`
+	GasMPG            float64 `json:"gas_mpg"`
 	// DCFCRateUsed is the avg per-kWh guest rate weighted by energy.
 	// Falls back to DefaultDCFCRateUSD when no waypoints priced.
 	DCFCRateUsed           float64 `json:"dcfc_rate_used"`
@@ -229,6 +239,12 @@ func EstimateRoute(r *rivian.TripRoute, tc Context) CostEstimate {
 	}
 	if tc.HomePricePerKWh > 0 && r.EnergyConsumptionKWh > 0 {
 		est.HomeEquivalent = r.EnergyConsumptionKWh * tc.HomePricePerKWh
+	}
+	if tc.GasPricePerGallon > 0 && tc.ComparisonMPG > 0 && r.TotalDriveDistanceMeters > 0 {
+		miles := r.TotalDriveDistanceMeters / 1609.344
+		est.GasEquivalent = miles / tc.ComparisonMPG * tc.GasPricePerGallon
+		est.GasPricePerGallon = tc.GasPricePerGallon
+		est.GasMPG = tc.ComparisonMPG
 	}
 	return est
 }
