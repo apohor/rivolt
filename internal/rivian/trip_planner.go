@@ -285,9 +285,16 @@ type planTripWaypointVar struct {
 	Longitude float64 `json:"longitude"`
 }
 
+// planTripNetworkPrefVar is the wire shape of one networkPreferences
+// entry. The Android app's NetworkPreferencesInput adapter (j30/c
+// pswitch case for Li30/d8, app 3.12.0-4572) writes only `networkId`
+// — `preference` is intentionally omitted. Matching that exactly so
+// we look indistinguishable from the official app: include in the
+// preferred list = include this network in plan picks; omit from the
+// list = no opinion. Setting preference=0 was misinterpreted by the
+// gateway as "exclude this network from picks."
 type planTripNetworkPrefVar struct {
-	NetworkID  string `json:"networkId"`
-	Preference int    `json:"preference"`
+	NetworkID string `json:"networkId"`
 }
 
 type planTripData struct {
@@ -579,8 +586,27 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
 	}
-	// trailerProfile / networkPreferences omitted in this slice —
-	// not yet user-facing. Surface when needed.
+	// networkPreferences: inline as a literal NetworkPreferenceInput
+	// list. Matches the Rivian Android app's wire shape (confirmed in
+	// j30/c pswitch, app 3.12.0-4572): each entry is just
+	// {networkId:"NNNNN"} — no preference field. Sending only the
+	// user's preferred IDs; omitting one signals "no opinion" (the
+	// app's behaviour). networkId values from
+	// com.rivian.android.consumer.charging.config.InternalNetwork.
+	if len(in.NetworkPreferences) > 0 {
+		entries := make([]string, 0, len(in.NetworkPreferences))
+		for _, np := range in.NetworkPreferences {
+			if np.NetworkID == "" {
+				continue
+			}
+			entries = append(entries, fmt.Sprintf("{networkId: %q}", np.NetworkID))
+		}
+		if len(entries) > 0 {
+			args = append(args, fmt.Sprintf("networkPreferences: [%s]", strings.Join(entries, ", ")))
+		}
+	}
+	// trailerProfile omitted — not yet user-facing. Surface when
+	// needed.
 	return fmt.Sprintf(`query planTripWithMultiStopV2 {
   planTrip2(%s) {
     status

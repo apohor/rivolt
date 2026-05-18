@@ -123,46 +123,46 @@ func DefaultChargingNetworks() []ChargingNetwork {
 // rivian; the api layer maps these to rivian.NetworkPreference.
 type NetworkPref struct {
 	NetworkID  string
-	Preference int // 1 = preferred, 0 = not preferred (deprioritise / exclude)
+	Preference int
 }
 
-// NetworkPreferenceList builds the full set of known Rivian
-// networkId entries with preference=1 for rows the user has marked
-// Preferred and preference=0 for the rest. Returns nil when the
-// user has no Preferred toggles set — caller then omits the
-// networkPreferences field entirely (don't tell Rivian "exclude
-// everything" by sending all zeros).
+// NetworkPreferenceList returns Rivian networkId entries for the
+// networks the user marked Preferred. Empty when the user picked
+// none — caller then omits networkPreferences entirely.
 //
-// Built by walking dcfcrates.Networks (so the list is consistent
-// across users), keyed on Slug. Rows with empty RivianID — networks
-// we haven't pinned to a Rivian-side ID yet — are skipped.
+// Wire shape mirrors the Rivian Android app (3.6 + 3.12 confirmed
+// via apktool): NetworkPreferencesInput has a single `networkId`
+// field; no `preference` value is sent. The app submits ONLY the
+// preferred IDs; networks omitted from the list are not treated as
+// "deprioritise" but as "no opinion." Preference=1 is included on
+// the Go-side struct so the rivian client still has a value, but
+// the GraphQL serializer is what determines whether it goes on the
+// wire.
+//
+// Networks span multiple operator IDs (RAN = RAN+RWN; FLO =
+// FLOC+FLOU); all share the user's per-slug toggle and we emit one
+// row per ID.
 func NetworkPreferenceList(networks []ChargingNetwork) []NetworkPref {
-	preferred := make(map[string]bool, len(networks))
-	any := false
-	for _, n := range networks {
-		if n.Preferred {
-			preferred[n.Slug] = true
-			any = true
-		}
-	}
-	if !any {
-		return nil
-	}
-	out := make([]NetworkPref, 0, len(dcfcrates.Networks))
+	out := make([]NetworkPref, 0, len(networks))
 	seen := make(map[string]bool)
-	for _, base := range dcfcrates.Networks {
-		pref := 0
-		if preferred[base.Slug] {
-			pref = 1
+	bySlug := make(map[string]dcfcrates.Network, len(dcfcrates.Networks))
+	for _, n := range dcfcrates.Networks {
+		bySlug[n.Slug] = n
+	}
+	for _, n := range networks {
+		if !n.Preferred {
+			continue
 		}
-		// Some networks span multiple operator IDs (RAN = RAN+RWN;
-		// FLO = FLOC+FLOU). All share the user's per-slug toggle.
+		base, ok := bySlug[n.Slug]
+		if !ok {
+			continue
+		}
 		for _, id := range base.RivianIDs {
 			if id == "" || seen[id] {
 				continue
 			}
 			seen[id] = true
-			out = append(out, NetworkPref{NetworkID: id, Preference: pref})
+			out = append(out, NetworkPref{NetworkID: id, Preference: 1})
 		}
 	}
 	return out
