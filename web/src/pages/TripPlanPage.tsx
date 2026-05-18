@@ -148,14 +148,17 @@ export default function TripPlanPage() {
   // (ends one day, starts the next). Any true value flips planning to
   // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
   const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
-  // Overnight charging limit. Two modes: cap the post-charge SoC at
-  // a percentage ("soc", default 80 — Rivian's daily-charge guidance),
-  // or cap by parked hours instead ("time"). Time mode sets the cap
-  // to 100% and overrides parked_hours per overnight; SoC mode uses
-  // the L2 default (10 h on the server).
-  const [overnightLimitMode, setOvernightLimitMode] = useState<"soc" | "time">("soc");
+  // Overnight charging limit. Three modes:
+  //   - "soc":     cap the post-charge SoC at maxOvernightSoCPct
+  //   - "time":    cap by hours plugged in (overnightParkedHours)
+  //   - "depart":  cap by a target morning departure clock time
+  //                (overnightDepartureLocal, HH:MM). Translated to
+  //                parked hours assuming a typical 20:00 arrival;
+  //                Time-mode style otherwise (SoC cap lifted to 100).
+  const [overnightLimitMode, setOvernightLimitMode] = useState<"soc" | "time" | "depart">("soc");
   const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
   const [overnightParkedHours, setOvernightParkedHours] = useState<number>(8);
+  const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const [startingSoc, setStartingSoc] = useState<string>("");
@@ -433,10 +436,25 @@ export default function TripPlanPage() {
       if (!vid || !soc || !firstVehicle?.pack_kwh) {
         return Promise.reject(new Error("vehicle, starting SoC, and pack capacity required"));
       }
-      // In SoC mode let the server default parked hours (10 h); in
-      // Time mode lift the SoC cap and apply the user's hours to
-      // every overnight. l2_kw stays a 7 kW bake-in until we wire
-      // per-stop overrides.
+      // Resolve mode → per-overnight parked_hours.
+      // - "soc":    leave 10 (server default), let the SoC cap rule.
+      // - "time":   take the user's number directly.
+      // - "depart": translate "I want to depart at HH:MM" into hours
+      //             assuming a 20:00 typical arrival. ASSUMED_ARRIVAL_HR
+      //             is conservative for road trips — late dinner, hotel
+      //             check-in. Real arrival varies per leg, but the
+      //             planner is an estimator, not a clock.
+      const ASSUMED_ARRIVAL_HR = 20;
+      const hoursForOvernight = (() => {
+        if (overnightLimitMode === "time") return overnightParkedHours;
+        if (overnightLimitMode === "depart") {
+          const [hh, mm] = overnightDepartureLocal.split(":").map(Number);
+          const depFrac = (hh || 0) + (mm || 0) / 60;
+          const parked = (24 - ASSUMED_ARRIVAL_HR) + depFrac;
+          return Math.max(1, Math.min(24, Math.round(parked)));
+        }
+        return 10;
+      })();
       const overnights = extraStops
         .map((s, i) => ({ stop: s, on: !!overnightFlags[i] }))
         .filter((x) => x.on)
@@ -444,7 +462,7 @@ export default function TripPlanPage() {
           latitude: x.stop.lat,
           longitude: x.stop.lon,
           name: x.stop.label,
-          parked_hours: overnightLimitMode === "time" ? overnightParkedHours : 10,
+          parked_hours: hoursForOvernight,
           l2_kw: 7,
         }));
       return backend.planTripMultiday({
@@ -732,12 +750,13 @@ export default function TripPlanPage() {
           {hasOvernightStops && (
             <div
               className="flex flex-wrap items-center gap-2 text-xs text-neutral-300"
-              title="How to limit overnight L2 charging: cap the post-charge SoC, or cap by hours plugged in."
+              title="How to limit overnight L2 charging: cap the post-charge SoC, cap by hours plugged in, or cap by next-day departure time."
             >
               <span className="text-neutral-400">Limit overnight by</span>
               <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
-                {(["soc", "time"] as const).map((m) => {
+                {(["soc", "time", "depart"] as const).map((m) => {
                   const active = overnightLimitMode === m;
+                  const label = m === "soc" ? "SoC" : m === "time" ? "Time" : "Depart";
                   return (
                     <button
                       key={m}
@@ -749,12 +768,12 @@ export default function TripPlanPage() {
                           : "text-neutral-400 hover:text-neutral-200"
                       }`}
                     >
-                      {m === "soc" ? "SoC" : "Time"}
+                      {label}
                     </button>
                   );
                 })}
               </div>
-              {overnightLimitMode === "soc" ? (
+              {overnightLimitMode === "soc" && (
                 <label className="flex items-center gap-1">
                   <input
                     type="number"
@@ -767,7 +786,8 @@ export default function TripPlanPage() {
                   />
                   <span className="text-neutral-400">%</span>
                 </label>
-              ) : (
+              )}
+              {overnightLimitMode === "time" && (
                 <label className="flex items-center gap-1">
                   <input
                     type="number"
@@ -779,6 +799,21 @@ export default function TripPlanPage() {
                     className="w-16 rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
                   />
                   <span className="text-neutral-400">h plugged in</span>
+                </label>
+              )}
+              {overnightLimitMode === "depart" && (
+                <label
+                  className="flex items-center gap-1"
+                  title="Translated to parked hours assuming a typical 20:00 arrival."
+                >
+                  <span className="text-neutral-400">at</span>
+                  <input
+                    type="time"
+                    value={overnightDepartureLocal}
+                    onChange={(e) => setOvernightDepartureLocal(e.target.value || "08:00")}
+                    className="rounded border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
+                  />
+                  <span className="text-neutral-400">next morning</span>
                 </label>
               )}
             </div>
