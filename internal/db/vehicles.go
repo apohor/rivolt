@@ -195,6 +195,10 @@ type VehicleProfile struct {
 	DefaultExtraLoadLb float64  `json:"default_extra_load_lb,omitempty"`
 	FrequentlyTows     bool     `json:"frequently_tows,omitempty"`
 	TirePlacardPSI     float64  `json:"tire_placard_psi,omitempty"`
+	// NativeNACS overrides the model-year heuristic for whether the
+	// car has a native NACS port. nil = auto (model_year >= 2026 →
+	// native), true = native, false = CCS (needs Tesla adapter).
+	NativeNACS *bool `json:"native_nacs,omitempty"`
 }
 
 // GetVehicleProfile reads the "profile" sub-key from the given

@@ -2139,6 +2139,22 @@ function PlannerPrefsPanel() {
     queryKey: ["charging-settings"],
     queryFn: () => backend.getChargingSettings(),
   });
+  // Drive the adapter-toggle visibility: if every vehicle on the
+  // account would be native NACS by the model-year heuristic, the
+  // adapter selector is hidden. The per-vehicle profile override
+  // (set in the Vehicle profile panel) is honored at trip-planning
+  // time, where the selected vehicle is known.
+  const vehiclesQ = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: () => backend.listOwnedVehicles(),
+    staleTime: 5 * 60_000,
+  });
+  const anyNeedsAdapter =
+    !vehiclesQ.data ||
+    vehiclesQ.data.vehicles.length === 0 ||
+    vehiclesQ.data.vehicles.some(
+      (v) => (v.model_year ?? 0) < 2026,
+    );
   const save = useMutation({
     mutationFn: (p: PlannerPrefs) => backend.plannerPrefsPut(p),
     onSuccess: (data) => {
@@ -2199,20 +2215,22 @@ function PlannerPrefsPanel() {
           <option value="DISTANCE">Conserve</option>
         </select>
       </label>
-      <label className="flex flex-col gap-1">
-        <span className="text-neutral-400">Tesla NACS adapter</span>
-        <select
-          value={hasAdapter}
-          onChange={(e) =>
-            setHasAdapter(e.target.value as "unset" | "yes" | "no")
-          }
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
-        >
-          <option value="unset">Not specified (let planner default)</option>
-          <option value="yes">Yes — I have it</option>
-          <option value="no">No — exclude Superchargers</option>
-        </select>
-      </label>
+      {anyNeedsAdapter && (
+        <label className="flex flex-col gap-1">
+          <span className="text-neutral-400">Tesla NACS adapter</span>
+          <select
+            value={hasAdapter}
+            onChange={(e) =>
+              setHasAdapter(e.target.value as "unset" | "yes" | "no")
+            }
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          >
+            <option value="unset">Not specified (let planner default)</option>
+            <option value="yes">Yes — I have it</option>
+            <option value="no">No — exclude Superchargers</option>
+          </select>
+        </label>
+      )}
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-neutral-400">Gas $/gal</span>

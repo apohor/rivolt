@@ -465,7 +465,24 @@ export type VehicleProfile = {
   // placard so it can attribute "Low tire pressure" against ground
   // truth instead of guessing the placard from R1S/R1T priors.
   tire_placard_psi?: number;
+  // null/undefined = auto (heuristic on model_year), true = native NACS,
+  // false = CCS / needs Tesla adapter.
+  native_nacs?: boolean | null;
 };
+
+// vehicleNeedsTeslaAdapter resolves the per-vehicle NACS state. Auto
+// (undefined/null) falls back to the model-year heuristic: Rivian R1
+// Gen 2 onwards (MY2026+) ships with native NACS ports.
+export function vehicleNeedsTeslaAdapter(
+  profile: VehicleProfile | undefined | null,
+  modelYear: number | undefined,
+): boolean {
+  if (profile && typeof profile.native_nacs === "boolean") {
+    return !profile.native_nacs;
+  }
+  if (!modelYear) return true;
+  return modelYear < 2026;
+}
 
 export type RivianStatus = {
   enabled: boolean;

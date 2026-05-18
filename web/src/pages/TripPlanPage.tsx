@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
+import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -584,27 +584,29 @@ export default function TripPlanPage() {
                 <option value="DISTANCE">Conserve</option>
               </select>
             </label>
-            <div className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-400">Tesla NACS adapter</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={hasAdapter}
-                onClick={() => setHasAdapter((v) => !v)}
-                className={`flex items-center justify-between rounded-md border border-neutral-700 px-3 py-2 transition-colors ${
-                  hasAdapter ? "bg-emerald-900/30" : "bg-neutral-900"
-                }`}
-              >
-                <span className="text-neutral-300">{hasAdapter ? "Yes" : "No"}</span>
-                <span
-                  className={`inline-flex h-5 w-9 items-center rounded-full px-0.5 transition-colors ${
-                    hasAdapter ? "bg-emerald-600 justify-end" : "bg-neutral-700 justify-start"
+            {vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) && (
+              <div className="flex flex-col gap-1 text-sm">
+                <span className="text-neutral-400">Tesla NACS adapter</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={hasAdapter}
+                  onClick={() => setHasAdapter((v) => !v)}
+                  className={`flex items-center justify-between rounded-md border border-neutral-700 px-3 py-2 transition-colors ${
+                    hasAdapter ? "bg-emerald-900/30" : "bg-neutral-900"
                   }`}
                 >
-                  <span className="inline-block h-4 w-4 rounded-full bg-white shadow" />
-                </span>
-              </button>
-            </div>
+                  <span className="text-neutral-300">{hasAdapter ? "Yes" : "No"}</span>
+                  <span
+                    className={`inline-flex h-5 w-9 items-center rounded-full px-0.5 transition-colors ${
+                      hasAdapter ? "bg-emerald-600 justify-end" : "bg-neutral-700 justify-start"
+                    }`}
+                  >
+                    <span className="inline-block h-4 w-4 rounded-full bg-white shadow" />
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
           <LocationField
             heading="From"

@@ -102,6 +102,8 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
   const [extraLoadLb, setExtraLoadLb] = useState("");
   const [frequentlyTows, setFrequentlyTows] = useState(false);
   const [tirePlacardPsi, setTirePlacardPsi] = useState("");
+  // "" = auto (model-year heuristic), "native" = NACS port, "ccs" = needs adapter.
+  const [chargePort, setChargePort] = useState<"" | "native" | "ccs">("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -122,6 +124,11 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
     setTirePlacardPsi(
       p.tire_placard_psi && p.tire_placard_psi > 0
         ? String(p.tire_placard_psi)
+        : "",
+    );
+    setChargePort(
+      typeof p.native_nacs === "boolean"
+        ? (p.native_nacs ? "native" : "ccs")
         : "",
     );
   }, [profileQ.data]);
@@ -147,6 +154,8 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
         frequently_tows: frequentlyTows || undefined,
         tire_placard_psi:
           Number(tirePlacardPsi) > 0 ? Number(tirePlacardPsi) : undefined,
+        native_nacs:
+          chargePort === "native" ? true : chargePort === "ccs" ? false : null,
       };
       await backend.vehicleProfilePut(vehicleID, body);
       setSavedAt(Date.now());
@@ -270,12 +279,37 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
             <span className="text-xs text-neutral-500">psi</span>
           </div>
         </div>
+        <div>
+          <label
+            htmlFor="profile-charge-port"
+            className="block text-xs text-neutral-400 mb-1"
+            title="Auto uses model_year ≥ 2026 → native NACS as a default."
+          >
+            Charge port
+          </label>
+          <select
+            id="profile-charge-port"
+            value={chargePort}
+            onChange={(e) =>
+              setChargePort(e.target.value as "" | "native" | "ccs")
+            }
+            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+          >
+            <option value="">Auto (by model year)</option>
+            <option value="native">Native NACS</option>
+            <option value="ccs">CCS (needs Tesla adapter)</option>
+          </select>
+        </div>
       </div>
       <p className="text-[11px] text-neutral-500 -mt-1">
         Tire placard PSI is the cold-fill pressure on the driver-door
         jamb sticker. The efficiency analyzer uses this to compute
         underinflation against ground truth instead of guessing the
         placard from generic priors. Leave 0 to skip.
+      </p>
+      <p className="text-[11px] text-neutral-500">
+        Charge port controls whether the planner shows the "Tesla NACS
+        adapter" toggle. Auto defaults to native on MY2026+ R1.
       </p>
 
       <div>
