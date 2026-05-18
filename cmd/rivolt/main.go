@@ -43,6 +43,7 @@ import (
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -1047,6 +1048,29 @@ func runServer() {
 		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
 	}
 
+	// Server-side chargers PMTiles reader. Pulls the entire ~10 MB
+	// chargers.pmtiles into memory on first request (or any restart),
+	// then answers /api/maps/chargers-along queries fully in-process.
+	// Replaces the SPA's per-tile fan-out, which was producing
+	// hundreds of HTTP range requests per planner re-render. Lazy
+	// load: the first /api/maps/chargers-along call drives Reload.
+	var chargersArchive *chargers.Archive
+	if base := strings.TrimSpace(os.Getenv("RIVOLT_TILES_BASE_URL")); base != "" {
+		url := strings.TrimRight(base, "/") + "/chargers.pmtiles"
+		chargersArchive = chargers.New(url)
+		// Warm at startup, best-effort. A failed warm doesn't block
+		// boot — the endpoint will retry on demand.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := chargersArchive.Reload(ctx); err != nil {
+				logger.Warn("chargers archive warm-load failed (will retry on first request)", "err", err.Error())
+				return
+			}
+			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
+		}()
+	}
+
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
 	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
 	// Empty disables; /api/geocode then falls through to Open-Meteo
@@ -1105,6 +1129,7 @@ func runServer() {
 		BaseURL:         os.Getenv("RIVOLT_BASE_URL"),
 		ValhallaProxy: valhallaProxy,
 		TilesProxy:    tilesProxy,
+		ChargersArchive: chargersArchive,
 		Photon:        photonClient,
 		WeatherClient: weather.NewClient(),
 		WeatherCache:  weather.NewMemCache(15*time.Minute, 1024),

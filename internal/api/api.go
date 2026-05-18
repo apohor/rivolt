@@ -32,6 +32,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/email"
@@ -187,6 +188,11 @@ type Deps struct {
 	// with byte-range support). nil leaves the route unmounted;
 	// the SPA falls back to CARTO's public dark raster basemap.
 	TilesProxy http.Handler
+	// ChargersArchive, when non-nil, exposes a server-side
+	// chargers-along-corridor query at /api/maps/chargers-along.
+	// Backed by an in-memory copy of chargers.pmtiles so the SPA
+	// can replace its per-tile HTTP fan-out with one POST.
+	ChargersArchive *chargers.Archive
 	// Photon is the self-hosted geocoder client. Empty BaseURL on
 	// the client disables; /api/geocode falls through to
 	// Open-Meteo's city-level service.
@@ -378,6 +384,13 @@ func New(d Deps) http.Handler {
 			}
 			if d.TilesProxy != nil {
 				r.Mount("/maps/tiles", http.StripPrefix("/api/maps/tiles", d.TilesProxy))
+			}
+			// Server-side chargers-along-corridor query. Replaces the
+			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range
+			// reads per planner re-render) with one POST that returns
+			// the decoded POI list.
+			if d.ChargersArchive != nil {
+				r.Post("/maps/chargers-along", handleChargersAlong(d.ChargersArchive))
 			}
 			// Onboarding — marks the first-run stepper as done for the
 			// current user. Called by the frontend when the user

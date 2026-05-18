@@ -1001,6 +1001,32 @@ export const backend = {
     api.post<TripPlan>("/api/trips/plan", req),
   planTripMultiday: (req: TripPlanMultidayRequest) =>
     api.post<TripPlanMultidayResponse>("/api/trips/plan-multiday", req),
+  chargersAlongPath: (req: {
+    path: [number, number][];
+    filter?: "dcfc" | "l2" | "hotels" | "all";
+    corridor_km?: number;
+    min_power_kw?: number;
+  }) =>
+    api.post<{
+      chargers: {
+        lat: number;
+        lon: number;
+        name?: string;
+        isDCFC: boolean;
+        isL2: boolean;
+        maxPowerKW?: number;
+        facilityType?: string;
+        evNetwork?: string;
+        evPricing?: string;
+        entityID?: string;
+        dcfcCount?: number;
+        l2Count?: number;
+        socketTeslaSupercharger?: boolean;
+        socketType1Combo?: boolean;
+        socketChademo?: boolean;
+      }[];
+      count: number;
+    }>("/api/maps/chargers-along", req),
   planTripAdvice: (req: TripAdviceRequest) =>
     api.post<TripAdvice>("/api/trips/plan/advice", req),
   // Named trip templates. Inputs are the form state the user typed
