@@ -329,23 +329,20 @@ function ChargingCostPanel() {
   });
   const [price, setPrice] = useState<string>("");
   const [currency, setCurrency] = useState<string>("USD");
-  const [gasPrice, setGasPrice] = useState<string>("");
-  const [mpg, setMpg] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
   if (!loaded && q.data) {
     setPrice(q.data.home_price_per_kwh ? String(q.data.home_price_per_kwh) : "");
     setCurrency(q.data.home_currency || "USD");
-    setGasPrice(q.data.gas_price_per_gallon ? String(q.data.gas_price_per_gallon) : "");
-    setMpg(q.data.comparison_mpg ? String(q.data.comparison_mpg) : "");
     setLoaded(true);
   }
   const mut = useMutation({
     mutationFn: () =>
       backend.setChargingSettings({
+        // Preserve the gas/MPG fields the PlannerPrefsPanel owns. Without
+        // this passthrough a save here would zero them out.
+        ...(q.data ?? { gas_price_per_gallon: 0, comparison_mpg: 0 }),
         home_price_per_kwh: Number(price) || 0,
         home_currency: currency.toUpperCase() || "USD",
-        gas_price_per_gallon: Number(gasPrice) || 0,
-        comparison_mpg: Number(mpg) || 0,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["charging-settings"] });
@@ -394,38 +391,6 @@ function ChargingCostPanel() {
             className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
           />
         </div>
-        <div>
-          <label htmlFor="gas-price" className="block text-xs text-neutral-400 mb-1">
-            Gas $/gal
-          </label>
-          <input
-            id="gas-price"
-            type="number"
-            step="0.01"
-            min="0"
-            inputMode="decimal"
-            value={gasPrice}
-            onChange={(e) => setGasPrice(e.target.value)}
-            placeholder="4.00"
-            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
-          />
-        </div>
-        <div>
-          <label htmlFor="comparison-mpg" className="block text-xs text-neutral-400 mb-1">
-            ICE MPG
-          </label>
-          <input
-            id="comparison-mpg"
-            type="number"
-            step="1"
-            min="0"
-            inputMode="decimal"
-            value={mpg}
-            onChange={(e) => setMpg(e.target.value)}
-            placeholder="20"
-            className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
-          />
-        </div>
         <button
           type="submit"
           disabled={mut.isPending}
@@ -435,8 +400,8 @@ function ChargingCostPanel() {
         </button>
       </div>
       <p className="text-xs text-neutral-500">
-        Per-kWh applies locally to sessions Rivian reports as free. Gas $/gal × ICE
-        MPG drives the gas-equivalent chip on the trip planner. Leave any at 0 to disable.
+        Applied locally to sessions Rivian reports as free (home AC, L2 on
+        non-RAN chargers). Leave at 0 to disable.
       </p>
       {mut.isError && <ErrorBox title="Save failed" detail={String(mut.error)} />}
     </form>
@@ -2168,29 +2133,49 @@ function PlannerPrefsPanel() {
     queryFn: backend.plannerPrefsGet,
     staleTime: 60 * 1000,
   });
+  // Gas $/gal + ICE MPG live in ChargingConfig server-side but the user
+  // edits them here, next to other trip-planner defaults.
+  const chargingQ = useQuery({
+    queryKey: ["charging-settings"],
+    queryFn: () => backend.getChargingSettings(),
+  });
   const save = useMutation({
     mutationFn: (p: PlannerPrefs) => backend.plannerPrefsPut(p),
     onSuccess: (data) => {
       qc.setQueryData(["settings", "plannerPrefs"], data);
     },
   });
+  const saveCharging = useMutation({
+    mutationFn: () =>
+      backend.setChargingSettings({
+        // Preserve the home-rate fields ChargingCostPanel owns.
+        ...(chargingQ.data ?? { home_price_per_kwh: 0, home_currency: "USD" }),
+        gas_price_per_gallon: Number(gasPrice) || 0,
+        comparison_mpg: Number(mpg) || 0,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["charging-settings"] }),
+  });
 
   const [mode, setMode] = useState<PlannerPrefs["drive_mode"]>("");
   const [hasAdapter, setHasAdapter] = useState<"unset" | "yes" | "no">("unset");
+  const [gasPrice, setGasPrice] = useState<string>("");
+  const [mpg, setMpg] = useState<string>("");
 
   // Sync local state with loaded prefs on first load.
   const [synced, setSynced] = useState(false);
   useEffect(() => {
     if (synced) return;
-    if (!prefsQ.data) return;
+    if (!prefsQ.data || !chargingQ.data) return;
     setMode(prefsQ.data.drive_mode || "");
     setHasAdapter(
       typeof prefsQ.data.has_adapter === "boolean"
         ? prefsQ.data.has_adapter ? "yes" : "no"
         : "unset",
     );
+    setGasPrice(chargingQ.data.gas_price_per_gallon ? String(chargingQ.data.gas_price_per_gallon) : "");
+    setMpg(chargingQ.data.comparison_mpg ? String(chargingQ.data.comparison_mpg) : "");
     setSynced(true);
-  }, [prefsQ.data, synced]);
+  }, [prefsQ.data, chargingQ.data, synced]);
 
   const onSave = () => {
     const payload: PlannerPrefs = { drive_mode: mode };
@@ -2198,6 +2183,7 @@ function PlannerPrefsPanel() {
       payload.has_adapter = hasAdapter === "yes";
     }
     save.mutate(payload);
+    saveCharging.mutate();
   };
 
   return (
@@ -2227,6 +2213,37 @@ function PlannerPrefsPanel() {
           <option value="no">No — exclude Superchargers</option>
         </select>
       </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-neutral-400">Gas $/gal</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={gasPrice}
+            onChange={(e) => setGasPrice(e.target.value)}
+            placeholder="4.00"
+            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-neutral-400">ICE MPG (comparison)</span>
+          <input
+            type="number"
+            step="1"
+            min="0"
+            inputMode="decimal"
+            value={mpg}
+            onChange={(e) => setMpg(e.target.value)}
+            placeholder="20"
+            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          />
+        </label>
+      </div>
+      <p className="text-xs text-neutral-500">
+        Gas $/gal × ICE MPG drives the gas-equivalent chip on route cards. Leave either at 0 to hide it.
+      </p>
       <div className="flex items-center gap-3">
         <button
           type="button"

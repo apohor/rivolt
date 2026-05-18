@@ -2021,22 +2021,26 @@ function RouteCard({
       <span>{label}</span>
       {totalGuest > 0 && (
         <span className="text-neutral-400">
-          · <span className="text-neutral-200 font-mono">{fmtCurrency(totalGuest)}</span>
+          · <span
+            className="text-neutral-200 font-mono cursor-help"
+            title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
+          >{fmtCurrency(totalGuest)}</span>
           {userSavings > 0.5 && (
             <>
               {" / "}
-              <span className="text-emerald-400 font-mono">{fmtCurrency(totalUser)}</span>
+              <span
+                className="text-emerald-400 font-mono cursor-help"
+                title="With your active memberships (Settings → Charging networks)."
+              >{fmtCurrency(totalUser)}</span>
             </>
           )}
           {gasEquiv > 0.5 && (
             <>
               {" / "}
               <span
-                className="text-red-700 font-mono"
-                title={`Same trip in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal`}
-              >
-                {fmtCurrency(gasEquiv)} gas
-              </span>
+                className="text-red-700 font-mono cursor-help"
+                title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
+              >{fmtCurrency(gasEquiv)}</span>
             </>
           )}
         </span>
