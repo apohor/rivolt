@@ -154,11 +154,11 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	// gql DSL builds queries from a cached schema we can't reach.
 	// Inlining literal values bypasses the type-name issue
 	// entirely; v0.17.129's diag confirmed this returns real plans.
-	query := buildPlanTrip2Query(in)
+	query, vars := buildPlanTrip2Query(in)
 	data, err := doGraphQL[planTripData](ctx, c, graphQLRequest{
 		OperationName: "planTripWithMultiStopV2",
 		Query:         query,
-		// No variables — everything is inlined into the query body.
+		Variables:     vars,
 	}, c.authHeaders())
 	if err != nil {
 		slog.WarnContext(ctx, "planTrip2 failed",
@@ -558,7 +558,7 @@ const legacyPlanTripMultiStopQuery = `query planTripWithMultiStop(
 // Schema reference (operation name, response selection): the actual
 // Python client at jrgutier/rivian-python-client/src/rivian/rivian.py
 // plan_trip_with_multi_stop (line 2441).
-func buildPlanTrip2Query(in PlanTripInput) string {
+func buildPlanTrip2Query(in PlanTripInput) (string, map[string]any) {
 	var wps []string
 	for _, wp := range in.Waypoints {
 		wps = append(wps, fmt.Sprintf("{latitude: %s, longitude: %s}",
@@ -586,16 +586,29 @@ func buildPlanTrip2Query(in PlanTripInput) string {
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
 	}
-	// networkPreferences is plumbed through PlanTripInput but NOT
-	// inlined in the query: Rivian's gateway returns
-	// GRAPHQL_VALIDATION_FAILED for the literal
-	// `[{networkId: "..."}]` form, even though the field name + JSON
-	// shape match the official Android app exactly (confirmed via
-	// apktool decompile). Other args (waypoints, driveMode, ...)
-	// inline fine, so this is a per-input-type validator quirk.
-	// Re-introduce as a $variable + variables map in a follow-up.
-	// trailerProfile omitted — not yet user-facing.
-	return fmt.Sprintf(`query planTripWithMultiStopV2 {
+	// networkPreferences: variable form. Rivian's gateway rejects the
+	// inline `[{networkId: "..."}]` literal with
+	// GRAPHQL_VALIDATION_FAILED — even though the wire shape matches
+	// the official Android app. The app uses Apollo's $variable form,
+	// which the gateway accepts. trailerProfile omitted — not yet
+	// user-facing.
+	var vars map[string]any
+	header := "query planTripWithMultiStopV2 {"
+	if len(in.NetworkPreferences) > 0 {
+		prefs := make([]map[string]any, 0, len(in.NetworkPreferences))
+		for _, np := range in.NetworkPreferences {
+			if np.NetworkID == "" {
+				continue
+			}
+			prefs = append(prefs, map[string]any{"networkId": np.NetworkID})
+		}
+		if len(prefs) > 0 {
+			args = append(args, "networkPreferences: $networkPreferences")
+			header = "query planTripWithMultiStopV2($networkPreferences: [NetworkPreference!]) {"
+			vars = map[string]any{"networkPreferences": prefs}
+		}
+	}
+	query := fmt.Sprintf(`%s
   planTrip2(%s) {
     status
     plans {
@@ -632,7 +645,8 @@ func buildPlanTrip2Query(in PlanTripInput) string {
       }
     }
   }
-}`, strings.Join(args, ", "))
+}`, header, strings.Join(args, ", "))
+	return query, vars
 }
 
 // fmtFloat formats a Float for inlining as a GraphQL Float literal.
