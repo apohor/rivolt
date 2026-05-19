@@ -54,10 +54,9 @@ export default function SignupPage() {
   }, [token]);
 
   // Request-access form state. When the URL has no valid token this
-  // is the page's primary content — anyone can leave their email + a
-  // short note and we'll come back via email with a one-click link.
+  // is the page's primary content — anyone can leave their email and
+  // we'll come back via email with a one-click signup link.
   const [reqEmail, setReqEmail] = useState("");
-  const [reqMessage, setReqMessage] = useState("");
   const [reqError, setReqError] = useState<string | null>(null);
   const [reqSubmitting, setReqSubmitting] = useState(false);
   const [reqSent, setReqSent] = useState(false);
@@ -122,7 +121,6 @@ export default function SignupPage() {
     try {
       await backend.requestSignup({
         email: trimmed,
-        message: reqMessage.trim() || undefined,
       });
       // Backend returns ok=true for both fresh requests and
       // already-pending duplicates; either way the user-facing
@@ -176,7 +174,7 @@ export default function SignupPage() {
 
         <div className="mb-2 flex items-center gap-2">
           <h1 className="text-base font-semibold text-neutral-100">
-            {tokenMode ? "Finish your signup" : "Request beta access"}
+            {tokenMode ? "Finish your signup" : "Request access"}
           </h1>
           <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
             Beta
@@ -230,19 +228,6 @@ export default function SignupPage() {
                     className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-neutral-400">
-                    A bit about you{" "}
-                    <span className="text-neutral-600">(optional)</span>
-                  </label>
-                  <textarea
-                    placeholder="Truck / trim, home charging (L1 / L2 / none), how often you drive…"
-                    rows={3}
-                    value={reqMessage}
-                    onChange={(e) => setReqMessage(e.target.value)}
-                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
-                  />
-                </div>
                 {reqError && (
                   <div
                     role="alert"
@@ -276,11 +261,12 @@ export default function SignupPage() {
           </>
         )}
 
-        {tokenMode && (
-          <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
-            <strong className="text-neutral-200">What's next:</strong> a short
-            setup wizard walks you through connecting your Rivian account.
-            We recommend a dedicated Authorized Driver login — see the{" "}
+        {tokenStatus !== "checking" && (
+          <div className="mt-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
+            <strong className="text-neutral-200">What's next:</strong> after
+            you sign in, a short setup wizard helps you connect your Rivian
+            account (a dedicated Authorized Driver login is the recommended
+            pattern — see the{" "}
             <a
               href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
               target="_blank"
@@ -288,8 +274,9 @@ export default function SignupPage() {
               className="text-emerald-500 hover:underline"
             >
               signup walkthrough
-            </a>{" "}
-            for the recommended pattern.
+            </a>
+            ) and lets you import past drives + charges from an ElectraFi
+            CSV so your stats start with real history, not a blank slate.
           </div>
         )}
 
