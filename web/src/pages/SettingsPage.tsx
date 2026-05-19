@@ -689,12 +689,28 @@ function ImportPanel() {
     }
   }, [ownedVehicles, vehicleID]);
 
+  // pack_kwh resolution: explicit input first, then the vehicle's
+  // recorded pack capacity from /api/vehicles/owned (Rivian-reported
+  // usable capacity, not a guess). Falling back to the server's
+  // DefaultPackKWh would leave drives with EnergyUsedKWh=0 (the
+  // importer deliberately suppresses drive-energy stamping when no
+  // pack is provided), so the dashboard would render no cost / no
+  // efficiency — the exact bug the user just hit.
+  const selectedVehicle = useMemo(
+    () => ownedVehicles.find((v) => v.rivian_vehicle_id === vehicleID),
+    [ownedVehicles, vehicleID],
+  );
+  const resolvedPackKWh =
+    Number(packKWh) ||
+    (selectedVehicle?.pack_kwh && selectedVehicle.pack_kwh > 0
+      ? selectedVehicle.pack_kwh
+      : undefined);
   const mut = useMutation({
     mutationFn: (files: File[]) =>
       backend.importElectrafi(
         files,
         vehicleID,
-        Number(packKWh) || undefined,
+        resolvedPackKWh,
         undefined,
         (p) => setProgress(p),
       ),
@@ -809,12 +825,20 @@ function ImportPanel() {
           type="number"
           step="0.1"
           min="0"
-          placeholder="auto"
+          placeholder={selectedVehicle?.pack_kwh ? String(selectedVehicle.pack_kwh) : "auto"}
           value={packKWh}
           onChange={(e) => setPackKWh(e.target.value)}
           className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
         />
-        <span>kWh · leave blank to auto-detect from the vehicle; used to estimate energy when ElectraFi omits <code>charger_power</code> (late-Mar 2026 onward)</span>
+        <span>
+          kWh · leave blank to use{" "}
+          {resolvedPackKWh ? (
+            <span className="text-emerald-400">{resolvedPackKWh} kWh from your vehicle</span>
+          ) : (
+            <span className="text-amber-400">the importer's default (drives won't get energy/cost)</span>
+          )}
+          {" "}— drives need this to populate energy, cost, and efficiency.
+        </span>
       </div>
 
       {mut.isError && (
