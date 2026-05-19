@@ -177,9 +177,14 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
         </Card>
       )}
       {tab === "operations" && (
-        <Card title="Feature flags">
-          <FeatureFlagsPanel />
-        </Card>
+        <div className="space-y-4">
+          <Card title="Feature flags">
+            <FeatureFlagsPanel />
+          </Card>
+          <Card title="Signup cap">
+            <SignupCapPanel />
+          </Card>
+        </div>
       )}
       {tab === "tuning" && (
         <div className="space-y-4">
@@ -314,6 +319,82 @@ function FeatureFlagsPanel() {
   );
 }
 
+
+// SignupCapPanel gates new OAuth signups by total account count.
+// Existing users signing back in are always exempt; the limit only
+// caps new-row creation in the OIDC callback. Limit=0 fail-closes
+// every new signup, which is correct when the operator wants to
+// stop letting people in.
+function SignupCapPanel() {
+  const qc = useQueryClient();
+  const capQ = useQuery({
+    queryKey: ["admin", "signup-cap"],
+    queryFn: backend.adminSignupCapGet,
+  });
+  const [draft, setDraft] = useState<string>("");
+  const saveMut = useMutation({
+    mutationFn: (limit: number) => backend.adminSignupCapPut(limit),
+    onSuccess: (data) => {
+      qc.setQueryData(["admin", "signup-cap"], data);
+      setDraft("");
+    },
+  });
+
+  if (capQ.isLoading) return <Spinner />;
+  if (capQ.isError)
+    return (
+      <ErrorBox
+        title="Failed to load signup cap"
+        detail={(capQ.error as Error).message}
+      />
+    );
+  const c = capQ.data!;
+  const current = c.signup_cap.limit;
+  const used = c.used;
+  const headroom = Math.max(0, current - used);
+  const parsed = draft.trim() === "" ? null : Number(draft);
+  const valid = parsed !== null && Number.isFinite(parsed) && parsed >= 0 && Number.isInteger(parsed);
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div>
+        <div className="text-neutral-100">
+          {used} of {current} seats used
+          {headroom === 0 && current > 0 ? " (full)" : ""}
+        </div>
+        <p className="text-xs text-neutral-500">
+          New OAuth signups are blocked once total accounts reach the
+          limit; users already on the system can always sign back in.
+          A limit of 0 stops every new signup. Effective within ~10s.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={String(current)}
+          className="w-32 rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+        />
+        <button
+          type="button"
+          disabled={!valid || saveMut.isPending || parsed === current}
+          onClick={() => valid && saveMut.mutate(parsed)}
+          className="shrink-0 rounded-md border border-emerald-700 bg-emerald-900/40 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-900/60 disabled:opacity-50"
+        >
+          {saveMut.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {saveMut.isError && (
+        <p className="text-xs text-rose-400">
+          Save failed: {String((saveMut.error as Error)?.message)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function CreateUserForm() {
   const qc = useQueryClient();

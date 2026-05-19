@@ -90,6 +90,14 @@ type ProviderConfig struct {
 	// the operator owns their own URL space.
 	Name string
 
+	// Kind selects the wire protocol. "" or "oidc" is the default:
+	// standard OIDC discovery + ID-token verification. "oauth2-github"
+	// is GitHub's non-OIDC OAuth2 — no ID token, identity comes from
+	// the REST /user + /user/emails endpoints. New kinds go behind a
+	// single switch in buildProvider/handleCallback so the shared
+	// PKCE, state cookie, and cap-guard plumbing keeps applying.
+	Kind string
+
 	// DisplayName is what the SPA puts on the button. "Google",
 	// "Authentik", "GitHub". Falls back to Name if empty.
 	DisplayName string
@@ -97,7 +105,7 @@ type ProviderConfig struct {
 	// IssuerURL is the OIDC discovery root (without
 	// /.well-known/openid-configuration; go-oidc appends it).
 	// Examples: "https://accounts.google.com",
-	// "https://auth.example.com".
+	// "https://auth.example.com". Ignored when Kind="oauth2-github".
 	IssuerURL string
 
 	// ClientID / ClientSecret are the OAuth2 application
@@ -124,6 +132,11 @@ type ProviderConfig struct {
 // message; any other error becomes a generic 500.
 var ErrUserForbidden = errors.New("oidc: user forbidden")
 
+// ErrCapExceeded is the sentinel CapGuard returns when the signup
+// cap would be exceeded by creating a new user. The callback maps
+// it to a redirect to CapOverflowURL with the email pre-filled.
+var ErrCapExceeded = errors.New("oidc: signup cap exceeded")
+
 // Service is the OIDC handler set, registered under
 // /api/auth/oidc by api.go. Multiple providers live in one
 // Service.
@@ -138,6 +151,16 @@ type Service struct {
 	// displayName) and returns the stable UUID. Wired to
 	// db.EnsureUserFull by main.
 	ensureUser func(ctx context.Context, username, email, displayName string) (uuid.UUID, error)
+
+	// capGuard, when non-nil, runs before ensureUser. It should
+	// return ErrCapExceeded if creating a new account would
+	// exceed the configured signup cap. Returning nil for an
+	// already-existing username is how sign-ins stay exempt.
+	capGuard func(ctx context.Context, username, email string) error
+
+	// capOverflowURL is where the callback redirects when capGuard
+	// returns ErrCapExceeded. Default "/signup/full".
+	capOverflowURL string
 
 	// userIDFor is shared with auth.Service. Currently unused by
 	// OIDC (we always go through ensureUser, which calls
@@ -186,6 +209,16 @@ type Config struct {
 	SecureCookie bool
 	Logger       *slog.Logger
 	Providers    []ProviderConfig
+
+	// CapGuard, when non-nil, gates new-account creation in the
+	// OIDC callback. Wired to a flags.Store + db.UserExists check
+	// in main. nil disables the cap (every sign-in proceeds).
+	CapGuard func(ctx context.Context, username, email string) error
+
+	// CapOverflowURL is the SPA path the callback redirects to
+	// when CapGuard returns ErrCapExceeded. Defaults to
+	// "/signup/full".
+	CapOverflowURL string
 }
 
 // New builds a Service. Providers that fail to bootstrap (DNS
@@ -207,16 +240,22 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		log = slog.Default()
 	}
 	post := strings.TrimSpace(cfg.PostLoginURL)
+	overflow := strings.TrimSpace(cfg.CapOverflowURL)
+	if overflow == "" {
+		overflow = "/signup/full"
+	}
 	if post == "" {
 		post = "/"
 	}
 	s := &Service{
-		issueSession: cfg.IssueSession,
-		ensureUser:   cfg.EnsureUser,
-		userIDFor:    cfg.UserIDFor,
-		postLoginURL: post,
-		secureCookie: cfg.SecureCookie,
-		log:          log,
+		issueSession:   cfg.IssueSession,
+		ensureUser:     cfg.EnsureUser,
+		capGuard:       cfg.CapGuard,
+		capOverflowURL: overflow,
+		userIDFor:      cfg.UserIDFor,
+		postLoginURL:   post,
+		secureCookie:   cfg.SecureCookie,
+		log:            log,
 		providers:    make(map[string]*provider),
 	}
 	var pending []ProviderConfig
@@ -286,14 +325,17 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 	if pc.Name == "" {
 		return nil, errors.New("name required")
 	}
-	if pc.IssuerURL == "" {
-		return nil, errors.New("issuer URL required")
-	}
 	if pc.ClientID == "" {
 		return nil, errors.New("client ID required")
 	}
 	if pc.RedirectURL == "" {
 		return nil, errors.New("redirect URL required")
+	}
+	if pc.Kind == "oauth2-github" {
+		return buildGitHubProvider(pc), nil
+	}
+	if pc.IssuerURL == "" {
+		return nil, errors.New("issuer URL required")
 	}
 	op, err := oidc.NewProvider(ctx, pc.IssuerURL)
 	if err != nil {
@@ -327,6 +369,37 @@ func buildProvider(ctx context.Context, pc ProviderConfig) (*provider, error) {
 			Scopes: scopes,
 		},
 	}, nil
+}
+
+// buildGitHubProvider builds a provider entry for GitHub's
+// OAuth2-only flow. GitHub doesn't issue ID tokens; identity is
+// resolved by calling the REST API after token exchange. The
+// returned provider has verifier=nil; handleCallback branches on
+// cfg.Kind to skip ID-token verification.
+//
+// Default scopes: "read:user" + "user:email". The first lets us
+// pull the GitHub login; the second is required to read a
+// verified primary email for accounts that hide email publicly.
+func buildGitHubProvider(pc ProviderConfig) *provider {
+	scopes := pc.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"read:user", "user:email"}
+	}
+	return &provider{
+		cfg:      pc,
+		verifier: nil,
+		oauth: &oauth2.Config{
+			ClientID:     pc.ClientID,
+			ClientSecret: pc.ClientSecret,
+			RedirectURL:  pc.RedirectURL,
+			Endpoint: oauth2.Endpoint{
+				AuthURL:   "https://github.com/login/oauth/authorize",
+				TokenURL:  "https://github.com/login/oauth/access_token",
+				AuthStyle: oauth2.AuthStyleInParams,
+			},
+			Scopes: scopes,
+		},
+	}
 }
 
 // Mount installs the OIDC routes onto r under /oidc:
@@ -525,38 +598,64 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
 	}
-	rawIDToken, ok := tok.Extra("id_token").(string)
-	if !ok || rawIDToken == "" {
-		s.clearStateCookie(w)
-		http.Error(w, "missing id_token", http.StatusBadGateway)
-		return
+	var (
+		claimSub, claimEmail, claimPreferred, claimName string
+		claimEmailVerified                              bool
+	)
+	if p.cfg.Kind == "oauth2-github" {
+		gh, err := fetchGitHubIdentity(r.Context(), tok.AccessToken)
+		if err != nil {
+			s.log.Warn("oidc: github identity fetch failed", "provider", name, "err", err)
+			s.clearStateCookie(w)
+			http.Error(w, "identity fetch failed", http.StatusBadGateway)
+			return
+		}
+		// GitHub doesn't emit a stable namespaced sub; we use its
+		// numeric user ID prefixed so resolveIdentity's iss+sub
+		// fallback yields "github:42" rather than a bare integer.
+		claimSub = "github:" + gh.IDStr
+		claimEmail = gh.Email
+		claimEmailVerified = gh.EmailVerified
+		claimPreferred = gh.Login
+		claimName = gh.Name
+	} else {
+		rawIDToken, ok := tok.Extra("id_token").(string)
+		if !ok || rawIDToken == "" {
+			s.clearStateCookie(w)
+			http.Error(w, "missing id_token", http.StatusBadGateway)
+			return
+		}
+		idTok, err := p.verifier.Verify(r.Context(), rawIDToken)
+		if err != nil {
+			s.log.Warn("oidc: id_token verify failed", "provider", name, "err", err)
+			s.clearStateCookie(w)
+			http.Error(w, "id_token verify failed", http.StatusUnauthorized)
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(idTok.Nonce), []byte(st.Nonce)) != 1 {
+			s.clearStateCookie(w)
+			http.Error(w, "nonce mismatch", http.StatusUnauthorized)
+			return
+		}
+		var claims struct {
+			Sub               string `json:"sub"`
+			Email             string `json:"email"`
+			EmailVerified     bool   `json:"email_verified"`
+			PreferredUsername string `json:"preferred_username"`
+			Name              string `json:"name"`
+		}
+		if err := idTok.Claims(&claims); err != nil {
+			s.clearStateCookie(w)
+			http.Error(w, "claims decode", http.StatusInternalServerError)
+			return
+		}
+		claimSub = claims.Sub
+		claimEmail = claims.Email
+		claimEmailVerified = claims.EmailVerified
+		claimPreferred = claims.PreferredUsername
+		claimName = claims.Name
 	}
-	idTok, err := p.verifier.Verify(r.Context(), rawIDToken)
-	if err != nil {
-		s.log.Warn("oidc: id_token verify failed", "provider", name, "err", err)
-		s.clearStateCookie(w)
-		http.Error(w, "id_token verify failed", http.StatusUnauthorized)
-		return
-	}
-	if subtle.ConstantTimeCompare([]byte(idTok.Nonce), []byte(st.Nonce)) != 1 {
-		s.clearStateCookie(w)
-		http.Error(w, "nonce mismatch", http.StatusUnauthorized)
-		return
-	}
-
-	var claims struct {
-		Sub               string `json:"sub"`
-		Email             string `json:"email"`
-		EmailVerified     bool   `json:"email_verified"`
-		PreferredUsername string `json:"preferred_username"`
-		Name              string `json:"name"`
-	}
-	if err := idTok.Claims(&claims); err != nil {
-		s.clearStateCookie(w)
-		http.Error(w, "claims decode", http.StatusInternalServerError)
-		return
-	}
-	username, email := resolveIdentity(p.cfg.IssuerURL, claims.Sub, claims.Email, claims.EmailVerified, claims.PreferredUsername)
+	username, email := resolveIdentity(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred)
 	if username == "" {
 		// Without a stable identity we can't safely mint a
 		// session — refusing is correct.
@@ -564,9 +663,31 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id token missing identity claim", http.StatusUnauthorized)
 		return
 	}
-	display := strings.TrimSpace(claims.Name)
+	display := strings.TrimSpace(claimName)
 	if display == "" {
-		display = strings.TrimSpace(claims.PreferredUsername)
+		display = strings.TrimSpace(claimPreferred)
+	}
+
+	if s.capGuard != nil {
+		if err := s.capGuard(r.Context(), username, email); err != nil {
+			if errors.Is(err, ErrCapExceeded) {
+				s.log.Info("oidc: signup cap exceeded, redirecting",
+					"provider", name, "email", email)
+				s.clearStateCookie(w)
+				sep := "?"
+				if strings.Contains(s.capOverflowURL, "?") {
+					sep = "&"
+				}
+				http.Redirect(w, r,
+					s.capOverflowURL+sep+"email="+url.QueryEscape(email)+"&provider="+url.QueryEscape(name),
+					http.StatusFound)
+				return
+			}
+			s.log.Error("oidc: cap guard failed", "err", err)
+			s.clearStateCookie(w)
+			http.Error(w, "signup gate failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	uid, err := s.ensureUser(r.Context(), username, email, display)
@@ -645,6 +766,81 @@ func resolveIdentity(iss, sub, email string, emailVerified bool, preferred strin
 	return strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub)), email
 }
 
+// githubIdentity is the normalised shape we extract from GitHub's
+// REST API. IDStr is the stringified numeric user id (GitHub's
+// stable identifier); Email is the verified primary when one
+// exists, otherwise empty.
+type githubIdentity struct {
+	IDStr         string
+	Login         string
+	Name          string
+	Email         string
+	EmailVerified bool
+}
+
+// fetchGitHubIdentity calls /user and /user/emails with the OAuth2
+// access token and merges the result. We prefer the primary verified
+// email from /user/emails over the (possibly null or unverified)
+// email on /user — public-email-off accounts always populate the
+// former when the user:email scope is granted.
+func fetchGitHubIdentity(ctx context.Context, accessToken string) (githubIdentity, error) {
+	type ghUser struct {
+		ID    int64  `json:"id"`
+		Login string `json:"login"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	type ghEmail struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	get := func(url string, out any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "rivolt-oidc")
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("github %s: %s", url, resp.Status)
+		}
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	var u ghUser
+	if err := get("https://api.github.com/user", &u); err != nil {
+		return githubIdentity{}, fmt.Errorf("user: %w", err)
+	}
+	id := githubIdentity{
+		IDStr: fmt.Sprintf("%d", u.ID),
+		Login: u.Login,
+		Name:  u.Name,
+		Email: u.Email,
+	}
+	var emails []ghEmail
+	if err := get("https://api.github.com/user/emails", &emails); err != nil {
+		// Non-fatal: fall back to whatever /user gave us. The
+		// caller's resolveIdentity will use the login if email
+		// stays empty.
+		return id, nil
+	}
+	for _, e := range emails {
+		if e.Primary && e.Verified {
+			id.Email = e.Email
+			id.EmailVerified = true
+			return id, nil
+		}
+	}
+	return id, nil
+}
+
 // randURL returns n random bytes encoded URL-safe base64. Stable
 // length: 4 * ceil(n/3) − padding.
 func randURL(n int) (string, error) {
@@ -685,12 +881,20 @@ func decodeState(raw string) (flowState, error) {
 // ParseProvidersFromEnv reads the operator's env soup and produces
 // a slice of ProviderConfig. Format:
 //
-//	RIVOLT_OIDC_PROVIDERS=google,authentik
+//	RIVOLT_OIDC_PROVIDERS=google,github,authentik
 //	RIVOLT_OIDC_GOOGLE_ISSUER=https://accounts.google.com
 //	RIVOLT_OIDC_GOOGLE_CLIENT_ID=...
 //	RIVOLT_OIDC_GOOGLE_CLIENT_SECRET=...
 //	RIVOLT_OIDC_GOOGLE_DISPLAY_NAME=Google         # optional
 //	RIVOLT_OIDC_GOOGLE_SCOPES=openid,email,profile # optional
+//
+//	RIVOLT_OIDC_GITHUB_KIND=oauth2-github          # required for GitHub
+//	RIVOLT_OIDC_GITHUB_CLIENT_ID=...
+//	RIVOLT_OIDC_GITHUB_CLIENT_SECRET=...
+//	RIVOLT_OIDC_GITHUB_DISPLAY_NAME=GitHub         # optional
+//
+// KIND defaults to "oidc". Set KIND=oauth2-github for GitHub (which
+// doesn't issue ID tokens); ISSUER is ignored in that case.
 //
 // baseURL is the public origin Rivolt is reachable at; we build
 // the redirect URL automatically as
@@ -724,12 +928,17 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 		}
 		seen[name] = struct{}{}
 		prefix := "RIVOLT_OIDC_" + strings.ToUpper(name) + "_"
+		kind := strings.ToLower(strings.TrimSpace(getenv(prefix + "KIND")))
 		issuer := strings.TrimSpace(getenv(prefix + "ISSUER"))
 		clientID := strings.TrimSpace(getenv(prefix + "CLIENT_ID"))
 		clientSecret := strings.TrimSpace(getenv(prefix + "CLIENT_SECRET"))
 		display := strings.TrimSpace(getenv(prefix + "DISPLAY_NAME"))
 		scopesRaw := strings.TrimSpace(getenv(prefix + "SCOPES"))
-		if issuer == "" {
+		if kind != "" && kind != "oidc" && kind != "oauth2-github" {
+			return nil, fmt.Errorf("%s_KIND %q: must be \"oidc\" or \"oauth2-github\"",
+				strings.ToUpper(name), kind)
+		}
+		if kind != "oauth2-github" && issuer == "" {
 			return nil, fmt.Errorf("%s_ISSUER is empty", strings.ToUpper(name))
 		}
 		if clientID == "" {
@@ -745,6 +954,7 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 		}
 		out = append(out, ProviderConfig{
 			Name:         name,
+			Kind:         kind,
 			DisplayName:  display,
 			IssuerURL:    issuer,
 			ClientID:     clientID,

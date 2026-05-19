@@ -1,10 +1,12 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/flags"
 )
 
@@ -116,6 +118,71 @@ func handleFlagsTripPlannerPut(store *flags.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"trip_planner": store.TripPlanner(),
+		})
+	}
+}
+
+// flagsSignupCapRequest is the PUT body for the signup cap.
+// Limit must be non-negative; 0 fail-closes (blocks every new
+// OAuth signup). Actor is derived from the session.
+type flagsSignupCapRequest struct {
+	Limit int `json:"limit"`
+}
+
+// handleSignupCapGet returns the current cap state plus the live
+// user count so the admin UI can render "N of M seats used"
+// without a second round trip.
+func handleSignupCapGet(store *flags.Store, d *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		used, err := db.CountUsers(r.Context(), d)
+		if err != nil {
+			http.Error(w, "count users: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"signup_cap": store.SignupCap(),
+			"used":       used,
+		})
+	}
+}
+
+// handleSignupCapPut updates the signup cap. Same actor-from-session
+// pattern as the other flag handlers.
+func handleSignupCapPut(store *flags.Store, d *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req flagsSignupCapRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Limit < 0 {
+			http.Error(w, "limit must be non-negative", http.StatusBadRequest)
+			return
+		}
+		actor := "admin"
+		if uid, ok := auth.UserFromContext(r.Context()); ok {
+			actor = uid.String()
+		}
+		if err := store.SetSignupCap(r.Context(), req.Limit, actor); err != nil {
+			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		used, err := db.CountUsers(r.Context(), d)
+		if err != nil {
+			http.Error(w, "count users: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"signup_cap": store.SignupCap(),
+			"used":       used,
 		})
 	}
 }

@@ -902,6 +902,29 @@ func runServer() {
 			SecureCookie: secureCookie,
 			Logger:       logger,
 			Providers:    provs,
+			CapGuard: func(ctx context.Context, username, email string) error {
+				// Returning users (row already exists) bypass the
+				// cap. The limit only gates new-account creation.
+				exists, err := db.UserExistsByUsername(ctx, pgPool, username)
+				if err != nil {
+					return err
+				}
+				if exists {
+					return nil
+				}
+				st := flagsStore.SignupCap()
+				if st.Limit <= 0 {
+					return oidc.ErrCapExceeded
+				}
+				n, err := db.CountUsers(ctx, pgPool)
+				if err != nil {
+					return err
+				}
+				if n >= st.Limit {
+					return oidc.ErrCapExceeded
+				}
+				return nil
+			},
 		})
 		if oerr != nil {
 			logger.Error("oidc init", "err", oerr.Error())

@@ -800,6 +800,10 @@ export const backend = {
       "/api/admin/flags/trip-planner",
       { enabled },
     ),
+  adminSignupCapGet: () =>
+    api.get<AdminSignupCapState>("/api/admin/signup-cap"),
+  adminSignupCapPut: (limit: number) =>
+    api.put<AdminSignupCapState>("/api/admin/signup-cap", { limit }),
   // Admin user management. Same gating as the AI endpoints.
   adminListUsers: () =>
     api.get<{ users: AdminUserRow[] }>("/api/admin/users"),
@@ -1239,6 +1243,14 @@ export type AuthUser = {
 export type AdminFlagsState = {
   kill_switch: { paused: boolean; reason?: string; actor?: string };
   trip_planner: { enabled: boolean; actor?: string };
+};
+
+// AdminSignupCapState is the response shape from /api/admin/signup-cap.
+// Carries the cap (Limit, Actor) plus the live user count so the UI can
+// render "N of M seats used" without a second round trip.
+export type AdminSignupCapState = {
+  signup_cap: { limit: number; actor?: string };
+  used: number;
 };
 
 // AdminUserRow is one entry from GET /api/admin/users.

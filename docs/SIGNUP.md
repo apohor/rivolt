@@ -7,38 +7,43 @@ the OIDC steps and use the docker-compose login instead.
 
 ---
 
-## 1. Request access and finish signup
+## 1. Sign up
 
-Rivolt is invite-only while it's growing. The flow has two steps:
-you ask for access, an admin reviews it, and a one-click signup
-link lands in your inbox.
+Rivolt is in closed beta; total accounts are capped. There are two
+ways in:
 
-1. Open <https://rivolt.dev/signup>, click **request access →**,
-   and submit your email plus a short note about your truck, home
-   charging setup, and how often you drive.
+### Option A — Continue with Google or GitHub (fastest)
+
+1. Open <https://rivolt.dev/signup> and click **Continue with
+   Google** or **Continue with GitHub**.
+2. Approve the OAuth consent on the provider's screen
+   (scopes: email + basic profile).
+3. You're dropped straight into Rivolt with a session cookie.
+   No password to set, no approval email to wait for.
+
+If the beta is at capacity, the OAuth callback bounces you to a
+"we're at capacity" page with your email pre-filled — leave the
+request and we'll let you know when a seat opens up.
+
+### Option B — Request access by email (manual approval)
+
+If you'd rather not link a third-party account, leave your email
+on the signup page and we'll send a one-click signup link once
+approved:
+
+1. Open <https://rivolt.dev/signup>, enter your email, click
+   **Request access**.
 2. Wait for the approval email from `anton@rivolt.dev` (usually
    the same day — check spam if it doesn't appear; iCloud Mail
    in particular tends to filter new senders). The link is
    single-use and expires in 14 days.
 3. Click **Finish signup** in the email. The signup form opens
-   with your email already filled in — you only need to provide:
-   - **Display name** — appears next to your drives and charges if
-     the household has multiple users.
-   - **Password** — 12+ characters. You can change it later from
-     the IdP self-service flow at `auth.rivolt.dev`.
-4. Click **Create account**.
+   with your email already filled in — provide a display name
+   and a 12+ character password.
+4. Click **Create account**, then **Sign in**.
 
 The token is consumed on success and your identity is provisioned
-at `auth.rivolt.dev` (Ory Kratos under the hood). You're routed
-back to the sign-in screen.
-
-### Signing in
-
-5. Click **Sign in** and authenticate with the email + password
-   you just registered. The first sign-in goes through the OIDC
-   consent flow — accept the requested scopes (`openid`, `email`,
-   `profile`, `offline_access`) once and Rivolt remembers your
-   consent for 24 hours.
+at `auth.rivolt.dev` (Ory Kratos under the hood).
 
 You land on the Overview page with no data yet. That's expected —
 the next step connects your truck.

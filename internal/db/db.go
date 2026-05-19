@@ -211,6 +211,40 @@ func CountAdmins(ctx context.Context, d *sql.DB) (int, error) {
 	return n, nil
 }
 
+// CountUsers returns the total number of user rows. Used by the
+// signup-cap gate in the OIDC callback and the admin UI's
+// "N of M seats used" indicator.
+func CountUsers(ctx context.Context, d *sql.DB) (int, error) {
+	if d == nil {
+		return 0, nil
+	}
+	var n int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users`,
+	).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// UserExistsByUsername reports whether a row already exists for the
+// given identity key (post-normalisation). Cap-guard reads this to
+// exempt returning users from the limit.
+func UserExistsByUsername(ctx context.Context, d *sql.DB, username string) (bool, error) {
+	u := strings.ToLower(strings.TrimSpace(username))
+	if d == nil || u == "" {
+		return false, nil
+	}
+	id := UserIDFor(u)
+	var exists bool
+	if err := d.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`, id,
+	).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // ErrUserExists is returned by CreateUser when the username is
 // already taken. Distinguished from a generic insert error so the
 // admin endpoint can surface a clean 409 instead of a 500.

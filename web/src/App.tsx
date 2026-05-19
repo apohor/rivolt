@@ -52,6 +52,7 @@ export default function App() {
       */}
       <Route path="auth/hydra/login" element={<HydraLoginPage />} />
       <Route path="signup" element={<SignupPage />} />
+      <Route path="signup/full" element={<SignupPage />} />
       <Route path="onboarding" element={<OnboardingPage />} />
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />

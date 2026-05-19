@@ -1,7 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { backend, ApiError } from "../lib/api";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
+
+// Providers we surface on the signup page. Hydra is rivolt's own
+// federation backend (used by downstream apps) — it doesn't make
+// sense as a "sign up with" option for new users, so we filter it
+// out and keep the OAuth buttons to Google + GitHub. Add to this
+// whitelist if a new social-sign-in provider gets configured.
+const SIGNUP_PROVIDER_WHITELIST = new Set(["google", "github"]);
 
 // Password complexity rules — must mirror backend validatePassword in
 // internal/api/signup.go so the live checklist and the server agree.
@@ -16,7 +23,34 @@ const rules = [
 export default function SignupPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
+  const location = useLocation();
   const token = search.get("token") ?? "";
+  // /signup/full?email=...&provider=... is the redirect target from
+  // the OIDC callback when the signup cap is exceeded. We surface a
+  // friendly banner and pre-fill the request-access email so the user
+  // lands in the waitlist with one click.
+  const fullMode = location.pathname === "/signup/full";
+  const fullEmail = search.get("email") ?? "";
+  const fullProvider = search.get("provider") ?? "";
+
+  // Social-sign-in providers (Google / GitHub), fetched once on mount.
+  // null = still loading; [] = no eligible providers configured.
+  const [oauthProviders, setOauthProviders] = useState<OIDCProvider[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    backend.oidcProviders().then((all) => {
+      if (cancelled) return;
+      setOauthProviders(all.filter((p) => SIGNUP_PROVIDER_WHITELIST.has(p.name)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function startOIDC(p: OIDCProvider) {
+    const url = new URL(p.start_url, window.location.origin);
+    window.location.assign(url.toString());
+  }
 
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -56,7 +90,8 @@ export default function SignupPage() {
   // Request-access form state. When the URL has no valid token this
   // is the page's primary content — anyone can leave their email and
   // we'll come back via email with a one-click signup link.
-  const [reqEmail, setReqEmail] = useState("");
+  // In full-mode, the email field is pre-filled from the redirect.
+  const [reqEmail, setReqEmail] = useState(fullEmail);
   const [reqError, setReqError] = useState<string | null>(null);
   const [reqSubmitting, setReqSubmitting] = useState(false);
   const [reqSent, setReqSent] = useState(false);
@@ -174,12 +209,24 @@ export default function SignupPage() {
 
         <div className="mb-2 flex items-center gap-2">
           <h1 className="text-base font-semibold text-neutral-100">
-            {tokenMode ? "Finish your signup" : "Request access"}
+            {tokenMode
+              ? "Finish your signup"
+              : fullMode
+              ? "We're at capacity"
+              : "Create your account"}
           </h1>
           <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
             Beta
           </span>
         </div>
+
+        {fullMode && !tokenMode && (
+          <div className="mb-4 rounded-md border border-amber-900 bg-amber-950/40 px-3 py-2 text-xs leading-relaxed text-amber-200">
+            All beta seats are currently taken. We've pre-filled your
+            email{fullProvider ? ` from ${fullProvider}` : ""} — leave
+            the request below and we'll let you know when a seat opens up.
+          </div>
+        )}
 
         {/* Token-state banner. Kept compact — the H1 above already
             tells the user what state they're in. */}
@@ -203,9 +250,30 @@ export default function SignupPage() {
           <>
             <p className="mb-3 text-sm text-neutral-300">
               Rivolt is an open-source Rivian companion in closed beta.
-              Drop your email below — you'll get a one-click signup link
-              once approved.
+              {fullMode
+                ? " "
+                : oauthProviders && oauthProviders.length > 0
+                ? " Sign up instantly with Google or GitHub, or leave your email below for a manual approval link."
+                : " Drop your email below — you'll get a one-click signup link once approved."}
             </p>
+
+            {!fullMode && oauthProviders && oauthProviders.length > 0 && (
+              <div className="mb-4 flex flex-col gap-2">
+                {oauthProviders.map((p) => (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => startOIDC(p)}
+                    className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
+                  >
+                    Continue with {p.display_name}
+                  </button>
+                ))}
+                <p className="text-center text-[11px] text-neutral-500">
+                  or request access by email
+                </p>
+              </div>
+            )}
             <ul className="mb-5 space-y-1 text-xs text-neutral-500">
               <li>• Live telemetry from your truck</li>
               <li>• Every drive and charge against your own $/kWh</li>

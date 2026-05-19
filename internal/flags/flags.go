@@ -52,6 +52,11 @@ const KillSwitchName = "rivian_upstream_paused"
 // the JSON decodes to {enabled:false}, the planner stays hidden.
 const TripPlannerEnabledName = "trip_planner_enabled"
 
+// SignupCapName gates how many user accounts can exist at once.
+// Read in the OIDC callback before users.insert; existing users
+// signing back in are exempt.
+const SignupCapName = "signup_cap"
+
 // DefaultPollInterval is how often the Store refreshes its
 // in-memory snapshot from Postgres. Chosen so a flipped flag
 // takes effect in roughly the time a human can notice — on the
@@ -77,6 +82,14 @@ type TripPlannerState struct {
 	Actor   string `json:"actor,omitempty"`
 }
 
+// SignupCapState is the JSONB payload for the signup cap. Zero
+// (Limit=0) means "block all new signups" — fail-closed when the
+// row is missing or malformed.
+type SignupCapState struct {
+	Limit int    `json:"limit"`
+	Actor string `json:"actor,omitempty"`
+}
+
 // Store is the runtime flag cache. Start() kicks off the background
 // refresh; callers read via KillSwitch(). The type is safe for
 // concurrent use: all readers hit atomic.Value, only the refresh
@@ -96,6 +109,7 @@ type Store struct {
 	// are read on disjoint code paths and we want lock-free reads
 	// for both.
 	tripPlanner atomic.Pointer[TripPlannerState]
+	signupCap   atomic.Pointer[SignupCapState]
 
 	startOnce sync.Once
 }
@@ -120,6 +134,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 			"err", err.Error())
 		s.snapshot.Store(&KillSwitchState{Paused: false})
 		s.tripPlanner.Store(&TripPlannerState{Enabled: false})
+		s.signupCap.Store(&SignupCapState{Limit: 0})
 	}
 	return s, nil
 }
@@ -157,13 +172,14 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
 	defer rows.Close()
 	kill := KillSwitchState{Paused: false}
 	planner := TripPlannerState{Enabled: false}
+	signupCap := SignupCapState{Limit: 0}
 	for rows.Next() {
 		var name string
 		var raw []byte
@@ -179,6 +195,10 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &planner); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
+		case SignupCapName:
+			if err := json.Unmarshal(raw, &signupCap); err != nil {
+				return fmt.Errorf("decode flag %q: %w", name, err)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -186,6 +206,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	}
 	s.snapshot.Store(&kill)
 	s.tripPlanner.Store(&planner)
+	s.signupCap.Store(&signupCap)
 	return nil
 }
 
@@ -256,5 +277,41 @@ func (s *Store) SetTripPlanner(ctx context.Context, enabled bool, actor string) 
 		return fmt.Errorf("upsert flag %q: %w", TripPlannerEnabledName, err)
 	}
 	s.tripPlanner.Store(&st)
+	return nil
+}
+
+// SignupCap returns the current cached signup-cap state. Cheap
+// atomic load; safe on the OIDC callback hot path.
+func (s *Store) SignupCap() SignupCapState {
+	p := s.signupCap.Load()
+	if p == nil {
+		return SignupCapState{}
+	}
+	return *p
+}
+
+// SetSignupCap persists a new signup cap and refreshes the local
+// snapshot so the caller observes their own write immediately.
+func (s *Store) SetSignupCap(ctx context.Context, limit int, actor string) error {
+	if limit < 0 {
+		return errors.New("flags: signup cap must be non-negative")
+	}
+	st := SignupCapState{Limit: limit, Actor: actor}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode state: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO flags (name, value, updated_at, updated_by)
+		VALUES ($1, $2, now(), $3)
+		ON CONFLICT (name) DO UPDATE
+			SET value = EXCLUDED.value,
+			    updated_at = EXCLUDED.updated_at,
+			    updated_by = EXCLUDED.updated_by
+	`, SignupCapName, raw, actor)
+	if err != nil {
+		return fmt.Errorf("upsert flag %q: %w", SignupCapName, err)
+	}
+	s.signupCap.Store(&st)
 	return nil
 }

@@ -568,6 +568,8 @@ func New(d Deps) http.Handler {
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
+				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
+				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
 				r.Get("/users", handleAdminUsersList(d.DB))
 				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
