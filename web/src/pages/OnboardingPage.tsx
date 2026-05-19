@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { backend } from "../lib/api";
+import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
 
 type Step = {
@@ -124,6 +124,16 @@ export default function OnboardingPage() {
     setCompleting(true);
     try {
       await backend.completeOnboarding();
+      // Optimistically flip the cached me.onboarding_completed so
+      // AppLayout's redirect-to-onboarding effect doesn't fire again
+      // when we navigate to /settings. invalidateQueries alone marks
+      // the query stale but keeps serving the old value until the
+      // refetch lands — that race used to bounce users back through
+      // onboarding a second time.
+      queryClient.setQueryData<AuthUser | null>(
+        ["auth", "me"],
+        (prev) => (prev ? { ...prev, onboarding_completed: true } : prev),
+      );
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
       // Land directly on the Rivian-account section — that's the
       // first thing the onboarding text tells the user to do, and
