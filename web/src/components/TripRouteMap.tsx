@@ -526,7 +526,17 @@ function bookingDeepLink(poi: POI, departureAt: string | undefined): string {
   const checkin = isoDate(baseDate);
   const checkout = isoDate(new Date(baseDate.getTime() + 24 * 60 * 60 * 1000));
   const url = new URL("https://www.booking.com/searchresults.html");
+  // Pin the search to the POI's coordinates. Without lat/lon
+  // Booking.com matches the `ss` text against its destination
+  // database and prefers famous cities — searching "George's Drive
+  // Inn" alone lands on a hotel in London. dest_type=latlong tells
+  // Booking the latlon below IS the destination so results stay
+  // near the actual POI; ss is kept as a name hint to bias toward
+  // the exact property when one exists.
   url.searchParams.set("ss", name);
+  url.searchParams.set("dest_type", "latlong");
+  url.searchParams.set("latitude", poi.lat.toFixed(6));
+  url.searchParams.set("longitude", poi.lon.toFixed(6));
   url.searchParams.set("checkin", checkin);
   url.searchParams.set("checkout", checkout);
   // group_adults=2 + no_rooms=1 = sensible Booking.com defaults
