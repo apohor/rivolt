@@ -78,6 +78,10 @@ export function TripRouteMap({
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const chargerLayerRef = useRef<L.LayerGroup | null>(null);
+  // Shared canvas renderer used by the (potentially hundreds of)
+  // charger circleMarkers so they cost zero DOM nodes. Pinned in a
+  // ref so the chargers effect (a different closure) can reach it.
+  const canvasRendererRef = useRef<L.Canvas | null>(null);
   // Markers keyed by their index in route.Waypoints, so external
   // selection (row click in the table) can pulse the right one.
   const wpMarkersRef = useRef<Map<number, L.Marker>>(new Map());
@@ -122,6 +126,12 @@ export function TripRouteMap({
       fadeAnimation: true,
     });
     mapRef.current = map;
+    // Single canvas renderer reused by every charger circleMarker.
+    // preferCanvas:true on the map also routes other vector shapes
+    // (the route polyline) through canvas; pinning a shared renderer
+    // here makes the intent explicit and avoids per-marker renderer
+    // allocation.
+    canvasRendererRef.current = L.canvas({ padding: 0.5 });
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
     addBasemap(map);
@@ -280,7 +290,15 @@ export function TripRouteMap({
           : poi.isDCFC !== false
             ? "dcfc"
             : "l2";
-        const m = L.marker([poi.lat, poi.lon], { icon: chargerDotIcon(variant) })
+        const style = chargerCircleStyle(variant);
+        const m = L.circleMarker([poi.lat, poi.lon], {
+          renderer: canvasRendererRef.current ?? undefined,
+          radius: style.radius,
+          fillColor: style.fill,
+          fillOpacity: 0.92,
+          color: style.stroke,
+          weight: style.weight,
+        })
           .bindPopup(
             chargerPopupHTML(
               poi,
@@ -480,19 +498,18 @@ const CHARGER_DOT_COLORS: Record<"dcfc" | "l2" | "hotel", string> = {
   hotel: "#a78bfa",
 };
 
-function chargerDotIcon(variant: "dcfc" | "l2" | "hotel" = "dcfc"): L.DivIcon {
-  const color = CHARGER_DOT_COLORS[variant];
-  // Hotel markers render slightly larger and with a brighter
-  // outline so they're easy to spot at z9-z11 where the rest of
-  // the corridor's chargers blend together.
-  const size = variant === "hotel" ? 10 : 8;
-  const border = variant === "hotel" ? "2px solid #fafafa" : "1.5px solid #0a0a0a";
-  return L.divIcon({
-    className: "trip-charger-dot",
-    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:${border};opacity:0.92"></span>`,
-    iconSize: [size + 4, size + 4],
-    iconAnchor: [(size + 4) / 2, (size + 4) / 2],
-  });
+// Canvas-rendered styling for charger circleMarkers. Used instead
+// of DivIcons so a long-trip corridor with 100+ chargers contributes
+// zero DOM nodes (Leaflet draws all of them onto the map's canvas
+// renderer). The shape mirrors the old chargerDotIcon: hotels are
+// slightly larger with a white outline; other variants get a thin
+// dark outline.
+function chargerCircleStyle(variant: "dcfc" | "l2" | "hotel") {
+  const fill = CHARGER_DOT_COLORS[variant];
+  if (variant === "hotel") {
+    return { radius: 5, fill, stroke: "#fafafa", weight: 2 };
+  }
+  return { radius: 4, fill, stroke: "#0a0a0a", weight: 1.5 };
 }
 
 // bookingDeepLink builds a Booking.com search URL pre-filled with
