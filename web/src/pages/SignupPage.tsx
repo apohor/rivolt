@@ -204,7 +204,7 @@ export default function SignupPage() {
             <p className="mb-3 text-sm text-neutral-300">
               Rivolt is an open-source Rivian companion in closed beta.
               Leave your email and we'll send a one-click signup link
-              when we approve.
+              when approved.
             </p>
             <ul className="mb-5 space-y-1 text-xs text-neutral-500">
               <li>• Live telemetry from your truck</li>
