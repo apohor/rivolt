@@ -124,7 +124,8 @@ export function TripRouteMap({
     mapRef.current = map;
     map.on("click", () => map.scrollWheelZoom.enable());
     map.on("mouseout", () => map.scrollWheelZoom.disable());
-    addBasemap(map);
+    const basemapAbort = new AbortController();
+    void addBasemap(map, basemapAbort.signal);
 
     // Leaflet measures the container exactly once at construction. When
     // the wrapping Card mounts inside a flex/grid that hasn't finished
@@ -210,6 +211,7 @@ export function TripRouteMap({
 
     return () => {
       ac.abort();
+      basemapAbort.abort();
       cancelAnimationFrame(raf);
       ro.disconnect();
       map.remove();
@@ -657,7 +659,15 @@ function chargerPreviewBodyHTML(poi: POI, r: PreviewResult): string {
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
 
-function addBasemap(map: L.Map) {
+// addBasemap awaits the runtime-config load before reading the
+// PMTiles URL. Cold-loading /trips/plan races the /api/config fetch:
+// a sync read of tilesPMTilesURL() returns "" from the fallback
+// shape and the layer never gets attached, leaving a black canvas
+// under the route. Awaiting ensures the URL is populated by the
+// time we ask for it.
+async function addBasemap(map: L.Map, signal?: AbortSignal) {
+  await ensureConfig();
+  if (signal?.aborted) return;
   const url = tilesPMTilesURL();
   if (!url) return;
   const flavor = namedFlavor("dark");
