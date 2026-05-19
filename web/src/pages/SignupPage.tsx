@@ -53,10 +53,9 @@ export default function SignupPage() {
     };
   }, [token]);
 
-  // Request-access sub-form state. Replaces the old GitHub-issue /
-  // email links — anyone without a code can leave their email + a
-  // short note here and we'll come back via email with a code.
-  const [showRequest, setShowRequest] = useState(false);
+  // Request-access form state. When the URL has no valid token this
+  // is the page's primary content — anyone can leave their email + a
+  // short note and we'll come back via email with a one-click link.
   const [reqEmail, setReqEmail] = useState("");
   const [reqMessage, setReqMessage] = useState("");
   const [reqError, setReqError] = useState<string | null>(null);
@@ -176,20 +175,16 @@ export default function SignupPage() {
         </div>
 
         <div className="mb-2 flex items-center gap-2">
-          <h1 className="text-base font-semibold text-neutral-100">Create your account</h1>
+          <h1 className="text-base font-semibold text-neutral-100">
+            {tokenMode ? "Finish your signup" : "Request beta access"}
+          </h1>
           <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
             Beta
           </span>
         </div>
-        <p className="mb-3 text-sm text-neutral-400">
-          Rivolt is your Rivian companion. Once you're signed in
-          you'll get:
-        </p>
-        <ul className="mb-4 space-y-1 text-xs text-neutral-500">
-          <li>• Live telemetry from your truck</li>
-          <li>• Every drive and charge tracked against your own $/kWh</li>
-          <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
-        </ul>
+
+        {/* Token-state banner. Kept compact — the H1 above already
+            tells the user what state they're in. */}
         {tokenStatus === "checking" && (
           <div className="mb-4 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-300">
             Checking your signup link…
@@ -197,80 +192,106 @@ export default function SignupPage() {
         )}
         {tokenStatus === "invalid" && (
           <div className="mb-4 rounded-md border border-rose-900 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
-            This signup link is invalid or has expired. If you still want to
-            join, request a new invite below.
+            This signup link is invalid or has expired. Request a new one below.
           </div>
         )}
         {tokenStatus === "valid" && (
-          <div className="mb-4 rounded-md border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
-            You're approved! Finish your account below — your email is already
-            set, you just need to pick a password.
+          <p className="mb-4 text-sm text-emerald-300">
+            You're approved. Pick a password to finish — your email is already set.
+          </p>
+        )}
+
+        {!tokenMode && tokenStatus !== "checking" && (
+          <>
+            <p className="mb-3 text-sm text-neutral-300">
+              Rivolt is a self-hosted Rivian companion in closed beta.
+              Leave your email and we'll send a one-click signup link
+              when we approve.
+            </p>
+            <ul className="mb-5 space-y-1 text-xs text-neutral-500">
+              <li>• Live telemetry from your truck</li>
+              <li>• Every drive and charge against your own $/kWh</li>
+              <li>• Road-trip planner with cost, weather, and efficiency analysis</li>
+            </ul>
+
+            {!reqSent ? (
+              <form onSubmit={handleRequestSubmit} className="flex flex-col gap-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+                    Email address
+                  </label>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    required
+                    placeholder="you@example.com"
+                    value={reqEmail}
+                    onChange={(e) => setReqEmail(e.target.value)}
+                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-neutral-400">
+                    A bit about you{" "}
+                    <span className="text-neutral-600">(optional)</span>
+                  </label>
+                  <textarea
+                    placeholder="Truck / trim, home charging (L1 / L2 / none), how often you drive…"
+                    rows={3}
+                    value={reqMessage}
+                    onChange={(e) => setReqMessage(e.target.value)}
+                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+                {reqError && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
+                  >
+                    {reqError}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={reqSubmitting || !reqEmail.trim()}
+                  className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {reqSubmitting ? "Sending…" : "Request access"}
+                </button>
+                <p className="text-center text-xs text-neutral-500">
+                  Already have a signup link?{" "}
+                  <span className="text-neutral-400">Open it from your email.</span>
+                </p>
+              </form>
+            ) : (
+              <div className="rounded-md border border-emerald-900 bg-emerald-950/40 px-3 py-4 text-sm text-emerald-200">
+                <div className="mb-1 font-semibold">Request received.</div>
+                <p className="text-emerald-200/80">
+                  We'll email{" "}
+                  <span className="text-emerald-100 font-mono">{reqEmail}</span>{" "}
+                  when you're approved — usually within a day or two.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        {tokenMode && (
+          <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
+            <strong className="text-neutral-200">What's next:</strong> a short
+            setup wizard walks you through connecting your Rivian account.
+            We recommend a dedicated Authorized Driver login — see the{" "}
+            <a
+              href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-500 hover:underline"
+            >
+              signup walkthrough
+            </a>{" "}
+            for the recommended pattern.
           </div>
         )}
-        <div
-          className={`mb-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90 ${tokenMode ? "hidden" : ""}`}
-        >
-          <strong className="text-amber-200">Closed beta.</strong> Access is
-          invite-only while we shake out bugs. Request access below — when
-          we approve, you'll get a one-click signup link by email.{" "}
-          <button
-            type="button"
-            onClick={() => setShowRequest((v) => !v)}
-            className="underline hover:text-amber-100"
-          >
-            {showRequest ? "hide request form" : "request access →"}
-          </button>
-          {showRequest && !reqSent && (
-            <form onSubmit={handleRequestSubmit} className="mt-3 flex flex-col gap-2">
-              <input
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={reqEmail}
-                onChange={(e) => setReqEmail(e.target.value)}
-                className="w-full rounded-md border border-amber-900/60 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:border-amber-500 focus:outline-none"
-              />
-              <textarea
-                placeholder="Truck / trim, home charging (L1 / L2 / none), how often you drive…"
-                rows={3}
-                value={reqMessage}
-                onChange={(e) => setReqMessage(e.target.value)}
-                className="w-full rounded-md border border-amber-900/60 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-100 placeholder-neutral-600 focus:border-amber-500 focus:outline-none"
-              />
-              {reqError && (
-                <p className="text-xs text-rose-400">{reqError}</p>
-              )}
-              <button
-                type="submit"
-                disabled={reqSubmitting}
-                className="self-start rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"
-              >
-                {reqSubmitting ? "Sending…" : "Send request"}
-              </button>
-            </form>
-          )}
-          {showRequest && reqSent && (
-            <p className="mt-3 text-xs text-amber-100">
-              Thanks — we'll email you when you're approved.
-            </p>
-          )}
-        </div>
-
-        <div className="mb-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
-          <strong className="text-neutral-200">What's next:</strong> after
-          you sign in, a short setup wizard walks you through connecting
-          your Rivian account. We recommend a dedicated Authorized Driver
-          login — see the{" "}
-          <a
-            href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-emerald-500 hover:underline"
-          >
-            signup walkthrough
-          </a>{" "}
-          for the recommended pattern.
-        </div>
 
         {tokenMode && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
