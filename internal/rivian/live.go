@@ -540,7 +540,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 	if err != nil {
 		class, reason := ClassifyNetwork(err)
 		ue := &UpstreamError{Class: class, Op: req.OperationName, Reason: reason, Cause: err}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -566,7 +566,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:     reason,
 			Cause:      fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256)),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -595,7 +595,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:  reason,
 			Cause:   fmt.Errorf("%s", strings.Join(msgs, "; ")),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue

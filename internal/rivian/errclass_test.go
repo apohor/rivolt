@@ -93,19 +93,24 @@ func TestClassifyNetwork(t *testing.T) {
 	}
 }
 
-// TestLiveClientFlipsNeedsReauthOn401 is the end-to-end wiring
-// check: an outbound call that returns HTTP 401 must (1) return
-// an UpstreamError of class ClassUserAction, (2) flip the
-// in-memory needs_reauth mirror to true with a human-readable
-// reason, (3) fire the reauthSink exactly once, (4) cause the
-// next call to short-circuit with ErrNeedsReauth before any HTTP
-// traffic is emitted.
-func TestLiveClientFlipsNeedsReauthOn401(t *testing.T) {
+// TestLoginDoesNotFlipNeedsReauthOn401 captures the contract that
+// a failed Login (user typed the wrong password / their Rivian
+// account is locked) must NOT raise the needs_reauth flag.
+//
+// The flag is for *previously good* sessions that have gone stale
+// in the background; a user voluntarily submitting fresh
+// credentials and being rejected is a different state, and
+// flipping the flag traps brand-new OAuth signups (who have never
+// had a Rivian session) in a "reconnect your Rivian account" UI
+// that doesn't match their actual situation.
+//
+// Login is the only path that runs with withBypassReauth on its
+// context, which is the marker doGraphQLAt uses to skip the
+// markNeedsReauth call on classified UserAction errors.
+func TestLoginDoesNotFlipNeedsReauthOn401(t *testing.T) {
 	var hits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
-		// First request: handshake CSRF so the client is past
-		// the bootstrap state. Second: the query we care about.
 		if strings.Contains(r.URL.Path, "gateway") && hits == 1 {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"data":{"createCsrfToken":{"csrfToken":"c","appSessionToken":"a"}}}`)
@@ -117,13 +122,9 @@ func TestLiveClientFlipsNeedsReauthOn401(t *testing.T) {
 	defer server.Close()
 
 	var sinkCalls int
-	var sinkReason string
 	c := NewLive()
 	c.endpoint = server.URL + "/gateway"
-	c.WithReauthSink(func(_ context.Context, reason string) {
-		sinkCalls++
-		sinkReason = reason
-	})
+	c.WithReauthSink(func(_ context.Context, _ string) { sinkCalls++ })
 
 	ctx := context.Background()
 	err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"})
@@ -141,42 +142,63 @@ func TestLiveClientFlipsNeedsReauthOn401(t *testing.T) {
 		t.Errorf("want HTTPStatus=401, got %d", ue.HTTPStatus)
 	}
 
-	// Mirror flipped.
-	needs, reason := c.NeedsReauth()
-	if !needs {
-		t.Fatal("NeedsReauth: want true after 401")
+	if needs, _ := c.NeedsReauth(); needs {
+		t.Fatal("NeedsReauth: want false after a failed Login (bypassReauth honors)")
 	}
-	if reason == "" {
-		t.Error("NeedsReauth: want a non-empty reason")
+	if sinkCalls != 0 {
+		t.Errorf("sink calls: want 0 from failed Login, got %d", sinkCalls)
 	}
 
-	// Sink fired once.
-	if sinkCalls != 1 {
-		t.Errorf("sink calls: want 1, got %d", sinkCalls)
-	}
-	if sinkReason == "" {
-		t.Error("sink reason: want non-empty")
-	}
-
-	// Next call through the gate short-circuits with
-	// ErrNeedsReauth before any HTTP traffic is emitted.
-	// We can't route through Vehicles() here because the
-	// client's session state is half-constructed after the
-	// failed Login — but checkUpstream is the single chokepoint
-	// every outbound call goes through, so exercising it
-	// directly is the same guarantee.
-	before := hits
-	if err := c.checkUpstream(ctx); !errors.Is(err, ErrNeedsReauth) {
-		t.Fatalf("want ErrNeedsReauth, got %v", err)
-	}
-	if hits != before {
-		t.Errorf("gate leaked HTTP traffic: before=%d after=%d", before, hits)
-	}
-
-	// Login is the way out of needs_reauth, so withBypassReauth
-	// must let the gate through; every other path still honors it.
+	// Login bypass still permits a re-attempt — checkUpstream with
+	// the bypass marker must let the next call through regardless
+	// of the flag state.
 	if err := c.checkUpstream(withBypassReauth(ctx)); err != nil {
 		t.Fatalf("withBypassReauth must allow Login through, got %v", err)
+	}
+}
+
+// TestBackgroundCallFlipsNeedsReauthOn401 covers the other side of
+// the contract: a non-Login GraphQL call (no bypassReauth on the
+// context) that gets a 401 MUST flip the flag, fire the sink, and
+// cause the next call to short-circuit. This is the stale-session
+// guard that stops the monitor pod from hammering Rivian after a
+// user's session expires.
+func TestBackgroundCallFlipsNeedsReauthOn401(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"errors":[{"message":"session expired"}]}`)
+	}))
+	defer server.Close()
+
+	var sinkCalls int
+	var sinkReason string
+	c := NewLive()
+	c.endpoint = server.URL + "/gateway"
+	c.WithReauthSink(func(_ context.Context, reason string) {
+		sinkCalls++
+		sinkReason = reason
+	})
+
+	ctx := context.Background()
+	_, err := doGraphQLAt[map[string]any](ctx, c, c.endpoint,
+		graphQLRequest{OperationName: "getUserInfo", Query: "query getUserInfo { ok }"},
+		nil)
+	if err == nil {
+		t.Fatal("expected 401 to surface as error")
+	}
+	var ue *UpstreamError
+	if !errors.As(err, &ue) || ue.Class != ClassUserAction || ue.HTTPStatus != 401 {
+		t.Fatalf("want ClassUserAction 401, got %v", err)
+	}
+
+	if needs, reason := c.NeedsReauth(); !needs || reason == "" {
+		t.Fatalf("NeedsReauth: want true with reason after background 401, got needs=%v reason=%q", needs, reason)
+	}
+	if sinkCalls != 1 || sinkReason == "" {
+		t.Errorf("sink: want 1 call with non-empty reason, got calls=%d reason=%q", sinkCalls, sinkReason)
+	}
+	if err := c.checkUpstream(ctx); !errors.Is(err, ErrNeedsReauth) {
+		t.Fatalf("want ErrNeedsReauth on next call, got %v", err)
 	}
 }
 
