@@ -195,7 +195,19 @@ readinessProbe:
 
 nodeSelector: {}
 tolerations: []
-affinity: {}
+# Soft anti-affinity on hostname so the scheduler spreads replicas
+# across nodes when there's more than one available, but still
+# lets a single-node install run. Override or set to {} for
+# special-case deploys.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: rivolt
 
 # ---------------------------------------------------------------------------
 # Application configuration
