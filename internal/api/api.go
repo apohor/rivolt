@@ -827,7 +827,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
 		"script-src 'self' https://static.cloudflareinsights.com; " +
 		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com; " +
+		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; " +
 		"font-src 'self' data:; " +
 		"connect-src 'self' https://cloudflareinsights.com; " +
 		"worker-src 'self'; " +
