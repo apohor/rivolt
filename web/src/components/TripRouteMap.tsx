@@ -140,8 +140,17 @@ export function TripRouteMap({
     const raf = requestAnimationFrame(() => {
       if (mapRef.current) mapRef.current.invalidateSize();
     });
+    // Coalesce ResizeObserver callbacks into the next paint so a
+    // synchronous invalidateSize() can't feed back into the same
+    // observation tick. Chrome's compositor flashes the page white
+    // on a tight resize/invalidate loop when scrolling the planner.
+    let roRaf = 0;
     const ro = new ResizeObserver(() => {
-      if (mapRef.current) mapRef.current.invalidateSize();
+      if (roRaf) return;
+      roRaf = requestAnimationFrame(() => {
+        roRaf = 0;
+        if (mapRef.current) mapRef.current.invalidateSize();
+      });
     });
     ro.observe(ref.current);
 
