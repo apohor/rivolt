@@ -254,7 +254,12 @@ export default function SignupPage() {
                 <p className="text-emerald-200/80">
                   We'll email{" "}
                   <span className="text-emerald-100 font-mono">{reqEmail}</span>{" "}
-                  when you're approved — usually within a day or two.
+                  when you're approved — usually within the same day.
+                </p>
+                <p className="mt-2 text-xs text-emerald-200/70">
+                  Check your spam folder or add{" "}
+                  <span className="text-emerald-100 font-mono">anton@rivolt.dev</span>{" "}
+                  to your known recipients.
                 </p>
               </div>
             )}
