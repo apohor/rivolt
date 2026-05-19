@@ -108,15 +108,17 @@ your history.
 If you've been using ElectraFi, you can backfill years of drives
 and charges:
 
-1. Open the ElectraFi app on your phone and tap **Settings →
-   Export data**. You'll get a CSV file emailed to you.
+1. In the ElectraFi app, go to **Settings → Account → Advanced →
+   Download ElectraFi Data**. You'll get a set of CSV files — one
+   `drives.csv` and one `charges.csv` per month.
 2. In Rivolt, go to **Settings → Data → Import ElectraFi CSV**.
-3. Upload the CSV. The importer streams the file, deduplicates
-   against any drives Rivolt has already recorded live, and merges
-   timestamps so the import doesn't collide with your live history.
+3. Select all of the CSVs at once and upload. The importer streams
+   each file, deduplicates against any drives / charges Rivolt has
+   already recorded live, and merges timestamps so the import
+   doesn't collide with your live history.
 
 Rivolt's importer is timezone-aware — make sure the **Display →
-Timezone** preference matches the tz the CSV was exported under
+Timezone** preference matches the tz the CSVs were exported under
 or session IDs won't line up.
 
 ---

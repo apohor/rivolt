@@ -281,7 +281,7 @@ export default function SignupPage() {
               signup walkthrough
             </a>
             ) and lets you import past drives + charges from an ElectraFi
-            CSV so your stats start with real history, not a blank slate.
+            export so your stats start with real history, not a blank slate.
           </div>
         )}
 
