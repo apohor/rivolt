@@ -202,7 +202,7 @@ export default function SignupPage() {
         {!tokenMode && tokenStatus !== "checking" && (
           <>
             <p className="mb-3 text-sm text-neutral-300">
-              Rivolt is a self-hosted Rivian companion in closed beta.
+              Rivolt is an open-source Rivian companion in closed beta.
               Leave your email and we'll send a one-click signup link
               when we approve.
             </p>
