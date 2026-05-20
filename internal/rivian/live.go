@@ -1021,6 +1021,18 @@ type vehicleStateData struct {
 		ChargerDerateStatus             vsValue[permissiveString] `json:"chargerDerateStatus"`
 		ChargingDisabledAll             vsValue[permissiveString] `json:"chargingDisabledAll"`
 		ChargingTimeEstimationValidity  vsValue[permissiveString] `json:"chargingTimeEstimationValidity"`
+		// Driver identity + special-mode flags. Each surfaces as a
+		// chip in LivePanel's header when populated.
+		ActiveDriverName         vsValue[permissiveString] `json:"activeDriverName"`
+		GearGuardLocked          vsValue[permissiveString] `json:"gearGuardLocked"`
+		PetModeStatus            vsValue[permissiveString] `json:"petModeStatus"`
+		PetModeTemperatureStatus vsValue[permissiveString] `json:"petModeTemperatureStatus"`
+		CabinHoldStatus          vsValue[permissiveString] `json:"cabinHoldStatus"`
+		// Window-closed states. Same "open"/"closed"/"" shape as doors.
+		WindowFrontLeftClosed  vsValue[permissiveString] `json:"windowFrontLeftClosed"`
+		WindowFrontRightClosed vsValue[permissiveString] `json:"windowFrontRightClosed"`
+		WindowRearLeftClosed   vsValue[permissiveString] `json:"windowRearLeftClosed"`
+		WindowRearRightClosed  vsValue[permissiveString] `json:"windowRearRightClosed"`
 	} `json:"vehicleState"`
 }
 
@@ -1345,10 +1357,10 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		TirePressureStatusFR:       ps(vs.TirePressureStatusFrontRight.Value),
 		TirePressureStatusRL:       ps(vs.TirePressureStatusRearLeft.Value),
 		TirePressureStatusRR:       ps(vs.TirePressureStatusRearRight.Value),
-		// Charging-context fields are subscription-only — the REST
-		// vehicleState query above doesn't return them populated.
-		// Subscription frames flow through stateFromWS which sets
-		// these; the REST builder leaves them zero.
+		// Charging-context + driver + special-mode + windows are
+		// subscription-only. The REST vehicleState query above
+		// doesn't return them populated; only stateFromVehicleStateData
+		// (ws.go) sets them. Leaving zero here matches that.
 	}, nil
 }
 

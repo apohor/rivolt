@@ -264,6 +264,48 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             <Field label="Speed" value={num(kphToMph(s.speed_kph), 0, "mph")} />
             <Field label="Heading" value={formatHeading(s.heading_deg)} />
             <Field label="Altitude" value={num(mToFt(s.altitude_m), 0, "ft")} />
+            {s.active_driver_name.trim() !== "" && (
+              <Field label="Driver" value={s.active_driver_name} />
+            )}
+            {/* Special-mode chips: Gear Guard armed, Pet Comfort
+                active, Camp/Cabin hold. Each renders only when
+                Rivian flags it on. Lives in the Drive section
+                because that's where the user looks for "what's
+                the car doing right now". */}
+            {(isTruthyFlag(s.gear_guard_locked) ||
+              isTruthyFlag(s.pet_mode_status) ||
+              isTruthyFlag(s.cabin_hold_status)) && (
+              <div className="col-span-2 flex flex-wrap gap-1.5 pt-1 sm:col-span-4">
+                {isTruthyFlag(s.gear_guard_locked) && (
+                  <span
+                    className="rounded-md border border-emerald-700/70 bg-emerald-950/40 px-2 py-0.5 text-[11px] font-medium text-emerald-200"
+                    title="Gear Guard is armed — interior + perimeter recording"
+                  >
+                    Gear Guard armed
+                  </span>
+                )}
+                {isTruthyFlag(s.pet_mode_status) && (
+                  <span
+                    className="rounded-md border border-violet-700/70 bg-violet-950/40 px-2 py-0.5 text-[11px] font-medium text-violet-200"
+                    title={
+                      s.pet_mode_temperature_status
+                        ? `Pet Comfort active · ${formatTitle(s.pet_mode_temperature_status)}`
+                        : "Pet Comfort active"
+                    }
+                  >
+                    Pet Comfort
+                  </span>
+                )}
+                {isTruthyFlag(s.cabin_hold_status) && (
+                  <span
+                    className="rounded-md border border-sky-700/70 bg-sky-950/40 px-2 py-0.5 text-[11px] font-medium text-sky-200"
+                    title="Camp / Cabin hold active — climate held at the current target"
+                  >
+                    Cabin hold
+                  </span>
+                )}
+              </div>
+            )}
           </Section>
 
           <Section title="Climate">
@@ -297,6 +339,23 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 <Field label="Tonneau" value={formatClosed(s.tonneau_closed)} />
               </>
             ) : null}
+            {/* Window state. Aggregated bool per side so the grid
+                stays four-column on phones. A side counts as closed
+                only when BOTH front + rear windows on that side
+                report closed; any open window flips the side to
+                "open". */}
+            <Field
+              label="Windows L"
+              value={formatClosed(
+                s.window_front_left_closed && s.window_rear_left_closed,
+              )}
+            />
+            <Field
+              label="Windows R"
+              value={formatClosed(
+                s.window_front_right_closed && s.window_rear_right_closed,
+              )}
+            />
           </Section>
 
           <Section title="Tires">

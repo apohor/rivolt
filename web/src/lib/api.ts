@@ -222,6 +222,18 @@ export type VehicleState = {
   charger_derate_status: string;
   charging_disabled_all: string;
   charging_time_estimation_validity: string;
+  // Driver + special-mode chips on the live header.
+  active_driver_name: string;
+  gear_guard_locked: string;
+  pet_mode_status: string;
+  pet_mode_temperature_status: string;
+  cabin_hold_status: string;
+  // Windows. Aggregated separately from doors; surfaced as their
+  // own row in the closure grid.
+  window_front_left_closed: boolean;
+  window_front_right_closed: boolean;
+  window_rear_left_closed: boolean;
+  window_rear_right_closed: boolean;
 };
 
 export type Drive = {

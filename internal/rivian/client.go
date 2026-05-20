@@ -149,6 +149,21 @@ type State struct {
 	ChargerDerateStatus            string  `json:"charger_derate_status"`
 	ChargingDisabledAll            string  `json:"charging_disabled_all"`
 	ChargingTimeEstimationValidity string  `json:"charging_time_estimation_validity"`
+	// Driver identity + special modes. Empty when the field hasn't
+	// been emitted by the subscription yet (e.g. brand-new tab) or
+	// when the mode isn't active.
+	ActiveDriverName         string `json:"active_driver_name"`
+	GearGuardLocked          string `json:"gear_guard_locked"`
+	PetModeStatus            string `json:"pet_mode_status"`
+	PetModeTemperatureStatus string `json:"pet_mode_temperature_status"`
+	CabinHoldStatus          string `json:"cabin_hold_status"`
+	// Window closed states ("open"/"closed"/""). Aggregated separately
+	// from doors because Rivian-app convention shows them on their
+	// own row even when all are closed.
+	WindowFrontLeftClosed  bool `json:"window_front_left_closed"`
+	WindowFrontRightClosed bool `json:"window_front_right_closed"`
+	WindowRearLeftClosed   bool `json:"window_rear_left_closed"`
+	WindowRearRightClosed  bool `json:"window_rear_right_closed"`
 }
 
 // LiveSession is the snapshot of an in-progress charging session,

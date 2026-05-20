@@ -85,6 +85,21 @@ const qVehicleStateSubscription = `subscription VehicleState($vehicleID: String!
     closureTailgateLocked { value }
     closureSideBinLeftLocked { value }
     closureSideBinRightLocked { value }
+    timeToEndOfCharge { value }
+    chargingTripTargetSoc { value }
+    chargingTripTargetMinsRemaining { value }
+    chargerDerateStatus { value }
+    chargingDisabledAll { value }
+    chargingTimeEstimationValidity { value }
+    activeDriverName { value }
+    gearGuardLocked { value }
+    petModeStatus { value }
+    petModeTemperatureStatus { value }
+    cabinHoldStatus { value }
+    windowFrontLeftClosed { value }
+    windowFrontRightClosed { value }
+    windowRearLeftClosed { value }
+    windowRearRightClosed { value }
   }
 }`
 
@@ -331,6 +346,19 @@ func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 		ChargerDerateStatus:            ps(vs.ChargerDerateStatus.Value),
 		ChargingDisabledAll:            ps(vs.ChargingDisabledAll.Value),
 		ChargingTimeEstimationValidity: ps(vs.ChargingTimeEstimationValidity.Value),
+		// Driver + special-mode flags.
+		ActiveDriverName:         ps(vs.ActiveDriverName.Value),
+		GearGuardLocked:          ps(vs.GearGuardLocked.Value),
+		PetModeStatus:            ps(vs.PetModeStatus.Value),
+		PetModeTemperatureStatus: ps(vs.PetModeTemperatureStatus.Value),
+		CabinHoldStatus:          ps(vs.CabinHoldStatus.Value),
+		// Windows. isClosed() collapses Rivian's "open"/"closed"/""
+		// strings into a single bool — same helper used for door
+		// closures elsewhere in this file.
+		WindowFrontLeftClosed:  isClosed(ps(vs.WindowFrontLeftClosed.Value)),
+		WindowFrontRightClosed: isClosed(ps(vs.WindowFrontRightClosed.Value)),
+		WindowRearLeftClosed:   isClosed(ps(vs.WindowRearLeftClosed.Value)),
+		WindowRearRightClosed:  isClosed(ps(vs.WindowRearRightClosed.Value)),
 	}
 }
 
