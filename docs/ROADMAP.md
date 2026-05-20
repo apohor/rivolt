@@ -721,6 +721,96 @@ by expected value, not by time.
 
 ---
 
+## Live-view metric expansion
+
+The vehicleState WebSocket subscription currently pulls 50 of the
+~140 fields the Rivian app subscribes to (see
+`reference_rivian_apk_decompile.md` for the APK ground truth). The
+gap is real signal we could expose without any new endpoint or
+extra request cost — same subscription, longer selection set.
+
+Priority order is by user-visible value, not implementation effort.
+Each tier is shippable as its own PR.
+
+**Tier 1 — active charging panel.** Highest ROI: the live view is
+the most-watched surface during a charge stop, and Rivian's app
+shows these by default.
+
+- [ ] `timeToEndOfCharge` — minutes until full at current rate;
+      replaces our compute-it-ourselves fallback
+- [ ] `chargingTripTargetSoc` + `chargingTripTargetMinsRemaining` —
+      "12 min to trip target SoC" alongside current SoC
+- [ ] `chargerDerateStatus` — surface why charging power is below
+      the station's nameplate
+- [ ] `chargingDisabledAll`, `chargingDisabledACFaultState` —
+      explain why charging stopped instead of showing zero kW
+- [ ] `chargingTimeEstimationValidity` — gate the "estimated time"
+      pill when Rivian itself says the estimate is invalid
+
+**Tier 2 — driver identity + special modes.** Small fields, big UX
+in a multi-key household.
+
+- [ ] `activeDriverName` — name the driver in the live header
+- [ ] `gearGuardLocked` — Gear Guard armed chip
+- [ ] `gearGuardVideoStatus`, `gearGuardVideoMode` — recording
+      indicator
+- [ ] `petModeStatus` + `petModeTemperatureStatus` — Pet Comfort
+      active + cabin target
+- [ ] `cabinHoldStatus` — Camp Mode hold indicator
+
+**Tier 3 — climate card detail.** Completes the climate panel so
+it mirrors the truck's HVAC screen.
+
+- [ ] Per-seat heat: `seatFront{Left,Right}Heat`, `seatRear*Heat`,
+      `seatThirdRow*Heat`
+- [ ] Per-seat vent: `seatFront{Left,Right}Vent`
+- [ ] `steeringWheelHeat`, `defrostDefogStatus`
+- [ ] `cabinClimateDriverTemperature` (set point, separate from
+      measured `cabinClimateInteriorTemperature`)
+- [ ] `cabinPreconditioningType` — climate vs comfort vs trip-
+      departure precondition
+
+**Tier 4 — battery / cold-weather context.** Surfaces winter
+performance caveats and LFP-specific calibration cues.
+
+- [ ] `batteryCellType` — LFP vs NMC (drives the chip below)
+- [ ] `batteryNeedsLfpCalibration` — show "100% calibration due"
+      banner for LFP packs only
+- [ ] `coldRangeNotification`, `limitedAccelCold`, `limitedRegenCold`
+- [ ] `batteryHvThermalEvent` + `batteryHvThermalEventPropagation` —
+      safety; currently invisible
+
+**Tier 5 — OTA pipeline detail.** We show `otaStatus` + version
+already; the in-progress fields make the install panel actionable.
+
+- [ ] `otaDownloadProgress` — % downloaded, before install
+- [ ] `otaInstallReady` + `otaInstallTime` — scheduled install
+      window
+
+**Tier 6 — closures + accessory state.** Round out the existing
+door/bin grid and add tow / car-wash awareness.
+
+- [ ] `windowFront{Left,Right}Closed`, `windowRear{Left,Right}Closed`
+- [ ] `closureChargePortDoorNextAction`
+- [ ] `trailerStatus`, `rearHitchStatus` — show tow icon when
+      relevant
+- [ ] `carWashMode` — informational chip when active
+
+**Tier 7 — connectivity.** Low effort, low priority, but cheap to
+include once we're already touching the selection set.
+
+- [ ] `cellularAntennaBars`, `cellularCarrier`,
+      `cellularSignalStrength`
+- [ ] `wifiAntennaBars`, `wifiSsid`
+
+**Implementation note.** Each tier is just adding fields to
+`qVehicleStateSubscription` in `internal/rivian/ws.go`, threading
+them through the recorder + state hydration, and rendering on the
+SPA. No new endpoints, no new persistence — the existing
+WebSocket carries everything.
+
+---
+
 ## Trip planner UX backlog
 
 Smaller cuts queued up; not phase-gated, ship as they make sense.
