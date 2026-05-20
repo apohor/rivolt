@@ -339,23 +339,12 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 <Field label="Tonneau" value={formatClosed(s.tonneau_closed)} />
               </>
             ) : null}
-            {/* Window state. Aggregated bool per side so the grid
-                stays four-column on phones. A side counts as closed
-                only when BOTH front + rear windows on that side
-                report closed; any open window flips the side to
-                "open". */}
-            <Field
-              label="Windows L"
-              value={formatClosed(
-                s.window_front_left_closed && s.window_rear_left_closed,
-              )}
-            />
-            <Field
-              label="Windows R"
-              value={formatClosed(
-                s.window_front_right_closed && s.window_rear_right_closed,
-              )}
-            />
+            {/* Per-window state. One row per corner so the user can
+                tell which window is open without going to the truck. */}
+            <Field label="Window FL" value={formatClosed(s.window_front_left_closed)} />
+            <Field label="Window FR" value={formatClosed(s.window_front_right_closed)} />
+            <Field label="Window RL" value={formatClosed(s.window_rear_left_closed)} />
+            <Field label="Window RR" value={formatClosed(s.window_rear_right_closed)} />
           </Section>
 
           <Section title="Tires">
