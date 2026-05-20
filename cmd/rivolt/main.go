@@ -47,6 +47,7 @@ import (
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -581,6 +582,40 @@ func runServer() {
 	if pgPool != nil {
 		partitionJanitor := samples.NewPartitionJanitor(pgPool)
 		go partitionJanitor.Run(ctx)
+	}
+
+	// Derive pack-health samples from existing charges on a slow
+	// ticker so the "Pack health" UI has data without a per-charge
+	// recorder hook. Idempotent (Upsert replaces on conflict);
+	// startup run primes the table, hourly run picks up new
+	// charges. Skips entirely when no DB is wired (dev mode).
+	if pgPool != nil {
+		ph := packhealth.NewStore(pgPool)
+		go func() {
+			run := func() {
+				bctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+				defer cancel()
+				n, err := ph.BackfillAll(bctx)
+				if err != nil {
+					logger.Warn("packhealth backfill failed", "err", err.Error())
+					return
+				}
+				if n > 0 {
+					logger.Info("packhealth backfill", "samples", n)
+				}
+			}
+			run()
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					run()
+				}
+			}
+		}()
 	}
 
 	// Subscription leases gate which vehicles THIS pod owns.
@@ -1134,6 +1169,7 @@ func runServer() {
 		Settings:     settingsFactory,
 		Push:         pushFactory,
 		Trips:        tripsFactory,
+		PackHealth:   packhealth.NewStore(pgPool),
 		Monitors:     monitorRegistry,
 		SettingsMgr:  settingsMgr,
 		Auth:         authSvc,

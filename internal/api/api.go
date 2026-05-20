@@ -41,6 +41,7 @@ import (
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/recap"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -85,6 +86,12 @@ type Deps struct {
 	Settings *settings.Factory
 	Push     *push.Factory
 	Trips    *trips.Factory
+	// PackHealth is the per-vehicle derived-pack-capacity store.
+	// Not a factory because samples are scoped by vehicle_id, not
+	// user_id; the handler authorizes via the vehicleScoped
+	// ownership middleware before reading. Nil-safe: the endpoint
+	// returns 503 when unset.
+	PackHealth *packhealth.Store
 	// SettingsMgr exposes install-wide AI provider config (keys,
 	// default models). Install-wide because the deployer pays the
 	// LLM bill for every user. May be nil; the admin track
@@ -454,6 +461,9 @@ func New(d Deps) http.Handler {
 			}))
 			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleProfilePut(d.DB)(uid, w, r)
+			}))
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
 			r.With(vehicleScoped).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleState(clientFor(d, uid), monitorFor(d, uid))(w, r)
@@ -1126,6 +1136,77 @@ func handleVehicleProfilePut(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter,
 			return
 		}
 		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// handlePackHealthGet returns the derived effective-pack-capacity
+// time series for a vehicle, plus a headline (current effective
+// kWh + % of nameplate). Time series is oldest-first so the SPA
+// can plot left-to-right directly. Returns 200 with empty samples
+// when no qualifying charges exist yet — the SPA handles the empty
+// state.
+func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		if sqlDB == nil || ph == nil {
+			http.Error(w, "pack-health unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		rivianID := chi.URLParam(r, "vehicleID")
+		if rivianID == "" {
+			http.Error(w, "missing vehicle id", http.StatusBadRequest)
+			return
+		}
+		var (
+			vid           uuid.UUID
+			nameplateKWh  sql.NullFloat64
+		)
+		if err := sqlDB.QueryRowContext(r.Context(), `
+			SELECT id, pack_kwh FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+		`, uid, rivianID).Scan(&vid, &nameplateKWh); err != nil {
+			http.Error(w, "vehicle not found", http.StatusNotFound)
+			return
+		}
+		samples, err := ph.ListByVehicle(r.Context(), vid, 0)
+		if err != nil {
+			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Headline: median of the most recent N samples that aren't
+		// flagged as derate_active. Median is more robust than mean
+		// against the occasional bad-data outlier; 10 samples is a
+		// stable window without flattening genuine month-over-month
+		// trends.
+		const headlineWindow = 10
+		recent := samples
+		if len(recent) > headlineWindow {
+			recent = recent[len(recent)-headlineWindow:]
+		}
+		clean := make([]float64, 0, len(recent))
+		for _, s := range recent {
+			if s.DerateActive {
+				continue
+			}
+			clean = append(clean, s.PackKWhEffective)
+		}
+		var headlineEffective float64
+		if len(clean) > 0 {
+			sort.Float64s(clean)
+			headlineEffective = clean[len(clean)/2]
+		}
+		var pctOfNameplate float64
+		if nameplateKWh.Valid && nameplateKWh.Float64 > 0 && headlineEffective > 0 {
+			pctOfNameplate = (headlineEffective / nameplateKWh.Float64) * 100.0
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"samples": samples,
+			"headline": map[string]any{
+				"effective_kwh":    headlineEffective,
+				"nameplate_kwh":    nameplateKWh.Float64,
+				"pct_of_nameplate": pctOfNameplate,
+				"sample_count":     len(samples),
+				"window":           len(clean),
+			},
+		})
 	}
 }
 
