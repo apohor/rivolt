@@ -670,6 +670,19 @@ decisions 3, 11, 12 for the cloud-specific deltas.
       config.
 - [ ] **CloudFlare** in front of the Ingress for DDoS + WAF.
 - [ ] **Managed L7 load balancer** fronting the Ingress.
+- [ ] **Tiles to object storage (R2 / S3 + CDN).** Move
+      `us.pmtiles` and `chargers.pmtiles` out of the cluster
+      entirely. Deletes the `tiles` namespace (nginx pod +
+      build Jobs + NFS PVC) and the rivolt `/api/maps/tiles/*`
+      reverse proxy. SPA fetches `tiles.rivolt.dev/us.pmtiles`
+      directly; CDN handles byte-range. Builds become "upload
+      from a workstation when fresh OSM data is wanted" instead
+      of an in-cluster Job whose mid-day re-runs break open
+      tabs. Cost: ~$0.30/mo for 18 GB on R2; zero egress fees.
+      Trade-off: tiles become unauthenticated, but they're
+      public OSM data so the auth gate was always cosmetic.
+      pmtiles is designed for exactly this layout; protomaps'
+      own demo runs against S3 + Cloudflare.
 
 ### Security / trust
 
