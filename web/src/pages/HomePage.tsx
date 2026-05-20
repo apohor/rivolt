@@ -287,6 +287,20 @@ export default function HomePage() {
               yDomain={[0, 100]}
               formatY={(v) => `${v.toFixed(0)}%`}
               formatY2={(v) => `${v.toFixed(0)} kWh`}
+              // Anchor the pack-kWh axis to the vehicle's nameplate
+              // (read from /api/vehicles/{vid}/pack-health.headline.
+              // nameplate_kwh). 70..105% of nameplate covers real
+              // degradation territory and absorbs measurement
+              // noise above 100% without one outlier squashing the
+              // line into a single spike.
+              y2Domain={
+                packHealth.data && packHealth.data.headline.nameplate_kwh > 0
+                  ? [
+                      packHealth.data.headline.nameplate_kwh * 0.7,
+                      packHealth.data.headline.nameplate_kwh * 1.05,
+                    ]
+                  : undefined
+              }
               formatX={(x) =>
                 new Date(x).toLocaleDateString(undefined, {
                   month: "short",

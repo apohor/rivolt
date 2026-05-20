@@ -51,6 +51,15 @@ const MinSoCDeltaPct = 30.0
 // R1T usable is ~131 kWh; 200 is a comfortable upper bound.
 const SanityMaxEnergyKWh = 200.0
 
+// MinPeakKWForMeasured is the lower bound on max_power_kw that
+// signals Rivian reported a real totalChargedEnergy for the
+// session (vs the recorder back-filling energy from SoC delta).
+// 20 kW excludes AC home charging (typical home L2 caps at ~11.5
+// kW for R1) but includes any DCFC stop — including derated
+// sessions. Sessions with no measured energy yield circular fits
+// that just echo the stored nameplate.
+const MinPeakKWForMeasured = 20.0
+
 // Sample is a single derived data point for a charge session.
 type Sample struct {
 	VehicleID          uuid.UUID `json:"vehicle_id"`
@@ -200,15 +209,29 @@ func (s *Store) BackfillAll(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	// Prune previously-stored samples that no longer pass the
-	// current sanity cap. Tightening Derive (e.g. raising the
-	// minimum effective pack from 0 to 60 kWh) leaves old rows
-	// orphaned otherwise, skewing the chart's trend line.
+	// current sanity cap or qualification filter. Without this,
+	// tightening either side (raising the kWh floor, restricting
+	// to measured-energy sessions) leaves stale rows that skew
+	// the chart's trend line.
 	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM vehicle_pack_health_samples
 		WHERE pack_kwh_effective < 60
 		   OR pack_kwh_effective > 250
 	`); err != nil {
 		return 0, fmt.Errorf("prune out-of-range samples: %w", err)
+	}
+	// Drop samples for charges that no longer qualify under the
+	// measured-energy filter (AC home sessions whose energy was
+	// back-filled from SoC × pack_kwh). Identified by joining to
+	// the originating charge row.
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM vehicle_pack_health_samples s
+		USING charges c
+		WHERE s.charge_id = c.id
+		  AND c.session_type IS DISTINCT FROM 'dc'
+		  AND COALESCE(c.max_power_kw, 0) <= $1
+	`, MinPeakKWForMeasured); err != nil {
+		return 0, fmt.Errorf("prune circular samples: %w", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM vehicles`)
 	if err != nil {
@@ -241,6 +264,14 @@ func (s *Store) BackfillAll(ctx context.Context) (int, error) {
 // vehicle. Idempotent (Upsert replaces on conflict) so safe to
 // re-run any time. Skips charges where Derive returns ok=false.
 //
+// Filters to charges with MEASURED energy: DC fast sessions
+// (session_type='dc') OR any session with a credible peak power
+// (max_power_kw > MinPeakKWForMeasured). Lower-power AC home
+// sessions usually don't get a real totalChargedEnergy push from
+// Rivian — the recorder back-fills energy_added_kwh from
+// (SoC delta × pack_kwh), which would make this derivation
+// circular and produce nothing but the stored nameplate back.
+//
 // Reads start_soc_pct, end_soc_pct, energy_added_kwh, ended_at
 // directly from the charges table. Bypasses RLS — pass a trusted
 // vehicleID that the caller has already authorized.
@@ -259,7 +290,11 @@ func (s *Store) BackfillVehicle(ctx context.Context, vehicleID uuid.UUID) (int, 
 		  AND start_soc_pct IS NOT NULL
 		  AND end_soc_pct IS NOT NULL
 		  AND energy_added_kwh IS NOT NULL
-	`, vehicleID)
+		  AND (
+		      session_type = 'dc'
+		      OR COALESCE(max_power_kw, 0) > $2
+		  )
+	`, vehicleID, MinPeakKWForMeasured)
 	if err != nil {
 		return 0, fmt.Errorf("select charges for backfill: %w", err)
 	}
