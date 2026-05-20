@@ -729,6 +729,19 @@ by expected value, not by time.
         `drives` tables already carry the inputs. The work is a
         derivation layer + a "Pack health" tab on the vehicle.
 
+- [ ] **Pack health detail view.** Backend already serves the full
+      time series at `GET /api/vehicles/{vid}/pack-health` (since
+      v0.22.0). The SPA's current surface is only the compact
+      `Pack` KPI tile on Overview — there's an unused
+      `PackHealthCard` component (`web/src/components/
+      PackHealthCard.tsx`) with a headline + SVG sparkline that
+      was parked when we removed the misleading SoC-chart overlay.
+      Wire it into a dedicated tab (Settings → Vehicle profile, or
+      a `/vehicles/{vid}/pack-health` page) once we have enough
+      DC-fast samples to make the trend line meaningful for users
+      with light DC usage. Table of session-by-session fits with
+      derate flags would round out the page.
+
 - [ ] **Home-energy foundation** — Enphase Envoy + Tesla Powerwall
       local API adapters; "schedule charge to solar peak"
       scheduler; "effective cost per kWh after solar offset" line
