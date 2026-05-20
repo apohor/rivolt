@@ -103,37 +103,6 @@ export default function HomePage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  // Pack-health time series for the SoC chart overlay. Same staleTime
-  // as the KPI tile (`PackHealthStat`) so React Query dedupes the
-  // backend call — both consumers share one round trip.
-  const packHealth = useQuery({
-    queryKey: ["packHealth", activeVehicleID ?? ""],
-    queryFn: () => backend.packHealth(activeVehicleID as string),
-    enabled: !!activeVehicleID,
-    staleTime: 5 * 60_000,
-  });
-  const packHealthTrend = useMemo<{ x: number; y: number }[]>(() => {
-    const samples = packHealth.data?.samples ?? [];
-    if (samples.length === 0) return [];
-    // Clip to the SoC chart's window so the X axis stays anchored
-    // to the user's selected timeframe instead of stretching back
-    // months and squishing the SoC trend into a strip on the right.
-    const days =
-      win === "7d"
-        ? 7
-        : win === "30d"
-          ? 30
-          : win === "90d"
-            ? 90
-            : win === "365d"
-              ? 365
-              : 3650;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return samples
-      .filter((s) => !s.derate_active && s.pack_kwh_effective > 0)
-      .filter((s) => new Date(s.at).getTime() >= cutoff)
-      .map((s) => ({ x: new Date(s.at).getTime(), y: s.pack_kwh_effective }));
-  }, [packHealth.data, win]);
   const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
   const liveSoC = liveState.data?.battery_level_pct ?? 0;
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
@@ -265,42 +234,10 @@ export default function HomePage() {
                   // beyond local SoC peaks (no >100% bumps).
                   curve: "monotone",
                 },
-                // Pack-health trend overlaid on the right axis.
-                // Different unit (kWh) so it gets its own scale;
-                // visually communicates "how is the pack aging
-                // alongside your daily SoC swing".
-                ...(packHealthTrend.length > 1
-                  ? [
-                      {
-                        points: packHealthTrend,
-                        color: "#a78bfa",
-                        strokeWidth: 1.5,
-                        dash: "3 3",
-                        label: "Pack kWh",
-                        axis: "right" as const,
-                        formatCursor: (v: number) => `${v.toFixed(0)} kWh`,
-                      },
-                    ]
-                  : []),
               ]}
               height={160}
               yDomain={[0, 100]}
               formatY={(v) => `${v.toFixed(0)}%`}
-              formatY2={(v) => `${v.toFixed(0)} kWh`}
-              // Anchor the pack-kWh axis to the vehicle's nameplate
-              // (read from /api/vehicles/{vid}/pack-health.headline.
-              // nameplate_kwh). 70..105% of nameplate covers real
-              // degradation territory and absorbs measurement
-              // noise above 100% without one outlier squashing the
-              // line into a single spike.
-              y2Domain={
-                packHealth.data && packHealth.data.headline.nameplate_kwh > 0
-                  ? [
-                      packHealth.data.headline.nameplate_kwh * 0.7,
-                      packHealth.data.headline.nameplate_kwh * 1.05,
-                    ]
-                  : undefined
-              }
               formatX={(x) =>
                 new Date(x).toLocaleDateString(undefined, {
                   month: "short",
