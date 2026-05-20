@@ -5,6 +5,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
+import { PackHealthCard } from "../components/PackHealthCard";
 import {
   num,
   pct,
@@ -204,6 +205,12 @@ export default function HomePage() {
           {locSplit.total > 0 && (
             <Card title="Charging locations">
               <LocationSplit split={locSplit} />
+            </Card>
+          )}
+
+          {activeVehicleID && (
+            <Card title="Pack health">
+              <PackHealthCard vehicleID={activeVehicleID} />
             </Card>
           )}
 

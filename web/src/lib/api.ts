@@ -273,6 +273,34 @@ export type Drive = {
   estimated_price_per_kwh?: number;
 };
 
+// PackHealthSample is one derived effective-pack-capacity reading
+// from a qualifying charge session. Backend filters out small-SoC
+// or out-of-range fits before sending.
+export type PackHealthSample = {
+  vehicle_id: string;
+  charge_id: string;
+  at: string;
+  pack_kwh_effective: number;
+  soc_delta_pct: number;
+  energy_delivered_kwh: number;
+  derate_active: boolean;
+};
+
+// PackHealthResponse pairs the time series with a headline median
+// of the last N clean samples plus the vehicle's nameplate kWh for
+// the "% of nameplate" line. effective_kwh + pct_of_nameplate are
+// zero when no qualifying samples exist yet.
+export type PackHealthResponse = {
+  samples: PackHealthSample[];
+  headline: {
+    effective_kwh: number;
+    nameplate_kwh: number;
+    pct_of_nameplate: number;
+    sample_count: number;
+    window: number;
+  };
+};
+
 export type Charge = {
   ID: string;
   VehicleID: string;
@@ -912,6 +940,10 @@ export const backend = {
   // The store queries cap out at a few hundred rows so this stays cheap.
   allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
+  packHealth: (vehicleID: string) =>
+    api.get<PackHealthResponse>(
+      `/api/vehicles/${encodeURIComponent(vehicleID)}/pack-health`,
+    ),
   // Removes a single charge row by its external ID. Used by the
   // detail page's danger-zone affordance to clear obviously-broken
   // sessions (e.g. pre-v0.10.7 phantom rows).
