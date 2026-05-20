@@ -228,12 +228,13 @@ export type VehicleState = {
   pet_mode_status: string;
   pet_mode_temperature_status: string;
   cabin_hold_status: string;
-  // Windows. Aggregated separately from doors; surfaced as their
-  // own row in the closure grid.
-  window_front_left_closed: boolean;
-  window_front_right_closed: boolean;
-  window_rear_left_closed: boolean;
-  window_rear_right_closed: boolean;
+  // Windows. Raw Rivian closure-enum strings (the vocabulary is
+  // richer than door open/closed: "opened", "open_allowed",
+  // "obstructed_while_opening_close_allowed", "closed", "").
+  window_front_left_closed: string;
+  window_front_right_closed: string;
+  window_rear_left_closed: string;
+  window_rear_right_closed: string;
 };
 
 export type Drive = {

@@ -352,13 +352,13 @@ func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 		PetModeStatus:            ps(vs.PetModeStatus.Value),
 		PetModeTemperatureStatus: ps(vs.PetModeTemperatureStatus.Value),
 		CabinHoldStatus:          ps(vs.CabinHoldStatus.Value),
-		// Windows. isClosed() collapses Rivian's "open"/"closed"/""
-		// strings into a single bool — same helper used for door
-		// closures elsewhere in this file.
-		WindowFrontLeftClosed:  isClosed(ps(vs.WindowFrontLeftClosed.Value)),
-		WindowFrontRightClosed: isClosed(ps(vs.WindowFrontRightClosed.Value)),
-		WindowRearLeftClosed:   isClosed(ps(vs.WindowRearLeftClosed.Value)),
-		WindowRearRightClosed:  isClosed(ps(vs.WindowRearRightClosed.Value)),
+		// Windows: pass-through the raw enum string. SPA renders
+		// it title-cased so values like "opened" / "open_allowed"
+		// show up as "Opened" / "Open Allowed".
+		WindowFrontLeftClosed:  ps(vs.WindowFrontLeftClosed.Value),
+		WindowFrontRightClosed: ps(vs.WindowFrontRightClosed.Value),
+		WindowRearLeftClosed:   ps(vs.WindowRearLeftClosed.Value),
+		WindowRearRightClosed:  ps(vs.WindowRearRightClosed.Value),
 	}
 }
 

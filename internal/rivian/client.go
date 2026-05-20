@@ -157,13 +157,16 @@ type State struct {
 	PetModeStatus            string `json:"pet_mode_status"`
 	PetModeTemperatureStatus string `json:"pet_mode_temperature_status"`
 	CabinHoldStatus          string `json:"cabin_hold_status"`
-	// Window closed states ("open"/"closed"/""). Aggregated separately
-	// from doors because Rivian-app convention shows them on their
-	// own row even when all are closed.
-	WindowFrontLeftClosed  bool `json:"window_front_left_closed"`
-	WindowFrontRightClosed bool `json:"window_front_right_closed"`
-	WindowRearLeftClosed   bool `json:"window_rear_left_closed"`
-	WindowRearRightClosed  bool `json:"window_rear_right_closed"`
+	// Window-closed states. Surfaced as raw Rivian enum strings
+	// instead of bool because the closure vocabulary for windows
+	// is much richer than doors ("opened", "open_allowed",
+	// "obstructed_while_opening_close_allowed", "closed", …). The
+	// SPA title-cases the value so the user sees the truth without
+	// us guessing at a closed/open derivation.
+	WindowFrontLeftClosed  string `json:"window_front_left_closed"`
+	WindowFrontRightClosed string `json:"window_front_right_closed"`
+	WindowRearLeftClosed   string `json:"window_rear_left_closed"`
+	WindowRearRightClosed  string `json:"window_rear_right_closed"`
 }
 
 // LiveSession is the snapshot of an in-progress charging session,
