@@ -339,12 +339,16 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 <Field label="Tonneau" value={formatClosed(s.tonneau_closed)} />
               </>
             ) : null}
-            {/* Per-window state. One row per corner so the user can
-                tell which window is open without going to the truck. */}
-            <Field label="Window FL" value={formatClosed(s.window_front_left_closed)} />
-            <Field label="Window FR" value={formatClosed(s.window_front_right_closed)} />
-            <Field label="Window RL" value={formatClosed(s.window_rear_left_closed)} />
-            <Field label="Window RR" value={formatClosed(s.window_rear_right_closed)} />
+            {/* Windows intentionally hidden. Rivian's closure enum
+                Ci/d (per the 3.12 APK) returns "opened" / "open_allowed"
+                / "obstructed_while_opening_close_allowed" / many
+                variants instead of the simple "open" / "closed" used
+                for doors. The bool we derive in stateFromVehicleStateData
+                via isClosed(v) is inaccurate for that vocabulary —
+                surfacing them gave the user "open" when the windows
+                were physically closed. Re-enable once the recorder
+                logs the raw value enough times to confirm the right
+                normalization. */}
           </Section>
 
           <Section title="Tires">
