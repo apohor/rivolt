@@ -693,17 +693,47 @@ function chargerPreviewBodyHTML(poi: POI, r: PreviewResult): string {
 const PROTOMAPS_ATTRIB =
   '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · <a href="https://protomaps.com">Protomaps</a>';
 
+// Recovery limits for the basemap layer. Server-side pmtiles
+// rebuilds invalidate the directory cache the protomaps-leaflet
+// layer holds in-memory: requests for the OLD byte offsets miss
+// in the NEW file and the layer starts emitting tileerror. The
+// fix is to drop and re-create the layer so it re-reads the
+// pmtiles header from scratch — same code path as a fresh page
+// load.
+const BASEMAP_RECREATE_COOLDOWN_MS = 30_000;
+const BASEMAP_RECREATE_MAX = 3;
+
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
   if (!url) return;
   const flavor = namedFlavor("dark");
-  leafletLayer({
-    url,
-    paintRules: paintRules(flavor),
-    labelRules: labelRules(flavor, "en"),
-    backgroundColor: flavor.background,
-    attribution: PROTOMAPS_ATTRIB,
-  }).addTo(map);
+  const make = () =>
+    leafletLayer({
+      url,
+      paintRules: paintRules(flavor),
+      labelRules: labelRules(flavor, "en"),
+      backgroundColor: flavor.background,
+      attribution: PROTOMAPS_ATTRIB,
+    });
+  let current = make();
+  let lastRecreate = 0;
+  let recreateCount = 0;
+  const handler = () => {
+    const now = Date.now();
+    if (now - lastRecreate < BASEMAP_RECREATE_COOLDOWN_MS) return;
+    if (recreateCount >= BASEMAP_RECREATE_MAX) return;
+    lastRecreate = now;
+    recreateCount += 1;
+    // protomaps-leaflet's runtime layer satisfies L.Layer in practice
+    // (it has addTo / removeFrom / on); its TS shape doesn't declare
+    // the full Layer interface, so we cast at the boundary.
+    map.removeLayer(current as unknown as L.Layer);
+    current = make();
+    current.on("tileerror", handler);
+    current.addTo(map);
+  };
+  current.on("tileerror", handler);
+  current.addTo(map);
 }
 
 // valhallaMultiRoute POSTs every waypoint as a single trip and
