@@ -451,6 +451,24 @@ function ChargingNetworksPanel() {
       qc.invalidateQueries({ queryKey: ["charging-networks"] });
     },
   });
+  // Display order: preferred networks first, then alphabetical by
+  // name. Keeps the row indices in `rows` stable for update/remove
+  // (callbacks use the original index, not the sorted one).
+  const displayOrder = useMemo(
+    () =>
+      rows
+        .map((r, originalIndex) => ({ r, originalIndex }))
+        .sort((a, b) => {
+          const ap = a.r.preferred ? 1 : 0;
+          const bp = b.r.preferred ? 1 : 0;
+          if (ap !== bp) return bp - ap;
+          return (a.r.name ?? "").localeCompare(b.r.name ?? "", undefined, {
+            sensitivity: "base",
+          });
+        }),
+    [rows],
+  );
+
   if (q.isLoading) return <Spinner />;
   if (q.isError)
     return <ErrorBox title="Failed to load" detail={String(q.error)} />;
@@ -470,7 +488,7 @@ function ChargingNetworksPanel() {
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {rows.map((r, i) => {
+          {displayOrder.map(({ r, originalIndex: i }) => {
             const hasMembership = (r.member_price_per_kwh ?? 0) > 0 || !!r.slug;
             const savings =
               r.member_active && (r.member_price_per_kwh ?? 0) > 0 && r.price_per_kwh > 0
