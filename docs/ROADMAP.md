@@ -704,6 +704,31 @@ Expected managed-infra cost at 1000 vehicles: **$100–150/mo**.
 Features that don't belong in phases 1–3's critical path. Ordered
 by expected value, not by time.
 
+- [ ] **Derived battery health.** Rivian's app + API expose **no**
+      SoH / capacity / degradation field — verified against the 3.12
+      APK (only `DegradationPreference` hit is WebRTC, unrelated).
+      Compute it ourselves from data we already record:
+      - **Effective pack kWh.** For each charge session, fit
+        `delivered_kWh = (ΔSoC/100) × pack_kWh_effective` over the
+        full session window; trust only sessions that span ≥ 30 SoC
+        points to keep the noise floor down. Per-vehicle monthly
+        median trend vs nameplate is the headline number.
+      - **`distanceToEmpty` at SoC checkpoints.** Sample at the
+        start of every drive that begins with SoC ≥ 80 %; normalize
+        for ambient temp + drive mode; plot monthly median.
+      - **Peak-power envelope.** Track max observed `powerKW` per
+        `(SoC bucket, ambient temp bucket)` per month. Newer packs
+        do ~220 kW peak; aged packs do less.
+      - **Cross-reference fault hints** already exposed by Rivian:
+        `chargerDerateStatus`, `isVehicleChargingSlowDueToHotPin`,
+        `batteryHvThermalEvent`, `batteryNeedsLfpCalibration`.
+        Useful as side-channel signals on the same chart so the
+        user can see whether a slow charge was the pack or the
+        station.
+      - No new endpoints required — the `samples`, `charges`,
+        `drives` tables already carry the inputs. The work is a
+        derivation layer + a "Pack health" tab on the vehicle.
+
 - [ ] **Home-energy foundation** — Enphase Envoy + Tesla Powerwall
       local API adapters; "schedule charge to solar peak"
       scheduler; "effective cost per kWh after solar offset" line
