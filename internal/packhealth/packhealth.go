@@ -88,10 +88,13 @@ func Derive(in ChargeInput) (Sample, bool) {
 		return Sample{}, false
 	}
 	pack := in.EnergyAddedKWh / (delta / 100.0)
-	// Final sanity: a Tri-Motor Max with a 141 kWh pack should
-	// never come back as 250 kWh effective. Cap at 1.5× the
-	// largest sane nameplate; anything beyond is corrupt input.
-	if pack > 250 {
+	// Sanity caps. Largest sane Rivian nameplate is ~141 kWh (R1T
+	// Tri-Motor Max); smallest is ~92 kWh (Standard). A fit
+	// outside [60, 250] is corrupt input — ElectraFi import rows
+	// with mismatched energy/SoC, partial sessions, or
+	// double-counted kWh routinely produce one of these and skew
+	// the trend.
+	if pack < 60 || pack > 250 {
 		return Sample{}, false
 	}
 	return Sample{
@@ -195,6 +198,17 @@ func (s *Store) ListByVehicle(ctx context.Context, vehicleID uuid.UUID, limit in
 func (s *Store) BackfillAll(ctx context.Context) (int, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
+	}
+	// Prune previously-stored samples that no longer pass the
+	// current sanity cap. Tightening Derive (e.g. raising the
+	// minimum effective pack from 0 to 60 kWh) leaves old rows
+	// orphaned otherwise, skewing the chart's trend line.
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM vehicle_pack_health_samples
+		WHERE pack_kwh_effective < 60
+		   OR pack_kwh_effective > 250
+	`); err != nil {
+		return 0, fmt.Errorf("prune out-of-range samples: %w", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM vehicles`)
 	if err != nil {

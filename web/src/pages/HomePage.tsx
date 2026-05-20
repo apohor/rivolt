@@ -114,10 +114,26 @@ export default function HomePage() {
   });
   const packHealthTrend = useMemo<{ x: number; y: number }[]>(() => {
     const samples = packHealth.data?.samples ?? [];
+    if (samples.length === 0) return [];
+    // Clip to the SoC chart's window so the X axis stays anchored
+    // to the user's selected timeframe instead of stretching back
+    // months and squishing the SoC trend into a strip on the right.
+    const days =
+      win === "7d"
+        ? 7
+        : win === "30d"
+          ? 30
+          : win === "90d"
+            ? 90
+            : win === "365d"
+              ? 365
+              : 3650;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     return samples
       .filter((s) => !s.derate_active && s.pack_kwh_effective > 0)
+      .filter((s) => new Date(s.at).getTime() >= cutoff)
       .map((s) => ({ x: new Date(s.at).getTime(), y: s.pack_kwh_effective }));
-  }, [packHealth.data]);
+  }, [packHealth.data, win]);
   const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
   const liveSoC = liveState.data?.battery_level_pct ?? 0;
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
