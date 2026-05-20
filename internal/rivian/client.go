@@ -129,6 +129,26 @@ type State struct {
 	TirePressureStatusFR string  `json:"tire_pressure_status_fr"`
 	TirePressureStatusRL string  `json:"tire_pressure_status_rl"`
 	TirePressureStatusRR string  `json:"tire_pressure_status_rr"`
+	// Charging context populated during an active session. Zero/empty
+	// outside a session — clients gate UI on ChargerState first.
+	//   TimeToEndMins:               minutes to a full charge at the
+	//     current rate (0 when not charging or undefined).
+	//   TripTargetSoCPct:            Rivian's recommended target SoC
+	//     for the active trip plan, 0..100.
+	//   TripTargetMinsRemaining:     minutes until the trip target
+	//     SoC is hit at the current rate.
+	//   ChargerDerateStatus:         "active" / "inactive" / "" — set
+	//     when Rivian flags the station as derated below nameplate.
+	//   ChargingDisabledAll:         "true" / "false" / "" — when
+	//     "true", the car refuses to charge regardless of cable state.
+	//   ChargingTimeEstimationValidity: "valid" / "invalid" / "" —
+	//     SPA hides the time estimate when invalid.
+	TimeToEndMins                  float64 `json:"time_to_end_mins"`
+	TripTargetSoCPct               float64 `json:"trip_target_soc_pct"`
+	TripTargetMinsRemaining        float64 `json:"trip_target_mins_remaining"`
+	ChargerDerateStatus            string  `json:"charger_derate_status"`
+	ChargingDisabledAll            string  `json:"charging_disabled_all"`
+	ChargingTimeEstimationValidity string  `json:"charging_time_estimation_validity"`
 }
 
 // LiveSession is the snapshot of an in-progress charging session,

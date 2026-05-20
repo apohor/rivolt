@@ -204,12 +204,57 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
               }
             />
             <Field label="Charge limit" value={pct(s.charge_target_pct, 0)} />
+            {/* Charging-context fields (subscription-only). Only render
+                when populated AND Rivian flags the estimate as valid.
+                charger_state gating keeps these hidden when no session
+                is in progress. */}
+            {chargingFieldsVisible(s) && s.time_to_end_mins > 0 ? (
+              <Field
+                label="Time to full"
+                value={formatChargeDuration(s.time_to_end_mins)}
+              />
+            ) : null}
+            {chargingFieldsVisible(s) && s.trip_target_soc_pct > 0 ? (
+              <Field
+                label="Trip target"
+                value={
+                  s.trip_target_mins_remaining > 0
+                    ? `${pct(s.trip_target_soc_pct, 0)} · ${formatChargeDuration(s.trip_target_mins_remaining)}`
+                    : pct(s.trip_target_soc_pct, 0)
+                }
+              />
+            ) : null}
             <Field label="Plug" value={formatChargerStatus(s.charger_status)} />
             <Field label="Port" value={formatOpenClosed(s.charge_port_state)} />
             <Field
               label="Remote charging"
               value={formatBoolish(s.remote_charging_available)}
             />
+            {/* Fault chips: derate (station throttled below nameplate)
+                and disabled-all (car refuses to charge). Each renders
+                only when truthy so the section stays clean when
+                charging is healthy. */}
+            {(s.charger_derate_status === "active" ||
+              isTruthyFlag(s.charging_disabled_all)) && (
+              <div className="col-span-2 flex flex-wrap gap-1.5 pt-1 sm:col-span-4">
+                {s.charger_derate_status === "active" && (
+                  <span
+                    className="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium text-amber-200"
+                    title="Rivian flagged this station as derated below its nameplate kW"
+                  >
+                    Station derated
+                  </span>
+                )}
+                {isTruthyFlag(s.charging_disabled_all) && (
+                  <span
+                    className="rounded-md border border-rose-700/70 bg-rose-950/40 px-2 py-0.5 text-[11px] font-medium text-rose-200"
+                    title="Vehicle is refusing to accept charge (fault state)"
+                  >
+                    Charging blocked
+                  </span>
+                )}
+              </div>
+            )}
           </Section>
 
           <Section title="Drive">
@@ -948,6 +993,41 @@ function formatClosed(closed: boolean): string {
 
 function formatYesNo(v: boolean): string {
   return v ? "yes" : "no";
+}
+
+// chargingFieldsVisible decides whether to surface the
+// subscription-only charging-context fields (time-to-full, trip
+// target). Hide when no session is in flight OR when Rivian itself
+// flagged the time estimate as invalid (zero-confidence numbers do
+// more harm than good — better to show nothing than "12 min" that's
+// off by an hour).
+function chargingFieldsVisible(s: VehicleState): boolean {
+  if (s.charging_time_estimation_validity.toLowerCase() === "invalid") {
+    return false;
+  }
+  const cs = s.charger_state || "";
+  if (cs.includes("charging") || cs.includes("ready") || s.charger_power_kw > 0) {
+    return true;
+  }
+  return false;
+}
+
+// formatChargeDuration renders minutes as "12 min" up to an hour,
+// "1h 23m" beyond. Time-to-end values from Rivian can be 0..600+.
+function formatChargeDuration(mins: number): string {
+  if (mins < 60) return `${Math.round(mins)} min`;
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+// isTruthyFlag normalizes Rivian's free-form boolean strings —
+// "true" / "TRUE" / "on" / "active" / "1" — into a single bool.
+// Used by the chips that gate on charging_disabled_all and friends.
+function isTruthyFlag(s: string): boolean {
+  if (!s) return false;
+  const v = s.toLowerCase().trim();
+  return v === "true" || v === "on" || v === "active" || v === "1";
 }
 
 function formatBoolish(s: string): string {

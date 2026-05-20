@@ -323,6 +323,14 @@ func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 		TirePressureStatusFR:       ps(vs.TirePressureStatusFrontRight.Value),
 		TirePressureStatusRL:       ps(vs.TirePressureStatusRearLeft.Value),
 		TirePressureStatusRR:       ps(vs.TirePressureStatusRearRight.Value),
+		// Charging-context: subscription-only fields. The REST
+		// vehicleState query doesn't return these populated.
+		TimeToEndMins:                  vs.TimeToEndOfCharge.Value,
+		TripTargetSoCPct:               vs.ChargingTripTargetSoc.Value,
+		TripTargetMinsRemaining:        vs.ChargingTripTargetMinsRemaining.Value,
+		ChargerDerateStatus:            ps(vs.ChargerDerateStatus.Value),
+		ChargingDisabledAll:            ps(vs.ChargingDisabledAll.Value),
+		ChargingTimeEstimationValidity: ps(vs.ChargingTimeEstimationValidity.Value),
 	}
 }
 

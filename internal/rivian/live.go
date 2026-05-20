@@ -1012,6 +1012,15 @@ type vehicleStateData struct {
 		ClosureTailgateLocked     vsValue[permissiveString] `json:"closureTailgateLocked"`
 		ClosureSideBinLeftLocked  vsValue[permissiveString] `json:"closureSideBinLeftLocked"`
 		ClosureSideBinRightLocked vsValue[permissiveString] `json:"closureSideBinRightLocked"`
+		// Charging-context fields surfaced on the live panel during
+		// an active session. Subscription-only; the REST vehicleState
+		// query doesn't return them populated.
+		TimeToEndOfCharge               vsValue[float64]          `json:"timeToEndOfCharge"`
+		ChargingTripTargetSoc           vsValue[float64]          `json:"chargingTripTargetSoc"`
+		ChargingTripTargetMinsRemaining vsValue[float64]          `json:"chargingTripTargetMinsRemaining"`
+		ChargerDerateStatus             vsValue[permissiveString] `json:"chargerDerateStatus"`
+		ChargingDisabledAll             vsValue[permissiveString] `json:"chargingDisabledAll"`
+		ChargingTimeEstimationValidity  vsValue[permissiveString] `json:"chargingTimeEstimationValidity"`
 	} `json:"vehicleState"`
 }
 
@@ -1336,6 +1345,10 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		TirePressureStatusFR:       ps(vs.TirePressureStatusFrontRight.Value),
 		TirePressureStatusRL:       ps(vs.TirePressureStatusRearLeft.Value),
 		TirePressureStatusRR:       ps(vs.TirePressureStatusRearRight.Value),
+		// Charging-context fields are subscription-only — the REST
+		// vehicleState query above doesn't return them populated.
+		// Subscription frames flow through stateFromWS which sets
+		// these; the REST builder leaves them zero.
 	}, nil
 }
 

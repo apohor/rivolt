@@ -214,6 +214,14 @@ export type VehicleState = {
   tire_pressure_status_fr: string;
   tire_pressure_status_rl: string;
   tire_pressure_status_rr: string;
+  // Charging-context, populated during an active session. Zero/empty
+  // outside a session. Surfaced on LivePanel's charge card.
+  time_to_end_mins: number;
+  trip_target_soc_pct: number;
+  trip_target_mins_remaining: number;
+  charger_derate_status: string;
+  charging_disabled_all: string;
+  charging_time_estimation_validity: string;
 };
 
 export type Drive = {
