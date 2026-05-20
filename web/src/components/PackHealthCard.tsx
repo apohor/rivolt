@@ -1,6 +1,61 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend, type PackHealthSample } from "../lib/api";
 
+// Inline copy of HomePage's local Stat tile shape. Kept here so
+// PackHealthStat can be rendered inside the existing KPI grid
+// without exporting the Stat helper from HomePage.tsx.
+function StatTile({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
+      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      {hint ? (
+        <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
+      ) : null}
+    </div>
+  );
+}
+
+// PackHealthStat is the compact KPI-tile variant rendered in
+// HomePage's top stats row next to Cost / Efficiency. Shows
+// just the headline number; the larger PackHealthCard (with
+// sparkline) is available for a future dedicated detail view.
+export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
+  const q = useQuery({
+    queryKey: ["packHealth", vehicleID],
+    queryFn: () => backend.packHealth(vehicleID),
+    enabled: !!vehicleID,
+    staleTime: 5 * 60_000,
+  });
+  if (q.isLoading || q.isError || !q.data) {
+    return <StatTile label="Pack" value="—" />;
+  }
+  const samples = q.data.samples ?? [];
+  const { headline } = q.data;
+  if (samples.length === 0 || headline.effective_kwh <= 0) {
+    return <StatTile label="Pack" value="—" hint="needs a 30%+ session" />;
+  }
+  const pct =
+    headline.pct_of_nameplate > 0
+      ? `${headline.pct_of_nameplate.toFixed(0)}% of nameplate · ${headline.sample_count} sessions`
+      : `${headline.sample_count} sessions`;
+  return (
+    <StatTile
+      label="Pack"
+      value={`${headline.effective_kwh.toFixed(0)} kWh`}
+      hint={pct}
+    />
+  );
+}
+
 // PackHealthCard renders the derived effective-pack-capacity for a
 // vehicle: a single headline number ("127 kWh · 97% of nameplate"),
 // the sample count, and a small SVG sparkline of recent samples.
