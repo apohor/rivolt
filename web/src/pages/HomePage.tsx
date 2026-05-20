@@ -103,6 +103,21 @@ export default function HomePage() {
     refetchInterval: 60_000,
     retry: 1,
   });
+  // Pack-health time series for the SoC chart overlay. Same staleTime
+  // as the KPI tile (`PackHealthStat`) so React Query dedupes the
+  // backend call — both consumers share one round trip.
+  const packHealth = useQuery({
+    queryKey: ["packHealth", activeVehicleID ?? ""],
+    queryFn: () => backend.packHealth(activeVehicleID as string),
+    enabled: !!activeVehicleID,
+    staleTime: 5 * 60_000,
+  });
+  const packHealthTrend = useMemo<{ x: number; y: number }[]>(() => {
+    const samples = packHealth.data?.samples ?? [];
+    return samples
+      .filter((s) => !s.derate_active && s.pack_kwh_effective > 0)
+      .map((s) => ({ x: new Date(s.at).getTime(), y: s.pack_kwh_effective }));
+  }, [packHealth.data]);
   const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
   const liveSoC = liveState.data?.battery_level_pct ?? 0;
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
@@ -234,10 +249,28 @@ export default function HomePage() {
                   // beyond local SoC peaks (no >100% bumps).
                   curve: "monotone",
                 },
+                // Pack-health trend overlaid on the right axis.
+                // Different unit (kWh) so it gets its own scale;
+                // visually communicates "how is the pack aging
+                // alongside your daily SoC swing".
+                ...(packHealthTrend.length > 1
+                  ? [
+                      {
+                        points: packHealthTrend,
+                        color: "#a78bfa",
+                        strokeWidth: 1.5,
+                        dash: "3 3",
+                        label: "Pack kWh",
+                        axis: "right" as const,
+                        formatCursor: (v: number) => `${v.toFixed(0)} kWh`,
+                      },
+                    ]
+                  : []),
               ]}
               height={160}
               yDomain={[0, 100]}
               formatY={(v) => `${v.toFixed(0)}%`}
+              formatY2={(v) => `${v.toFixed(0)} kWh`}
               formatX={(x) =>
                 new Date(x).toLocaleDateString(undefined, {
                   month: "short",
