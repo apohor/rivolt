@@ -46,9 +46,10 @@ type MonitorRegistry struct {
 	settings        *settings.Factory
 	elevation       ElevationLookup
 	routeFiller     RouteFiller
-	liveStateStore  func(uid uuid.UUID) LiveStateStore
-	driveCloseHook  func(uid uuid.UUID) DriveCloseHook
-	chargeCloseHook func(uid uuid.UUID) ChargeCloseHook
+	liveStateStore     func(uid uuid.UUID) LiveStateStore
+	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
+	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
+	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
 	logger          *slog.Logger
 
 	mu       sync.RWMutex
@@ -124,6 +125,19 @@ func (r *MonitorRegistry) SetRouteFiller(rf RouteFiller) {
 func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) LiveStateStore) {
 	r.mu.Lock()
 	r.liveStateStore = factory
+	r.mu.Unlock()
+}
+
+// SetBatteryCapacityHookFactory wires a per-user write-through hook
+// for the live-reported usable pack capacity. Each new monitor gets
+// factory(uid) and installs it via SetBatteryCapacityHook; the hook
+// runs whenever Rivian's vehicleState.batteryCapacity changes for
+// one of the user's vehicles. Typically wires through to a SQL
+// UPDATE on vehicles.pack_kwh so a future restart sees the right
+// nameplate without having to wait for another live observation.
+func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UUID) func(vehicleID string, kwh float64)) {
+	r.mu.Lock()
+	r.batteryCapacityFor = factory
 	r.mu.Unlock()
 }
 
@@ -210,6 +224,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.chargeCloseHook != nil {
 		if h := r.chargeCloseHook(uid); h != nil {
 			mon.SetChargeCloseHook(h)
+		}
+	}
+	if r.batteryCapacityFor != nil {
+		if h := r.batteryCapacityFor(uid); h != nil {
+			mon.SetBatteryCapacityHook(h)
 		}
 	}
 	if r.settings != nil {

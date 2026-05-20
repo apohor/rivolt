@@ -132,6 +132,13 @@ type StateMonitor struct {
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
 
+	// batteryCapacityHook fires from observeBatteryCapacity when the
+	// vehicle-reported usable pack kWh changes. Wired by the
+	// MonitorRegistry to a closure that UPDATEs vehicles.pack_kwh
+	// so a process restart doesn't lose the live observation. nil
+	// when no persistence is wired (legacy paths, tests).
+	batteryCapacityHook func(vehicleID string, kwh float64)
+
 	// startupStagger spaces out the first WS connect attempt of each
 	// run() goroutine so a coordinator-driven mass-acquire (or a
 	// pod restart with N existing leases) doesn't fire N parallel
@@ -1600,21 +1607,42 @@ func (m *StateMonitor) observeBatteryCapacity(vehicleID string, kwh float64) {
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	v := m.vehicleInfo[vehicleID]
-	if v == nil {
+	changed := false
+	switch {
+	case v == nil:
 		// First touch — create a stub so PackKWhFor can see the value
 		// even before RefreshVehicleInfo has run. Other fields stay
 		// zero/empty and get filled in by the later refresh.
 		m.vehicleInfo[vehicleID] = &Vehicle{ID: vehicleID, PackKWh: kwh}
-		return
+		changed = true
+	case v.PackKWh != kwh:
+		cp := *v
+		cp.PackKWh = kwh
+		m.vehicleInfo[vehicleID] = &cp
+		changed = true
 	}
-	if v.PackKWh == kwh {
-		return
+	hook := m.batteryCapacityHook
+	m.mu.Unlock()
+	// Fire the persister outside the lock so DB latency can't stall
+	// the recorder hot path. The hook is keyed by rivian_vehicle_id
+	// + the user_id captured in the closure at SetBatteryCapacityHook
+	// time; it write-throughs to vehicles.pack_kwh so a future
+	// process restart (which drops vehicleInfo) sees the right value.
+	if changed && hook != nil {
+		hook(vehicleID, kwh)
 	}
-	cp := *v
-	cp.PackKWh = kwh
-	m.vehicleInfo[vehicleID] = &cp
+}
+
+// SetBatteryCapacityHook wires a write-through callback fired
+// whenever observeBatteryCapacity records a new pack capacity for
+// a vehicle. The hook is called outside the monitor lock and
+// MUST be non-blocking — callers typically dispatch a goroutine
+// that performs the DB UPDATE.
+func (m *StateMonitor) SetBatteryCapacityHook(hook func(vehicleID string, kwh float64)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.batteryCapacityHook = hook
 }
 
 // waitAuthReady blocks until the wrapped client reports it has a

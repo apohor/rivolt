@@ -487,6 +487,37 @@ func runServer() {
 			})
 			logger.Info("charge close hook: charging-done notifications enabled")
 		}
+		// Write-through: whenever Rivian's vehicleState.batteryCapacity
+		// changes for a vehicle, mirror the new kWh into vehicles.pack_kwh
+		// so the percentage-of-nameplate display and the SoC × pack
+		// derivation pick up the truck's self-report instead of the
+		// trim-table guess. Runs off the recorder goroutine on a
+		// short timeout so DB hiccups can't stall the WS path.
+		if pgPool != nil {
+			monitorRegistry.SetBatteryCapacityHookFactory(func(uid uuid.UUID) func(vehicleID string, kwh float64) {
+				return func(vehicleID string, kwh float64) {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						_, err := pgPool.ExecContext(ctx, `
+							UPDATE vehicles
+							SET pack_kwh = $3, updated_at = NOW()
+							WHERE user_id = $1
+							  AND rivian_vehicle_id = $2
+							  AND (pack_kwh IS NULL OR pack_kwh <> $3)
+						`, uid, vehicleID, kwh)
+						if err != nil {
+							logger.Warn("persist battery capacity",
+								"user_id", uid.String(),
+								"vehicle_id", vehicleID,
+								"kwh", kwh,
+								"err", err.Error())
+						}
+					}()
+				}
+			})
+			logger.Info("battery capacity persistence hook enabled")
+		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
 		// ELEVATION_ENABLED=1 turns it on; ELEVATION_TILES_URL points
