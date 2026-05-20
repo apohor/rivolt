@@ -178,20 +178,36 @@ persistence:
   # If you already have a PVC managed elsewhere:
   existingClaim: ""
 
-# -- Probes. /api/health is unauthenticated by design (auth.go
-# explicitly mounts it before the requireUser group).
+# -- Probes. Both endpoints are unauthenticated (kubelet sends no
+# headers; auth.go mounts them before the requireUser middleware).
+#
+# /healthz is bare: returns OK if the HTTP handler can run at all,
+# no I/O. Liveness only — kubelet should restart on a wedged
+# binary, NOT on a DB outage.
+#
+# /readyz pings Postgres with a 500ms timeout. Failure pulls the
+# pod from the Service endpoints without restarting it, so the
+# binary recovers cleanly once DB returns.
+#
+# Failure thresholds picked per "liveness more patient than
+# readiness": 6 × 10s = 60s of wedged HTTP before restart;
+# 3 × 5s = 15s of unreachable DB before traffic stops.
 livenessProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: http
   initialDelaySeconds: 10
-  periodSeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 6
 readinessProbe:
   httpGet:
-    path: /api/health
+    path: /readyz
     port: http
   initialDelaySeconds: 5
-  periodSeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 3
 
 nodeSelector: {}
 tolerations: []

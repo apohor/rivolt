@@ -287,9 +287,20 @@ func New(d Deps) http.Handler {
 		http.Redirect(w, r, "https://discord.com/invite/kdKqbK3pz", http.StatusFound)
 	})
 
+	// Kubernetes-style probe endpoints at the root (matches kube-apiserver
+	// convention; kubelet sends no auth headers so they're unauthenticated
+	// by design). /healthz is the bare alive-check: no I/O, no deps —
+	// only fails if the HTTP handler can't run. /readyz pings Postgres
+	// with a tight timeout so a DB outage drops the pod from Service
+	// endpoints without restart-looping the binary.
+	r.Get("/healthz", handleHealthz())
+	r.Get("/readyz", handleReadyz(d.DB))
+
 	r.Route("/api", func(r chi.Router) {
 		// Health + auth endpoints stay reachable without a session,
-		// otherwise the browser has no way to log in.
+		// otherwise the browser has no way to log in. /api/health is
+		// kept as a stable alias of /healthz for the preview-version
+		// poller, external monitoring, and any docs that reference it.
 		r.Get("/health", handleHealth(d.Version))
 		// /api/config advertises optional runtime knobs to the SPA
 		// (which same-origin proxies are mounted, feature flags,
@@ -855,6 +866,54 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleHealthz is the kubelet liveness endpoint: synchronous, no
+// I/O, no dependency checks. The only failure mode is "the HTTP
+// stack itself wedged" — which kubelet should respond to by
+// restarting the container. Anything more (DB ping, etc.) belongs
+// on /readyz so a transient downstream outage doesn't restart-loop
+// every pod.
+func handleHealthz() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	}
+}
+
+// handleReadyz is the kubelet readiness endpoint. Pings Postgres
+// with a 500ms timeout — every request touches it, so a pod with no
+// DB cannot meaningfully serve. Failing here pulls the pod from the
+// Service's endpoints (no traffic) but does NOT trigger a restart;
+// the pod recovers as soon as Postgres responds again. Keep the
+// dep set MINIMAL: each thing added here is a vector for compound
+// failure (one flaky dep evicts every pod simultaneously). Today
+// it's just Postgres. Redis / Hydra / Rivian gateway are
+// intentionally NOT checked — those are degrade-but-still-serve
+// dependencies.
+func handleReadyz(pool *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pool == nil {
+			// No DB wired (single-tenant docker-compose UX). Treat
+			// as ready — the binary works without persistence.
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ready (no db)\n"))
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+		if err := pool.PingContext(ctx); err != nil {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("postgres ping failed: " + err.Error() + "\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready\n"))
+	}
 }
 
 func handleHealth(version string) http.HandlerFunc {
