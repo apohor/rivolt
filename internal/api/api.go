@@ -1171,6 +1171,11 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// Never serialize JSON null for samples — the SPA reads
+		// .length on the array unconditionally.
+		if samples == nil {
+			samples = []packhealth.Sample{}
+		}
 		// Headline: median of the most recent N samples that aren't
 		// flagged as derate_active. Median is more robust than mean
 		// against the occasional bad-data outlier; 10 samples is a

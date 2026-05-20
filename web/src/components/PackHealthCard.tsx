@@ -25,7 +25,11 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
       </p>
     );
   }
-  const { samples, headline } = q.data;
+  // Go marshals a nil slice as JSON null, not []. Defensive coalesce
+  // so the empty state renders instead of crashing the page on a
+  // brand-new install with no qualifying charges yet.
+  const samples = q.data.samples ?? [];
+  const headline = q.data.headline;
   if (samples.length === 0) {
     return (
       <p className="text-xs text-neutral-500">
