@@ -342,17 +342,16 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           </Section>
 
           {/* Windows: own section, FL/FR/RL/RR labels like Tires.
-              Renders the raw Rivian closure enum (title-cased) so
-              "opened" / "open_allowed" / "closed" / "" show up as
-              "Opened" / "Open Allowed" / "Closed" / "—". The
-              vocabulary is much richer than doors' open/closed and
-              depends on calibration state, so we surface the truth
-              instead of deriving a bool. */}
+              formatWindow follows the HA Rivian integration's
+              semantics: value === "open" → "Open"; "" / "closed" →
+              "Closed"; anything else gets surfaced raw (title-cased)
+              so a future Rivian enum value we don't yet recognize
+              shows up as data rather than being silently wrong. */}
           <Section title="Windows">
-            <Field label="FL" value={formatTitle(s.window_front_left_closed)} />
-            <Field label="FR" value={formatTitle(s.window_front_right_closed)} />
-            <Field label="RL" value={formatTitle(s.window_rear_left_closed)} />
-            <Field label="RR" value={formatTitle(s.window_rear_right_closed)} />
+            <Field label="FL" value={formatWindow(s.window_front_left_closed)} />
+            <Field label="FR" value={formatWindow(s.window_front_right_closed)} />
+            <Field label="RL" value={formatWindow(s.window_rear_left_closed)} />
+            <Field label="RR" value={formatWindow(s.window_rear_right_closed)} />
           </Section>
 
           <Section title="Tires">
@@ -1045,6 +1044,19 @@ function formatOpenClosed(s: string): string {
 
 function formatClosed(closed: boolean): string {
   return closed ? "closed" : "open";
+}
+
+// formatWindow mirrors HA's bretterer/home-assistant-rivian
+// `cover.py` semantics: value === "open" is the only state that
+// means the window is physically open. Empty / "closed" / any
+// other value reports as closed for the normal case, but we still
+// surface unrecognized strings raw so we can diagnose oddities
+// without sweeping them into "closed".
+function formatWindow(v: string): string {
+  const norm = v.trim().toLowerCase();
+  if (norm === "" || norm === "closed") return "Closed";
+  if (norm === "open") return "Open";
+  return formatTitle(v);
 }
 
 function formatYesNo(v: boolean): string {
