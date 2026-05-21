@@ -670,6 +670,18 @@ decisions 3, 11, 12 for the cloud-specific deltas.
       config.
 - [ ] **CloudFlare** in front of the Ingress for DDoS + WAF.
 - [ ] **Managed L7 load balancer** fronting the Ingress.
+- [ ] **Backups off-cluster.** Today's `rivolt-pg-backups` bucket
+      lives on the in-cluster MinIO PVC (NFS, single replica). If
+      the cluster loses both nodes' data, backups die with the
+      source DB — same blast radius. Move to Backblaze B2 or
+      Cloudflare R2: continuous WAL + daily base both write to
+      the off-cluster bucket directly, in-cluster MinIO becomes
+      a hot tier or goes away entirely. Cost at current sizes:
+      B2 ≈ $0.30/mo for 54 GB; R2 ≈ $0.81/mo. Either tolerates a
+      full-cluster rebuild — recovery is just "spin up a new
+      cluster, point CNPG `bootstrap.recovery.backup` at the
+      off-cluster bucket, wait."
+
 - [ ] **Tiles to object storage (R2 / S3 + CDN).** Move
       `us.pmtiles` and `chargers.pmtiles` out of the cluster
       entirely. Deletes the `tiles` namespace (nginx pod +
