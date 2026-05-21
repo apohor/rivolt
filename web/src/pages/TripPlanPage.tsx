@@ -2611,43 +2611,41 @@ function TripAdviceCard({
           <span>Analyzing plan…</span>
         </div>
       )}
-      {advice && !expanded && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="flex items-center gap-2 text-sm text-left rounded-md w-full hover:bg-neutral-900/50 transition-colors py-1 -my-1 px-1"
-        >
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700/40 text-emerald-300 text-[10px]">✓</span>
-          <span className="text-neutral-200">Analysis ready</span>
-          {advice.headline && (
-            <span className="text-neutral-500 truncate">- {advice.headline}</span>
+      {advice && (
+        <>
+          {/* Single toggle row at the TOP of the card — the
+              right-side label flips between "Tap to view" (when
+              collapsed) and "Tap to collapse" (when expanded) so the
+              affordance never moves under the user's cursor. */}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-2 text-sm text-left rounded-md w-full hover:bg-neutral-900/50 transition-colors py-1 -my-1 px-1"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700/40 text-emerald-300 text-[10px]">✓</span>
+            <span className="text-neutral-200">Analysis ready</span>
+            {advice.headline && (
+              <span className="text-neutral-500 truncate">- {advice.headline}</span>
+            )}
+            <span className="ml-auto text-xs text-neutral-500">
+              {expanded ? "Tap to collapse" : "Tap to view"}
+            </span>
+          </button>
+          {expanded && (
+            <div className="space-y-4 mt-3">
+              <AdviceCostStrip cost={advice.cost_estimate} />
+              <AdviceSection label="Cost" items={advice.cost} accent="emerald" />
+              <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
+              <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
+              <AdviceSection label="Vehicle" items={advice.vehicle} accent="amber" />
+              {advice.model && (
+                <p className="pt-1 border-t border-neutral-800/60 text-xs text-neutral-600">
+                  {advice.model}
+                </p>
+              )}
+            </div>
           )}
-          <span className="ml-auto text-xs text-neutral-500">Tap to view</span>
-        </button>
-      )}
-      {advice && expanded && (
-        <div className="space-y-4">
-          {advice.headline && (
-            <p className="font-medium text-neutral-100">{advice.headline}</p>
-          )}
-          <AdviceCostStrip cost={advice.cost_estimate} />
-          <AdviceSection label="Cost" items={advice.cost} accent="emerald" />
-          <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
-          <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
-          <AdviceSection label="Vehicle" items={advice.vehicle} accent="amber" />
-          <div className="flex items-center justify-between pt-1 border-t border-neutral-800/60">
-            {advice.model ? (
-              <p className="text-xs text-neutral-600">{advice.model}</p>
-            ) : <span />}
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="text-xs text-neutral-500 hover:text-neutral-300"
-            >
-              Collapse
-            </button>
-          </div>
-        </div>
+        </>
       )}
     </Card>
   );
