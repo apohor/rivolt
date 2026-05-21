@@ -1991,6 +1991,7 @@ function TripPlanResult({
           onAddOvernight={onAddOvernight}
           onPreviewStop={onPreviewStop}
           departureAt={departureAt}
+          defaultCollapsed={i > 0}
           cost={plan.costs?.[i]}
           primaryCost={plan.costs?.[0]}
           adjustment={i === 0 ? plan.weather_adjustment : undefined}
@@ -2192,6 +2193,7 @@ function RouteCard({
   cost,
   primaryCost,
   adjustment,
+  defaultCollapsed,
 }: {
   route: TripRoute;
   index: number;
@@ -2205,7 +2207,14 @@ function RouteCard({
   cost?: TripCostEstimate;
   primaryCost?: TripCostEstimate;
   adjustment?: TripPlan["weather_adjustment"];
+  // Collapse the body (map + stops table + per-network breakdown)
+  // behind a "Tap to view" affordance on first render. Caller sets
+  // this for alternatives so the page doesn't pile maps on top of
+  // each other before the user signals interest. The Recommended
+  // route stays expanded.
+  defaultCollapsed?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
   // table renders correctly regardless of casing.
@@ -2342,6 +2351,25 @@ function RouteCard({
           </div>
         );
       })()}
+      {/* Collapse toggle for alternatives. Mirrors TripAdviceCard's
+          pattern: same row label flips between "Tap to view" and
+          "Tap to collapse" so the affordance never moves under the
+          cursor. Hidden entirely for the Recommended route (which
+          never starts collapsed). */}
+      {defaultCollapsed && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mb-3 flex items-center gap-2 text-sm text-left rounded-md w-full hover:bg-neutral-900/50 transition-colors py-1 -my-1 px-1"
+        >
+          <span className="text-neutral-300">Map + stops</span>
+          <span className="ml-auto text-xs text-neutral-500">
+            {expanded ? "Tap to collapse" : "Tap to view"}
+          </span>
+        </button>
+      )}
+      {expanded && (
+      <>
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap
@@ -2568,6 +2596,8 @@ function RouteCard({
           )}
           .
         </p>
+      )}
+      </>
       )}
     </Card>
   );
