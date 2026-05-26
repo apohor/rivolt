@@ -96,6 +96,122 @@ func TestHandleChargeLifecycle_StaleGapForcesNewSession(t *testing.T) {
 	}
 }
 
+// idleStickyFrame mimics what Rivian sends after a user unplugs and
+// drives away without the gateway noticing: chargerState parks at
+// charging_ready, the plug status stays "connected" (sticky), and
+// chargerPowerKW drifts at the parasitic floor (~0.1 kW). Used to
+// reproduce the 40-hour ghost session class (charges row 6ce9).
+func idleStickyFrame(at time.Time, soc float64) *State {
+	return &State{
+		VehicleID:       "vid-1",
+		At:              at,
+		BatteryLevelPct: soc,
+		ChargerState:    "charging_ready",
+		ChargerStatus:   "chrgr_sts_connected",
+		ChargerPowerKW:  0.1,
+	}
+}
+
+// TestHandleChargeLifecycle_IdleStickyReplayForcesClose pins the fix
+// for the 40-hour ghost session (charges row 6ce9). The gateway
+// replays charging_ready + connected + sub-floor power for hours
+// while the vehicle is physically gone. The old guard measured its
+// gap against endAt — which advanced every tick — so it never fired,
+// and accumulateEnergy summed the parasitic draw into ~54 kWh of
+// phantom energy. The fix: gap is measured against lastMeaningfulAt
+// (only bumped on SoC-up / above-floor power / state transition),
+// and the integrator skips sub-floor frames entirely.
+func TestHandleChargeLifecycle_IdleStickyReplayForcesClose(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 24, 4, 5, 43, 0, time.UTC)
+	// Real charging starts: SoC climbing, full L2 power.
+	_ = s.handleChargeLifecycle(chargingFrame(t0, 50.0), nil, m, ctx)
+	_ = s.handleChargeLifecycle(chargingFrame(t0.Add(10*time.Minute), 53.0), nil, m, ctx)
+	firstID := s.charge.id
+	energyAfterReal := s.charge.energyIntKWh
+
+	// Replay sticky idle frames for an hour: same chargerState, sub-floor
+	// power, flat SoC. Each frame is < liveChargeMaxGap apart so the
+	// old endAt-based gap check never tripped.
+	for i := 1; i <= 12; i++ {
+		f := idleStickyFrame(t0.Add(10*time.Minute+time.Duration(i)*5*time.Minute), 53.0)
+		_ = s.handleChargeLifecycle(f, nil, m, ctx)
+	}
+
+	// One more idle frame past the 30-min meaningful-gap threshold.
+	// lastMeaningfulAt is pinned at t0+10m (last SoC bump); 35 min
+	// later the guard must trip.
+	postGuard := idleStickyFrame(t0.Add(10*time.Minute+35*time.Minute), 53.0)
+	got := s.handleChargeLifecycle(postGuard, nil, m, ctx)
+	if got != 2 {
+		t.Fatalf("idle-sticky: want new chargeNum=2 (forced rotation), got %d", got)
+	}
+	if s.charge == nil || s.charge.id == firstID {
+		t.Fatalf("idle-sticky: expected fresh session, got %+v (firstID=%q)", s.charge, firstID)
+	}
+	// Energy must not have grown during the idle stretch — the
+	// accumulator should have short-circuited sub-floor frames.
+	// The new session's integral starts from zero anyway, so the
+	// invariant we check is on the new charge.
+	if s.charge.energyIntKWh > 0.01 {
+		t.Fatalf("idle-sticky: new session must start with zero energy, got %v", s.charge.energyIntKWh)
+	}
+	_ = energyAfterReal // referenced for documentation; new session's integral is the assertion
+}
+
+// TestAccumulateEnergy_IdleFramesDontIntegrate is a unit-level pin on
+// the accumulator's sub-floor short-circuit. A long stretch of
+// parasitic-power frames must add zero kWh, even if the surrounding
+// frames had real power (the anchor must be cleared so the trapezoid
+// across the gap doesn't carry forward).
+func TestAccumulateEnergy_IdleFramesDontIntegrate(t *testing.T) {
+	c := &liveCharge{}
+	t0 := time.Date(2026, 5, 24, 4, 0, 0, 0, time.UTC)
+
+	// 10 minutes of real charging at 7 kW, sampled every minute so
+	// the maxIntegrationGap clamp (2 min) doesn't trim each step.
+	// Expected: 7 kW * 10/60 h ≈ 1.17 kWh.
+	accumulateEnergy(c, t0, 7.0)
+	for i := 1; i <= 10; i++ {
+		accumulateEnergy(c, t0.Add(time.Duration(i)*time.Minute), 7.0)
+	}
+	realEnergy := c.energyIntKWh
+	if realEnergy < 1.0 || realEnergy > 1.3 {
+		t.Fatalf("baseline: 10 min @ 7 kW should give ~1.17 kWh, got %v", realEnergy)
+	}
+
+	// 2 hours of idle at 0.1 kW (parasitic). The integral must NOT
+	// grow — sub-floor frames clear the anchor and skip integration.
+	for i := 1; i <= 24; i++ {
+		accumulateEnergy(c, t0.Add(10*time.Minute+time.Duration(i)*5*time.Minute), 0.1)
+	}
+	if c.energyIntKWh != realEnergy {
+		t.Fatalf("idle frames must not integrate: was %v, became %v (delta %v)",
+			realEnergy, c.energyIntKWh, c.energyIntKWh-realEnergy)
+	}
+
+	// Resume real charging: a 7 kW frame after the idle stretch must
+	// NOT integrate across the gap (which would add ~3.5 kW * 2h = 7
+	// kWh of phantom energy). The anchor was cleared on each idle
+	// frame, so this frame starts a fresh anchor and adds nothing
+	// until the next active frame arrives.
+	accumulateEnergy(c, t0.Add(2*time.Hour+10*time.Minute), 7.0)
+	if c.energyIntKWh != realEnergy {
+		t.Fatalf("first post-idle active frame must not integrate across the idle gap: was %v, became %v",
+			realEnergy, c.energyIntKWh)
+	}
+
+	// Next active frame 1 minute later: ~0.12 kWh added (real charging).
+	accumulateEnergy(c, t0.Add(2*time.Hour+11*time.Minute), 7.0)
+	if c.energyIntKWh-realEnergy < 0.10 || c.energyIntKWh-realEnergy > 0.13 {
+		t.Fatalf("post-idle 1 min @ 7 kW should add ~0.117 kWh, total now %v (delta %v)",
+			c.energyIntKWh, c.energyIntKWh-realEnergy)
+	}
+}
+
 // TestHandleChargeLifecycle_SoCDropForcesNewSession covers the case
 // where Rivian's chargerState/chargerStatus stay sticky across an
 // unplug+drive+plugin cycle — we detect via SoC going backwards.

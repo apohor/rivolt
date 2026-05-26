@@ -51,6 +51,12 @@ const (
 	liveChargeMaxSoCDropPct = 2.0
 	liveDriveMaxGap         = 30 * time.Minute
 
+	// chargingPowerFloorKW is the minimum charger power that counts as
+	// "actively charging" for the energy integral and meaningful-frame
+	// tracking. Below this, Rivian is reporting parasitic / thermal /
+	// cabin pre-cond draw while plugged in but idle, not real charging.
+	chargingPowerFloorKW = 0.3
+
 	// maxLivePowerKW is a hard physical ceiling on per-frame charger
 	// power. Rivian packs accept ~220 kW on the highest-trim DCFC and
 	// the largest CCS stations top out around 350 kW. Anything above
@@ -157,6 +163,27 @@ type liveCharge struct {
 	energyIntKWh float64
 	lastPowerKW  float64
 	lastPowerAt  time.Time
+
+	// lastMeaningfulAt tracks the last frame where something real
+	// happened: SoC moved up, charger power was above the idle floor,
+	// or chargerState transitioned. The stale-session guard measures
+	// its gap against this, not endAt, so a session can't be kept open
+	// indefinitely by Rivian replaying sticky "charging_ready" frames.
+	lastMeaningfulAt time.Time
+}
+
+// markMeaningful bumps lastMeaningfulAt if the incoming frame
+// represents real activity: SoC ticked up, charger power was above
+// the idle floor, or chargerState transitioned. Sticky-replay frames
+// (same state, idle power, flat SoC) leave the timestamp alone so
+// the stale-session guard can eventually trip.
+func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) {
+	socUp := soc > c.endSoC
+	active := kw >= chargingPowerFloorKW && kw <= maxLivePowerKW
+	stateChanged := state != "" && state != c.finalState
+	if socUp || active || stateChanged {
+		c.lastMeaningfulAt = t
+	}
 }
 
 // accumulateEnergy advances c.energyIntKWh by the trapezoidal area
@@ -167,6 +194,17 @@ type liveCharge struct {
 // the integral.
 func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
 	if kw < 0 || kw > maxLivePowerKW {
+		return
+	}
+	// Idle plugged-in frames report sub-floor parasitic draw (sentry,
+	// thermal, cabin pre-cond) that isn't real charging. Skip
+	// integration entirely while idle, and drop the anchor on every
+	// idle frame so a subsequent active frame can't integrate across
+	// the idle gap (which would convert an hour of 0.2 kW + a 5 kW
+	// wake-up frame into ~2.6 kWh of phantom energy).
+	if kw < chargingPowerFloorKW {
+		c.lastPowerAt = time.Time{}
+		c.lastPowerKW = 0
 		return
 	}
 	if !c.lastPowerAt.IsZero() {
@@ -589,14 +627,19 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// See v0.3.48 for the matching frontend gate.
 	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
 
-	// Stale-session guard. If the in-memory accumulator hasn't seen a
-	// frame in a long time, OR SoC has dropped meaningfully since the
-	// last frame, the user almost certainly unplugged & drove between
-	// frames while Rivian's sticky charger fields kept us stuck in a
-	// "charging" state. Force-close the current session so the next
-	// branch opens a fresh one.
+	// Stale-session guard. Force-close if too long has passed since
+	// anything meaningful happened (SoC went up, power was above the
+	// idle floor, or chargerState transitioned), OR SoC has dropped
+	// since the last frame. The gap is measured against
+	// lastMeaningfulAt — NOT endAt — so a session can't be kept open
+	// by Rivian replaying sticky 'charging_ready' frames with no real
+	// activity behind them.
 	if charging && s.charge != nil {
-		gap := curr.At.Sub(s.charge.endAt)
+		ref := s.charge.lastMeaningfulAt
+		if ref.IsZero() {
+			ref = s.charge.startedAt
+		}
+		gap := curr.At.Sub(ref)
 		socDrop := s.charge.endSoC - curr.BatteryLevelPct
 		if gap > liveChargeMaxGap || socDrop > liveChargeMaxSoCDropPct {
 			m.logger.Info("closing stale live charge",
@@ -633,6 +676,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			if curr.At.After(s.charge.endAt) {
 				s.charge.endAt = curr.At
 			}
+			s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 			s.charge.endSoC = curr.BatteryLevelPct
 			s.charge.finalState = curr.ChargerState
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
@@ -646,15 +690,16 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.chargeCounter++
 		s.charge = &liveCharge{
-			id:         liveSessionID(curr.VehicleID, "c", curr.At),
-			startedAt:  curr.At,
-			number:     s.chargeCounter,
-			startSoC:   curr.BatteryLevelPct,
-			lat:        curr.Latitude,
-			lon:        curr.Longitude,
-			endAt:      curr.At,
-			endSoC:     curr.BatteryLevelPct,
-			finalState: curr.ChargerState,
+			id:               liveSessionID(curr.VehicleID, "c", curr.At),
+			startedAt:        curr.At,
+			number:           s.chargeCounter,
+			startSoC:         curr.BatteryLevelPct,
+			lat:              curr.Latitude,
+			lon:              curr.Longitude,
+			endAt:            curr.At,
+			endSoC:           curr.BatteryLevelPct,
+			finalState:       curr.ChargerState,
+			lastMeaningfulAt: curr.At,
 		}
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
@@ -671,6 +716,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
+		s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
