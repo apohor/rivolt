@@ -84,3 +84,43 @@ func TestWakeWorthyTransition(t *testing.T) {
 		})
 	}
 }
+
+// TestAdaptiveRefreshInterval pins the REST poll cadence. The key
+// case: a connected-but-idle car (charging_ready / charging_complete)
+// must NOT pull the 2-min active cadence — only a pack actually
+// drawing power (charging_active / charging_connecting) does.
+func TestAdaptiveRefreshInterval(t *testing.T) {
+	const vid = "vid-1"
+	cases := []struct {
+		name   string
+		wsSeen bool
+		st     *State
+		want   time.Duration
+	}{
+		{"cold_start_no_ws", false, &State{PowerState: "sleep"}, 2 * time.Minute},
+		{"ws_seen_no_cache", true, nil, 30 * time.Minute},
+		{"driving", true, &State{PowerState: "go"}, 2 * time.Minute},
+		{"ready", true, &State{PowerState: "ready"}, 10 * time.Minute},
+		{"standby", true, &State{PowerState: "standby"}, 10 * time.Minute},
+		{"sleep_active_charge", true, &State{PowerState: "sleep", ChargerState: "charging_active"}, 2 * time.Minute},
+		{"sleep_connecting", true, &State{PowerState: "sleep", ChargerState: "charging_connecting"}, 2 * time.Minute},
+		{"sleep_charging_ready_idle", true, &State{PowerState: "sleep", ChargerState: "charging_ready"}, 30 * time.Minute},
+		{"sleep_charging_complete", true, &State{PowerState: "sleep", ChargerState: "charging_complete"}, 30 * time.Minute},
+		{"sleep_unplugged", true, &State{PowerState: "sleep", ChargerState: "chrgr_sts_not_connected"}, 30 * time.Minute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &StateMonitor{
+				cache:  map[string]*State{},
+				wsSeen: map[string]bool{},
+			}
+			if tc.st != nil {
+				m.cache[vid] = tc.st
+			}
+			m.wsSeen[vid] = tc.wsSeen
+			if got := m.adaptiveRefreshInterval(vid); got != tc.want {
+				t.Fatalf("adaptiveRefreshInterval(%+v) = %v, want %v", tc.st, got, tc.want)
+			}
+		})
+	}
+}

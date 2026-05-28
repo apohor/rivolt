@@ -818,9 +818,9 @@ func (m *StateMonitor) kickResubscribe(vehicleID, reason string) {
 // subscription keeps running at all power states; REST is only a
 // backfill for fields Rivian's subscription doesn't replay.
 //
-//	asleep / no cache: 30 min — minimal wake pressure, we have WS
-//	standby / ready:   10 min — car is awake anyway
-//	go / charging:      2 min — driving or charging, we want freshness
+//	asleep / idle-plugged: 30 min - minimal wake pressure, we have WS
+//	standby / ready:       10 min - car is awake anyway
+//	go / active charge:     2 min - driving or drawing power, want freshness
 //
 // Cold-start exception: until we've received our first WS frame for
 // this vehicle, poll at the 2-min cadence regardless of cached
@@ -846,9 +846,11 @@ func (m *StateMonitor) adaptiveRefreshInterval(vehicleID string) time.Duration {
 	case "ready", "standby":
 		return 10 * time.Minute
 	case "sleep", "":
-		// Sleeping or unknown. If the car is charging we still want
-		// responsiveness, so key off chargerState too.
-		if strings.Contains(strings.ToLower(st.ChargerState), "charging") {
+		// Sleeping or unknown. Only fast-poll when the pack is actually
+		// drawing power; charging_ready/_complete are connected-but-idle
+		// and shouldn't pull the cadence down to 2 min.
+		cs := strings.ToLower(strings.TrimSpace(st.ChargerState))
+		if cs == "charging_active" || cs == "charging_connecting" {
 			return 2 * time.Minute
 		}
 		return 30 * time.Minute
