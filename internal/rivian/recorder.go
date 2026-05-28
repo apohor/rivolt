@@ -1162,6 +1162,11 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		endAt:      row.EndedAt,
 		endSoC:     row.EndSoCPct,
 		finalState: row.FinalState,
+		// Anchor the stale-session guard at the last advanced frame, not
+		// zero. A zero lastMeaningfulAt makes the guard fall back to
+		// startedAt and abandon any resumed charge older than the gap
+		// window on the first idle frame after a restart.
+		lastMeaningfulAt: row.EndedAt,
 	}
 	m.logger.Info("resumed open charge from DB",
 		"vehicle", curr.VehicleID,

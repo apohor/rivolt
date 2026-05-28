@@ -212,6 +212,65 @@ func TestAccumulateEnergy_IdleFramesDontIntegrate(t *testing.T) {
 	}
 }
 
+// TestRestoredChargeSurvivesIdleFrameAfterRestart reproduces the
+// split-on-deploy incident (preview 8d94 -> 7180): a multi-hour charge
+// that's restored after a pod restart must NOT be abandoned on the
+// first idle frame. The stale-session guard anchors on lastMeaningfulAt;
+// if a restore left that zero it fell back to startedAt (hours ago),
+// blew past liveChargeMaxGap, and abandoned the live session. Restore
+// now anchors lastMeaningfulAt at the snapshot's EndAt.
+func TestRestoredChargeSurvivesIdleFrameAfterRestart(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	ctx := context.Background()
+
+	t0 := time.Date(2026, 5, 28, 18, 42, 15, 0, time.UTC)
+	endAt := t0.Add(2*time.Hour + 20*time.Minute) // last frame before restart
+	snap := LiveStateSnapshot{
+		ChargeCounter: 1,
+		Charge: &LiveChargeSnapshot{
+			ID: "live_vid-1_c_resume", Number: 1, StartedAt: t0,
+			StartSoC: 51, EndAt: endAt, EndSoC: 61,
+			FinalState: "charging_active", MaxPower: 7.4,
+			LastMeaningfulAt: endAt,
+		},
+	}
+	s := liveSessionsFromSnapshot(snap)
+	if s.charge == nil || s.charge.lastMeaningfulAt.IsZero() {
+		t.Fatalf("restore must carry a non-zero lastMeaningfulAt, got %+v", s.charge)
+	}
+
+	// First frame after restart, ~30s later, idle-sticky (power below the
+	// floor, SoC flat). Gap from EndAt is tiny, so the guard must NOT fire.
+	post := idleStickyFrame(endAt.Add(30*time.Second), 61)
+	got := s.handleChargeLifecycle(post, nil, m, ctx)
+	if got != 1 {
+		t.Fatalf("restored charge must continue as session 1, got %d (split)", got)
+	}
+	if s.charge == nil || s.charge.id != "live_vid-1_c_resume" {
+		t.Fatalf("restored charge was abandoned/replaced: %+v", s.charge)
+	}
+	if s.charge.finalState == "abandoned" {
+		t.Fatalf("restored charge must not be abandoned on first idle frame")
+	}
+}
+
+// TestLiveSessionsFromSnapshot_FallsBackToEndAt covers older snapshots
+// written before the LastMeaningfulAt field existed: a zero value must
+// fall back to EndAt, not leak through as the guard's zero-time anchor.
+func TestLiveSessionsFromSnapshot_FallsBackToEndAt(t *testing.T) {
+	endAt := time.Date(2026, 5, 28, 21, 0, 0, 0, time.UTC)
+	snap := LiveStateSnapshot{
+		Charge: &LiveChargeSnapshot{
+			ID: "c1", StartedAt: endAt.Add(-2 * time.Hour), EndAt: endAt,
+			// LastMeaningfulAt deliberately zero (legacy snapshot).
+		},
+	}
+	s := liveSessionsFromSnapshot(snap)
+	if s.charge == nil || !s.charge.lastMeaningfulAt.Equal(endAt) {
+		t.Fatalf("legacy snapshot must fall back to EndAt, got %v", s.charge.lastMeaningfulAt)
+	}
+}
+
 // TestHandleChargeLifecycle_SoCDropForcesNewSession covers the case
 // where Rivian's chargerState/chargerStatus stay sticky across an
 // unplug+drive+plugin cycle — we detect via SoC going backwards.
