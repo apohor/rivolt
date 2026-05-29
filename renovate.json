@@ -38,6 +38,12 @@
       "groupName": "npm devDependencies (non-major)"
     },
     {
+      "description": "Vite, its plugins, and vitest are version-locked (plugin-legacy@N needs vite@N, vitest peers on vite). Group every update type so a major lands as one coherent, installable PR instead of a broken standalone plugin bump.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["vite", "vitest", "@vitejs/*"],
+      "groupName": "vite ecosystem"
+    },
+    {
       "description": "GitHub Actions: one PR for all bumps (low-risk CI glue)",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"

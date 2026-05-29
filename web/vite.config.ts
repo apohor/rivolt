@@ -7,8 +7,12 @@ export default defineConfig({
   plugins: [
     react(),
     // Ensure the build stays Safari-15 compatible by compiling modern syntax.
+    // renderLegacyChunks:false means we ship a single modern bundle; in
+    // plugin-legacy v8 that bundle's syntax floor and polyfill set are
+    // driven by modernTargets (it owns build.target now), not the vite
+    // build.target field.
     legacy({
-      targets: ["safari >= 15", "ios_saf >= 15"],
+      modernTargets: ["safari >= 15", "ios_saf >= 15", "chrome >= 100", "firefox >= 100", "edge >= 100"],
       modernPolyfills: true,
       renderLegacyChunks: false,
     }),
@@ -38,7 +42,6 @@ export default defineConfig({
   build: {
     outDir: "../internal/web/dist",
     emptyOutDir: true,
-    target: ["safari15", "ios15", "chrome100"],
     sourcemap: false,
   },
 });
