@@ -1,0 +1,51 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":timezone(America/Toronto)"
+  ],
+  "schedule": ["on monday"],
+  "labels": ["dependencies"],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 8,
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Image tag in the Helm chart is owned by CI (retag/promote release flow), never by Renovate",
+      "matchManagers": ["helm-values"],
+      "enabled": false
+    },
+    {
+      "description": "Go modules: one PR for all non-major bumps, majors stay separate for review",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go modules (non-major)"
+    },
+    {
+      "description": "npm runtime deps: group non-major, majors separate",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm dependencies (non-major)"
+    },
+    {
+      "description": "npm dev/tooling deps: group non-major, majors separate",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm devDependencies (non-major)"
+    },
+    {
+      "description": "GitHub Actions: one PR for all bumps (low-risk CI glue)",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Container base images (Dockerfile + compose): one PR",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "container base images"
+    }
+  ]
+}
