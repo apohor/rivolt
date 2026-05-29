@@ -1,21 +1,26 @@
+import { lazy, Suspense } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
-import { ErrorBoundary } from "./components/ui";
-import HomePage from "./pages/HomePage";
-import DrivesPage from "./pages/DrivesPage";
-import DriveDetailPage from "./pages/DriveDetailPage";
-import ChargesPage from "./pages/ChargesPage";
-import ChargeDetailPage from "./pages/ChargeDetailPage";
-import LivePage from "./pages/LivePage";
-import TripPlanPage from "./pages/TripPlanPage";
-import SettingsPage from "./pages/SettingsPage";
-import AdminPage from "./pages/AdminPage";
-import LoginPage from "./pages/LoginPage";
-import HydraLoginPage from "./pages/HydraLoginPage";
-import SignupPage from "./pages/SignupPage";
-import OnboardingPage from "./pages/OnboardingPage";
-import NotFoundPage from "./pages/NotFoundPage";
+import { ErrorBoundary, Spinner } from "./components/ui";
 import { useTripPlannerEnabled } from "./lib/config";
+
+// Route pages are split into their own chunks so the initial bundle
+// doesn't carry every page's deps (leaflet, uPlot, markdown) up front;
+// each loads on first navigation behind the Suspense fallback below.
+const HomePage = lazy(() => import("./pages/HomePage"));
+const DrivesPage = lazy(() => import("./pages/DrivesPage"));
+const DriveDetailPage = lazy(() => import("./pages/DriveDetailPage"));
+const ChargesPage = lazy(() => import("./pages/ChargesPage"));
+const ChargeDetailPage = lazy(() => import("./pages/ChargeDetailPage"));
+const LivePage = lazy(() => import("./pages/LivePage"));
+const TripPlanPage = lazy(() => import("./pages/TripPlanPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const HydraLoginPage = lazy(() => import("./pages/HydraLoginPage"));
+const SignupPage = lazy(() => import("./pages/SignupPage"));
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 // TripPlanGuard renders the planner page only when the feature
 // flag is on. When off it falls through to the 404 — same surface
@@ -36,6 +41,7 @@ export default function App() {
       // boundary that the user moved on.
       resetKey={location.pathname}
     >
+    <Suspense fallback={<div className="p-4"><Spinner /></div>}>
     <Routes>
       {/*
         /login, /signup and /onboarding sit outside AppLayout so the
@@ -67,6 +73,7 @@ export default function App() {
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
+    </Suspense>
     </ErrorBoundary>
   );
 }
