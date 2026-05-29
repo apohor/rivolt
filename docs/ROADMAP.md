@@ -369,7 +369,7 @@ decisions 5–7, 10–12.
         the AWS public bucket via 20-way parallel curl, and an
         unprivileged-nginx Deployment serving
         `http://elevation.elevation.svc.cluster.local/{z}/{x}/{y}.png`.
-        rivolt's `elevation.tilesUrl` in `apps/rivolt/values.yaml`
+        rivolt's `elevation.tilesUrl` in `apps/platform/rivolt/values.yaml`
         points at it; the recorder's `/data/elevation/` PVC
         populates from the LAN with zero AWS egress at
         request time. Future region expansion = bump

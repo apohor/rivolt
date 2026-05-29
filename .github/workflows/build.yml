@@ -11,7 +11,7 @@
 #   - workflow_dispatch   → tests + build (manual rebuild path)
 #
 # Preview deploys continuously off main; prod stays pinned to whatever
-# tag apps/rivolt/app.yaml in rivolt-infra points at.
+# tag apps/platform/rivolt/app.yaml in rivolt-infra points at.
 name: build
 
 on:
@@ -256,7 +256,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           short="sha-${SHA:0:7}"
-          file=apps/rivolt-preview/values.yaml
+          file=apps/platform/rivolt-preview/values.yaml
           # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
           sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
           if git diff --quiet "$file"; then
@@ -376,7 +376,7 @@ jobs:
     name: bump-prod
     needs: retag
     # After retag attaches the prod tag to the existing image, rewrite
-    # rivolt-infra's apps/rivolt/{app.yaml,values.yaml} so ArgoCD picks
+    # rivolt-infra's apps/platform/rivolt/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
     # that previously followed every tag push.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -394,8 +394,8 @@ jobs:
         run: |
           set -e
           v="${VERSION#v}"                  # 0.22.3 — image tag uses bare semver
-          app=apps/rivolt/app.yaml
-          values=apps/rivolt/values.yaml
+          app=apps/platform/rivolt/app.yaml
+          values=apps/platform/rivolt/values.yaml
           # chart.version tracks the git tag literally (ArgoCD resolves
           # against the rivolt repo ref); image.tag is the bare semver
           # that the retag job applied on GHCR.

@@ -37,7 +37,7 @@ spec:
         {{- end }}
         # Deploy-time image tag. The binary's compile-time VERSION
         # stamp is fixed to the main commit a retag was based on; the
-        # actual tag we deployed (set by ops in apps/rivolt/values.yaml)
+        # actual tag we deployed (set by ops in apps/platform/rivolt/values.yaml)
         # lives here and is surfaced into the pod via the downward-API
         # volume mount below. /api/health reads /etc/podinfo/image-tag
         # and prefers it over the compile-time stamp.
