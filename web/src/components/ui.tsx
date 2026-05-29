@@ -1,4 +1,27 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, type ErrorInfo, type KeyboardEvent, type ReactNode } from "react";
+
+// clickableRowProps makes a non-interactive element (a table <tr>)
+// behave like a real control for keyboard and assistive-tech users:
+// it becomes focusable and Enter/Space activate it, matching native
+// link/button semantics. Pages still own the row's className - pair
+// this with a visible focus style (e.g. focus-visible:bg-neutral-800).
+export function clickableRowProps(
+  onActivate: () => void,
+  opts?: { role?: "link" | "button"; label?: string },
+) {
+  return {
+    role: opts?.role ?? "button",
+    tabIndex: 0,
+    "aria-label": opts?.label,
+    onClick: onActivate,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
 
 export function Spinner() {
   return (

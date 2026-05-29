@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
 import { grafanaBaseURL } from "../lib/config";
-import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
@@ -621,8 +621,11 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
               return (
                 <tr
                   key={u.id}
-                  onClick={() => setSelectedID(u.id)}
-                  className={`cursor-pointer border-t border-neutral-900 ${
+                  aria-pressed={active}
+                  {...clickableRowProps(() => setSelectedID(u.id), {
+                    label: `Select ${u.display_name || u.username}`,
+                  })}
+                  className={`cursor-pointer border-t border-neutral-900 focus:outline-hidden focus-visible:bg-neutral-800/80 ${
                     active
                       ? "bg-emerald-950/30"
                       : "hover:bg-neutral-900/50"

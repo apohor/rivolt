@@ -7,7 +7,7 @@ import {
   type ChargeCluster,
   type ChargeClusterLabel,
 } from "../lib/api";
-import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
 import { ChargesOverviewMap } from "../components/DriveMap";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
@@ -219,8 +219,11 @@ function ChargeTable({
           {charges.map((c) => (
             <tr
               key={c.ID}
-              className="cursor-pointer hover:bg-neutral-900/60"
-              onClick={() => navigate(`/charges/${c.ID}`)}
+              className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
+              {...clickableRowProps(() => navigate(`/charges/${c.ID}`), {
+                role: "link",
+                label: `Open charge from ${formatDateTime(c.StartedAt)}`,
+              })}
             >
               <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(c.StartedAt)}
