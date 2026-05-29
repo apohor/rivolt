@@ -1,0 +1,44 @@
+name: Renovate
+
+on:
+  schedule:
+    # Mondays at 06:00 ET (10:00 UTC)
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: "Renovate log level"
+        type: choice
+        default: info
+        options: [debug, info]
+      dryRun:
+        description: "Dry run (no PRs)"
+        type: choice
+        default: "false"
+        options: ["false", "full"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@v46.1.14
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          LOG_LEVEL: ${{ inputs.logLevel || 'info' }}
+          RENOVATE_DRY_RUN: ${{ inputs.dryRun || 'false' }}
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_PLATFORM: github
+          RENOVATE_ONBOARDING: "false"
+          RENOVATE_REQUIRE_CONFIG: required
