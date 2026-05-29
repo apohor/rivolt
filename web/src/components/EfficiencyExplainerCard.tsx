@@ -156,7 +156,7 @@ export function EfficiencyExplainerCard({ driveId }: { driveId: string }) {
                   placeholder="0"
                   value={extraLoadLb}
                   onChange={(e) => setExtraLoadLb(e.target.value)}
-                  className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+                  className="w-24 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
                 />
                 <span className="text-xs text-neutral-500">lb</span>
               </div>

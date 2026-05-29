@@ -6,13 +6,14 @@ import legacy from "@vitejs/plugin-legacy";
 export default defineConfig({
   plugins: [
     react(),
-    // Ensure the build stays Safari-15 compatible by compiling modern syntax.
-    // renderLegacyChunks:false means we ship a single modern bundle; in
-    // plugin-legacy v8 that bundle's syntax floor and polyfill set are
-    // driven by modernTargets (it owns build.target now), not the vite
-    // build.target field.
+    // Compile modern syntax down to the browserslist floor. Tailwind v4
+    // generates @property / color-mix() CSS that needs Safari 16.4+, so the
+    // floor is 16.4 (was 15). renderLegacyChunks:false means we ship a single
+    // modern bundle; in plugin-legacy v8 that bundle's syntax floor and
+    // polyfill set are driven by modernTargets (it owns build.target now),
+    // not the vite build.target field.
     legacy({
-      modernTargets: ["safari >= 15", "ios_saf >= 15", "chrome >= 100", "firefox >= 100", "edge >= 100"],
+      modernTargets: ["safari >= 16.4", "ios_saf >= 16.4", "chrome >= 111", "firefox >= 128", "edge >= 111"],
       modernPolyfills: true,
       renderLegacyChunks: false,
     }),

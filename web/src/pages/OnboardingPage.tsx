@@ -171,7 +171,7 @@ export default function OnboardingPage() {
         <StepDots current={stepIdx} total={steps.length} />
 
         {/* Step content */}
-        <div className="min-h-[11rem]">
+        <div className="min-h-44">
           <h2 className="mb-3 text-base font-semibold text-neutral-100">{step.title}</h2>
           {step.body}
         </div>

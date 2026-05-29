@@ -75,7 +75,7 @@ export function VehicleProfilePanel() {
             id="profile-vehicle"
             value={vehicleID}
             onChange={(e) => setVehicleID(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-hidden"
           >
             {vehicles.map((v) => (
               <option key={v.rivian_vehicle_id} value={v.rivian_vehicle_id}>
@@ -203,7 +203,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
             id="profile-tire-type"
             value={tireType}
             onChange={(e) => setTireType(e.target.value as VehicleTireType)}
-            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+            className="rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
           >
             {TIRE_OPTIONS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -223,7 +223,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
             id="profile-wheel"
             value={wheelInches}
             onChange={(e) => setWheelInches(Number(e.target.value))}
-            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+            className="rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
           >
             {WHEEL_OPTIONS.map((n) => (
               <option key={n} value={n}>
@@ -250,7 +250,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
               placeholder="0"
               value={extraLoadLb}
               onChange={(e) => setExtraLoadLb(e.target.value)}
-              className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+              className="w-24 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
             />
             <span className="text-xs text-neutral-500">lb</span>
           </div>
@@ -274,7 +274,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
               placeholder="42"
               value={tirePlacardPsi}
               onChange={(e) => setTirePlacardPsi(e.target.value)}
-              className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+              className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
             />
             <span className="text-xs text-neutral-500">psi</span>
           </div>
@@ -293,7 +293,7 @@ function ProfileForm({ vehicleID }: { vehicleID: string }) {
             onChange={(e) =>
               setChargePort(e.target.value as "" | "native" | "ccs")
             }
-            className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
+            className="rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200"
           >
             <option value="">Auto (by model year)</option>
             <option value="native">Native NACS</option>

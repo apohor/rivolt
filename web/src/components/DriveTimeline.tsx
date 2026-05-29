@@ -1391,7 +1391,7 @@ function CursorReadout({
           className="inline-flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-[11px]"
         >
           <span
-            className="inline-block h-2 w-2 shrink-0 rounded-sm"
+            className="inline-block h-2 w-2 shrink-0 rounded-xs"
             style={{ background: item.color }}
           />
           <span className="text-neutral-500">{item.label}</span>

@@ -40,7 +40,7 @@ export function VehiclePicker({
         aria-label={label}
         value={selectedID ?? ""}
         onChange={(e) => onChange(e.target.value)}
-        className="cursor-pointer border-none bg-transparent text-[11px] text-neutral-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        className="cursor-pointer border-none bg-transparent text-[11px] text-neutral-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
       >
         {vehicles.map((v) => (
           <option key={v.id} value={v.id}>
