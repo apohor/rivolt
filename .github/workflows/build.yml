@@ -87,6 +87,10 @@ jobs:
         working-directory: web
         run: npm run lint
 
+      - name: Test web
+        working-directory: web
+        run: npm run test:run
+
       - name: Build web
         working-directory: web
         run: npm run build
