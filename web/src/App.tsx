@@ -3,24 +3,26 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import { useTripPlannerEnabled } from "./lib/config";
+import { pageLoaders } from "./lib/pageLoaders";
 
 // Route pages are split into their own chunks so the initial bundle
 // doesn't carry every page's deps (leaflet, uPlot, markdown) up front;
 // each loads on first navigation behind the Suspense fallback below.
-const HomePage = lazy(() => import("./pages/HomePage"));
-const DrivesPage = lazy(() => import("./pages/DrivesPage"));
-const DriveDetailPage = lazy(() => import("./pages/DriveDetailPage"));
-const ChargesPage = lazy(() => import("./pages/ChargesPage"));
-const ChargeDetailPage = lazy(() => import("./pages/ChargeDetailPage"));
-const LivePage = lazy(() => import("./pages/LivePage"));
-const TripPlanPage = lazy(() => import("./pages/TripPlanPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const AdminPage = lazy(() => import("./pages/AdminPage"));
-const LoginPage = lazy(() => import("./pages/LoginPage"));
-const HydraLoginPage = lazy(() => import("./pages/HydraLoginPage"));
-const SignupPage = lazy(() => import("./pages/SignupPage"));
-const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
-const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+// The loaders are shared with AppLayout so the nav can prefetch them.
+const HomePage = lazy(pageLoaders.home);
+const DrivesPage = lazy(pageLoaders.drives);
+const DriveDetailPage = lazy(pageLoaders.driveDetail);
+const ChargesPage = lazy(pageLoaders.charges);
+const ChargeDetailPage = lazy(pageLoaders.chargeDetail);
+const LivePage = lazy(pageLoaders.live);
+const TripPlanPage = lazy(pageLoaders.tripPlan);
+const SettingsPage = lazy(pageLoaders.settings);
+const AdminPage = lazy(pageLoaders.admin);
+const LoginPage = lazy(pageLoaders.login);
+const HydraLoginPage = lazy(pageLoaders.hydraLogin);
+const SignupPage = lazy(pageLoaders.signup);
+const OnboardingPage = lazy(pageLoaders.onboarding);
+const NotFoundPage = lazy(pageLoaders.notFound);
 
 // TripPlanGuard renders the planner page only when the feature
 // flag is on. When off it falls through to the 404 — same surface

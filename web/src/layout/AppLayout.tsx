@@ -3,8 +3,18 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
+import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import Logo from "../components/Logo";
 import IOSInstallBanner from "../components/IOSInstallBanner";
+
+// Warm a route's lazy chunk before the user clicks. The dynamic
+// import is module-cached, so repeat calls are cheap no-ops; firing on
+// hover/focus means the chunk is usually ready by click time, removing
+// the Suspense flash on first navigation to each page.
+function prefetchRoute(to: string) {
+  const key = navPrefetch[to];
+  if (key) void pageLoaders[key]();
+}
 
 const nav: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Overview", end: true },
@@ -162,6 +172,8 @@ export default function AppLayout() {
                   <NavLink
                     to={n.to}
                     end={n.end}
+                    onMouseEnter={() => prefetchRoute(n.to)}
+                    onFocus={() => prefetchRoute(n.to)}
                     className={({ isActive }) =>
                       `block rounded-md px-2 py-1.5 text-sm transition-colors sm:px-3 ${
                         isActive
