@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { backend, type Drive } from "../lib/api";
-import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { WindowPicker } from "../components/WindowPicker";
 import { DrivesOverviewMap } from "../components/DriveMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
@@ -143,8 +143,11 @@ function DriveTable({ drives }: { drives: Drive[] }) {
           {drives.map((d) => (
             <tr
               key={d.ID}
-              className="cursor-pointer hover:bg-neutral-900/60"
-              onClick={() => navigate(`/drives/${d.ID}`)}
+              className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
+              {...clickableRowProps(() => navigate(`/drives/${d.ID}`), {
+                role: "link",
+                label: `Open drive from ${formatDateTime(d.StartedAt)}`,
+              })}
             >
               <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(d.StartedAt)}
