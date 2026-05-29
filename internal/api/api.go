@@ -339,7 +339,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.SignupRequests != nil {
-			r.Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, d.Logger))
+			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, d.Logger))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -352,7 +352,7 @@ func New(d Deps) http.Handler {
 		// out the form and trivial to enforce.
 		if d.SignupRequests != nil {
 			signupReqLimiter := newIPLimiter(5, time.Hour, time.Hour)
-			r.With(signupReqLimiter.Middleware).Post(
+			r.With(signupReqLimiter.Middleware, maxBodyBytes(maxJSONBody)).Post(
 				"/signup/request",
 				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger),
 			)
@@ -390,6 +390,7 @@ func New(d Deps) http.Handler {
 			// middleware kill the connection mid-call on
 			// 2026-05-07).
 			r.Use(middleware.Timeout(30 * time.Second))
+			r.Use(maxBodyBytes(maxJSONBody))
 
 			// Same-origin Valhalla proxy. Mounted only when the
 			// operator configured RIVOLT_VALHALLA_BASE_URL —
@@ -759,6 +760,7 @@ func New(d Deps) http.Handler {
 				r.Use(requireUserMW)
 			}
 			r.Use(middleware.Timeout(5 * time.Minute))
+			r.Use(maxBodyBytes(maxJSONBody))
 			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
