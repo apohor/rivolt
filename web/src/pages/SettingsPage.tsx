@@ -246,7 +246,7 @@ function DisplayPreferences() {
         <select
           value={timeZone}
           onChange={(e) => setTimeZone(e.target.value)}
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-200 focus:border-emerald-500/60 focus:outline-hidden"
         >
           <option value="auto">Auto — browser ({browserZone})</option>
           {zones.map((z) => (
@@ -290,7 +290,7 @@ function DisplayPreferences() {
                 const n = Number(e.target.value);
                 if (Number.isFinite(n) && n > 0) setRoundTripRadiusMeters(n);
               }}
-              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none disabled:opacity-50"
+              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-hidden disabled:opacity-50"
             />
           </label>
           <label className="block">
@@ -307,7 +307,7 @@ function DisplayPreferences() {
                 const n = Number(e.target.value);
                 if (Number.isFinite(n) && n > 0) setRoundTripMaxGapMinutes(n);
               }}
-              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none disabled:opacity-50"
+              className="mt-0.5 w-28 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-hidden disabled:opacity-50"
             />
           </label>
         </div>
@@ -375,7 +375,7 @@ function ChargingCostPanel() {
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="0.14"
-            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+            className="w-28 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
           />
         </div>
         <div>
@@ -388,7 +388,7 @@ function ChargingCostPanel() {
             maxLength={3}
             value={currency}
             onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-            className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
+            className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
           />
         </div>
         <button
@@ -511,13 +511,13 @@ function ChargingNetworksPanel() {
                     value={r.name}
                     onChange={(e) => update(i, { name: e.target.value })}
                     placeholder="Network name"
-                    className="flex-1 rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm font-medium text-neutral-100"
+                    className="flex-1 rounded-sm border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm font-medium text-neutral-100"
                   />
                   <button
                     type="button"
                     onClick={() => remove(i)}
                     title="Remove this network"
-                    className="rounded border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-500 hover:border-rose-800 hover:text-rose-300"
+                    className="rounded-sm border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-500 hover:border-rose-800 hover:text-rose-300"
                   >
                     ×
                   </button>
@@ -535,7 +535,7 @@ function ChargingNetworksPanel() {
                         value={r.price_per_kwh || ""}
                         onChange={(e) => update(i, { price_per_kwh: Number(e.target.value) || 0 })}
                         placeholder="0.42"
-                        className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100 tabular-nums"
+                        className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100 tabular-nums"
                       />
                       <span className="text-xs text-neutral-500">/kWh</span>
                     </div>
@@ -554,7 +554,7 @@ function ChargingNetworksPanel() {
                             update(i, { member_price_per_kwh: Number(e.target.value) || 0 })
                           }
                           placeholder="0.36"
-                          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-emerald-300 tabular-nums"
+                          className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-emerald-300 tabular-nums"
                         />
                         <span className="text-xs text-neutral-500">/kWh</span>
                       </div>
@@ -567,7 +567,7 @@ function ChargingNetworksPanel() {
                       maxLength={3}
                       value={r.currency}
                       onChange={(e) => update(i, { currency: e.target.value.toUpperCase() })}
-                      className="w-14 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
+                      className="w-14 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 uppercase"
                     />
                   </label>
                   {savings > 0 && (
@@ -846,7 +846,7 @@ function ImportPanel() {
           placeholder={selectedVehicle?.pack_kwh ? String(selectedVehicle.pack_kwh) : "auto"}
           value={packKWh}
           onChange={(e) => setPackKWh(e.target.value)}
-          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+          className="w-20 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
         />
         <span>
           kWh · leave blank to use{" "}
@@ -991,7 +991,7 @@ export function AIProvidersPanel() {
           </label>
           <select
             id="ai-provider"
-            className="bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-neutral-100"
+            className="bg-neutral-900 border border-neutral-700 rounded-sm px-2 py-1 text-neutral-100"
             value={selected}
             onChange={(e) => {
               const v = e.target.value as "" | AIProvider;
@@ -1203,7 +1203,7 @@ export function RecapWeatherPanel() {
             type="button"
             onClick={runBackfill}
             disabled={!enabled || backfill.running}
-            className="text-sm px-3 py-1 rounded border border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-sm px-3 py-1 rounded-sm border border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {backfill.running
               ? "Backfilling…"
@@ -1328,7 +1328,7 @@ export function GPSAccuracyPanel() {
             max={100}
             value={missingPctStr}
             onChange={(e) => setMissingPctStr(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
           />
           <span className="text-xs text-neutral-600">flag when &gt; this</span>
         </label>
@@ -1339,7 +1339,7 @@ export function GPSAccuracyPanel() {
             min={0}
             value={staleSecStr}
             onChange={(e) => setStaleSecStr(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
           />
           <span className="text-xs text-neutral-600">flag when max age &gt; this</span>
         </label>
@@ -1350,7 +1350,7 @@ export function GPSAccuracyPanel() {
             min={1}
             value={jumpCountStr}
             onChange={(e) => setJumpCountStr(e.target.value)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
           />
           <span className="text-xs text-neutral-600">flag when ≥ this many</span>
         </label>
@@ -1499,7 +1499,7 @@ function ProviderCard({
           placeholder={info?.has_key ? "••••••••  (replace to update)" : "paste key"}
           value={keyDraft}
           onChange={(e) => onKeyDraftChange(e.target.value)}
-          className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+          className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded-sm px-2 py-1 text-sm text-neutral-100 font-mono"
         />
       </label>
 
@@ -1524,13 +1524,13 @@ function ProviderCard({
             placeholder={info?.model || "provider default"}
             value={modelDraft}
             onChange={(e) => onModelDraftChange(e.target.value)}
-            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded-sm px-2 py-1 text-sm text-neutral-100 font-mono"
           />
         ) : (
           <select
             value={modelDraft || info?.model || ""}
             onChange={(e) => onModelDraftChange(e.target.value)}
-            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded px-2 py-1 text-sm text-neutral-100 font-mono"
+            className="mt-1 w-full bg-neutral-950 border border-neutral-700 rounded-sm px-2 py-1 text-sm text-neutral-100 font-mono"
           >
             <option value="">provider default</option>
             {list.map((m) => (
@@ -1559,7 +1559,7 @@ function ProviderCard({
             if (Object.keys(patch).length === 0) return;
             onSave(patch);
           }}
-          className="text-xs px-2 py-1 rounded border border-emerald-700 bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50 disabled:opacity-50"
+          className="text-xs px-2 py-1 rounded-sm border border-emerald-700 bg-emerald-800/40 text-emerald-100 hover:bg-emerald-700/50 disabled:opacity-50"
         >
           Save
         </button>
@@ -1572,7 +1572,7 @@ function ProviderCard({
                 return;
               onClearKey();
             }}
-            className="text-xs px-2 py-1 rounded border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+            className="text-xs px-2 py-1 rounded-sm border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
           >
             Clear key
           </button>
@@ -2163,7 +2163,7 @@ function HomeLocationPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={home?.set ? "Search for a different home…" : "Search for your home city…"}
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
         />
         {(results.data ?? []).length > 0 && (
           <ul className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 max-h-64 overflow-y-auto rounded-md border border-neutral-700 bg-neutral-900 shadow-lg">
@@ -2281,7 +2281,7 @@ function PlannerPrefsPanel() {
         <select
           value={mode}
           onChange={(e) => setMode(e.target.value as PlannerPrefs["drive_mode"])}
-          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+          className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
         >
           <option value="EVERYDAY">All-Purpose</option>
           <option value="DISTANCE">Conserve</option>
@@ -2295,7 +2295,7 @@ function PlannerPrefsPanel() {
             onChange={(e) =>
               setHasAdapter(e.target.value as "unset" | "yes" | "no")
             }
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-none"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
           >
             <option value="unset">Not specified (let planner default)</option>
             <option value="yes">Yes — I have it</option>
@@ -2314,7 +2314,7 @@ function PlannerPrefsPanel() {
             value={gasPrice}
             onChange={(e) => setGasPrice(e.target.value)}
             placeholder="4.00"
-            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+            className="w-24 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -2327,7 +2327,7 @@ function PlannerPrefsPanel() {
             value={mpg}
             onChange={(e) => setMpg(e.target.value)}
             placeholder="20"
-            className="w-24 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
+            className="w-24 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-200 tabular-nums"
           />
         </label>
       </div>

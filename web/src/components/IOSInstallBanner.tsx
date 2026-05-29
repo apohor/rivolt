@@ -43,7 +43,7 @@ export default function IOSInstallBanner() {
   if (!visible) return null;
 
   return (
-    <div className="sticky top-0 z-[1200] border-b border-emerald-900/60 bg-emerald-950/80 backdrop-blur">
+    <div className="sticky top-0 z-1200 border-b border-emerald-900/60 bg-emerald-950/80 backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2 text-xs text-emerald-100">
         <span aria-hidden>📲</span>
         <span className="flex-1 leading-snug">
@@ -61,7 +61,7 @@ export default function IOSInstallBanner() {
             }
             setVisible(false);
           }}
-          className="rounded px-2 py-1 text-emerald-300 hover:bg-emerald-900/40 hover:text-emerald-100"
+          className="rounded-sm px-2 py-1 text-emerald-300 hover:bg-emerald-900/40 hover:text-emerald-100"
           aria-label="Dismiss"
         >
           ✕

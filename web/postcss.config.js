@@ -1,6 +1,6 @@
 export default {
   plugins: {
-    tailwindcss: {},
+    '@tailwindcss/postcss': {},
     // Downlevel modern CSS (nesting, :has(), custom-media, logical props, etc.)
     // to syntax supported by the browserslist targets in package.json.
     // stage 2 = reasonably stable proposals.
@@ -12,6 +12,5 @@ export default {
         'nesting-rules': false,
       },
     },
-    autoprefixer: {},
   },
 };

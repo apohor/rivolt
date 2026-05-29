@@ -92,7 +92,7 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className={[
         "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60",
+        "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500/60",
         "disabled:opacity-40 disabled:cursor-not-allowed",
         checked
           ? "bg-emerald-600 border-emerald-500"
@@ -101,7 +101,7 @@ export function Toggle({
     >
       <span
         className={[
-          "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+          "inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform",
           checked ? "translate-x-6" : "translate-x-1",
         ].join(" ")}
       />
@@ -160,7 +160,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         className="rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200"
       >
         <div className="font-semibold">Something went wrong</div>
-        <div className="mt-1 break-words text-rose-300/80">{this.state.err.message}</div>
+        <div className="mt-1 wrap-break-word text-rose-300/80">{this.state.err.message}</div>
         <button
           type="button"
           onClick={this.reset}

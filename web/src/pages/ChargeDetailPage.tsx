@@ -290,12 +290,12 @@ export default function ChargeDetailPage() {
             />
             <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
               <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />
+                <span className="inline-block w-2 h-2 rounded-xs bg-emerald-500" />
                 Battery (left)
               </span>
               {powerPts.length > 0 ? (
                 <span className="flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />
+                  <span className="inline-block w-2 h-2 rounded-xs bg-amber-500" />
                   Power (right)
                 </span>
               ) : (
@@ -979,7 +979,7 @@ function PricingCard({
                 // be re-selected later (a no-op nudge for the user).
                 e.target.value = "";
               }}
-              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 focus:border-emerald-500/60 focus:outline-hidden"
             >
               <option value="" disabled>
                 Pick a network…
@@ -1016,7 +1016,7 @@ function PricingCard({
             value={ppk}
             onChange={(e) => setPpk(e.target.value)}
             placeholder="e.g. 0.43"
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-none"
+            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 tabular-nums focus:border-emerald-500/60 focus:outline-hidden"
           />
         </label>
         <label className="block">
@@ -1028,7 +1028,7 @@ function PricingCard({
             value={currency}
             onChange={(e) => setCurrency(e.target.value.toUpperCase())}
             maxLength={4}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm uppercase text-neutral-200 focus:border-emerald-500/60 focus:outline-none"
+            className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm uppercase text-neutral-200 focus:border-emerald-500/60 focus:outline-hidden"
           />
         </label>
         <div className="sm:col-span-2 flex items-center justify-between gap-3 flex-wrap">

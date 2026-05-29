@@ -408,7 +408,7 @@ function HeroBanner({
   const currentLabel =
     WINDOW_OPTIONS.find((o) => o.key === win)?.label ?? "";
   return (
-    <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 via-neutral-950 to-neutral-900">
+    <section className="relative overflow-hidden rounded-xl border border-neutral-800 bg-linear-to-br from-neutral-900 via-neutral-950 to-neutral-900">
       <svg
         aria-hidden="true"
         viewBox="0 0 24 24"
@@ -434,7 +434,7 @@ function HeroBanner({
         <div className="flex shrink-0 items-center gap-3">
           <Link
             to="/live"
-            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow hover:bg-emerald-500"
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-500"
           >
             Live view →
           </Link>

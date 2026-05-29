@@ -279,7 +279,7 @@ function FeatureFlagsPanel() {
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Reason (recorded with the pause for future operators)"
-          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-hidden"
         />
       )}
 
@@ -376,7 +376,7 @@ function SignupCapPanel() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={String(current)}
-          className="w-32 rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-none"
+          className="w-32 rounded-md border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-500 focus:outline-hidden"
         />
         <button
           type="button"
@@ -502,7 +502,7 @@ function CreateUserForm() {
             <span className="font-mono">{oneTimePassword.username}</span>
           </p>
           <div className="flex items-center gap-2">
-            <code className="select-all rounded bg-neutral-900 px-2 py-1 font-mono text-sm text-amber-200">
+            <code className="select-all rounded-sm bg-neutral-900 px-2 py-1 font-mono text-sm text-amber-200">
               {oneTimePassword.password}
             </code>
             <button
@@ -667,19 +667,19 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       <span
                         className={
                           u.rivian_connected
-                            ? "rounded border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
-                            : "rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
+                            ? "rounded-sm border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
+                            : "rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
                         }
                       >
                         {u.rivian_connected ? "rivian" : "no rivian"}
                       </span>
-                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
                         🚗 {u.vehicle_count}
                       </span>
-                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
                         ↻ {u.drive_count}
                       </span>
-                      <span className="rounded border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
+                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
                         ⬇ {u.import_count}
                       </span>
                     </div>
@@ -1065,7 +1065,7 @@ function UserDetailPanel({
             )}
           </div>
           {d.signup_request.message && (
-            <div className="mt-1 whitespace-pre-wrap rounded bg-neutral-950 p-2 text-xs text-neutral-400">
+            <div className="mt-1 whitespace-pre-wrap rounded-sm bg-neutral-950 p-2 text-xs text-neutral-400">
               {d.signup_request.message}
             </div>
           )}

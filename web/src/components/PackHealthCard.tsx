@@ -71,7 +71,7 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
   });
 
   if (q.isLoading) {
-    return <div className="h-24 animate-pulse rounded bg-neutral-900/50" />;
+    return <div className="h-24 animate-pulse rounded-sm bg-neutral-900/50" />;
   }
   if (q.isError || !q.data) {
     return (

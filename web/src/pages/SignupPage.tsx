@@ -293,7 +293,7 @@ export default function SignupPage() {
                     placeholder="you@example.com"
                     value={reqEmail}
                     onChange={(e) => setReqEmail(e.target.value)}
-                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+                    className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-hidden"
                   />
                 </div>
                 {reqError && (
@@ -368,7 +368,7 @@ export default function SignupPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               readOnly={tokenMode}
-              className={`w-full rounded-md border border-neutral-700 px-3 py-2 text-sm placeholder-neutral-600 focus:outline-none ${
+              className={`w-full rounded-md border border-neutral-700 px-3 py-2 text-sm placeholder-neutral-600 focus:outline-hidden ${
                 tokenMode
                   ? "bg-neutral-900/60 text-neutral-400"
                   : "bg-neutral-900 text-neutral-100 focus:border-emerald-600"
@@ -388,7 +388,7 @@ export default function SignupPage() {
               placeholder="Alice"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-none"
+              className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:border-emerald-600 focus:outline-hidden"
             />
           </div>
 
@@ -401,7 +401,7 @@ export default function SignupPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-10 text-sm text-neutral-100 focus:border-emerald-600 focus:outline-none"
+                className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-10 text-sm text-neutral-100 focus:border-emerald-600 focus:outline-hidden"
               />
               <button
                 type="button"
@@ -440,7 +440,7 @@ export default function SignupPage() {
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className={`w-full rounded-md border bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:outline-none ${
+              className={`w-full rounded-md border bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:outline-hidden ${
                 confirmPassword.length > 0 && !passwordsMatch
                   ? "border-rose-700 focus:border-rose-500"
                   : "border-neutral-700 focus:border-emerald-600"

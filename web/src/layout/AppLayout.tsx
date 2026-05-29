@@ -142,7 +142,7 @@ export default function AppLayout() {
   return (
     <div className="min-h-full flex flex-col">
       <IOSInstallBanner />
-      <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-[1100] app-safe-top">
+      <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">
           <NavLink
             to="/"
@@ -155,7 +155,7 @@ export default function AppLayout() {
             <StatusPill />
             <SignOutButton />
           </div>
-          <nav className="order-last w-full sm:order-none sm:w-auto" aria-label="Primary">
+          <nav className="order-last w-full sm:order-0 sm:w-auto" aria-label="Primary">
             <ul className="flex items-center justify-between gap-0.5 sm:justify-start sm:gap-1">
               {navItems.map((n) => (
                 <li key={n.to}>
