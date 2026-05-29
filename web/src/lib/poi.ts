@@ -22,7 +22,7 @@
 // bundle as transitive deps of protomaps-leaflet, so reading the
 // raw tile bytes costs nothing extra at runtime.
 
-import Pbf from "pbf";
+import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
 import { tilesPMTilesURL, chargersPMTilesURL, ensureConfig } from "./config";
@@ -296,7 +296,7 @@ async function findInArchive(
       try {
         const result = await pm.getZxy(z, tx, ty);
         if (!result) return;
-        const tile = new VectorTile(new Pbf(result.data as ArrayBuffer));
+        const tile = new VectorTile(new PbfReader(result.data as ArrayBuffer));
         const layer = tile.layers[cfg.layer];
         if (!layer) return;
         for (let i = 0; i < layer.length; i++) {

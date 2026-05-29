@@ -44,6 +44,12 @@
       "groupName": "vite ecosystem"
     },
     {
+      "description": "Vector-tile stack is version-locked (@mapbox/vector-tile peers on pbf, both feed the PMTiles render path in web/src/lib/poi.ts). Group every update type so a coupled major lands as one installable PR.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["pbf", "@mapbox/vector-tile", "pmtiles", "protomaps-leaflet"],
+      "groupName": "tile stack"
+    },
+    {
       "description": "GitHub Actions: one PR for all bumps (low-risk CI glue)",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"
