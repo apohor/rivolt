@@ -53,7 +53,7 @@ services:
   # DSM compose so `docker compose up` in-repo gets a fully-
   # working dual-backend stack for testing.
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: rivolt-postgres
     restart: unless-stopped
     environment:
