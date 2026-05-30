@@ -130,7 +130,7 @@ func shouldAttemptPrime(uid uuid.UUID) bool {
 	return true
 }
 
-func handleRivianStatus(reg rivian.AccountRegistry, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
+func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
@@ -149,6 +149,22 @@ func handleRivianStatus(reg rivian.AccountRegistry, sqlDB *sql.DB, logger *slog.
 		if lc == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
 			return
+		}
+		// The per-user client is cached per pod and only restores its
+		// session at construction (buildLive). A client built on this
+		// pod before the user finished signing in on a peer pod keeps
+		// reporting "not connected" / "no MFA" from stale memory, so
+		// the SPA's status poll disagrees pod-to-pod and the login
+		// screens loop. When memory shows neither state, rehydrate from
+		// the shared user_secrets store so every replica answers alike.
+		if store != nil && !lc.Authenticated() && !lc.MFAPending() {
+			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+				lc.Restore(sess)
+			} else if pc, ok := lc.(pendingMFAClient); ok {
+				if p, found := secrets.LoadPendingMFA(r.Context(), store, uid); found {
+					pc.RestorePending(p)
+				}
+			}
 		}
 		needs, reason := lc.NeedsReauth()
 		authd := lc.Authenticated()
