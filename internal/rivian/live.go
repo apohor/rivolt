@@ -1480,6 +1480,52 @@ func (c *LiveClient) Restore(s Session) {
 	}
 }
 
+// PendingMFA is the in-flight OTP challenge, captured so a different
+// pod than the one that ran the password leg can finish the second
+// leg. The OTP submission replays the same csrf/appSession tokens and
+// the server-issued otpToken; a pod that never saw the password leg
+// has none of these in memory, so without sharing them the OTP lands
+// on a pod that reports "no challenge in flight".
+type PendingMFA struct {
+	Email           string    `json:"email"`
+	OTPToken        string    `json:"otp_token"`
+	CSRFToken       string    `json:"csrf_token"`
+	AppSessionToken string    `json:"app_session_token"`
+	IssuedAt        time.Time `json:"issued_at"`
+}
+
+// PendingSnapshot returns the current OTP challenge, or false when no
+// OTP submission is awaited. IssuedAt is left zero for the persistence
+// layer to stamp.
+func (c *LiveClient) PendingSnapshot() (PendingMFA, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pendingOTPToken == "" {
+		return PendingMFA{}, false
+	}
+	return PendingMFA{
+		Email:           c.pendingOTPEmail,
+		OTPToken:        c.pendingOTPToken,
+		CSRFToken:       c.csrfToken,
+		AppSessionToken: c.appSessionToken,
+	}, true
+}
+
+// RestorePending re-arms an OTP challenge captured by PendingSnapshot
+// on another pod so this client can complete the second leg.
+func (c *LiveClient) RestorePending(p PendingMFA) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pendingOTPEmail = p.Email
+	c.pendingOTPToken = p.OTPToken
+	if p.CSRFToken != "" {
+		c.csrfToken = p.CSRFToken
+	}
+	if p.AppSessionToken != "" {
+		c.appSessionToken = p.AppSessionToken
+	}
+}
+
 // Authenticated reports whether a userSessionToken is set locally.
 func (c *LiveClient) Authenticated() bool {
 	c.mu.Lock()

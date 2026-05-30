@@ -327,6 +327,50 @@ func TestLiveClientMFAFlow(t *testing.T) {
 	}
 }
 
+// A challenge opened on one client instance can be completed by a
+// second instance via PendingSnapshot -> RestorePending. This is the
+// multi-pod handoff the shared pending-MFA store relies on: the pod
+// that runs the OTP leg may not be the one that ran the password leg.
+func TestLiveClientMFAHandoffAcrossClients(t *testing.T) {
+	g := newStubGateway(t)
+	g.mfaRequired = true
+	ctx := context.Background()
+
+	// Pod A: password leg, then capture the in-flight challenge.
+	a := NewLive().WithEndpoint(g.srv.URL)
+	if err := a.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); !errors.Is(err, ErrMFARequired) {
+		t.Fatalf("pod A Login err = %v, want ErrMFARequired", err)
+	}
+	snap, ok := a.PendingSnapshot()
+	if !ok {
+		t.Fatal("pod A PendingSnapshot: ok=false, want true")
+	}
+	if snap.OTPToken == "" || snap.Email != "a@b.c" || snap.CSRFToken == "" {
+		t.Fatalf("pod A snapshot missing fields: %+v", snap)
+	}
+
+	// Pod B: never saw the password leg.
+	b := NewLive().WithEndpoint(g.srv.URL)
+	if _, ok := b.PendingSnapshot(); ok {
+		t.Fatal("pod B PendingSnapshot before restore: ok=true, want false")
+	}
+	if b.MFAPending() {
+		t.Fatal("pod B MFAPending before restore: true, want false")
+	}
+	b.RestorePending(snap)
+	if !b.MFAPending() {
+		t.Fatal("pod B MFAPending after restore: false, want true")
+	}
+
+	// Pod B completes the OTP leg using the restored challenge.
+	if err := b.Login(ctx, Credentials{OTP: "123456"}); err != nil {
+		t.Fatalf("pod B OTP Login: %v", err)
+	}
+	if !b.Authenticated() {
+		t.Fatal("pod B not authenticated after OTP handoff")
+	}
+}
+
 // Not-authenticated calls short-circuit locally (no HTTP).
 func TestLiveClientRefusesUnauthenticated(t *testing.T) {
 	g := newStubGateway(t)

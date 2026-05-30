@@ -88,3 +88,57 @@ func TestRivianSessionConstantStable(t *testing.T) {
 			rivianSessionName, "rivian.session")
 	}
 }
+
+// Nil-store no-op: same wiring concern as the session helpers — a
+// secrets-disabled deployment must not error on the MFA handoff path.
+func TestPendingMFA_NilStore(t *testing.T) {
+	ctx := context.Background()
+	uid := uuid.New()
+	if err := SavePendingMFA(ctx, nil, uid, rivian.PendingMFA{OTPToken: "x"}); err != nil {
+		t.Fatalf("SavePendingMFA(nil store): err = %v, want nil", err)
+	}
+	if _, ok := LoadPendingMFA(ctx, nil, uid); ok {
+		t.Fatalf("LoadPendingMFA(nil store): ok = true, want false")
+	}
+	if err := ClearPendingMFA(ctx, nil, uid); err != nil {
+		t.Fatalf("ClearPendingMFA(nil store): err = %v, want nil", err)
+	}
+}
+
+// TestPendingMFAJSONRoundTrip pins the at-rest wire shape of the
+// shared OTP challenge so a dropped json tag can't silently lose a
+// field that the resuming pod needs to finish the second leg.
+func TestPendingMFAJSONRoundTrip(t *testing.T) {
+	want := rivian.PendingMFA{
+		Email:           "driver@example.com",
+		OTPToken:        "otp-abc",
+		CSRFToken:       "csrf-def",
+		AppSessionToken: "app-ghi",
+		IssuedAt:        time.Unix(1_700_000_000, 0).UTC(),
+	}
+	buf, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got rivian.PendingMFA
+	if err := json.Unmarshal(buf, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.Email != want.Email ||
+		got.OTPToken != want.OTPToken ||
+		got.CSRFToken != want.CSRFToken ||
+		got.AppSessionToken != want.AppSessionToken ||
+		!got.IssuedAt.Equal(want.IssuedAt) {
+		t.Fatalf("round-trip drift:\n got  %+v\n want %+v", got, want)
+	}
+}
+
+// TestRivianPendingMFAConstantStable pins the storage name: an
+// in-flight challenge written by one pod is read by another, so a
+// rename would silently break every cross-pod handoff in progress.
+func TestRivianPendingMFAConstantStable(t *testing.T) {
+	if rivianPendingMFAName != "rivian.pending-mfa" {
+		t.Fatalf("rivianPendingMFAName = %q, want %q (cross-pod rows depend on this)",
+			rivianPendingMFAName, "rivian.pending-mfa")
+	}
+}

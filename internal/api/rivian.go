@@ -192,6 +192,15 @@ type rivianLoginReq struct {
 	Password string `json:"password"`
 }
 
+// pendingMFAClient is the subset of *LiveClient that can hand off an
+// in-flight OTP challenge to a peer pod. Type-asserted (not on the
+// Account interface) so the mock client, which has no cross-pod
+// concern, stays unaffected and falls back to in-memory pending state.
+type pendingMFAClient interface {
+	PendingSnapshot() (rivian.PendingMFA, bool)
+	RestorePending(rivian.PendingMFA)
+}
+
 func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, mailer *email.Client, d *sql.DB, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
@@ -221,6 +230,15 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 		err := lc.Login(r.Context(), rivian.Credentials{Email: req.Email, Password: req.Password})
 		switch {
 		case errors.Is(err, rivian.ErrMFARequired):
+			// Share the challenge so a peer pod can complete the OTP
+			// leg even though this pod handled the password leg.
+			if pc, ok := lc.(pendingMFAClient); ok {
+				if snap, pending := pc.PendingSnapshot(); pending {
+					if perr := secrets.SavePendingMFA(r.Context(), store, uid, snap); perr != nil {
+						slog.WarnContext(r.Context(), "persist pending mfa failed", "err", perr.Error())
+					}
+				}
+			}
 			writeJSON(w, http.StatusOK, map[string]any{
 				"authenticated": false,
 				"mfa_pending":   true,
@@ -368,6 +386,15 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 			return
 		}
 		if !lc.MFAPending() {
+			// The password leg may have run on a peer pod. Rehydrate
+			// the challenge from shared storage before giving up.
+			if pc, ok := lc.(pendingMFAClient); ok {
+				if p, found := secrets.LoadPendingMFA(r.Context(), store, uid); found {
+					pc.RestorePending(p)
+				}
+			}
+		}
+		if !lc.MFAPending() {
 			http.Error(w, "no MFA challenge in flight; start with /login", http.StatusConflict)
 			return
 		}
@@ -399,6 +426,9 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 			writeUpstreamError(w, err)
 			return
 		}
+		// Challenge consumed — drop the shared pending row so a stray
+		// resubmit can't replay it.
+		_ = secrets.ClearPendingMFA(r.Context(), store, uid)
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
@@ -434,6 +464,7 @@ func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store, monito
 		if monitors != nil {
 			monitors.Stop(uid)
 		}
+		_ = secrets.ClearPendingMFA(r.Context(), store, uid)
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, rivian.Session{}); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
