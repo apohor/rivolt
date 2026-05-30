@@ -1077,6 +1077,19 @@ func clientFor(d Deps, uid uuid.UUID) rivian.Client {
 	if d.Accounts != nil {
 		if a := d.Accounts.For(uid); a != nil {
 			if c, ok := a.(rivian.Client); ok && c != nil {
+				// Self-heal a stale per-pod client: if it was built
+				// before the user finished signing in on a peer pod it
+				// stays unauthenticated and every data-plane call 502s.
+				// Load the persisted session and restore it. Guarded on
+				// !Authenticated so the warm path stays a pure memory
+				// read with no per-request DB hit.
+				if d.Secrets != nil && !a.Authenticated() {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					if sess, err := secrets.LoadRivianSession(ctx, d.Secrets, uid); err == nil && sess.UserSessionToken != "" {
+						a.Restore(sess)
+					}
+					cancel()
+				}
 				return c
 			}
 		}

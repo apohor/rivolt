@@ -432,6 +432,27 @@ func runServer() {
 			})
 			logger.Info("live state store: enabled (redis)")
 		}
+		// Cross-pod session rehydrate: when the lease coordinator hands
+		// this pod a vehicle whose owner signed in on a peer pod, the
+		// cached client here predates their session and the monitor
+		// would wait on AuthReady forever (recording nothing). Load the
+		// persisted session from user_secrets and Restore it into the
+		// shared per-user client so the monitor can subscribe without a
+		// pod restart.
+		if secretsStore != nil && accountRegistry != nil {
+			monitorRegistry.SetSessionRehydrator(func(ctx context.Context, uid uuid.UUID) bool {
+				sess, err := secrets.LoadRivianSession(ctx, secretsStore, uid)
+				if err != nil || sess.UserSessionToken == "" {
+					return false
+				}
+				a := accountRegistry.For(uid)
+				if a == nil {
+					return false
+				}
+				a.Restore(sess)
+				return a.Authenticated()
+			})
+		}
 		// Drive-close enrichment: when a drive closes (D→P), spawn a
 		// goroutine that fetches Open-Meteo weather for the start
 		// hour + the per-cadence series, gated on the operator's

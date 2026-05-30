@@ -50,6 +50,7 @@ type MonitorRegistry struct {
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
+	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	logger          *slog.Logger
 
 	mu       sync.RWMutex
@@ -150,6 +151,21 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
 	r.driveCloseHook = factory
+	r.mu.Unlock()
+}
+
+// SetSessionRehydrator wires a callback that loads a user's persisted
+// Rivian session from shared storage and restores it into their cached
+// per-pod client, returning true when the client ends up authenticated.
+// The lease coordinator can hand this pod a vehicle whose owner signed
+// in on a peer pod, so the cached client here predates the session and
+// reports "not authenticated" — the monitor would then wait on
+// AuthReady forever and record nothing. EnsureSubscribed calls this to
+// self-heal without waiting for a pod restart's boot hydrate. Returns
+// false (and the subscribe stays a no-op) when no session is stored.
+func (r *MonitorRegistry) SetSessionRehydrator(fn func(ctx context.Context, uid uuid.UUID) bool) {
+	r.mu.Lock()
+	r.rehydrate = fn
 	r.mu.Unlock()
 }
 
@@ -312,9 +328,28 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 	}
 	mon := r.For(uid)
 	if mon == nil {
-		r.logger.Debug("monitor registry: no monitor for owner; skip subscribe",
+		// We were handed this vehicle's lease but have no monitor for
+		// its owner — they signed in on a peer pod, so our cached
+		// client predates their session. Rehydrate it from shared
+		// storage and start monitoring locally. If nothing is stored
+		// the owner truly isn't signed in anywhere; stay a no-op and
+		// let the lease re-evaluate once they do.
+		r.mu.RLock()
+		rehydrate, parent := r.rehydrate, r.parent
+		r.mu.RUnlock()
+		if rehydrate == nil || parent == nil || !rehydrate(parent, uid) {
+			r.logger.Debug("monitor registry: no monitor for owner; skip subscribe",
+				"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
+			return
+		}
+		mon = r.Start(parent, uid)
+		if mon == nil {
+			r.logger.Debug("monitor registry: lazy start yielded no monitor; skip subscribe",
+				"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
+			return
+		}
+		r.logger.Info("monitor registry: rehydrated owner session and started monitor",
 			"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
-		return
 	}
 	mon.EnsureSubscribed(rivianVehicleID)
 }

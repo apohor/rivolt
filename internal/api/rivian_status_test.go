@@ -86,3 +86,50 @@ func TestRivianStatus_RehydratesSessionAcrossPods(t *testing.T) {
 		t.Fatalf("Email = %q, want %q", got.Email, want.Email)
 	}
 }
+
+// TestClientFor_RehydratesStaleClient covers the data-plane half of
+// the same multi-pod problem behind Scott's "0 samples" report: a
+// request round-robined to a pod whose cached client predates the
+// user's sign-in on a peer pod must not 502. clientFor loads the
+// persisted session and restores the shared client before returning.
+func TestClientFor_RehydratesStaleClient(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+
+	uid, err := db.EnsureUser(ctx, pool, "scott")
+	if err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+
+	store := secrets.New(pool, crypto.NoopSealer{})
+	if err := secrets.SaveRivianSession(ctx, store, uid, rivian.Session{
+		Email:            "driver@example.com",
+		UserSessionToken: "ust-token",
+		AuthenticatedAt:  time.Unix(1_700_000_000, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("SaveRivianSession: %v", err)
+	}
+
+	reg := rivian.NewMockAccountRegistry(func(uuid.UUID) *rivian.MockClient {
+		return rivian.NewMock()
+	})
+	d := Deps{Accounts: reg, Secrets: store}
+
+	if reg.For(uid).Authenticated() {
+		t.Fatal("precondition: fresh client must start unauthenticated")
+	}
+	if c := clientFor(d, uid); c == nil {
+		t.Fatal("clientFor returned nil")
+	}
+	// clientFor restores the shared cached instance in place, so the
+	// registry's Account now reports authenticated.
+	if !reg.For(uid).Authenticated() {
+		t.Fatal("clientFor did not rehydrate the stale session")
+	}
+}
