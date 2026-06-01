@@ -950,11 +950,24 @@ export function DriveMap({
       latlngs.push([endPt.lat, endPt.lon]);
       speeds.push(0); // parked
     }
+    // Degenerate trace: when the GNSS module replays one frozen fix for
+    // the whole drive, every point collapses to the same coordinate.
+    // There's no route to draw, and fitBounds on zero-extent bounds
+    // feeds NaN into Leaflet's zoom math ("Invalid LatLng (NaN, NaN)"),
+    // so detect the no-spread case and center on the point instead.
+    const SPREAD_EPS = 1e-4; // ~11 m; below this it's one location
+    const hasSpread = latlngs.some(
+      ([la, lo]) =>
+        Math.abs(la - latlngs[0][0]) > SPREAD_EPS ||
+        Math.abs(lo - latlngs[0][1]) > SPREAD_EPS,
+    );
     let line: L.LayerGroup | null = null;
-    if (latlngs.length > 1) {
+    if (latlngs.length > 1 && hasSpread) {
       line = drawRoute(map, latlngs, speeds);
       line.addTo(map);
       map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
+    } else if (latlngs.length > 0) {
+      map.setView(latlngs[0], 16);
     }
     // Show the speed legend whenever we have any per-point speed data.
     const hasSpeed = speeds.some((s) => s != null && Number.isFinite(s));
@@ -976,7 +989,7 @@ export function DriveMap({
     // abort controller cancels the in-flight request if the
     // component unmounts or props change before Valhalla responds.
     const ac = new AbortController();
-    const valhallaAvailable = valhallaBase() !== "";
+    const valhallaAvailable = valhallaBase() !== "" && hasSpread;
     // Synthesize bracketing timestamps for the parked start/end pins
     // so the trace stays monotonic. We anchor them ~60 s outside the
     // first/last in-drive sample, which mirrors how Rivian's
@@ -1113,7 +1126,7 @@ export function DriveMap({
     // resizes, so the tile pane always covers the full card.
     const invalidate = () => {
       map.invalidateSize();
-      if (latlngs.length > 1) {
+      if (latlngs.length > 1 && hasSpread) {
         map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
       }
     };

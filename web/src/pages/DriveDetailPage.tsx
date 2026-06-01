@@ -269,6 +269,22 @@ export default function DriveDetailPage() {
     [mapPathSamples],
   );
 
+  // Worst GNSS fix age across the drive (seconds). When the modem
+  // replays a stale cached fix, At runs ahead of LocationFixAt; the
+  // map surfaces a "GPS fix N stale" badge past 5 min so a drive
+  // rendered from frozen coords reads as stale telemetry rather than
+  // a baffling single-point map.
+  const fixAgeSeconds = useMemo(() => {
+    let worst = 0;
+    for (const p of mapPathSamples) {
+      if (!p.LocationFixAt) continue;
+      const age =
+        (new Date(p.At).getTime() - new Date(p.LocationFixAt).getTime()) / 1000;
+      if (Number.isFinite(age) && age > worst) worst = age;
+    }
+    return worst > 0 ? worst : null;
+  }, [mapPathSamples]);
+
   // Physics-based power totals — share the same model the timeline
   // ribbon uses so the "Regen recovered" stat tile and the chart's
   // green/red pixels are computed from one source of truth. Returns
@@ -568,7 +584,7 @@ export default function DriveDetailPage() {
             onCursorChange={(t) =>
               setCursorMs(t != null ? Math.round(t * 1000) : null)
             }
-            fixAgeSeconds={null}
+            fixAgeSeconds={fixAgeSeconds}
           />
           </Suspense>
         )}
