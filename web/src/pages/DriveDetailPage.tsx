@@ -269,20 +269,30 @@ export default function DriveDetailPage() {
     [mapPathSamples],
   );
 
-  // Worst GNSS fix age across the drive (seconds). When the modem
-  // replays a stale cached fix, At runs ahead of LocationFixAt; the
-  // map surfaces a "GPS fix N stale" badge past 5 min so a drive
-  // rendered from frozen coords reads as stale telemetry rather than
-  // a baffling single-point map.
+  // GNSS staleness for the map badge (seconds), or null to suppress it.
+  // The modem sometimes replays a cached fix, so At runs ahead of
+  // LocationFixAt. A lone stale fix (cold start, tunnel, a stop) is
+  // normal and must not flag an otherwise-good track, so we only warn
+  // when a meaningful share of the drive's fixes are stale and report
+  // the worst such age. A frozen-fix drive trips this at ~100%.
   const fixAgeSeconds = useMemo(() => {
-    let worst = 0;
+    const STALE_S = 5 * 60; // per-sample staleness floor; mirrors DriveMap's badge threshold
+    const STALE_FRACTION = 0.3;
+    let withFix = 0;
+    let stale = 0;
+    let worstStale = 0;
     for (const p of mapPathSamples) {
       if (!p.LocationFixAt) continue;
+      withFix++;
       const age =
         (new Date(p.At).getTime() - new Date(p.LocationFixAt).getTime()) / 1000;
-      if (Number.isFinite(age) && age > worst) worst = age;
+      if (Number.isFinite(age) && age >= STALE_S) {
+        stale++;
+        if (age > worstStale) worstStale = age;
+      }
     }
-    return worst > 0 ? worst : null;
+    if (withFix === 0 || stale / withFix < STALE_FRACTION) return null;
+    return worstStale;
   }, [mapPathSamples]);
 
   // Physics-based power totals — share the same model the timeline
