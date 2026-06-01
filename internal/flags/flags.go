@@ -57,6 +57,13 @@ const TripPlannerEnabledName = "trip_planner_enabled"
 // signing back in are exempt.
 const SignupCapName = "signup_cap"
 
+// AICallCapName bounds how many LLM-backed calls a single user can
+// make per day (trip advice, drive efficiency). Read by the AI
+// budget gate before each call. Fail-open: a missing row or a
+// non-positive limit means "no cap" — this is a cost backstop, not
+// a security control, so it must never brick the feature.
+const AICallCapName = "ai_call_cap"
+
 // DefaultPollInterval is how often the Store refreshes its
 // in-memory snapshot from Postgres. Chosen so a flipped flag
 // takes effect in roughly the time a human can notice — on the
@@ -90,6 +97,15 @@ type SignupCapState struct {
 	Actor string `json:"actor,omitempty"`
 }
 
+// AICallCapState is the JSONB payload for the per-user daily AI
+// call cap. DailyLimit <= 0 means "no cap" — fail-open, the
+// opposite of SignupCap, because the row being absent should leave
+// the AI features working rather than refusing every request.
+type AICallCapState struct {
+	DailyLimit int    `json:"daily_limit"`
+	Actor      string `json:"actor,omitempty"`
+}
+
 // Store is the runtime flag cache. Start() kicks off the background
 // refresh; callers read via KillSwitch(). The type is safe for
 // concurrent use: all readers hit atomic.Value, only the refresh
@@ -110,6 +126,7 @@ type Store struct {
 	// for both.
 	tripPlanner atomic.Pointer[TripPlannerState]
 	signupCap   atomic.Pointer[SignupCapState]
+	aiCallCap   atomic.Pointer[AICallCapState]
 
 	startOnce sync.Once
 }
@@ -135,6 +152,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 		s.snapshot.Store(&KillSwitchState{Paused: false})
 		s.tripPlanner.Store(&TripPlannerState{Enabled: false})
 		s.signupCap.Store(&SignupCapState{Limit: 0})
+		s.aiCallCap.Store(&AICallCapState{DailyLimit: 0})
 	}
 	return s, nil
 }
@@ -172,7 +190,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -180,6 +198,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	kill := KillSwitchState{Paused: false}
 	planner := TripPlannerState{Enabled: false}
 	signupCap := SignupCapState{Limit: 0}
+	aiCallCap := AICallCapState{DailyLimit: 0}
 	for rows.Next() {
 		var name string
 		var raw []byte
@@ -199,6 +218,10 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &signupCap); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
+		case AICallCapName:
+			if err := json.Unmarshal(raw, &aiCallCap); err != nil {
+				return fmt.Errorf("decode flag %q: %w", name, err)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -207,6 +230,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.snapshot.Store(&kill)
 	s.tripPlanner.Store(&planner)
 	s.signupCap.Store(&signupCap)
+	s.aiCallCap.Store(&aiCallCap)
 	return nil
 }
 
@@ -313,5 +337,41 @@ func (s *Store) SetSignupCap(ctx context.Context, limit int, actor string) error
 		return fmt.Errorf("upsert flag %q: %w", SignupCapName, err)
 	}
 	s.signupCap.Store(&st)
+	return nil
+}
+
+// AICallCap returns the current cached per-user daily AI call cap.
+// Cheap atomic load; safe to call before every LLM-backed request.
+// Returns the zero value (DailyLimit: 0 = no cap) when the row is
+// absent — the fail-open posture the gate relies on.
+func (s *Store) AICallCap() AICallCapState {
+	p := s.aiCallCap.Load()
+	if p == nil {
+		return AICallCapState{}
+	}
+	return *p
+}
+
+// SetAICallCap persists a new per-user daily AI call cap and
+// refreshes the local snapshot so the caller observes their own
+// write immediately. A non-positive limit disables the cap.
+func (s *Store) SetAICallCap(ctx context.Context, dailyLimit int, actor string) error {
+	st := AICallCapState{DailyLimit: dailyLimit, Actor: actor}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode state: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO flags (name, value, updated_at, updated_by)
+		VALUES ($1, $2, now(), $3)
+		ON CONFLICT (name) DO UPDATE
+			SET value = EXCLUDED.value,
+			    updated_at = EXCLUDED.updated_at,
+			    updated_by = EXCLUDED.updated_by
+	`, AICallCapName, raw, actor)
+	if err != nil {
+		return fmt.Errorf("upsert flag %q: %w", AICallCapName, err)
+	}
+	s.aiCallCap.Store(&st)
 	return nil
 }

@@ -38,6 +38,7 @@ func handleFlagsGet(store *flags.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"kill_switch":  store.KillSwitch(),
 			"trip_planner": store.TripPlanner(),
+			"ai_call_cap":  store.AICallCap(),
 		})
 	}
 }
@@ -118,6 +119,41 @@ func handleFlagsTripPlannerPut(store *flags.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"trip_planner": store.TripPlanner(),
+		})
+	}
+}
+
+// flagsAICallCapRequest is the PUT body for the per-user daily AI
+// call cap. DailyLimit <= 0 disables the cap. Actor is derived from
+// the session.
+type flagsAICallCapRequest struct {
+	DailyLimit int `json:"daily_limit"`
+}
+
+// handleAICallCapPut updates the per-user daily AI call cap. Same
+// actor-from-session pattern as the other flag handlers; takes effect
+// on the writer's pod immediately and on peers within a poll (~10s).
+func handleAICallCapPut(store *flags.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req flagsAICallCapRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		actor := "admin"
+		if uid, ok := auth.UserFromContext(r.Context()); ok {
+			actor = uid.String()
+		}
+		if err := store.SetAICallCap(r.Context(), req.DailyLimit, actor); err != nil {
+			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ai_call_cap": store.AICallCap(),
 		})
 	}
 }

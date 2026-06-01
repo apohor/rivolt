@@ -27,6 +27,7 @@ import (
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
@@ -145,6 +146,11 @@ type Deps struct {
 	// routes return 503 but the server still boots — the flag
 	// surface is non-critical to rendering the app.
 	Flags *flags.Store
+	// AIBudget enforces the per-user daily cap on LLM-backed
+	// endpoints (trip advice, drive efficiency). nil disables the
+	// gate — the cost backstop fails open so no-DB and test paths
+	// keep working.
+	AIBudget *aibudget.Store
 	// Secrets is the envelope-encrypted per-user blob store
 	// (see internal/crypto, internal/secrets). Holds the
 	// sealed rivian.Session and, later, AI provider keys and
@@ -592,6 +598,7 @@ func New(d Deps) http.Handler {
 				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
 				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
+				r.Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
 				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
@@ -761,10 +768,15 @@ func New(d Deps) http.Handler {
 			}
 			r.Use(middleware.Timeout(5 * time.Minute))
 			r.Use(maxBodyBytes(maxJSONBody))
-			r.Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// Per-user daily cap on the two LLM-backed endpoints so a
+			// single account can't run up the AI bill. Applied per-route
+			// (not group-wide) so plan-multiday — Rivian calls, not LLM —
+			// stays uncapped.
+			aiBudgetMW := requireAIBudgetMW(d.Flags, d.AIBudget)
+			r.With(aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
-			r.Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid))(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.

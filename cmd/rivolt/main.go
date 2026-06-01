@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
@@ -1232,6 +1233,7 @@ func runServer() {
 		DB:           pgPool,
 		Logger:       logger,
 		Flags:        flagsStore,
+		AIBudget:     aibudget.New(pgPool),
 		Secrets:      secretsStore,
 		Metrics:      appMetrics,
 		Users:           userProvider,
