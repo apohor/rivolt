@@ -2189,7 +2189,7 @@ function HomeLocationPanel() {
         <p className="text-xs text-rose-400">Save failed: {String(save.error)}</p>
       )}
       <p className="text-xs text-neutral-500">
-        Open-Meteo geocoding (city-level). Street addresses arrive when self-hosted Photon ships.
+        Street-level geocoding via self-hosted Photon, falling back to Open-Meteo (city-level) when unset.
       </p>
     </div>
   );

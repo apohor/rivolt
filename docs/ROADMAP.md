@@ -381,33 +381,20 @@ decisions 5–7, 10–12.
       global edge-expansion OOMed past `texas-latest`), so both the
       trip planner and drive snap are US-wide off one engine. The
       graph rebuilds nightly via the `valhalla-build-na` CronJob.
-- [ ] **Self-hosted geocoding (Photon).** Trip-planner slice 2
-      (v0.17.132) ships with Open-Meteo geocoding for the
-      destination text input — same off-LAN provider footgun
-      OSRM/CARTO/elevation went through. Open-Meteo accepts
-      city names, no API key, no per-user identifiers; but
-      every "Dallas" / "Big Bend" the user types crosses the
-      LAN boundary. The privacy posture matches existing weather
-      wiring (`docs/ARCHITECTURE.md` "no GPS coordinates leave
-      the box" already has the weather carve-out). Mitigation
-      shape (when motivated):
-      - **Photon** (https://github.com/komoot/photon) is the
-        right fit — purpose-built autocomplete geocoder, ~3 GB
-        index for North America extract, single-binary, no
-        Postgres. Build time hours not days (vs full Nominatim
-        which is ~50 GB + multi-hour Postgres import).
-      - rivolt-infra layout would mirror `apps/maps/osrm` /
-        `apps/maps/valhalla`: a one-shot build Job that pulls
-        an OSM extract + Photon's prebuilt ES index from
-        photon.komoot.io's mirror, then a Deployment serving
-        `/api/v1/search`. Wire `RIVOLT_GEOCODING_BASE_URL` so
-        the rivolt API reverse-proxies it the same way it does
-        OSRM/Tiles, and switch `internal/geocoding/` from
-        Open-Meteo to a self-hosted client.
-      - Until then, Open-Meteo is the documented compromise:
-        privacy-equivalent to weather (typed text, not lat/lon),
-        and trivially swappable behind the existing
-        `internal/geocoding.Client` interface.
+- [x] **Self-hosted geocoding (Photon).** Done. A self-hosted
+      Photon (https://github.com/komoot/photon) serves the
+      destination text input, so typed place/street queries no
+      longer cross the LAN boundary by default. `internal/geocoding/
+      photon.go` wraps Photon's `/api` GeoJSON endpoint; `/api/geocode`
+      tries Photon first for street-level resolution and falls back
+      to Open-Meteo only on an empty/failed lookup, so the privacy
+      win is the common path while still degrading gracefully.
+      Wired via `RIVOLT_PHOTON_BASE_URL` (chart `maps.photon.baseUrl`);
+      empty leaves the handler as pure Open-Meteo. Infra mirrors the
+      other map apps (`apps/platform/maps/photon/` in rivolt-infra):
+      the prebuilt North America index downloads into a PVC and is
+      refreshed nightly by the `photon-build` CronJob, with the
+      Deployment gated on the index by an init container.
 
 ### Runtime correctness at N > 1 pods
 
