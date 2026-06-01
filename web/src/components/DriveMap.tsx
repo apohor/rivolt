@@ -879,7 +879,15 @@ export function DriveMap({
         Number.isFinite(p.lon) &&
         (p.lat !== 0 || p.lon !== 0),
     );
-    const fallback: Point | undefined = start ?? end ?? valid[0];
+    // The most recent drive often has no end telemetry yet, so the
+    // caller's start/end fallback (drive.Start/EndLat) can be NaN. An
+    // unvalidated NaN reaches L.marker / latLngBounds and throws,
+    // killing the whole map render.
+    const finite = (p?: Point): Point | undefined =>
+      p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : undefined;
+    const startPt = finite(start);
+    const endPt = finite(end);
+    const fallback: Point | undefined = startPt ?? endPt ?? valid[0];
     if (valid.length === 0 && !fallback) return;
 
     const center: [number, number] = fallback
@@ -910,8 +918,8 @@ export function DriveMap({
     // which is more accurate than any in-drive GPS fix because
     // telemetry frequently misses the first minute of a trip).
     // Fall back to the polyline endpoints when no hint is given.
-    const lineStart: Point | undefined = start ?? valid[0];
-    const lineEnd: Point | undefined = end ?? valid[valid.length - 1];
+    const lineStart: Point | undefined = startPt ?? valid[0];
+    const lineEnd: Point | undefined = endPt ?? valid[valid.length - 1];
 
     // Round-trip detection: GPS samples jitter by a few meters even
     // when parked, so strict equality never collapses. Use a ~50 m
@@ -930,16 +938,16 @@ export function DriveMap({
     // the first in-drive GPS fix and the start marker).
     const latlngs: [number, number][] = [];
     const speeds: (number | undefined)[] = [];
-    if (start) {
-      latlngs.push([start.lat, start.lon]);
+    if (startPt) {
+      latlngs.push([startPt.lat, startPt.lon]);
       speeds.push(0); // parked
     }
     for (const p of valid) {
       latlngs.push([p.lat, p.lon]);
       speeds.push(p.s);
     }
-    if (end && !sameSpot) {
-      latlngs.push([end.lat, end.lon]);
+    if (endPt && !sameSpot) {
+      latlngs.push([endPt.lat, endPt.lon]);
       speeds.push(0); // parked
     }
     let line: L.LayerGroup | null = null;
@@ -982,9 +990,9 @@ export function DriveMap({
       : undefined;
     const endT = Number.isFinite(lastT) ? (lastT as number) + 60 : undefined;
     const tracePoints: Point[] = [
-      ...(start ? [{ ...start, t: startT }] : []),
+      ...(startPt ? [{ ...startPt, t: startT }] : []),
       ...valid,
-      ...(end && !sameSpot ? [{ ...end, t: endT }] : []),
+      ...(endPt && !sameSpot ? [{ ...endPt, t: endT }] : []),
     ];
     if (valhallaAvailable) {
       snapToRoads(tracePoints, ac.signal).then((plan) => {
