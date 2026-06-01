@@ -8,10 +8,44 @@ import Logo from "../components/Logo";
 // requests firing on mount. A logged-in user hitting /login is
 // bounced straight back to ?next= (or /), so bookmarking the login
 // URL doesn't log you out.
+// signInErrorMessage maps the stable ?error code the OIDC callback
+// redirects with to user-facing copy. An unknown code falls back to
+// the server-supplied ?error_description, then to a generic line, so
+// a new backend code degrades gracefully without a frontend deploy.
+function signInErrorMessage(code: string, description: string): string {
+  switch (code) {
+    case "session_expired":
+      return "Your sign-in session expired. Please try again.";
+    case "idp_error":
+      return description || "Your identity provider reported an error.";
+    case "provider_error":
+      return "Couldn't complete sign-in with the provider. Please try again.";
+    case "verification_failed":
+      return "We couldn't verify your sign-in. Please try again.";
+    case "account_disabled":
+      return "This account has been disabled. Contact the administrator if you think this is a mistake.";
+    case "server_error":
+      return "Something went wrong on our end. Please try again.";
+    default:
+      return description || "Sign-in failed. Please try again.";
+  }
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const nextPath = params.get("next") || "/";
+
+  // The OIDC callback redirects here with ?error + ?error_description
+  // on any sign-in failure (expired state, IdP error, disabled
+  // account, ...). Surface it as a banner above the provider buttons
+  // rather than the bare white http.Error page the callback used to
+  // render.
+  const errorCode = params.get("error") ?? "";
+  const errorDescription = params.get("error_description") ?? "";
+  const signInError = errorCode
+    ? signInErrorMessage(errorCode, errorDescription)
+    : "";
 
   // OIDC providers, fetched once on mount. Empty array means the
   // server isn't configured for any provider — in OIDC-only mode
@@ -67,6 +101,15 @@ export default function LoginPage() {
           <li>• Every drive and charge tracked against your own $/kWh</li>
           <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
         </ul>
+        {signInError && (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-rose-900 bg-rose-950/50 px-3 py-2 text-sm text-rose-300"
+          >
+            {signInError}
+          </div>
+        )}
+
         {providers && providers.length > 1 && (
           <p className="mb-4 text-xs text-neutral-500">
             Choose an identity provider to continue.

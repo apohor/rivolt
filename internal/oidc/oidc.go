@@ -162,6 +162,13 @@ type Service struct {
 	// returns ErrCapExceeded. Default "/signup/full".
 	capOverflowURL string
 
+	// errorURL is where the callback redirects on any sign-in
+	// failure (expired state, IdP error, verification failure,
+	// disabled account, infra error) instead of rendering a raw
+	// http.Error page. The SPA route reads ?error + ?error_description
+	// and shows a friendly banner with a retry. Default "/login".
+	errorURL string
+
 	// userIDFor is shared with auth.Service. Currently unused by
 	// OIDC (we always go through ensureUser, which calls
 	// UserIDFor itself), but kept on the struct in case a future
@@ -219,6 +226,11 @@ type Config struct {
 	// when CapGuard returns ErrCapExceeded. Defaults to
 	// "/signup/full".
 	CapOverflowURL string
+
+	// ErrorURL is the SPA path the callback redirects to on any
+	// sign-in failure. Defaults to "/login", which renders the
+	// error banner inline above the provider buttons.
+	ErrorURL string
 }
 
 // New builds a Service. Providers that fail to bootstrap (DNS
@@ -247,11 +259,16 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if post == "" {
 		post = "/"
 	}
+	errURL := strings.TrimSpace(cfg.ErrorURL)
+	if errURL == "" {
+		errURL = "/login"
+	}
 	s := &Service{
 		issueSession:   cfg.IssueSession,
 		ensureUser:     cfg.EnsureUser,
 		capGuard:       cfg.CapGuard,
 		capOverflowURL: overflow,
+		errorURL:       errURL,
 		userIDFor:      cfg.UserIDFor,
 		postLoginURL:   post,
 		secureCookie:   cfg.SecureCookie,
@@ -552,18 +569,18 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := r.Cookie(stateCookieName)
 	if err != nil {
-		http.Error(w, "missing state cookie", http.StatusBadRequest)
+		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	st, err := decodeState(c.Value)
 	if err != nil {
-		http.Error(w, "bad state cookie", http.StatusBadRequest)
+		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	// Defence in depth: provider mismatch means the user
 	// completed a different flow than the cookie claims. Refuse.
 	if st.Provider != name {
-		http.Error(w, "provider mismatch", http.StatusBadRequest)
+		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	q := r.URL.Query()
@@ -572,20 +589,24 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			"provider", name,
 			"error", errParam,
 			"description", q.Get("error_description"))
-		s.clearStateCookie(w)
-		http.Error(w, "idp returned error: "+errParam, http.StatusBadRequest)
+		// Surface the IdP's own description when it sent one (e.g.
+		// "access_denied" when the user clicks Cancel), else a generic
+		// line keyed off the error code.
+		desc := strings.TrimSpace(q.Get("error_description"))
+		if desc == "" {
+			desc = "The identity provider reported an error (" + errParam + ")."
+		}
+		s.failRedirect(w, r, "idp_error", desc)
 		return
 	}
 	gotState := q.Get("state")
 	if subtle.ConstantTimeCompare([]byte(gotState), []byte(st.State)) != 1 {
-		s.clearStateCookie(w)
-		http.Error(w, "state mismatch", http.StatusBadRequest)
+		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 	code := q.Get("code")
 	if code == "" {
-		s.clearStateCookie(w)
-		http.Error(w, "missing code", http.StatusBadRequest)
+		s.failRedirect(w, r, "session_expired", "Your sign-in session expired. Please try again.")
 		return
 	}
 
@@ -594,8 +615,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		s.log.Warn("oidc: token exchange failed", "provider", name, "err", err)
-		s.clearStateCookie(w)
-		http.Error(w, "token exchange failed", http.StatusBadGateway)
+		s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 		return
 	}
 	var (
@@ -606,8 +626,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		gh, err := fetchGitHubIdentity(r.Context(), tok.AccessToken)
 		if err != nil {
 			s.log.Warn("oidc: github identity fetch failed", "provider", name, "err", err)
-			s.clearStateCookie(w)
-			http.Error(w, "identity fetch failed", http.StatusBadGateway)
+			s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 			return
 		}
 		// GitHub doesn't emit a stable namespaced sub; we use its
@@ -621,20 +640,17 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	} else {
 		rawIDToken, ok := tok.Extra("id_token").(string)
 		if !ok || rawIDToken == "" {
-			s.clearStateCookie(w)
-			http.Error(w, "missing id_token", http.StatusBadGateway)
+			s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 			return
 		}
 		idTok, err := p.verifier.Verify(r.Context(), rawIDToken)
 		if err != nil {
 			s.log.Warn("oidc: id_token verify failed", "provider", name, "err", err)
-			s.clearStateCookie(w)
-			http.Error(w, "id_token verify failed", http.StatusUnauthorized)
+			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		if subtle.ConstantTimeCompare([]byte(idTok.Nonce), []byte(st.Nonce)) != 1 {
-			s.clearStateCookie(w)
-			http.Error(w, "nonce mismatch", http.StatusUnauthorized)
+			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		var claims struct {
@@ -645,8 +661,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			Name              string `json:"name"`
 		}
 		if err := idTok.Claims(&claims); err != nil {
-			s.clearStateCookie(w)
-			http.Error(w, "claims decode", http.StatusInternalServerError)
+			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
 		claimSub = claims.Sub
@@ -659,8 +674,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		// Without a stable identity we can't safely mint a
 		// session — refusing is correct.
-		s.clearStateCookie(w)
-		http.Error(w, "id token missing identity claim", http.StatusUnauthorized)
+		s.failRedirect(w, r, "verification_failed", "Your provider didn't share enough information to sign you in.")
 		return
 	}
 	display := strings.TrimSpace(claimName)
@@ -684,8 +698,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			s.log.Error("oidc: cap guard failed", "err", err)
-			s.clearStateCookie(w)
-			http.Error(w, "signup gate failed", http.StatusInternalServerError)
+			s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 			return
 		}
 	}
@@ -698,19 +711,16 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// as a transient infrastructure failure.
 		if errors.Is(err, ErrUserForbidden) {
 			s.log.Warn("oidc: sign-in refused", "username", username)
-			s.clearStateCookie(w)
-			http.Error(w, "this account has been disabled", http.StatusForbidden)
+			s.failRedirect(w, r, "account_disabled", "This account has been disabled. Contact the administrator if you think this is a mistake.")
 			return
 		}
 		s.log.Error("oidc: ensure user", "err", err)
-		s.clearStateCookie(w)
-		http.Error(w, "ensure user", http.StatusInternalServerError)
+		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	if err := s.issueSession(w, r, uid); err != nil {
 		s.log.Error("oidc: issue session", "err", err)
-		s.clearStateCookie(w)
-		http.Error(w, "issue session", http.StatusInternalServerError)
+		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	s.clearStateCookie(w)
@@ -720,6 +730,23 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		ret = s.postLoginURL
 	}
 	http.Redirect(w, r, ret, http.StatusFound)
+}
+
+// failRedirect aborts a sign-in by clearing the state cookie and
+// sending the browser to errorURL with a stable machine code and a
+// human-readable description. The SPA maps the code to friendly copy
+// (falling back to the description) and offers a retry. Using a 302
+// instead of http.Error means the user lands back in the app shell
+// rather than on a bare white error page.
+func (s *Service) failRedirect(w http.ResponseWriter, r *http.Request, code, description string) {
+	s.clearStateCookie(w)
+	sep := "?"
+	if strings.Contains(s.errorURL, "?") {
+		sep = "&"
+	}
+	http.Redirect(w, r,
+		s.errorURL+sep+"error="+url.QueryEscape(code)+"&error_description="+url.QueryEscape(description),
+		http.StatusFound)
 }
 
 func (s *Service) clearStateCookie(w http.ResponseWriter) {
