@@ -43,8 +43,8 @@ the truck actually started charging when you plugged it in.
 
 The Drives page lists every recorded drive with distance, duration,
 average speed, energy used, cost, and a route preview. Click in to
-land on the per-drive detail: the map is road-snapped (OSRM or
-Valhalla) and coloured by speed — gray for parking-lot crawls,
+land on the per-drive detail: the map is road-snapped via
+self-hosted Valhalla and coloured by speed — gray for parking-lot crawls,
 rose for interstate — over a Protomaps basemap. Below the map,
 time-aligned charts for speed, SoC, elevation, temperature,
 headwind, and precipitation; weather context for the drive's start

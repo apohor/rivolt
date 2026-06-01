@@ -374,37 +374,13 @@ decisions 5–7, 10–12.
         populates from the LAN with zero AWS egress at
         request time. Future region expansion = bump
         `ELEV_X/Y_MIN/MAX` env on the build Job and re-run.
-- [ ] **Scale OSRM beyond a single state extract.** Current
-      self-hosted OSRM (`apps/osrm/` in rivolt-infra) is pinned
-      to `texas-latest` because that's where every recorded
-      drive lives today. Going to full continental US (`us-latest`
-      or `north-america-latest`) is non-trivial because OSRM does
-      not support sharded / federated graphs — `osrm-extract`
-      runs a global edge-expansion that needs the whole graph in
-      RAM, and on the 32GB nuc11 it OOMs at ~32GB+ peak.
-      Worse, the runtime `osrm-routed` mmaps a single graph file,
-      so you can't run "north" + "south" pods and stitch results
-      at the edges (cross-shard `/match` is undefined).
-      Realistic paths:
-      - **Bigger build host.** Run `osrm-extract` once on a 64GB
-        cloud VM (Hetzner CPX51 ~€60/mo on-demand, or spot for
-        ~€10 for the 60-min build), copy the produced `.osrm*`
-        files onto the cluster's NFS, and run `osrm-routed`
-        locally. Runtime mmap is ~10GB which the nuc11 can host.
-      - **Regional shards + geo-router.** Run separate OSRM
-        instances per region (us-west / us-central / us-east),
-        write a tiny Go shim in `internal/osrm/` that picks the
-        backend based on the trace's bbox. Breaks cross-region
-        routes (rare in practice for EV drives but a real edge
-        case for road-trippers).
-      - **Switch to Valhalla.** Valhalla's tile-based architecture
-        natively supports regional shards and is built to be
-        rebuilt incrementally. Requires re-doing the chunking
-        logic in `snapToRoads` because the response shape is
-        different.
-      Tracking issue should capture the per-option cost +
-      runtime-RAM tradeoff and let the operator pick at deploy
-      time.
+- [x] **Scale routing beyond a single state extract.** Resolved by
+      switching from OSRM to Valhalla. Valhalla's tile-based
+      architecture builds and serves the full `north-america-latest`
+      graph within the nuc11's RAM (the old `osrm-extract`
+      global edge-expansion OOMed past `texas-latest`), so both the
+      trip planner and drive snap are US-wide off one engine. The
+      graph rebuilds nightly via the `valhalla-build-na` CronJob.
 - [ ] **Self-hosted geocoding (Photon).** Trip-planner slice 2
       (v0.17.132) ships with Open-Meteo geocoding for the
       destination text input — same off-LAN provider footgun
@@ -1036,20 +1012,15 @@ to land eventually.
       that pins `app.user_id` per request. The application code
       is already fully scoped — this moves enforcement from
       "by convention" to "by the database."
-- [ ] **Drop OSRM, migrate drive map-matching to Valhalla
-      `/trace_route`.** OSRM is currently kept around only for the
-      drive detail page's GPS snap-to-road via `/match`; the trip
-      planner and route geometry already go through Valhalla.
-      Valhalla supports `trace_route` and `trace_attributes` with
-      a different request/response shape than OSRM's `/match` —
-      `DriveMap.tsx` needs to be rewritten to emit Valhalla's
-      `shape_match=map_snap` request and decode the polyline +
-      matched leg array it returns. Worth it because OSRM is a
-      second routing engine running on nuc11 with its own ~3.5 Gi
-      working set and a Texas-only graph (the trip planner needs
-      US-wide so Valhalla is already authoritative). Until this
-      lands, the cluster OSRM Deployment + the SPA's public-demo
-      fallback at `router.project-osrm.org` both stay wired.
+- [x] **Drop OSRM, migrate drive map-matching to Valhalla
+      `/trace_route`.** Done. `DriveMap.tsx` snaps GPS traces with
+      Valhalla `/trace_route` (`shape_match=walk_or_snap`,
+      `format=osrm` for the OSRM-shaped `matchings`/`tracepoints`
+      response), so the trip planner and the drive detail page now
+      share one routing engine. The cluster OSRM Deployment, its
+      ArgoCD app, the `/api/maps/osrm/*` proxy, and the SPA's
+      public-demo fallback are all removed — Valhalla is the sole
+      matcher + router.
 
 ---
 
