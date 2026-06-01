@@ -352,18 +352,21 @@ export default function DriveDetailPage() {
     const missingFixRatio = samplesWithoutFix / driveSamples.length;
     if (missingFixRatio > gpsThresholds.missingPct) return true;
 
-    // Check 2: Max fix age during the drive (when a sample's
-    // LocationFixAt is much older than its wall-clock At).
-    let maxFixAgeS = 0;
+    // Check 2: Stale fixes during the drive (LocationFixAt much older
+    // than wall-clock At). A lone stale fix - cold start, tunnel, a
+    // stop - is normal on an otherwise-good track, so flag only when a
+    // real share of the drive's fixes exceed the staleness threshold.
+    const STALE_FIX_FRACTION = 0.3;
+    let withFix = 0;
+    let staleFixes = 0;
     for (const s of driveSamples) {
-      if (s.LocationFixAt) {
-        const fixMs = new Date(s.LocationFixAt).getTime();
-        const nowMs = new Date(s.At).getTime();
-        const ageS = (nowMs - fixMs) / 1000;
-        if (ageS > maxFixAgeS) maxFixAgeS = ageS;
-      }
+      if (!s.LocationFixAt) continue;
+      withFix++;
+      const ageS =
+        (new Date(s.At).getTime() - new Date(s.LocationFixAt).getTime()) / 1000;
+      if (ageS > gpsThresholds.staleSec) staleFixes++;
     }
-    if (maxFixAgeS > gpsThresholds.staleSec) return true;
+    if (withFix > 0 && staleFixes / withFix > STALE_FIX_FRACTION) return true;
 
     // Check 3: Spatial jumps suggesting dropouts. Count consecutive
     // pairs that imply > 150 mph over > 0.5 mi; require at least
@@ -544,10 +547,10 @@ export default function DriveDetailPage() {
             {gpsAccuracyLow ? (
               <span
                 className="inline-flex items-center gap-1 rounded-md border border-amber-700/50 bg-amber-900/20 px-2 py-0.5 text-[11px] font-medium text-amber-300"
-                title="Low GPS accuracy: dropouts, stale fixes, or signal loss detected during this drive. The plotted route may not reflect the actual path."
+                title="GPS dropouts, stale fixes, or signal loss during this drive - the plotted route may not match the actual path."
               >
                 <span aria-hidden>⚠</span>
-                Low GPS accuracy
+                Limited GPS data
               </span>
             ) : null}
             {hasEndpointPair(drive) ? (
