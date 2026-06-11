@@ -676,6 +676,18 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                       >
                         {u.rivian_connected ? "rivian" : "no rivian"}
                       </span>
+                      {u.needs_reauth && (
+                        <span
+                          className="rounded-sm border border-rose-800 bg-rose-950 px-1.5 py-0.5 text-rose-300"
+                          title={
+                            u.needs_reauth_at
+                              ? `Rivian session rejected ${relativeTime(u.needs_reauth_at)} - drives stopped recording`
+                              : "Rivian session rejected - drives stopped recording"
+                          }
+                        >
+                          re-auth
+                        </span>
+                      )}
                       <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
                         🚗 {u.vehicle_count}
                       </span>

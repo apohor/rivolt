@@ -26,7 +26,12 @@ type AdminUserRow struct {
 	DriveCount      int        `json:"drive_count"`
 	ImportCount     int        `json:"import_count"`
 	RivianConnected bool       `json:"rivian_connected"`
-	LastSeenAt      *time.Time `json:"last_seen_at,omitempty"`
+	// NeedsReauth surfaces stuck Rivian sessions in the user table
+	// itself — these users' drives have stopped recording and they
+	// won't see the in-app banner unless they log in.
+	NeedsReauth   bool       `json:"needs_reauth"`
+	NeedsReauthAt *time.Time `json:"needs_reauth_at,omitempty"`
+	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
 }
 
 // ListUsersForAdmin returns every user row, role-stamped and
@@ -46,6 +51,7 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		       (SELECT COUNT(*) FROM imports  WHERE user_id = u.id),
 		       EXISTS(SELECT 1 FROM user_secrets
 		               WHERE user_id = u.id AND name = 'rivian.session'),
+		       u.needs_reauth, u.needs_reauth_at,
 		       (SELECT MAX(last_seen_at) FROM sessions WHERE user_id = u.id)
 		FROM users u
 		ORDER BY u.created_at ASC
@@ -57,12 +63,17 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		var lastSeen sql.NullTime
+		var lastSeen, reauthAt sql.NullTime
 		if err := rows.Scan(
 			&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt,
-			&r.VehicleCount, &r.DriveCount, &r.ImportCount, &r.RivianConnected, &lastSeen,
+			&r.VehicleCount, &r.DriveCount, &r.ImportCount, &r.RivianConnected,
+			&r.NeedsReauth, &reauthAt, &lastSeen,
 		); err != nil {
 			return nil, fmt.Errorf("list users for admin scan: %w", err)
+		}
+		if reauthAt.Valid {
+			t := reauthAt.Time
+			r.NeedsReauthAt = &t
 		}
 		if lastSeen.Valid {
 			t := lastSeen.Time

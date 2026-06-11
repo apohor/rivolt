@@ -1319,6 +1319,8 @@ export type AdminUserRow = {
   drive_count: number;
   import_count: number;
   rivian_connected: boolean;
+  needs_reauth: boolean;
+  needs_reauth_at?: string | null;
   last_seen_at?: string | null;
 };
 
