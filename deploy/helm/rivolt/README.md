@@ -15,11 +15,11 @@ helm install cnpg --namespace cnpg-system --create-namespace \
 # 2. Install rivolt with the bundled CNPG cluster.
 #    KEK is auto-generated on first install and persisted in the
 #    chart-managed Secret (see "KEK lifecycle" below).
+#    Sign-in is OIDC-only — configure a provider before you can log
+#    in (see the OIDC section below).
 helm install rivolt ./deploy/helm/rivolt \
   --namespace rivolt --create-namespace \
-  --set cnpg.enabled=true \
-  --set secrets.username=anton \
-  --set secrets.password=change-me
+  --set cnpg.enabled=true
 
 # 3. BACK UP THE KEK out-of-band before loading real data.
 kubectl -n rivolt get secret rivolt-app \

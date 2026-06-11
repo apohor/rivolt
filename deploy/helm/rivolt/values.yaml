@@ -295,10 +295,11 @@ secrets:
   #   "v0:base64old,vminus1:base64older"
   kekRotation: ""
 
-  # Optional local username/password. Empty disables local auth
-  # (then OIDC must be configured).
-  username: ""
-  password: ""
+  # Sign-in is OIDC-only — there is no built-in local username/password
+  # login. Configure at least one provider under `config.oidc` (see the
+  # OIDC section in README.md); without it the app has no way in. The
+  # old `secrets.username`/`secrets.password` knobs were removed when
+  # local auth was dropped, so setting them has no effect.
 
   # Optional cookie-signing pepper. Auto-generated and persisted to
   # /data/cookie_secret on first boot when empty. Set explicitly
