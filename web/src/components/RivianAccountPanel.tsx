@@ -88,8 +88,8 @@ export function RivianAccountPanel() {
                 "Rivian rejected our stored session token. Drives and live state may stop recording until you re-sign in."}
             </p>
             <p className="mt-1 text-xs text-amber-100/60">
-              Sign out below, then sign in again with your Rivian password (an
-              OTP email will follow).
+              Sign out below, then sign in again with your Rivian password (a
+              one-time code will follow by email or in your authenticator app).
             </p>
           </div>
         )}
@@ -121,8 +121,9 @@ export function RivianAccountPanel() {
         className="space-y-2"
       >
         <p className="text-xs text-neutral-400">
-          Rivian sent a one-time code to your email. Enter it to finish
-          signing in.
+          Enter the one-time code to finish signing in — check your email or
+          authenticator app, depending on how 2FA is set up on your Rivian
+          account.
         </p>
         <div className="flex gap-2">
           <input
