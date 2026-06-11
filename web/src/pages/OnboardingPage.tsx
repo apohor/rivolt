@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { backend, type AuthUser } from "../lib/api";
+import { backend, type AuthUser, type RivianStatus } from "../lib/api";
 import Logo from "../components/Logo";
+import { RivianAccountPanel } from "../components/RivianAccountPanel";
 
 type Step = {
   id: string;
@@ -20,12 +21,15 @@ const steps: Step[] = [
     body: (
       <div className="space-y-3 text-sm leading-relaxed text-neutral-400">
         <p>
-          Rivolt connects to Rivian's servers using your account credentials to
-          pull live telemetry, drive sessions, and charge history.
+          Your Rivolt login and your Rivian account are{" "}
+          <span className="text-neutral-200">separate</span> - creating this
+          account didn't connect your truck yet. Sign in with your Rivian
+          credentials below and Rivolt starts pulling live telemetry, drive
+          sessions, and charge history.
         </p>
         <div className="rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2.5 text-amber-300/90 text-xs leading-relaxed">
-          <span className="font-semibold">Recommended:</span> create a dedicated
-          Rivian account and add it as an{" "}
+          <span className="font-semibold">Recommended:</span> in the Rivian
+          app, create a second <em>Rivian</em> account and add it as an{" "}
           <a
             href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#recommended-dedicated-authorized-driver-account"
             target="_blank"
@@ -34,20 +38,16 @@ const steps: Step[] = [
           >
             Authorized Driver
           </a>{" "}
-          on your vehicle. That way Rivolt uses its own credentials and your
-          primary account stays separate. See the linked walkthrough for the
-          step-by-step.
+          on your vehicle, then connect that account here - your primary
+          Rivian login stays untouched. (No need for another Rivolt account -
+          this one is yours.) See the linked walkthrough for the step-by-step.
         </div>
-        <p>
-          Once the account is set up, go to{" "}
-          <span className="text-neutral-200">Settings → Rivian</span> and sign
-          in with those credentials.
-        </p>
+        <RivianAccountPanel />
       </div>
     ),
-    cta: "Got it, next",
+    cta: "Next",
     skippable: true,
-    skipLabel: "I'll set this up later",
+    skipLabel: "I'll connect later in Settings",
   },
   {
     id: "import-electrafi",
@@ -135,12 +135,16 @@ export default function OnboardingPage() {
         (prev) => (prev ? { ...prev, onboarding_completed: true } : prev),
       );
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      // Land directly on the Rivian-account section — that's the
-      // first thing the onboarding text tells the user to do, and
-      // a fresh user has no data plane until they wire credentials,
-      // so the home page would just show empty cards. SettingsPage
-      // reads the hash and scrolls.
-      navigate("/settings#rivian", { replace: true });
+      // Connected during onboarding → land on the Overview. Skipped
+      // the connect step → land on Settings#rivian, since every data
+      // page is empty until credentials are wired. The status cache
+      // is warm here - the embedded RivianAccountPanel polls it.
+      const connected = !!queryClient.getQueryData<RivianStatus>([
+        "rivian",
+        "status",
+      ])?.authenticated;
+      const dest = connected ? "/" : "/settings#rivian";
+      navigate(dest, { replace: true });
     } catch {
       navigate("/settings#rivian", { replace: true });
     } finally {
@@ -158,7 +162,7 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
-      <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
+      <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
         {/* Header */}
         <div className="mb-6 flex items-center gap-2 text-neutral-100">
           <Logo size={24} className="text-emerald-400" />

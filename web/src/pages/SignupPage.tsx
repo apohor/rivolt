@@ -274,11 +274,16 @@ export default function SignupPage() {
                 </p>
               </div>
             )}
-            <ul className="mb-5 space-y-1 text-xs text-neutral-500">
+            <ul className="mb-3 space-y-1 text-xs text-neutral-500">
               <li>• Live telemetry from your truck</li>
               <li>• Every drive and charge against your own $/kWh</li>
               <li>• Road-trip planner with cost, weather, and efficiency analysis</li>
             </ul>
+            <p className="mb-5 text-[11px] leading-relaxed text-neutral-600">
+              Your Rivolt account is separate from your Rivian account - you
+              connect the truck after signing in, no need to sign up with your
+              Rivian email.
+            </p>
 
             {!reqSent ? (
               <form onSubmit={handleRequestSubmit} className="flex flex-col gap-4">

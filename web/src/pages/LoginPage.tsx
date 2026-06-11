@@ -132,18 +132,27 @@ export default function LoginPage() {
         )}
 
         {providers !== null && providers.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {providers.map((p) => (
-              <button
-                key={p.name}
-                type="button"
-                onClick={() => startOIDC(p)}
-                className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
-              >
-                Continue with {p.display_name}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="flex flex-col gap-2">
+              {providers.map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  onClick={() => startOIDC(p)}
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:border-emerald-700 hover:bg-neutral-850"
+                >
+                  Continue with {p.display_name}
+                </button>
+              ))}
+            </div>
+            {providers.length > 1 && (
+              <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
+                Accounts are keyed by email - use the same provider and email
+                you signed up with, or a different address lands you in a
+                separate, empty account.
+              </p>
+            )}
+          </>
         )}
 
         <p className="mt-5 text-center text-xs text-neutral-600">
