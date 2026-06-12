@@ -19,17 +19,17 @@ import (
 // multi-day path minimal, leaving auto-fill to the existing
 // single-day endpoint.
 type tripPlanMultidayRequest struct {
-	VehicleID               string                            `json:"vehicle_id"`
-	StartingSoC             float64                           `json:"starting_soc"`
-	PackKWh                 float64                           `json:"pack_kwh"`
-	DriveMode               string                            `json:"drive_mode,omitempty"`
-	HasAdapter              *bool                             `json:"has_adapter,omitempty"`
-	TargetArrivalSocPercent *float64                          `json:"target_arrival_soc_percent,omitempty"`
-	NetworkPreferences      []tripPlanNetworkPref             `json:"network_preferences,omitempty"`
-	Origin                  tripPlanWaypoint                  `json:"origin"`
-	Destination             tripPlanWaypoint                  `json:"destination"`
-	Overnights              []tripPlanMultidayOvernight       `json:"overnights"`
-	MaxOvernightSoCPct      float64                           `json:"max_overnight_soc_pct"`
+	VehicleID               string                      `json:"vehicle_id"`
+	StartingSoC             float64                     `json:"starting_soc"`
+	PackKWh                 float64                     `json:"pack_kwh"`
+	DriveMode               string                      `json:"drive_mode,omitempty"`
+	HasAdapter              *bool                       `json:"has_adapter,omitempty"`
+	TargetArrivalSocPercent *float64                    `json:"target_arrival_soc_percent,omitempty"`
+	NetworkPreferences      []tripPlanNetworkPref       `json:"network_preferences,omitempty"`
+	Origin                  tripPlanWaypoint            `json:"origin"`
+	Destination             tripPlanWaypoint            `json:"destination"`
+	Overnights              []tripPlanMultidayOvernight `json:"overnights"`
+	MaxOvernightSoCPct      float64                     `json:"max_overnight_soc_pct"`
 }
 
 type tripPlanMultidayOvernight struct {
@@ -45,17 +45,17 @@ type tripPlanMultidayOvernight struct {
 // /api/trips/plan returns for a single trip; the SPA renders one
 // RouteCard per Day.
 type tripPlanMultidayResponse struct {
-	Days  []tripPlanMultidayDay  `json:"days"`
-	Total tripmultiday.Totals    `json:"total"`
+	Days  []tripPlanMultidayDay `json:"days"`
+	Total tripmultiday.Totals   `json:"total"`
 }
 
 type tripPlanMultidayDay struct {
-	Index        int                          `json:"index"`
-	Plan         *rivian.TripPlan             `json:"plan"`
-	DepartureSoC float64                      `json:"departure_soc"`
-	ArrivalSoC   float64                      `json:"arrival_soc"`
+	Index        int                           `json:"index"`
+	Plan         *rivian.TripPlan              `json:"plan"`
+	DepartureSoC float64                       `json:"departure_soc"`
+	ArrivalSoC   float64                       `json:"arrival_soc"`
 	Overnight    *tripmultiday.OvernightResult `json:"overnight,omitempty"`
-	Costs        []tripadvice.CostEstimate    `json:"costs,omitempty"`
+	Costs        []tripadvice.CostEstimate     `json:"costs,omitempty"`
 }
 
 // handleTripPlanMultiday wraps the tripmultiday orchestrator.

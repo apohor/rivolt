@@ -154,7 +154,8 @@ func handleAdminSignupRequestsList(store *signuprequests.Store) http.HandlerFunc
 //
 // Mints a single-use signup token + expiry on the row, stamps the
 // admin as decided_by, and emails the requester a magic link
-//    https://rivolt.dev/signup?token=<token>
+//
+//	https://rivolt.dev/signup?token=<token>
 //
 // Email is best-effort: the response carries the token + link
 // regardless so the admin can copy/paste a manual forward when

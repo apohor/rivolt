@@ -203,9 +203,9 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 		onboardingDone, _ := db.OnboardingCompleted(r.Context(), d, uid)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"user_id":               uid.String(),
-			"username":              username,
-			"role":                  role,
+			"user_id":              uid.String(),
+			"username":             username,
+			"role":                 role,
 			"onboarding_completed": onboardingDone,
 		})
 	}
@@ -225,4 +225,3 @@ func handleOnboardingComplete(d *sql.DB) func(uuid.UUID, http.ResponseWriter, *h
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
-
