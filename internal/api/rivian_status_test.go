@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,6 +85,75 @@ func TestRivianStatus_RehydratesSessionAcrossPods(t *testing.T) {
 	}
 	if got.Email != want.Email {
 		t.Fatalf("Email = %q, want %q", got.Email, want.Email)
+	}
+}
+
+// TestRivianStatus_StoredSessionWinsOverLocalPendingMFA reproduces the
+// "Connected as ... then back to MFA failed" flap: pod A cached an OTP
+// challenge in memory, then the user re-ran the password leg on pod B
+// and Rivian no longer demanded MFA, so pod B authenticated and saved
+// the session. Pod A's status poll must surrender its stale pending
+// state to the stored session instead of re-offering the OTP form
+// (whose dead otpToken Rivian answers with a 500).
+func TestRivianStatus_StoredSessionWinsOverLocalPendingMFA(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+
+	uid, err := db.EnsureUser(ctx, pool, "bruce")
+	if err != nil {
+		t.Fatalf("EnsureUser: %v", err)
+	}
+
+	store := secrets.New(pool, crypto.NoopSealer{})
+
+	// Peer pod completed the sign-in (password-only, MFA toggled off)
+	// and persisted the session.
+	want := rivian.Session{
+		Email:            "driver@example.com",
+		UserSessionToken: "ust-token",
+		AuthenticatedAt:  time.Unix(1_700_000_000, 0).UTC(),
+	}
+	if err := secrets.SaveRivianSession(ctx, store, uid, want); err != nil {
+		t.Fatalf("SaveRivianSession: %v", err)
+	}
+
+	// This pod's client is stuck mid-MFA from an earlier attempt -
+	// the mock arms its challenge for emails containing "mfa".
+	reg := rivian.NewMockAccountRegistry(func(uuid.UUID) *rivian.MockClient {
+		m := rivian.NewMock()
+		if err := m.Login(ctx, rivian.Credentials{Email: "mfa-driver@example.com", Password: "pw"}); !errors.Is(err, rivian.ErrMFARequired) {
+			t.Fatalf("mock login: got %v, want ErrMFARequired", err)
+		}
+		return m
+	})
+	if !reg.For(uid).MFAPending() {
+		t.Fatal("precondition: client must start MFA-pending")
+	}
+
+	h := handleRivianStatus(reg, store, pool, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/rivian/", nil).
+		WithContext(auth.WithUser(ctx, uid))
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", w.Code)
+	}
+	var got rivianStatusDTO
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Authenticated {
+		t.Fatal("Authenticated = false, want true (stored session must win over stale local pending MFA)")
+	}
+	if got.MFAPending {
+		t.Fatal("MFAPending = true, want false after session restore")
 	}
 }
 

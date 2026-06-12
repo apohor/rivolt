@@ -155,9 +155,13 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 		// pod before the user finished signing in on a peer pod keeps
 		// reporting "not connected" / "no MFA" from stale memory, so
 		// the SPA's status poll disagrees pod-to-pod and the login
-		// screens loop. When memory shows neither state, rehydrate from
-		// the shared user_secrets store so every replica answers alike.
-		if store != nil && !lc.Authenticated() && !lc.MFAPending() {
+		// screens loop. The shared user_secrets store is authoritative:
+		// a stored session wins even over a locally pending OTP
+		// challenge (a peer pod may have completed the sign-in after
+		// this pod cached the challenge - Restore drops it), and a
+		// stored challenge refreshes a local one that a peer's second
+		// password leg may have superseded.
+		if store != nil && !lc.Authenticated() {
 			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
 				lc.Restore(sess)
 			} else if pc, ok := lc.(pendingMFAClient); ok {
@@ -286,7 +290,12 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 		if existing, lerr := secrets.LoadRivianSession(r.Context(), store, uid); lerr == nil {
 			hadSession = existing.UserSessionToken != ""
 		}
-		// Fully authenticated — persist.
+		// Fully authenticated — persist. A password-only success also
+		// supersedes any in-flight OTP challenge; drop the shared
+		// pending row so peers stop offering the dead token.
+		if store != nil {
+			_ = secrets.ClearPendingMFA(r.Context(), store, uid)
+		}
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
@@ -401,13 +410,33 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
-		if !lc.MFAPending() {
-			// The password leg may have run on a peer pod. Rehydrate
-			// the challenge from shared storage before giving up.
-			if pc, ok := lc.(pendingMFAClient); ok {
-				if p, found := secrets.LoadPendingMFA(r.Context(), store, uid); found {
-					pc.RestorePending(p)
-				}
+		// The shared store is authoritative for both halves of the
+		// dance. A peer pod may have completed the sign-in already
+		// (e.g. a second password leg that no longer demanded MFA) -
+		// short-circuit success instead of replaying a dead challenge,
+		// which Rivian's gateway answers with a 500. A stored session
+		// wins even over a locally pending challenge.
+		if store != nil && !lc.Authenticated() {
+			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+				lc.Restore(sess)
+			}
+		}
+		if lc.Authenticated() {
+			if store != nil {
+				_ = secrets.ClearPendingMFA(r.Context(), store, uid)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"authenticated": true,
+				"email":         lc.Email(),
+			})
+			return
+		}
+		// Prefer the stored challenge even when this pod has one in
+		// memory: a peer's re-run password leg mints a new otpToken
+		// and invalidates ours.
+		if pc, ok := lc.(pendingMFAClient); ok {
+			if p, found := secrets.LoadPendingMFA(r.Context(), store, uid); found {
+				pc.RestorePending(p)
 			}
 		}
 		if !lc.MFAPending() {
@@ -439,6 +468,18 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 				)
 			}
 			slog.WarnContext(r.Context(), "rivian mfa failed", fields...)
+			// Rivian answers a stale or superseded otpToken with a
+			// bare INTERNAL_SERVER_ERROR; surfacing that chain reads
+			// like a Rivolt outage. Translate the outage class into
+			// something the user can act on - the raw error is in the
+			// log line above.
+			if ue != nil && ue.Class == rivian.ClassOutage {
+				writeJSON(w, httpStatusForUpstream(err), map[string]any{
+					"error": "Rivian didn't accept this code - it may have expired or been superseded. Cancel and sign in again to request a fresh one.",
+					"class": ue.Class.String(),
+				})
+				return
+			}
 			writeUpstreamError(w, err)
 			return
 		}
