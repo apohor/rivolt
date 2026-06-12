@@ -118,8 +118,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # -race because the data plane is goroutine-heavy (lease
+      # coordinator, per-user monitors, atomic reauth state); the
+      # detector turns latent races into hard failures here instead
+      # of heisenbugs in prod.
       - name: go test
-        run: go test ./...
+        run: go test -race ./...
 
   integration:
     name: integration

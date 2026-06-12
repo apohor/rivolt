@@ -1,0 +1,39 @@
+# Scheduled Go vulnerability scan. Separate from build.yml so a newly
+# published CVE surfaces on the weekly tick without waiting for the
+# next code push - and a finding doesn't block unrelated deploys.
+# govulncheck is call-graph aware: it only reports vulnerabilities in
+# code paths the binary can actually reach, so findings are worth
+# acting on, not triaging away.
+name: vuln
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Same embed stub the test jobs use - govulncheck loads
+      # packages, and //go:embed all:dist fails without the dir.
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p internal/web/dist
+          touch internal/web/dist/.keep
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
