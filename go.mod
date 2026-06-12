@@ -2,6 +2,8 @@ module github.com/apohor/rivolt
 
 go 1.25.0
 
+toolchain go1.25.11
+
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/alicebob/miniredis/v2 v2.38.0
