@@ -592,6 +592,7 @@ func New(d Deps) http.Handler {
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
 				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
 				r.Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.DB, d.Logger))
+				r.Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.DB, d.Logger))
 				r.Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
 				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))

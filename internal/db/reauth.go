@@ -37,6 +37,29 @@ func SetNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason str
 	return err
 }
 
+// RaiseNeedsReauth sets the gate and reports whether THIS call flipped
+// it from false to true (the rising edge). The UPDATE is guarded on
+// `needs_reauth = FALSE`, so when two replicas classify the same user
+// concurrently only the one that wins the transition gets transitioned
+// = true. Callers use that to fire a one-time side effect (the re-auth
+// email) without double-sending across pods. The reason/at columns are
+// only written on the winning transition; a user already flagged keeps
+// their original reason, which is fine — the flag, not the text, is
+// load-bearing.
+func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason string) (transitioned bool, err error) {
+	const q = `UPDATE users
+		SET needs_reauth = TRUE,
+		    needs_reauth_reason = $2,
+		    needs_reauth_at = $3
+		WHERE id = $1 AND needs_reauth = FALSE`
+	res, err := d.ExecContext(ctx, q, userID, reason, time.Now().UTC())
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // GetNeedsReauth reads the current needs_reauth state for a user.
 // Used by main.go at startup to prime the LiveClient's in-memory
 // mirror so a restart doesn't silently let a locked-out user's

@@ -30,21 +30,20 @@ import (
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
-	"github.com/apohor/rivolt/internal/hydra"
-	"github.com/apohor/rivolt/internal/idp"
-	"github.com/apohor/rivolt/internal/kratos"
+	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
-	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/email"
-	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
+	"github.com/apohor/rivolt/internal/hydra"
+	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/logging"
-	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
@@ -56,6 +55,7 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -284,6 +284,19 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
+	// Resend email client. Both vars must be set for the client to
+	// actually send; otherwise the approve handler still returns the
+	// magic-link in the response so the admin can forward it manually.
+	// Built here (ahead of the rivian client) so the per-user reauth
+	// sink can capture it and email a user whose Rivian session died.
+	mailer := email.New(email.Config{
+		APIKey:  os.Getenv("RIVOLT_RESEND_API_KEY"),
+		From:    os.Getenv("RIVOLT_EMAIL_FROM"),
+		Counter: emailMetricsAdapter{m: appMetrics},
+	})
+	if mailer != nil {
+		logger.Info("email sender enabled", "from", os.Getenv("RIVOLT_EMAIL_FROM"))
+	}
 	// Install-wide Redis key prefix. Defaults to "rivolt"; the preview
 	// environment sets "rivolt-preview" so preview and prod can share
 	// one Redis without colliding on the rate-limiter token buckets
@@ -368,11 +381,28 @@ func runServer() {
 			}
 			// Persist needs_reauth transitions to Postgres so the
 			// flag survives restarts. Closure captures uid so each
-			// per-user client persists to its own row.
+			// per-user client persists to its own row. The write is
+			// transition-gated (false->true), so even with two
+			// replicas classifying the same user at once, exactly one
+			// sees transitioned=true and sends the one-shot re-auth
+			// email — the user's drives have silently stopped, and
+			// they won't see the in-app banner unless they sign in.
 			boundUID := uid
 			lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
-				if err := db.SetNeedsReauth(sinkCtx, pgPool, boundUID, reason); err != nil {
+				// Empty reason is the clear signal (successful Login).
+				if reason == "" {
+					if err := db.SetNeedsReauth(sinkCtx, pgPool, boundUID, ""); err != nil {
+						logger.Warn("clear needs_reauth", "user_id", boundUID.String(), "err", err.Error())
+					}
+					return
+				}
+				transitioned, err := db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
+				if err != nil {
 					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
+					return
+				}
+				if transitioned {
+					go sendReauthEmail(context.Background(), mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
 				}
 			})
 			// Prime the in-memory mirror from Postgres so a crash
@@ -1199,53 +1229,40 @@ func runServer() {
 		signupRequestStore = signuprequests.New(pgPool)
 	}
 
-	// Resend email client. Both vars must be set for the client to
-	// actually send; otherwise the approve handler still returns the
-	// magic-link in the response so the admin can forward it
-	// manually.
-	mailer := email.New(email.Config{
-		APIKey:  os.Getenv("RIVOLT_RESEND_API_KEY"),
-		From:    os.Getenv("RIVOLT_EMAIL_FROM"),
-		Counter: emailMetricsAdapter{m: appMetrics},
-	})
-	if mailer != nil {
-		logger.Info("email sender enabled", "from", os.Getenv("RIVOLT_EMAIL_FROM"))
-	}
-
 	handler := api.New(api.Deps{
-		Rivian:       rivianClient,
-		Accounts:     accountRegistry,
-		PushService:  pushSvc,
-		Drives:       drivesFactory,
-		Charges:      chargesFactory,
-		Samples:      samplesFactory,
-		Settings:     settingsFactory,
-		Push:         pushFactory,
-		Trips:        tripsFactory,
-		PackHealth:   packhealth.NewStore(pgPool),
-		Monitors:     monitorRegistry,
-		SettingsMgr:  settingsMgr,
-		Auth:         authSvc,
-		AuthEnforced: authEnforced,
-		OIDC:         oidcSvc,
-		WebFS:        webFS,
-		Version:      version,
-		DB:           pgPool,
-		Logger:       logger,
-		Flags:        flagsStore,
-		AIBudget:     aibudget.New(pgPool),
-		Secrets:      secretsStore,
-		Metrics:      appMetrics,
-		Users:           userProvider,
-		SignupRequests:  signupRequestStore,
-		Email:           mailer,
-		BaseURL:         os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy: valhallaProxy,
-		TilesProxy:    tilesProxy,
-		ChargersArchive: chargersArchive,
-		Photon:        photonClient,
-		WeatherClient: weather.NewClient(),
-		WeatherCache:  weather.NewMemCache(15*time.Minute, 1024),
+		Rivian:           rivianClient,
+		Accounts:         accountRegistry,
+		PushService:      pushSvc,
+		Drives:           drivesFactory,
+		Charges:          chargesFactory,
+		Samples:          samplesFactory,
+		Settings:         settingsFactory,
+		Push:             pushFactory,
+		Trips:            tripsFactory,
+		PackHealth:       packhealth.NewStore(pgPool),
+		Monitors:         monitorRegistry,
+		SettingsMgr:      settingsMgr,
+		Auth:             authSvc,
+		AuthEnforced:     authEnforced,
+		OIDC:             oidcSvc,
+		WebFS:            webFS,
+		Version:          version,
+		DB:               pgPool,
+		Logger:           logger,
+		Flags:            flagsStore,
+		AIBudget:         aibudget.New(pgPool),
+		Secrets:          secretsStore,
+		Metrics:          appMetrics,
+		Users:            userProvider,
+		SignupRequests:   signupRequestStore,
+		Email:            mailer,
+		BaseURL:          os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:    valhallaProxy,
+		TilesProxy:       tilesProxy,
+		ChargersArchive:  chargersArchive,
+		Photon:           photonClient,
+		WeatherClient:    weather.NewClient(),
+		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
 		Kratos:           kratosClient,
 		HydraRememberFor: hydraRememberFor,
@@ -1475,6 +1492,48 @@ func buildSealer(logger *slog.Logger) (rivoltcrypto.Sealer, error) {
 		}
 	}
 	return rivoltcrypto.NewEnvSealerFromEnv("RIVOLT_KEK", rotation...)
+}
+
+// sendReauthEmail notifies a user that their stored Rivian session was
+// rejected and recording has stopped. Fired exactly once per episode
+// from the reauth sink's rising edge (the DB transition gate dedupes
+// across replicas). Best-effort: a missing email/mailer or a Resend
+// blip is logged, never retried — the in-app banner and admin badge
+// remain the durable signals.
+func sendReauthEmail(ctx context.Context, mailer *email.Client, pool *sql.DB, logger *slog.Logger, uid uuid.UUID, reason, baseURL string) {
+	if mailer == nil || pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	to, err := db.LookupUserEmail(ctx, pool, uid)
+	if err != nil {
+		logger.Warn("reauth email: lookup email", "user_id", uid.String(), "err", err.Error())
+		return
+	}
+	if to == "" {
+		return
+	}
+	link := strings.TrimRight(baseURL, "/") + "/settings#rivian"
+	if baseURL == "" {
+		link = "your Rivolt settings"
+	}
+	body := "Rivolt lost access to your Rivian account, so your drives and\n" +
+		"charging sessions have stopped recording.\n\n" +
+		"This usually means Rivian expired the stored session. To fix it,\n" +
+		"sign in to Rivian again here:\n\n" +
+		"  " + link + "\n\n" +
+		"Your historical data is safe — reconnecting resumes recording from\n" +
+		"where it left off.\n"
+	if err := mailer.Send(ctx, email.Message{
+		To:      to,
+		Subject: "Action needed: reconnect your Rivian account to Rivolt",
+		Text:    body,
+	}); err != nil {
+		logger.Warn("reauth email: send", "user_id", uid.String(), "err", err.Error())
+		return
+	}
+	logger.Info("reauth email sent", "user_id", uid.String(), "reason", reason)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus

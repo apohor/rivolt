@@ -898,6 +898,14 @@ export const backend = {
     api.post<{ ok: true; vehicle_count: number }>(
       `/api/admin/users/${encodeURIComponent(id)}/sync-rivian`,
     ),
+  // Force a fresh a-sess/csrf and probe the user's Rivian session.
+  // healed=true means the session was salvageable (stale csrf) and
+  // needs_reauth was cleared; healed=false means the u-sess is dead
+  // and the user must re-authenticate with password + OTP.
+  adminRefreshRivianSession: (id: string) =>
+    api.post<{ ok: boolean; healed: boolean; message: string; error?: string }>(
+      `/api/admin/users/${encodeURIComponent(id)}/refresh-rivian-session`,
+    ),
   adminDeleteUser: (id: string) =>
     fetch(`/api/admin/users/${encodeURIComponent(id)}`, {
       method: "DELETE",

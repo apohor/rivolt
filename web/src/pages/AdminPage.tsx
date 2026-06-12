@@ -569,6 +569,10 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
     mutationFn: (id: string) => backend.adminSyncRivian(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
   });
+  const refreshRivianSession = useMutation({
+    mutationFn: (id: string) => backend.adminRefreshRivianSession(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
+  });
 
   const rows: AdminUserRow[] = useMemo(() => q.data?.users ?? [], [q.data]);
   const [busyID, setBusyID] = useState<string | null>(null);
@@ -767,6 +771,19 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                 setBusyID(null);
               }
             }}
+            onRefreshRivianSession={async () => {
+              setBusyID(selectedRow.id);
+              try {
+                const r = await refreshRivianSession.mutateAsync(
+                  selectedRow.id,
+                );
+                alert(r.message);
+              } catch (e) {
+                alert(`Refresh failed: ${String(e)}`);
+              } finally {
+                setBusyID(null);
+              }
+            }}
             onDelete={async () => {
               if (
                 !confirm(
@@ -811,6 +828,7 @@ function UserDetailPanel({
   onDemote,
   onToggleDisabled,
   onSyncRivian,
+  onRefreshRivianSession,
   onDelete,
 }: {
   row: AdminUserRow;
@@ -821,6 +839,7 @@ function UserDetailPanel({
   onDemote: () => Promise<void>;
   onToggleDisabled: () => Promise<void>;
   onSyncRivian: () => Promise<void>;
+  onRefreshRivianSession: () => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const isSelf = row.id === currentUserID;
@@ -1143,6 +1162,17 @@ function UserDetailPanel({
         >
           Sync Rivian
         </button>
+        {d?.needs_reauth && (
+          <button
+            type="button"
+            disabled={busy}
+            title="Force a fresh CSRF/session token and probe Rivian. Clears the re-auth flag if the session is still valid; if not, the user must sign in again."
+            onClick={onRefreshRivianSession}
+            className="rounded-md border border-amber-800 bg-amber-950/40 px-2 py-1 text-xs text-amber-200 hover:border-amber-700 hover:text-amber-100 disabled:opacity-40"
+          >
+            Refresh session
+          </button>
+        )}
         <div className="ml-auto">
           <button
             type="button"

@@ -6,6 +6,7 @@ package api
 // without a special parser.
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -17,9 +18,20 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+// sessionRefresher is the subset of *rivian.LiveClient that can force a
+// fresh a-sess/csrf and re-probe the account. Type-asserted (not on the
+// Account interface) so the mock client, which has no CSRF concern,
+// stays unaffected — the admin button reports "not supported" for it.
+type sessionRefresher interface {
+	RefreshSession(ctx context.Context) error
+	SetNeedsReauth(needs bool, reason string)
+	Snapshot() rivian.Session
+}
 
 // handleAdminUsersList — GET /api/admin/users
 //
@@ -413,5 +425,70 @@ func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "vehicle_count": n})
+	}
+}
+
+// handleAdminUserRefreshRivianSession — POST /api/admin/users/{id}/refresh-rivian-session
+//
+// Manual counterpart to the auto-heal in the Rivian client: forces a
+// fresh a-sess/csrf for the target user and probes the account. If the
+// probe succeeds the stored userSessionToken is still good (the failure
+// was a stale csrf), so we clear needs_reauth and persist the refreshed
+// session. If it fails, the u-sess is genuinely dead — no refresh can
+// fix that (verified against the Owner App), and the user must
+// re-authenticate with password + OTP.
+func handleAdminUserRefreshRivianSession(reg rivian.AccountRegistry, store *secrets.Store, d *sql.DB, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if reg == nil || d == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "rivian or db unavailable"})
+			return
+		}
+		target, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid user id"})
+			return
+		}
+		lc := reg.For(target)
+		if lc == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no rivian client for user"})
+			return
+		}
+		if !lc.Authenticated() {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "user has no stored rivian session to refresh"})
+			return
+		}
+		sr, ok := lc.(sessionRefresher)
+		if !ok {
+			writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "session refresh not supported for this client"})
+			return
+		}
+		if err := sr.RefreshSession(r.Context()); err != nil {
+			// u-sess is dead — surface the upstream class so the admin
+			// knows it's re-auth, not a transient blip.
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ok":      false,
+				"healed":  false,
+				"message": "Session could not be refreshed - the user must re-authenticate with password + OTP.",
+				"error":   err.Error(),
+			})
+			return
+		}
+		// Probe succeeded: the session is salvageable. Clear the flag in
+		// Postgres and this pod's memory, and persist the refreshed
+		// a-sess/csrf so peers pick it up.
+		sr.SetNeedsReauth(false, "")
+		if err := db.SetNeedsReauth(r.Context(), d, target, ""); err != nil {
+			log.Warn("refresh-rivian-session: clear needs_reauth", "user_id", target.String(), "err", err.Error())
+		}
+		if store != nil {
+			if err := secrets.SaveRivianSession(r.Context(), store, target, sr.Snapshot()); err != nil {
+				log.Warn("refresh-rivian-session: persist snapshot", "user_id", target.String(), "err", err.Error())
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":      true,
+			"healed":  true,
+			"message": "Session refreshed - recording resumed without re-authentication.",
+		})
 	}
 }

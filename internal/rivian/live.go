@@ -431,8 +431,56 @@ type graphQLResponse[T any] struct {
 }
 
 // doGraphQL posts to c.endpoint; extraHeaders layer on top of the base set.
+//
+// Authenticated data-plane calls (those carrying a non-empty u-sess)
+// get one automatic heal attempt: if Rivian rejects the call with an
+// auth-flavored UserAction error, a stale a-sess/csrf is a common and
+// cheap-to-fix cause, so we force a fresh CreateCSRFToken and retry
+// once before letting needs_reauth trip. The userSessionToken itself
+// has no refresh path (verified against the Owner App), so a genuinely
+// dead u-sess fails the retry too and flips the flag exactly as before.
 func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, extraHeaders map[string]string) (T, error) {
-	return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)
+	healable := extraHeaders["u-sess"] != "" &&
+		req.OperationName != "CreateCSRFToken" &&
+		!bypassReauth(ctx) &&
+		!retriedCSRF(ctx)
+	if !healable {
+		return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)
+	}
+
+	// First attempt: defer the needs_reauth mark so a heal can pre-empt it.
+	out, err := doGraphQLAt[T](withDeferReauth(ctx), c, c.endpoint, req, extraHeaders)
+	if err == nil {
+		return out, nil
+	}
+	var ue *UpstreamError
+	if !errors.As(err, &ue) || ue.Class != ClassUserAction || !IsAuthFlavoredReason(ue.Reason) {
+		// Not an auth-heal candidate. The deferred mark was withheld,
+		// but non-auth errors never mark anyway, so nothing to undo.
+		return out, err
+	}
+	// Auth-flavored failure: refresh a-sess/csrf and retry once. Every
+	// doGraphQL call runs with c.mu already held by the data-plane
+	// method (Vehicles, VehicleState, ...), so the refresh is lock-free.
+	if rerr := c.forceRefreshCSRFLocked(ctx); rerr != nil {
+		// Couldn't refresh — treat as a genuine auth failure and mark.
+		c.markNeedsReauth(ctx, ue.Reason)
+		return out, err
+	}
+	// retriedCSRF makes the inner call skip the heal path and mark on
+	// its own if it still fails.
+	return doGraphQLAt[T](withRetriedCSRF(ctx), c, c.endpoint, req, c.authHeaders())
+}
+
+// forceRefreshCSRFLocked discards the current a-sess/csrf pair and mints
+// a fresh one via CreateCSRFToken. The userSessionToken is untouched.
+// Caller must hold c.mu (the doGraphQL heal path and RefreshSession
+// both already do). CreateCSRFToken runs under bypassReauth so a
+// failure here doesn't itself flip the flag we're trying to clear.
+func (c *LiveClient) forceRefreshCSRFLocked(ctx context.Context) error {
+	c.csrfToken = ""
+	c.appSessionToken = ""
+	return c.ensureCSRF(withBypassReauth(ctx))
 }
 
 // ctxBypassBreaker, when set on the request context, instructs
@@ -471,6 +519,35 @@ func withBypassReauth(ctx context.Context) context.Context {
 
 func bypassReauth(ctx context.Context) bool {
 	v, _ := ctx.Value(ctxKeyBypassReauth{}).(bool)
+	return v
+}
+
+// ctxKeyDeferReauth marks a call whose auth-flavored failure should NOT
+// immediately flip needs_reauth — the doGraphQL retry wrapper sets it
+// on the first attempt so a CSRF refresh can pre-empt the flag. The
+// error is still classified and returned; only the side-effect mark is
+// withheld. The retry (run without this flag) marks if it also fails.
+type ctxKeyDeferReauth struct{}
+
+func withDeferReauth(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKeyDeferReauth{}, true)
+}
+
+func deferReauth(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxKeyDeferReauth{}).(bool)
+	return v
+}
+
+// ctxKeyRetriedCSRF marks the second (post-refresh) attempt so the
+// retry wrapper doesn't loop: a heal is tried at most once per call.
+type ctxKeyRetriedCSRF struct{}
+
+func withRetriedCSRF(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxKeyRetriedCSRF{}, true)
+}
+
+func retriedCSRF(ctx context.Context) bool {
+	v, _ := ctx.Value(ctxKeyRetriedCSRF{}).(bool)
 	return v
 }
 
@@ -540,7 +617,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 	if err != nil {
 		class, reason := ClassifyNetwork(err)
 		ue := &UpstreamError{Class: class, Op: req.OperationName, Reason: reason, Cause: err}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -566,7 +643,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:     reason,
 			Cause:      fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 256)),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -595,7 +672,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			Reason:  reason,
 			Cause:   fmt.Errorf("%s", strings.Join(msgs, "; ")),
 		}
-		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) {
+		if class == ClassUserAction && IsAuthFlavoredReason(reason) && !bypassReauth(ctx) && !deferReauth(ctx) {
 			c.markNeedsReauth(ctx, reason)
 		}
 		return zero, ue
@@ -836,6 +913,35 @@ type userData struct {
 			} `json:"vehicle"`
 		} `json:"vehicles"`
 	} `json:"currentUser"`
+}
+
+// RefreshSession forces a fresh a-sess/csrf pair and then probes the
+// account with a real authenticated call (getUserInfo via Vehicles).
+// It's the manual counterpart to the auto-heal in doGraphQL: an admin
+// can trigger it for a user stuck on needs_reauth to see whether the
+// session is salvageable (stale csrf) or genuinely dead (expired
+// u-sess, which no refresh can fix). Returns nil when the probe
+// succeeds — the caller then clears needs_reauth.
+func (c *LiveClient) RefreshSession(ctx context.Context) error {
+	c.mu.Lock()
+	if c.userSessionToken == "" {
+		c.mu.Unlock()
+		return ErrNotAuthenticated
+	}
+	// bypassReauth so a probe failure during this deliberate repair
+	// doesn't re-arm the flag before the caller decides what to do.
+	ctx = withBypassReauth(ctx)
+	if err := c.forceRefreshCSRFLocked(ctx); err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("refresh csrf: %w", err)
+	}
+	c.mu.Unlock()
+	// Vehicles re-locks; the probe confirms u-sess is still accepted
+	// with the freshly minted a-sess/csrf.
+	if _, err := c.Vehicles(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Vehicles lists the vehicles on the authenticated account.

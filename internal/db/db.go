@@ -397,6 +397,27 @@ func LookupUsername(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, erro
 	return username.String, nil
 }
 
+// LookupUserEmail returns the user's email address, or "" when the row
+// has no email (admin-created accounts may lack one) or the UUID is
+// unknown. Used to address transactional mail (re-auth notice) to the
+// account owner.
+func LookupUserEmail(ctx context.Context, d *sql.DB, uid uuid.UUID) (string, error) {
+	if uid == uuid.Nil {
+		return "", nil
+	}
+	var email sql.NullString
+	err := d.QueryRowContext(ctx,
+		`SELECT email FROM users WHERE id = $1`, uid,
+	).Scan(&email)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(email.String), nil
+}
+
 // RawUsernameByID returns the raw username column for a user by id,
 // regardless of whether display_name is set. Used by the admin
 // delete path to identify the row in the IdP backend (Kratos),

@@ -24,6 +24,11 @@ type stubGateway struct {
 	failCSRF        bool
 	failLogin       bool
 	badUserTypename bool
+	// userInfoAuthFails counts down: while > 0 a getUserInfo call
+	// returns an auth-flavored error and decrements. Lets a test
+	// arm a transient session failure that the CSRF-refresh retry
+	// should heal.
+	userInfoAuthFails int32
 }
 
 type gatewayCall struct {
@@ -114,6 +119,12 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	case "getUserInfo":
+		if atomic.AddInt32(&g.userInfoAuthFails, -1) >= 0 {
+			// "unauthorized" classifies as ClassUserAction / "session
+			// expired" (auth-flavored), the trigger for the heal path.
+			writeJSONErr(w, "unauthorized")
+			return
+		}
 		writeJSON(w, map[string]any{
 			"data": map[string]any{
 				"currentUser": map[string]any{
@@ -418,6 +429,65 @@ func TestLiveClientReusesCSRF(t *testing.T) {
 	}
 	if csrfCount != 1 {
 		t.Errorf("CreateCSRFToken calls = %d, want 1 (should be cached)", csrfCount)
+	}
+}
+
+// An auth-flavored failure on a data-plane call is healed by a single
+// CSRF refresh + retry — needs_reauth must NOT trip when the retry
+// succeeds. Reproduces the "stale a-sess/csrf looks like a dead
+// session" false positive.
+func TestLiveClientHealsStaleCSRF(t *testing.T) {
+	g := newStubGateway(t)
+	g.userInfoAuthFails = 1 // first getUserInfo 401s, retry succeeds
+	c := NewLive().WithEndpoint(g.srv.URL)
+
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	vs, err := c.Vehicles(ctx)
+	if err != nil {
+		t.Fatalf("Vehicles after heal: %v", err)
+	}
+	if len(vs) != 2 {
+		t.Fatalf("vehicles = %d, want 2", len(vs))
+	}
+	if needs, reason := c.NeedsReauth(); needs {
+		t.Fatalf("needs_reauth flipped after a healed retry (reason %q)", reason)
+	}
+	var csrf, userInfo int32
+	for _, call := range g.capturedReqs {
+		switch call.Operation {
+		case "CreateCSRFToken":
+			csrf++
+		case "getUserInfo":
+			userInfo++
+		}
+	}
+	if csrf != 2 {
+		t.Errorf("CreateCSRFToken calls = %d, want 2 (login + heal)", csrf)
+	}
+	if userInfo != 2 {
+		t.Errorf("getUserInfo calls = %d, want 2 (fail + retry)", userInfo)
+	}
+}
+
+// When the retry ALSO fails (genuinely dead u-sess), the heal is
+// exhausted and needs_reauth trips exactly as before.
+func TestLiveClientHealExhaustedMarksReauth(t *testing.T) {
+	g := newStubGateway(t)
+	g.userInfoAuthFails = 99 // every getUserInfo 401s
+	c := NewLive().WithEndpoint(g.srv.URL)
+
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if _, err := c.Vehicles(ctx); err == nil {
+		t.Fatal("Vehicles succeeded, want auth error after exhausted heal")
+	}
+	if needs, _ := c.NeedsReauth(); !needs {
+		t.Fatal("needs_reauth not set after the retry also failed")
 	}
 }
 
