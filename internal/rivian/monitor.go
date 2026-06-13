@@ -84,9 +84,9 @@ type StateMonitor struct {
 	// boot doesn't keep retrying on every WS frame for the same
 	// vehicle. Cleared on Unsubscribe so a re-acquired lease tries
 	// again.
-	sessMu      sync.Mutex
-	sessions    map[string]*liveSessions
-	rehydrated  map[string]bool
+	sessMu     sync.Mutex
+	sessions   map[string]*liveSessions
+	rehydrated map[string]bool
 
 	// liveStateStore persists liveSessions across pod restarts and
 	// lease handoffs. Set via SetLiveStateStore at boot; nil disables
@@ -590,6 +590,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			if !m.waitAuthReady(ctx, vehicleID) {
 				break
 			}
+		}
+		// A restored-but-flagged session is authenticated (u-sess
+		// present) yet doomed: Rivian won't feed the WS until the user
+		// re-auths. Park here instead of spinning up zombie sockets.
+		if !m.waitReauthClear(ctx, vehicleID) {
+			break
 		}
 		// WithCancelCause so the watchdog can stamp the cancellation
 		// with errStaleSubscription. Without that we can't
@@ -1675,6 +1681,47 @@ func (m *StateMonitor) waitAuthReady(ctx context.Context, vehicleID string) bool
 		return false
 	case <-ready:
 		return true
+	}
+}
+
+// reauthPollInterval is how often a parked monitor re-checks whether the
+// user's needs_reauth flag has cleared (via a fresh Login or the admin
+// RefreshSession). Polling is cheap and avoids the alternative: opening
+// a doomed WebSocket every wsStaleThreshold just to watch it go zombie.
+// A var, not a const, so tests can shorten it.
+var reauthPollInterval = time.Minute
+
+// waitReauthClear parks the subscribe loop while the client is flagged
+// needs_reauth. A flagged session has an expired userSessionToken that
+// Rivian no longer feeds, so subscribing under it only produces a
+// 10-minute zombie WS — repeated forever, that's continuous churn
+// against the gateway for every stuck user. Instead we wait for the
+// flag to clear (the user re-authenticates, or an admin runs
+// RefreshSession). Returns false when ctx is cancelled (monitor
+// shutting down or vehicle unsubscribed).
+func (m *StateMonitor) waitReauthClear(ctx context.Context, vehicleID string) bool {
+	if m.client == nil {
+		return ctx.Err() == nil
+	}
+	if needs, _ := m.client.NeedsReauth(); !needs {
+		return true
+	}
+	m.logger.Info("rivian ws subscribe parked: needs re-auth", "vehicle", vehicleID)
+	t := time.NewTicker(reauthPollInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			m.mu.Lock()
+			delete(m.active, vehicleID)
+			m.mu.Unlock()
+			return false
+		case <-t.C:
+			if needs, _ := m.client.NeedsReauth(); !needs {
+				m.logger.Info("rivian ws subscribe resumed: re-auth cleared", "vehicle", vehicleID)
+				return true
+			}
+		}
 	}
 }
 

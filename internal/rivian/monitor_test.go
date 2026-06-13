@@ -1,9 +1,68 @@
 package rivian
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 )
+
+// waitReauthClear parks while the client is flagged needs_reauth and
+// resumes once the flag clears — instead of the old behavior of
+// resubscribing into a 10-minute zombie WS every cycle.
+func TestWaitReauthClearParksUntilCleared(t *testing.T) {
+	old := reauthPollInterval
+	reauthPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { reauthPollInterval = old })
+
+	c := NewLive()
+	c.SetNeedsReauth(true, "session expired")
+	m := &StateMonitor{
+		client: c,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		active: map[string]context.CancelFunc{},
+	}
+
+	done := make(chan bool, 1)
+	go func() { done <- m.waitReauthClear(context.Background(), "veh-1") }()
+
+	select {
+	case <-done:
+		t.Fatal("waitReauthClear returned while still flagged; should park")
+	case <-time.After(40 * time.Millisecond):
+	}
+
+	c.SetNeedsReauth(false, "")
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("waitReauthClear returned false after the flag cleared, want true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waitReauthClear did not resume within 1s of the flag clearing")
+	}
+}
+
+// A cancelled context (monitor shutdown) unparks and returns false.
+func TestWaitReauthClearHonorsContextCancel(t *testing.T) {
+	old := reauthPollInterval
+	reauthPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { reauthPollInterval = old })
+
+	c := NewLive()
+	c.SetNeedsReauth(true, "session expired")
+	m := &StateMonitor{
+		client: c,
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		active: map[string]context.CancelFunc{},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if m.waitReauthClear(ctx, "veh-1") {
+		t.Fatal("waitReauthClear returned true on a cancelled context, want false")
+	}
+}
 
 // TestParseGNSSFixTime: empty/garbage GPS timestamp returns the zero
 // time so callers can distinguish "no fix" from "fix at unix epoch".
