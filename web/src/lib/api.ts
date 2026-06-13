@@ -71,8 +71,21 @@ async function request<T>(
     // the user-supplied form — bouncing to /login would lose the
     // login_challenge in the URL and strand the third-party OIDC
     // flow. Let the page render an inline error instead.
+    //
+    // Crucially, a *Rivian-upstream* 401 (the user's Rivian session
+    // needs re-auth) is NOT a Rivolt-session failure: it carries an
+    // upstream-error `class` field and means "reconnect your Rivian,"
+    // not "your login expired." Redirecting on it bounced authenticated
+    // users with a stale Rivian session into an endless / ⇄ /login loop
+    // (e.g. /api/vehicles 401s on needs_reauth). Skip the redirect and
+    // let the page render its connect-Rivian prompt.
+    const isUpstreamErr =
+      parsed != null &&
+      typeof parsed === "object" &&
+      "class" in (parsed as Record<string, unknown>);
     if (
       res.status === 401 &&
+      !isUpstreamErr &&
       !url.endsWith("/api/auth/me") &&
       !url.startsWith("/api/auth/hydra/login")
     ) {
