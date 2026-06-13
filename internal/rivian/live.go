@@ -440,9 +440,14 @@ type graphQLResponse[T any] struct {
 // has no refresh path (verified against the Owner App), so a genuinely
 // dead u-sess fails the retry too and flips the flag exactly as before.
 func doGraphQL[T any](ctx context.Context, c *LiveClient, req graphQLRequest, extraHeaders map[string]string) (T, error) {
+	// Heal authenticated data-plane calls (those carrying u-sess). Note
+	// this is deliberately NOT gated on bypassReauth: the admin
+	// RefreshSession probe sets bypassReauth to get past the
+	// needs_reauth gate, but it still wants the csrf-refresh retry.
+	// Login — the only other bypassReauth user — passes nil headers, so
+	// it has no u-sess and never reaches this path.
 	healable := extraHeaders["u-sess"] != "" &&
 		req.OperationName != "CreateCSRFToken" &&
-		!bypassReauth(ctx) &&
 		!retriedCSRF(ctx)
 	if !healable {
 		return doGraphQLAt[T](ctx, c, c.endpoint, req, extraHeaders)

@@ -491,6 +491,44 @@ func TestLiveClientHealExhaustedMarksReauth(t *testing.T) {
 	}
 }
 
+// RefreshSession heals a session whose only problem is a stale csrf:
+// the forced CreateCSRFToken + probe succeeds, so it returns nil and
+// the caller clears needs_reauth.
+func TestRefreshSessionHealsStaleCSRF(t *testing.T) {
+	g := newStubGateway(t)
+	c := NewLive().WithEndpoint(g.srv.URL)
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	// Simulate the flagged-but-restored state a real pod is in when the
+	// admin clicks the button: authenticated session + needs_reauth set.
+	c.SetNeedsReauth(true, "session expired")
+	g.userInfoAuthFails = 1 // the stale-csrf probe fails once, then heals
+
+	if err := c.RefreshSession(ctx); err != nil {
+		t.Fatalf("RefreshSession: %v", err)
+	}
+}
+
+// RefreshSession on a genuinely dead u-sess (every probe 401s even
+// after a fresh csrf) returns an error so the admin handler reports
+// healed=false.
+func TestRefreshSessionDeadSession(t *testing.T) {
+	g := newStubGateway(t)
+	c := NewLive().WithEndpoint(g.srv.URL)
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	c.SetNeedsReauth(true, "session expired")
+	g.userInfoAuthFails = 99 // never recovers
+
+	if err := c.RefreshSession(ctx); err == nil {
+		t.Fatal("RefreshSession on a dead session returned nil, want error")
+	}
+}
+
 // --- Mock client tests ----------------------------------------------
 
 func TestMockClientRequiresLogin(t *testing.T) {
