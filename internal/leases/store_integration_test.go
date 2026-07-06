@@ -317,3 +317,84 @@ func TestAcquire_RacingPeersOnExpiredLease(t *testing.T) {
 		t.Errorf("racing Acquire: %d wins, want 1 (Postgres serialization broken)", wins)
 	}
 }
+
+// mkUserVehicle inserts a user, a vehicle, and optionally a stored
+// Rivian session, returning the user id. Mirrors the real shape the
+// connect flow writes (session row first, then the vehicles row).
+func mkUserVehicle(ctx context.Context, t *testing.T, pool *sql.DB, username, rivianVehicleID string, withSession bool) {
+	t.Helper()
+	var uid string
+	if err := pool.QueryRowContext(ctx,
+		`INSERT INTO users (id, username, email)
+		 VALUES (gen_random_uuid(), $1, $1 || '@example.test') RETURNING id`,
+		username,
+	).Scan(&uid); err != nil {
+		t.Fatalf("insert user %s: %v", username, err)
+	}
+	if withSession {
+		if _, err := pool.ExecContext(ctx,
+			`INSERT INTO user_secrets (user_id, name, ciphertext, kek_id)
+			 VALUES ($1, 'rivian.session', '\x00', 'test')`, uid,
+		); err != nil {
+			t.Fatalf("insert session %s: %v", username, err)
+		}
+	}
+	if _, err := pool.ExecContext(ctx,
+		`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2)`,
+		uid, rivianVehicleID,
+	); err != nil {
+		t.Fatalf("insert vehicle %s: %v", rivianVehicleID, err)
+	}
+}
+
+func subscribableSet(ctx context.Context, t *testing.T, pool *sql.DB) map[string]bool {
+	t.Helper()
+	ids, err := db.ListSubscribableVehicleIDs(ctx, pool)
+	if err != nil {
+		t.Fatalf("ListSubscribableVehicleIDs: %v", err)
+	}
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
+
+// TestListSubscribableVehicleIDs pins the lease coordinator's
+// authoritative set: only vehicles whose owner has a stored Rivian
+// session are subscribable. If this SQL ever silently returns a vehicle
+// with no session (or drops one that has a session), the coordinator
+// either keeps recording a disconnected user or tears down every live
+// subscription — so lock the exact membership.
+func TestListSubscribableVehicleIDs(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+
+	mkUserVehicle(ctx, t, pool, "connected", "01-connected", true)
+	mkUserVehicle(ctx, t, pool, "no-session", "01-nosession", false)
+	mkUserVehicle(ctx, t, pool, "electrafi", "electrafi-abc123", true)
+
+	got := subscribableSet(ctx, t, pool)
+	if !got["01-connected"] {
+		t.Error("vehicle with a stored session must be subscribable")
+	}
+	if got["01-nosession"] {
+		t.Error("vehicle whose owner has no session must NOT be subscribable")
+	}
+	if got["electrafi-abc123"] {
+		t.Error("synthetic electrafi- import rows must be excluded")
+	}
+
+	// The logout case: deleting the session row must drop the vehicle
+	// from the set on the very next call, which is what makes disconnect
+	// reap the lease across replicas.
+	if _, err := pool.ExecContext(ctx,
+		`DELETE FROM user_secrets WHERE name = 'rivian.session'
+		   AND user_id = (SELECT user_id FROM vehicles WHERE rivian_vehicle_id = '01-connected')`,
+	); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if subscribableSet(ctx, t, pool)["01-connected"] {
+		t.Error("after logout (session deleted) the vehicle must leave the subscribable set")
+	}
+}

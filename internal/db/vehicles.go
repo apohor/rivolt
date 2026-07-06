@@ -111,6 +111,53 @@ func OwnsRivianID(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID str
 	return true, nil
 }
 
+// ListSubscribableVehicleIDs returns every Rivian gateway vehicle-id
+// whose owner currently has a stored Rivian session, i.e. a vehicle we
+// have any business holding a subscription lease for.
+//
+// This is the lease coordinator's authoritative set (SetAuthoritative):
+// a lease whose vehicle is absent from it is reaped and unsubscribed.
+// Gating on the *stored session* - not merely the vehicles row - is
+// what makes disconnect take effect across replicas. Logout deletes the
+// user_secrets 'rivian.session' row; on the next reconcile every pod
+// sees the vehicle drop out of this set and tears the WS subscription
+// down within one cycle. Without it, a logout on one pod left the
+// lease-owning pod streaming from its in-memory session until the next
+// restart happened to land on it (a user kept being recorded for days
+// after disconnecting).
+//
+// The session predicate is byte-identical to ListUsersWithRivianSession
+// (the boot hydrate), so what gets a monitor at startup and what stays
+// leased can never disagree. Synthetic electrafi-<hash> import rows are
+// excluded - they're not real gateway VINs and never carry a session.
+func ListSubscribableVehicleIDs(ctx context.Context, d *sql.DB) ([]string, error) {
+	if d == nil {
+		return nil, nil
+	}
+	const q = `
+		SELECT DISTINCT v.rivian_vehicle_id
+		FROM vehicles v
+		JOIN user_secrets s
+		  ON s.user_id = v.user_id
+		 AND s.name = 'rivian.session'
+		WHERE v.rivian_vehicle_id <> ''
+		  AND v.rivian_vehicle_id NOT LIKE 'electrafi-%'`
+	rows, err := d.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list subscribable vehicles: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var vid string
+		if err := rows.Scan(&vid); err != nil {
+			return nil, fmt.Errorf("list subscribable vehicles scan: %w", err)
+		}
+		out = append(out, vid)
+	}
+	return out, rows.Err()
+}
+
 // VehicleSummary is the per-user vehicle metadata exposed to
 // /api/vehicles/owned (the import-picker source). It deliberately
 // omits operational fields (created_at, updated_at) the SPA doesn't

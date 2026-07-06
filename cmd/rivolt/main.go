@@ -865,17 +865,17 @@ func runServer() {
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
 		})
-		// Reap leases whose vehicle row was deleted (account deletion
-		// drops the vehicles row but subscription_leases has no FK, so
-		// the lease outlives it). The vehicles table is the existence
-		// source of truth; same query as the vehicles dbSource above but
-		// deliberately without the leases self-reference, which must
-		// never keep a deleted vehicle alive.
+		// Authoritative set for lease ownership: vehicles whose owner has
+		// a stored Rivian session. A lease outside this set is reaped and
+		// unsubscribed. This covers both account deletion (vehicles row
+		// gone, and subscription_leases has no FK to cascade it) and
+		// disconnect (logout deletes the session row) - in the latter
+		// case every replica drops the lease within one reconcile instead
+		// of the lease-owning pod streaming on from memory until its next
+		// restart. Gated on the same 'rivian.session' predicate as the
+		// boot hydrate so what gets a monitor and what stays leased agree.
 		coord.SetAuthoritative(func(qctx context.Context) ([]string, error) {
-			return leases.QueryStringColumn(qctx, pgPool,
-				`SELECT DISTINCT rivian_vehicle_id FROM vehicles
-				   WHERE rivian_vehicle_id <> ''
-				     AND rivian_vehicle_id NOT LIKE 'electrafi-%'`)
+			return db.ListSubscribableVehicleIDs(qctx, pgPool)
 		})
 		go func() {
 			if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {

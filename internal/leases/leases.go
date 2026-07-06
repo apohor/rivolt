@@ -197,17 +197,19 @@ type Coordinator struct {
 	// rivolt_subscription_leases gauge. Optional.
 	onCountChange func(count int)
 
-	// authoritative, when set, returns the vehicle IDs that
-	// legitimately exist right now — the vehicles table, the source of
-	// truth for existence. A lease this pod owns whose vehicle is
-	// absent from this set is an orphan: the backing row was deleted
-	// (the owner removed their account or the vehicle) while the lease
-	// lingered. reconcile releases those and fires onRelease so the
-	// stale subscription is torn down instead of renewed forever.
-	// Acquisition is gated on the same set so a self-referential
-	// vehicle source (the leases table feeds its own candidate list)
-	// can't resurrect a deleted vehicle. nil disables orphan reaping —
-	// single-binary boot and tests keep the pre-existing behaviour.
+	// authoritative, when set, returns the vehicle IDs this pod should
+	// hold a lease for right now. A lease this pod owns whose vehicle is
+	// absent from the set is reaped: reconcile releases it and fires
+	// onRelease so the stale subscription is torn down instead of
+	// renewed forever. A vehicle leaves the set when it stops being
+	// subscribable - the owner deleted their account (vehicles row gone)
+	// or disconnected (stored session gone). Acquisition is gated on the
+	// same set so a self-referential vehicle source (the leases table
+	// feeds its own candidate list) can't resurrect a vehicle that
+	// should no longer be leased. The coordinator treats the set as
+	// opaque; what makes a vehicle authoritative is the caller's
+	// predicate. nil disables reaping - single-binary boot and tests
+	// keep the pre-existing behaviour.
 	authoritative func(ctx context.Context) ([]string, error)
 
 	reconcileInterval time.Duration
