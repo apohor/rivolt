@@ -47,6 +47,13 @@ func (f *fakeStore) Renew(_ context.Context) ([]string, error) {
 	return out, nil
 }
 
+func (f *fakeStore) Release(_ context.Context, vid string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.owned, vid)
+	return nil
+}
+
 func (f *fakeStore) ReleaseAll(_ context.Context) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -138,6 +145,121 @@ func TestCoordinatorShutdownReleasesAll(t *testing.T) {
 	defer mu.Unlock()
 	if len(released) != 2 {
 		t.Fatalf("expected 2 onRelease callbacks, got %v", released)
+	}
+}
+
+// TestCoordinatorReapsOrphanLease covers the account-deletion path:
+// a lease we own whose vehicle no longer exists in the authoritative
+// set must be released (not renewed forever) and its subscription
+// torn down via onRelease. It must also never be re-acquired even
+// though a stale vehicle source still lists it.
+func TestCoordinatorReapsOrphanLease(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	var (
+		mu       sync.Mutex
+		released []string
+	)
+	// The vehicle source still lists both v1 and v2 (e.g. the monitor
+	// cache survives Unsubscribe, or the leases table self-references)
+	// — the orphan must be reaped despite that.
+	c := newCoordinator(
+		fs,
+		func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(string) {},
+		func(v string) {
+			mu.Lock()
+			released = append(released, v)
+			mu.Unlock()
+		},
+		nil,
+		time.Hour,
+	)
+	// Authoritative existence set: only v1 has a backing vehicle row.
+	c.SetAuthoritative(func(context.Context) ([]string, error) {
+		return []string{"v1"}, nil
+	})
+
+	// First reconcile: acquisition is gated on the authoritative set,
+	// so only v1 is acquired even though the source lists both.
+	c.reconcile(context.Background())
+	c.mu.Lock()
+	_, ownsV1 := c.owned["v1"]
+	_, ownsV2 := c.owned["v2"]
+	c.mu.Unlock()
+	if !ownsV1 || ownsV2 {
+		t.Fatalf("expected to own only v1 after gated acquire: owned=%v", c.owned)
+	}
+
+	// Now simulate v1's vehicle being deleted: it drops out of the
+	// authoritative set. The next reconcile must reap the lease.
+	c.SetAuthoritative(func(context.Context) ([]string, error) {
+		return []string{}, nil
+	})
+	c.reconcile(context.Background())
+
+	c.mu.Lock()
+	if len(c.owned) != 0 {
+		t.Fatalf("expected all leases reaped, still own %v", c.owned)
+	}
+	c.mu.Unlock()
+	fs.mu.Lock()
+	if fs.owned["v1"] {
+		t.Fatal("expected v1 lease row deleted from store")
+	}
+	fs.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(released) != 1 || released[0] != "v1" {
+		t.Fatalf("expected onRelease(v1), got %v", released)
+	}
+}
+
+// TestCoordinatorReapSkippedOnAuthError guards the safety valve: if
+// the authoritative query errors (transient DB blip), NOTHING is
+// reaped — otherwise a Postgres hiccup would tear down every live
+// subscription.
+func TestCoordinatorReapSkippedOnAuthError(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeStore()
+	var (
+		mu       sync.Mutex
+		released []string
+	)
+	c := newCoordinator(
+		fs,
+		func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(string) {},
+		func(v string) {
+			mu.Lock()
+			released = append(released, v)
+			mu.Unlock()
+		},
+		nil,
+		time.Hour,
+	)
+	c.SetAuthoritative(func(context.Context) ([]string, error) {
+		return []string{"v1", "v2"}, nil
+	})
+	c.reconcile(context.Background()) // acquires both
+
+	// Auth source now errors — reaping must be skipped entirely.
+	c.SetAuthoritative(func(context.Context) ([]string, error) {
+		return nil, context.DeadlineExceeded
+	})
+	c.reconcile(context.Background())
+
+	c.mu.Lock()
+	if len(c.owned) != 2 {
+		t.Fatalf("expected both leases retained on auth error, own %v", c.owned)
+	}
+	c.mu.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(released) != 0 {
+		t.Fatalf("expected no releases on auth error, got %v", released)
 	}
 }
 

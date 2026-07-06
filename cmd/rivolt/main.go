@@ -701,6 +701,105 @@ func runServer() {
 		}()
 	}
 
+	// Engagement email sweep. Two re-engagement loops that would
+	// otherwise each need their own ticker share one slow tick:
+	//
+	//   - Re-nudge users stuck needing Rivian re-auth. The reauth sink
+	//     emails once on the rising edge, but users who flipped before
+	//     that feature shipped never got one and a single email is easy
+	//     to miss. Re-sends to anyone still stuck, throttled per-user by
+	//     needs_reauth_notified_at.
+	//   - Finish-setup nudge: users who completed onboarding but never
+	//     connected a Rivian account get one email pointing them back to
+	//     the connect step.
+	//
+	// Both read a bounded "who is due?" set and Claim-gate each send, so
+	// every replica can run this without double-emailing.
+	//
+	// RIVOLT_ENGAGEMENT_EMAILS=false opts an install out entirely -
+	// meant for staging/preview environments that share a mailer and a
+	// copy of real user data, where a nudge pointing at the wrong
+	// domain (or a duplicate of prod's) is worse than none.
+	if pgPool != nil && mailer != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+		nudgeBaseURL := os.Getenv("RIVOLT_BASE_URL")
+		const reauthNudgeCooldown = 7 * 24 * time.Hour
+		const setupNudgeMinAge = 24 * time.Hour
+		go func() {
+			runReauth := func(sctx context.Context) {
+				due, err := db.ListUsersDueForReauthNudge(sctx, pgPool, reauthNudgeCooldown)
+				if err != nil {
+					logger.Warn("reauth nudge sweep: list failed", "err", err.Error())
+					return
+				}
+				sent := 0
+				for _, n := range due {
+					claimed, cerr := db.ClaimReauthNudge(sctx, pgPool, n.UserID, reauthNudgeCooldown)
+					if cerr != nil {
+						logger.Warn("reauth nudge sweep: claim failed",
+							"user_id", n.UserID.String(), "err", cerr.Error())
+						continue
+					}
+					if !claimed {
+						continue // another replica took this one
+					}
+					sendReauthEmail(sctx, mailer, pgPool, logger, n.UserID, n.Reason, nudgeBaseURL)
+					sent++
+				}
+				if sent > 0 {
+					logger.Info("reauth nudge sweep", "nudged", sent)
+				}
+			}
+			runSetup := func(sctx context.Context) {
+				due, err := db.ListUsersDueForSetupNudge(sctx, pgPool, setupNudgeMinAge)
+				if err != nil {
+					logger.Warn("setup nudge sweep: list failed", "err", err.Error())
+					return
+				}
+				sent := 0
+				for _, n := range due {
+					claimed, cerr := db.ClaimSetupNudge(sctx, pgPool, n.UserID)
+					if cerr != nil {
+						logger.Warn("setup nudge sweep: claim failed",
+							"user_id", n.UserID.String(), "err", cerr.Error())
+						continue
+					}
+					if !claimed {
+						continue // another replica took this one, or they just connected
+					}
+					sendSetupEmail(sctx, mailer, logger, n.Email, nudgeBaseURL)
+					sent++
+				}
+				if sent > 0 {
+					logger.Info("setup nudge sweep", "nudged", sent)
+				}
+			}
+			run := func() {
+				sctx, cancel := context.WithTimeout(ctx, time.Minute)
+				defer cancel()
+				runReauth(sctx)
+				runSetup(sctx)
+			}
+			// Brief startup delay so the sweep doesn't race boot hydrate
+			// / DB warmup, then a slow tick.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Minute):
+			}
+			run()
+			t := time.NewTicker(6 * time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					run()
+				}
+			}
+		}()
+	}
+
 	// Subscription leases gate which vehicles THIS pod owns.
 	// Multi-replica steady state requires exactly one pod per
 	// vehicle; the leases.Coordinator polls Postgres every 30s,
@@ -765,6 +864,18 @@ func runServer() {
 		)
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
+		})
+		// Reap leases whose vehicle row was deleted (account deletion
+		// drops the vehicles row but subscription_leases has no FK, so
+		// the lease outlives it). The vehicles table is the existence
+		// source of truth; same query as the vehicles dbSource above but
+		// deliberately without the leases self-reference, which must
+		// never keep a deleted vehicle alive.
+		coord.SetAuthoritative(func(qctx context.Context) ([]string, error) {
+			return leases.QueryStringColumn(qctx, pgPool,
+				`SELECT DISTINCT rivian_vehicle_id FROM vehicles
+				   WHERE rivian_vehicle_id <> ''
+				     AND rivian_vehicle_id NOT LIKE 'electrafi-%'`)
 		})
 		go func() {
 			if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -1534,6 +1645,40 @@ func sendReauthEmail(ctx context.Context, mailer *email.Client, pool *sql.DB, lo
 		return
 	}
 	logger.Info("reauth email sent", "user_id", uid.String(), "reason", reason)
+}
+
+// sendSetupEmail nudges a user who finished onboarding but never
+// connected their Rivian account. Sent at most once per user (the
+// caller claims via db.ClaimSetupNudge first). Best-effort: a missing
+// mailer or a send error is logged, never retried - the user still has
+// the in-app Rivian panel whenever they return.
+func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logger, to, baseURL string) {
+	if mailer == nil || to == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	link := strings.TrimRight(baseURL, "/") + "/settings#rivian"
+	if baseURL == "" {
+		link = "your Rivolt settings"
+	}
+	body := "Thanks for signing up for Rivolt. You're one step away from\n" +
+		"seeing your drives, charging, and efficiency - connecting your\n" +
+		"Rivian account takes about two minutes.\n\n" +
+		"Connect it here:\n\n" +
+		"  " + link + "\n\n" +
+		"You'll sign in with your Rivian account (the same login you use\n" +
+		"in the Rivian app). Rivolt reads your vehicle data - it never\n" +
+		"sends commands to your car.\n"
+	if err := mailer.Send(ctx, email.Message{
+		To:      to,
+		Subject: "Finish setting up Rivolt - connect your Rivian",
+		Text:    body,
+	}); err != nil {
+		logger.Warn("setup email: send", "err", err.Error())
+		return
+	}
+	logger.Info("setup email sent", "to", to)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus

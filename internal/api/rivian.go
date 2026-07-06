@@ -279,6 +279,19 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 				)
 			}
 			slog.WarnContext(r.Context(), "rivian login failed", fields...)
+			// A user_action class on the password leg means Rivian
+			// rejected the email/password. Its gateway phrases this as
+			// "session expired: User is unauthenticated", which reads as
+			// a Rivolt bug to someone connecting for the first time.
+			// Replace it with honest, actionable copy - the raw chain is
+			// in the WARN line above.
+			if ue != nil && ue.Class == rivian.ClassUserAction {
+				writeJSON(w, httpStatusForUpstream(err), map[string]any{
+					"error": "Rivian didn't accept that email or password. Double-check both and try again - this is your Rivian account login, the same one you use in the Rivian app.",
+					"class": ue.Class.String(),
+				})
+				return
+			}
 			writeUpstreamError(w, err)
 			return
 		}

@@ -197,6 +197,19 @@ type Coordinator struct {
 	// rivolt_subscription_leases gauge. Optional.
 	onCountChange func(count int)
 
+	// authoritative, when set, returns the vehicle IDs that
+	// legitimately exist right now — the vehicles table, the source of
+	// truth for existence. A lease this pod owns whose vehicle is
+	// absent from this set is an orphan: the backing row was deleted
+	// (the owner removed their account or the vehicle) while the lease
+	// lingered. reconcile releases those and fires onRelease so the
+	// stale subscription is torn down instead of renewed forever.
+	// Acquisition is gated on the same set so a self-referential
+	// vehicle source (the leases table feeds its own candidate list)
+	// can't resurrect a deleted vehicle. nil disables orphan reaping —
+	// single-binary boot and tests keep the pre-existing behaviour.
+	authoritative func(ctx context.Context) ([]string, error)
+
 	reconcileInterval time.Duration
 
 	// trigger lets external callers (e.g. the StateMonitor's
@@ -216,6 +229,7 @@ type Coordinator struct {
 type storeAPI interface {
 	Acquire(ctx context.Context, vehicleID string) (bool, error)
 	Renew(ctx context.Context) ([]string, error)
+	Release(ctx context.Context, vehicleID string) error
 	ReleaseAll(ctx context.Context) (int, error)
 }
 
@@ -277,6 +291,16 @@ func (c *Coordinator) TriggerReconcile() {
 // with the current number of leases owned. Safe to call before Run.
 func (c *Coordinator) SetCountObserver(fn func(count int)) {
 	c.onCountChange = fn
+}
+
+// SetAuthoritative wires the existence source used to reap orphan
+// leases — vehicles whose backing row was deleted while a lease
+// lingered (subscription_leases has no FK to users, so a deleted
+// tenant's leases survive the cascade). Without it those leases are
+// renewed forever and the owning pod's recorder keeps failing FK
+// inserts. Safe to call before Run.
+func (c *Coordinator) SetAuthoritative(fn func(ctx context.Context) ([]string, error)) {
+	c.authoritative = fn
 }
 
 // Run blocks until ctx is cancelled, reconciling leases on every
@@ -341,6 +365,47 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 		c.onRelease(vid)
 	}
 
+	// Reap orphans: leases we still hold whose backing vehicle row is
+	// gone. Renew (keyed on pod_id, not on whether the vehicle exists)
+	// keeps renewing them, so without this a deleted vehicle's lease
+	// lives forever and the owning pod's recorder spams FK-violation
+	// inserts. Only runs when an authoritative existence source is
+	// wired, and never on a query error — reaping on a transient DB
+	// blip would tear down every live subscription. `live` also gates
+	// acquisition below so a self-referential vehicle source can't
+	// re-acquire what we just released.
+	var live map[string]struct{}
+	if c.authoritative != nil {
+		ids, aerr := c.authoritative(rctx)
+		if aerr != nil {
+			c.log.Warn("lease authoritative list failed; skipping orphan reap", "err", aerr.Error())
+		} else {
+			live = make(map[string]struct{}, len(ids))
+			for _, id := range ids {
+				live[id] = struct{}{}
+			}
+			c.mu.Lock()
+			orphans := make([]string, 0)
+			for vid := range c.owned {
+				if _, ok := live[vid]; !ok {
+					orphans = append(orphans, vid)
+				}
+			}
+			c.mu.Unlock()
+			for _, vid := range orphans {
+				if rerr := c.store.Release(rctx, vid); rerr != nil {
+					c.log.Warn("orphan lease release failed", "vehicle", vid, "err", rerr.Error())
+					continue
+				}
+				c.mu.Lock()
+				delete(c.owned, vid)
+				c.mu.Unlock()
+				c.log.Info("orphan lease reaped (vehicle no longer exists)", "vehicle", vid)
+				c.onRelease(vid)
+			}
+		}
+	}
+
 	// Pull the cluster's vehicle set and try to acquire anything we
 	// don't already own.
 	vehicles, err := c.vehicles(rctx)
@@ -351,6 +416,15 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 	}
 
 	for _, vid := range vehicles {
+		if live != nil {
+			if _, ok := live[vid]; !ok {
+				// Candidate surfaced by the monitor/leases source with no
+				// backing vehicles row. It can't be subscribed anyway
+				// (owner resolution needs the row), and leasing it would
+				// only recreate an orphan — skip.
+				continue
+			}
+		}
 		c.mu.Lock()
 		_, alreadyOwned := c.owned[vid]
 		c.mu.Unlock()

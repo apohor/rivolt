@@ -320,12 +320,34 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 // means this is sufficient to fully evict the tenant; the admin
 // endpoint relies on that contract instead of a hand-rolled
 // transactional sweep.
+//
+// subscription_leases is the one exception: it's keyed by
+// rivian_vehicle_id with no FK back to users, so the cascade misses
+// it. A surviving lease is renewed forever by its owning pod, whose
+// recorder then fails FK inserts against the now-deleted vehicle
+// indefinitely. Drop the leases in the same transaction, while the
+// vehicles rows still exist to resolve their ids, so the owning pod
+// sees them vanish on its next renew and tears the subscription down.
 func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 	if d == nil || uid == uuid.Nil {
 		return nil
 	}
-	_, err := d.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
-	return err
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM subscription_leases
+		 WHERE vehicle_id IN (
+		     SELECT rivian_vehicle_id FROM vehicles WHERE user_id = $1
+		 )`, uid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListUsersWithRivianSession returns every user_id that currently has
