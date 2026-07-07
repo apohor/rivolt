@@ -355,6 +355,11 @@ func (s *Service) decode(raw string) (token, error) {
 // from spoofing the "authenticated user" by setting the wrong key.
 type ctxKey struct{}
 
+// impersonationCtxKey marks a request context as impersonated and
+// carries the real (admin) caller's id. Unexported for the same
+// reason as ctxKey — only this package's helpers can set it.
+type impersonationCtxKey struct{}
+
 // UserFromContext returns the authenticated user_id, if any, that
 // Middleware stored on the request context. Handlers that require
 // auth should check the ok flag and 401 when it's false.
@@ -384,6 +389,47 @@ func WithUser(ctx context.Context, uid uuid.UUID) context.Context {
 		}
 	}
 	return context.WithValue(ctx, ctxKey{}, uid)
+}
+
+// WithImpersonation swaps the request's active identity from
+// impersonatorID (the real, already-authenticated admin) to
+// targetID, so every downstream call that reads UserFromContext —
+// stores, RLS's app.user_id, handlers — transparently renders the
+// target's data. Building this on top of WithUser means the swap
+// gets the same logging.WithUserID + span-attribute stamping for
+// free; it additionally stamps both ids via logging.WithImpersonation
+// (see that doc for why user_id alone isn't enough for an audit
+// trail) and marks the context as impersonated for
+// IsImpersonating/ImpersonatorFromContext callers (the /api/admin/*
+// no-privilege-chaining guard in particular).
+//
+// Callers (internal/api's impersonation middleware) are responsible
+// for every authorization decision — admin-only, read-only,
+// target-not-admin, feature flag — before calling this. It performs
+// no checks of its own; it's pure context plumbing.
+func WithImpersonation(ctx context.Context, impersonatorID, targetID uuid.UUID) context.Context {
+	ctx = logging.WithImpersonation(ctx, impersonatorID, targetID)
+	ctx = context.WithValue(ctx, impersonationCtxKey{}, impersonatorID)
+	return WithUser(ctx, targetID)
+}
+
+// ImpersonatorFromContext returns the real admin identity behind an
+// impersonated request, and whether the request is impersonated at
+// all. UserFromContext on the same context returns the *target's*
+// id — this is the complementary "who's actually driving" lookup.
+func ImpersonatorFromContext(ctx context.Context) (uuid.UUID, bool) {
+	v, ok := ctx.Value(impersonationCtxKey{}).(uuid.UUID)
+	return v, ok && v != uuid.Nil
+}
+
+// IsImpersonating reports whether the request context was produced
+// by WithImpersonation. Used as a defense-in-depth check (on top of
+// the impersonation middleware's own path-based block) anywhere
+// privilege escalation via impersonation must be refused outright,
+// e.g. requireAdminMW.
+func IsImpersonating(ctx context.Context) bool {
+	_, ok := ImpersonatorFromContext(ctx)
+	return ok
 }
 
 // Middleware resolves the active user from (in order) a trusted

@@ -304,3 +304,37 @@ func TestParseTrustedCIDRs_Errors(t *testing.T) {
 		}
 	}
 }
+
+// TestWithImpersonation_SwapsIdentityAndMarksContext covers the
+// core contract impersonationMW relies on: after WithImpersonation,
+// UserFromContext must return the target (so every store/RLS lookup
+// downstream sees the target's data), while ImpersonatorFromContext
+// recovers the real admin id for audit purposes.
+func TestWithImpersonation_SwapsIdentityAndMarksContext(t *testing.T) {
+	admin := uuid.New()
+	target := uuid.New()
+	ctx := WithImpersonation(context.Background(), admin, target)
+
+	if uid, ok := UserFromContext(ctx); !ok || uid != target {
+		t.Errorf("UserFromContext = %s, %v; want %s, true", uid, ok, target)
+	}
+	if got, ok := ImpersonatorFromContext(ctx); !ok || got != admin {
+		t.Errorf("ImpersonatorFromContext = %s, %v; want %s, true", got, ok, admin)
+	}
+	if !IsImpersonating(ctx) {
+		t.Error("IsImpersonating = false, want true")
+	}
+}
+
+// TestIsImpersonating_FalseOnPlainContext ensures a normal
+// (non-impersonated) authenticated context — the overwhelming
+// majority of requests — never trips the impersonation guard.
+func TestIsImpersonating_FalseOnPlainContext(t *testing.T) {
+	ctx := WithUser(context.Background(), uuid.New())
+	if IsImpersonating(ctx) {
+		t.Error("IsImpersonating = true on a plain WithUser context")
+	}
+	if _, ok := ImpersonatorFromContext(ctx); ok {
+		t.Error("ImpersonatorFromContext ok=true on a plain WithUser context")
+	}
+}

@@ -97,6 +97,12 @@ type Deps struct {
 	// True when at least one real issuer is configured (OIDC,
 	// trusted-proxy, or the debug bypass).
 	AuthEnforced bool
+	// ImpersonationDisabled mirrors $RIVOLT_IMPERSONATION_DISABLED.
+	// true makes the impersonation middleware ignore
+	// X-Rivolt-Impersonate outright (regardless of caller role) and
+	// is surfaced via /api/config so the SPA hides the admin
+	// "View as" control instead of offering a dead button.
+	ImpersonationDisabled bool
 	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
 	// auth issuer alongside static creds and trusted-proxy
 	// header. nil disables the social-login button row in the
@@ -265,6 +271,16 @@ func New(d Deps) http.Handler {
 	// middleware is a no-op — the single-tenant legacy UX stays.
 	if d.Auth != nil {
 		r.Use(d.Auth.Middleware)
+		// impersonationMW must run immediately after auth resolves
+		// the real identity and before any route reads
+		// auth.UserFromContext, so the swap it performs is
+		// invisible to every downstream handler/store/RLS check.
+		r.Use(impersonationMW(func(ctx context.Context, uid uuid.UUID) (string, error) {
+			if d.DB == nil {
+				return "", nil
+			}
+			return db.RoleFor(ctx, d.DB, uid)
+		}, func() bool { return d.ImpersonationDisabled }))
 	}
 
 	// /metrics is intentionally mounted at the root, outside the
@@ -299,7 +315,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags, d.SettingsMgr))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled, d.Flags, d.SettingsMgr))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)

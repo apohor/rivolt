@@ -9,6 +9,8 @@
 //   GET /api/push/vapid-key      → { public_key }
 //   POST /api/push/subscribe     → persists a browser subscription
 
+import { IMPERSONATE_HEADER, impersonationHeaderID } from "./impersonation";
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -46,9 +48,18 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
+  // Admin "View as user": while a target is set in sessionStorage,
+  // every request carries it so the server (internal/api/auth_mw.go)
+  // renders that user's data instead of the admin's own. The header
+  // is inert for anyone who isn't a confirmed admin caller — the
+  // server ignores it outright for non-admins.
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const impersonateID = impersonationHeaderID();
+  if (impersonateID) headers[IMPERSONATE_HEADER] = impersonateID;
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });

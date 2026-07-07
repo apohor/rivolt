@@ -1180,6 +1180,21 @@ func runServer() {
 		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS, RIVOLT_TRUSTED_PROXY_CIDR, or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
+	// RIVOLT_IMPERSONATION_DISABLED is the admin "View as user" kill
+	// switch: when true the impersonation middleware ignores
+	// X-Rivolt-Impersonate outright (even from a confirmed admin)
+	// and /api/config tells the SPA to hide the "View as" control.
+	// Defaults to enabled (false) — an operator opts out, not in.
+	var impersonationDisabled bool
+	if v := os.Getenv("RIVOLT_IMPERSONATION_DISABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			logger.Error("bad RIVOLT_IMPERSONATION_DISABLED", "value", v, "err", err.Error())
+			os.Exit(1)
+		}
+		impersonationDisabled = b
+	}
+
 	// Install-wide settings manager (AI provider keys + models).
 	// Backed by the app_settings table, sealed with the same KEK
 	// the rest of the secrets pipeline uses. Env-seeded on first
@@ -1341,42 +1356,43 @@ func runServer() {
 	}
 
 	handler := api.New(api.Deps{
-		Rivian:           rivianClient,
-		Accounts:         accountRegistry,
-		PushService:      pushSvc,
-		Drives:           drivesFactory,
-		Charges:          chargesFactory,
-		Samples:          samplesFactory,
-		Settings:         settingsFactory,
-		Push:             pushFactory,
-		Trips:            tripsFactory,
-		PackHealth:       packhealth.NewStore(pgPool),
-		Monitors:         monitorRegistry,
-		SettingsMgr:      settingsMgr,
-		Auth:             authSvc,
-		AuthEnforced:     authEnforced,
-		OIDC:             oidcSvc,
-		WebFS:            webFS,
-		Version:          version,
-		DB:               pgPool,
-		Logger:           logger,
-		Flags:            flagsStore,
-		AIBudget:         aibudget.New(pgPool),
-		Secrets:          secretsStore,
-		Metrics:          appMetrics,
-		Users:            userProvider,
-		SignupRequests:   signupRequestStore,
-		Email:            mailer,
-		BaseURL:          os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy:    valhallaProxy,
-		TilesProxy:       tilesProxy,
-		ChargersArchive:  chargersArchive,
-		Photon:           photonClient,
-		WeatherClient:    weather.NewClient(),
-		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
-		Hydra:            hydraClient,
-		Kratos:           kratosClient,
-		HydraRememberFor: hydraRememberFor,
+		Rivian:                rivianClient,
+		Accounts:              accountRegistry,
+		PushService:           pushSvc,
+		Drives:                drivesFactory,
+		Charges:               chargesFactory,
+		Samples:               samplesFactory,
+		Settings:              settingsFactory,
+		Push:                  pushFactory,
+		Trips:                 tripsFactory,
+		PackHealth:            packhealth.NewStore(pgPool),
+		Monitors:              monitorRegistry,
+		SettingsMgr:           settingsMgr,
+		Auth:                  authSvc,
+		AuthEnforced:          authEnforced,
+		ImpersonationDisabled: impersonationDisabled,
+		OIDC:                  oidcSvc,
+		WebFS:                 webFS,
+		Version:               version,
+		DB:                    pgPool,
+		Logger:                logger,
+		Flags:                 flagsStore,
+		AIBudget:              aibudget.New(pgPool),
+		Secrets:               secretsStore,
+		Metrics:               appMetrics,
+		Users:                 userProvider,
+		SignupRequests:        signupRequestStore,
+		Email:                 mailer,
+		BaseURL:               os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:         valhallaProxy,
+		TilesProxy:            tilesProxy,
+		ChargersArchive:       chargersArchive,
+		Photon:                photonClient,
+		WeatherClient:         weather.NewClient(),
+		WeatherCache:          weather.NewMemCache(15*time.Minute, 1024),
+		Hydra:                 hydraClient,
+		Kratos:                kratosClient,
+		HydraRememberFor:      hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span

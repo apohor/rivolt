@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
+import { stopImpersonation, useImpersonationTarget } from "../lib/impersonation";
 import Logo from "../components/Logo";
 import IOSInstallBanner from "../components/IOSInstallBanner";
 
@@ -110,6 +111,12 @@ function SignOutButton() {
     <button
       type="button"
       onClick={async () => {
+        // Impersonation is read-only server-side (see
+        // impersonationMW): a POST /api/auth/logout sent with the
+        // X-Rivolt-Impersonate header still attached would 405
+        // instead of actually signing out. Clear it first so this
+        // always signs the real admin (or user) out cleanly.
+        stopImpersonation();
         try {
           await backend.logout();
         } finally {
@@ -121,6 +128,33 @@ function SignOutButton() {
     >
       Sign out
     </button>
+  );
+}
+
+// ImpersonationBanner is the persistent, impossible-to-miss
+// indicator that an admin is viewing the app as someone else. Exit
+// clears the sessionStorage flag and forces a full page reload —
+// see startImpersonation's doc for why that's a hard requirement,
+// not a style choice.
+function ImpersonationBanner() {
+  const target = useImpersonationTarget();
+  if (!target) return null;
+  return (
+    <div className="sticky top-0 z-1200 flex items-center justify-center gap-3 bg-amber-900/95 px-4 py-1.5 text-xs text-amber-100">
+      <span>
+        Viewing as <strong>{target.email}</strong> — read-only
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          stopImpersonation();
+          window.location.assign("/admin");
+        }}
+        className="rounded-full border border-amber-200/50 px-2 py-0.5 font-medium hover:bg-amber-800/60"
+      >
+        Exit
+      </button>
+    </div>
   );
 }
 
@@ -148,9 +182,22 @@ export default function AppLayout() {
   const baseNav = tripPlannerEnabled
     ? [...nav.slice(0, -1), planNavItem, nav[nav.length - 1]]
     : nav;
-  const navItems = me.data?.role === "admin" ? [...baseNav, ...adminNav] : baseNav;
+  const impersonating = useImpersonationTarget();
+  // v1 limitation: Live's data comes from the backend's per-user
+  // Rivian WebSocket subscription cache, which a future real-time
+  // push to the browser would need its own connection for — and a
+  // browser-native WebSocket can't carry the X-Rivolt-Impersonate
+  // header the way a fetch() can. Hiding the nav entry (and the
+  // route itself — see LivePage) keeps the impersonated view
+  // honest rather than risking it silently falling back to the
+  // admin's own live data. See the PR description for more detail.
+  const withoutLive = impersonating
+    ? baseNav.filter((n) => n.to !== "/live")
+    : baseNav;
+  const navItems = me.data?.role === "admin" ? [...withoutLive, ...adminNav] : withoutLive;
   return (
     <div className="min-h-full flex flex-col">
+      <ImpersonationBanner />
       <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">

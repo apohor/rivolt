@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { Card, PageHeader, Spinner } from "../components/ui";
 import { LivePanel } from "../components/LivePanel";
+import { useImpersonationTarget } from "../lib/impersonation";
 
 export default function LivePage() {
   // Reflect the Rivian sign-in state on this page explicitly: the
@@ -13,6 +14,7 @@ export default function LivePage() {
     queryFn: () => backend.rivianStatus(),
     staleTime: 30_000,
   });
+  const impersonating = useImpersonationTarget();
 
   return (
     <div className="space-y-6">
@@ -20,7 +22,18 @@ export default function LivePage() {
         title="Live"
         subtitle="Streaming vehicle state from Rivian"
       />
-      {status.isLoading ? (
+      {impersonating ? (
+        <Card title="Live view unavailable while impersonating">
+          <p className="text-sm text-neutral-400">
+            v1 limitation: real-time updates depend on a WebSocket
+            subscription that can't carry the impersonation header, so
+            Live is hidden entirely while viewing as{" "}
+            <strong>{impersonating.email}</strong> rather than risk
+            showing your own vehicle's data instead of theirs. Exit the
+            impersonation banner above to use Live again.
+          </p>
+        </Card>
+      ) : status.isLoading ? (
         <Spinner />
       ) : !status.data?.enabled ? (
         <Card title="Live client disabled">

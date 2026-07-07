@@ -74,6 +74,13 @@ export type RuntimeConfig = {
     staleSec: number;    // max LocationFixAt age vs sample wall clock
     jumpCount: number;   // min implausible jumps required to flag
   };
+  impersonation: {
+    // disabled mirrors $RIVOLT_IMPERSONATION_DISABLED. The server
+    // ignores the X-Rivolt-Impersonate header outright when this is
+    // true (see internal/api/auth_mw.go); the SPA reads it to hide
+    // the admin "View as" control instead of offering a dead button.
+    disabled: boolean;
+  };
 };
 
 const fallback: RuntimeConfig = {
@@ -84,6 +91,9 @@ const fallback: RuntimeConfig = {
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
+  // Fail closed like features.tripPlannerEnabled: hide the "View as"
+  // control until /api/config confirms the operator hasn't disabled it.
+  impersonation: { disabled: true },
 };
 let cached: RuntimeConfig = fallback;
 let inflight: Promise<RuntimeConfig> | null = null;
@@ -100,6 +110,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
+      impersonation?: { disabled?: boolean };
     } | null;
     return {
       valhalla: { path: j?.valhalla?.path ?? "" },
@@ -116,6 +127,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         staleSec: typeof j?.gps?.stale_sec === "number" ? j.gps.stale_sec : fallback.gps.staleSec,
         jumpCount: typeof j?.gps?.jump_count === "number" ? j.gps.jump_count : fallback.gps.jumpCount,
       },
+      impersonation: { disabled: !!j?.impersonation?.disabled },
     };
   } catch {
     return fallback;
@@ -251,6 +263,27 @@ export function useTripPlannerEnabled(): boolean {
     };
   }, []);
   return enabled;
+}
+
+// useImpersonationDisabled is the React-friendly accessor for the
+// admin impersonation kill switch. Same shape as
+// useTripPlannerEnabled — components that mount before /api/config
+// resolves start from the fail-closed fallback (disabled=true) and
+// re-render once the real value arrives.
+export function useImpersonationDisabled(): boolean {
+  const [disabled, setDisabled] = useState<boolean>(
+    cached.impersonation.disabled,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setDisabled(c.impersonation.disabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return disabled;
 }
 
 // Kick off the config fetch as soon as this module is imported so
