@@ -76,15 +76,29 @@ func httpStatusForUpstream(err error) int {
 // writeUpstreamError renders an UpstreamError (or any wrapped
 // error from the rivian package) as JSON with the right status.
 // Body shape is stable: {error, class, reason?}.
+//
+// The `class` field is load-bearing on the client: the SPA uses it to
+// tell a *Rivian-upstream* 401 ("reconnect your Rivian") from a
+// *Rivolt-session* 401 ("your login expired"), redirecting to /login
+// only for the latter. ErrNeedsReauth is the persisted-flag path — a
+// bare sentinel, not an UpstreamError, so errors.As misses it. Without
+// a class it looks like a session expiry and bounces the user to
+// /login in a loop (surfaced by impersonating a needs_reauth user).
+// It is a user_action by definition (the user must re-link Rivian), so
+// stamp that class explicitly.
 func writeUpstreamError(w http.ResponseWriter, err error) {
 	status := httpStatusForUpstream(err)
 	body := map[string]any{"error": err.Error()}
 	var ue *rivian.UpstreamError
-	if errors.As(err, &ue) {
+	switch {
+	case errors.As(err, &ue):
 		body["class"] = ue.Class.String()
 		if ue.Reason != "" {
 			body["reason"] = ue.Reason
 		}
+	case errors.Is(err, rivian.ErrNeedsReauth):
+		body["class"] = rivian.ClassUserAction.String()
+		body["reason"] = "session expired"
 	}
 	writeJSON(w, status, body)
 }
