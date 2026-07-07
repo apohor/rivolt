@@ -38,20 +38,20 @@ import (
 // The registry is wired only in live mode. Mock and stub paths
 // don't have a recorder, so they don't need this layer.
 type MonitorRegistry struct {
-	pool            *sql.DB
-	accounts        AccountRegistry
-	drives          *drives.Factory
-	charges         *charges.Factory
-	samples         *samples.Factory
-	settings        *settings.Factory
-	elevation       ElevationLookup
-	routeFiller     RouteFiller
+	pool               *sql.DB
+	accounts           AccountRegistry
+	drives             *drives.Factory
+	charges            *charges.Factory
+	samples            *samples.Factory
+	settings           *settings.Factory
+	elevation          ElevationLookup
+	routeFiller        RouteFiller
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
-	logger          *slog.Logger
+	logger             *slog.Logger
 
 	mu       sync.RWMutex
 	monitors map[uuid.UUID]*monitorEntry
@@ -379,14 +379,40 @@ func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 	}
 }
 
-// ownerOf resolves rivian_vehicle_id → user_id via the vehicles
-// table. Errors are returned to the caller; ErrNoOwner means the
-// vehicle is not in the table at all.
+// ownerOf resolves rivian_vehicle_id → the user_id whose session
+// should drive the subscription. Errors are returned to the caller;
+// sql.ErrNoRows means the vehicle is not in the table at all.
+//
+// A physical Rivian vehicle can end up owned by more than one Rivolt
+// account — the classic case is a user who created a second account
+// and connected the same car to both (see the onboarding UX work). The
+// naive `LIMIT 1` then picked a row by physical order, which could bind
+// the subscription to the WRONG account: bruce re-authed on one account
+// while the monitor stayed parked under his other, still-needs_reauth
+// account, so no telemetry flowed despite a valid session existing.
+//
+// Resolve deterministically to the owner most able to stream, in order:
+// enabled over disabled, not-needing-reauth over needing it, has a
+// stored rivian session over none, freshest session, then a stable
+// created_at tiebreak. Single-owner vehicles are unaffected.
 func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 	if r.pool == nil {
 		return uuid.Nil, errors.New("no db pool")
 	}
-	const q = `SELECT user_id FROM vehicles WHERE rivian_vehicle_id = $1 LIMIT 1`
+	const q = `
+		SELECT v.user_id
+		FROM vehicles v
+		JOIN users u ON u.id = v.user_id
+		LEFT JOIN user_secrets s
+		  ON s.user_id = v.user_id AND s.name = 'rivian.session'
+		WHERE v.rivian_vehicle_id = $1
+		ORDER BY
+			u.disabled ASC,                    -- enabled accounts first
+			(u.needs_reauth = FALSE) DESC,     -- healthy sessions first
+			(s.user_id IS NOT NULL) DESC,      -- must have a stored session to stream
+			s.updated_at DESC NULLS LAST,      -- freshest re-auth wins
+			v.created_at ASC                   -- stable, deterministic tiebreak
+		LIMIT 1`
 	var uid uuid.UUID
 	err := r.pool.QueryRowContext(context.Background(), q, rivianVehicleID).Scan(&uid)
 	if err != nil {
