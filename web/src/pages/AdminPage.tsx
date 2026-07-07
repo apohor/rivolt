@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
-import { grafanaBaseURL } from "../lib/config";
+import { grafanaBaseURL, useImpersonationDisabled } from "../lib/config";
+import { startImpersonation } from "../lib/impersonation";
 import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -1162,6 +1163,7 @@ function UserDetailPanel({
         >
           Sync Rivian
         </button>
+        <ViewAsButton row={row} />
         {d?.needs_reauth && (
           <button
             type="button"
@@ -1192,6 +1194,35 @@ function UserDetailPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+// ViewAsButton starts a read-only "View as user" session — see
+// docs on internal/api/auth_mw.go's impersonationMW for the server
+// side of this. Hidden for admin rows (the server refuses to
+// impersonate another admin anyway; hiding the button avoids
+// offering a control that always 403s) and while the operator has
+// set RIVOLT_IMPERSONATION_DISABLED.
+//
+// A full page reload (not client-side navigation) is deliberate:
+// every React Query cache entry fetched under the admin's own
+// identity must be gone before any impersonated fetch happens, so
+// stale admin-scoped data never renders next to the target's data.
+function ViewAsButton({ row }: { row: AdminUserRow }) {
+  const impersonationDisabled = useImpersonationDisabled();
+  if (row.role === "admin" || impersonationDisabled) return null;
+  return (
+    <button
+      type="button"
+      title={`View the app read-only as ${row.display_name || row.username}`}
+      onClick={() => {
+        startImpersonation({ id: row.id, email: row.email || row.username });
+        window.location.assign("/");
+      }}
+      className="rounded-md border border-sky-900 bg-sky-950/40 px-2 py-1 text-xs text-sky-300 hover:border-sky-800 hover:text-sky-200"
+    >
+      View as
+    </button>
   );
 }
 

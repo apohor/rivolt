@@ -27,6 +27,9 @@ func TestContextHandler_StampsFieldsFromContext(t *testing.T) {
 	ctx = WithUserID(ctx, uid)
 	ctx = WithVehicleID(ctx, "VIN1234")
 	ctx = WithTraceID(ctx, "trace-xyz")
+	impersonator := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	target := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	ctx = WithImpersonation(ctx, impersonator, target)
 
 	logger.InfoContext(ctx, "hello", "k", "v")
 
@@ -45,6 +48,12 @@ func TestContextHandler_StampsFieldsFromContext(t *testing.T) {
 	}
 	if got["trace_id"] != "trace-xyz" {
 		t.Errorf("trace_id: %v", got["trace_id"])
+	}
+	if got["impersonator_id"] != impersonator.String() {
+		t.Errorf("impersonator_id: %v", got["impersonator_id"])
+	}
+	if got["target_id"] != target.String() {
+		t.Errorf("target_id: %v", got["target_id"])
 	}
 	if got["msg"] != "hello" {
 		t.Errorf("msg: %v", got["msg"])
@@ -65,10 +74,26 @@ func TestContextHandler_OmitsUnsetFields(t *testing.T) {
 	logger.InfoContext(context.Background(), "no-context")
 
 	out := buf.String()
-	for _, k := range []string{`"request_id"`, `"user_id"`, `"vehicle_id"`, `"trace_id"`} {
+	for _, k := range []string{`"request_id"`, `"user_id"`, `"vehicle_id"`, `"trace_id"`, `"impersonator_id"`, `"target_id"`} {
 		if strings.Contains(out, k) {
 			t.Errorf("expected %s absent, got: %s", k, out)
 		}
+	}
+}
+
+// TestWithImpersonation_NilUUIDIsNoop guards against a half-built
+// impersonation context (one id set, the other zero) ever emitting
+// a lone impersonator_id or target_id field, which would misrepresent
+// a request as impersonated when it isn't.
+func TestWithImpersonation_NilUUIDIsNoop(t *testing.T) {
+	uid := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ctx := WithImpersonation(context.Background(), uid, uuid.Nil)
+	if got := ImpersonatorIDFromContext(ctx); got != uuid.Nil {
+		t.Errorf("expected no impersonator stamped, got %s", got)
+	}
+	ctx = WithImpersonation(context.Background(), uuid.Nil, uid)
+	if got := TargetIDFromContext(ctx); got != uuid.Nil {
+		t.Errorf("expected no target stamped, got %s", got)
 	}
 }
 

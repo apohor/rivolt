@@ -32,6 +32,8 @@ const (
 	keyVehicleID
 	keyTraceID
 	keyUserIDSink
+	keyImpersonatorID
+	keyTargetID
 )
 
 // WithRequestID returns a context that carries the given request ID.
@@ -83,6 +85,42 @@ func readUserIDSink(s *userIDSink) uuid.UUID {
 		return uuid.Nil
 	}
 	return s.uid
+}
+
+// WithImpersonation stamps both the admin's real user id
+// (impersonatorID) and the user being viewed (targetID) onto the
+// context so every log line emitted for the rest of the request
+// carries both — the request's plain user_id field (set separately
+// by auth.WithUser as part of the identity swap) shows *whose data*
+// was read, while these two fields preserve *who actually made the
+// call*. A no-op when either id is uuid.Nil, so a half-built
+// impersonation context never emits a misleading single field.
+func WithImpersonation(ctx context.Context, impersonatorID, targetID uuid.UUID) context.Context {
+	if impersonatorID == uuid.Nil || targetID == uuid.Nil {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, keyImpersonatorID, impersonatorID)
+	ctx = context.WithValue(ctx, keyTargetID, targetID)
+	return ctx
+}
+
+// ImpersonatorIDFromContext returns the real admin identity behind
+// an impersonated request, or uuid.Nil when the request isn't
+// impersonated.
+func ImpersonatorIDFromContext(ctx context.Context) uuid.UUID {
+	if v, ok := ctx.Value(keyImpersonatorID).(uuid.UUID); ok {
+		return v
+	}
+	return uuid.Nil
+}
+
+// TargetIDFromContext returns the user being viewed via
+// impersonation, or uuid.Nil when the request isn't impersonated.
+func TargetIDFromContext(ctx context.Context) uuid.UUID {
+	if v, ok := ctx.Value(keyTargetID).(uuid.UUID); ok {
+		return v
+	}
+	return uuid.Nil
 }
 
 // WithVehicleID returns a context that carries the given Rivian
@@ -165,6 +203,12 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 	if vid := VehicleIDFromContext(ctx); vid != "" {
 		r.AddAttrs(slog.String("vehicle_id", vid))
+	}
+	if iid := ImpersonatorIDFromContext(ctx); iid != uuid.Nil {
+		r.AddAttrs(slog.String("impersonator_id", iid.String()))
+	}
+	if tid := TargetIDFromContext(ctx); tid != uuid.Nil {
+		r.AddAttrs(slog.String("target_id", tid.String()))
 	}
 	// trace_id resolution order: explicit WithTraceID value first
 	// (callers that synthesise a trace ID without OTel can still

@@ -90,7 +90,7 @@ func handleHealth(version string) http.HandlerFunc {
 // (/trace_route, /route) and PMTiles (drive map basemap), falling
 // back to a raw chord polyline when no snapping engine is wired.
 // Public so the SPA can fetch it without a session.
-func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
+func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
 	type tilesCfg struct {
 		// URL is the full same-origin URL of the served basemap
 		// .pmtiles file (empty when not configured). protomaps-leaflet
@@ -151,18 +151,28 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		// Sourced from RIVOLT_BOOKING_AFFILIATE_ID env.
 		AffiliateID string `json:"affiliate_id,omitempty"`
 	}
+	type impersonationCfg struct {
+		// Disabled mirrors $RIVOLT_IMPERSONATION_DISABLED. The
+		// server-side ignore of X-Rivolt-Impersonate (see
+		// impersonationMW) is the actual enforcement; this just
+		// keeps the SPA from offering a "View as" control that
+		// would be a no-op.
+		Disabled bool `json:"disabled"`
+	}
 	type cfg struct {
-		Valhalla valhallaCfg `json:"valhalla"`
-		Tiles    tilesCfg    `json:"tiles"`
-		AI       aiCfg       `json:"ai"`
-		Features featuresCfg `json:"features"`
-		GPS      gpsCfg      `json:"gps"`
-		Grafana  grafanaCfg  `json:"grafana"`
-		Booking  bookingCfg  `json:"booking"`
+		Valhalla      valhallaCfg      `json:"valhalla"`
+		Tiles         tilesCfg         `json:"tiles"`
+		AI            aiCfg            `json:"ai"`
+		Features      featuresCfg      `json:"features"`
+		GPS           gpsCfg           `json:"gps"`
+		Grafana       grafanaCfg       `json:"grafana"`
+		Booking       bookingCfg       `json:"booking"`
+		Impersonation impersonationCfg `json:"impersonation"`
 	}
 	base := cfg{
-		Grafana: grafanaCfg{BaseURL: strings.TrimRight(os.Getenv("RIVOLT_GRAFANA_BASE_URL"), "/")},
-		Booking: bookingCfg{AffiliateID: strings.TrimSpace(os.Getenv("RIVOLT_BOOKING_AFFILIATE_ID"))},
+		Grafana:       grafanaCfg{BaseURL: strings.TrimRight(os.Getenv("RIVOLT_GRAFANA_BASE_URL"), "/")},
+		Booking:       bookingCfg{AffiliateID: strings.TrimSpace(os.Getenv("RIVOLT_BOOKING_AFFILIATE_ID"))},
+		Impersonation: impersonationCfg{Disabled: impersonationDisabled},
 	}
 	if valhallaEnabled {
 		base.Valhalla.Path = "/api/maps/valhalla"
