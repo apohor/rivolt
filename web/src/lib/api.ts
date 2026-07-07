@@ -55,7 +55,13 @@ async function request<T>(
   // server ignores it outright for non-admins.
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const impersonateID = impersonationHeaderID();
+  // Never impersonate on the login page. Its whole job is to bootstrap
+  // the REAL session (poll /api/auth/me, list OIDC providers); if it
+  // carried the header, /api/auth/me would resolve as the impersonated
+  // target and the page would think it's already signed in — which,
+  // combined with a needs_reauth target, spins a /login <-> app loop.
+  const onLogin = window.location.pathname.startsWith("/login");
+  const impersonateID = onLogin ? null : impersonationHeaderID();
   if (impersonateID) headers[IMPERSONATE_HEADER] = impersonateID;
   const res = await fetch(url, {
     method,
