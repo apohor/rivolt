@@ -401,100 +401,80 @@ function SignupCapPanel() {
 }
 
 // IntrospectVehicleStatePanel is a TEMPORARY probe (remove with the
-// battery pack-temperature feature). It introspects the live Rivian
-// vehicleState type via /api/admin/gql/raw and surfaces the
-// temperature/cell fields with their GraphQL kind + type, so we can
-// confirm whether cell*TemperatureCelsius is a scalar or a { value }-
-// wrapped object before wiring it into the recorder. Goes through the
-// app's own API client, so it dodges the service-worker console quirk.
-type introspectField = {
-  name: string;
-  type?: { kind?: string; name?: string; ofType?: { kind?: string; name?: string } };
-};
+// battery pack-temperature feature). Introspection is banned on the
+// gateway, so instead it runs the REAL vehicleState REST query with the
+// candidate cell-temperature fields against the admin's own vehicle and
+// reports the verdict: the fields exist and are { value }-wrapped iff
+// the query returns data with no errors. Goes through the app's API
+// client, dodging the service-worker console quirk.
 function IntrospectVehicleStatePanel() {
-  const [rows, setRows] = useState<introspectField[] | null>(null);
+  const owned = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: () => backend.listOwnedVehicles(),
+  });
+  const vehicleID = owned.data?.vehicles?.[0]?.rivian_vehicle_id ?? "";
   const [raw, setRaw] = useState<string>("");
+  const [verdict, setVerdict] = useState<string>("");
+
   const run = useMutation({
     mutationFn: async () => {
-      // Try the likely type names in turn; return the first that
-      // resolves a field list.
-      for (const tn of ["VehicleState", "VehicleStateResponse", "VehicleStatePayload"]) {
-        const res = await backend.gqlRaw(
-          `{ __type(name:"${tn}") { name fields { name type { kind name ofType { kind name } } } } }`,
-        );
-        const data = res.data as
-          | { __type?: { fields?: introspectField[] } }
-          | undefined;
-        const fields = data?.__type?.fields;
-        if (fields && fields.length > 0) {
-          return { tn, fields, res };
-        }
-      }
-      const last = await backend.gqlRaw(
-        `{ __type(name:"VehicleState") { name kind } }`,
-      );
-      return { tn: "", fields: [] as introspectField[], res: last };
+      const q = `query Probe($vehicleID: String!) {
+  vehicleState(id: $vehicleID) {
+    cellMinTemperatureCelsius { value }
+    cellAvgTemperatureCelsius { value }
+    cellMaxTemperatureCelsius { value }
+  }
+}`;
+      return backend.gqlRaw(q, { vehicleID });
     },
-    onSuccess: ({ fields, res }) => {
+    onSuccess: (res) => {
       setRaw(JSON.stringify(res, null, 2));
-      setRows(
-        fields.filter((f) => /temp|cell|thermal/i.test(f.name)),
-      );
+      // gql/raw returns { data } (gateway data field) or { error }.
+      const data = res.data as
+        | { vehicleState?: Record<string, { value?: unknown } | null> }
+        | undefined;
+      const vs = data?.vehicleState;
+      if (res.error) {
+        setVerdict(`upstream error — likely wrong field name or shape: ${res.error.slice(0, 200)}`);
+      } else if (vs) {
+        const got = ["cellMinTemperatureCelsius", "cellAvgTemperatureCelsius", "cellMaxTemperatureCelsius"]
+          .map((k) => `${k}=${vs[k]?.value ?? "null"}`)
+          .join(", ");
+        setVerdict(`CONFIRMED: fields exist and are { value }-wrapped. ${got}`);
+      } else {
+        setVerdict("no vehicleState in response — see raw below");
+      }
     },
   });
+
   return (
     <div className="space-y-3">
       <p className="text-sm text-neutral-400">
-        One-off probe of the live Rivian schema for battery pack /
-        cell-temperature fields. Temporary — removed when the feature ships.
+        One-off probe: runs the live vehicleState query with the battery
+        cell-temperature fields against your vehicle to confirm they exist
+        and are {"{ value }"}-wrapped. Temporary — removed when the feature ships.
       </p>
       <button
         type="button"
-        disabled={run.isPending}
+        disabled={run.isPending || !vehicleID}
         onClick={() => run.mutate()}
         className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-700 disabled:opacity-40"
       >
-        {run.isPending ? "Introspecting…" : "Introspect vehicleState"}
+        {run.isPending ? "Probing…" : vehicleID ? `Probe cell temps (${vehicleID})` : "no vehicle"}
       </button>
-      {run.isError && <ErrorBox title="Introspection failed" detail={String(run.error)} />}
-      {rows && (
-        <div className="space-y-2">
-          <div className="text-xs text-neutral-500">
-            {rows.length} temperature/cell field{rows.length === 1 ? "" : "s"}:
-          </div>
-          <div className="overflow-x-auto">
-            <table className="text-xs">
-              <thead>
-                <tr className="text-neutral-500">
-                  <th className="pr-4 text-left">field</th>
-                  <th className="pr-4 text-left">kind</th>
-                  <th className="pr-4 text-left">type</th>
-                  <th className="text-left">ofType</th>
-                </tr>
-              </thead>
-              <tbody className="font-mono text-neutral-200">
-                {rows.map((f) => (
-                  <tr key={f.name}>
-                    <td className="pr-4">{f.name}</td>
-                    <td className="pr-4">{f.type?.kind}</td>
-                    <td className="pr-4">{f.type?.name ?? "—"}</td>
-                    <td>
-                      {f.type?.ofType
-                        ? `${f.type.ofType.kind} ${f.type.ofType.name ?? ""}`
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <details>
-            <summary className="cursor-pointer text-xs text-neutral-500">raw response</summary>
-            <pre className="mt-2 max-h-72 overflow-auto rounded bg-neutral-950 p-2 text-[11px] text-neutral-400">
-              {raw}
-            </pre>
-          </details>
+      {run.isError && <ErrorBox title="Probe failed" detail={String(run.error)} />}
+      {verdict && (
+        <div className="rounded-md border border-neutral-800 bg-neutral-950 p-3 text-sm text-neutral-200">
+          {verdict}
         </div>
+      )}
+      {raw && (
+        <details>
+          <summary className="cursor-pointer text-xs text-neutral-500">raw response</summary>
+          <pre className="mt-2 max-h-72 overflow-auto rounded bg-neutral-950 p-2 text-[11px] text-neutral-400">
+            {raw}
+          </pre>
+        </details>
       )}
     </div>
   );
