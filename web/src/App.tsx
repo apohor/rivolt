@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import { useTripPlannerEnabled } from "./lib/config";
+import { current as currentImpersonation } from "./lib/impersonation";
 import { pageLoaders } from "./lib/pageLoaders";
 
 // Route pages are split into their own chunks so the initial bundle
@@ -31,6 +32,15 @@ const NotFoundPage = lazy(pageLoaders.notFound);
 function TripPlanGuard() {
   const enabled = useTripPlannerEnabled();
   return enabled ? <TripPlanPage /> : <NotFoundPage />;
+}
+
+// LiveGuard blocks the Live view while impersonating. The live feed is
+// a WebSocket, and the browser can't attach the impersonation header to
+// a WS upgrade — it would stream the admin's own vehicle, not the
+// target's, which is misleading. Fall through to 404, matching how the
+// nav hides the link.
+function LiveGuard() {
+  return currentImpersonation() ? <NotFoundPage /> : <LivePage />;
 }
 
 export default function App() {
@@ -68,7 +78,7 @@ export default function App() {
         <Route path="drives/:id" element={<DriveDetailPage />} />
         <Route path="charges" element={<ChargesPage />} />
         <Route path="charges/:id" element={<ChargeDetailPage />} />
-        <Route path="live" element={<LivePage />} />
+        <Route path="live" element={<LiveGuard />} />
         <Route path="trips/plan" element={<TripPlanGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />

@@ -97,6 +97,11 @@ type Deps struct {
 	// True when at least one real issuer is configured (OIDC,
 	// trusted-proxy, or the debug bypass).
 	AuthEnforced bool
+	// ImpersonationEnabled turns on the admin "view as user" flow
+	// (impersonationMW + the SPA button). Defaults true; set false via
+	// RIVOLT_IMPERSONATION_DISABLED to hard-off the feature (header
+	// ignored, admin UI hidden).
+	ImpersonationEnabled bool
 	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
 	// auth issuer alongside static creds and trusted-proxy
 	// header. nil disables the social-login button row in the
@@ -290,6 +295,16 @@ func New(d Deps) http.Handler {
 	r.Get("/readyz", handleReadyz(d.DB))
 
 	r.Route("/api", func(r chi.Router) {
+		// Admin "view as user" middleware, built once and reused across
+		// the authed route groups below (main JSON + the long-timeout
+		// AI/bulk group). Needs the DB for the role lookup; nil when
+		// there's no DB, in which case the groups simply skip it.
+		var impersonateMW func(http.Handler) http.Handler
+		if d.DB != nil {
+			impersonateMW = impersonationMW(func(ctx context.Context, uid uuid.UUID) (string, error) {
+				return db.RoleFor(ctx, d.DB, uid)
+			}, d.ImpersonationEnabled)
+		}
 		// Health + auth endpoints stay reachable without a session,
 		// otherwise the browser has no way to log in. /api/health is
 		// kept as a stable alias of /healthz for the preview-version
@@ -299,7 +314,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.Flags, d.SettingsMgr))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationEnabled, d.Flags, d.SettingsMgr))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -361,6 +376,9 @@ func New(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
+			}
+			if impersonateMW != nil {
+				r.Use(impersonateMW)
 			}
 			// Per-user Rivian sessions are hydrated at boot via the
 			// AccountRegistry sweep in main.go (see runServer's call
@@ -753,6 +771,9 @@ func New(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			if d.AuthEnforced {
 				r.Use(requireUserMW)
+			}
+			if impersonateMW != nil {
+				r.Use(impersonateMW)
 			}
 			r.Use(middleware.Timeout(5 * time.Minute))
 			r.Use(maxBodyBytes(maxJSONBody))

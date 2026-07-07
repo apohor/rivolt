@@ -355,6 +355,34 @@ func (s *Service) decode(raw string) (token, error) {
 // from spoofing the "authenticated user" by setting the wrong key.
 type ctxKey struct{}
 
+// impersonatorKey carries the real admin's UUID while a request is
+// served under impersonation. Distinct, unexported key so nothing
+// outside this package can forge "this request is impersonated".
+type impersonatorKey struct{}
+
+// WithImpersonator marks ctx as an impersonated request performed by
+// adminUID, and stamps the logging context so every downstream line
+// carries the impersonator alongside the (swapped) user_id. Callers
+// pair this with WithUser(target): the primary identity every store
+// reads becomes the target, while this records who is really acting.
+func WithImpersonator(ctx context.Context, adminUID uuid.UUID) context.Context {
+	if adminUID == uuid.Nil {
+		return ctx
+	}
+	ctx = logging.WithImpersonatorID(ctx, adminUID)
+	return context.WithValue(ctx, impersonatorKey{}, adminUID)
+}
+
+// ImpersonatorFromContext returns the impersonating admin's UUID and
+// true when the request is being served under impersonation. Used by
+// the admin-route gate to refuse impersonated callers (no privilege
+// chaining) and by handlers that need to distinguish "acting as
+// themselves" from "viewing as another user".
+func ImpersonatorFromContext(ctx context.Context) (uuid.UUID, bool) {
+	v, ok := ctx.Value(impersonatorKey{}).(uuid.UUID)
+	return v, ok && v != uuid.Nil
+}
+
 // UserFromContext returns the authenticated user_id, if any, that
 // Middleware stored on the request context. Handlers that require
 // auth should check the ok flag and 401 when it's false.

@@ -9,6 +9,8 @@
 //   GET /api/push/vapid-key      → { public_key }
 //   POST /api/push/subscribe     → persists a browser subscription
 
+import { targetHeader } from "./impersonation";
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -46,9 +48,18 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
+  // Assemble headers: JSON content-type for bodies, plus the
+  // impersonation header whenever an admin is "viewing as" a user. The
+  // server ignores it for non-admins and 405s any non-GET, so sending
+  // it on every call is safe — mutations while impersonating are meant
+  // to fail.
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const impersonate = targetHeader();
+  if (impersonate) headers["X-Rivolt-Impersonate"] = impersonate;
   const res = await fetch(url, {
     method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   });

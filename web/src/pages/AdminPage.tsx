@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
-import { grafanaBaseURL } from "../lib/config";
+import { grafanaBaseURL, useImpersonationEnabled } from "../lib/config";
+import { start as startImpersonation } from "../lib/impersonation";
 import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -843,6 +844,7 @@ function UserDetailPanel({
   onDelete: () => Promise<void>;
 }) {
   const isSelf = row.id === currentUserID;
+  const impersonationEnabled = useImpersonationEnabled();
   const detail = useQuery({
     queryKey: ["admin", "user", row.id],
     queryFn: () => backend.adminUserDetail(row.id),
@@ -1162,6 +1164,17 @@ function UserDetailPanel({
         >
           Sync Rivian
         </button>
+        {impersonationEnabled && row.role === "user" && !row.disabled && !isSelf && (
+          <button
+            type="button"
+            disabled={busy}
+            title="Open the app as this user sees it — read-only, no writes"
+            onClick={() => startImpersonation(row.id, row.email || row.username)}
+            className="rounded-md border border-violet-900 bg-violet-950/40 px-2 py-1 text-xs text-violet-300 hover:border-violet-800 hover:text-violet-200 disabled:opacity-40"
+          >
+            View as user
+          </button>
+        )}
         {d?.needs_reauth && (
           <button
             type="button"

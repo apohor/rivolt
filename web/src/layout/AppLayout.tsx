@@ -4,8 +4,34 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
+import { current as currentImpersonation, stop as stopImpersonation } from "../lib/impersonation";
 import Logo from "../components/Logo";
 import IOSInstallBanner from "../components/IOSInstallBanner";
+
+// ImpersonationBanner is a persistent, hard-to-miss bar shown while an
+// admin is viewing the app as another user. It names the target and
+// offers a one-click exit. Read once on render — start/stop force a
+// full navigation, so there's no in-place state to subscribe to.
+function ImpersonationBanner() {
+  const imp = currentImpersonation();
+  if (!imp) return null;
+  return (
+    <div className="sticky top-0 z-1200 flex items-center justify-center gap-3 border-b border-amber-700 bg-amber-950/90 px-4 py-2 text-sm text-amber-100 backdrop-blur-sm">
+      <span>
+        Viewing as{" "}
+        <span className="font-semibold">{imp.email || imp.uid}</span>
+        {" "}(read-only)
+      </span>
+      <button
+        type="button"
+        onClick={() => stopImpersonation()}
+        className="rounded-full border border-amber-600 bg-amber-900/60 px-3 py-0.5 text-xs font-medium text-amber-100 hover:border-amber-400 hover:text-white"
+      >
+        Exit
+      </button>
+    </div>
+  );
+}
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -145,12 +171,22 @@ export default function AppLayout() {
   }, [me.data, navigate, location.pathname]);
 
   const tripPlannerEnabled = useTripPlannerEnabled();
+  // Live is a WebSocket view; the browser can't attach the
+  // impersonation header to a WS upgrade, so it would show the admin's
+  // own live data, not the target's. Drop it from the nav while
+  // impersonating (the route itself also guards — see App.tsx).
+  const impersonating = currentImpersonation() != null;
+  const visibleNav = impersonating ? nav.filter((n) => n.to !== "/live") : nav;
   const baseNav = tripPlannerEnabled
-    ? [...nav.slice(0, -1), planNavItem, nav[nav.length - 1]]
-    : nav;
-  const navItems = me.data?.role === "admin" ? [...baseNav, ...adminNav] : baseNav;
+    ? [...visibleNav.slice(0, -1), planNavItem, visibleNav[visibleNav.length - 1]]
+    : visibleNav;
+  // The admin nav is hidden while impersonating: /api/admin/* refuses an
+  // impersonated context, so those pages would only 403.
+  const navItems =
+    me.data?.role === "admin" && !impersonating ? [...baseNav, ...adminNav] : baseNav;
   return (
     <div className="min-h-full flex flex-col">
+      <ImpersonationBanner />
       <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         <div className="mx-auto max-w-5xl px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 sm:flex-nowrap sm:justify-between">

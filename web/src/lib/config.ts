@@ -53,6 +53,11 @@ export type RuntimeConfig = {
     // related endpoints, so the surface is fully gone, not just
     // hidden. Admin toggles it from the Admin page.
     tripPlannerEnabled: boolean;
+    // impersonationEnabled mirrors the install's admin "View as user"
+    // switch. False when RIVOLT_IMPERSONATION_DISABLED is set — the
+    // SPA then hides the button (the server also ignores the header),
+    // so the surface is fully off, not just visually hidden.
+    impersonationEnabled: boolean;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -80,7 +85,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false },
+  features: { tripPlannerEnabled: false, impersonationEnabled: false },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -96,7 +101,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean; impersonation_enabled?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -108,7 +113,10 @@ async function loadConfig(): Promise<RuntimeConfig> {
         chargersUrl: j?.tiles?.chargers_url ?? "",
       },
       ai: { enabled: !!j?.ai?.enabled },
-      features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
+      features: {
+        tripPlannerEnabled: !!j?.features?.trip_planner_enabled,
+        impersonationEnabled: !!j?.features?.impersonation_enabled,
+      },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
       gps: {
@@ -245,6 +253,25 @@ export function useTripPlannerEnabled(): boolean {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setEnabled(c.features.tripPlannerEnabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
+}
+
+// useImpersonationEnabled is the React accessor for the admin
+// "View as user" feature flag. Same late-resolve behaviour as the
+// other feature hooks: re-renders when /api/config lands.
+export function useImpersonationEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(
+    cached.features.impersonationEnabled,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(c.features.impersonationEnabled);
     });
     return () => {
       cancelled = true;

@@ -32,6 +32,7 @@ const (
 	keyVehicleID
 	keyTraceID
 	keyUserIDSink
+	keyImpersonator
 )
 
 // WithRequestID returns a context that carries the given request ID.
@@ -83,6 +84,27 @@ func readUserIDSink(s *userIDSink) uuid.UUID {
 		return uuid.Nil
 	}
 	return s.uid
+}
+
+// WithImpersonatorID records that the request is being served under
+// admin impersonation, carrying the real admin's UUID. Set alongside
+// (not instead of) the user_id, which becomes the impersonated target —
+// so every log line shows both "who is acting" and "as whom". uuid.Nil
+// is treated as unset.
+func WithImpersonatorID(ctx context.Context, uid uuid.UUID) context.Context {
+	if uid == uuid.Nil {
+		return ctx
+	}
+	return context.WithValue(ctx, keyImpersonator, uid)
+}
+
+// ImpersonatorIDFromContext returns the impersonating admin's ID, or
+// uuid.Nil if the request is not impersonated.
+func ImpersonatorIDFromContext(ctx context.Context) uuid.UUID {
+	if v, ok := ctx.Value(keyImpersonator).(uuid.UUID); ok {
+		return v
+	}
+	return uuid.Nil
 }
 
 // WithVehicleID returns a context that carries the given Rivian
@@ -162,6 +184,12 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	}
 	if uid := UserIDFromContext(ctx); uid != uuid.Nil {
 		r.AddAttrs(slog.String("user_id", uid.String()))
+	}
+	// Present only under admin impersonation. user_id above is the
+	// target; this is the admin acting as them — both land on every
+	// line so the audit trail needs no correlation.
+	if imp := ImpersonatorIDFromContext(ctx); imp != uuid.Nil {
+		r.AddAttrs(slog.String("impersonator", imp.String()))
 	}
 	if vid := VehicleIDFromContext(ctx); vid != "" {
 		r.AddAttrs(slog.String("vehicle_id", vid))

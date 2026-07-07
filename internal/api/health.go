@@ -90,7 +90,7 @@ func handleHealth(version string) http.HandlerFunc {
 // (/trace_route, /route) and PMTiles (drive map basemap), falling
 // back to a raw chord polyline when no snapping engine is wired.
 // Public so the SPA can fetch it without a session.
-func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
+func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationEnabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager) http.HandlerFunc {
 	type tilesCfg struct {
 		// URL is the full same-origin URL of the served basemap
 		// .pmtiles file (empty when not configured). protomaps-leaflet
@@ -122,6 +122,10 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		// takes effect on next page load (or whenever the SPA
 		// re-fetches /api/config).
 		TripPlannerEnabled bool `json:"trip_planner_enabled"`
+		// ImpersonationEnabled gates the admin "View as user" control.
+		// False when RIVOLT_IMPERSONATION_DISABLED is set, so the SPA
+		// hides the button on installs that turned the feature off.
+		ImpersonationEnabled bool `json:"impersonation_enabled"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -177,6 +181,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled bool, flagsStore *fla
 		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
 	base.AI.Enabled = aiEnabled
+	base.Features.ImpersonationEnabled = impersonationEnabled
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base
 		if flagsStore != nil {

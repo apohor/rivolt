@@ -1340,43 +1340,57 @@ func runServer() {
 		signupRequestStore = signuprequests.New(pgPool)
 	}
 
+	// Admin impersonation defaults on; RIVOLT_IMPERSONATION_DISABLED
+	// truthy turns it off (header ignored server-side, button hidden
+	// via /api/config). Unparseable values are treated as "not set".
+	impersonationEnabled := true
+	if v := strings.TrimSpace(os.Getenv("RIVOLT_IMPERSONATION_DISABLED")); v != "" {
+		if disabled, err := strconv.ParseBool(v); err == nil {
+			impersonationEnabled = !disabled
+		}
+	}
+
 	handler := api.New(api.Deps{
-		Rivian:           rivianClient,
-		Accounts:         accountRegistry,
-		PushService:      pushSvc,
-		Drives:           drivesFactory,
-		Charges:          chargesFactory,
-		Samples:          samplesFactory,
-		Settings:         settingsFactory,
-		Push:             pushFactory,
-		Trips:            tripsFactory,
-		PackHealth:       packhealth.NewStore(pgPool),
-		Monitors:         monitorRegistry,
-		SettingsMgr:      settingsMgr,
-		Auth:             authSvc,
-		AuthEnforced:     authEnforced,
-		OIDC:             oidcSvc,
-		WebFS:            webFS,
-		Version:          version,
-		DB:               pgPool,
-		Logger:           logger,
-		Flags:            flagsStore,
-		AIBudget:         aibudget.New(pgPool),
-		Secrets:          secretsStore,
-		Metrics:          appMetrics,
-		Users:            userProvider,
-		SignupRequests:   signupRequestStore,
-		Email:            mailer,
-		BaseURL:          os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy:    valhallaProxy,
-		TilesProxy:       tilesProxy,
-		ChargersArchive:  chargersArchive,
-		Photon:           photonClient,
-		WeatherClient:    weather.NewClient(),
-		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
-		Hydra:            hydraClient,
-		Kratos:           kratosClient,
-		HydraRememberFor: hydraRememberFor,
+		Rivian:       rivianClient,
+		Accounts:     accountRegistry,
+		PushService:  pushSvc,
+		Drives:       drivesFactory,
+		Charges:      chargesFactory,
+		Samples:      samplesFactory,
+		Settings:     settingsFactory,
+		Push:         pushFactory,
+		Trips:        tripsFactory,
+		PackHealth:   packhealth.NewStore(pgPool),
+		Monitors:     monitorRegistry,
+		SettingsMgr:  settingsMgr,
+		Auth:         authSvc,
+		AuthEnforced: authEnforced,
+		// Admin "view as user" is on unless explicitly disabled. It only
+		// ever activates for an admin caller, but the env kill-switch
+		// lets an operator hard-off the whole surface.
+		ImpersonationEnabled: impersonationEnabled,
+		OIDC:                 oidcSvc,
+		WebFS:                webFS,
+		Version:              version,
+		DB:                   pgPool,
+		Logger:               logger,
+		Flags:                flagsStore,
+		AIBudget:             aibudget.New(pgPool),
+		Secrets:              secretsStore,
+		Metrics:              appMetrics,
+		Users:                userProvider,
+		SignupRequests:       signupRequestStore,
+		Email:                mailer,
+		BaseURL:              os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:        valhallaProxy,
+		TilesProxy:           tilesProxy,
+		ChargersArchive:      chargersArchive,
+		Photon:               photonClient,
+		WeatherClient:        weather.NewClient(),
+		WeatherCache:         weather.NewMemCache(15*time.Minute, 1024),
+		Hydra:                hydraClient,
+		Kratos:               kratosClient,
+		HydraRememberFor:     hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span
