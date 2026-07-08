@@ -851,13 +851,6 @@ export const backend = {
     api.get<GPSSettings>("/api/admin/settings/gps"),
   updateGPSSettings: (patch: GPSSettingsUpdate) =>
     api.put<GPSSettings>("/api/admin/settings/gps", patch),
-  // TEMP (remove with the pack-temp feature): post a raw GraphQL doc to
-  // the Rivian gateway via /api/admin/gql/raw. Used to confirm the live
-  // battery cell-temperature field shape before wiring it into the
-  // recorder. Introspection is banned upstream, so this runs the real
-  // vehicleState REST query with the candidate fields instead.
-  gqlRaw: (query: string, variables?: Record<string, unknown>) =>
-    api.post<{ data?: unknown; error?: string }>("/api/admin/gql/raw", { query, variables }),
   pushVAPIDKey: () =>
     api.get<{ public_key: string }>("/api/push/vapid-key"),
   pushStatus: () => api.get<PushStatus>("/api/push/status"),
