@@ -227,6 +227,11 @@ export type VehicleState = {
   tonneau_closed: boolean;
   cabin_temp_c: number;
   outside_temp_c: number;
+  // High-voltage battery pack cell temperatures (°C), from the Parallax
+  // battery_state topic. 0 when the car hasn't pushed a reading (asleep).
+  pack_temp_avg_c?: number;
+  pack_temp_max_c?: number;
+  pack_temp_min_c?: number;
   cabin_preconditioning_status: string;
   power_state: string;
   alarm_sound_status: string;
@@ -452,6 +457,14 @@ export type Sample = {
   // landed too late. The drive-detail Elevation chart hides itself
   // when every sample in the window is missing this field.
   altitude_m?: number;
+  // High-voltage battery pack cell temperatures (°C), merged in from the
+  // Parallax battery_state topic. Absent on legacy rows and on samples
+  // recorded while the car was asleep (the topic only streams when
+  // awake). avg is the pack average; the min↔max spread is a
+  // thermal-imbalance signal (wide during DCFC / cold soak).
+  pack_temp_avg_c?: number;
+  pack_temp_max_c?: number;
+  pack_temp_min_c?: number;
 };
 
 // DriveWeather is the optional weather snapshot the backend captured

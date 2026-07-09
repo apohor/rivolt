@@ -154,6 +154,30 @@ export default function ChargeDetailPage() {
         ? { points: insideTempSmoothed, label: "Cabin temp" }
         : null;
 
+  // Battery pack cell temperature (Parallax battery_state topic): avg
+  // with the min↔max envelope. During a charge the pack heats up, and a
+  // widening max-min spread is the thermal-imbalance signal. Filter the
+  // absent/zero sentinel (rows recorded while the car was asleep carry
+  // no reading).
+  const packTempPts = (field: "pack_temp_avg_c" | "pack_temp_min_c" | "pack_temp_max_c") =>
+    chargeSamples
+      .filter((p) => Number.isFinite(p[field]) && (p[field] ?? 0) !== 0)
+      .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p[field] as number) }));
+  const packAvgPts = smoothGaussianTime(packTempPts("pack_temp_avg_c"), 60_000);
+  const packMinPts = smoothGaussianTime(packTempPts("pack_temp_min_c"), 60_000);
+  const packMaxPts = smoothGaussianTime(packTempPts("pack_temp_max_c"), 60_000);
+  const hasPackTemp = packAvgPts.length > 1;
+  const packSpreadC = (() => {
+    const vals = chargeSamples
+      .map((p) =>
+        Number.isFinite(p.pack_temp_max_c) && Number.isFinite(p.pack_temp_min_c)
+          ? (p.pack_temp_max_c as number) - (p.pack_temp_min_c as number)
+          : NaN,
+      )
+      .filter((v) => Number.isFinite(v) && v > 0);
+    return vals.length ? Math.max(...vals) : 0;
+  })();
+
   // For active live sessions the backend keeps `EndedAt` updated to
   // the last-seen sample, which makes the page look like the session
   // already ended. Compute duration against `now` and surface a
@@ -313,6 +337,45 @@ export default function ChargeDetailPage() {
           </>
         )}
       </Card>
+
+      {hasPackTemp && (
+        <Card title="Battery pack temperature">
+          <LineChart
+            series={[
+              { points: packMaxPts, color: "#f87171", strokeWidth: 1, curve: "monotone", label: "Max cell" },
+              { points: packAvgPts, color: "#fb923c", strokeWidth: 1.8, curve: "monotone", label: "Avg cell" },
+              { points: packMinPts, color: "#60a5fa", strokeWidth: 1, curve: "monotone", label: "Min cell" },
+            ]}
+            height={180}
+            formatY={(v) => `${v.toFixed(1)}${tempUnitSuffix}`}
+            formatX={xTimeFmt}
+            cursorX={cursorMs}
+            onCursorChange={setCursorMs}
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-neutral-500">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-xs bg-red-400" /> Max cell
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-xs bg-amber-500" /> Avg cell
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-2 h-2 rounded-xs bg-blue-400" /> Min cell
+            </span>
+            {packSpreadC > 0 && (
+              <span className="ml-auto">
+                Peak cell spread{" "}
+                {(tempUnit === "f" ? packSpreadC * 1.8 : packSpreadC).toFixed(1)}
+                {tempUnitSuffix}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">
+            High-voltage pack cell temperatures. A widening max↔min spread
+            signals thermal imbalance across the pack.
+          </p>
+        </Card>
+      )}
 
       {/* When power is genuinely missing (home AC sessions; the
           ElectraFi pre-Mar-2026 export gap) we still want to surface

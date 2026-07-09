@@ -508,6 +508,11 @@ export default function DriveDetailPage() {
                 {formatTemperature(cursorSample.OutsideTempC, tempUnit, 0)}
               </span>
             ) : null}
+            {cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0 ? (
+              <span className="text-orange-300" title="Battery pack avg cell temperature">
+                pack {formatTemperature(cursorSample.pack_temp_avg_c, tempUnit, 0)}
+              </span>
+            ) : null}
             {cursorSample.Lat || cursorSample.Lon ? (
               <span className="text-neutral-500">
                 {cursorSample.Lat.toFixed(5)}, {cursorSample.Lon.toFixed(5)}

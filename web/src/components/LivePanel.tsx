@@ -195,6 +195,15 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />
             <Field label="Range" value={num(kmToMi(s.distance_to_empty), 0, "mi")} />
             <Field label="Odometer" value={num(kmToMi(s.odometer_km), 0, "mi")} />
+            {/* Pack cell temperature via Parallax (battery_state). Only
+                streams while the car is awake, so hide the 0 sentinel.
+                Detailed min/max/spread live on the charge detail chart. */}
+            {s.pack_temp_avg_c && s.pack_temp_avg_c !== 0 ? (
+              <Field
+                label="Pack temp"
+                value={formatTemperature(s.pack_temp_avg_c, tempUnit)}
+              />
+            ) : null}
             <Field
               label="Charger"
               value={
