@@ -508,6 +508,11 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleBatteryTempProbe(clientFor(d, uid))(w, r)
 			}))
+			// RE tool: capture raw Parallax frames for a topic (default
+			// dynamics.vehicle.gnss) — ?rvms=a,b&max=N.
+			r.With(vehicleScoped).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleParallaxRawProbe(clientFor(d, uid))(w, r)
+			}))
 			r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargingFieldProbe(clientFor(d, uid))(w, r)
 			}))

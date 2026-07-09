@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -141,6 +143,36 @@ func handleBatteryTempProbe(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, bt)
+	}
+}
+
+// handleParallaxRawProbe captures raw Parallax frames for the given RVM
+// topics, for reverse-engineering a topic's protobuf payload from live
+// data. ?rvms=a,b,c (default dynamics.vehicle.gnss); ?max=N frames.
+func handleParallaxRawProbe(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		vid := chi.URLParam(r, "vehicleID")
+		rvms := []string{"dynamics.vehicle.gnss"}
+		if q := strings.TrimSpace(r.URL.Query().Get("rvms")); q != "" {
+			rvms = strings.Split(q, ",")
+		}
+		maxFrames := 5
+		if q := r.URL.Query().Get("max"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 50 {
+				maxFrames = n
+			}
+		}
+		frames, err := lc.ProbeParallaxRaw(r.Context(), vid, rvms, maxFrames)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"frames": frames})
 	}
 }
 

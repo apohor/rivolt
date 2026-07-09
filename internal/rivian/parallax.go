@@ -98,6 +98,74 @@ func (c *LiveClient) ProbeBatteryTemperature(ctx context.Context, vehicleID stri
 	return nil, errors.New("parallax: no battery_state frame within timeout (is the vehicle awake?)")
 }
 
+// ParallaxRawFrame is one captured Parallax message: the RVM topic, its
+// server timestamp, and the raw base64 protobuf payload. Used to
+// reverse-engineer a topic's wire shape from live frames before writing
+// a decoder (the reliable path — the app's protobuf classes are
+// R8-obfuscated and the nested layouts don't read cleanly from smali).
+type ParallaxRawFrame struct {
+	RVM        string `json:"rvm"`
+	Timestamp  string `json:"timestamp"`
+	PayloadB64 string `json:"payload_b64"`
+}
+
+// ProbeParallaxRaw subscribes to the given RVM topics and returns up to
+// maxFrames raw frames, or whatever arrived before the timeout. The
+// vehicle must be awake (and, for dynamics.vehicle.gnss, moving) for
+// frames to stream.
+func (c *LiveClient) ProbeParallaxRaw(ctx context.Context, vehicleID string, rvms []string, maxFrames int) ([]ParallaxRawFrame, error) {
+	c.mu.Lock()
+	userTok := c.userSessionToken
+	c.mu.Unlock()
+	if userTok == "" {
+		return nil, ErrNotAuthenticated
+	}
+	if vehicleID == "" || len(rvms) == 0 {
+		return nil, errors.New("rivian: vehicleID and rvms are required")
+	}
+	if maxFrames <= 0 {
+		maxFrames = 5
+	}
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	var frames []ParallaxRawFrame
+	err := c.runGenericSubscription(ctx, userTok, subParams{
+		operationName: "ParallaxMessages",
+		query:         qParallaxMessagesSubscription,
+		vehicleID:     vehicleID,
+		variables:     map[string]any{"vehicleId": vehicleID, "rvms": rvms},
+	}, func(raw json.RawMessage) error {
+		var p parallaxNext
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil
+		}
+		if len(p.Errors) > 0 {
+			return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+		}
+		msg := p.Data.ParallaxMessages
+		if msg.Payload == "" {
+			return nil
+		}
+		frames = append(frames, ParallaxRawFrame{
+			RVM:        msg.RVM,
+			Timestamp:  strings.Trim(string(msg.Timestamp), `"`),
+			PayloadB64: msg.Payload,
+		})
+		if len(frames) >= maxFrames {
+			return errParallaxDone
+		}
+		return nil
+	})
+	if len(frames) > 0 {
+		return frames, nil
+	}
+	if err != nil && !errors.Is(err, errParallaxDone) {
+		return nil, err
+	}
+	return nil, errors.New("parallax: no frames within timeout (is the vehicle awake / moving?)")
+}
+
 // BatteryTempCallback receives decoded pack temperatures per frame.
 type BatteryTempCallback func(*BatteryTemp)
 
