@@ -122,6 +122,28 @@ func handleChargingSchemaProbe(c rivian.Client) http.HandlerFunc {
 	}
 }
 
+// handleBatteryTempProbe subscribes to the Parallax
+// energy.high_voltage.battery_state topic for the vehicle, decodes the
+// first frame's pack cell temperatures, and returns them. Proof-of-
+// concept for wiring battery pack temperature into Rivolt; the vehicle
+// must be awake for a frame to arrive.
+func handleBatteryTempProbe(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		vid := chi.URLParam(r, "vehicleID")
+		bt, err := lc.ProbeBatteryTemperature(r.Context(), vid)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, bt)
+	}
+}
+
 // handleChargingFieldProbe fires a deliberately wrong query for the
 // named charging-endpoint field and returns Rivian's validation
 // error, which lists the required args and subfields. ?vehicleID=...

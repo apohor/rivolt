@@ -504,6 +504,10 @@ func New(d Deps) http.Handler {
 			r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargingSchemaProbe(clientFor(d, uid))(w, r)
 			}))
+			// PoC: live battery pack cell temperatures via Parallax.
+			r.With(vehicleScoped).Get("/battery-temp/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleBatteryTempProbe(clientFor(d, uid))(w, r)
+			}))
 			r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargingFieldProbe(clientFor(d, uid))(w, r)
 			}))
