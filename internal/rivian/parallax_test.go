@@ -64,6 +64,38 @@ func TestDecodeBatteryTemp_NoTemperatureState(t *testing.T) {
 	}
 }
 
+// TestDecodeDynamicsGNSS decodes a real dynamics.vehicle.gnss frame
+// captured from a parked R1S on preview. Pins the field mapping
+// (lat=1, lon=2, alt=3 doubles; heading=5 float; ts=10 varint; speed=4
+// absent while parked). Guards against a wire-layout regression.
+func TestDecodeDynamicsGNSS(t *testing.T) {
+	const frame = "CQAAAADMjT5AEQAAAADIcFjAGQAAAADMDG5ALWdmrEM1zcwMQD1nZuY/Rc3MzD1NZ2ZmP1Cc/e/D9DM="
+	g, err := decodeDynamicsGNSS(frame)
+	if err != nil {
+		t.Fatalf("decodeDynamicsGNSS: %v", err)
+	}
+	near := func(got, want, tol float64) bool { return got-want < tol && want-got < tol }
+	if !near(g.Latitude, 30.55389, 1e-4) {
+		t.Errorf("lat = %v, want ~30.55389", g.Latitude)
+	}
+	if !near(g.Longitude, -97.76221, 1e-4) {
+		t.Errorf("lon = %v, want ~-97.76221", g.Longitude)
+	}
+	if !near(g.AltitudeM, 240.4, 0.1) {
+		t.Errorf("alt = %v, want ~240.4", g.AltitudeM)
+	}
+	if !near(g.HeadingDeg, 344.8, 0.1) {
+		t.Errorf("heading = %v, want ~344.8", g.HeadingDeg)
+	}
+	if g.TimestampMs != 1783627513500 {
+		t.Errorf("ts = %d, want 1783627513500", g.TimestampMs)
+	}
+	// Parked capture: speed omitted → decodes to 0.
+	if g.SpeedMS != 0 {
+		t.Errorf("speed = %v, want 0 (parked)", g.SpeedMS)
+	}
+}
+
 // TestDecodeBatteryTemp_PartialTemps tolerates protobuf's omit-zero
 // behaviour: a frame that only carries avg (min/max omitted) decodes
 // avg and leaves the others at zero.

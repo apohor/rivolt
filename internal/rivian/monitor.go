@@ -564,6 +564,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 	go m.batteryStateSubscriber(refreshCtx, vehicleID)
+	go m.dynamicsGNSSProbe(refreshCtx, vehicleID)
 
 	// Resubscribe loop: SubscribeVehicleState has per-connection
 	// retry/backoff internally, but eventually returns (e.g. Rivian
@@ -1165,6 +1166,37 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 		m.logger.Warn("battery_state subscription ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// dynamicsGNSSProbe streams the Parallax dynamics.vehicle.gnss topic
+// and logs each frame with the gap since the previous one, so a real
+// drive reveals the actual GPS push cadence (and confirms the speed
+// field) to compare against the vehicleState WS cadence. Temporary
+// measurement rig for the driving-stats migration — it does NOT feed
+// the recorder yet; vehicleState stays the source of truth until we've
+// confirmed Parallax GPS is meaningfully better. Capped log volume.
+func (m *StateMonitor) dynamicsGNSSProbe(ctx context.Context, vehicleID string) {
+	var last time.Time
+	logged := 0
+	err := m.client.SubscribeDynamicsGNSS(ctx, vehicleID, func(g *DynamicsGNSS) {
+		now := time.Now()
+		gap := 0.0
+		if !last.IsZero() {
+			gap = now.Sub(last).Seconds()
+		}
+		last = now
+		if logged < 150 {
+			m.logger.Info("parallax gnss frame",
+				"vehicle", vehicleID,
+				"lat", g.Latitude, "lon", g.Longitude,
+				"speed_ms", g.SpeedMS, "heading", g.HeadingDeg,
+				"alt_m", g.AltitudeM, "gap_s", gap)
+			logged++
+		}
+	})
+	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		m.logger.Warn("dynamics gnss probe ended", "vehicle", vehicleID, "err", err.Error())
 	}
 }
 

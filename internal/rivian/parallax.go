@@ -98,6 +98,53 @@ func (c *LiveClient) ProbeBatteryTemperature(ctx context.Context, vehicleID stri
 	return nil, errors.New("parallax: no battery_state frame within timeout (is the vehicle awake?)")
 }
 
+// DynamicsGNSS is a decoded dynamics.vehicle.gnss frame. Field numbers
+// confirmed from a live frame (see parallax_test.go): lat/lon/alt are
+// doubles, speed/heading floats, timestamp a varint (epoch ms). Fields
+// 6-9 are GPS accuracy metrics we don't consume yet. speed (field 4)
+// was absent (0) in the parked capture — mapped here, to be confirmed
+// against a moving frame.
+type DynamicsGNSS struct {
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	AltitudeM   float64 `json:"altitude_m"`
+	SpeedMS     float64 `json:"speed_ms"`
+	HeadingDeg  float64 `json:"heading_deg"`
+	TimestampMs int64   `json:"timestamp_ms"`
+}
+
+// decodeDynamicsGNSS parses a dynamics.vehicle.gnss protobuf payload.
+func decodeDynamicsGNSS(b64 string) (*DynamicsGNSS, error) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		if raw, err = base64.RawStdEncoding.DecodeString(b64); err != nil {
+			return nil, fmt.Errorf("base64: %w", err)
+		}
+	}
+	g := &DynamicsGNSS{}
+	err = pbScan(raw, func(field, wire int, val []byte) {
+		switch {
+		case field == 1 && wire == 1:
+			g.Latitude = math.Float64frombits(binary.LittleEndian.Uint64(val))
+		case field == 2 && wire == 1:
+			g.Longitude = math.Float64frombits(binary.LittleEndian.Uint64(val))
+		case field == 3 && wire == 1:
+			g.AltitudeM = math.Float64frombits(binary.LittleEndian.Uint64(val))
+		case field == 4 && wire == 5:
+			g.SpeedMS = float64(math.Float32frombits(binary.LittleEndian.Uint32(val)))
+		case field == 5 && wire == 5:
+			g.HeadingDeg = float64(math.Float32frombits(binary.LittleEndian.Uint32(val)))
+		case field == 10 && wire == 0:
+			v, _ := binary.Uvarint(val)
+			g.TimestampMs = int64(v)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
 // ParallaxRawFrame is one captured Parallax message: the RVM topic, its
 // server timestamp, and the raw base64 protobuf payload. Used to
 // reverse-engineer a topic's wire shape from live frames before writing
@@ -215,6 +262,73 @@ func (c *LiveClient) SubscribeBatteryState(ctx context.Context, vehicleID string
 			}
 			if bt != nil {
 				cb(bt)
+			}
+			return nil
+		})
+		if err == nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, errWSUnauthenticated) {
+			return err
+		}
+		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
+		if wait > 5*time.Minute {
+			wait = 5 * time.Minute
+		}
+		attempt++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
+// DynamicsGNSSCallback receives a decoded gnss frame.
+type DynamicsGNSSCallback func(*DynamicsGNSS)
+
+// SubscribeDynamicsGNSS streams the dynamics.vehicle.gnss Parallax topic
+// for vehicleID, invoking cb with each decoded frame. Blocks until ctx
+// is cancelled or auth fails; reconnects with backoff. Measurement step
+// of the driving-stats migration — run alongside vehicleState to compare
+// GPS cadence/accuracy before flipping the recorder.
+func (c *LiveClient) SubscribeDynamicsGNSS(ctx context.Context, vehicleID string, cb DynamicsGNSSCallback) error {
+	c.mu.Lock()
+	userTok := c.userSessionToken
+	c.mu.Unlock()
+	if userTok == "" {
+		return ErrNotAuthenticated
+	}
+	if vehicleID == "" {
+		return errors.New("rivian: vehicleID is required")
+	}
+	if cb == nil {
+		return errors.New("rivian: callback is required")
+	}
+	attempt := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := c.runGenericSubscription(ctx, userTok, subParams{
+			operationName: "ParallaxMessages",
+			query:         qParallaxMessagesSubscription,
+			vehicleID:     vehicleID,
+			variables:     map[string]any{"vehicleId": vehicleID, "rvms": []string{"dynamics.vehicle.gnss"}},
+		}, func(raw json.RawMessage) error {
+			var p parallaxNext
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return nil
+			}
+			if len(p.Errors) > 0 {
+				return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+			}
+			msg := p.Data.ParallaxMessages
+			if msg.RVM != "dynamics.vehicle.gnss" || msg.Payload == "" {
+				return nil
+			}
+			if g, derr := decodeDynamicsGNSS(msg.Payload); derr == nil {
+				cb(g)
 			}
 			return nil
 		})
