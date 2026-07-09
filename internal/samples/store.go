@@ -61,6 +61,15 @@ type Sample struct {
 	// keeps the worst tire (the one that actually hurts efficiency)
 	// dominant without bloating the schema with all four corners.
 	TirePressureMinBar *float64 `json:"tire_pressure_min_bar,omitempty"`
+	// PackTempAvg/Max/MinC are high-voltage battery cell temperatures
+	// (°C), merged in from the Parallax energy.high_voltage.battery_state
+	// topic. Pointers because nullable: NULL on legacy rows pre-migration
+	// 0036, imports, and live rows recorded before the vehicle pushed a
+	// battery_state frame. Avg/max/min kept separately so the spread
+	// (thermal imbalance) is queryable.
+	PackTempAvgC *float64 `json:"pack_temp_avg_c,omitempty"`
+	PackTempMaxC *float64 `json:"pack_temp_max_c,omitempty"`
+	PackTempMinC *float64 `json:"pack_temp_min_c,omitempty"`
 }
 
 // Store wraps the vehicle_state table, scoped to one user.
@@ -153,8 +162,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			charger_power_kw, charge_limit_pct,
 			inside_temp_c, outside_temp_c,
 			drive_number, charge_number, source,
-			altitude_m, tire_pressure_min_bar
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+			altitude_m, tire_pressure_min_bar,
+			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -175,6 +185,12 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		if v.TirePressureMinBar != nil {
 			tirePsi = *v.TirePressureMinBar
 		}
+		ptr := func(p *float64) any {
+			if p != nil {
+				return *p
+			}
+			return nil
+		}
 		if _, err := stmt.ExecContext(ctx,
 			s.userID, uuids[v.VehicleID], v.At.UTC(),
 			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
@@ -184,6 +200,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			v.InsideTempC, v.OutsideTempC,
 			v.DriveNumber, v.ChargeNumber, v.Source,
 			alt, tirePsi,
+			ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
 		); err != nil {
 			return err
 		}

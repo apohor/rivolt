@@ -129,6 +129,13 @@ type State struct {
 	TirePressureStatusFR string  `json:"tire_pressure_status_fr"`
 	TirePressureStatusRL string  `json:"tire_pressure_status_rl"`
 	TirePressureStatusRR string  `json:"tire_pressure_status_rr"`
+	// High-voltage battery pack cell temperatures (°C). Not in the
+	// legacy vehicleState selection — merged in from the Parallax
+	// energy.high_voltage.battery_state topic (see parallax.go). Zero
+	// means "not yet reported" (the topic only streams while awake).
+	PackTempAvgC float64 `json:"pack_temp_avg_c"`
+	PackTempMaxC float64 `json:"pack_temp_max_c"`
+	PackTempMinC float64 `json:"pack_temp_min_c"`
 	// Charging context populated during an active session. Zero/empty
 	// outside a session — clients gate UI on ChargerState first.
 	//   TimeToEndMins:               minutes to a full charge at the

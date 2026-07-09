@@ -398,6 +398,14 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			b := minBar
 			s.TirePressureMinBar = &b
 		}
+		// Pack cell temperatures (from the Parallax battery_state topic,
+		// carried across frames by mergeState). Record when we have a
+		// reading; the avg gates all three since Rivian sends them
+		// together — a zero avg means no frame yet, leave NULL.
+		if curr.PackTempAvgC != 0 {
+			avg, mx, mn := curr.PackTempAvgC, curr.PackTempMaxC, curr.PackTempMinC
+			s.PackTempAvgC, s.PackTempMaxC, s.PackTempMinC = &avg, &mx, &mn
+		}
 		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet

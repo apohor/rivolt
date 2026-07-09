@@ -563,6 +563,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.periodicRefresh(refreshCtx, vehicleID)
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
+	go m.batteryStateSubscriber(refreshCtx, vehicleID)
 
 	// Resubscribe loop: SubscribeVehicleState has per-connection
 	// retry/backoff internally, but eventually returns (e.g. Rivian
@@ -1142,6 +1143,31 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 	}
 }
 
+// batteryStateSubscriber streams the Parallax
+// energy.high_voltage.battery_state topic for the monitor's lifetime and
+// folds the pack cell temperatures into the cached State, so the next
+// recorded vehicleState frame carries them (mergeState keeps them across
+// deltas). Unlike the charging subscriber this runs continuously, not
+// just while charging — pack temperature is worth recording whenever the
+// vehicle is awake. SubscribeBatteryState handles reconnect/backoff.
+func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID string) {
+	err := m.client.SubscribeBatteryState(ctx, vehicleID, func(bt *BatteryTemp) {
+		if bt == nil || bt.CellAvgC == 0 {
+			return
+		}
+		m.mu.Lock()
+		if st := m.cache[vehicleID]; st != nil {
+			st.PackTempAvgC = bt.CellAvgC
+			st.PackTempMaxC = bt.CellMaxC
+			st.PackTempMinC = bt.CellMinC
+		}
+		m.mu.Unlock()
+	})
+	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		m.logger.Warn("battery_state subscription ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
 // bondCharge stamps the recorder's currently-open liveCharge id so
 // the next applyLiveSession push gets bonded to it. Called by the
 // recorder on charge-open, paired with delete(m.chargeBond, ...) on
@@ -1296,6 +1322,13 @@ func mergeState(prev, next *State) *State {
 	mergeFloat(&out.TirePressureFRBar, next.TirePressureFRBar)
 	mergeFloat(&out.TirePressureRLBar, next.TirePressureRLBar)
 	mergeFloat(&out.TirePressureRRBar, next.TirePressureRRBar)
+	// Pack temps arrive on a separate Parallax topic, not in the
+	// vehicleState push — carry them across frames so every recorded
+	// row keeps the last-known reading until the next battery_state
+	// frame refreshes it.
+	mergeFloat(&out.PackTempAvgC, next.PackTempAvgC)
+	mergeFloat(&out.PackTempMaxC, next.PackTempMaxC)
+	mergeFloat(&out.PackTempMinC, next.PackTempMinC)
 
 	// Strings: non-empty wins.
 	mergeString(&out.Gear, next.Gear)

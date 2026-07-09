@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -78,23 +79,13 @@ func (c *LiveClient) ProbeBatteryTemperature(ctx context.Context, vehicleID stri
 			"rvms":      []string{rvmBatteryState},
 		},
 	}, func(raw json.RawMessage) error {
-		var p parallaxNext
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil // tolerate a single bad frame
+		bt, err := parseBatteryFrame(raw)
+		if err != nil {
+			return err
 		}
-		if len(p.Errors) > 0 {
-			return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+		if bt == nil {
+			return nil // other RVM / bad frame — keep waiting
 		}
-		msg := p.Data.ParallaxMessages
-		if msg.RVM != rvmBatteryState || msg.Payload == "" {
-			return nil // different RVM slipped through; keep waiting
-		}
-		bt, derr := decodeBatteryTemp(msg.Payload)
-		if derr != nil {
-			return fmt.Errorf("decode battery_state: %w", derr)
-		}
-		bt.Timestamp = strings.Trim(string(msg.Timestamp), `"`)
-		bt.RawB64 = msg.Payload
 		result = bt
 		return errParallaxDone
 	})
@@ -105,6 +96,102 @@ func (c *LiveClient) ProbeBatteryTemperature(ctx context.Context, vehicleID stri
 		return nil, err
 	}
 	return nil, errors.New("parallax: no battery_state frame within timeout (is the vehicle awake?)")
+}
+
+// BatteryTempCallback receives decoded pack temperatures per frame.
+type BatteryTempCallback func(*BatteryTemp)
+
+// SubscribeBatteryState streams the energy.high_voltage.battery_state
+// Parallax topic for vehicleID, invoking cb with decoded pack cell
+// temperatures on every frame. Blocks until ctx is cancelled or auth
+// fails; reconnects with exponential backoff on transient errors. The
+// topic only pushes while the vehicle is awake.
+//
+// This is the additive-Parallax pattern (see docs on the pack-temp
+// migration): vehicleState stays the primary source, and a Parallax
+// topic is layered on for a field it lacks. The next topic Rivolt wants
+// (cold-weather SOC, richer thermal, …) follows this same shape.
+func (c *LiveClient) SubscribeBatteryState(ctx context.Context, vehicleID string, cb BatteryTempCallback) error {
+	c.mu.Lock()
+	userTok := c.userSessionToken
+	c.mu.Unlock()
+	if userTok == "" {
+		return ErrNotAuthenticated
+	}
+	if vehicleID == "" {
+		return errors.New("rivian: vehicleID is required")
+	}
+	if cb == nil {
+		return errors.New("rivian: callback is required")
+	}
+
+	attempt := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := c.runGenericSubscription(ctx, userTok, subParams{
+			operationName: "ParallaxMessages",
+			query:         qParallaxMessagesSubscription,
+			vehicleID:     vehicleID,
+			variables: map[string]any{
+				"vehicleId": vehicleID,
+				"rvms":      []string{rvmBatteryState},
+			},
+		}, func(raw json.RawMessage) error {
+			bt, perr := parseBatteryFrame(raw)
+			if perr != nil {
+				// A subscription-level error is terminal (reconnect); a
+				// single malformed payload returns nil bt + nil err.
+				return perr
+			}
+			if bt != nil {
+				cb(bt)
+			}
+			return nil
+		})
+		if err == nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, errWSUnauthenticated) {
+			return err
+		}
+		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
+		if wait > 5*time.Minute {
+			wait = 5 * time.Minute
+		}
+		attempt++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
+// parseBatteryFrame decodes a Parallax "next" frame into a BatteryTemp.
+// Returns (nil, nil) for frames of other RVM topics or a single
+// malformed payload (tolerated to keep the stream alive), and a non-nil
+// error only for a subscription-level GraphQL error (terminal).
+func parseBatteryFrame(raw json.RawMessage) (*BatteryTemp, error) {
+	var p parallaxNext
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, nil
+	}
+	if len(p.Errors) > 0 {
+		return nil, fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+	}
+	msg := p.Data.ParallaxMessages
+	if msg.RVM != rvmBatteryState || msg.Payload == "" {
+		return nil, nil
+	}
+	bt, err := decodeBatteryTemp(msg.Payload)
+	if err != nil {
+		return nil, nil // tolerate a single bad frame
+	}
+	bt.Timestamp = strings.Trim(string(msg.Timestamp), `"`)
+	bt.RawB64 = msg.Payload
+	return bt, nil
 }
 
 // decodeBatteryTemp base64-decodes a battery_state payload and pulls the
