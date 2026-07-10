@@ -176,6 +176,26 @@ func handleParallaxRawProbe(c rivian.Client) http.HandlerFunc {
 	}
 }
 
+// handleSupportedFeaturesProbe returns the per-vehicle capability map
+// (feature name -> status) from Rivian's SupportedFeatures query. Used
+// to confirm which vehicles report PX_STATE_ALL=AVAILABLE, i.e. are
+// eligible for the Parallax GPS feed.
+func handleSupportedFeaturesProbe(c rivian.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lc, ok := c.(*rivian.LiveClient)
+		if !ok || lc == nil {
+			http.Error(w, "no live rivian client configured", http.StatusNotFound)
+			return
+		}
+		feats, err := lc.SupportedFeatures(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, feats)
+	}
+}
+
 // handleChargingFieldProbe fires a deliberately wrong query for the
 // named charging-endpoint field and returns Rivian's validation
 // error, which lists the required args and subfields. ?vehicleID=...

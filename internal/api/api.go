@@ -513,6 +513,11 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Get("/parallax-raw/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleParallaxRawProbe(clientFor(d, uid))(w, r)
 			}))
+			// Capability gate: SupportedFeatures per vehicle, incl.
+			// PX_STATE_ALL (Parallax vehicle-state) availability.
+			r.Get("/supported-features", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSupportedFeaturesProbe(clientFor(d, uid))(w, r)
+			}))
 			r.Get("/charging-field/{field}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargingFieldProbe(clientFor(d, uid))(w, r)
 			}))

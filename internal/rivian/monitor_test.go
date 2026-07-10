@@ -197,24 +197,32 @@ func TestMaybeStripGPS(t *testing.T) {
 		}
 	}
 
-	// Flag on: GPS zeroed, everything else preserved.
-	on := &StateMonitor{parallaxGPS: true}
+	// Resolved-on for this vehicle: GPS zeroed, everything else kept.
+	on := &StateMonitor{parallaxGPSFor: map[string]bool{"v1": true}}
 	st := sample()
-	on.maybeStripGPS(st)
+	on.maybeStripGPS("v1", st)
 	if st.Latitude != 0 || st.Longitude != 0 || st.SpeedKph != 0 ||
 		st.HeadingDeg != 0 || st.AltitudeM != 0 || !st.LocationFixAt.IsZero() {
-		t.Fatalf("flag on: GPS not fully stripped: %+v", st)
+		t.Fatalf("resolved on: GPS not fully stripped: %+v", st)
 	}
 	if st.BatteryLevelPct != 72 || st.Gear != "D" {
-		t.Fatalf("flag on: non-GPS fields altered: %+v", st)
+		t.Fatalf("resolved on: non-GPS fields altered: %+v", st)
 	}
 
-	// Flag off: snapshot untouched.
-	off := &StateMonitor{parallaxGPS: false}
+	// A different vehicle (not resolved on) is untouched even on the
+	// same monitor — the gate is per-vehicle.
 	st2 := sample()
-	off.maybeStripGPS(st2)
+	on.maybeStripGPS("other", st2)
 	if st2.Latitude != 30.55 || st2.SpeedKph != 88 || st2.LocationFixAt.IsZero() {
-		t.Fatalf("flag off: GPS unexpectedly modified: %+v", st2)
+		t.Fatalf("other vehicle: GPS unexpectedly modified: %+v", st2)
+	}
+
+	// Resolved-off: snapshot untouched.
+	off := &StateMonitor{parallaxGPSFor: map[string]bool{"v1": false}}
+	st3 := sample()
+	off.maybeStripGPS("v1", st3)
+	if st3.Latitude != 30.55 || st3.SpeedKph != 88 || st3.LocationFixAt.IsZero() {
+		t.Fatalf("resolved off: GPS unexpectedly modified: %+v", st3)
 	}
 }
 

@@ -920,6 +920,82 @@ type userData struct {
 	} `json:"currentUser"`
 }
 
+// qSupportedFeatures mirrors the Rivian app's SupportedFeatures
+// operation verbatim (recovered from the 3.13.x APK). It returns, per
+// vehicle on the account, the capability list the app uses to decide
+// which telemetry/command paths a given vehicle supports. Parallax
+// vehicle-state (the RVM feed that carries dynamics.vehicle.gnss) is
+// gated on the feature named "PX_STATE_ALL" reporting status
+// "AVAILABLE"; anything else (NOT_AVAILABLE / UNAVAILABLE /
+// UPDATE_FIRMWARE) means the app falls back to the legacy JSON feed.
+const qSupportedFeatures = `query SupportedFeatures { currentUser { vehicles { id vehicle { vehicleState { supportedFeatures { name status } } } } } }`
+
+// FeatureParallaxVehicleState is the API `name` value for the Parallax
+// vehicle-state capability. The app models it as the enum
+// PARALLAX_VEHICLE_STATE, but the wire value is "PX_STATE_ALL".
+const FeatureParallaxVehicleState = "PX_STATE_ALL"
+
+// FeatureStatusAvailable is the only supportedFeatures status the app
+// treats as "on" (per UserVehicleKt.isFeatureSupported).
+const FeatureStatusAvailable = "AVAILABLE"
+
+type supportedFeaturesData struct {
+	CurrentUser struct {
+		Vehicles []struct {
+			ID      string `json:"id"`
+			Vehicle struct {
+				VehicleState struct {
+					SupportedFeatures []struct {
+						Name   string `json:"name"`
+						Status string `json:"status"`
+					} `json:"supportedFeatures"`
+				} `json:"vehicleState"`
+			} `json:"vehicle"`
+		} `json:"vehicles"`
+	} `json:"currentUser"`
+}
+
+// SupportedFeatures returns the capability map for every vehicle on the
+// authenticated account: vehicleID -> (feature name -> status). Backed
+// by the same gateway endpoint as vehicleState. Callers typically look
+// up one vehicle and one feature (see VehicleSupportsParallaxState).
+func (c *LiveClient) SupportedFeatures(ctx context.Context) (map[string]map[string]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.userSessionToken == "" {
+		return nil, ErrNotAuthenticated
+	}
+	data, err := doGraphQL[supportedFeaturesData](ctx, c, graphQLRequest{
+		OperationName: "SupportedFeatures",
+		Query:         qSupportedFeatures,
+		Variables:     struct{}{},
+	}, c.authHeaders())
+	if err != nil {
+		return nil, fmt.Errorf("SupportedFeatures: %w", err)
+	}
+	out := make(map[string]map[string]string, len(data.CurrentUser.Vehicles))
+	for _, v := range data.CurrentUser.Vehicles {
+		feats := make(map[string]string, len(v.Vehicle.VehicleState.SupportedFeatures))
+		for _, f := range v.Vehicle.VehicleState.SupportedFeatures {
+			feats[f.Name] = f.Status
+		}
+		out[v.ID] = feats
+	}
+	return out, nil
+}
+
+// VehicleSupportsParallaxState reports whether the given vehicle has the
+// Parallax vehicle-state capability (PX_STATE_ALL = AVAILABLE). A vehicle
+// missing from the response, or reporting any other status, returns
+// false — the same conservative default the app uses.
+func (c *LiveClient) VehicleSupportsParallaxState(ctx context.Context, vehicleID string) (bool, error) {
+	all, err := c.SupportedFeatures(ctx)
+	if err != nil {
+		return false, err
+	}
+	return all[vehicleID][FeatureParallaxVehicleState] == FeatureStatusAvailable, nil
+}
+
 // RefreshSession forces a fresh a-sess/csrf pair and then probes the
 // account with a real authenticated call (getUserInfo via Vehicles).
 // It's the manual counterpart to the auto-heal in doGraphQL: an admin

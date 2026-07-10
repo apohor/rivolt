@@ -54,16 +54,22 @@ type StateMonitor struct {
 	parent    context.Context //nolint:containedctx // outer ctx for spawned subscriptions
 	stopOnce  sync.Once
 
-	// parallaxGPS flips the recorded GPS source from the legacy
-	// vehicleState feed to the Parallax dynamics.vehicle.gnss topic.
-	// When set, vehicleState's lat/lon/speed/heading/altitude are
-	// stripped before they enter the cache and the gnss subscriber
-	// becomes the sole writer of those fields. Off by default (prod);
-	// enabled per-environment via RIVOLT_PARALLAX_GPS. A measured
-	// downgrade in point density (~60s cadence vs vehicleState's ~3s)
-	// but free of vehicleState's multi-minute stalls; kept behind a
-	// flag so preview can carry it without touching prod.
+	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for
+	// recording GPS from the Parallax dynamics.vehicle.gnss topic
+	// instead of legacy vehicleState. It mirrors the app's Firebase
+	// `parallaxCommand` remote-config layer: necessary but not
+	// sufficient. Off by default (prod); on in preview. The per-vehicle
+	// decision (parallaxGPSFor) additionally requires the vehicle to
+	// report the PX_STATE_ALL capability as AVAILABLE, mirroring the
+	// app's SupportedFeatures gate. When both pass, vehicleState GPS is
+	// stripped before it enters the cache and the gnss subscriber
+	// becomes the sole writer of lat/lon/speed/heading/altitude.
 	parallaxGPS bool
+	// parallaxGPSFor[vehicleID] is the resolved per-vehicle GPS source:
+	// true once the master is on AND the vehicle's SupportedFeatures
+	// reports PX_STATE_ALL=AVAILABLE. Written by run() at subscribe
+	// time, read by maybeStripGPS on the hot path. Guarded by mu.
+	parallaxGPSFor map[string]bool
 
 	// Live recording stores (all optional — nil stores disable that
 	// particular writer). Samples captures every merged state update
@@ -205,6 +211,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		client:         client,
 		logger:         logger,
 		parallaxGPS:    parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		parallaxGPSFor: make(map[string]bool),
 		cache:          make(map[string]*State),
 		stamp:          make(map[string]time.Time),
 		wsSeen:         make(map[string]bool),
@@ -236,12 +243,19 @@ func parseBoolEnv(v string) bool {
 }
 
 // maybeStripGPS zeros the GPS fields on a vehicleState-sourced snapshot
-// when the Parallax GPS feed is authoritative, so mergeState never lets
-// vehicleState overwrite the gnss-sourced lat/lon in the cache. No-op
-// when the flag is off (vehicleState stays the GPS source). Fields left
-// zero are ignored by mergeFloat, so the cache keeps its Parallax fix.
-func (m *StateMonitor) maybeStripGPS(st *State) {
-	if st == nil || !m.parallaxGPS {
+// when the Parallax GPS feed is authoritative for this vehicle, so
+// mergeState never lets vehicleState overwrite the gnss-sourced lat/lon
+// in the cache. No-op when the vehicle stays on the legacy source.
+// Fields left zero are ignored by mergeFloat, so the cache keeps its
+// Parallax fix.
+func (m *StateMonitor) maybeStripGPS(vehicleID string, st *State) {
+	if st == nil {
+		return
+	}
+	m.mu.RLock()
+	on := m.parallaxGPSFor[vehicleID]
+	m.mu.RUnlock()
+	if !on {
 		return
 	}
 	st.Latitude = 0
@@ -326,16 +340,12 @@ func (m *StateMonitor) Start(ctx context.Context) {
 	m.parent = ctx
 	m.mu.Unlock()
 
-	// One-line record of the GPS source so a pod's mode is greppable
-	// without reading its env (distroless: no printenv, non-root blocks
-	// /proc/<pid>/environ). "parallax" strips vehicleState GPS and
-	// records from dynamics.vehicle.gnss; "vehicle_state" is the legacy
-	// feed.
-	source := "vehicle_state"
-	if m.parallaxGPS {
-		source = "parallax"
-	}
-	m.logger.Info("state monitor starting", "gps_source", source)
+	// One-line record of the Parallax-GPS master so a pod's mode is
+	// greppable without reading its env (distroless: no printenv,
+	// non-root blocks /proc/<pid>/environ). The per-vehicle source is
+	// logged separately ("gps source resolved") once SupportedFeatures
+	// gating runs at subscribe time.
+	m.logger.Info("state monitor starting", "parallax_gps_master", m.parallaxGPS)
 
 	// Periodic janitor: close any live charge row left open from a
 	// previous process death. The in-memory gear/charge mutex and
@@ -572,6 +582,34 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
 
+	// Resolve the GPS source for this vehicle before the REST seed (so
+	// the seed already strips vehicleState GPS when Parallax wins).
+	// Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS master
+	// must be on AND the vehicle must report PX_STATE_ALL=AVAILABLE via
+	// SupportedFeatures. Errors leave the vehicle on the legacy feed —
+	// the resubscribe loop re-resolves on the next pass.
+	useParallaxGPS := false
+	if m.parallaxGPS {
+		ok, err := m.client.VehicleSupportsParallaxState(ctx, vehicleID)
+		if err != nil {
+			if ctx.Err() == nil {
+				m.logger.Warn("supported-features probe failed; staying on vehicleState GPS",
+					"vehicle", vehicleID, "err", err.Error())
+			}
+		} else {
+			useParallaxGPS = ok
+		}
+	}
+	m.mu.Lock()
+	m.parallaxGPSFor[vehicleID] = useParallaxGPS
+	m.mu.Unlock()
+	source := "vehicle_state"
+	if useParallaxGPS {
+		source = "parallax"
+	}
+	m.logger.Info("gps source resolved", "vehicle", vehicleID, "gps_source", source,
+		"master", m.parallaxGPS)
+
 	// Seed the cache from REST before the subscription starts
 	// streaming. Rivian's subscription pushes deltas, so if we don't
 	// establish a baseline the cache only ever contains whichever
@@ -582,7 +620,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// other subscription-only fields stay zero here and get filled
 	// in once the first push arrives.
 	if st, err := m.client.State(ctx, vehicleID); err == nil && st != nil {
-		m.maybeStripGPS(st)
+		m.maybeStripGPS(vehicleID, st)
 		m.mu.Lock()
 		var merged *State
 		prev := m.cache[vehicleID]
@@ -618,7 +656,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 	go m.batteryStateSubscriber(refreshCtx, vehicleID)
-	if m.parallaxGPS {
+	if useParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
 	}
 
@@ -693,7 +731,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			// When Parallax GPS is authoritative, drop vehicleState's
 			// GPS before it reaches the cache so the gnss subscriber is
 			// the only writer of lat/lon/speed/heading/altitude.
-			m.maybeStripGPS(st)
+			m.maybeStripGPS(vehicleID, st)
 			m.mu.Lock()
 			// Rivian pushes deltas — each frame contains only the
 			// fields that changed. Merge non-zero/non-empty values
@@ -954,7 +992,7 @@ func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string) {
 		if st == nil {
 			continue
 		}
-		m.maybeStripGPS(st)
+		m.maybeStripGPS(vehicleID, st)
 		m.mu.Lock()
 		var merged *State
 		prev := m.cache[vehicleID]
