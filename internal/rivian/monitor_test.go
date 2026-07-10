@@ -184,45 +184,31 @@ func TestAdaptiveRefreshInterval(t *testing.T) {
 	}
 }
 
-// TestMaybeStripGPS asserts the Parallax-GPS flag governs whether a
-// vehicleState snapshot's GPS survives into the cache: stripped when
-// Parallax is authoritative, untouched otherwise. Non-GPS fields are
-// never altered.
-func TestMaybeStripGPS(t *testing.T) {
-	sample := func() *State {
-		return &State{
-			Latitude: 30.55, Longitude: -97.76, SpeedKph: 88,
-			HeadingDeg: 344.8, AltitudeM: 240, LocationFixAt: time.Unix(1, 0),
-			BatteryLevelPct: 72, Gear: "D",
-		}
+// TestNoteVehStateGPS asserts vehicleState GPS fixes are stamped only
+// when the master is on and the frame actually carries a fix — the
+// signal the gnss gap-filler uses to tell a live feed from a stalled one.
+func TestNoteVehStateGPS(t *testing.T) {
+	withFix := &State{Latitude: 30.55, Longitude: -97.76}
+	noFix := &State{BatteryLevelPct: 72} // delta with no GPS
+
+	// Master on + fix present → stamped.
+	on := &StateMonitor{parallaxGPS: true, lastVehStateGPS: map[string]time.Time{}}
+	on.noteVehStateGPS("v1", withFix)
+	if on.lastVehStateGPS["v1"].IsZero() {
+		t.Fatal("master on + fix: expected a stamp")
 	}
 
-	// Resolved-on for this vehicle: GPS zeroed, everything else kept.
-	on := &StateMonitor{parallaxGPSFor: map[string]bool{"v1": true}}
-	st := sample()
-	on.maybeStripGPS("v1", st)
-	if st.Latitude != 0 || st.Longitude != 0 || st.SpeedKph != 0 ||
-		st.HeadingDeg != 0 || st.AltitudeM != 0 || !st.LocationFixAt.IsZero() {
-		t.Fatalf("resolved on: GPS not fully stripped: %+v", st)
-	}
-	if st.BatteryLevelPct != 72 || st.Gear != "D" {
-		t.Fatalf("resolved on: non-GPS fields altered: %+v", st)
+	// A fixless frame doesn't count as a vehicleState GPS update.
+	on.noteVehStateGPS("v2", noFix)
+	if !on.lastVehStateGPS["v2"].IsZero() {
+		t.Fatal("fixless frame should not stamp")
 	}
 
-	// A different vehicle (not resolved on) is untouched even on the
-	// same monitor — the gate is per-vehicle.
-	st2 := sample()
-	on.maybeStripGPS("other", st2)
-	if st2.Latitude != 30.55 || st2.SpeedKph != 88 || st2.LocationFixAt.IsZero() {
-		t.Fatalf("other vehicle: GPS unexpectedly modified: %+v", st2)
-	}
-
-	// Resolved-off: snapshot untouched.
-	off := &StateMonitor{parallaxGPSFor: map[string]bool{"v1": false}}
-	st3 := sample()
-	off.maybeStripGPS("v1", st3)
-	if st3.Latitude != 30.55 || st3.SpeedKph != 88 || st3.LocationFixAt.IsZero() {
-		t.Fatalf("resolved off: GPS unexpectedly modified: %+v", st3)
+	// Master off → never tracked (no overhead in prod).
+	off := &StateMonitor{parallaxGPS: false, lastVehStateGPS: map[string]time.Time{}}
+	off.noteVehStateGPS("v1", withFix)
+	if !off.lastVehStateGPS["v1"].IsZero() {
+		t.Fatal("master off: should not stamp")
 	}
 }
 
