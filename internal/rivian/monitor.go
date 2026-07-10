@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -589,15 +590,36 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// SupportedFeatures. Errors leave the vehicle on the legacy feed —
 	// the resubscribe loop re-resolves on the next pass.
 	useParallaxGPS := false
+	pxStatus := "master_off"
 	if m.parallaxGPS {
-		ok, err := m.client.VehicleSupportsParallaxState(ctx, vehicleID)
+		all, err := m.client.SupportedFeatures(ctx)
 		if err != nil {
+			pxStatus = "probe_error"
 			if ctx.Err() == nil {
 				m.logger.Warn("supported-features probe failed; staying on vehicleState GPS",
 					"vehicle", vehicleID, "err", err.Error())
 			}
 		} else {
-			useParallaxGPS = ok
+			feats := all[vehicleID]
+			pxStatus = feats[FeatureParallaxVehicleState]
+			if pxStatus == "" {
+				pxStatus = "absent"
+			}
+			useParallaxGPS = feats[FeatureParallaxVehicleState] == FeatureStatusAvailable
+			// One-time visibility into what the vehicle actually
+			// advertises — the GPS gate hinges on PX_STATE_ALL, but the
+			// full list tells us whether the topic is ungated even when
+			// the capability isn't marked AVAILABLE.
+			names := make([]string, 0, len(feats))
+			for n := range feats {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			m.logger.Info("supported features",
+				"vehicle", vehicleID,
+				"px_state_all", pxStatus,
+				"connectivity_parallax", feats["VEHICLE_CONNECTIVITY_PARALLAX"],
+				"features", strings.Join(names, ","))
 		}
 	}
 	m.mu.Lock()
@@ -608,7 +630,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		source = "parallax"
 	}
 	m.logger.Info("gps source resolved", "vehicle", vehicleID, "gps_source", source,
-		"master", m.parallaxGPS)
+		"px_state_all", pxStatus, "master", m.parallaxGPS)
 
 	// Seed the cache from REST before the subscription starts
 	// streaming. Rivian's subscription pushes deltas, so if we don't
