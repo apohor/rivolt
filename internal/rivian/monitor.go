@@ -326,6 +326,17 @@ func (m *StateMonitor) Start(ctx context.Context) {
 	m.parent = ctx
 	m.mu.Unlock()
 
+	// One-line record of the GPS source so a pod's mode is greppable
+	// without reading its env (distroless: no printenv, non-root blocks
+	// /proc/<pid>/environ). "parallax" strips vehicleState GPS and
+	// records from dynamics.vehicle.gnss; "vehicle_state" is the legacy
+	// feed.
+	source := "vehicle_state"
+	if m.parallaxGPS {
+		source = "parallax"
+	}
+	m.logger.Info("state monitor starting", "gps_source", source)
+
 	// Periodic janitor: close any live charge row left open from a
 	// previous process death. The in-memory gear/charge mutex and
 	// staleness guards in record() handle live cases, but neither
