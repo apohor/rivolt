@@ -183,3 +183,51 @@ func TestAdaptiveRefreshInterval(t *testing.T) {
 		})
 	}
 }
+
+// TestMaybeStripGPS asserts the Parallax-GPS flag governs whether a
+// vehicleState snapshot's GPS survives into the cache: stripped when
+// Parallax is authoritative, untouched otherwise. Non-GPS fields are
+// never altered.
+func TestMaybeStripGPS(t *testing.T) {
+	sample := func() *State {
+		return &State{
+			Latitude: 30.55, Longitude: -97.76, SpeedKph: 88,
+			HeadingDeg: 344.8, AltitudeM: 240, LocationFixAt: time.Unix(1, 0),
+			BatteryLevelPct: 72, Gear: "D",
+		}
+	}
+
+	// Flag on: GPS zeroed, everything else preserved.
+	on := &StateMonitor{parallaxGPS: true}
+	st := sample()
+	on.maybeStripGPS(st)
+	if st.Latitude != 0 || st.Longitude != 0 || st.SpeedKph != 0 ||
+		st.HeadingDeg != 0 || st.AltitudeM != 0 || !st.LocationFixAt.IsZero() {
+		t.Fatalf("flag on: GPS not fully stripped: %+v", st)
+	}
+	if st.BatteryLevelPct != 72 || st.Gear != "D" {
+		t.Fatalf("flag on: non-GPS fields altered: %+v", st)
+	}
+
+	// Flag off: snapshot untouched.
+	off := &StateMonitor{parallaxGPS: false}
+	st2 := sample()
+	off.maybeStripGPS(st2)
+	if st2.Latitude != 30.55 || st2.SpeedKph != 88 || st2.LocationFixAt.IsZero() {
+		t.Fatalf("flag off: GPS unexpectedly modified: %+v", st2)
+	}
+}
+
+// TestParseBoolEnv pins the feature-flag truthiness table.
+func TestParseBoolEnv(t *testing.T) {
+	for _, v := range []string{"1", "true", "TRUE", "Yes", "on"} {
+		if !parseBoolEnv(v) {
+			t.Errorf("parseBoolEnv(%q) = false, want true", v)
+		}
+	}
+	for _, v := range []string{"", "0", "false", "no", "off", "nope"} {
+		if parseBoolEnv(v) {
+			t.Errorf("parseBoolEnv(%q) = true, want false", v)
+		}
+	}
+}
