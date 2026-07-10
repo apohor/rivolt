@@ -542,13 +542,20 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 					dist := haversineMeters(last[0], last[1], curr.Latitude, curr.Longitude)
 					if gap > 10*time.Second && dist > 100 && dist < 50_000 {
 						fillCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+						startedAt := time.Now()
 						shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{curr.Latitude, curr.Longitude})
+						elapsed := time.Since(startedAt)
 						cancel()
 						if err != nil {
-							m.logger.Debug("route-fill failed",
+							// Warn, not Debug: a failed fill degrades the
+							// rendered route to a straight line across the
+							// gap. elapsed_ms distinguishes a timeout (near
+							// the 750ms budget) from a fast upstream error.
+							m.logger.Warn("route-fill failed",
 								"vehicle", curr.VehicleID,
 								"gap", gap.Round(time.Second),
 								"dist_m", int(dist),
+								"elapsed_ms", elapsed.Milliseconds(),
 								"err", err.Error())
 						} else if len(shape) > 2 {
 							// Drop the first vertex (== last) and the
