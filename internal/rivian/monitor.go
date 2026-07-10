@@ -59,17 +59,18 @@ type StateMonitor struct {
 	// recording GPS from the Parallax dynamics.vehicle.gnss topic
 	// instead of legacy vehicleState. It mirrors the app's Firebase
 	// `parallaxCommand` remote-config layer: necessary but not
-	// sufficient. Off by default (prod); on in preview. The per-vehicle
-	// decision (parallaxGPSFor) additionally requires the vehicle to
-	// report the PX_STATE_ALL capability as AVAILABLE, mirroring the
-	// app's SupportedFeatures gate. When both pass, vehicleState GPS is
-	// stripped before it enters the cache and the gnss subscriber
-	// becomes the sole writer of lat/lon/speed/heading/altitude.
+	// sufficient. Off by default (prod); on in preview. A vehicle also
+	// has to advertise Parallax connectivity
+	// (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) to be eligible, and the
+	// gnss topic has to actually deliver a frame before Parallax becomes
+	// authoritative (parallaxGPSFor).
 	parallaxGPS bool
-	// parallaxGPSFor[vehicleID] is the resolved per-vehicle GPS source:
-	// true once the master is on AND the vehicle's SupportedFeatures
-	// reports PX_STATE_ALL=AVAILABLE. Written by run() at subscribe
-	// time, read by maybeStripGPS on the hot path. Guarded by mu.
+	// parallaxGPSFor[vehicleID] is true once Parallax is the
+	// authoritative GPS source for the vehicle — flipped by the gnss
+	// subscriber on its first real frame, not at subscribe time, so an
+	// eligible-but-silent topic never blanks out vehicleState GPS. Read
+	// by maybeStripGPS on the hot path. Reset to false on each
+	// (re)subscribe to re-arm the first-frame flip. Guarded by mu.
 	parallaxGPSFor map[string]bool
 
 	// Live recording stores (all optional — nil stores disable that
@@ -583,13 +584,26 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
 
-	// Resolve the GPS source for this vehicle before the REST seed (so
-	// the seed already strips vehicleState GPS when Parallax wins).
-	// Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS master
-	// must be on AND the vehicle must report PX_STATE_ALL=AVAILABLE via
-	// SupportedFeatures. Errors leave the vehicle on the legacy feed —
-	// the resubscribe loop re-resolves on the next pass.
-	useParallaxGPS := false
+	// Decide whether to run the Parallax GPS subscriber for this
+	// vehicle. Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS
+	// master must be on AND the vehicle must advertise Parallax
+	// connectivity (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) via
+	// SupportedFeatures. We gate on connectivity, not the full-migration
+	// PX_STATE_ALL capability, because we cherry-pick one topic
+	// (dynamics.vehicle.gnss) rather than replacing vehicleState. Errors
+	// leave the vehicle on the legacy feed; the resubscribe loop retries.
+	//
+	// Eligibility only decides whether to START the subscriber. The
+	// authoritative flip (parallaxGPSFor, which makes maybeStripGPS drop
+	// vehicleState GPS) happens in the subscriber on the first real gnss
+	// frame — so a vehicle that advertises connectivity but never
+	// delivers gnss keeps vehicleState GPS instead of going dark. Reset
+	// to false here so a resubscribe re-arms the first-frame flip.
+	m.mu.Lock()
+	m.parallaxGPSFor[vehicleID] = false
+	m.mu.Unlock()
+
+	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
 		all, err := m.client.SupportedFeatures(ctx)
@@ -601,15 +615,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			}
 		} else {
 			feats := all[vehicleID]
+			connectivity := feats[FeatureConnectivityParallax]
+			eligibleParallaxGPS = connectivity == FeatureStatusAvailable
 			pxStatus = feats[FeatureParallaxVehicleState]
 			if pxStatus == "" {
 				pxStatus = "absent"
 			}
-			useParallaxGPS = feats[FeatureParallaxVehicleState] == FeatureStatusAvailable
-			// One-time visibility into what the vehicle actually
-			// advertises — the GPS gate hinges on PX_STATE_ALL, but the
-			// full list tells us whether the topic is ungated even when
-			// the capability isn't marked AVAILABLE.
 			names := make([]string, 0, len(feats))
 			for n := range feats {
 				names = append(names, n)
@@ -617,20 +628,18 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			sort.Strings(names)
 			m.logger.Info("supported features",
 				"vehicle", vehicleID,
+				"connectivity_parallax", connectivity,
 				"px_state_all", pxStatus,
-				"connectivity_parallax", feats["VEHICLE_CONNECTIVITY_PARALLAX"],
 				"features", strings.Join(names, ","))
 		}
 	}
-	m.mu.Lock()
-	m.parallaxGPSFor[vehicleID] = useParallaxGPS
-	m.mu.Unlock()
 	source := "vehicle_state"
-	if useParallaxGPS {
-		source = "parallax"
+	if eligibleParallaxGPS {
+		source = "parallax (pending first gnss frame)"
 	}
 	m.logger.Info("gps source resolved", "vehicle", vehicleID, "gps_source", source,
-		"px_state_all", pxStatus, "master", m.parallaxGPS)
+		"connectivity_parallax", eligibleParallaxGPS, "px_state_all", pxStatus,
+		"master", m.parallaxGPS)
 
 	// Seed the cache from REST before the subscription starts
 	// streaming. Rivian's subscription pushes deltas, so if we don't
@@ -678,7 +687,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 	go m.batteryStateSubscriber(refreshCtx, vehicleID)
-	if useParallaxGPS {
+	if eligibleParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
 	}
 
@@ -1293,9 +1302,11 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 // dynamicsGNSSSubscriber streams the Parallax dynamics.vehicle.gnss
 // topic and folds each fix into the cached State as the authoritative
 // GPS source, then drives a recorder pass so the point lands as a
-// vehicle_state row. Only started when parallaxGPS is set; vehicleState
-// GPS is stripped upstream (maybeStripGPS) so the two feeds never
-// fight. Runs full lifecycle (not sample-only) because these frames are
+// vehicle_state row. Started only for vehicles that pass the eligibility
+// gate (master on + VEHICLE_CONNECTIVITY_PARALLAX). The first frame
+// flips parallaxGPSFor, after which maybeStripGPS strips vehicleState
+// GPS so the two feeds never fight; before that, vehicleState GPS still
+// flows. Runs full lifecycle (not sample-only) because these frames are
 // live — unlike the stale REST replay path — so the drive's speed
 // aggregates and end state stay current between vehicleState pushes.
 // Gear/SoC/charger carry over from the cached vehicleState frame, so a
@@ -1327,7 +1338,18 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 			next.LocationFixAt = time.UnixMilli(g.TimestampMs)
 		}
 		m.cache[vehicleID] = &next
+		// First real frame: promote Parallax to the authoritative GPS
+		// source, so from here maybeStripGPS drops vehicleState GPS.
+		// Until this fires, vehicleState GPS keeps flowing — no blackout
+		// if the topic was advertised but never delivers.
+		engaged := m.parallaxGPSFor[vehicleID]
+		if !engaged {
+			m.parallaxGPSFor[vehicleID] = true
+		}
 		m.mu.Unlock()
+		if !engaged {
+			m.logger.Info("parallax gps engaged", "vehicle", vehicleID)
+		}
 		m.record(ctx, vehicleID, prev, &next)
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {

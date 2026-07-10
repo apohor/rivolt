@@ -930,10 +930,20 @@ type userData struct {
 // UPDATE_FIRMWARE) means the app falls back to the legacy JSON feed.
 const qSupportedFeatures = `query SupportedFeatures { currentUser { vehicles { id vehicle { vehicleState { supportedFeatures { name status } } } } } }`
 
-// FeatureParallaxVehicleState is the API `name` value for the Parallax
-// vehicle-state capability. The app models it as the enum
-// PARALLAX_VEHICLE_STATE, but the wire value is "PX_STATE_ALL".
+// FeatureParallaxVehicleState is the API `name` value for the *full*
+// Parallax vehicle-state migration — replacing legacy vehicleState with
+// Parallax RVMs wholesale. The app models it as the enum
+// PARALLAX_VEHICLE_STATE; the wire value is "PX_STATE_ALL". Not required
+// for consuming a single topic (see FeatureConnectivityParallax): a
+// vehicle streams dynamics.vehicle.gnss with this absent.
 const FeatureParallaxVehicleState = "PX_STATE_ALL"
+
+// FeatureConnectivityParallax is the API `name` value gating whether a
+// vehicle does Parallax connectivity at all. This is the right gate for
+// cherry-picking individual Parallax topics (e.g. dynamics.vehicle.gnss
+// for GPS): AVAILABLE means the topics stream, even when the full
+// vehicle-state migration (PX_STATE_ALL) hasn't been enabled.
+const FeatureConnectivityParallax = "VEHICLE_CONNECTIVITY_PARALLAX"
 
 // FeatureStatusAvailable is the only supportedFeatures status the app
 // treats as "on" (per UserVehicleKt.isFeatureSupported).
@@ -984,16 +994,18 @@ func (c *LiveClient) SupportedFeatures(ctx context.Context) (map[string]map[stri
 	return out, nil
 }
 
-// VehicleSupportsParallaxState reports whether the given vehicle has the
-// Parallax vehicle-state capability (PX_STATE_ALL = AVAILABLE). A vehicle
-// missing from the response, or reporting any other status, returns
-// false — the same conservative default the app uses.
-func (c *LiveClient) VehicleSupportsParallaxState(ctx context.Context, vehicleID string) (bool, error) {
+// VehicleSupportsParallax reports whether the given vehicle can stream
+// Parallax topics at all (VEHICLE_CONNECTIVITY_PARALLAX = AVAILABLE) —
+// the gate for cherry-picking individual topics like the gnss GPS feed.
+// This is deliberately NOT the full-migration PX_STATE_ALL capability. A
+// vehicle missing from the response, or reporting any other status,
+// returns false.
+func (c *LiveClient) VehicleSupportsParallax(ctx context.Context, vehicleID string) (bool, error) {
 	all, err := c.SupportedFeatures(ctx)
 	if err != nil {
 		return false, err
 	}
-	return all[vehicleID][FeatureParallaxVehicleState] == FeatureStatusAvailable, nil
+	return all[vehicleID][FeatureConnectivityParallax] == FeatureStatusAvailable, nil
 }
 
 // RefreshSession forces a fresh a-sess/csrf pair and then probes the
