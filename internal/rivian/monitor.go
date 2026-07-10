@@ -1289,7 +1289,9 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 // dynamicsGNSSSubscriber streams the Parallax dynamics.vehicle.gnss
 // topic and gap-fills: it injects a fix into the cache and drives a
 // recorder pass ONLY when vehicleState hasn't delivered GPS within
-// parallaxGPSStallThreshold. vehicleState stays the dense authoritative
+// parallaxGPSStallThreshold AND the car is moving (Parallax speed>0) —
+// a stopped car with frozen vehicleState GPS needs no bridging.
+// vehicleState stays the dense authoritative
 // feed (a real drive proved a full Parallax switch is too sparse — ~60s
 // vs ~3s — and still stalls); Parallax just bridges vehicleState's
 // multi-minute gaps. Started only for vehicles past the eligibility gate
@@ -1315,10 +1317,16 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 			m.mu.Unlock()
 			return
 		}
-		// Only fill when vehicleState has stalled. A fresh vehicleState
-		// GPS fix means the dense feed is healthy — leave it alone.
+		// Fill only when vehicleState has stalled AND the car is moving.
+		// A fresh vehicleState fix means the dense feed is healthy. A
+		// stationary car reports the same position, so Rivian drops
+		// gnssLocation from its deltas — that reads as "stale" here but
+		// needs no bridging (filling would just replay the parked point).
+		// Parallax speed>0 is the motion signal that distinguishes a real
+		// movement-stall from a stopped car.
 		lastVeh := m.lastVehStateGPS[vehicleID]
-		if !lastVeh.IsZero() && time.Since(lastVeh) < parallaxGPSStallThreshold {
+		fresh := !lastVeh.IsZero() && time.Since(lastVeh) < parallaxGPSStallThreshold
+		if fresh || g.SpeedMS <= 0 {
 			m.mu.Unlock()
 			return
 		}
