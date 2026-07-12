@@ -66,7 +66,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// version is stamped by the Docker build via -ldflags.
+// version is stamped by the Docker build via -ldflags. The default
+// "dev" is overridden per build; releases are cut by tagging a
+// commit that already has a successful build (see the tag-validate
+// gate in .github/workflows/build.yml).
 var version = "dev"
 
 func main() {
