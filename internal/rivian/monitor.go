@@ -674,6 +674,11 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
 	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
 	go m.batteryStateSubscriber(refreshCtx, vehicleID)
+	// Publish this vehicle's merged live State to the shared store so a
+	// peer replica that doesn't own the lease can serve /api/state with
+	// all subscription-only fields (see RemoteLatest). No-op without a
+	// shared store.
+	go m.liveStatePublisher(refreshCtx, vehicleID)
 	if eligibleParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
 	}
@@ -1575,6 +1580,66 @@ func (m *StateMonitor) Latest(vehicleID string) (*State, time.Time) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cache[vehicleID], m.stamp[vehicleID]
+}
+
+// liveStateSnapshotInterval is how often the lease-owning pod
+// republishes its merged live State to the shared store so peer replicas
+// can serve a complete /api/state. Kept well under LiveStateSnapshotTTL
+// so the snapshot never expires between refreshes on a healthy owner.
+const liveStateSnapshotInterval = 5 * time.Second
+
+// RemoteLatest returns the live State a peer pod published to the shared
+// store for this vehicle, or nil when none is available (no shared store
+// wired, the owner hasn't published yet, or the snapshot aged out). Used
+// by the /api/state read path on a replica that does NOT own the
+// vehicle's WS lease: its local cache is empty and a direct REST fetch
+// would omit every subscription-only field (pack temperature, numeric
+// tire pressures, charging context, driver chips, windows). Reading the
+// owner's published snapshot serves those fields pod-agnostically.
+func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *State {
+	if m == nil || m.liveStateStore == nil {
+		return nil
+	}
+	st, err := m.liveStateStore.GetState(ctx, vehicleID)
+	if err != nil {
+		m.logger.Debug("remote live state get failed", "vehicle", vehicleID, "err", err.Error())
+		return nil
+	}
+	return st
+}
+
+// liveStatePublisher periodically writes this vehicle's cached State to
+// the shared store so a replica that doesn't own the lease can serve it
+// via RemoteLatest. Runs only on the owning pod — it's started from
+// run(), which executes only for subscribed vehicles — and is a no-op
+// when no shared store is wired (single-binary / no-Redis dev). Errors
+// are best-effort: a Redis blip just means peers briefly fall back to
+// REST.
+func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string) {
+	if m.liveStateStore == nil {
+		return
+	}
+	t := time.NewTicker(liveStateSnapshotInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.mu.RLock()
+			cached := m.cache[vehicleID]
+			m.mu.RUnlock()
+			if cached == nil {
+				continue
+			}
+			snap := *cached // value copy; publish outside the lock
+			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			if err := m.liveStateStore.PutState(pctx, vehicleID, &snap, LiveStateSnapshotTTL); err != nil {
+				m.logger.Debug("live state publish failed", "vehicle", vehicleID, "err", err.Error())
+			}
+			cancel()
+		}
+	}
 }
 
 // LatestLiveSession returns the last charging-session snapshot
