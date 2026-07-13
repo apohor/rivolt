@@ -7,10 +7,9 @@ import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../compo
 import { WindowPicker } from "../components/WindowPicker";
 import { DrivesOverviewMap } from "../components/DriveMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
-import { collapseRoundTrips } from "../lib/drives";
+import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { usePreferences } from "../lib/preferences";
 import {
-  durationSeconds,
   formatDateTime,
   formatDuration,
   num,
@@ -153,7 +152,7 @@ function DriveTable({ drives }: { drives: Drive[] }) {
                 {formatDateTime(d.StartedAt)}
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {formatDuration(durationSeconds(d.StartedAt, d.EndedAt))}
+                {formatDuration(driveDurationSeconds(d))}
               </td>
               <td className="py-2 pr-4 text-neutral-200 tabular-nums">
                 {num(d.DistanceMi, 1, "mi")}
@@ -215,7 +214,7 @@ function summarize(rows: Drive[]): DriveTotals {
   };
   let weightedSpeed = 0;
   for (const r of rows) {
-    const dur = durationSeconds(r.StartedAt, r.EndedAt);
+    const dur = driveDurationSeconds(r);
     t.durationSec += dur;
     t.distanceMi += r.DistanceMi || 0;
     if (r.MaxSpeedMph > t.maxSpeedMph) t.maxSpeedMph = r.MaxSpeedMph;

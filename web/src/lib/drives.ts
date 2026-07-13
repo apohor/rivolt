@@ -1,4 +1,16 @@
 import type { Drive } from "./api";
+import { durationSeconds } from "./format";
+
+// driveDurationSeconds returns the time actually spent driving. For a
+// merged round-trip row that's DrivingSeconds (the summed leg durations,
+// excluding the parked gaps between legs); for an unmerged row it's the
+// EndedAt-StartedAt wall span, which already is the driving time. Keeps
+// duration consistent with DistanceMi / AvgSpeedMph on merged rows.
+export function driveDurationSeconds(d: Drive): number {
+  return d.DrivingSeconds && d.DrivingSeconds > 0
+    ? d.DrivingSeconds
+    : durationSeconds(d.StartedAt, d.EndedAt);
+}
 
 // collapseRoundTrips merges chains of consecutive drives that form a
 // closed loop into a single row. A chain [D1 … Dn] qualifies when:
@@ -107,6 +119,9 @@ function mergeChain(chain: Drive[]): Drive {
     DistanceMi: totalDist,
     MaxSpeedMph: maxSpd,
     AvgSpeedMph: wDur > 0 ? wSpd / wDur : chain[0].AvgSpeedMph,
+    // Sum of the legs' own durations — excludes the parked gaps between
+    // them, which EndedAt-StartedAt would otherwise fold into the total.
+    DrivingSeconds: wDur,
     EnergyUsedKWh: energy,
     estimated_cost: cost,
     estimated_currency: cur,

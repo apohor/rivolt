@@ -11,13 +11,12 @@ const DriveMap = lazy(() =>
 import { DriveTimeline } from "../components/DriveTimeline";
 import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
-  durationSeconds,
   formatDateTime,
   formatDuration,
   num,
   pct,
 } from "../lib/format";
-import { collapseRoundTrips } from "../lib/drives";
+import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { analyzeDrivePower } from "../lib/power";
 import { useGPSThresholds } from "../lib/config";
 import { usePreferences, formatTemperature } from "../lib/preferences";
@@ -335,7 +334,7 @@ export default function DriveDetailPage() {
     );
   }
 
-  const duration = durationSeconds(drive.StartedAt, drive.EndedAt);
+  const duration = driveDurationSeconds(drive);
   const tempUnit = prefs.temperatureUnit;
   const weatherPts = driveWeatherSeries.data?.points ?? [];
 

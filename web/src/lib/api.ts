@@ -288,6 +288,12 @@ export type Drive = {
   EndLon: number;
   MaxSpeedMph: number;
   AvgSpeedMph: number;
+  // Driving-only duration in seconds. Set by collapseRoundTrips on a
+  // merged round-trip row, where EndedAt-StartedAt spans the parked
+  // gap(s) between legs and would overstate time driven (and desync
+  // from DistanceMi / AvgSpeedMph, which are driving-only). Absent on
+  // unmerged rows, where EndedAt-StartedAt already is the driving time.
+  DrivingSeconds?: number;
   // Pack-side energy consumed, derived from SoC delta × usable pack
   // capacity at the time the drive was persisted. Zero on legacy rows
   // and on imports where --pack-kwh wasn't set.
