@@ -138,21 +138,15 @@ export default function ChargeDetailPage() {
   const outsideTempPts = chargeSamples
     .filter((p) => Number.isFinite(p.OutsideTempC) && p.OutsideTempC !== 0)
     .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.OutsideTempC) }));
-  const insideTempPts = chargeSamples
-    .filter((p) => Number.isFinite(p.InsideTempC) && p.InsideTempC !== 0)
-    .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.InsideTempC) }));
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
-  const insideTempSmoothed = smoothGaussianTime(insideTempPts, 60_000);
-  // Combined-chart overlay picks whichever signal is present.
-  // Rivian live WS only exposes cabin (outside hardcoded to 0 in
-  // internal/rivian/live.go); ElectraFi imports carry outside but
-  // not cabin. Prefer outside; fall back to cabin.
+  // Ambient overlay is outside-only. Battery pack cell temperature has
+  // its own chart below (packAvgPts / packMinPts / packMaxPts); cabin
+  // temperature is intentionally no longer charted — battery temp
+  // replaces it.
   const ambientTempSeries =
     outsideTempSmoothed.length > 1
       ? { points: outsideTempSmoothed, label: "Outside temp" }
-      : insideTempSmoothed.length > 1
-        ? { points: insideTempSmoothed, label: "Cabin temp" }
-        : null;
+      : null;
 
   // Battery pack cell temperature (Parallax battery_state topic): avg
   // with the min↔max envelope. During a charge the pack heats up, and a

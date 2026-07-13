@@ -259,7 +259,7 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
-		       vs.altitude_m, vs.tire_pressure_min_bar
+		       vs.altitude_m, vs.tire_pressure_min_bar, vs.pack_temp_avg_c, vs.pack_temp_max_c, vs.pack_temp_min_c
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1 AND vs.at > $2
@@ -276,7 +276,7 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
-		       vs.altitude_m, vs.tire_pressure_min_bar
+		       vs.altitude_m, vs.tire_pressure_min_bar, vs.pack_temp_avg_c, vs.pack_temp_max_c, vs.pack_temp_min_c
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
@@ -295,6 +295,7 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		var fixAt sql.NullTime
 		var alt sql.NullFloat64
 		var tirePsi sql.NullFloat64
+		var pAvg, pMax, pMin sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -302,7 +303,7 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
-			&alt, &tirePsi,
+			&alt, &tirePsi, &pAvg, &pMax, &pMin,
 		); err != nil {
 			return nil, err
 		}
@@ -318,6 +319,18 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		if tirePsi.Valid {
 			f := tirePsi.Float64
 			v.TirePressureMinBar = &f
+		}
+		if pAvg.Valid {
+			f := pAvg.Float64
+			v.PackTempAvgC = &f
+		}
+		if pMax.Valid {
+			f := pMax.Float64
+			v.PackTempMaxC = &f
+		}
+		if pMin.Valid {
+			f := pMin.Float64
+			v.PackTempMinC = &f
 		}
 		out = append(out, v)
 	}
@@ -338,7 +351,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		       COALESCE(vs.charger_power_kw,0), COALESCE(vs.charge_limit_pct,0),
 		       COALESCE(vs.inside_temp_c,0), COALESCE(vs.outside_temp_c,0),
 		       COALESCE(vs.drive_number,0), COALESCE(vs.charge_number,0), vs.source,
-		       vs.altitude_m, vs.tire_pressure_min_bar
+		       vs.altitude_m, vs.tire_pressure_min_bar, vs.pack_temp_avg_c, vs.pack_temp_max_c, vs.pack_temp_min_c
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
 		WHERE vs.user_id = $1
@@ -353,6 +366,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		var fixAt sql.NullTime
 		var alt sql.NullFloat64
 		var tirePsi sql.NullFloat64
+		var pAvg, pMax, pMin sql.NullFloat64
 		if err := rows.Scan(&v.VehicleID, &v.At,
 			&v.BatteryLevelPct, &v.RangeMi, &v.OdometerMi,
 			&v.Lat, &v.Lon, &fixAt,
@@ -360,7 +374,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			&v.ChargerPowerKW, &v.ChargeLimitPct,
 			&v.InsideTempC, &v.OutsideTempC,
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
-			&alt, &tirePsi,
+			&alt, &tirePsi, &pAvg, &pMax, &pMin,
 		); err != nil {
 			return nil, err
 		}
@@ -376,6 +390,18 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		if tirePsi.Valid {
 			f := tirePsi.Float64
 			v.TirePressureMinBar = &f
+		}
+		if pAvg.Valid {
+			f := pAvg.Float64
+			v.PackTempAvgC = &f
+		}
+		if pMax.Valid {
+			f := pMax.Float64
+			v.PackTempMaxC = &f
+		}
+		if pMin.Valid {
+			f := pMin.Float64
+			v.PackTempMinC = &f
 		}
 		out = append(out, v)
 	}
