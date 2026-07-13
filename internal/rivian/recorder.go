@@ -164,6 +164,14 @@ type liveCharge struct {
 	lastPowerKW  float64
 	lastPowerAt  time.Time
 
+	// activeSeconds is the wall-clock time the session actually spent
+	// charging (power >= chargingPowerFloorKW), accumulated alongside the
+	// energy integral with the same idle-skip and gap-cap. Distinct from
+	// endAt - startedAt, which spans the whole plugged-in period
+	// including charging_ready / battery-conditioning idle. Persisted so
+	// the UI can show real charging time instead of time-plugged-in.
+	activeSeconds float64
+
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
 	// or chargerState transitioned. The stale-session guard measures
@@ -214,6 +222,9 @@ func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
 				dt = maxIntegrationGap
 			}
 			c.energyIntKWh += dt.Hours() * (c.lastPowerKW + kw) / 2
+			// Same gated dt feeds the active-charging-time accumulator,
+			// so idle plugged-in stretches don't count toward duration.
+			c.activeSeconds += dt.Seconds()
 		}
 	}
 	c.lastPowerAt = t
@@ -1027,6 +1038,40 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		}
 	}
 
+	// Physical plausibility cap (L2/home only). Delivered energy can
+	// never exceed peak observed power × elapsed time. Rivian's Parallax
+	// feed reports TotalChargedEnergyKWh cumulatively since the cable was
+	// plugged in, so a brief top-up fragment — the car reaches
+	// charging_complete, does a short charging_active cycle, then
+	// completes again, opening a fresh session — would otherwise inherit
+	// the whole plug-in's total (e.g. 68 kWh credited to a 10-min 7.5 kW
+	// session). When the chosen energy exceeds the physical ceiling on an
+	// L2 session, prefer the observed-power integral (accurate at these
+	// rates), then the SoC-delta, then the ceiling. Scoped to L2 because
+	// at DCFC the integral undersamples (frame cadence) and the Parallax
+	// total is authoritative and per-stop, not fragmented.
+	if maxPower > 0 && maxPower < l2PowerThresholdKW {
+		if hours := c.endAt.Sub(c.startedAt).Hours(); hours > 0 {
+			physCap := maxPower * hours * 1.15
+			if energy > physCap {
+				socDeltaKWh := 0.0
+				if dSoC := c.endSoC - c.startSoC; dSoC > 0 {
+					if pack := m.PackKWhFor(vehicleID); pack > 0 {
+						socDeltaKWh = dSoC / 100.0 * pack
+					}
+				}
+				switch {
+				case c.energyIntKWh > 0 && c.energyIntKWh <= physCap:
+					energy = c.energyIntKWh
+				case socDeltaKWh > 0 && socDeltaKWh <= physCap:
+					energy = socDeltaKWh
+				default:
+					energy = physCap
+				}
+			}
+		}
+	}
+
 	// Session average = energy delivered ÷ wall-clock duration. Folds
 	// in ramp-up, taper, and any idle gaps. Cap at maxLivePowerKW
 	// because a stale TotalChargedEnergyKWh leaking into a very
@@ -1058,6 +1103,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		Lat:            c.lat,
 		Lon:            c.lon,
 		Source:         "live",
+		ActiveSeconds:  c.activeSeconds,
 	}
 	// Parallax-only thermal breakdown. Only set when the live session
 	// has actually reported a thermal_kwh value (>0) — otherwise leave
@@ -1177,6 +1223,9 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		endAt:      row.EndedAt,
 		endSoC:     row.EndSoCPct,
 		finalState: row.FinalState,
+		// Continue the active-charging-time accumulator from the
+		// persisted value so a mid-charge restart doesn't reset it.
+		activeSeconds: row.ActiveSeconds,
 		// Anchor the stale-session guard at the last advanced frame, not
 		// zero. A zero lastMeaningfulAt makes the guard fall back to
 		// startedAt and abandon any resumed charge older than the gap

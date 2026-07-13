@@ -84,6 +84,10 @@ type LiveChargeSnapshot struct {
 	// LastMeaningfulAt anchors the stale-session guard across restarts.
 	// Older snapshots omit it; restore falls back to EndAt then.
 	LastMeaningfulAt time.Time `json:"last_meaningful_at"`
+	// ActiveSeconds carries the accumulated real charging time across a
+	// pod handoff so the session duration doesn't reset when a peer
+	// takes over mid-charge.
+	ActiveSeconds float64 `json:"active_seconds"`
 }
 
 // LiveStateTTL is how long a snapshot lingers in Redis after the last
@@ -133,6 +137,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			MaxPower: c.maxPower,
 			EndAt:    c.endAt, EndSoC: c.endSoC, FinalState: c.finalState,
 			LastMeaningfulAt: c.lastMeaningfulAt,
+			ActiveSeconds:    c.activeSeconds,
 		}
 	}
 	return snap
@@ -175,6 +180,7 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 			maxPower: c.MaxPower,
 			endAt:    c.EndAt, endSoC: c.EndSoC, finalState: c.FinalState,
 			lastMeaningfulAt: lma,
+			activeSeconds:    c.ActiveSeconds,
 		}
 	}
 	return s

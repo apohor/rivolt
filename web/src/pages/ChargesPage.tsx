@@ -21,6 +21,17 @@ import {
   pct,
 } from "../lib/format";
 
+// chargingSeconds returns the time a session actually spent charging.
+// The recorder persists that as ActiveSeconds (charger power above the
+// idle floor); it excludes the post-target idle that inflates the raw
+// EndedAt-StartedAt span. Legacy rows, imports, and non-Parallax live
+// sessions have no ActiveSeconds, so fall back to the wall span there.
+function chargingSeconds(c: Charge): number {
+  return c.ActiveSeconds && c.ActiveSeconds > 0
+    ? c.ActiveSeconds
+    : durationSeconds(c.StartedAt, c.EndedAt);
+}
+
 export default function ChargesPage() {
   const [win, setWin] = useState<WindowKey>("30d");
   const [view, setView] = useState<"table" | "map">("table");
@@ -232,7 +243,7 @@ function ChargeTable({
                 <LocationBadge label={labelByID.get(c.ID) ?? ""} />
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {formatDuration(durationSeconds(c.StartedAt, c.EndedAt))}
+                {formatDuration(chargingSeconds(c))}
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {pct(c.StartSoCPct)} → {pct(c.EndSoCPct)}
@@ -284,7 +295,7 @@ function summarize(rows: Charge[]): ChargeTotals {
     currency: "",
   };
   for (const r of rows) {
-    t.durationSec += durationSeconds(r.StartedAt, r.EndedAt);
+    t.durationSec += chargingSeconds(r);
     t.energyKWh += r.EnergyAddedKWh || 0;
     if (r.Cost > 0) {
       t.cost += r.Cost;
