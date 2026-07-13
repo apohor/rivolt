@@ -62,7 +62,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
-| powerState | `vehicle.power.state` | shadow-capturing raw payload (wire shape TBD) — earlier wake signal for late-start |
+| powerState | `vehicle.power.state` | **RE'd** — `{1:varint}`, `3=ready` confirmed live; shadow-recording (earlier wake signal for late-start; sleep/standby enums TBD) |
 
 Coverage is effectively complete - every legacy field has a Parallax home.
 
@@ -88,14 +88,16 @@ RE the protobuf from APK + live frames, decode, **measure cadence vs
 vehicleState over a real drive**, then make Parallax authoritative for that
 field with vehicleState fallback.
 
-**Capture 2026-07-13** (parked R1S, via `/api/parallax-raw`). All three topics
-are single-field messages carrying one varint in field 1:
+**Capture 2026-07-13** (parked R1S — first three via `/api/parallax-raw`,
+power.state via the shadow recorder). All four are single-field messages
+carrying one varint in field 1:
 
 | RVM | payload (b64 / hex) | field 1 | meaning |
 |-----|---------------------|---------|---------|
 | `dynamics.vehicle.gear` | `CAE=` / `08 01` | 1 | **P** (Park) |
 | `dynamics.vehicle.drive_mode` | `CAI=` / `08 02` | 2 | driveMode enum = 2 |
 | `dynamics.vehicle.odometer` | `CMPXAw==` / `08 c3 d7 03` | 60355 | **60355 km** |
+| `vehicle.power.state` | `CAM=` / `08 03` | 3 | **ready** (== vehicleState "ready") |
 
 Odometer unit **settled: whole kilometers** — 60355 km = 37502.9 mi vs
 vehicleState's 37503.06 mi at capture time (so ~1 km / 0.62 mi resolution,
