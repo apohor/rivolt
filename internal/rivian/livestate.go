@@ -24,6 +24,18 @@ type LiveStateStore interface {
 	Save(ctx context.Context, vehicleID string, snap LiveStateSnapshot, ttl time.Duration) error
 	Load(ctx context.Context, vehicleID string) (LiveStateSnapshot, bool, error)
 	Delete(ctx context.Context, vehicleID string) error
+
+	// PutState publishes the vehicle's latest merged live State so a
+	// replica that doesn't own the WS lease can serve a complete
+	// /api/state (including subscription-only / Parallax-only fields)
+	// instead of a REST fallback that omits them. Short-TTL and
+	// refreshed by the owner on a timer, so a dead owner's snapshot
+	// ages out and readers fall back to REST.
+	PutState(ctx context.Context, vehicleID string, st *State, ttl time.Duration) error
+	// GetState returns the latest published live State for the vehicle,
+	// or (nil, nil) when none exists (the normal case on the owner pod,
+	// which never reads its own snapshot).
+	GetState(ctx context.Context, vehicleID string) (*State, error)
 }
 
 // LiveStateSnapshot is the wire format for a vehicle's open
@@ -80,6 +92,14 @@ type LiveChargeSnapshot struct {
 // stale-session guard at liveDriveMaxGap will reject any rehydrated
 // state whose endAt is clearly out of date.
 const LiveStateTTL = 2 * time.Hour
+
+// LiveStateSnapshotTTL bounds how long a published live State snapshot
+// lives in the shared store after the last refresh. Much shorter than
+// LiveStateTTL because a snapshot is a live-view convenience, not
+// durable session state: when the owning pod dies, the snapshot should
+// age out within a couple of publish intervals so peer replicas fall
+// back to REST rather than serving a stale frame indefinitely.
+const LiveStateSnapshotTTL = 90 * time.Second
 
 // snapshot freezes the current accumulator into a wire-safe value.
 // Caller holds sessMu.
@@ -236,14 +256,82 @@ func (s *RedisLiveStateStore) Delete(ctx context.Context, vehicleID string) erro
 	return s.rdb.Del(ctx, s.key(vehicleID)).Err()
 }
 
+// stateKey scopes the live-State snapshot under a ":state" suffix so it
+// never collides with the accumulator snapshot at s.key(vehicleID).
+func (s *RedisLiveStateStore) stateKey(vehicleID string) string {
+	return s.key(vehicleID) + ":state"
+}
+
+// PutState serialises st and writes it under the per-user/vehicle state
+// key with a short expiry. A zero ttl falls back to LiveStateSnapshotTTL.
+func (s *RedisLiveStateStore) PutState(ctx context.Context, vehicleID string, st *State, ttl time.Duration) error {
+	if s == nil || s.rdb == nil || st == nil {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = LiveStateSnapshotTTL
+	}
+	blob, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode live state: %w", err)
+	}
+	return s.rdb.Set(ctx, s.stateKey(vehicleID), blob, ttl).Err()
+}
+
+// GetState reads the published live State for vehicleID. Returns
+// (nil, nil) when no snapshot exists (owner hasn't published, or it aged
+// out) so callers cleanly fall through to their REST path.
+func (s *RedisLiveStateStore) GetState(ctx context.Context, vehicleID string) (*State, error) {
+	if s == nil || s.rdb == nil {
+		return nil, nil
+	}
+	raw, err := s.rdb.Get(ctx, s.stateKey(vehicleID)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get live state: %w", err)
+	}
+	var st State
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return nil, fmt.Errorf("decode live state: %w", err)
+	}
+	return &st, nil
+}
+
 // memLiveStateStore is a test fake. Concurrency-safe.
 type memLiveStateStore struct {
-	mu    sync.Mutex
-	items map[string]LiveStateSnapshot
+	mu     sync.Mutex
+	items  map[string]LiveStateSnapshot
+	states map[string]State
 }
 
 func newMemLiveStateStore() *memLiveStateStore {
-	return &memLiveStateStore{items: map[string]LiveStateSnapshot{}}
+	return &memLiveStateStore{
+		items:  map[string]LiveStateSnapshot{},
+		states: map[string]State{},
+	}
+}
+
+func (s *memLiveStateStore) PutState(_ context.Context, vehicleID string, st *State, _ time.Duration) error {
+	if st == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.states[vehicleID] = *st
+	return nil
+}
+
+func (s *memLiveStateStore) GetState(_ context.Context, vehicleID string) (*State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.states[vehicleID]
+	if !ok {
+		return nil, nil
+	}
+	cp := st
+	return &cp, nil
 }
 
 func (s *memLiveStateStore) Save(_ context.Context, vehicleID string, snap LiveStateSnapshot, _ time.Duration) error {
