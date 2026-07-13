@@ -110,3 +110,40 @@ func TestDecodeBatteryTemp_PartialTemps(t *testing.T) {
 		t.Fatalf("got avg=%v max=%v min=%v, want 40.5/0/0", bt.CellAvgC, bt.CellMaxC, bt.CellMinC)
 	}
 }
+
+// TestDecodeSingleVarint pins the drive-dynamics wire shapes against the
+// real frames captured from a parked R1S via /api/parallax-raw
+// (2026-07-13). All three topics are { field 1: varint }. The odometer
+// value (60355) cross-checks to 37502.9 mi vs vehicleState's 37503.06 mi
+// at capture — confirming whole-kilometer units.
+func TestDecodeSingleVarint(t *testing.T) {
+	cases := []struct {
+		name string
+		b64  string
+		want uint64
+	}{
+		{"gear_park", "CAE=", 1},        // 08 01
+		{"drive_mode", "CAI=", 2},       // 08 02
+		{"odometer_km", "CMPXAw==", 60355}, // 08 c3 d7 03
+	}
+	for _, tc := range cases {
+		got, ok := decodeSingleVarint(tc.b64)
+		if !ok || got != tc.want {
+			t.Errorf("%s: decodeSingleVarint(%q) = %d, %v; want %d, true", tc.name, tc.b64, got, ok, tc.want)
+		}
+	}
+	// Extra trailing field must not break the field-1 read (forward-compat).
+	if got, ok := decodeSingleVarint(base64.StdEncoding.EncodeToString([]byte{0x08, 0x04, 0x10, 0x2a})); !ok || got != 4 {
+		t.Errorf("trailing field: got %d, %v; want 4, true", got, ok)
+	}
+	// Malformed / empty payloads report ok=false rather than panicking.
+	if _, ok := decodeSingleVarint("!!!!"); ok {
+		t.Error("malformed base64 should return ok=false")
+	}
+	if gearFromParallax(1) != "P" {
+		t.Errorf("gearFromParallax(1) = %q, want P", gearFromParallax(1))
+	}
+	if gearFromParallax(99) != "" {
+		t.Errorf("gearFromParallax(99) = %q, want empty (unmapped)", gearFromParallax(99))
+	}
+}

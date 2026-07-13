@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -484,4 +485,144 @@ func pbScan(buf []byte, fn func(field, wire int, val []byte)) error {
 		}
 	}
 	return nil
+}
+
+// --- Drive-dynamics topics (Phase 2: vehicleState → Parallax) -------------
+//
+// Captured live from an R1S via /api/parallax-raw (2026-07-13). All three are
+// single-field messages carrying one varint in field 1:
+//
+//	dynamics.vehicle.gear        08 01        -> 1      (P; see gearFromParallax)
+//	dynamics.vehicle.drive_mode  08 02        -> 2      (driveMode enum, proto g70/*)
+//	dynamics.vehicle.odometer    08 c3 d7 03  -> 60355  (whole kilometers:
+//	                                            60355 km = 37502.9 mi vs
+//	                                            vehicleState's 37503.06 mi)
+//
+// Recorded in shadow (measurement) alongside vehicleState before any field
+// goes authoritative — see StateMonitor.driveDynamicsShadow and the
+// migration doc's measure-first rule.
+const (
+	rvmDriveGear = "dynamics.vehicle.gear"
+	rvmDriveMode = "dynamics.vehicle.drive_mode"
+	rvmOdometer  = "dynamics.vehicle.odometer"
+)
+
+// decodeSingleVarint decodes a base64 protobuf payload of the shape
+// { field 1: varint } and returns that varint. Extra fields are ignored so a
+// firmware that later grows these messages doesn't break the read; ok=false
+// means the payload was malformed or carried no field-1 varint.
+func decodeSingleVarint(b64 string) (val uint64, ok bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, false
+	}
+	if err := pbScan(raw, func(field, wire int, v []byte) {
+		if field == 1 && wire == 0 {
+			if n, m := binary.Uvarint(v); m > 0 {
+				val, ok = n, true
+			}
+		}
+	}); err != nil {
+		return 0, false
+	}
+	return val, ok
+}
+
+// gearFromParallax maps the dynamics.vehicle.gear enum to the P/R/N/D
+// contract normalizeGear produces from legacy vehicleState. Only P (1) is
+// confirmed from a live capture; the driving gears are pinned once a drive
+// capture reveals them (the shadow recorder logs the raw enum next to the
+// concurrent vehicleState gear to make the mapping observable). Returns ""
+// for an unmapped value so callers fall back to vehicleState.
+func gearFromParallax(v uint64) string {
+	switch v {
+	case 1:
+		return "P"
+	default:
+		return ""
+	}
+}
+
+// DriveDynamicsFrame is one decoded drive-dynamics frame. Value is the raw
+// field-1 varint; interpret per RVM (gear enum, drive_mode enum, or odometer
+// in whole kilometers).
+type DriveDynamicsFrame struct {
+	RVM         string
+	Value       uint64
+	TimestampMs int64
+}
+
+// DriveDynamicsCallback receives each decoded drive-dynamics frame.
+type DriveDynamicsCallback func(DriveDynamicsFrame)
+
+// SubscribeDriveDynamics streams the Parallax dynamics.vehicle.{gear,
+// drive_mode,odometer} topics over one multiplexed subscription, invoking cb
+// per decoded frame. Blocks until ctx is cancelled or auth fails; reconnects
+// with backoff. Phase 2 measurement — run in shadow alongside vehicleState to
+// pin the gear enum and compare cadence before any field is made
+// authoritative.
+func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, cb DriveDynamicsCallback) error {
+	c.mu.Lock()
+	userTok := c.userSessionToken
+	c.mu.Unlock()
+	if userTok == "" {
+		return ErrNotAuthenticated
+	}
+	if vehicleID == "" {
+		return errors.New("rivian: vehicleID is required")
+	}
+	if cb == nil {
+		return errors.New("rivian: callback is required")
+	}
+	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer}
+	attempt := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := c.runGenericSubscription(ctx, userTok, subParams{
+			operationName: "ParallaxMessages",
+			query:         qParallaxMessagesSubscription,
+			vehicleID:     vehicleID,
+			variables:     map[string]any{"vehicleId": vehicleID, "rvms": rvms},
+		}, func(raw json.RawMessage) error {
+			var p parallaxNext
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return nil
+			}
+			if len(p.Errors) > 0 {
+				return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+			}
+			msg := p.Data.ParallaxMessages
+			if msg.Payload == "" {
+				return nil
+			}
+			v, ok := decodeSingleVarint(msg.Payload)
+			if !ok {
+				return nil
+			}
+			var ts int64
+			if s := strings.Trim(string(msg.Timestamp), `"`); s != "" {
+				ts, _ = strconv.ParseInt(s, 10, 64)
+			}
+			cb(DriveDynamicsFrame{RVM: msg.RVM, Value: v, TimestampMs: ts})
+			return nil
+		})
+		if err == nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, errWSUnauthenticated) {
+			return err
+		}
+		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
+		if wait > 5*time.Minute {
+			wait = 5 * time.Minute
+		}
+		attempt++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
 }

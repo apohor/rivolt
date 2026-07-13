@@ -66,6 +66,15 @@ type StateMonitor struct {
 	// to Parallax is too sparse — ~60s vs vehicleState's ~3s — and still
 	// stalls, so it bridges rather than replaces).
 	parallaxGPS bool
+	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) enables the
+	// Phase 2 shadow recorder for dynamics.vehicle.{gear,drive_mode,
+	// odometer}: it subscribes and logs each decoded value next to the
+	// concurrent vehicleState reading WITHOUT making any field
+	// authoritative (never mutates State, opens/closes a session, or
+	// advances m.stamp). Off by default; flip on (preview) to measure
+	// cadence and pin the gear enum over a real drive before the
+	// authoritative cut. Also gated on Parallax connectivity.
+	parallaxDriveDynamics bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -211,7 +220,8 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 	return &StateMonitor{
 		client:          client,
 		logger:          logger,
-		parallaxGPS:     parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		lastVehStateGPS: make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
@@ -681,6 +691,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.liveStatePublisher(refreshCtx, vehicleID)
 	if eligibleParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
+		// Phase 2 shadow: measure gear/drive_mode/odometer vs
+		// vehicleState. Non-authoritative; gated on its own flag so it
+		// stays off in prod until the cadence data is in.
+		if m.parallaxDriveDynamics {
+			go m.driveDynamicsShadow(refreshCtx, vehicleID)
+		}
 	}
 
 	// Resubscribe loop: SubscribeVehicleState has per-connection
@@ -1356,6 +1372,48 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 		m.logger.Warn("dynamics gnss subscription ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// driveDynamicsShadow streams the Parallax dynamics.vehicle.{gear,
+// drive_mode,odometer} topics and logs each decoded value next to the
+// concurrent vehicleState reading. Phase 2 measurement only: it never
+// mutates State, opens/closes a session, or advances m.stamp, so it cannot
+// affect recording. It exists to pin the gear enum (log the raw Parallax
+// value beside the vehicleState gear string) and to compare Parallax vs
+// vehicleState cadence over a real drive before any field is made
+// authoritative. Gated on RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax
+// connectivity; see docs/PARALLAX_MIGRATION.md Phase 2.
+func (m *StateMonitor) driveDynamicsShadow(ctx context.Context, vehicleID string) {
+	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, func(f DriveDynamicsFrame) {
+		m.mu.Lock()
+		prev := m.cache[vehicleID]
+		m.mu.Unlock()
+		var vehGear string
+		var vehOdoMi float64
+		if prev != nil {
+			vehGear = prev.Gear
+			vehOdoMi = prev.OdometerKm * kmToMi
+		}
+		switch f.RVM {
+		case rvmDriveGear:
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "gear",
+				"px_enum", f.Value, "px_gear", gearFromParallax(f.Value),
+				"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+		case rvmDriveMode:
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "drive_mode",
+				"px_enum", f.Value, "ts_ms", f.TimestampMs)
+		case rvmOdometer:
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "odometer",
+				"px_km", f.Value, "px_mi", float64(f.Value)*kmToMi,
+				"vehicleState_mi", vehOdoMi, "ts_ms", f.TimestampMs)
+		}
+	})
+	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		m.logger.Warn("drive-dynamics shadow subscription ended", "vehicle", vehicleID, "err", err.Error())
 	}
 }
 

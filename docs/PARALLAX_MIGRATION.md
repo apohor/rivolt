@@ -47,9 +47,9 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | gnssLocation/Speed/Bearing/Altitude | `dynamics.vehicle.gnss` | **shipped (preview)** |
 | pack temperature (none in legacy) | `energy.high_voltage.battery_state` | **recording** |
 | charge live data | `energy_edge_compute.graphs.charge_session_breakdown` | **shipped** |
-| gearStatus | `dynamics.vehicle.gear` | todo |
-| driveMode | `dynamics.vehicle.drive_mode` | todo |
-| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | todo (calibrate units) |
+| gearStatus | `dynamics.vehicle.gear` | **RE'd** — `{1:varint}`, `1=P` confirmed live; shadow-recording |
+| driveMode | `dynamics.vehicle.drive_mode` | **RE'd** — `{1:varint}` (proto `g70/*`); shadow-recording |
+| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **RE'd** — `{1:varint}` = whole **km** (calibrated); shadow-recording |
 | distanceToEmpty | `dynamics.vehicle.range` | todo |
 | tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | todo |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` / `battery_characteristics` | todo |
@@ -86,8 +86,25 @@ limits). Foundational; no behaviour change.
 Highest-value, lowest-risk (drive lifecycle already keys off gear). Per topic:
 RE the protobuf from APK + live frames, decode, **measure cadence vs
 vehicleState over a real drive**, then make Parallax authoritative for that
-field with vehicleState fallback. Calibrate odometer units (field 1 varint
-observed 60228 - confirm km vs mi vs m).
+field with vehicleState fallback.
+
+**Capture 2026-07-13** (parked R1S, via `/api/parallax-raw`). All three topics
+are single-field messages carrying one varint in field 1:
+
+| RVM | payload (b64 / hex) | field 1 | meaning |
+|-----|---------------------|---------|---------|
+| `dynamics.vehicle.gear` | `CAE=` / `08 01` | 1 | **P** (Park) |
+| `dynamics.vehicle.drive_mode` | `CAI=` / `08 02` | 2 | driveMode enum = 2 |
+| `dynamics.vehicle.odometer` | `CMPXAw==` / `08 c3 d7 03` | 60355 | **60355 km** |
+
+Odometer unit **settled: whole kilometers** — 60355 km = 37502.9 mi vs
+vehicleState's 37503.06 mi at capture time (so ~1 km / 0.62 mi resolution,
+coarser than vehicleState's 0.01 mi). Gear enum: only `P=1` is confirmed;
+`R/N/D` are pinned from a drive capture — the shadow recorder
+(`RIVOLT_PARALLAX_DRIVE_DYNAMICS`, `StateMonitor.driveDynamicsShadow`) logs the
+raw Parallax enum next to the concurrent vehicleState gear so the mapping is
+observable over a real drive. `decodeSingleVarint` + `gearFromParallax` in
+`internal/rivian/parallax.go`. Nothing is authoritative yet — measure first.
 
 ### Phase 3 - energy / charging
 `energy.high_voltage.battery_state` (extend the temp decoder to SoC + capacity),
