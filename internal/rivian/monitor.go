@@ -1389,10 +1389,11 @@ func (m *StateMonitor) driveDynamicsShadow(ctx context.Context, vehicleID string
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.mu.Unlock()
-		var vehGear string
+		var vehGear, vehPower string
 		var vehOdoMi float64
 		if prev != nil {
 			vehGear = prev.Gear
+			vehPower = prev.PowerState
 			vehOdoMi = prev.OdometerKm * kmToMi
 		}
 		switch f.RVM {
@@ -1410,6 +1411,15 @@ func (m *StateMonitor) driveDynamicsShadow(ctx context.Context, vehicleID string
 				"vehicle", vehicleID, "topic", "odometer",
 				"px_km", f.Value, "px_mi", float64(f.Value)*kmToMi,
 				"vehicleState_mi", vehOdoMi, "ts_ms", f.TimestampMs)
+		case rvmPowerState:
+			// Wire shape unconfirmed: log the raw payload (base64) plus the
+			// best-effort field-1 varint and the concurrent vehicleState
+			// powerState string so the enum can be RE'd from the shadow logs.
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "power_state",
+				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
+				"px_raw_b64", f.Payload,
+				"vehicleState_power", vehPower, "ts_ms", f.TimestampMs)
 		}
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {

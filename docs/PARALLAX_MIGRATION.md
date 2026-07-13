@@ -62,7 +62,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
-| powerState | (RE needed - likely a system/telematics topic) | todo, RE |
+| powerState | `vehicle.power.state` | shadow-capturing raw payload (wire shape TBD) — earlier wake signal for late-start |
 
 Coverage is effectively complete - every legacy field has a Parallax home.
 

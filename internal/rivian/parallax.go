@@ -505,6 +505,11 @@ const (
 	rvmDriveGear = "dynamics.vehicle.gear"
 	rvmDriveMode = "dynamics.vehicle.drive_mode"
 	rvmOdometer  = "dynamics.vehicle.odometer"
+	// rvmPowerState is the vehicle-domain power/sleep-state topic (maps to
+	// legacy powerState). Folded into the drive-dynamics shadow as an
+	// earlier wake signal for the late-recording-start case. Wire shape not
+	// yet confirmed — the shadow logs its raw payload for RE.
+	rvmPowerState = "vehicle.power.state"
 )
 
 // decodeSingleVarint decodes a base64 protobuf payload of the shape
@@ -543,12 +548,15 @@ func gearFromParallax(v uint64) string {
 	}
 }
 
-// DriveDynamicsFrame is one decoded drive-dynamics frame. Value is the raw
-// field-1 varint; interpret per RVM (gear enum, drive_mode enum, or odometer
-// in whole kilometers).
+// DriveDynamicsFrame is one shadow frame. Value is the field-1 varint (when
+// ValueOK) — interpret per RVM (gear enum, drive_mode enum, odometer in whole
+// km). Payload is the raw base64 so a not-yet-RE'd topic (e.g. power.state)
+// can still be logged and decoded offline.
 type DriveDynamicsFrame struct {
 	RVM         string
 	Value       uint64
+	ValueOK     bool
+	Payload     string
 	TimestampMs int64
 }
 
@@ -574,7 +582,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer}
+	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState}
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {
@@ -597,15 +605,15 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			if msg.Payload == "" {
 				return nil
 			}
+			// Don't gate on a successful varint decode — a topic whose
+			// shape isn't RE'd yet (power.state) must still reach the
+			// shadow so its raw payload gets logged for offline decoding.
 			v, ok := decodeSingleVarint(msg.Payload)
-			if !ok {
-				return nil
-			}
 			var ts int64
 			if s := strings.Trim(string(msg.Timestamp), `"`); s != "" {
 				ts, _ = strconv.ParseInt(s, 10, 64)
 			}
-			cb(DriveDynamicsFrame{RVM: msg.RVM, Value: v, TimestampMs: ts})
+			cb(DriveDynamicsFrame{RVM: msg.RVM, Value: v, ValueOK: ok, Payload: msg.Payload, TimestampMs: ts})
 			return nil
 		})
 		if err == nil {
