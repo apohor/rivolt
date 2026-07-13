@@ -183,6 +183,16 @@ export default function ChargeDetailPage() {
         Math.floor((Date.now() - new Date(charge.StartedAt).getTime()) / 1000),
       )
     : durationSeconds(charge.StartedAt, charge.EndedAt);
+  // The Duration stat should reflect time actually spent charging, not
+  // the whole plugged-in span (an L2 session can sit idle for hours
+  // after hitting the target SoC). The recorder persists that as
+  // ActiveSeconds; fall back to the wall span for legacy/import rows
+  // that predate the column. `duration` above stays the plugged-in
+  // span and is surfaced separately below.
+  const chargingSec =
+    charge.ActiveSeconds && charge.ActiveSeconds > 0
+      ? charge.ActiveSeconds
+      : duration;
 
   return (
     <div className="space-y-6">
@@ -204,7 +214,15 @@ export default function ChargeDetailPage() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Stat label="Duration" value={formatDuration(duration)} />
+        <Stat
+          label="Duration"
+          value={formatDuration(chargingSec)}
+          hint={
+            charge.ActiveSeconds && charge.ActiveSeconds > 0 && !active
+              ? `plugged ${formatDuration(duration)}`
+              : undefined
+          }
+        />
         <Stat
           label="SoC"
           value={`${pct(charge.StartSoCPct)} → ${pct(charge.EndSoCPct)}`}

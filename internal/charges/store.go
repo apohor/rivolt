@@ -75,6 +75,13 @@ type Charge struct {
 	// recorded before this column existed leave it nil so the UI
 	// can render "—" instead of misleading "0 kWh thermal".
 	ThermalKWh *float64
+	// ActiveSeconds is the wall-clock time the session actually spent
+	// charging (power above the idle floor), as opposed to
+	// EndedAt-StartedAt which spans the whole plugged-in period
+	// (including charging_ready / battery-conditioning idle). Zero on
+	// legacy rows and non-live sources; the UI falls back to the wall
+	// span in that case.
+	ActiveSeconds float64
 }
 
 // Store wraps the charges table.
@@ -165,8 +172,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			max_power_kw, avg_power_kw, final_state,
 			lat, lon, source,
 			cost, currency, price_per_kwh,
-			thermal_kwh
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			thermal_kwh,
+			active_seconds
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -188,6 +196,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			-- this metric (REST poller, ElectraFi import) shouldn't
 			-- erase a value the Parallax stream already captured.
 			thermal_kwh      = COALESCE(EXCLUDED.thermal_kwh, charges.thermal_kwh),
+			active_seconds   = COALESCE(EXCLUDED.active_seconds, charges.active_seconds),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -198,7 +207,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfZero(c.Lat), nullIfZero(c.Lon),
 		c.Source,
 		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh),
-		nullableFloatPtr(c.ThermalKWh))
+		nullableFloatPtr(c.ThermalKWh),
+		nullIfZero(c.ActiveSeconds))
 	return err
 }
 
@@ -228,7 +238,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -250,7 +260,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal,
+			&thermal, &c.ActiveSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -281,7 +291,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -307,7 +317,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
-		&thermal,
+		&thermal, &c.ActiveSeconds,
 	); err != nil {
 		return nil, err
 	}
@@ -476,7 +486,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -497,7 +507,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal,
+			&thermal, &c.ActiveSeconds,
 		); err != nil {
 			return nil, err
 		}

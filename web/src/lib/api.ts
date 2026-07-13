@@ -367,6 +367,14 @@ export type Charge = {
   // column existed and on sessions that didn't go through the
   // Parallax stream (REST poller, ElectraFi import).
   ThermalKWh?: number | null;
+  // Wall-clock seconds the session actually spent charging (charger
+  // power above the idle floor), accumulated by the live recorder from
+  // the same gated dt that feeds the energy integral. Distinct from
+  // EndedAt-StartedAt, which spans the whole plugged-in period
+  // (including post-target idle / battery conditioning). Absent or 0 on
+  // legacy rows, imports, and non-Parallax live sessions; the UI falls
+  // back to the wall span then.
+  ActiveSeconds?: number;
 };
 
 export type ChargingSettings = {
