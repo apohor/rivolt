@@ -588,6 +588,28 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 
 	// Close drive on transition D/R/N → P.
 	if !driving && s.drive != nil {
+		// The parking frame carries the drive's true final odometer.
+		// The ongoing-drive block above only advances end state while
+		// the gear reads driving, so if a telemetry gap swallowed the
+		// last stretch before the car stopped (Rivian's stream can go
+		// quiet for minutes, then resume already in P), the last
+		// *driving* frame we saw undercounts distance and ends the trip
+		// early. Fold the parking frame's odometer in here. Advance
+		// ended_at / end position only when the odometer actually grew
+		// across the gap — that's the signal the car was driving, not
+		// idling; without it, post-park idle before the first P frame
+		// would be miscounted as drive time.
+		if odoMi := curr.OdometerKm * kmToMi; odoMi > s.drive.endOdoMi {
+			s.drive.endOdoMi = odoMi
+			s.drive.endSoC = curr.BatteryLevelPct
+			if curr.At.After(s.drive.endAt) {
+				s.drive.endAt = curr.At
+			}
+			if curr.Latitude != 0 || curr.Longitude != 0 {
+				s.drive.endLat = curr.Latitude
+				s.drive.endLon = curr.Longitude
+			}
+		}
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		// Snapshot the row before the close hook fires so any async
 		// hook sees the persisted shape, not a half-mutated
