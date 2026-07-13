@@ -1171,11 +1171,11 @@ function FloatingTooltip({
       value: fmtTemp(cursorSample.OutsideTempC, tempUnit),
     });
   }
-  if (cursorSample.InsideTempC && cursorSample.InsideTempC !== 0) {
+  if (cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0) {
     rows.push({
       color: "#f472b6",
-      label: "Cabin",
-      value: fmtTemp(cursorSample.InsideTempC, tempUnit),
+      label: "Battery",
+      value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit),
     });
   }
   if (cursorHeadwind != null) {
@@ -1362,11 +1362,11 @@ function CursorReadout({
       value: fmtTemp(cursorSample.OutsideTempC, tempUnit),
     });
   }
-  if (cursorSample.InsideTempC && cursorSample.InsideTempC !== 0) {
+  if (cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0) {
     items.push({
       color: "#f472b6",
-      label: "Cabin",
-      value: fmtTemp(cursorSample.InsideTempC, tempUnit),
+      label: "Battery",
+      value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit),
     });
   }
   if (cursorHeadwind != null) {
