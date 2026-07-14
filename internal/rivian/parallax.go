@@ -614,6 +614,50 @@ func driveModeFromParallax(v uint64) string {
 	}
 }
 
+// TirePressure is one decoded wheel from a dynamics.tires.state frame.
+// Position 1=FL, 2=FR, 3=RL, 4=RR; Bar is the pressure in bar (matches
+// vehicleState's tire_pressure_*_bar). Confirmed live 2026-07-14: pressures
+// 3.25/3.28/3.25/3.25 bar vs vehicleState tire_min_bar 3.25.
+type TirePressure struct {
+	Position int
+	Bar      float64
+}
+
+// decodeTires parses a dynamics.tires.state payload:
+//
+//	message TiresState { ...; repeated TireState tires = 2; }
+//	message TireState  { uint32 position = 1; ... = 2; double pressure_bar = 3;
+//	                     ...; uint64 timestamp_ms = 5; }
+func decodeTires(b64 string) ([]TirePressure, bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, false
+	}
+	var out []TirePressure
+	if err := pbScan(raw, func(field, wire int, val []byte) {
+		if field != 2 || wire != 2 {
+			return
+		}
+		var tp TirePressure
+		_ = pbScan(val, func(f, w int, v []byte) {
+			switch {
+			case f == 1 && w == 0:
+				if n, m := binary.Uvarint(v); m > 0 {
+					tp.Position = int(n)
+				}
+			case f == 3 && w == 1 && len(v) == 8:
+				tp.Bar = math.Float64frombits(binary.LittleEndian.Uint64(v))
+			}
+		})
+		if tp.Position >= 1 && tp.Position <= 4 {
+			out = append(out, tp)
+		}
+	}); err != nil {
+		return nil, false
+	}
+	return out, len(out) > 0
+}
+
 // DriveDynamicsFrame is one shadow frame. Value is the field-1 varint (when
 // ValueOK) — interpret per RVM (gear enum, drive_mode enum, odometer in whole
 // km). Payload is the raw base64 so a not-yet-RE'd topic (e.g. power.state)

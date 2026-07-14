@@ -147,3 +147,30 @@ func TestDecodeSingleVarint(t *testing.T) {
 		t.Errorf("gearFromParallax(99) = %q, want empty (unmapped)", gearFromParallax(99))
 	}
 }
+
+// TestDecodeTires pins the dynamics.tires.state layout against a real frame
+// captured 2026-07-14 (FL/FR/RL/RR = 3.25/3.28/3.25/3.25 bar, matching
+// vehicleState's tire_min_bar 3.25). Repeated TireState in field 2, each
+// with position (1) and pressure double (3).
+func TestDecodeTires(t *testing.T) {
+	const frame = "CAESFAgBEAEZAAAAAAAACkAo4JT17/UzEhQIAhABGT0K16NwPQpAKOCU9e/1MxIUCAMQARkAAAAAAAAKQCjglPXv9TMSFAgEEAEZAAAAAAAACkAo4JT17/Uz"
+	got, ok := decodeTires(frame)
+	if !ok || len(got) != 4 {
+		t.Fatalf("decodeTires: ok=%v len=%d, want ok=true len=4", ok, len(got))
+	}
+	want := map[int]float64{1: 3.25, 2: 3.28, 3: 3.25, 4: 3.25}
+	for _, tp := range got {
+		w, exists := want[tp.Position]
+		if !exists {
+			t.Errorf("unexpected position %d", tp.Position)
+			continue
+		}
+		if d := tp.Bar - w; d > 0.01 || d < -0.01 {
+			t.Errorf("position %d: bar=%.3f, want ~%.2f", tp.Position, tp.Bar, w)
+		}
+	}
+	// range shares the single-varint shape: field 1 = 308 km.
+	if v, ok := decodeSingleVarint("CLQCEAEYAQ=="); !ok || v != 308 {
+		t.Errorf("range decodeSingleVarint = %d, %v; want 308, true", v, ok)
+	}
+}

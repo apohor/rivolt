@@ -50,8 +50,8 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | gearStatus | `dynamics.vehicle.gear` | **authoritative (open) on preview** — enum 1P/2R/3N/4D; opens drives early, close stays on vehicleState |
 | driveMode | `dynamics.vehicle.drive_mode` | **authoritative on preview** — enum from APK 3.14.0 (2=everyday … 15=winter; anchored by live 2=EVERYDAY); mapped to vehicleState's lowercase names |
 | vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **authoritative (stall-bridge) on preview** — `{1:varint}` whole **km**; monotonic, only advances cache when higher, so vehicleState's 0.01-mi wins normally |
-| distanceToEmpty | `dynamics.vehicle.range` | todo |
-| tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | todo |
+| distanceToEmpty | `dynamics.vehicle.range` | **authoritative on preview** — `{1:varint km}` (308 km = vehicleState 191.4 mi); applied to DistanceToEmpty (already km) |
+| tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative on preview** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` / `battery_characteristics` | todo |
 | twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | todo |
 | cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | todo |

@@ -1560,10 +1560,54 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					m.mu.Unlock()
 				}
 			}
+		case rvmRange:
+			// distanceToEmpty in whole km (field 1) — State.DistanceToEmpty
+			// is already km, so apply directly. Confirmed live: 308 km =
+			// vehicleState 191.4 mi.
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "range",
+				"px_km", f.Value, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && f.ValueOK && f.Value > 0 {
+				km := float64(f.Value)
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && base.DistanceToEmpty != km {
+					next := *base
+					next.At = time.Now()
+					next.DistanceToEmpty = km
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
+		case rvmTires:
+			tires, ok := decodeTires(f.Payload)
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "tires",
+				"px_ok", ok, "px_tires", tires, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ok {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil {
+					next := *base
+					next.At = time.Now()
+					for _, t := range tires {
+						switch t.Position {
+						case 1:
+							next.TirePressureFLBar = t.Bar
+						case 2:
+							next.TirePressureFRBar = t.Bar
+						case 3:
+							next.TirePressureRLBar = t.Bar
+						case 4:
+							next.TirePressureRRBar = t.Bar
+						}
+					}
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
 		default:
-			// Not-yet-RE'd topics (range, tires, …): log the raw payload +
-			// best-effort varint so the wire shape can be decoded offline
-			// from the logs, same as power.state was. No cache apply yet.
+			// Any other not-yet-RE'd topic: log the raw payload + best-effort
+			// varint so its wire shape can be decoded offline from the logs,
+			// same as power.state/range/tires were. No cache apply.
 			m.logger.Info("parallax drive-dynamics shadow",
 				"vehicle", vehicleID, "topic", f.RVM,
 				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
