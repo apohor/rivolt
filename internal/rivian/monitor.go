@@ -91,6 +91,13 @@ type StateMonitor struct {
 	// Off by default; preview-only until proven. See
 	// docs/PARALLAX_MIGRATION.md Phase 2.
 	parallaxDriveDynamics bool
+	// lastParallaxAt[vehicleID] is when any Parallax topic (gnss,
+	// battery_state, drive-dynamics, charging) last delivered a frame.
+	// Feeds parallaxLivenessWatch — the observability precursor to the
+	// Phase-5 watchdog that must exist before vehicleState can be dropped
+	// as the fallback (a silently dead Parallax feed would otherwise lose
+	// all telemetry invisibly). Guarded by mu.
+	lastParallaxAt map[string]time.Time
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -239,6 +246,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		lastVehStateGPS: make(map[string]time.Time),
+		lastParallaxAt:  make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		wsSeen:          make(map[string]bool),
@@ -275,6 +283,56 @@ func parseBoolEnv(v string) bool {
 // (10+ missed frames), well clear of normal jitter. Parallax's own ~60s
 // cadence caps how fast the fill can run once armed.
 const parallaxGPSStallThreshold = 30 * time.Second
+
+// parallaxStaleThreshold is how long the Parallax stream may go silent
+// while the car is actively driving (powerState "go") before the liveness
+// watch flags it. Parallax topics are event-driven, so silence while
+// parked is normal — but while driving, gnss alone should push ~every 60s,
+// so a multi-minute gap means the feed has silently died. Deliberately
+// only meaningful during "go" to avoid false alarms on a parked-but-awake
+// car whose topics simply have nothing to report.
+const parallaxStaleThreshold = 3 * time.Minute
+
+// noteParallaxFrame records that some Parallax topic just delivered a
+// frame. Called from every Parallax subscriber callback so
+// parallaxLivenessWatch can distinguish a live-but-quiet feed from a dead
+// one. Cheap: a single guarded map write.
+func (m *StateMonitor) noteParallaxFrame(vehicleID string) {
+	m.mu.Lock()
+	m.lastParallaxAt[vehicleID] = time.Now()
+	m.mu.Unlock()
+}
+
+// parallaxLivenessWatch warns when the Parallax stream goes silent while
+// the car is actively driving — the invisible-death case that must be
+// detectable before vehicleState can be dropped as the fallback (Phase 5).
+// Observability only for now: it logs (no forced resubscribe yet, since
+// vehicleState is still the authoritative fallback). The individual
+// subscribers already reconnect on a hard error; this catches the harder
+// case where the socket stays up but frames stop.
+func (m *StateMonitor) parallaxLivenessWatch(ctx context.Context, vehicleID string) {
+	t := time.NewTicker(parallaxStaleThreshold / 2)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			m.mu.RLock()
+			last := m.lastParallaxAt[vehicleID]
+			st := m.cache[vehicleID]
+			m.mu.RUnlock()
+			// Only meaningful while driving: "go" is the state where
+			// gnss must be streaming. Parked/asleep silence is expected.
+			driving := st != nil && st.PowerState == "go"
+			if driving && !last.IsZero() && now.Sub(last) > parallaxStaleThreshold {
+				m.logger.Warn("parallax stream silent while driving",
+					"vehicle", vehicleID,
+					"since_last_frame", now.Sub(last).Round(time.Second).String())
+			}
+		}
+	}
+}
 
 // noteVehStateGPS records that vehicleState just delivered a GPS fix, so
 // the gnss subscriber can tell a live vehicleState feed from a stalled
@@ -707,6 +765,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.liveStatePublisher(refreshCtx, vehicleID)
 	if eligibleParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
+		// Liveness watch (Phase-5 prerequisite): warn if the Parallax
+		// stream goes silent while driving — the invisible-death case that
+		// must be detectable before vehicleState can be dropped.
+		go m.parallaxLivenessWatch(refreshCtx, vehicleID)
 		// Phase 2 drive-dynamics: shadow-log gear/drive_mode/odometer/
 		// power.state vs vehicleState and apply them authoritatively
 		// (gear opens drives, odometer bridges stalls, power.state /
@@ -1308,6 +1370,7 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 // vehicle is awake. SubscribeBatteryState handles reconnect/backoff.
 func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeBatteryState(ctx, vehicleID, func(bt *BatteryTemp) {
+		m.noteParallaxFrame(vehicleID)
 		if bt == nil || bt.CellAvgC == 0 {
 			return
 		}
@@ -1344,6 +1407,7 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 // Parallax keeping it warm would mask a dead vehicleState feed.
 func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDynamicsGNSS(ctx, vehicleID, func(g *DynamicsGNSS) {
+		m.noteParallaxFrame(vehicleID)
 		if g == nil {
 			return
 		}
@@ -1405,6 +1469,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // docs/PARALLAX_MIGRATION.md Phase 2.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, func(f DriveDynamicsFrame) {
+		m.noteParallaxFrame(vehicleID)
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.mu.Unlock()
