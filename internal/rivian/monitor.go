@@ -1364,14 +1364,30 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeBatteryState(ctx, vehicleID, func(bt *BatteryTemp) {
 		m.noteParallaxFrame(vehicleID)
-		if bt == nil || bt.CellAvgC == 0 {
+		if bt == nil {
 			return
+		}
+		// Log SoC/capacity for the measure-first check (compare against
+		// vehicleState battery_level_pct) before trusting the new decode.
+		if bt.SoCPct != 0 || bt.PackKWh != 0 {
+			m.logger.Info("parallax battery_state charge",
+				"vehicle", vehicleID, "px_soc", bt.SoCPct, "px_pack_kwh", bt.PackKWh)
 		}
 		m.mu.Lock()
 		if st := m.cache[vehicleID]; st != nil {
-			st.PackTempAvgC = bt.CellAvgC
-			st.PackTempMaxC = bt.CellMaxC
-			st.PackTempMinC = bt.CellMinC
+			if bt.CellAvgC != 0 {
+				st.PackTempAvgC = bt.CellAvgC
+				st.PackTempMaxC = bt.CellMaxC
+				st.PackTempMinC = bt.CellMinC
+			}
+			// SoC/capacity are authoritative when present and sane; the
+			// range guards also reject a mis-decoded (wrong wire type) value.
+			if bt.SoCPct > 0 && bt.SoCPct <= 100 {
+				st.BatteryLevelPct = bt.SoCPct
+			}
+			if bt.PackKWh > 0 && bt.PackKWh < 300 {
+				st.BatteryCapacityKWh = bt.PackKWh
+			}
 		}
 		m.mu.Unlock()
 	})

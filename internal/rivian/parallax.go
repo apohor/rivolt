@@ -41,9 +41,14 @@ const rvmBatteryState = "energy.high_voltage.battery_state"
 
 // BatteryTemp holds decoded high-voltage pack cell temperatures (°C).
 type BatteryTemp struct {
-	CellAvgC  float64 `json:"cell_avg_c"`
-	CellMaxC  float64 `json:"cell_max_c"`
-	CellMinC  float64 `json:"cell_min_c"`
+	CellAvgC float64 `json:"cell_avg_c"`
+	CellMaxC float64 `json:"cell_max_c"`
+	CellMinC float64 `json:"cell_min_c"`
+	// SoCPct (charge_state.chargePercentage, field 1.1) and PackKWh
+	// (charge_state.pack_capacity, field 1.4) come from the same
+	// battery_state message. Zero when the frame omits charge_state.
+	SoCPct    float64 `json:"soc_pct"`
+	PackKWh   float64 `json:"pack_kwh"`
 	Timestamp string  `json:"timestamp"`
 	RawB64    string  `json:"raw_b64"`
 }
@@ -405,7 +410,21 @@ func decodeBatteryTemp(b64 string) (*BatteryTemp, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &BatteryTemp{CellAvgC: float64(avg), CellMaxC: float64(max), CellMinC: float64(min)}, nil
+	bt := &BatteryTemp{CellAvgC: float64(avg), CellMaxC: float64(max), CellMinC: float64(min)}
+	// charge_state (battery_state field 1) carries SoC + pack capacity.
+	// Field numbers from the Rivian APK 3.14.0 proto: chargePercentage=1,
+	// pack_capacity=4 (both float32, like the sibling temperatures). Best-
+	// effort — absent on frames without charge_state, and pbFloatField
+	// self-guards the wire type (non-float32 → ok=false → left at 0).
+	if cs, ok, _ := pbMessageField(raw, 1); ok {
+		if soc, ok2, _ := pbFloatField(cs, 1); ok2 {
+			bt.SoCPct = float64(soc)
+		}
+		if cap, ok2, _ := pbFloatField(cs, 4); ok2 {
+			bt.PackKWh = float64(cap)
+		}
+	}
+	return bt, nil
 }
 
 // pbMessageField returns the bytes of the length-delimited (wire type 2)
