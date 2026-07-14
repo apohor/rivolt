@@ -260,7 +260,9 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 							display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
 							model        = COALESCE(EXCLUDED.model,        vehicles.model),
 							model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
-							pack_kwh     = COALESCE(EXCLUDED.pack_kwh,     vehicles.pack_kwh),
+							-- Preserve an observed vehicle-reported pack_kwh over
+							-- this sync's InferPackKWh guess; only seed when null.
+							pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
 							updated_at   = NOW()
 					`, userID, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
 					if uerr != nil && logger != nil {

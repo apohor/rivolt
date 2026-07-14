@@ -405,7 +405,11 @@ func primeUserVehicles(
 				display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
 				model        = COALESCE(EXCLUDED.model,        vehicles.model),
 				model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
-				pack_kwh     = COALESCE(EXCLUDED.pack_kwh,     vehicles.pack_kwh),
+				-- Keep an existing pack_kwh: it may be the vehicle-reported
+				-- capacity (write-through from observeBatteryCapacity), which
+				-- must not be clobbered by this sync's InferPackKWh guess.
+				-- Only seed when currently null.
+				pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
 				updated_at   = NOW()
 		`, uid, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
 		if uerr != nil && logger != nil {
