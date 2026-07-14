@@ -567,8 +567,22 @@ const (
 // default log case). Passed only when the preview capture flag is on, so
 // prod isn't subscribed to topics it doesn't yet use.
 var CaptureRVMs = []string{
-	rvmCabinTemps, rvmClosures, rvmLocks, rvmWindows, rvmTrailer,
+	rvmClosures, rvmLocks, rvmWindows, rvmTrailer,
 	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
+}
+
+// decodeCabinTemp pulls the interior cabin temperature (field 3, float32,
+// °C) from a comfort.cabin.cabin_temperatures payload. Confirmed live:
+// 26.0 == vehicleState inside_temp_c; field 4 is the driver setpoint.
+func decodeCabinTemp(b64 string) (float64, bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, false
+	}
+	if v, ok, _ := pbFloatField(raw, 3); ok {
+		return float64(v), true
+	}
+	return 0, false
 }
 
 // decodeSingleVarint decodes a base64 protobuf payload of the shape
@@ -746,7 +760,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := append([]string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires}, extra...)
+	rvms := append([]string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires, rvmCabinTemps}, extra...)
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {

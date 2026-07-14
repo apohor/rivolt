@@ -1643,6 +1643,23 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 				}
 				m.mu.Unlock()
 			}
+		case rvmCabinTemps:
+			// Interior cabin temp (field 3, °C) — field 3 = 26.0 matched
+			// vehicleState inside_temp_c. Applied to CabinTempC.
+			temp, ok := decodeCabinTemp(f.Payload)
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "cabin_temp",
+				"px_c", temp, "px_ok", ok, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ok && temp > -50 && temp < 80 {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && base.CabinTempC != temp {
+					next := *base
+					next.At = time.Now()
+					next.CabinTempC = temp
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,

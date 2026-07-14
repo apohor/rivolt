@@ -54,7 +54,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative on preview** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` | **authoritative on preview** — charge_state (field 1) → field 1 (double) = SoC %, field 2 (double) = pack capacity kWh. RE'd from a live frame (SoC 67.4 vs vehicleState 68.7; capacity 123.4 kWh) — note doubles, not the float32 the APK enum hinted |
 | twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | todo |
-| cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | todo |
+| cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | **authoritative on preview** — field 3 (float32 °C) = interior temp; 26.0 matched vehicleState inside_temp_c (field 4 = driver setpoint) |
 | cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |
 | cabinHoldStatus | `comfort.cabin.climate_hold_status` | todo |
 | petModeStatus | `comfort.cabin.pet_mode_status` | todo |

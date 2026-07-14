@@ -196,3 +196,12 @@ func TestDecodeBatterySoC(t *testing.T) {
 		t.Errorf("CellAvgC = %v, want ~32.8 (temp must still decode)", bt.CellAvgC)
 	}
 }
+
+// TestDecodeCabinTemp pins the comfort.cabin.cabin_temperatures layout: the
+// interior temp is field 3 (float32). Live: 26.0 == vehicleState inside_temp_c.
+func TestDecodeCabinTemp(t *testing.T) {
+	c, ok := decodeCabinTemp("HQAA0EElAACwQQ==")
+	if !ok || c-26.0 > 0.01 || 26.0-c > 0.01 {
+		t.Errorf("decodeCabinTemp = %v, %v; want 26.0, true", c, ok)
+	}
+}
