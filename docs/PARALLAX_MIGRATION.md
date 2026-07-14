@@ -48,8 +48,8 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | pack temperature (none in legacy) | `energy.high_voltage.battery_state` | **recording** |
 | charge live data | `energy_edge_compute.graphs.charge_session_breakdown` | **shipped** |
 | gearStatus | `dynamics.vehicle.gear` | **authoritative (open) on preview** — enum 1P/2R/3N/4D; opens drives early via RIVOLT_PARALLAX_GEAR, close stays on vehicleState |
-| driveMode | `dynamics.vehicle.drive_mode` | **RE'd** — `{1:varint}` (proto `g70/*`); shadow-recording |
-| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **RE'd** — `{1:varint}` = whole **km** (calibrated); shadow-recording |
+| driveMode | `dynamics.vehicle.drive_mode` | **RE'd** — `{1:varint}` (proto `g70/*`); shadow only — enum→name table (All-Purpose/Sport/…) still needed before authoritative |
+| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **authoritative (stall-bridge) on preview** — `{1:varint}` whole **km**; monotonic, only advances cache when higher, so vehicleState's 0.01-mi wins normally (`RIVOLT_PARALLAX_ODOMETER`) |
 | distanceToEmpty | `dynamics.vehicle.range` | todo |
 | tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | todo |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` / `battery_characteristics` | todo |
@@ -62,7 +62,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
-| powerState | `vehicle.power.state` | **RE'd** — `{1:varint}`, `3=ready` confirmed live; shadow-recording (earlier wake signal for late-start; sleep/standby enums TBD) |
+| powerState | `vehicle.power.state` | **authoritative on preview** — `{1:varint}`, `3=ready`/`4=go` confirmed; applied to cache (`RIVOLT_PARALLAX_POWER_STATE`); sleep enum TBD |
 
 Coverage is effectively complete - every legacy field has a Parallax home.
 

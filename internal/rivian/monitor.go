@@ -86,6 +86,17 @@ type StateMonitor struct {
 	// trip; vehicleState stays the drive-close authority. Requires the
 	// drive-dynamics subscription (implies it below). Off by default.
 	parallaxGear bool
+	// parallaxOdometer (RIVOLT_PARALLAX_ODOMETER) lets the Parallax
+	// dynamics.vehicle.odometer topic advance the cached odometer during a
+	// vehicleState stall. Applied monotonically (only when higher than the
+	// cached value) so it bridges gaps without ever lowering vehicleState's
+	// finer 0.01-mi resolution to Parallax's whole-km. Off by default.
+	parallaxOdometer bool
+	// parallaxPowerState (RIVOLT_PARALLAX_POWER_STATE) makes the Parallax
+	// vehicle.power.state topic authoritative for the cached powerState
+	// (3=ready, 4=go), which updates faster than vehicleState's push. Off
+	// by default. Unmapped enums fall back to vehicleState.
+	parallaxPowerState bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -234,6 +245,8 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxGear:          parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GEAR")),
+		parallaxOdometer:      parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_ODOMETER")),
+		parallaxPowerState:    parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_POWER_STATE")),
 		lastVehStateGPS: make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
@@ -708,7 +721,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// Parallax gear authoritative for opening drives. Either flag
 		// starts the subscription; the authoritative apply is gated
 		// separately inside the handler.
-		if m.parallaxDriveDynamics || m.parallaxGear {
+		if m.parallaxDriveDynamics || m.parallaxGear || m.parallaxOdometer || m.parallaxPowerState {
 			go m.driveDynamicsSubscriber(refreshCtx, vehicleID)
 		}
 	}
@@ -1449,15 +1462,44 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 				"vehicle", vehicleID, "topic", "odometer",
 				"px_km", f.Value, "px_mi", float64(f.Value)*kmToMi,
 				"vehicleState_mi", vehOdoMi, "ts_ms", f.TimestampMs)
+			// Monotonic stall-bridge: advance the cached odometer only when
+			// Parallax reads higher than the cache. Never lowers it, so
+			// vehicleState's finer 0.01-mi resolution wins in normal
+			// operation and Parallax only fills a stall where vehicleState
+			// has frozen.
+			if m.parallaxOdometer && f.ValueOK {
+				km := float64(f.Value)
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && km > base.OdometerKm {
+					next := *base
+					next.At = time.Now()
+					next.OdometerKm = km
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
 		case rvmPowerState:
-			// Wire shape unconfirmed: log the raw payload (base64) plus the
-			// best-effort field-1 varint and the concurrent vehicleState
-			// powerState string so the enum can be RE'd from the shadow logs.
+			// px_raw_b64 kept in the log so the still-unmapped enums
+			// (sleep, …) can be RE'd from the shadow logs.
 			m.logger.Info("parallax drive-dynamics shadow",
 				"vehicle", vehicleID, "topic", "power_state",
 				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
-				"px_raw_b64", f.Payload,
+				"px_raw_b64", f.Payload, "px_power", powerStateFromParallax(f.Value),
 				"vehicleState_power", vehPower, "ts_ms", f.TimestampMs)
+			// Apply the mapped powerState to the cache (fresher than
+			// vehicleState's push). Unmapped enums are left to vehicleState.
+			if m.parallaxPowerState {
+				if ps := powerStateFromParallax(f.Value); ps != "" {
+					m.mu.Lock()
+					if base := m.cache[vehicleID]; base != nil && base.PowerState != ps {
+						next := *base
+						next.At = time.Now()
+						next.PowerState = ps
+						m.cache[vehicleID] = &next
+					}
+					m.mu.Unlock()
+				}
+			}
 		}
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {

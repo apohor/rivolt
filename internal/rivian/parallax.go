@@ -554,6 +554,22 @@ func gearFromParallax(v uint64) string {
 	}
 }
 
+// powerStateFromParallax maps the vehicle.power.state enum to the
+// powerState string contract vehicleState uses. 3=ready and 4=go are
+// confirmed from the 2026-07-14 drive (3→4 led drive-start, 4→3 led
+// drive-end); the sleep enum isn't captured yet. Returns "" for an
+// unmapped value so callers fall back to vehicleState.
+func powerStateFromParallax(v uint64) string {
+	switch v {
+	case 3:
+		return "ready"
+	case 4:
+		return "go"
+	default:
+		return ""
+	}
+}
+
 // DriveDynamicsFrame is one shadow frame. Value is the field-1 varint (when
 // ValueOK) — interpret per RVM (gear enum, drive_mode enum, odometer in whole
 // km). Payload is the raw base64 so a not-yet-RE'd topic (e.g. power.state)
