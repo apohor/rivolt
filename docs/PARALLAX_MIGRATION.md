@@ -134,7 +134,7 @@ Odometer unit **settled: whole kilometers** — 60355 km = 37502.9 mi vs
 vehicleState's 37503.06 mi at capture time (so ~1 km / 0.62 mi resolution,
 coarser than vehicleState's 0.01 mi). Gear enum: only `P=1` is confirmed;
 `R/N/D` are pinned from a drive capture — the shadow recorder
-(`RIVOLT_PARALLAX_DRIVE_DYNAMICS`, `StateMonitor.driveDynamicsShadow`) logs the
+(`RIVOLT_PARALLAX_DRIVE_DYNAMICS`, `StateMonitor.driveDynamicsSubscriber`) logs the
 raw Parallax enum next to the concurrent vehicleState gear so the mapping is
 observable over a real drive. `decodeSingleVarint` + `gearFromParallax` in
 `internal/rivian/parallax.go`. Nothing is authoritative yet — measure first.

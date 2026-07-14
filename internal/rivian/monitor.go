@@ -58,7 +58,8 @@ type StateMonitor struct {
 	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for the
 	// Parallax GPS gap-fill. It mirrors the app's Firebase
 	// `parallaxCommand` remote-config layer: necessary but not
-	// sufficient. Off by default (prod); on in preview. A vehicle also
+	// sufficient. Env defaults off; enabled in both prod and preview now.
+	// A vehicle also
 	// has to advertise Parallax connectivity
 	// (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) to run the gnss
 	// subscriber. vehicleState stays the dense authoritative GPS source;
@@ -66,14 +67,6 @@ type StateMonitor struct {
 	// to Parallax is too sparse — ~60s vs vehicleState's ~3s — and still
 	// stalls, so it bridges rather than replaces).
 	parallaxGPS bool
-	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) enables the
-	// Phase 2 shadow recorder for dynamics.vehicle.{gear,drive_mode,
-	// odometer}: it subscribes and logs each decoded value next to the
-	// concurrent vehicleState reading WITHOUT making any field
-	// authoritative (never mutates State, opens/closes a session, or
-	// advances m.stamp). Off by default; flip on (preview) to measure
-	// cadence and pin the gear enum over a real drive before the
-	// authoritative cut. Also gated on Parallax connectivity.
 	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) subscribes to
 	// dynamics.vehicle.{gear,drive_mode,odometer} + vehicle.power.state,
 	// shadow-logs each value next to vehicleState, and makes them
