@@ -84,6 +84,12 @@ type StateMonitor struct {
 	// Off by default; preview-only until proven. See
 	// docs/PARALLAX_MIGRATION.md Phase 2.
 	parallaxDriveDynamics bool
+	// parallaxCapture (RIVOLT_PARALLAX_CAPTURE) adds the not-yet-decoded
+	// read topics (CaptureRVMs) to the drive-dynamics subscription for
+	// raw-payload shadow RE. Preview-only — keeps prod off the
+	// experimental topics until each is decoded and promoted. Requires
+	// parallaxDriveDynamics (the subscription it rides on).
+	parallaxCapture bool
 	// lastParallaxAt[vehicleID] is when any Parallax topic (gnss,
 	// battery_state, drive-dynamics, charging) last delivered a frame.
 	// Feeds parallaxLivenessWatch — the observability precursor to the
@@ -238,6 +244,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger:          logger,
 		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
+		parallaxCapture:       parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS: make(map[string]time.Time),
 		lastParallaxAt:  make(map[string]time.Time),
 		cache:           make(map[string]*State),
@@ -1489,7 +1496,11 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity; see
 // docs/PARALLAX_MIGRATION.md Phase 2.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
-	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, func(f DriveDynamicsFrame) {
+	var extra []string
+	if m.parallaxCapture {
+		extra = CaptureRVMs
+	}
+	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, extra, func(f DriveDynamicsFrame) {
 		m.noteParallaxFrame(vehicleID)
 		m.mu.Lock()
 		prev := m.cache[vehicleID]

@@ -548,7 +548,28 @@ const (
 	// so their wire shapes can be RE'd from the logs before decoding.
 	rvmRange = "dynamics.vehicle.range"
 	rvmTires = "dynamics.tires.state"
+	// Remaining Path-B read-state topics (exact names from APK 3.14.0),
+	// carried only under the capture flag for raw-payload shadow RE until
+	// each is decoded and promoted into the base list above.
+	rvmCabinTemps   = "comfort.cabin.cabin_temperatures"
+	rvmClosures     = "body.closures.states"
+	rvmLocks        = "body.locks.states"
+	rvmWindows      = "body.windows.states"
+	rvmTrailer      = "body.trailer.state"
+	rvmLowVoltBatt  = "energy.low_voltage.battery_state"
+	rvmOtaState     = "ota.ota_state.vehicle_ota_state"
+	rvmAlarmState   = "security.alarm.state"
+	rvmPreconStatus = "comfort.cabin.cabin_preconditioning_status"
 )
+
+// CaptureRVMs are the not-yet-decoded read topics carried on the
+// drive-dynamics subscription for raw-payload shadow capture (they hit the
+// default log case). Passed only when the preview capture flag is on, so
+// prod isn't subscribed to topics it doesn't yet use.
+var CaptureRVMs = []string{
+	rvmCabinTemps, rvmClosures, rvmLocks, rvmWindows, rvmTrailer,
+	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
+}
 
 // decodeSingleVarint decodes a base64 protobuf payload of the shape
 // { field 1: varint } and returns that varint. Extra fields are ignored so a
@@ -712,7 +733,7 @@ type DriveDynamicsCallback func(DriveDynamicsFrame)
 // with backoff. Phase 2 measurement — run in shadow alongside vehicleState to
 // pin the gear enum and compare cadence before any field is made
 // authoritative.
-func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, cb DriveDynamicsCallback) error {
+func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra []string, cb DriveDynamicsCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -725,7 +746,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires}
+	rvms := append([]string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires}, extra...)
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {
