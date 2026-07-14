@@ -510,6 +510,11 @@ const (
 	// earlier wake signal for the late-recording-start case. Wire shape not
 	// yet confirmed — the shadow logs its raw payload for RE.
 	rvmPowerState = "vehicle.power.state"
+	// rvmRange (distanceToEmpty) and rvmTires (tirePressure{FL,FR,RL,RR})
+	// are the next Path-B fields. Subscribed for raw-payload shadow capture
+	// so their wire shapes can be RE'd from the logs before decoding.
+	rvmRange = "dynamics.vehicle.range"
+	rvmTires = "dynamics.tires.state"
 )
 
 // decodeSingleVarint decodes a base64 protobuf payload of the shape
@@ -643,7 +648,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState}
+	rvms := []string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires}
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {

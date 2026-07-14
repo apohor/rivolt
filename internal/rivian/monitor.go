@@ -1567,6 +1567,14 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					m.mu.Unlock()
 				}
 			}
+		default:
+			// Not-yet-RE'd topics (range, tires, …): log the raw payload +
+			// best-effort varint so the wire shape can be decoded offline
+			// from the logs, same as power.state was. No cache apply yet.
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", f.RVM,
+				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
+				"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 		}
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
