@@ -47,7 +47,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | gnssLocation/Speed/Bearing/Altitude | `dynamics.vehicle.gnss` | **shipped (preview)** |
 | pack temperature (none in legacy) | `energy.high_voltage.battery_state` | **recording** |
 | charge live data | `energy_edge_compute.graphs.charge_session_breakdown` | **shipped** |
-| gearStatus | `dynamics.vehicle.gear` | **RE'd** — `{1:varint}`, `1=P` confirmed live; shadow-recording |
+| gearStatus | `dynamics.vehicle.gear` | **authoritative (open) on preview** — enum 1P/2R/3N/4D; opens drives early via RIVOLT_PARALLAX_GEAR, close stays on vehicleState |
 | driveMode | `dynamics.vehicle.drive_mode` | **RE'd** — `{1:varint}` (proto `g70/*`); shadow-recording |
 | vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **RE'd** — `{1:varint}` = whole **km** (calibrated); shadow-recording |
 | distanceToEmpty | `dynamics.vehicle.range` | todo |

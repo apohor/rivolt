@@ -499,7 +499,7 @@ func pbScan(buf []byte, fn func(field, wire int, val []byte)) error {
 //	                                            vehicleState's 37503.06 mi)
 //
 // Recorded in shadow (measurement) alongside vehicleState before any field
-// goes authoritative — see StateMonitor.driveDynamicsShadow and the
+// goes authoritative — see StateMonitor.driveDynamicsSubscriber and the
 // migration doc's measure-first rule.
 const (
 	rvmDriveGear = "dynamics.vehicle.gear"

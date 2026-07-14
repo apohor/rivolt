@@ -75,6 +75,17 @@ type StateMonitor struct {
 	// cadence and pin the gear enum over a real drive before the
 	// authoritative cut. Also gated on Parallax connectivity.
 	parallaxDriveDynamics bool
+	// parallaxGear (RIVOLT_PARALLAX_GEAR) makes the Parallax
+	// dynamics.vehicle.gear topic authoritative for opening/sustaining a
+	// drive: a driving gear (R/N/D) applies to the cache and runs a
+	// recorder pass immediately, so the drive opens at its true start
+	// (with the correct pre-drive start odometer/location) instead of
+	// 60–90s late when vehicleState finally streams. Deliberately one-way
+	// — Parallax P is NOT applied, because it can blip mid-drive during a
+	// stop (observed 2026-07-14) and closing on it would fragment the
+	// trip; vehicleState stays the drive-close authority. Requires the
+	// drive-dynamics subscription (implies it below). Off by default.
+	parallaxGear bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -222,6 +233,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger:          logger,
 		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
+		parallaxGear:          parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GEAR")),
 		lastVehStateGPS: make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
@@ -691,11 +703,13 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.liveStatePublisher(refreshCtx, vehicleID)
 	if eligibleParallaxGPS {
 		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
-		// Phase 2 shadow: measure gear/drive_mode/odometer vs
-		// vehicleState. Non-authoritative; gated on its own flag so it
-		// stays off in prod until the cadence data is in.
-		if m.parallaxDriveDynamics {
-			go m.driveDynamicsShadow(refreshCtx, vehicleID)
+		// Phase 2 drive-dynamics: shadow-log gear/drive_mode/odometer/
+		// power.state vs vehicleState, and (when parallaxGear is on) make
+		// Parallax gear authoritative for opening drives. Either flag
+		// starts the subscription; the authoritative apply is gated
+		// separately inside the handler.
+		if m.parallaxDriveDynamics || m.parallaxGear {
+			go m.driveDynamicsSubscriber(refreshCtx, vehicleID)
 		}
 	}
 
@@ -1375,16 +1389,19 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 	}
 }
 
-// driveDynamicsShadow streams the Parallax dynamics.vehicle.{gear,
-// drive_mode,odometer} topics and logs each decoded value next to the
-// concurrent vehicleState reading. Phase 2 measurement only: it never
-// mutates State, opens/closes a session, or advances m.stamp, so it cannot
-// affect recording. It exists to pin the gear enum (log the raw Parallax
-// value beside the vehicleState gear string) and to compare Parallax vs
-// vehicleState cadence over a real drive before any field is made
-// authoritative. Gated on RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax
+// driveDynamicsSubscriber streams the Parallax dynamics.vehicle.{gear,
+// drive_mode,odometer} + vehicle.power.state topics. It always shadow-logs
+// each decoded value next to the concurrent vehicleState reading (pins
+// enums, measures cadence). When parallaxGear is on it additionally makes
+// gear authoritative for OPENING a drive — a driving gear (R/N/D) applies
+// to the cache and runs a recorder pass, so the drive opens at its true
+// start instead of when vehicleState finally streams. It never applies
+// Parallax P (see parallaxGear doc: mid-drive P blips would fragment) and
+// never advances m.stamp (record() doesn't), so the vehicleState watchdog
+// and drive-close authority are untouched. Gated on
+// RIVOLT_PARALLAX_DRIVE_DYNAMICS/RIVOLT_PARALLAX_GEAR + Parallax
 // connectivity; see docs/PARALLAX_MIGRATION.md Phase 2.
-func (m *StateMonitor) driveDynamicsShadow(ctx context.Context, vehicleID string) {
+func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, func(f DriveDynamicsFrame) {
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
@@ -1398,10 +1415,31 @@ func (m *StateMonitor) driveDynamicsShadow(ctx context.Context, vehicleID string
 		}
 		switch f.RVM {
 		case rvmDriveGear:
+			g := gearFromParallax(f.Value)
 			m.logger.Info("parallax drive-dynamics shadow",
 				"vehicle", vehicleID, "topic", "gear",
-				"px_enum", f.Value, "px_gear", gearFromParallax(f.Value),
+				"px_enum", f.Value, "px_gear", g,
 				"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+			// Authoritative early-open: a Parallax driving gear (R/N/D)
+			// opens/sustains the drive now. Parallax leads vehicleState by
+			// seconds (tens of seconds when vehicleState stalls), so this
+			// captures the true start — and, because the cache still holds
+			// the pre-drive parked odometer/location, the correct start
+			// odometer and start point. P is intentionally not applied.
+			if m.parallaxGear && isDrivingGear(g) {
+				m.mu.Lock()
+				base := m.cache[vehicleID]
+				if base != nil {
+					next := *base
+					next.At = time.Now()
+					next.Gear = g
+					m.cache[vehicleID] = &next
+					m.mu.Unlock()
+					m.record(ctx, vehicleID, base, &next)
+				} else {
+					m.mu.Unlock()
+				}
+			}
 		case rvmDriveMode:
 			m.logger.Info("parallax drive-dynamics shadow",
 				"vehicle", vehicleID, "topic", "drive_mode",
