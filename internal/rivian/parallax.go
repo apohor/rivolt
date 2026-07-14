@@ -570,6 +570,45 @@ func powerStateFromParallax(v uint64) string {
 	}
 }
 
+// driveModeFromParallax maps the dynamics.vehicle.drive_mode enum to the
+// lowercase driveMode string vehicleState reports (client.go: "everyday" |
+// "sport" | …). Numbers are from the Rivian APK 3.14.0 proto enum
+// (DRIVE_MODE_*_VALUE), anchored by the live capture (2 = EVERYDAY, the
+// default). UNSPECIFIED/INIT_MODE/FAULT (0/1/7) return "" so those
+// non-display states fall back to vehicleState.
+func driveModeFromParallax(v uint64) string {
+	switch v {
+	case 2:
+		return "everyday"
+	case 3:
+		return "off_road_snow_ice"
+	case 4:
+		return "off_road_sport_auto"
+	case 5:
+		return "off_road_sport_drift"
+	case 6:
+		return "sport_launch"
+	case 8:
+		return "sport"
+	case 9:
+		return "distance"
+	case 10:
+		return "towing"
+	case 11:
+		return "off_road_auto"
+	case 12:
+		return "off_road_sand"
+	case 13:
+		return "off_road_rocks"
+	case 14:
+		return "off_road_mud"
+	case 15:
+		return "winter"
+	default:
+		return "" // 0 UNSPECIFIED, 1 INIT_MODE, 7 FAULT → vehicleState
+	}
+}
+
 // DriveDynamicsFrame is one shadow frame. Value is the field-1 varint (when
 // ValueOK) — interpret per RVM (gear enum, drive_mode enum, odometer in whole
 // km). Payload is the raw base64 so a not-yet-RE'd topic (e.g. power.state)
