@@ -338,6 +338,13 @@ export type PackHealthResponse = {
     effective_kwh: number;
     nameplate_kwh: number;
     pct_of_nameplate: number;
+    // Documented (nameplate spec, InferPackKWh) vs current (vehicle-
+    // reported usable capacity, from Parallax charge_state). Ratio is the
+    // vehicle's own degradation signal; reported == documented (100%) when
+    // no live capacity has been observed yet.
+    documented_kwh: number;
+    reported_kwh: number;
+    reported_pct_of_documented: number;
     sample_count: number;
     window: number;
   };

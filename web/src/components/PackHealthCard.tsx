@@ -106,16 +106,43 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
         ? ""
         : "(no nameplate set on this vehicle)";
 
+  // Documented (nameplate spec) vs current (vehicle-reported usable
+  // capacity). Shown as the headline when the vehicle has reported a
+  // capacity that differs from spec — the car's own degradation signal.
+  const reported = headline.reported_kwh ?? 0;
+  const documented = headline.documented_kwh ?? 0;
+  const reportedPct = headline.reported_pct_of_documented ?? 0;
+  const hasReported = reported > 0 && documented > 0 && reportedPct < 99.5;
+
   return (
     <div className="space-y-2">
-      <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-semibold text-neutral-100">
-          {headlineText}
-        </span>
-        {pctText ? (
-          <span className="text-xs text-neutral-400">{pctText}</span>
-        ) : null}
-      </div>
+      {hasReported ? (
+        <div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-semibold text-neutral-100 tabular-nums">
+              {reported.toFixed(1)} kWh
+            </span>
+            <span className="text-xs text-neutral-400">
+              current · vehicle-reported
+            </span>
+          </div>
+          <div className="text-xs text-neutral-500 tabular-nums">
+            {documented.toFixed(0)} kWh documented (nameplate) ·{" "}
+            <span className="text-amber-400">
+              {reportedPct.toFixed(0)}% — {(100 - reportedPct).toFixed(0)}% degradation
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-semibold text-neutral-100">
+            {headlineText}
+          </span>
+          {pctText ? (
+            <span className="text-xs text-neutral-400">{pctText}</span>
+          ) : null}
+        </div>
+      )}
       <Sparkline samples={cleanSamples.length > 0 ? cleanSamples : samples} />
       <p className="text-[11px] text-neutral-500">
         Median of the last {headline.window} clean session

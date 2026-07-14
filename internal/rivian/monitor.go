@@ -1373,21 +1373,35 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 		}
 		m.mu.Lock()
 		if st := m.cache[vehicleID]; st != nil {
+			// Pack temp has been authoritative since the pack-temp work;
+			// it stays ungated (no vehicleState equivalent).
 			if bt.CellAvgC != 0 {
 				st.PackTempAvgC = bt.CellAvgC
 				st.PackTempMaxC = bt.CellMaxC
 				st.PackTempMinC = bt.CellMinC
 			}
-			// SoC/capacity are authoritative when present and sane; the
-			// range guards also reject a mis-decoded (wrong wire type) value.
-			if bt.SoCPct > 0 && bt.SoCPct <= 100 {
-				st.BatteryLevelPct = bt.SoCPct
-			}
-			if bt.PackKWh > 0 && bt.PackKWh < 300 {
-				st.BatteryCapacityKWh = bt.PackKWh
+			// SoC/capacity gate on the same drive-dynamics flag as the
+			// other Parallax-authoritative fields, so they stay off in prod
+			// (vehicleState) until the flag is flipped there. Range guards
+			// also reject a mis-decoded (wrong wire type) value.
+			if m.parallaxDriveDynamics {
+				if bt.SoCPct > 0 && bt.SoCPct <= 100 {
+					st.BatteryLevelPct = bt.SoCPct
+				}
+				if bt.PackKWh > 0 && bt.PackKWh < 300 {
+					st.BatteryCapacityKWh = bt.PackKWh
+				}
 			}
 		}
 		m.mu.Unlock()
+		// Persist the vehicle-reported capacity straight through to
+		// vehicles.pack_kwh (observeBatteryCapacity fires the write-through
+		// hook) rather than waiting for a recordFrame merge to carry it —
+		// so PackKWhFor and the pack-health card's current-vs-documented
+		// both see the live value. Called outside the lock (it takes m.mu).
+		if m.parallaxDriveDynamics && bt.PackKWh > 0 && bt.PackKWh < 300 {
+			m.observeBatteryCapacity(vehicleID, bt.PackKWh)
+		}
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 		m.logger.Warn("battery_state subscription ended", "vehicle", vehicleID, "err", err.Error())

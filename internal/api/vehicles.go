@@ -145,10 +145,12 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 		var (
 			vid          uuid.UUID
 			nameplateKWh sql.NullFloat64
+			model, trim  sql.NullString
+			modelYear    sql.NullInt64
 		)
 		if err := sqlDB.QueryRowContext(r.Context(), `
-			SELECT id, pack_kwh FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
-		`, uid, rivianID).Scan(&vid, &nameplateKWh); err != nil {
+			SELECT id, pack_kwh, model, trim, model_year FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+		`, uid, rivianID).Scan(&vid, &nameplateKWh, &model, &trim, &modelYear); err != nil {
 			http.Error(w, "vehicle not found", http.StatusNotFound)
 			return
 		}
@@ -188,14 +190,31 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 		if nameplateKWh.Valid && nameplateKWh.Float64 > 0 && headlineEffective > 0 {
 			pctOfNameplate = (headlineEffective / nameplateKWh.Float64) * 100.0
 		}
+		// Documented (nameplate spec) vs current (vehicle-reported).
+		// documented_kwh is the static InferPackKWh lookup by
+		// model/trim/year — the "when new" spec. reported_kwh is
+		// pack_kwh, which the batteryCapacityHook overwrites with the
+		// vehicle's own reported usable capacity once observed (from the
+		// Parallax charge_state / legacy batteryCapacity). Their ratio is
+		// the vehicle's own degradation signal; equal (100%) when no live
+		// capacity has been observed yet.
+		documentedKWh := rivian.InferPackKWh(model.String, trim.String, int(modelYear.Int64))
+		reportedKWh := nameplateKWh.Float64
+		var reportedPctOfDocumented float64
+		if documentedKWh > 0 && reportedKWh > 0 {
+			reportedPctOfDocumented = reportedKWh / documentedKWh * 100.0
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"samples": samples,
 			"headline": map[string]any{
-				"effective_kwh":    headlineEffective,
-				"nameplate_kwh":    nameplateKWh.Float64,
-				"pct_of_nameplate": pctOfNameplate,
-				"sample_count":     len(samples),
-				"window":           len(clean),
+				"effective_kwh":              headlineEffective,
+				"nameplate_kwh":              nameplateKWh.Float64,
+				"pct_of_nameplate":           pctOfNameplate,
+				"documented_kwh":             documentedKWh,
+				"reported_kwh":               reportedKWh,
+				"reported_pct_of_documented": reportedPctOfDocumented,
+				"sample_count":               len(samples),
+				"window":                     len(clean),
 			},
 		})
 	}
