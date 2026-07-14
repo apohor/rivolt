@@ -99,6 +99,25 @@ carrying one varint in field 1:
 | `dynamics.vehicle.odometer` | `CMPXAw==` / `08 c3 d7 03` | 60355 | **60355 km** |
 | `vehicle.power.state` | `CAM=` / `08 03` | 3 | **ready** (== vehicleState "ready") |
 
+**Drive capture 2026-07-14** (short R1S drive, shadow recorder). Gear enum
+pinned by aligning each Parallax frame's `ts_ms` to the vehicleState shift
+transition it precedes:
+
+| gear enum | maps to | evidence |
+|-----------|---------|----------|
+| 1 | **P** | steady while parked |
+| 2 | **R** | fired 2.2 s before vehicleState `R` |
+| 3 | **N** (inferred) | not shifted through; P/R/N/D = 1/2/3/4 |
+| 4 | **D** | fired 2.2 s before vehicleState `D` |
+
+`power.state` enum: `4 = go` (powered/driving), `3 = ready` (awake idle) —
+`3→4` led drive-start, `4→3` led drive-end; `sleep` enum TBD. Odometer
+ticked 60355→60357 km over ~1 mi (whole-km resolution confirmed). **Parallax
+gear led vehicleState by ~2.2 s** on both transitions on a drive with no
+vehicleState stall — the lead grows to tens of seconds when vehicleState
+stalls (the late-recording-start case). Enough to build the authoritative
+gear decoder; still want a stalled-drive capture before the cut.
+
 Odometer unit **settled: whole kilometers** — 60355 km = 37502.9 mi vs
 vehicleState's 37503.06 mi at capture time (so ~1 km / 0.62 mi resolution,
 coarser than vehicleState's 0.01 mi). Gear enum: only `P=1` is confirmed;

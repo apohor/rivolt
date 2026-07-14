@@ -534,15 +534,21 @@ func decodeSingleVarint(b64 string) (val uint64, ok bool) {
 }
 
 // gearFromParallax maps the dynamics.vehicle.gear enum to the P/R/N/D
-// contract normalizeGear produces from legacy vehicleState. Only P (1) is
-// confirmed from a live capture; the driving gears are pinned once a drive
-// capture reveals them (the shadow recorder logs the raw enum next to the
-// concurrent vehicleState gear to make the mapping observable). Returns ""
+// contract normalizeGear produces from legacy vehicleState. P/R/D (1/2/4)
+// are confirmed from live captures — on the 2026-07-14 drive the Parallax
+// frame led the matching vehicleState transition by ~2s. N (3) is inferred
+// from the P/R/N/D = 1/2/3/4 ordering (not shifted through yet). Returns ""
 // for an unmapped value so callers fall back to vehicleState.
 func gearFromParallax(v uint64) string {
 	switch v {
 	case 1:
 		return "P"
+	case 2:
+		return "R"
+	case 3:
+		return "N" // inferred (ordering), not yet observed live
+	case 4:
+		return "D"
 	default:
 		return ""
 	}
