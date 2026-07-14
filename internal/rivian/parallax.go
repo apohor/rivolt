@@ -411,17 +411,17 @@ func decodeBatteryTemp(b64 string) (*BatteryTemp, error) {
 		return nil, err
 	}
 	bt := &BatteryTemp{CellAvgC: float64(avg), CellMaxC: float64(max), CellMinC: float64(min)}
-	// charge_state (battery_state field 1) carries SoC + pack capacity.
-	// Field numbers from the Rivian APK 3.14.0 proto: chargePercentage=1,
-	// pack_capacity=4 (both float32, like the sibling temperatures). Best-
-	// effort — absent on frames without charge_state, and pbFloatField
-	// self-guards the wire type (non-float32 → ok=false → left at 0).
+	// charge_state (battery_state field 1) carries SoC + pack capacity as
+	// float64 (wire type 1), confirmed from a live frame: field 1 = SoC %
+	// (67.4 vs vehicleState ~68.7), field 2 = pack capacity kWh (~123.4,
+	// the "chargeKwh" degradation signal, more accurate than the nameplate
+	// lookup). Best-effort — absent on frames without charge_state.
 	if cs, ok, _ := pbMessageField(raw, 1); ok {
-		if soc, ok2, _ := pbFloatField(cs, 1); ok2 {
-			bt.SoCPct = float64(soc)
+		if soc, ok2, _ := pbDoubleField(cs, 1); ok2 {
+			bt.SoCPct = soc
 		}
-		if cap, ok2, _ := pbFloatField(cs, 4); ok2 {
-			bt.PackKWh = float64(cap)
+		if cap, ok2, _ := pbDoubleField(cs, 2); ok2 {
+			bt.PackKWh = cap
 		}
 	}
 	return bt, nil
@@ -450,6 +450,20 @@ func pbFloatField(buf []byte, want int) (float32, bool, error) {
 	err := pbScan(buf, func(field, wire int, val []byte) {
 		if field == want && wire == 5 && len(val) == 4 {
 			out = math.Float32frombits(binary.LittleEndian.Uint32(val))
+			found = true
+		}
+	})
+	return out, found, err
+}
+
+// pbDoubleField returns the float64 value of a fixed64 (wire type 1)
+// field `want`. ok=false when absent.
+func pbDoubleField(buf []byte, want int) (float64, bool, error) {
+	var out float64
+	found := false
+	err := pbScan(buf, func(field, wire int, val []byte) {
+		if field == want && wire == 1 && len(val) == 8 {
+			out = math.Float64frombits(binary.LittleEndian.Uint64(val))
 			found = true
 		}
 	})

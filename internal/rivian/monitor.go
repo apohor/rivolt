@@ -1367,13 +1367,9 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 		if bt == nil {
 			return
 		}
-		// TEMP RE capture: log the raw battery_state so charge_state's real
-		// field layout can be decoded (the APK-guessed SoC came out 0).
-		// Reverted once SoC/capacity decode is confirmed.
-		if bt.CellAvgC != 0 {
-			m.logger.Info("parallax battery_state raw",
-				"vehicle", vehicleID, "raw_b64", bt.RawB64,
-				"px_soc", bt.SoCPct, "px_pack_kwh", bt.PackKWh)
+		if bt.SoCPct != 0 || bt.PackKWh != 0 {
+			m.logger.Info("parallax battery_state charge",
+				"vehicle", vehicleID, "px_soc", bt.SoCPct, "px_pack_kwh", bt.PackKWh)
 		}
 		m.mu.Lock()
 		if st := m.cache[vehicleID]; st != nil {

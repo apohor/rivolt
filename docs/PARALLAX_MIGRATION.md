@@ -52,7 +52,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **authoritative (stall-bridge) on preview** — `{1:varint}` whole **km**; monotonic, only advances cache when higher, so vehicleState's 0.01-mi wins normally |
 | distanceToEmpty | `dynamics.vehicle.range` | **authoritative on preview** — `{1:varint km}` (308 km = vehicleState 191.4 mi); applied to DistanceToEmpty (already km) |
 | tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative on preview** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
-| batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` | **authoritative on preview** — charge_state (field 1) → chargePercentage (1) = SoC, pack_capacity (4) = kWh; APK field numbers, float32; verified vs vehicleState |
+| batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` | **authoritative on preview** — charge_state (field 1) → field 1 (double) = SoC %, field 2 (double) = pack capacity kWh. RE'd from a live frame (SoC 67.4 vs vehicleState 68.7; capacity 123.4 kWh) — note doubles, not the float32 the APK enum hinted |
 | twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | todo |
 | cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | todo |
 | cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |

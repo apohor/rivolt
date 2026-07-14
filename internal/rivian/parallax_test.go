@@ -174,3 +174,25 @@ func TestDecodeTires(t *testing.T) {
 		t.Errorf("range decodeSingleVarint = %d, %v; want 308, true", v, ok)
 	}
 }
+
+// TestDecodeBatterySoC pins the charge_state (battery_state field 1) layout
+// against a real frame: field 1 (double) = SoC %, field 2 (double) = pack
+// capacity kWh. Same frame carries temperature_state (field 2) which must
+// still decode.
+func TestDecodeBatterySoC(t *testing.T) {
+	const frame = "ChIJAAAAoJnZUEARAAAAANfbXkASDw0zMwNCFc3MBEIdmpnxQRoAIAEwBQ=="
+	bt, err := decodeBatteryTemp(frame)
+	if err != nil {
+		t.Fatalf("decodeBatteryTemp: %v", err)
+	}
+	near := func(g, w, tol float64) bool { return g-w < tol && w-g < tol }
+	if !near(bt.SoCPct, 67.4, 0.1) {
+		t.Errorf("SoCPct = %v, want ~67.4", bt.SoCPct)
+	}
+	if !near(bt.PackKWh, 123.435, 0.1) {
+		t.Errorf("PackKWh = %v, want ~123.4", bt.PackKWh)
+	}
+	if !near(bt.CellAvgC, 32.8, 0.1) {
+		t.Errorf("CellAvgC = %v, want ~32.8 (temp must still decode)", bt.CellAvgC)
+	}
+}
