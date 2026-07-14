@@ -40,6 +40,26 @@ export function PackHealthStat({ vehicleID }: { vehicleID: string }) {
   }
   const samples = q.data.samples ?? [];
   const { headline } = q.data;
+  // Prefer the vehicle-reported capacity (documented spec vs current) — it's
+  // available whenever the car has reported a capacity, without needing a
+  // qualifying charge session.
+  const reported = headline.reported_kwh ?? 0;
+  const documented = headline.documented_kwh ?? 0;
+  const reportedPct = headline.reported_pct_of_documented ?? 0;
+  if (reported > 0 && documented > 0) {
+    const wear = 100 - reportedPct;
+    return (
+      <StatTile
+        label="Pack"
+        value={`${reported.toFixed(1)} kWh`}
+        hint={
+          reportedPct < 99.5
+            ? `${documented.toFixed(0)} kWh spec · ${wear.toFixed(0)}% wear`
+            : `${documented.toFixed(0)} kWh spec`
+        }
+      />
+    );
+  }
   if (samples.length === 0 || headline.effective_kwh <= 0) {
     return <StatTile label="Pack" value="—" hint="needs a 30%+ session" />;
   }
@@ -85,13 +105,45 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
   // brand-new install with no qualifying charges yet.
   const samples = q.data.samples ?? [];
   const headline = q.data.headline;
+
+  // Documented (nameplate spec) vs current (vehicle-reported usable
+  // capacity) — the car's own degradation signal. Independent of charge
+  // sessions, so it renders even before any qualifying session exists.
+  const reported = headline.reported_kwh ?? 0;
+  const documented = headline.documented_kwh ?? 0;
+  const reportedPct = headline.reported_pct_of_documented ?? 0;
+  const hasReported = reported > 0 && documented > 0 && reportedPct < 99.5;
+  const capacityBlock = hasReported ? (
+    <div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-semibold text-neutral-100 tabular-nums">
+          {reported.toFixed(1)} kWh
+        </span>
+        <span className="text-xs text-neutral-400">
+          current · vehicle-reported
+        </span>
+      </div>
+      <div className="text-xs text-neutral-500 tabular-nums">
+        {documented.toFixed(0)} kWh documented (nameplate) ·{" "}
+        <span className="text-amber-400">
+          {reportedPct.toFixed(0)}% — {(100 - reportedPct).toFixed(0)}% degradation
+        </span>
+      </div>
+    </div>
+  ) : null;
+
+  // No qualifying charge sessions yet: still show the capacity block if the
+  // vehicle has reported one; otherwise the original empty state.
   if (samples.length === 0) {
     return (
-      <p className="text-xs text-neutral-500">
-        Not enough qualifying charge sessions yet. We need at least
-        one session that spans 30%+ SoC to estimate effective pack
-        capacity.
-      </p>
+      <div className="space-y-2">
+        {capacityBlock}
+        <p className="text-xs text-neutral-500">
+          {capacityBlock
+            ? "Effective-capacity trend needs a charge session spanning 30%+ SoC."
+            : "Not enough qualifying charge sessions yet. We need at least one session that spans 30%+ SoC to estimate effective pack capacity."}
+        </p>
+      </div>
     );
   }
   const cleanSamples = samples.filter((s) => !s.derate_active);
@@ -106,34 +158,9 @@ export function PackHealthCard({ vehicleID }: { vehicleID: string }) {
         ? ""
         : "(no nameplate set on this vehicle)";
 
-  // Documented (nameplate spec) vs current (vehicle-reported usable
-  // capacity). Shown as the headline when the vehicle has reported a
-  // capacity that differs from spec — the car's own degradation signal.
-  const reported = headline.reported_kwh ?? 0;
-  const documented = headline.documented_kwh ?? 0;
-  const reportedPct = headline.reported_pct_of_documented ?? 0;
-  const hasReported = reported > 0 && documented > 0 && reportedPct < 99.5;
-
   return (
     <div className="space-y-2">
-      {hasReported ? (
-        <div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-semibold text-neutral-100 tabular-nums">
-              {reported.toFixed(1)} kWh
-            </span>
-            <span className="text-xs text-neutral-400">
-              current · vehicle-reported
-            </span>
-          </div>
-          <div className="text-xs text-neutral-500 tabular-nums">
-            {documented.toFixed(0)} kWh documented (nameplate) ·{" "}
-            <span className="text-amber-400">
-              {reportedPct.toFixed(0)}% — {(100 - reportedPct).toFixed(0)}% degradation
-            </span>
-          </div>
-        </div>
-      ) : (
+      {capacityBlock ?? (
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-semibold text-neutral-100">
             {headlineText}
