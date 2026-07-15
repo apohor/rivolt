@@ -571,6 +571,53 @@ var CaptureRVMs = []string{
 	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
 }
 
+// body.closures.states / body.locks.states enum values (APK 3.14.0).
+// Both are repeated {1: instance, 2: status}. Closure instances: 1-4 doors
+// (row1 L/R, row2 L/R), 5 frunk, 6 tailgate, 7 liftgate, 11 tonneau, 12-16
+// windows. Lock instances: 1-4 doors. Status is meaningful only when
+// non-zero (0 = unspecified, e.g. a closure the vehicle doesn't have).
+const (
+	closureStatusClose = 2 // 1=OPEN, 2=CLOSE, 3=AJAR, 4=OPENING, 5=CLOSING
+	lockStatusLocked   = 1 // 1=LOCKED, 2=UNLOCKED, 3=PARTIALLY_UNLOCKED
+	closInstFrunk      = 5
+	closInstTailgate   = 6
+	closInstLiftgate   = 7
+	closInstTonneau    = 11
+)
+
+// decodeInstanceStates parses a repeated {1: instance, 2: status} message
+// (closures or locks) into an instance→status map. status 0 (unspecified)
+// is kept so callers can distinguish "absent" from a real state.
+func decodeInstanceStates(b64 string) (map[int]int, bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, false
+	}
+	out := map[int]int{}
+	_ = pbScan(raw, func(f, w int, val []byte) {
+		if f != 1 || w != 2 {
+			return
+		}
+		inst, status, haveInst := 0, 0, false
+		_ = pbScan(val, func(sf, sw int, sv []byte) {
+			if sw != 0 {
+				return
+			}
+			n, _ := binary.Uvarint(sv)
+			switch sf {
+			case 1:
+				inst, haveInst = int(n), true
+			case 2:
+				status = int(n)
+			}
+		})
+		if haveInst {
+			out[inst] = status
+		}
+	})
+	return out, len(out) > 0
+}
+
 // decodeCabinTemp pulls the interior cabin temperature (field 3, float32,
 // °C) from a comfort.cabin.cabin_temperatures payload. Confirmed live:
 // 26.0 == vehicleState inside_temp_c; field 4 is the driver setpoint.

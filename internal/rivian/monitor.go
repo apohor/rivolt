@@ -1660,6 +1660,78 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 				}
 				m.mu.Unlock()
 			}
+		case rvmClosures:
+			cl, ok := decodeInstanceStates(f.Payload)
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "closures",
+				"px_ok", ok, "px_states", cl, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ok {
+				// known(inst) → (closed, present-with-known-status). status
+				// 0/absent means the vehicle lacks that closure — leave
+				// vehicleState.
+				known := func(inst int) (bool, bool) {
+					s, p := cl[inst]
+					if !p || s == 0 {
+						return false, false
+					}
+					return s == closureStatusClose, true
+				}
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil {
+					next := *base
+					next.At = time.Now()
+					d1, o1 := known(1)
+					d2, o2 := known(2)
+					d3, o3 := known(3)
+					d4, o4 := known(4)
+					if o1 && o2 && o3 && o4 {
+						next.DoorsClosed = d1 && d2 && d3 && d4
+					}
+					if v, o := known(closInstFrunk); o {
+						next.FrunkClosed = v
+					}
+					if v, o := known(closInstLiftgate); o {
+						next.LiftgateClosed = v
+					}
+					if v, o := known(closInstTailgate); o {
+						next.TailgateClosed = v
+					}
+					if v, o := known(closInstTonneau); o {
+						next.TonneauClosed = v
+					}
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
+		case rvmLocks:
+			lk, ok := decodeInstanceStates(f.Payload)
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "locks",
+				"px_ok", ok, "px_states", lk, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ok {
+				// Locked = all four door locks present, known, and LOCKED.
+				allLocked, all4 := true, true
+				for inst := 1; inst <= 4; inst++ {
+					s, p := lk[inst]
+					if !p || s == 0 {
+						all4 = false
+						break
+					}
+					if s != lockStatusLocked {
+						allLocked = false
+					}
+				}
+				if all4 {
+					m.mu.Lock()
+					if base := m.cache[vehicleID]; base != nil {
+						next := *base
+						next.At = time.Now()
+						next.Locked = allLocked
+						m.cache[vehicleID] = &next
+					}
+					m.mu.Unlock()
+				}
+			}
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,

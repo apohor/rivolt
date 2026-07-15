@@ -197,6 +197,26 @@ func TestDecodeBatterySoC(t *testing.T) {
 	}
 }
 
+// TestDecodeInstanceStates pins the body.closures.states repeated
+// {1: instance, 2: status} layout against a captured all-closed frame:
+// doors (1-4) and frunk (5) report CLOSE (2), while a closure the vehicle
+// lacks reports status 0 (unspecified).
+func TestDecodeInstanceStates(t *testing.T) {
+	const frame = "CgQIARACCgQIAhACCgQIAxACCgQIBBACCggIBRACIAEwAQoECAYgAQoICAcQAiABOAEKBggIIAFAAAoGCAkgAUAACggIChACIAFQAQoECAsgAQoECAwQAgoECA0QAgoECA4QAgoECA8QAgoHCJBOIAEoAQ=="
+	m, ok := decodeInstanceStates(frame)
+	if !ok {
+		t.Fatal("decodeInstanceStates: ok=false")
+	}
+	for _, inst := range []int{1, 2, 3, 4, 5, 7} {
+		if m[inst] != 2 {
+			t.Errorf("instance %d status = %d, want 2 (CLOSE)", inst, m[inst])
+		}
+	}
+	if m[6] != 0 { // tailgate absent on this R1S → unspecified
+		t.Errorf("instance 6 status = %d, want 0 (unspecified)", m[6])
+	}
+}
+
 // TestDecodeCabinTemp pins the comfort.cabin.cabin_temperatures layout: the
 // interior temp is field 3 (float32). Live: 26.0 == vehicleState inside_temp_c.
 func TestDecodeCabinTemp(t *testing.T) {

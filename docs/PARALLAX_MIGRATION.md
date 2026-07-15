@@ -58,7 +58,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |
 | cabinHoldStatus | `comfort.cabin.climate_hold_status` | todo |
 | petModeStatus | `comfort.cabin.pet_mode_status` | todo |
-| doors/closures/locks/windows | `body.{closures,locks,windows}.states` | todo |
+| doors/closures/locks/windows | `body.{closures,locks,windows}.states` | **decoded, preview-only** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. Applied on preview (CaptureRVMs) pending vehicleState verify |
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
