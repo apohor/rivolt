@@ -51,6 +51,24 @@ const (
 	liveChargeMaxSoCDropPct = 2.0
 	liveDriveMaxGap         = 30 * time.Minute
 
+	// Drive-close debounce. vehicleState can emit a phantom P for a
+	// frame or two mid-drive (observed 2026-07-14: P at 5 mph for 2-9s,
+	// then D again) and closing on a single frame split real trips.
+	// A P frame closes the drive immediately only when the stop is
+	// corroborated (speed at/near zero, or Parallax gear agreeing on
+	// P); otherwise P must persist for driveCloseDebounce — which also
+	// covers the blackout case where the parking frame carries a stale
+	// speed reading.
+	driveCloseDebounce = 10 * time.Second
+	driveCloseSpeedMph = 2.0
+
+	// Merge-on-reopen. A drive that reopens within driveReopenWindow of
+	// the previous close, with the odometer having barely moved, is the
+	// same trip interrupted by a blip (or a parking-lot shuffle): resume
+	// the previous accumulator/row instead of fragmenting into a stub.
+	driveReopenWindow = 60 * time.Second
+	driveReopenMaxMi  = 0.05
+
 	// chargingPowerFloorKW is the minimum charger power that counts as
 	// "actively charging" for the energy integral and meaningful-frame
 	// tracking. Below this, Rivian is reporting parasitic / thermal /
@@ -95,6 +113,16 @@ type liveSessions struct {
 	drive  *liveDrive
 	charge *liveCharge
 
+	// lastClosed retains the most recently debounce-closed drive so a
+	// reopen within driveReopenWindow (with the odometer barely moved)
+	// resumes it instead of fragmenting the trip. Deliberately NOT set
+	// by applyMutualExclusion's charge-forced close — a drive ended by
+	// plugging in must not be resumable. lastClosedAt is the frame time
+	// of the close decision (endAt can be minutes earlier after a
+	// telemetry blackout).
+	lastClosed   *liveDrive
+	lastClosedAt time.Time
+
 	// Running counters used as samples.Sample.DriveNumber /
 	// ChargeNumber. Incremented at each session open so dashboards can
 	// group vehicle_state rows by counter without colliding with
@@ -130,6 +158,19 @@ type liveDrive struct {
 	// path actually grows. Used to detect lag windows long enough to
 	// route-fill instead of leaving a straight-line shortcut.
 	lastFixAt time.Time
+
+	// lastFixTS is the GNSS timestamp (State.LocationFixAt) of the most
+	// recently accepted path point. Parallax gnss is the GPS backbone
+	// and vehicleState fills detail between its ticks — this enforces
+	// fix-timestamp monotonicity so a stale vehicleState replay (the
+	// gateway re-sends an old fix) can't drag the path backwards after
+	// a newer Parallax fix has landed.
+	lastFixTS time.Time
+
+	// pendingCloseAt is when the first uncorroborated P frame arrived.
+	// Zero while driving; the close branch only commits once the stop
+	// is corroborated or P has persisted past driveCloseDebounce.
+	pendingCloseAt time.Time
 
 	// path is the accumulated GPS trace for this drive, one [lat, lon]
 	// pair per frame that carried a usable fix. Encoded with the
@@ -487,7 +528,29 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 	}
 
-	// Open new drive on transition P/"" → D/R/N.
+	// Open new drive on transition P/"" → D/R/N — unless this is a
+	// reopen right after a debounced close, in which case resume the
+	// previous accumulator: same row id, stats and path continue. This
+	// heals any blip that slips past the close debounce and folds
+	// parking-lot D-P-D shuffles into one drive instead of stub rows.
+	if driving && s.drive == nil {
+		if lc := s.lastClosed; lc != nil {
+			since := curr.At.Sub(s.lastClosedAt)
+			odoNow := curr.OdometerKm * kmToMi
+			if since >= 0 && since <= driveReopenWindow &&
+				(odoNow <= 0 || odoNow-lc.endOdoMi <= driveReopenMaxMi) {
+				m.logger.Info("resuming just-closed live drive",
+					"vehicle", curr.VehicleID, "id", lc.id,
+					"gap", since.Round(time.Second).String())
+				lc.pendingCloseAt = time.Time{}
+				s.drive = lc
+				s.lastClosed = nil
+				// Fall through to the ongoing-drive block below, which
+				// folds this frame into the resumed accumulator and
+				// re-upserts the row.
+			}
+		}
+	}
 	if driving && s.drive == nil {
 		s.driveCounter++
 		odoMi := curr.OdometerKm * kmToMi
@@ -533,51 +596,24 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		if odoMi := curr.OdometerKm * kmToMi; odoMi > 0 {
 			s.drive.endOdoMi = odoMi
 		}
+		// A driving frame cancels any pending (uncorroborated) close —
+		// the P that started it was a phantom blip.
+		s.drive.pendingCloseAt = time.Time{}
 		if curr.Latitude != 0 || curr.Longitude != 0 {
-			s.drive.endLat = curr.Latitude
-			s.drive.endLon = curr.Longitude
-			// Append to the path, but skip duplicate consecutive
-			// points -- Rivian sometimes replays the last cached fix
-			// for several frames when the car is parked at a charger
-			// at the start/end of a drive, and we don't want a thousand
-			// copies of the same coordinate in the encoded polyline.
-			n := len(s.drive.path)
-			if n == 0 || s.drive.path[n-1][0] != curr.Latitude || s.drive.path[n-1][1] != curr.Longitude {
-				// GPS-gap fill: if the last appended fix is far enough
-				// behind in time AND the straight-line jump to curr is
-				// long enough to look wrong on a map, ask the routing
-				// engine for a road-snapped shape and splice it in.
-				if n > 0 && m.routeFiller != nil && !s.drive.lastFixAt.IsZero() {
-					last := s.drive.path[n-1]
-					gap := curr.At.Sub(s.drive.lastFixAt)
-					dist := haversineMeters(last[0], last[1], curr.Latitude, curr.Longitude)
-					if gap > 10*time.Second && dist > 100 && dist < 50_000 {
-						fillCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
-						startedAt := time.Now()
-						shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{curr.Latitude, curr.Longitude})
-						elapsed := time.Since(startedAt)
-						cancel()
-						if err != nil {
-							// Warn, not Debug: a failed fill degrades the
-							// rendered route to a straight line across the
-							// gap. elapsed_ms distinguishes a timeout (near
-							// the 750ms budget) from a fast upstream error.
-							m.logger.Warn("route-fill failed",
-								"vehicle", curr.VehicleID,
-								"gap", gap.Round(time.Second),
-								"dist_m", int(dist),
-								"elapsed_ms", elapsed.Milliseconds(),
-								"err", err.Error())
-						} else if len(shape) > 2 {
-							// Drop the first vertex (== last) and the
-							// last (== curr); we already have the former
-							// and we're about to append the latter.
-							s.drive.path = append(s.drive.path, shape[1:len(shape)-1]...)
-						}
-					}
+			// Fix-timestamp monotonicity: Parallax gnss is the GPS
+			// backbone and vehicleState fills detail between its ticks —
+			// but a stale vehicleState replay (the gateway re-sends an
+			// old fix) must not drag the path/end position backwards
+			// after a newer Parallax fix has landed.
+			fresh := curr.LocationFixAt.IsZero() || s.drive.lastFixTS.IsZero() ||
+				curr.LocationFixAt.After(s.drive.lastFixTS)
+			if fresh {
+				s.drive.endLat = curr.Latitude
+				s.drive.endLon = curr.Longitude
+				m.appendDrivePath(ctx, curr.VehicleID, s.drive, curr.Latitude, curr.Longitude, curr.At)
+				if !curr.LocationFixAt.IsZero() {
+					s.drive.lastFixTS = curr.LocationFixAt
 				}
-				s.drive.path = append(s.drive.path, [2]float64{curr.Latitude, curr.Longitude})
-				s.drive.lastFixAt = curr.At
 			}
 		}
 		// Periodically re-upsert so a crash preserves the latest
@@ -586,8 +622,34 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		return s.drive.number
 	}
 
-	// Close drive on transition D/R/N → P.
+	// Close drive on transition D/R/N → P — debounced. vehicleState
+	// emits phantom P blips mid-drive (observed: P at 5 mph for 2-9s,
+	// then D again) and closing on a single frame split real trips.
+	// Commit the close only when the stop is corroborated: speed
+	// at/near zero, a fresh Parallax gear frame agreeing on P, or P
+	// persisting past driveCloseDebounce (covers the blackout case
+	// where the parking frame carries a stale speed). A fresh Parallax
+	// frame still saying R/N/D vetoes the fast paths — the veto decays
+	// with frame freshness, so it can't hold the drive open forever.
 	if !driving && s.drive != nil {
+		if s.drive.pendingCloseAt.IsZero() {
+			s.drive.pendingCloseAt = curr.At
+		}
+		mph := curr.SpeedKph * kphToMi
+		pxGear, pxAt := m.lastParallaxGear(curr.VehicleID)
+		pxFresh := !pxAt.IsZero() && time.Since(pxAt) < 30*time.Second
+		pxParked := pxFresh && pxGear == "P"
+		pxDriving := pxFresh && isDrivingGear(pxGear)
+		confirmed := pxParked ||
+			(!pxDriving && (mph <= driveCloseSpeedMph ||
+				curr.At.Sub(s.drive.pendingCloseAt) >= driveCloseDebounce))
+		if !confirmed {
+			// Not corroborated yet: keep the drive open and stamp this
+			// sample with the still-open drive number. Either a driving
+			// frame arrives (blip → pendingCloseAt clears above) or the
+			// debounce expires on a later P frame.
+			return s.drive.number
+		}
 		// The parking frame carries the drive's true final odometer.
 		// The ongoing-drive block above only advances end state while
 		// the gear reads driving, so if a telemetry gap swallowed the
@@ -610,6 +672,12 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 				s.drive.endLon = curr.Longitude
 			}
 		}
+		// Map endpoint splice: extend the polyline to the parking spot.
+		// After a telemetry blackout the odometer fold above fixes the
+		// numbers but the path still ended at the last live fix — this
+		// route-fills from there to the parking frame's location so the
+		// rendered route reaches the true endpoint.
+		m.appendDrivePath(ctx, curr.VehicleID, s.drive, curr.Latitude, curr.Longitude, curr.At)
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		// Snapshot the row before the close hook fires so any async
 		// hook sees the persisted shape, not a half-mutated
@@ -621,6 +689,10 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// post-close hook for them either.
 		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
 		n := s.drive.number
+		// Retain for merge-on-reopen: a driving frame arriving within
+		// driveReopenWindow (odometer barely moved) resumes this row.
+		s.lastClosed = s.drive
+		s.lastClosedAt = curr.At
 		s.drive = nil
 		if !phantom && m.driveCloseHook != nil {
 			go m.runDriveCloseHook(closedRow)
@@ -633,6 +705,54 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 // runChargeCloseHook invokes the configured ChargeCloseHook with a
 // detached context bounded by hookTimeout. Best-effort: panics and
 // errors are caught/logged so a buggy hook can't crash the recorder.
+// appendDrivePath appends a GPS fix to the drive's path, deduping
+// consecutive identical points (Rivian replays the last cached fix for
+// several frames around park events) and route-filling across long gaps:
+// if the last appended fix is far enough behind in time AND the straight-
+// line jump is long enough to look wrong on a map, ask the routing engine
+// for a road-snapped shape and splice it in. Shared by the ongoing-drive
+// frame path and the close-time endpoint splice. Must be called with
+// m.sessMu held (it mutates the accumulator).
+func (m *StateMonitor) appendDrivePath(ctx context.Context, vehicleID string, d *liveDrive, lat, lon float64, at time.Time) {
+	if lat == 0 && lon == 0 {
+		return
+	}
+	n := len(d.path)
+	if n > 0 && d.path[n-1][0] == lat && d.path[n-1][1] == lon {
+		return
+	}
+	if n > 0 && m.routeFiller != nil && !d.lastFixAt.IsZero() {
+		last := d.path[n-1]
+		gap := at.Sub(d.lastFixAt)
+		dist := haversineMeters(last[0], last[1], lat, lon)
+		if gap > 10*time.Second && dist > 100 && dist < 50_000 {
+			fillCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+			startedAt := time.Now()
+			shape, err := m.routeFiller.RouteShape(fillCtx, last, [2]float64{lat, lon})
+			elapsed := time.Since(startedAt)
+			cancel()
+			if err != nil {
+				// Warn, not Debug: a failed fill degrades the rendered
+				// route to a straight line across the gap. elapsed_ms
+				// distinguishes a timeout (near the 750ms budget) from a
+				// fast upstream error.
+				m.logger.Warn("route-fill failed",
+					"vehicle", vehicleID,
+					"gap", gap.Round(time.Second),
+					"dist_m", int(dist),
+					"elapsed_ms", elapsed.Milliseconds(),
+					"err", err.Error())
+			} else if len(shape) > 2 {
+				// Drop the first vertex (== last) and the last (== the
+				// point we're about to append).
+				d.path = append(d.path, shape[1:len(shape)-1]...)
+			}
+		}
+	}
+	d.path = append(d.path, [2]float64{lat, lon})
+	d.lastFixAt = at
+}
+
 func (m *StateMonitor) runChargeCloseHook(row charges.Charge) {
 	const hookTimeout = 30 * time.Second
 	defer func() {

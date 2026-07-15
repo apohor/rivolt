@@ -650,3 +650,165 @@ func TestDriveCloseHook_NotSetIsNoOp(t *testing.T) {
 		t.Fatalf("drive should be cleared after close")
 	}
 }
+
+// TestHandleDriveLifecycle_PhantomPBlipDoesNotClose reproduces the
+// 2026-07-14 22:27 split: vehicleState emitted P for two frames at 5 mph
+// mid-drive, then D again 3s later — one trip fragmented into two rows.
+// A P frame with the car still moving must not close the drive.
+func TestHandleDriveLifecycle_PhantomPBlipDoesNotClose(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 22, 27, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 40}, nil, m, ctx)
+	firstID := s.drive.id
+
+	// Phantom P at 5 mph (8 kph) — must keep the drive open and keep
+	// stamping the frame with the open drive number.
+	if got := s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(46 * time.Second), Gear: "P", OdometerKm: 60000.5, SpeedKph: 8}, nil, m, ctx); got != 1 {
+		t.Fatalf("phantom P: want driveNum=1 (still open), got %d", got)
+	}
+	if s.drive == nil {
+		t.Fatal("phantom P at 5 mph must not close the drive")
+	}
+	// D returns 3s later — same session, blip cancelled.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(49 * time.Second), Gear: "D", OdometerKm: 60000.5, SpeedKph: 8}, nil, m, ctx)
+	if s.drive == nil || s.drive.id != firstID {
+		t.Fatalf("blip must not fragment: want id %s, got %+v", firstID, s.drive)
+	}
+	if !s.drive.pendingCloseAt.IsZero() {
+		t.Fatal("returning to D must clear pendingCloseAt")
+	}
+}
+
+// TestHandleDriveLifecycle_StoppedParkClosesImmediately: the normal stop
+// (P with speed ~0) must close on the first frame, no debounce latency.
+func TestHandleDriveLifecycle_StoppedParkClosesImmediately(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 22, 0, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 40}, nil, m, ctx)
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(time.Minute), Gear: "P", OdometerKm: 60001, SpeedKph: 0}, nil, m, ctx)
+	if s.drive != nil {
+		t.Fatal("P at 0 mph must close immediately")
+	}
+}
+
+// TestHandleDriveLifecycle_StaleSpeedPersistCloses reproduces the
+// 2026-07-14 23:17 blackout close: the parking frame carried a stale
+// 18 mph speed reading. P persisting past driveCloseDebounce must close
+// the drive even though speed never reads zero.
+func TestHandleDriveLifecycle_StaleSpeedPersistCloses(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 23, 12, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 30}, nil, m, ctx)
+	// P frames with stale 18 mph (29 kph): first two within debounce.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(60 * time.Second), Gear: "P", OdometerKm: 60002, SpeedKph: 29}, nil, m, ctx)
+	if s.drive == nil {
+		t.Fatal("first stale-speed P frame must not close yet")
+	}
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(65 * time.Second), Gear: "P", OdometerKm: 60002, SpeedKph: 29}, nil, m, ctx)
+	if s.drive == nil {
+		t.Fatal("5s of P is inside the debounce window")
+	}
+	// Past the debounce: close commits, and the parking frame's higher
+	// odometer was folded in by the gap-fix.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(71 * time.Second), Gear: "P", OdometerKm: 60002, SpeedKph: 29}, nil, m, ctx)
+	if s.drive != nil {
+		t.Fatal("P persisting past driveCloseDebounce must close")
+	}
+	if s.lastClosed == nil || s.lastClosed.endOdoMi < 60001.9*kmToMi {
+		t.Fatalf("gap-fix odometer fold missing on debounced close: %+v", s.lastClosed)
+	}
+}
+
+// TestHandleDriveLifecycle_MergeOnReopen reproduces the 23:26 parking-lot
+// shuffle: close, then D again 10s later with the odometer unmoved —
+// the previous drive row must resume instead of fragmenting.
+func TestHandleDriveLifecycle_MergeOnReopen(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 23, 26, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20}, nil, m, ctx)
+	firstID := s.drive.id
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(30 * time.Second), Gear: "P", OdometerKm: 60000.1, SpeedKph: 0}, nil, m, ctx)
+	if s.drive != nil {
+		t.Fatal("setup: drive should be closed")
+	}
+	// Reopen 10s later, odometer unmoved → resume the same row.
+	if got := s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(40 * time.Second), Gear: "D", OdometerKm: 60000.1, SpeedKph: 10}, nil, m, ctx); got != 1 {
+		t.Fatalf("reopen: want resumed driveNum=1, got %d", got)
+	}
+	if s.drive == nil || s.drive.id != firstID {
+		t.Fatalf("reopen within window must resume id %s, got %+v", firstID, s.drive)
+	}
+	// A reopen far beyond the window must be a new drive.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(50 * time.Second), Gear: "P", OdometerKm: 60000.2, SpeedKph: 0}, nil, m, ctx)
+	if got := s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(10 * time.Minute), Gear: "D", OdometerKm: 60000.2, SpeedKph: 10}, nil, m, ctx); got != 2 {
+		t.Fatalf("reopen past window: want new driveNum=2, got %d", got)
+	}
+	if s.drive.id == firstID {
+		t.Fatal("reopen past window must not resume the old id")
+	}
+}
+
+// TestHandleDriveLifecycle_CloseSplicesParkingFix: the close-time
+// endpoint splice must extend the path to the parking frame's location
+// (after a blackout the numbers were fixed but the map ended mid-road).
+func TestHandleDriveLifecycle_CloseSplicesParkingFix(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 23, 11, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20, Latitude: 30.55, Longitude: -97.76}, nil, m, ctx)
+	// Blackout … then the parking frame arrives at a new location.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(6 * time.Minute), Gear: "P", OdometerKm: 60003, SpeedKph: 0, Latitude: 30.52, Longitude: -97.77}, nil, m, ctx)
+	if s.drive != nil {
+		t.Fatal("setup: drive should be closed")
+	}
+	path := s.lastClosed.path
+	if len(path) < 2 {
+		t.Fatalf("parking fix must be appended to the path, got %v", path)
+	}
+	end := path[len(path)-1]
+	if end[0] != 30.52 || end[1] != -97.77 {
+		t.Fatalf("path must end at the parking spot, got %v", end)
+	}
+}
+
+// TestHandleDriveLifecycle_StaleFixReplayRejected: with Parallax gnss as
+// the GPS backbone, a vehicleState frame replaying an older fix (by
+// LocationFixAt) must not drag the path backwards.
+func TestHandleDriveLifecycle_StaleFixReplayRejected(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 14, 20, 0, 0, 0, time.UTC)
+
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0, Gear: "D", OdometerKm: 60000, SpeedKph: 20,
+		Latitude: 30.50, Longitude: -97.70, LocationFixAt: t0}, nil, m, ctx)
+	// Fresh (Parallax) fix.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(30 * time.Second), Gear: "D", OdometerKm: 60000.5, SpeedKph: 20,
+		Latitude: 30.51, Longitude: -97.71, LocationFixAt: t0.Add(30 * time.Second)}, nil, m, ctx)
+	// Stale vehicleState replay: older LocationFixAt, old coords.
+	_ = s.handleDriveLifecycle(&State{VehicleID: "v", At: t0.Add(33 * time.Second), Gear: "D", OdometerKm: 60000.5, SpeedKph: 20,
+		Latitude: 30.50, Longitude: -97.70, LocationFixAt: t0.Add(-10 * time.Second)}, nil, m, ctx)
+
+	path := s.drive.path
+	end := path[len(path)-1]
+	if end[0] != 30.51 || end[1] != -97.71 {
+		t.Fatalf("stale replay must be rejected; path end = %v", end)
+	}
+	if s.drive.endLat != 30.51 {
+		t.Fatalf("stale replay must not move endLat; got %v", s.drive.endLat)
+	}
+}

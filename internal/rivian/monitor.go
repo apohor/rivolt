@@ -56,16 +56,18 @@ type StateMonitor struct {
 	stopOnce  sync.Once
 
 	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for the
-	// Parallax GPS gap-fill. It mirrors the app's Firebase
+	// Parallax gnss subscriber. It mirrors the app's Firebase
 	// `parallaxCommand` remote-config layer: necessary but not
-	// sufficient. Env defaults off; enabled in both prod and preview now.
-	// A vehicle also
-	// has to advertise Parallax connectivity
-	// (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) to run the gnss
-	// subscriber. vehicleState stays the dense authoritative GPS source;
-	// Parallax only fills its stalls (a real drive showed a full switch
-	// to Parallax is too sparse — ~60s vs vehicleState's ~3s — and still
-	// stalls, so it bridges rather than replaces).
+	// sufficient — a vehicle also has to advertise Parallax
+	// connectivity (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE). Env
+	// defaults off; enabled in both prod and preview.
+	//
+	// Parallax gnss is the PRIMARY GPS backbone (steady ~60s cadence,
+	// no multi-minute stalls); vehicleState's denser ~3s fixes fill
+	// detail between gnss ticks but are demoted to that filler role by
+	// the recorder's fix-timestamp monotonicity guard, because they
+	// stall for minutes and replay stale fixes (observed 2026-07-14: a
+	// 5-minute full blackout mid-drive).
 	parallaxGPS bool
 	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) subscribes to
 	// dynamics.vehicle.{gear,drive_mode,odometer} + vehicle.power.state,
@@ -97,6 +99,13 @@ type StateMonitor struct {
 	// as the fallback (a silently dead Parallax feed would otherwise lose
 	// all telemetry invisibly). Guarded by mu.
 	lastParallaxAt map[string]time.Time
+	// lastPxGear[vehicleID] is the most recent mapped Parallax gear and
+	// when it arrived. The recorder's drive-close debounce consults it:
+	// a fresh Parallax P corroborates a close immediately, a fresh
+	// Parallax R/N/D vetoes the fast close paths (vehicleState P blip).
+	// Guarded by mu.
+	lastPxGear   map[string]string
+	lastPxGearAt map[string]time.Time
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -247,6 +256,8 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		parallaxCapture:       parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS: make(map[string]time.Time),
 		lastParallaxAt:  make(map[string]time.Time),
+		lastPxGear:      make(map[string]string),
+		lastPxGearAt:    make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		wsSeen:          make(map[string]bool),
@@ -292,6 +303,15 @@ const parallaxGPSStallThreshold = 30 * time.Second
 // only meaningful during "go" to avoid false alarms on a parked-but-awake
 // car whose topics simply have nothing to report.
 const parallaxStaleThreshold = 3 * time.Minute
+
+// lastParallaxGear returns the most recent mapped Parallax gear for the
+// vehicle and when it arrived (zero values when none seen). Used by the
+// recorder's drive-close debounce.
+func (m *StateMonitor) lastParallaxGear(vehicleID string) (string, time.Time) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastPxGear[vehicleID], m.lastPxGearAt[vehicleID]
+}
 
 // noteParallaxFrame records that some Parallax topic just delivered a
 // frame. Called from every Parallax subscriber callback so
@@ -669,11 +689,11 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// master must be on AND the vehicle must advertise Parallax
 	// connectivity (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) via
 	// SupportedFeatures. We gate on connectivity, not the full-migration
-	// PX_STATE_ALL capability, because we consume one topic
-	// (dynamics.vehicle.gnss) as a gap-filler rather than replacing
-	// vehicleState. Errors leave the vehicle on vehicleState alone; the
-	// resubscribe loop retries. Eligibility only decides whether to run
-	// the gnss subscriber — vehicleState is always the primary GPS feed.
+	// PX_STATE_ALL capability, because we cherry-pick topics rather than
+	// replacing vehicleState wholesale. Errors leave the vehicle on
+	// vehicleState alone (dense but stall-prone); when eligible, Parallax
+	// gnss becomes the primary GPS backbone with vehicleState as the
+	// detail filler between its ticks.
 	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
@@ -706,7 +726,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	}
 	source := "vehicle_state"
 	if eligibleParallaxGPS {
-		source = "vehicle_state + parallax gap-fill"
+		source = "parallax gnss primary + vehicle_state detail-fill"
 	}
 	m.logger.Info("gps source resolved", "vehicle", vehicleID, "gps_source", source,
 		"connectivity_parallax", eligibleParallaxGPS, "px_state_all", pxStatus,
@@ -1416,21 +1436,20 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 }
 
 // dynamicsGNSSSubscriber streams the Parallax dynamics.vehicle.gnss
-// topic and gap-fills: it injects a fix into the cache and drives a
-// recorder pass ONLY when vehicleState hasn't delivered GPS within
-// parallaxGPSStallThreshold AND the car is moving (Parallax speed>0) —
-// a stopped car with frozen vehicleState GPS needs no bridging.
-// vehicleState stays the dense authoritative
-// feed (a real drive proved a full Parallax switch is too sparse — ~60s
-// vs ~3s — and still stalls); Parallax just bridges vehicleState's
-// multi-minute gaps. Started only for vehicles past the eligibility gate
+// topic — the PRIMARY GPS backbone. Every frame applies to the cache and
+// drives a recorder pass (except exact-duplicate parked replays).
+// vehicleState's denser ~3s fixes fill detail between gnss ticks via the
+// normal frame path, demoted to that filler role by the recorder's
+// fix-timestamp monotonicity guard (they stall for minutes and replay
+// stale fixes; observed 2026-07-14: a 5-min full blackout mid-drive).
+// Started only for vehicles past the eligibility gate
 // (master + VEHICLE_CONNECTIVITY_PARALLAX).
 //
 // Runs full lifecycle (not sample-only) because these frames are live,
-// so a filled point still updates the drive's speed aggregates and end
+// so a point still updates the drive's speed aggregates and end
 // state. Gear/SoC/charger carry over from the cached vehicleState frame,
 // so a gnss frame never opens or closes a session on its own; only a
-// real gear change (via vehicleState) does. Deliberately does NOT
+// real gear change does. Deliberately does NOT
 // advance m.stamp: that cursor gates the vehicleState WS watchdog, and
 // Parallax keeping it warm would mask a dead vehicleState feed.
 func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID string) {
@@ -1447,20 +1466,24 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 			m.mu.Unlock()
 			return
 		}
-		// Fill only when vehicleState has stalled AND the car is moving.
-		// A fresh vehicleState fix means the dense feed is healthy. A
-		// stationary car reports the same position, so Rivian drops
-		// gnssLocation from its deltas — that reads as "stale" here but
-		// needs no bridging (filling would just replay the parked point).
-		// Parallax speed>0 is the motion signal that distinguishes a real
-		// movement-stall from a stopped car.
-		lastVeh := m.lastVehStateGPS[vehicleID]
-		fresh := !lastVeh.IsZero() && time.Since(lastVeh) < parallaxGPSStallThreshold
-		if fresh || g.SpeedMS <= 0 {
+		// Parallax gnss is the primary GPS backbone: every frame applies
+		// unconditionally (steady ~60s cadence, no multi-minute stalls —
+		// unlike vehicleState, whose dense ~3s fixes stall for minutes
+		// and die in connectivity blackouts). vehicleState's fixes still
+		// flow through the normal frame path and fill fine-grained
+		// detail *between* gnss ticks; the recorder's fix-timestamp
+		// monotonicity guard (liveDrive.lastFixTS) demotes them to that
+		// filler role by rejecting any fix older than the newest one
+		// already applied, so a stale vehicleState replay can't drag
+		// the path backwards.
+		//
+		// Skip only exact-duplicate parked frames (same fix replayed) to
+		// avoid pointless recorder passes while stationary.
+		if prev.Latitude == g.Latitude && prev.Longitude == g.Longitude && g.SpeedMS <= 0 {
 			m.mu.Unlock()
 			return
 		}
-		gap := time.Since(lastVeh)
+		lastVeh := m.lastVehStateGPS[vehicleID]
 		next := *prev
 		next.At = time.Now()
 		next.Latitude = g.Latitude
@@ -1473,9 +1496,12 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 		}
 		m.cache[vehicleID] = &next
 		m.mu.Unlock()
-		if !lastVeh.IsZero() {
-			m.logger.Info("parallax gps gap-fill", "vehicle", vehicleID,
-				"vehicleState_gap_s", gap.Round(time.Second).Seconds())
+		// Informational: how stale the vehicleState feed was when this
+		// gnss frame landed — the old "gap-fill" signal, now just a
+		// health metric for the demoted filler feed.
+		if !lastVeh.IsZero() && time.Since(lastVeh) > parallaxGPSStallThreshold {
+			m.logger.Info("parallax gps covering vehicleState stall", "vehicle", vehicleID,
+				"vehicleState_gap_s", time.Since(lastVeh).Round(time.Second).Seconds())
 		}
 		m.record(ctx, vehicleID, prev, &next)
 	})
@@ -1519,6 +1545,14 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 				"vehicle", vehicleID, "topic", "gear",
 				"px_enum", f.Value, "px_gear", g,
 				"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+			// Feed the drive-close debounce: fresh Parallax P corroborates
+			// a close, fresh R/N/D vetoes a vehicleState P blip.
+			if g != "" {
+				m.mu.Lock()
+				m.lastPxGear[vehicleID] = g
+				m.lastPxGearAt[vehicleID] = time.Now()
+				m.mu.Unlock()
+			}
 			// Authoritative early-open: a Parallax driving gear (R/N/D)
 			// opens/sustains the drive now. Parallax leads vehicleState by
 			// seconds (tens of seconds when vehicleState stalls), so this

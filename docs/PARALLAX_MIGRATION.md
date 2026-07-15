@@ -44,7 +44,7 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 
 | Legacy vehicleState | Parallax RVM topic | Status |
 |---------------------|--------------------|--------|
-| gnssLocation/Speed/Bearing/Altitude | `dynamics.vehicle.gnss` | **shipped (preview)** |
+| gnssLocation/Speed/Bearing/Altitude | `dynamics.vehicle.gnss` | **PRIMARY GPS backbone** — every gnss frame applies; vehicleState's ~3s fixes demoted to detail-fill between gnss ticks via fix-timestamp monotonicity (they stall for minutes / replay stale fixes; 5-min blackout observed 2026-07-14) |
 | pack temperature (none in legacy) | `energy.high_voltage.battery_state` | **recording** |
 | charge live data | `energy_edge_compute.graphs.charge_session_breakdown` | **shipped** |
 | gearStatus | `dynamics.vehicle.gear` | **authoritative (open) on preview** — enum 1P/2R/3N/4D; opens drives early, close stays on vehicleState |
