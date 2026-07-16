@@ -407,7 +407,9 @@ function TimelineSVG(props: {
   return (
     <svg
       viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
-      className="w-full min-h-[240px]"
+      // Taller floor on phones (abundant vertical space) so the three
+      // stacked panels aren't crushed; desktop uses the viewBox aspect.
+      className="w-full min-h-[360px] sm:min-h-[280px]"
       preserveAspectRatio="none"
       role="img"
       aria-label="Drive timeline"

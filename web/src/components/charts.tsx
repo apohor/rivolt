@@ -246,6 +246,11 @@ export function LineChart({
       ref={svgRef}
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
+      // Explicit pixel height: with w-full + preserveAspectRatio="none"
+      // and no height, the SVG derives height from *width*, so on a
+      // narrow phone the chart collapses to a short strip (~70px). Pin
+      // the rendered height to the intended value instead.
+      style={{ height }}
       preserveAspectRatio="none"
       role="img"
     >
@@ -602,6 +607,9 @@ export function BarChart({
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
+      // Pin pixel height so the bars don't collapse on narrow screens
+      // (see LineChart note).
+      style={{ height }}
       preserveAspectRatio="none"
       role="img"
     >

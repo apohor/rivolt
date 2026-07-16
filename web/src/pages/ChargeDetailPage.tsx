@@ -17,6 +17,55 @@ import {
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { smoothGaussianTime } from "../lib/smooth";
 
+// nearestY returns the y of the series point closest in time to ms, or
+// null when the series is empty. Used by the touch cursor readout.
+function nearestY(
+  pts: { x: number; y: number }[],
+  ms: number,
+): number | null {
+  if (pts.length === 0) return null;
+  let best = pts[0];
+  let bestD = Math.abs(pts[0].x - ms);
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.abs(pts[i].x - ms);
+    if (d < bestD) {
+      best = pts[i];
+      bestD = d;
+    }
+  }
+  return best.y;
+}
+
+// ReadoutPill is one colored value chip in the charge cursor readout.
+function ReadoutPill({
+  label,
+  color,
+  v,
+  unit,
+  digits,
+}: {
+  label: string;
+  color: string;
+  v: number | null;
+  unit: string;
+  digits: number;
+}) {
+  if (v == null) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+      <span className="text-neutral-500">{label}</span>
+      <span className="font-medium text-neutral-200">
+        {v.toFixed(digits)}
+        {unit}
+      </span>
+    </span>
+  );
+}
+
 export default function ChargeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -235,6 +284,40 @@ export default function ChargeDetailPage() {
           hint={chargeCostHint(charge)}
         />
       </div>
+
+      {/* Touch-friendly cursor readout: the charts sync cursorMs but the
+          per-point values otherwise only surface via the hover-only SVG
+          <title>, which does nothing on a phone. This strip shows the
+          values at the scrubbed time so tap/drag is actually useful on
+          mobile. */}
+      {socPts.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-[11px] tabular-nums">
+          {cursorMs != null ? (
+            <>
+              <span className="font-mono text-neutral-400">
+                {new Date(cursorMs).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              <ReadoutPill label="Battery" color="#10b981" v={nearestY(socPts, cursorMs)} unit="%" digits={1} />
+              {powerPts.length > 0 ? (
+                <ReadoutPill label="Power" color="#f59e0b" v={nearestY(powerPts, cursorMs)} unit=" kW" digits={1} />
+              ) : null}
+              {hasPackTemp ? (
+                <ReadoutPill label="Pack" color="#a78bfa" v={nearestY(packAvgPts, cursorMs)} unit={tempUnitSuffix} digits={0} />
+              ) : null}
+              {ambientTempSeries ? (
+                <ReadoutPill label={ambientTempSeries.label} color="#60a5fa" v={nearestY(ambientTempSeries.points, cursorMs)} unit={tempUnitSuffix} digits={0} />
+              ) : null}
+            </>
+          ) : (
+            <span className="text-neutral-500">
+              Tap or drag a chart to inspect a moment
+            </span>
+          )}
+        </div>
+      ) : null}
 
       <Card
         title={
