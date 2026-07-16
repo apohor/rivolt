@@ -482,7 +482,10 @@ export function LineChart({
           width={innerW}
           height={innerH}
           fill="transparent"
-          style={{ cursor: "crosshair", touchAction: "none" }}
+          // pan-y (not none) so a vertical drag scrolls the page while a
+          // horizontal drag / tap scrubs the chart — otherwise the chart
+          // traps all touch gestures and the page can't scroll on mobile.
+          style={{ cursor: "crosshair", touchAction: "pan-y" }}
           onPointerDown={(e) => {
             // Capture the pointer so subsequent moves keep updating
             // even if the finger drifts off the overlay's bounding

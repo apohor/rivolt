@@ -520,7 +520,7 @@ export default function DriveDetailPage() {
           </>
         ) : (
           <span className="text-neutral-600">
-            Hover any chart or the route map to inspect a moment.
+            Tap or drag any chart or the route map to inspect a moment.
           </span>
         )}
       </div>

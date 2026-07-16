@@ -212,17 +212,25 @@ export default function AppLayout() {
             <StatusPill />
             <SignOutButton />
           </div>
-          <nav className="order-last w-full sm:order-0 sm:w-auto" aria-label="Primary">
-            <ul className="flex items-center justify-between gap-0.5 sm:justify-start sm:gap-1">
+          {/* Horizontally scrollable on mobile so no tab (e.g. Admin) is
+              clipped; edge-bleed (-mx-4 px-4) lets it scroll under the
+              header padding, and the scrollbar is hidden. Wraps to a
+              static row from sm up. */}
+          <nav
+            className="order-last w-full overflow-x-auto -mx-4 px-4 sm:order-0 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: "none" }}
+            aria-label="Primary"
+          >
+            <ul className="flex flex-nowrap items-center gap-0.5 sm:gap-1">
               {navItems.map((n) => (
-                <li key={n.to}>
+                <li key={n.to} className="shrink-0">
                   <NavLink
                     to={n.to}
                     end={n.end}
                     onMouseEnter={() => prefetchRoute(n.to)}
                     onFocus={() => prefetchRoute(n.to)}
                     className={({ isActive }) =>
-                      `block rounded-md px-2 py-1.5 text-sm transition-colors sm:px-3 ${
+                      `block whitespace-nowrap rounded-md px-2 py-1.5 text-sm transition-colors sm:px-3 ${
                         isActive
                           ? "bg-neutral-800 text-neutral-100"
                           : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900"

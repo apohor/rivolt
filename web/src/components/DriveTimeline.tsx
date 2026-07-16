@@ -810,7 +810,13 @@ function TimelineSVG(props: {
         width={PLOT_W}
         height={MODE_STRIP_TOP + MODE_STRIP_H - SPEED_TOP}
         fill="transparent"
-        style={{ cursor: drag?.moved ? "ew-resize" : "crosshair" }}
+        // pan-y: vertical drag scrolls the page; horizontal drag selects a
+        // time window and a tap sets the cursor. Without it the timeline
+        // traps every touch gesture and the page can't scroll past it.
+        style={{
+          cursor: drag?.moved ? "ew-resize" : "crosshair",
+          touchAction: "pan-y",
+        }}
         onPointerDown={(e) => {
           // Only respond to the primary button. Ignore right-clicks
           // and middle-clicks so context menus / autoscroll still work.
