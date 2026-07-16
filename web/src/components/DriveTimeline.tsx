@@ -17,7 +17,13 @@
 // (EnergyUsedKWh / SoC delta), so it works on every drive that has
 // telemetry without needing a per-vehicle pack-size config.
 
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { Drive, DriveWeatherSamplePoint, Sample } from "../lib/api";
 import { buildElevPts, derivePower } from "../lib/power";
 import { smoothGaussianTime } from "../lib/smooth";
@@ -268,6 +274,13 @@ const PAD_L = 70;
 const PAD_R = 14;
 const PLOT_W = VIEW_W - PAD_L - PAD_R;
 
+// Dead-zone compression: a parked stretch or telemetry gap is drawn at a
+// fixed narrow width instead of consuming its real duration on the axis,
+// so a 39-minute stop can't crush the actual driving into the margins.
+// In viewBox units (of PLOT_W ≈ 950) — ~3% each, enough to show the
+// dashed marker + label without dominating.
+const COMPRESSED_BAND_PX = 34;
+
 const RIBBON_TOP = 8;
 const RIBBON_H = 10;
 const SPEED_TOP = RIBBON_TOP + RIBBON_H + 4;
@@ -284,6 +297,83 @@ const TOTAL_H = AXIS_TOP + AXIS_H + 4;
 
 type ModeSegment = { x0: number; x1: number; mode: Mode };
 type ParkBand = { x0: number; x1: number; kind: "parked" | "gap" };
+
+// A piecewise segment of the warped time axis: data-ms [m0,m1] maps to
+// pixel [p0,p1]. Dead segments (parked / gap) get a fixed narrow width.
+type TimeSeg = { m0: number; m1: number; p0: number; p1: number; dead: boolean };
+
+// buildTimeScale warps the linear time axis so parked stretches and
+// telemetry gaps take a fixed narrow width (bandPx) instead of their real
+// duration, and the active driving time fills the rest proportionally.
+// Returns sx (ms→px) and its inverse; both are continuous and monotonic so
+// the cursor, brush and every data layer stay consistent. With no dead
+// zones it degrades to the original linear mapping.
+function buildTimeScale(
+  xMin: number,
+  xMax: number,
+  bands: ParkBand[],
+  plotLeft: number,
+  plotW: number,
+  bandPx: number,
+): { sx: (ms: number) => number; invert: (px: number) => number } {
+  const dead = bands
+    .map((b) => ({ x0: Math.max(xMin, b.x0), x1: Math.min(xMax, b.x1) }))
+    .filter((b) => b.x1 - b.x0 > 1)
+    .sort((a, b) => a.x0 - b.x0);
+  const merged: { x0: number; x1: number }[] = [];
+  for (const b of dead) {
+    const last = merged[merged.length - 1];
+    if (last && b.x0 <= last.x1) last.x1 = Math.max(last.x1, b.x1);
+    else merged.push({ ...b });
+  }
+  const span = Math.max(1, xMax - xMin);
+  const deadDur = merged.reduce((s, b) => s + (b.x1 - b.x0), 0);
+  const activeDur = Math.max(1, span - deadDur);
+  const activePx = Math.max(1, plotW - merged.length * bandPx);
+  const pxPerActive = activePx / activeDur;
+
+  const segs: TimeSeg[] = [];
+  let cm = xMin;
+  let cp = plotLeft;
+  for (const b of merged) {
+    if (b.x0 > cm) {
+      const w = (b.x0 - cm) * pxPerActive;
+      segs.push({ m0: cm, m1: b.x0, p0: cp, p1: cp + w, dead: false });
+      cp += w;
+      cm = b.x0;
+    }
+    segs.push({ m0: b.x0, m1: b.x1, p0: cp, p1: cp + bandPx, dead: true });
+    cp += bandPx;
+    cm = b.x1;
+  }
+  if (cm < xMax || segs.length === 0) {
+    segs.push({ m0: cm, m1: xMax, p0: cp, p1: plotLeft + plotW, dead: false });
+  }
+
+  const sx = (ms: number): number => {
+    if (ms <= xMin) return plotLeft;
+    if (ms >= xMax) return plotLeft + plotW;
+    for (const s of segs) {
+      if (ms <= s.m1) {
+        const t = (ms - s.m0) / Math.max(1, s.m1 - s.m0);
+        return s.p0 + t * (s.p1 - s.p0);
+      }
+    }
+    return plotLeft + plotW;
+  };
+  const invert = (px: number): number => {
+    if (px <= plotLeft) return xMin;
+    if (px >= plotLeft + plotW) return xMax;
+    for (const s of segs) {
+      if (px <= s.p1) {
+        const t = (px - s.p0) / Math.max(1e-6, s.p1 - s.p0);
+        return s.m0 + t * (s.m1 - s.m0);
+      }
+    }
+    return xMax;
+  };
+  return { sx, invert };
+}
 type PrecipBand = {
   x0: number;
   x1: number;
@@ -353,8 +443,46 @@ function TimelineSVG(props: {
     endSoC,
   } = props;
 
+  // The SVG uses preserveAspectRatio="none" so the fixed viewBox stretches
+  // to fill the container — great for the data paths, but it distorts
+  // *text* (squished-narrow on a phone, wide on a desktop). Measure the
+  // rendered box and counter-scale every text element by the inverse
+  // stretch so labels stay upright at any width. fx/fy default to 1 (no
+  // distortion) until the first measurement lands.
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
+  useLayoutEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        setAspect({ fx: r.width / VIEW_W, fy: r.height / TOTAL_H });
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Counter-scale factor for text: undo the SVG stretch around each label's
+  // anchor point. Applied via <g transform> so textAnchor still works.
+  const textTF = (x: number, y: number) =>
+    `translate(${x} ${y}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
+
   const xSpan = Math.max(1, xMax - xMin);
-  const sx = (x: number) => PAD_L + ((x - xMin) / xSpan) * PLOT_W;
+  // Warped time axis: parked/gap dead zones compressed to a fixed width so
+  // real driving data owns the plot. sx + invert stay continuous, so every
+  // layer (data, bands, ticks, cursor, brush) follows automatically.
+  const scale = buildTimeScale(
+    xMin,
+    xMax,
+    parkBands,
+    PAD_L,
+    PLOT_W,
+    COMPRESSED_BAND_PX,
+  );
+  const sx = scale.sx;
 
   // Brush state — local to the chart. dragStart/dragEnd are in
   // data-space ms, captured during a pointerdown→move→up gesture.
@@ -377,7 +505,7 @@ function TimelineSVG(props: {
     if (rect.width === 0) return null;
     const vbX = ((e.clientX - rect.left) / rect.width) * VIEW_W;
     if (vbX < PAD_L || vbX > VIEW_W - PAD_R) return null;
-    return xMin + ((vbX - PAD_L) / PLOT_W) * xSpan;
+    return scale.invert(vbX);
   };
 
   // Speed Y-domain: 0 → max speed + headroom, with a 50 mph minimum so
@@ -406,6 +534,7 @@ function TimelineSVG(props: {
 
   return (
     <svg
+      ref={svgRef}
       viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
       // Taller floor on phones (abundant vertical space) so the three
       // stacked panels aren't crushed; desktop uses the viewBox aspect.
@@ -461,10 +590,11 @@ function TimelineSVG(props: {
                 fill="#171717"
                 fillOpacity={isGap ? 0.35 : 0.55}
               />
-              {w > 50 && (
+              {/* Always label the (now-compressed) band; counter-scaled
+                  and allowed to overflow the narrow rect, since the dead
+                  zone it labels has no data to collide with. */}
+              <g transform={textTF(mid, SPEED_TOP + 12)}>
                 <text
-                  x={mid}
-                  y={SPEED_TOP + 12}
                   textAnchor="middle"
                   className={isGap ? "fill-neutral-400" : "fill-neutral-300"}
                   fontSize="10"
@@ -472,7 +602,7 @@ function TimelineSVG(props: {
                 >
                   {label}
                 </text>
-              )}
+              </g>
             </g>
           );
         })}
@@ -480,7 +610,7 @@ function TimelineSVG(props: {
 
       {/* ---- Power ribbon ----------------------------------------- */}
       {/* PowerRibbon manages its own label; data inside is clipped. */}
-      <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} />
+      <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} />
 
       {/* ---- Speed panel: frame + grid + ticks -------------------- */}
       <rect
@@ -507,27 +637,27 @@ function TimelineSVG(props: {
                 i === 0 || i === speedTicks.length - 1 ? undefined : "2 3"
               }
             />
-            <text
-              x={PAD_L - 6}
-              y={y + 3.5}
-              textAnchor="end"
-              className="fill-neutral-500"
-              fontSize={10}
-            >
-              {tv}
-            </text>
+            <g transform={textTF(PAD_L - 6, y + 3.5)}>
+              <text
+                textAnchor="end"
+                className="fill-neutral-500"
+                fontSize={10}
+              >
+                {tv}
+              </text>
+            </g>
           </g>
         );
       })}
-      <text
-        x={4}
-        y={SPEED_TOP + 12}
-        className="fill-neutral-400"
-        fontSize={10}
-        style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-      >
-        Speed
-      </text>
+      <g transform={textTF(4, SPEED_TOP + 12)}>
+        <text
+          className="fill-neutral-400"
+          fontSize={10}
+          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+        >
+          Speed
+        </text>
+      </g>
 
       {/* ---- Speed area + line ------------------------------------ */}
       {speedPts.length > 1
@@ -616,27 +746,27 @@ function TimelineSVG(props: {
                 i === 0 || i === socTicks.length - 1 ? undefined : "2 3"
               }
             />
-            <text
-              x={PAD_L - 6}
-              y={y + 3.5}
-              textAnchor="end"
-              className="fill-neutral-500"
-              fontSize={10}
-            >
-              {tv}
-            </text>
+            <g transform={textTF(PAD_L - 6, y + 3.5)}>
+              <text
+                textAnchor="end"
+                className="fill-neutral-500"
+                fontSize={10}
+              >
+                {tv}
+              </text>
+            </g>
           </g>
         );
       })}
-      <text
-        x={4}
-        y={BATT_TOP + 12}
-        className="fill-neutral-400"
-        fontSize={10}
-        style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-      >
-        Battery
-      </text>
+      <g transform={textTF(4, BATT_TOP + 12)}>
+        <text
+          className="fill-neutral-400"
+          fontSize={10}
+          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+        >
+          Battery
+        </text>
+      </g>
 
       <ElevationBackdrop
         elevPts={elevPts}
@@ -682,6 +812,7 @@ function TimelineSVG(props: {
           label: b.label,
         }))}
         showLabels={false}
+        textTF={textTF}
       />
 
       {/* ---- Mode strip ------------------------------------------- */}
@@ -696,10 +827,11 @@ function TimelineSVG(props: {
           label: MODE_LABEL[seg.mode],
         }))}
         showLabels
+        textTF={textTF}
       />
 
       {/* ---- Time axis -------------------------------------------- */}
-      <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} />
+      <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} textTF={textTF} />
 
       {/* ---- Crosshair -------------------------------------------- */}
       {cursorVisible
@@ -900,23 +1032,25 @@ function PowerRibbon({
   powerPts,
   sx,
   cap,
+  textTF,
 }: {
   powerPts: { x: number; y: number }[];
   sx: (x: number) => number;
   cap: number;
+  textTF: (x: number, y: number) => string;
 }) {
   if (powerPts.length < 2) return null;
   return (
     <g>
-      <text
-        x={4}
-        y={RIBBON_TOP + RIBBON_H - 1}
-        className="fill-neutral-500"
-        fontSize={9}
-        style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-      >
-        Power
-      </text>
+      <g transform={textTF(4, RIBBON_TOP + RIBBON_H - 1)}>
+        <text
+          className="fill-neutral-500"
+          fontSize={9}
+          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+        >
+          Power
+        </text>
+      </g>
       {/* Per-interval color cells live inside the plot clip so they
           can't bleed past the y-axis gutter when the chart is zoomed
           in. The frame rect and right-side legend stay outside the
@@ -954,15 +1088,15 @@ function PowerRibbon({
         className="stroke-neutral-800"
         strokeWidth={0.5}
       />
-      <text
-        x={VIEW_W - PAD_R - 4}
-        y={RIBBON_TOP + RIBBON_H - 1}
-        textAnchor="end"
-        className="fill-neutral-600"
-        fontSize={8.5}
-      >
-        regen ◀ • ▶ draw
-      </text>
+      <g transform={textTF(VIEW_W - PAD_R - 4, RIBBON_TOP + RIBBON_H - 1)}>
+        <text
+          textAnchor="end"
+          className="fill-neutral-600"
+          fontSize={8.5}
+        >
+          regen ◀ • ▶ draw
+        </text>
+      </g>
     </g>
   );
 }
@@ -1019,23 +1153,22 @@ function CategoricalStrip({
   height,
   bands,
   showLabels,
+  textTF,
 }: {
   title: string;
   top: number;
   height: number;
   bands: { x0: number; x1: number; color: string; label: string }[];
   showLabels: boolean;
+  textTF: (x: number, y: number) => string;
 }) {
   return (
     <g>
-      <text
-        x={4}
-        y={top + height - 2}
-        className="fill-neutral-500"
-        fontSize={9}
-      >
-        {title}
-      </text>
+      <g transform={textTF(4, top + height - 2)}>
+        <text className="fill-neutral-500" fontSize={9}>
+          {title}
+        </text>
+      </g>
       <rect
         x={PAD_L}
         y={top}
@@ -1058,14 +1191,11 @@ function CategoricalStrip({
                 opacity={0.55}
               />
               {showLabels && w > 70 ? (
-                <text
-                  x={b.x0 + 6}
-                  y={top + height - 3}
-                  className="fill-neutral-100"
-                  fontSize={9}
-                >
-                  {b.label}
-                </text>
+                <g transform={textTF(b.x0 + 6, top + height - 3)}>
+                  <text className="fill-neutral-100" fontSize={9}>
+                    {b.label}
+                  </text>
+                </g>
               ) : null}
               <title>{b.label}</title>
             </g>
@@ -1081,11 +1211,13 @@ function TimeAxis({
   xMax,
   sx,
   top,
+  textTF,
 }: {
   xMin: number;
   xMax: number;
   sx: (x: number) => number;
   top: number;
+  textTF: (x: number, y: number) => string;
 }) {
   const ticks = niceTimeTicks(xMin, xMax, 5);
   return (
@@ -1107,16 +1239,16 @@ function TimeAxis({
               className="stroke-neutral-700"
               strokeWidth={0.6}
             />
-            <text
-              x={sx(t)}
-              y={top + 10}
-              textAnchor={anchor}
-              className="fill-neutral-500"
-              fontSize={10}
-              style={{ fontVariantNumeric: "tabular-nums" }}
-            >
-              {fmtClock(t)}
-            </text>
+            <g transform={textTF(sx(t), top + 10)}>
+              <text
+                textAnchor={anchor}
+                className="fill-neutral-500"
+                fontSize={10}
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {fmtClock(t)}
+              </text>
+            </g>
           </g>
         );
       })}
