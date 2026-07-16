@@ -340,7 +340,6 @@ function buildTimeScale(
       const w = (b.x0 - cm) * pxPerActive;
       segs.push({ m0: cm, m1: b.x0, p0: cp, p1: cp + w, dead: false });
       cp += w;
-      cm = b.x0;
     }
     segs.push({ m0: b.x0, m1: b.x1, p0: cp, p1: cp + bandPx, dead: true });
     cp += bandPx;
