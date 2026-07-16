@@ -385,7 +385,7 @@ export default function ChargeDetailPage() {
               {hasPackTemp && powerPts.length > 0 ? (
                 <SeriesChip
                   label="Pack temp"
-                  color="#fb923c"
+                  color="#a78bfa"
                   on={showPack}
                   onClick={() => setShowPack((v) => !v)}
                 />
@@ -452,7 +452,7 @@ export default function ChargeDetailPage() {
                         const inv = (m: number) => tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
                         return {
                           points: packAvgPts.map((p) => ({ x: p.x, y: map(p.y) })),
-                          color: "#fb923c",
+                          color: "#a78bfa",
                           strokeWidth: 1.4,
                           curve: "monotone" as const,
                           dash: "4 2",

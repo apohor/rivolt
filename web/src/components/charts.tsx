@@ -2,7 +2,12 @@
 // overview dashboards; if we ever need interactivity/zoom we can swap
 // individual charts for uplot without touching call sites.
 
-import { useRef, type CSSProperties } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 type Point = { x: number; y: number };
 
@@ -115,6 +120,26 @@ export function LineChart({
   const innerH = height - padT - padB;
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  // preserveAspectRatio="none" stretches the viewBox non-uniformly, which
+  // distorts text (squished on a phone, wide on desktop). Measure the
+  // rendered box and counter-scale each label around its anchor (textTF,
+  // below) so axis numbers, time marks and cursor values stay upright.
+  // Hooks stay above the EmptyChart early returns (Rules of Hooks).
+  const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
+  useLayoutEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        setAspect({ fx: r.width / width, fy: r.height / height });
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [height]);
 
   const resolvedBandRows =
     bandRows && bandRows.length > 0
@@ -183,6 +208,9 @@ export function LineChart({
   const yTickValues = tickValues(y0, y1, yTicks);
   const y2TickValues = hasRightAxis ? tickValues(y20, y21, yTicks) : [];
   const xTickValues = tickValues(x0, x1, xTicks);
+
+  const textTF = (tx: number, ty: number) =>
+    `translate(${tx} ${ty}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
 
   // Convert a client pointer event to a data-space x value, clamped
   // to the visible domain. Uses the SVG's bounding rect so it works
@@ -266,45 +294,35 @@ export function LineChart({
             className="text-neutral-800"
             strokeWidth={1}
           />
-          <text
-            x={padL - 6}
-            y={sy(yv) + 3}
-            textAnchor="end"
-            className="fill-neutral-500"
-            fontSize={10}
-          >
-            {formatY ? formatY(yv) : yv.toFixed(0)}
-          </text>
+          <g transform={textTF(padL - 6, sy(yv) + 3)}>
+            <text textAnchor="end" className="fill-neutral-500" fontSize={10}>
+              {formatY ? formatY(yv) : yv.toFixed(0)}
+            </text>
+          </g>
         </g>
       ))}
       {/* x axis labels */}
       {xTickValues.map((xv, i) => (
-        <text
-          key={`x${i}`}
-          x={sx(xv)}
-          y={height - 6}
-          textAnchor="middle"
-          className="fill-neutral-500"
-          fontSize={10}
-        >
-          {formatX ? formatX(xv) : xv.toFixed(0)}
-        </text>
+        <g key={`x${i}`} transform={textTF(sx(xv), height - 6)}>
+          <text textAnchor="middle" className="fill-neutral-500" fontSize={10}>
+            {formatX ? formatX(xv) : xv.toFixed(0)}
+          </text>
+        </g>
       ))}
       {/* right y axis labels (no extra grid; the left-axis grid
           already spans the chart). Drawing only labels keeps the
           background clean when two unrelated signals overlay. */}
       {hasRightAxis &&
         y2TickValues.map((yv, i) => (
-          <text
-            key={`y2-${i}`}
-            x={width - padR + 6}
-            y={syRight(yv) + 3}
-            textAnchor="start"
-            className="fill-neutral-500"
-            fontSize={10}
-          >
-            {formatY2 ? formatY2(yv) : yv.toFixed(0)}
-          </text>
+          <g key={`y2-${i}`} transform={textTF(width - padR + 6, syRight(yv) + 3)}>
+            <text
+              textAnchor="start"
+              className="fill-neutral-500"
+              fontSize={10}
+            >
+              {formatY2 ? formatY2(yv) : yv.toFixed(0)}
+            </text>
+          </g>
         ))}
       {/* x-axis bands: thin colored strip at the bottom of the
           plotting area for interval annotations (e.g.
@@ -460,20 +478,20 @@ export function LineChart({
                   stroke="#0a0a0a"
                   strokeWidth={1.5}
                 />
-                <text
-                  x={labelX}
-                  y={labelY}
-                  textAnchor={labelAnchor}
-                  className="fill-neutral-100"
-                  fontSize={11}
-                  fontWeight={600}
-                  paintOrder="stroke"
-                  stroke="#0a0a0a"
-                  strokeWidth={3}
-                  strokeLinejoin="round"
-                >
-                  {label}
-                </text>
+                <g transform={textTF(labelX, labelY)}>
+                  <text
+                    textAnchor={labelAnchor}
+                    className="fill-neutral-100"
+                    fontSize={11}
+                    fontWeight={600}
+                    paintOrder="stroke"
+                    stroke="#0a0a0a"
+                    strokeWidth={3}
+                    strokeLinejoin="round"
+                  >
+                    {label}
+                  </text>
+                </g>
               </g>
             );
           })}
@@ -597,6 +615,26 @@ export function BarChart({
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
 
+  // Hooks must run before any early return (Rules of Hooks).
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
+  useLayoutEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        setAspect({ fx: r.width / width, fy: r.height / height });
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [height]);
+  const textTF = (tx: number, ty: number) =>
+    `translate(${tx} ${ty}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
+
   if (data.length === 0) return <EmptyChart height={height} />;
 
   const max = Math.max(1, ...data.map((d) => d.value));
@@ -605,6 +643,7 @@ export function BarChart({
 
   return (
     <svg
+      ref={svgRef}
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
       // Pin pixel height so the bars don't collapse on narrow screens
