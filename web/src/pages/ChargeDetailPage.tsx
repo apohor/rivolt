@@ -36,6 +36,43 @@ function nearestY(
   return best.y;
 }
 
+// SeriesChip toggles an opt-in overlay series on the consolidated chart.
+// `on` chips are filled; off chips are outlined — one row acts as the
+// chart's interactive legend.
+function SeriesChip({
+  label,
+  color,
+  on,
+  onClick,
+  fixed,
+}: {
+  label: string;
+  color: string;
+  on: boolean;
+  onClick?: () => void;
+  fixed?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={fixed}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+        on
+          ? "border-neutral-600 bg-neutral-800 text-neutral-100"
+          : "border-neutral-800 bg-neutral-950 text-neutral-500 hover:text-neutral-300"
+      } ${fixed ? "cursor-default" : ""}`}
+      aria-pressed={on}
+    >
+      <span
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ backgroundColor: on ? color : "transparent", border: `1px solid ${color}` }}
+      />
+      {label}
+    </button>
+  );
+}
+
 // ReadoutPill is one colored value chip in the charge cursor readout.
 function ReadoutPill({
   label,
@@ -133,6 +170,11 @@ export default function ChargeDetailPage() {
   // charts on this page. Stored in milliseconds so it maps directly
   // onto each chart's x-axis (every series is keyed on Sample.At).
   const [cursorMs, setCursorMs] = useState<number | null>(null);
+  // Single consolidated chart: Battery + Power are the always-on default;
+  // the temperature series are opt-in via chips so the chart stays legible
+  // and not overloaded.
+  const [showPack, setShowPack] = useState(false);
+  const [showAmbient, setShowAmbient] = useState(false);
 
   if (charges.isLoading) {
     return (
@@ -188,10 +230,9 @@ export default function ChargeDetailPage() {
     .filter((p) => Number.isFinite(p.OutsideTempC) && p.OutsideTempC !== 0)
     .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p.OutsideTempC) }));
   const outsideTempSmoothed = smoothGaussianTime(outsideTempPts, 60_000);
-  // Ambient overlay is outside-only. Battery pack cell temperature has
-  // its own chart below (packAvgPts / packMinPts / packMaxPts); cabin
-  // temperature is intentionally no longer charted — battery temp
-  // replaces it.
+  // Ambient overlay is outside-only; it and pack temp are opt-in overlays
+  // (chips) on the single consolidated chart. Cabin temperature is
+  // intentionally no longer charted — battery temp replaces it.
   const ambientTempSeries =
     outsideTempSmoothed.length > 1
       ? { points: outsideTempSmoothed, label: "Outside temp" }
@@ -207,8 +248,6 @@ export default function ChargeDetailPage() {
       .filter((p) => Number.isFinite(p[field]) && (p[field] ?? 0) !== 0)
       .map((p) => ({ x: new Date(p.At).getTime(), y: cToUnit(p[field] as number) }));
   const packAvgPts = smoothGaussianTime(packTempPts("pack_temp_avg_c"), 60_000);
-  const packMinPts = smoothGaussianTime(packTempPts("pack_temp_min_c"), 60_000);
-  const packMaxPts = smoothGaussianTime(packTempPts("pack_temp_max_c"), 60_000);
   const hasPackTemp = packAvgPts.length > 1;
   const packSpreadC = (() => {
     const vals = chargeSamples
@@ -319,19 +358,39 @@ export default function ChargeDetailPage() {
         </div>
       ) : null}
 
-      <Card
-        title={
-          ambientTempSeries && powerPts.length > 0
-            ? `Battery, charger power & ${ambientTempSeries.label.toLowerCase()}`
-            : "Battery & charger power"
-        }
-      >
+      <Card title="Charge">
         {samples.isLoading ? (
           <Spinner />
         ) : socPts.length === 0 ? (
           <NoSamples />
         ) : (
           <>
+            {/* Interactive legend: Battery + Power are always on; the
+                temperature series are opt-in so the chart isn't
+                overloaded. Temp chips only appear when a right (kW) axis
+                exists to map them into. */}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <SeriesChip label="Battery" color="#10b981" on fixed />
+              {powerPts.length > 0 ? (
+                <SeriesChip label="Power" color="#f59e0b" on fixed />
+              ) : null}
+              {ambientTempSeries && powerPts.length > 0 ? (
+                <SeriesChip
+                  label={ambientTempSeries.label}
+                  color="#60a5fa"
+                  on={showAmbient}
+                  onClick={() => setShowAmbient((v) => !v)}
+                />
+              ) : null}
+              {hasPackTemp && powerPts.length > 0 ? (
+                <SeriesChip
+                  label="Pack temp"
+                  color="#fb923c"
+                  on={showPack}
+                  onClick={() => setShowPack((v) => !v)}
+                />
+              ) : null}
+            </div>
             <LineChart
               series={[
                 {
@@ -352,50 +411,60 @@ export default function ChargeDetailPage() {
                       },
                     ]
                   : []),
-                // Ambient-temperature overlay. Picks outside or
-                // cabin depending on which signal exists for this
-                // session (see ambientTempSeries). Mapped linearly
-                // into the right (kW) axis so the dotted line stays
-                // inside the chart frame; `formatCursor` inverts so
-                // the readout still shows real °F/°C. Visual only —
-                // the right axis labels remain kW. Suppressed when
-                // there's no power signal: the right axis itself
-                // disappears in that case and we don't want a lone
-                // dotted line floating above an unlabeled axis.
-                ...(() => {
-                  if (powerPts.length === 0) return [];
-                  if (!ambientTempSeries) return [];
-                  const ys = ambientTempSeries.points.map((p) => p.y);
-                  const tMin = Math.min(...ys);
-                  const tMax = Math.max(...ys);
-                  const span = Math.max(1, tMax - tMin);
-                  const y2hi = powerYMax(charge.MaxPowerKW, powerPts);
-                  const pad = y2hi * 0.05;
-                  const lo = pad;
-                  const hi = y2hi - pad;
-                  const map = (t: number) =>
-                    lo + ((t - tMin) / span) * (hi - lo);
-                  const inv = (m: number) =>
-                    tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
-                  return [
-                    {
-                      points: ambientTempSeries.points.map((p) => ({
-                        x: p.x,
-                        y: map(p.y),
-                      })),
-                      color: "#fb923c",
-                      strokeWidth: 1,
-                      curve: "monotone" as const,
-                      dash: "3 3",
-                      axis: "right" as const,
-                      label: ambientTempSeries.label,
-                      formatCursor: (m: number) =>
-                        `${inv(m).toFixed(0)}${tempUnitSuffix}`,
-                    },
-                  ];
-                })(),
+                // Temperature overlays: mapped into the right (kW) axis so
+                // the line stays in-frame; formatCursor inverts back to the
+                // real °F/°C for the readout. Opt-in via the chips above,
+                // and only when a right axis exists.
+                ...(powerPts.length > 0 && showAmbient && ambientTempSeries
+                  ? [
+                      (() => {
+                        const ys = ambientTempSeries.points.map((p) => p.y);
+                        const tMin = Math.min(...ys);
+                        const span = Math.max(1, Math.max(...ys) - tMin);
+                        const y2hi = powerYMax(charge.MaxPowerKW, powerPts);
+                        const lo = y2hi * 0.05;
+                        const hi = y2hi - lo;
+                        const map = (t: number) => lo + ((t - tMin) / span) * (hi - lo);
+                        const inv = (m: number) => tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
+                        return {
+                          points: ambientTempSeries.points.map((p) => ({ x: p.x, y: map(p.y) })),
+                          color: "#60a5fa",
+                          strokeWidth: 1,
+                          curve: "monotone" as const,
+                          dash: "3 3",
+                          axis: "right" as const,
+                          label: ambientTempSeries.label,
+                          formatCursor: (m: number) => `${inv(m).toFixed(0)}${tempUnitSuffix}`,
+                        };
+                      })(),
+                    ]
+                  : []),
+                ...(powerPts.length > 0 && showPack && hasPackTemp
+                  ? [
+                      (() => {
+                        const ys = packAvgPts.map((p) => p.y);
+                        const tMin = Math.min(...ys);
+                        const span = Math.max(1, Math.max(...ys) - tMin);
+                        const y2hi = powerYMax(charge.MaxPowerKW, powerPts);
+                        const lo = y2hi * 0.05;
+                        const hi = y2hi - lo;
+                        const map = (t: number) => lo + ((t - tMin) / span) * (hi - lo);
+                        const inv = (m: number) => tMin + ((m - lo) / Math.max(1e-9, hi - lo)) * span;
+                        return {
+                          points: packAvgPts.map((p) => ({ x: p.x, y: map(p.y) })),
+                          color: "#fb923c",
+                          strokeWidth: 1.4,
+                          curve: "monotone" as const,
+                          dash: "4 2",
+                          axis: "right" as const,
+                          label: "Pack avg",
+                          formatCursor: (m: number) => `${inv(m).toFixed(1)}${tempUnitSuffix}`,
+                        };
+                      })(),
+                    ]
+                  : []),
               ]}
-              height={200}
+              height={320}
               yDomain={[
                 Math.max(0, charge.StartSoCPct - 5),
                 Math.min(100, charge.EndSoCPct + 5),
@@ -407,98 +476,21 @@ export default function ChargeDetailPage() {
               cursorX={cursorMs}
               onCursorChange={setCursorMs}
             />
-            <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-500">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-xs bg-emerald-500" />
-                Battery (left)
-              </span>
-              {powerPts.length > 0 ? (
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-2 h-2 rounded-xs bg-amber-500" />
-                  Power (right)
-                </span>
-              ) : (
-                <span className="text-neutral-600">
-                  No charger-power samples — see session card for context.
-                </span>
-              )}
-              {ambientTempSeries && powerPts.length > 0 ? (
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-3 h-[2px] border-t border-dashed border-orange-400" />
-                  {ambientTempSeries.label} ({tempUnitSuffix})
-                </span>
-              ) : null}
-            </div>
+            {powerPts.length === 0 ? (
+              <p className="mt-2 text-[11px] text-neutral-600">
+                No charger-power samples for this session — energy is
+                reconstructed from the SoC delta (see the session card).
+              </p>
+            ) : showPack && packSpreadC > 0 ? (
+              <p className="mt-2 text-[11px] text-neutral-500">
+                Pack cell temps — peak max↔min spread{" "}
+                {(tempUnit === "f" ? packSpreadC * 1.8 : packSpreadC).toFixed(1)}
+                {tempUnitSuffix} (thermal-imbalance signal).
+              </p>
+            ) : null}
           </>
         )}
       </Card>
-
-      {hasPackTemp && (
-        <Card title="Battery pack temperature">
-          <LineChart
-            series={[
-              { points: packMaxPts, color: "#f87171", strokeWidth: 1, curve: "monotone", label: "Max cell" },
-              { points: packAvgPts, color: "#fb923c", strokeWidth: 1.8, curve: "monotone", label: "Avg cell" },
-              { points: packMinPts, color: "#60a5fa", strokeWidth: 1, curve: "monotone", label: "Min cell" },
-            ]}
-            height={180}
-            formatY={(v) => `${v.toFixed(1)}${tempUnitSuffix}`}
-            formatX={xTimeFmt}
-            cursorX={cursorMs}
-            onCursorChange={setCursorMs}
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-neutral-500">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-xs bg-red-400" /> Max cell
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-xs bg-amber-500" /> Avg cell
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2 h-2 rounded-xs bg-blue-400" /> Min cell
-            </span>
-            {packSpreadC > 0 && (
-              <span className="ml-auto">
-                Peak cell spread{" "}
-                {(tempUnit === "f" ? packSpreadC * 1.8 : packSpreadC).toFixed(1)}
-                {tempUnitSuffix}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-neutral-500">
-            High-voltage pack cell temperatures. A widening max↔min spread
-            signals thermal imbalance across the pack.
-          </p>
-        </Card>
-      )}
-
-      {/* When power is genuinely missing (home AC sessions; the
-          ElectraFi pre-Mar-2026 export gap) we still want to surface
-          the explanatory copy that used to live in the standalone
-          "Charger power" card. Rendered only when the SoC chart is
-          present and there's no power signal to overlay. */}
-      {samples.isLoading || socPts.length === 0 || powerPts.length > 0 ? null : (
-        <Card title="Charger power">
-          <p className="text-sm text-neutral-500">
-            {charge.Source === "live" ? (
-              <>
-                No charger-power samples for this session. Rivian's
-                live feed reports <code>charger_power</code> only for
-                DC fast-charging and the occasional Level 2 — home
-                AC sessions come through with <code>0 kW</code>. Energy
-                is reconstructed from the SoC delta at the session level.
-              </>
-            ) : (
-              <>
-                No charger-power samples recorded (the ElectraFi export
-                stopped reporting <code>charger_power</code> for Rivians
-                in Mar 2026). Energy and peak power are still
-                reconstructed from SoC deltas at the session level.
-              </>
-            )}
-          </p>
-        </Card>
-      )}
 
       <Card title="Session">
         <SessionInsights
