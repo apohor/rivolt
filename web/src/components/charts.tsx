@@ -663,15 +663,11 @@ export function BarChart({
             className="text-neutral-800"
             strokeWidth={1}
           />
-          <text
-            x={padL - 6}
-            y={padT + innerH - (yv / max) * innerH + 3}
-            textAnchor="end"
-            className="fill-neutral-500"
-            fontSize={10}
-          >
-            {formatY ? formatY(yv) : yv.toFixed(0)}
-          </text>
+          <g transform={textTF(padL - 6, padT + innerH - (yv / max) * innerH + 3)}>
+            <text textAnchor="end" className="fill-neutral-500" fontSize={10}>
+              {formatY ? formatY(yv) : yv.toFixed(0)}
+            </text>
+          </g>
         </g>
       ))}
       {data.map((d, i) => {
@@ -701,16 +697,14 @@ export function BarChart({
         [0, Math.floor(data.length / 2), data.length - 1]
           .filter((v, i, a) => a.indexOf(v) === i)
           .map((i) => (
-            <text
+            <g
               key={`xl${i}`}
-              x={padL + i * (innerW / data.length) + barW / 2}
-              y={height - 6}
-              textAnchor="middle"
-              className="fill-neutral-500"
-              fontSize={10}
+              transform={textTF(padL + i * (innerW / data.length) + barW / 2, height - 6)}
             >
-              {formatX ? formatX(data[i].label, i) : data[i].label}
-            </text>
+              <text textAnchor="middle" className="fill-neutral-500" fontSize={10}>
+                {formatX ? formatX(data[i].label, i) : data[i].label}
+              </text>
+            </g>
           ))}
     </svg>
   );
