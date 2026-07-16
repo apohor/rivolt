@@ -109,16 +109,6 @@ export function LineChart({
   };
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
-  const padL = 52;
-  // Make room for right-axis tick labels when a second axis is in
-  // use. Without this the labels would clip the chart edge.
-  const hasRightAxis = series.some((s) => s.axis === "right");
-  const padR = hasRightAxis ? 52 : 8;
-  const padT = 8;
-  const padB = 20;
-  const innerW = width - padL - padR;
-  const innerH = height - padT - padB;
-
   const svgRef = useRef<SVGSVGElement | null>(null);
   // preserveAspectRatio="none" stretches the viewBox non-uniformly, which
   // distorts text (squished on a phone, wide on desktop). Measure the
@@ -140,6 +130,19 @@ export function LineChart({
     ro.observe(el);
     return () => ro.disconnect();
   }, [height]);
+
+  // Gutters are sized in *screen px* (÷ the stretch factor) so the
+  // counter-scaled, fixed-size labels always fit — otherwise a
+  // viewBox-unit gutter shrinks on a narrow phone and clips "12 kW" →
+  // "12 k". Capped so a very narrow screen can't eat the whole plot.
+  const hasRightAxis = series.some((s) => s.axis === "right");
+  const gutterVB = (px: number) => Math.min(width * 0.28, px / aspect.fx);
+  const padL = gutterVB(44);
+  const padR = hasRightAxis ? gutterVB(48) : 8;
+  const padT = 8;
+  const padB = Math.min(height * 0.4, 22 / aspect.fy);
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
 
   const resolvedBandRows =
     bandRows && bandRows.length > 0
@@ -301,14 +304,19 @@ export function LineChart({
           </g>
         </g>
       ))}
-      {/* x axis labels */}
-      {xTickValues.map((xv, i) => (
-        <g key={`x${i}`} transform={textTF(sx(xv), height - 6)}>
-          <text textAnchor="middle" className="fill-neutral-500" fontSize={10}>
-            {formatX ? formatX(xv) : xv.toFixed(0)}
-          </text>
-        </g>
-      ))}
+      {/* x axis labels — first/last anchor to the edge so they can't
+          overflow past the chart bounds and get clipped. */}
+      {xTickValues.map((xv, i) => {
+        const anchor: "start" | "middle" | "end" =
+          i === 0 ? "start" : i === xTickValues.length - 1 ? "end" : "middle";
+        return (
+          <g key={`x${i}`} transform={textTF(sx(xv), height - 6)}>
+            <text textAnchor={anchor} className="fill-neutral-500" fontSize={10}>
+              {formatX ? formatX(xv) : xv.toFixed(0)}
+            </text>
+          </g>
+        );
+      })}
       {/* right y axis labels (no extra grid; the left-axis grid
           already spans the chart). Drawing only labels keeps the
           background clean when two unrelated signals overlay. */}
@@ -608,13 +616,6 @@ export function BarChart({
   barGap?: number;
 }) {
   const width = 1000;
-  const padL = 52;
-  const padR = 8;
-  const padT = 8;
-  const padB = 20;
-  const innerW = width - padL - padR;
-  const innerH = height - padT - padB;
-
   // Hooks must run before any early return (Rules of Hooks).
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
@@ -634,6 +635,15 @@ export function BarChart({
   }, [height]);
   const textTF = (tx: number, ty: number) =>
     `translate(${tx} ${ty}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
+
+  // Gutters sized in screen px (÷ stretch factor) so counter-scaled
+  // labels don't clip on a narrow phone (see LineChart note).
+  const padL = Math.min(width * 0.28, 44 / aspect.fx);
+  const padR = 8;
+  const padT = 8;
+  const padB = Math.min(height * 0.4, 22 / aspect.fy);
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
 
   if (data.length === 0) return <EmptyChart height={height} />;
 
@@ -692,20 +702,25 @@ export function BarChart({
           </g>
         );
       })}
-      {/* sparse x labels: first, last, middle */}
+      {/* sparse x labels: first, last, middle — edges anchored so they
+          can't overflow the chart bounds. */}
       {data.length > 0 &&
         [0, Math.floor(data.length / 2), data.length - 1]
           .filter((v, i, a) => a.indexOf(v) === i)
-          .map((i) => (
-            <g
-              key={`xl${i}`}
-              transform={textTF(padL + i * (innerW / data.length) + barW / 2, height - 6)}
-            >
-              <text textAnchor="middle" className="fill-neutral-500" fontSize={10}>
-                {formatX ? formatX(data[i].label, i) : data[i].label}
-              </text>
-            </g>
-          ))}
+          .map((i) => {
+            const anchor: "start" | "middle" | "end" =
+              i === 0 ? "start" : i === data.length - 1 ? "end" : "middle";
+            return (
+              <g
+                key={`xl${i}`}
+                transform={textTF(padL + i * (innerW / data.length) + barW / 2, height - 6)}
+              >
+                <text textAnchor={anchor} className="fill-neutral-500" fontSize={10}>
+                  {formatX ? formatX(data[i].label, i) : data[i].label}
+                </text>
+              </g>
+            );
+          })}
     </svg>
   );
 }

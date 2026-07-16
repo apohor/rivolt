@@ -170,9 +170,11 @@ export default function ChargeDetailPage() {
   // charts on this page. Stored in milliseconds so it maps directly
   // onto each chart's x-axis (every series is keyed on Sample.At).
   const [cursorMs, setCursorMs] = useState<number | null>(null);
-  // Single consolidated chart: Battery + Power are the always-on default;
-  // the temperature series are opt-in via chips so the chart stays legible
-  // and not overloaded.
+  // Single consolidated chart with a fully interactive legend: every
+  // series can be shown/hidden. Battery + Power on by default; the
+  // temperature overlays start hidden so the chart isn't overloaded.
+  const [showBattery, setShowBattery] = useState(true);
+  const [showPower, setShowPower] = useState(true);
   const [showPack, setShowPack] = useState(false);
   const [showAmbient, setShowAmbient] = useState(false);
 
@@ -339,14 +341,18 @@ export default function ChargeDetailPage() {
                   minute: "2-digit",
                 })}
               </span>
-              <ReadoutPill label="Battery" color="#10b981" v={nearestY(socPts, cursorMs)} unit="%" digits={1} />
-              {powerPts.length > 0 ? (
+              {/* Readouts mirror the plotted series — a hidden chip drops
+                  its pill so the strip and the chart always agree. */}
+              {showBattery ? (
+                <ReadoutPill label="Battery" color="#10b981" v={nearestY(socPts, cursorMs)} unit="%" digits={1} />
+              ) : null}
+              {powerPts.length > 0 && showPower ? (
                 <ReadoutPill label="Power" color="#f59e0b" v={nearestY(powerPts, cursorMs)} unit=" kW" digits={1} />
               ) : null}
-              {hasPackTemp ? (
+              {hasPackTemp && showPack ? (
                 <ReadoutPill label="Pack" color="#a78bfa" v={nearestY(packAvgPts, cursorMs)} unit={tempUnitSuffix} digits={0} />
               ) : null}
-              {ambientTempSeries ? (
+              {ambientTempSeries && showAmbient ? (
                 <ReadoutPill label={ambientTempSeries.label} color="#60a5fa" v={nearestY(ambientTempSeries.points, cursorMs)} unit={tempUnitSuffix} digits={0} />
               ) : null}
             </>
@@ -365,14 +371,25 @@ export default function ChargeDetailPage() {
           <NoSamples />
         ) : (
           <>
-            {/* Interactive legend: Battery + Power are always on; the
-                temperature series are opt-in so the chart isn't
-                overloaded. Temp chips only appear when a right (kW) axis
-                exists to map them into. */}
+            {/* Interactive legend: every series can be shown/hidden.
+                Battery + Power default on; the temperature overlays
+                default off so the chart isn't overloaded. Temp chips
+                only appear when a right (kW) axis exists to map them
+                into. */}
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <SeriesChip label="Battery" color="#10b981" on fixed />
+              <SeriesChip
+                label="Battery"
+                color="#10b981"
+                on={showBattery}
+                onClick={() => setShowBattery((v) => !v)}
+              />
               {powerPts.length > 0 ? (
-                <SeriesChip label="Power" color="#f59e0b" on fixed />
+                <SeriesChip
+                  label="Power"
+                  color="#f59e0b"
+                  on={showPower}
+                  onClick={() => setShowPower((v) => !v)}
+                />
               ) : null}
               {ambientTempSeries && powerPts.length > 0 ? (
                 <SeriesChip
@@ -393,14 +410,18 @@ export default function ChargeDetailPage() {
             </div>
             <LineChart
               series={[
-                {
-                  points: socPts,
-                  color: "#10b981",
-                  strokeWidth: 1.4,
-                  area: true,
-                  label: "Battery",
-                },
-                ...(powerPts.length > 0
+                ...(showBattery
+                  ? [
+                      {
+                        points: socPts,
+                        color: "#10b981",
+                        strokeWidth: 1.4,
+                        area: true,
+                        label: "Battery",
+                      },
+                    ]
+                  : []),
+                ...(powerPts.length > 0 && showPower
                   ? [
                       {
                         points: powerPts,
