@@ -548,12 +548,14 @@ const (
 	// so their wire shapes can be RE'd from the logs before decoding.
 	rvmRange = "dynamics.vehicle.range"
 	rvmTires = "dynamics.tires.state"
+	// rvmCabinTemps/rvmClosures/rvmLocks are decoded and authoritative,
+	// so they live in the base drive-dynamics list (arrive in prod).
+	rvmCabinTemps = "comfort.cabin.cabin_temperatures"
+	rvmClosures   = "body.closures.states"
+	rvmLocks      = "body.locks.states"
 	// Remaining Path-B read-state topics (exact names from APK 3.14.0),
 	// carried only under the capture flag for raw-payload shadow RE until
 	// each is decoded and promoted into the base list above.
-	rvmCabinTemps   = "comfort.cabin.cabin_temperatures"
-	rvmClosures     = "body.closures.states"
-	rvmLocks        = "body.locks.states"
 	rvmWindows      = "body.windows.states"
 	rvmTrailer      = "body.trailer.state"
 	rvmLowVoltBatt  = "energy.low_voltage.battery_state"
@@ -562,12 +564,14 @@ const (
 	rvmPreconStatus = "comfort.cabin.cabin_preconditioning_status"
 )
 
-// CaptureRVMs are the not-yet-decoded read topics carried on the
-// drive-dynamics subscription for raw-payload shadow capture (they hit the
-// default log case). Passed only when the preview capture flag is on, so
-// prod isn't subscribed to topics it doesn't yet use.
+// CaptureRVMs are the not-yet-authoritative read topics carried on the
+// drive-dynamics subscription for shadow capture. Passed only when the
+// preview capture flag is on, so prod isn't subscribed to topics it
+// doesn't yet apply. Windows is decoded into structured states for the
+// shadow log (measure-first) but not yet applied; the rest still hit the
+// raw default log case.
 var CaptureRVMs = []string{
-	rvmClosures, rvmLocks, rvmWindows, rvmTrailer,
+	rvmWindows, rvmTrailer,
 	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
 }
 
@@ -807,7 +811,10 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := append([]string{rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState, rvmRange, rvmTires, rvmCabinTemps}, extra...)
+	rvms := append([]string{
+		rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
+		rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
+	}, extra...)
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {

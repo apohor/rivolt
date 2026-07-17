@@ -1766,6 +1766,18 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					m.mu.Unlock()
 				}
 			}
+		case rvmWindows:
+			// body.windows.states is the same repeated {1:instance, 2:status}
+			// wire shape as closures/locks, so we can decode it structurally
+			// now. Measure-first: log the observed instance→status map (and
+			// which instances the vehicle actually reports) so the
+			// instance→window-position mapping can be pinned from a real
+			// capture before this is made authoritative. No cache apply yet.
+			win, ok := decodeInstanceStates(f.Payload)
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "windows",
+				"px_ok", ok, "px_states", win,
+				"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,

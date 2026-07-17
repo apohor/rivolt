@@ -47,22 +47,23 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | gnssLocation/Speed/Bearing/Altitude | `dynamics.vehicle.gnss` | **PRIMARY GPS backbone** — every gnss frame applies; vehicleState's ~3s fixes demoted to detail-fill between gnss ticks via fix-timestamp monotonicity (they stall for minutes / replay stale fixes; 5-min blackout observed 2026-07-14) |
 | pack temperature (none in legacy) | `energy.high_voltage.battery_state` | **recording** |
 | charge live data | `energy_edge_compute.graphs.charge_session_breakdown` | **shipped** |
-| gearStatus | `dynamics.vehicle.gear` | **authoritative (open) on preview** — enum 1P/2R/3N/4D; opens drives early, close stays on vehicleState |
-| driveMode | `dynamics.vehicle.drive_mode` | **authoritative on preview** — enum from APK 3.14.0 (2=everyday … 15=winter; anchored by live 2=EVERYDAY); mapped to vehicleState's lowercase names |
-| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **authoritative (stall-bridge) on preview** — `{1:varint}` whole **km**; monotonic, only advances cache when higher, so vehicleState's 0.01-mi wins normally |
-| distanceToEmpty | `dynamics.vehicle.range` | **authoritative on preview** — `{1:varint km}` (308 km = vehicleState 191.4 mi); applied to DistanceToEmpty (already km) |
-| tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative on preview** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
+| gearStatus | `dynamics.vehicle.gear` | **authoritative (open) — PROD** — enum 1P/2R/3N/4D; opens drives early, close stays on vehicleState |
+| driveMode | `dynamics.vehicle.drive_mode` | **authoritative — PROD** — enum from APK 3.14.0 (2=everyday … 15=winter; anchored by live 2=EVERYDAY); mapped to vehicleState's lowercase names |
+| vehicleMileage (odometer) | `dynamics.vehicle.odometer` | **authoritative (stall-bridge) — PROD** — `{1:varint}` whole **km**; monotonic, only advances cache when higher, so vehicleState's 0.01-mi wins normally |
+| distanceToEmpty | `dynamics.vehicle.range` | **authoritative — PROD** — `{1:varint km}` (308 km = vehicleState 191.4 mi); applied to DistanceToEmpty (already km) |
+| tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative — PROD** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` | **authoritative on preview** — charge_state (field 1) → field 1 (double) = SoC %, field 2 (double) = pack capacity kWh. RE'd from a live frame (SoC 67.4 vs vehicleState 68.7; capacity 123.4 kWh) — note doubles, not the float32 the APK enum hinted |
 | twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | todo |
-| cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | **authoritative on preview** — field 3 (float32 °C) = interior temp; 26.0 matched vehicleState inside_temp_c (field 4 = driver setpoint) |
+| cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | **authoritative — PROD** — field 3 (float32 °C) = interior temp; 26.0 matched vehicleState inside_temp_c (field 4 = driver setpoint) |
 | cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |
 | cabinHoldStatus | `comfort.cabin.climate_hold_status` | todo |
 | petModeStatus | `comfort.cabin.pet_mode_status` | todo |
-| doors/closures/locks/windows | `body.{closures,locks,windows}.states` | **decoded, preview-only** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. Applied on preview (CaptureRVMs) pending vehicleState verify |
+| doors/closures/locks | `body.{closures,locks}.states` | **authoritative — PROD** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. Graduated from CaptureRVMs into the base drive-dynamics subscription |
+| windows | `body.windows.states` | **decoded (shadow log) — preview** — same {instance, status} shape as closures; decoded into structured states in the shadow log to pin the instance→window mapping before it's applied. CaptureRVMs |
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
-| powerState | `vehicle.power.state` | **authoritative on preview** — `{1:varint}`, `3=ready`/`4=go` confirmed; applied to cache; sleep enum TBD |
+| powerState | `vehicle.power.state` | **authoritative — PROD** — `{1:varint}`, `3=ready`/`4=go` confirmed; applied to cache; sleep enum TBD |
 
 Coverage is effectively complete - every legacy field has a Parallax home.
 
@@ -137,7 +138,16 @@ coarser than vehicleState's 0.01 mi). Gear enum: only `P=1` is confirmed;
 (`RIVOLT_PARALLAX_DRIVE_DYNAMICS`, `StateMonitor.driveDynamicsSubscriber`) logs the
 raw Parallax enum next to the concurrent vehicleState gear so the mapping is
 observable over a real drive. `decodeSingleVarint` + `gearFromParallax` in
-`internal/rivian/parallax.go`. Nothing is authoritative yet — measure first.
+`internal/rivian/parallax.go`.
+
+**Status (2026-07-17): Phase 2 shipped to prod.** `RIVOLT_PARALLAX_DRIVE_DYNAMICS`
+is enabled in prod, so gear (open), drive_mode, odometer (stall-bridge),
+power.state, range, tires, and cabin interior temp all apply authoritatively
+there, plus body closures + door locks (graduated from the preview capture set
+into the base subscription). vehicleState remains the drive-close authority and
+the fallback for every field. Still preview-only under `RIVOLT_PARALLAX_CAPTURE`:
+windows (decoded to structured shadow logs, not yet applied), trailer, 12V, OTA,
+alarm, and preconditioning (raw shadow capture).
 
 ### Phase 3 - energy / charging
 `energy.high_voltage.battery_state` (extend the temp decoder to SoC + capacity),
