@@ -58,8 +58,8 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |
 | cabinHoldStatus | `comfort.cabin.climate_hold_status` | todo |
 | petModeStatus | `comfort.cabin.pet_mode_status` | todo |
-| doors/closures/locks | `body.{closures,locks}.states` | **authoritative — PROD** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. Graduated from CaptureRVMs into the base drive-dynamics subscription |
-| windows | `body.windows.states` | **decoded (shadow log) — preview** — same {instance, status} shape as closures; decoded into structured states in the shadow log to pin the instance→window mapping before it's applied. CaptureRVMs |
+| doors/closures/locks/windows | `body.{closures,locks}.states` | **authoritative — PROD** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. **Windows ride on the closures topic** as instances 12=FL / 13=FR / 14=RL / 15=RR (mapping confirmed live on the R1S 2026-07-17, one window at a time). Graduated from CaptureRVMs into the base drive-dynamics subscription |
+| windows (standalone) | `body.windows.states` | **dead — never emits** — the R1S reports window state on `body.closures.states` (above), not this topic; dropped from CaptureRVMs |
 | trailer | `body.trailer.state` | todo |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
 | alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |

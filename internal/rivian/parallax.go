@@ -555,8 +555,9 @@ const (
 	rvmLocks      = "body.locks.states"
 	// Remaining Path-B read-state topics (exact names from APK 3.14.0),
 	// carried only under the capture flag for raw-payload shadow RE until
-	// each is decoded and promoted into the base list above.
-	rvmWindows      = "body.windows.states"
+	// each is decoded and promoted into the base list above. (Windows are
+	// NOT a separate topic — the R1S reports them on body.closures.states
+	// as instances 12-15; the standalone body.windows.states never emits.)
 	rvmTrailer      = "body.trailer.state"
 	rvmLowVoltBatt  = "energy.low_voltage.battery_state"
 	rvmOtaState     = "ota.ota_state.vehicle_ota_state"
@@ -567,19 +568,23 @@ const (
 // CaptureRVMs are the not-yet-authoritative read topics carried on the
 // drive-dynamics subscription for shadow capture. Passed only when the
 // preview capture flag is on, so prod isn't subscribed to topics it
-// doesn't yet apply. Windows is decoded into structured states for the
-// shadow log (measure-first) but not yet applied; the rest still hit the
-// raw default log case.
+// doesn't yet apply. All still hit the raw default log case.
 var CaptureRVMs = []string{
-	rvmWindows, rvmTrailer,
+	rvmTrailer,
 	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
 }
 
 // body.closures.states / body.locks.states enum values (APK 3.14.0).
 // Both are repeated {1: instance, 2: status}. Closure instances: 1-4 doors
-// (row1 L/R, row2 L/R), 5 frunk, 6 tailgate, 7 liftgate, 11 tonneau, 12-16
+// (row1 L/R, row2 L/R), 5 frunk, 6 tailgate, 7 liftgate, 11 tonneau, 12-15
 // windows. Lock instances: 1-4 doors. Status is meaningful only when
 // non-zero (0 = unspecified, e.g. a closure the vehicle doesn't have).
+//
+// Window instance→corner mapping confirmed live on the R1S (2026-07-17):
+// opening the driver window flipped instance 12 to OPEN, the passenger
+// window flipped 13 — mirroring the door ordering, so 14/15 are the rears.
+// The standalone body.windows.states topic never emits; windows are
+// reported here on the closures topic.
 const (
 	closureStatusClose = 2 // 1=OPEN, 2=CLOSE, 3=AJAR, 4=OPENING, 5=CLOSING
 	lockStatusLocked   = 1 // 1=LOCKED, 2=UNLOCKED, 3=PARTIALLY_UNLOCKED
@@ -587,6 +592,10 @@ const (
 	closInstTailgate   = 6
 	closInstLiftgate   = 7
 	closInstTonneau    = 11
+	closInstWindowFL   = 12
+	closInstWindowFR   = 13
+	closInstWindowRL   = 14
+	closInstWindowRR   = 15
 )
 
 // decodeInstanceStates parses a repeated {1: instance, 2: status} message

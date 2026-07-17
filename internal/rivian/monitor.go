@@ -1733,6 +1733,24 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					if v, o := known(closInstTonneau); o {
 						next.TonneauClosed = v
 					}
+					// Windows ride on the closures topic as instances 12-15
+					// (mapping confirmed live on the R1S — see the closInst*
+					// consts). Same "open"/"closed"/"" string shape the UI
+					// expects from vehicleState; only set when the instance
+					// is present with a known status.
+					win := func(inst int, field *string) {
+						if s, p := cl[inst]; p && s != 0 {
+							if s == closureStatusClose {
+								*field = "closed"
+							} else {
+								*field = "open"
+							}
+						}
+					}
+					win(closInstWindowFL, &next.WindowFrontLeftClosed)
+					win(closInstWindowFR, &next.WindowFrontRightClosed)
+					win(closInstWindowRL, &next.WindowRearLeftClosed)
+					win(closInstWindowRR, &next.WindowRearRightClosed)
 					m.cache[vehicleID] = &next
 				}
 				m.mu.Unlock()
@@ -1766,18 +1784,6 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					m.mu.Unlock()
 				}
 			}
-		case rvmWindows:
-			// body.windows.states is the same repeated {1:instance, 2:status}
-			// wire shape as closures/locks, so we can decode it structurally
-			// now. Measure-first: log the observed instance→status map (and
-			// which instances the vehicle actually reports) so the
-			// instance→window-position mapping can be pinned from a real
-			// capture before this is made authoritative. No cache apply yet.
-			win, ok := decodeInstanceStates(f.Payload)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "windows",
-				"px_ok", ok, "px_states", win,
-				"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,
