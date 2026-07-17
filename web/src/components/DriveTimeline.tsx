@@ -92,6 +92,17 @@ export function DriveTimeline({
   // Track whether the user last interacted via touch so we can keep
   // the cursor alive after the finger lifts (touch has no "hover").
   const [isTouch, setIsTouch] = useState(false);
+  // Tap-to-add legend: Speed / Battery / Power / Elevation are the
+  // established layers and stay on by default; Pack temp and Headwind
+  // are opt-in overlays that otherwise only surface in the tooltip, so
+  // the chart stays useful without being overloaded. Every layer is
+  // toggleable — mirrors the charge page's chip legend.
+  const [showSpeed, setShowSpeed] = useState(true);
+  const [showBattery, setShowBattery] = useState(true);
+  const [showPower, setShowPower] = useState(true);
+  const [showElevation, setShowElevation] = useState(true);
+  const [showPackTemp, setShowPackTemp] = useState(false);
+  const [showHeadwind, setShowHeadwind] = useState(false);
   const driveStartMs = new Date(drive.StartedAt).getTime();
   const driveEndMs = new Date(drive.EndedAt).getTime();
 
@@ -125,6 +136,16 @@ export function DriveTimeline({
     () => buildHeadwindPts(weatherPts, driveStartMs, driveEndMs),
     [weatherPts, driveStartMs, driveEndMs],
   );
+  // Battery pack avg cell temperature — an opt-in overlay on the
+  // battery panel. Smoothed lightly since the sensor is coarse.
+  const packTempPts = useMemo(() => {
+    const raw = samples
+      .filter((p) => p.pack_temp_avg_c != null && p.pack_temp_avg_c !== 0)
+      .map((p) => ({ x: new Date(p.At).getTime(), y: p.pack_temp_avg_c as number }));
+    return raw.length > 1 ? smoothGaussianTime(raw, 60_000) : raw;
+  }, [samples]);
+  const hasPackTemp = packTempPts.length > 0;
+  const hasHeadwind = headwindPts.length > 0;
   const moments = useMemo(
     () => detectMoments(speedPts, socPts, powerPts, headwindPts),
     [speedPts, socPts, powerPts, headwindPts],
@@ -184,6 +205,23 @@ export function DriveTimeline({
 
   return (
     <div className="space-y-3">
+      {/* Tap-to-add legend: toggle any layer. Speed / Battery / Power /
+          Elevation default on; Pack temp + Headwind are opt-in and only
+          appear as chips when the drive actually carries that data. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <TimelineChip label="Speed" color={SERIES.speed} on={showSpeed} onClick={() => setShowSpeed((v) => !v)} />
+        <TimelineChip label="Battery" color={SERIES.battery} on={showBattery} onClick={() => setShowBattery((v) => !v)} />
+        <TimelineChip label="Power" color="#f59e0b" on={showPower} onClick={() => setShowPower((v) => !v)} />
+        {elevPts.length > 1 ? (
+          <TimelineChip label="Elevation" color={SERIES.elevation} on={showElevation} onClick={() => setShowElevation((v) => !v)} />
+        ) : null}
+        {hasPackTemp ? (
+          <TimelineChip label="Pack temp" color="#f472b6" on={showPackTemp} onClick={() => setShowPackTemp((v) => !v)} />
+        ) : null}
+        {hasHeadwind ? (
+          <TimelineChip label="Headwind" color="#0891b2" on={showHeadwind} onClick={() => setShowHeadwind((v) => !v)} />
+        ) : null}
+      </div>
       <TimelineSVG
         xMin={xMin}
         xMax={xMax}
@@ -191,6 +229,8 @@ export function DriveTimeline({
         socPts={socPts}
         elevPts={elevPts}
         powerPts={powerPts}
+        packTempPts={packTempPts}
+        headwindPts={headwindPts}
         modeSegments={modeSegments}
         parkBands={parkBands}
         precipBands={precipBands}
@@ -209,6 +249,12 @@ export function DriveTimeline({
         maxSpeedMph={drive.MaxSpeedMph}
         startSoC={drive.StartSoCPct}
         endSoC={drive.EndSoCPct}
+        showSpeed={showSpeed}
+        showBattery={showBattery}
+        showPower={showPower}
+        showElevation={showElevation}
+        showPackTemp={showPackTemp}
+        showHeadwind={showHeadwind}
       />
 
       {/* HTML cursor readout — always readable regardless of SVG scale.
@@ -393,6 +439,8 @@ function TimelineSVG(props: {
   socPts: { x: number; y: number }[];
   elevPts: { x: number; y: number }[];
   powerPts: { x: number; y: number }[];
+  packTempPts: { x: number; y: number }[];
+  headwindPts: { x: number; y: number }[];
   modeSegments: ModeSegment[];
   parkBands: ParkBand[];
   precipBands: PrecipBand[];
@@ -414,6 +462,13 @@ function TimelineSVG(props: {
   maxSpeedMph: number;
   startSoC: number;
   endSoC: number;
+  // Layer visibility from the tap-to-add legend.
+  showSpeed: boolean;
+  showBattery: boolean;
+  showPower: boolean;
+  showElevation: boolean;
+  showPackTemp: boolean;
+  showHeadwind: boolean;
 }) {
   const {
     xMin,
@@ -422,6 +477,8 @@ function TimelineSVG(props: {
     socPts,
     elevPts,
     powerPts,
+    packTempPts,
+    headwindPts,
     modeSegments,
     parkBands,
     precipBands,
@@ -440,6 +497,12 @@ function TimelineSVG(props: {
     maxSpeedMph,
     startSoC,
     endSoC,
+    showSpeed,
+    showBattery,
+    showPower,
+    showElevation,
+    showPackTemp,
+    showHeadwind,
   } = props;
 
   // The SVG uses preserveAspectRatio="none" so the fixed viewBox stretches
@@ -609,7 +672,9 @@ function TimelineSVG(props: {
 
       {/* ---- Power ribbon ----------------------------------------- */}
       {/* PowerRibbon manages its own label; data inside is clipped. */}
-      <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} />
+      {showPower ? (
+        <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} />
+      ) : null}
 
       {/* ---- Speed panel: frame + grid + ticks -------------------- */}
       <rect
@@ -659,7 +724,7 @@ function TimelineSVG(props: {
       </g>
 
       {/* ---- Speed area + line ------------------------------------ */}
-      {speedPts.length > 1
+      {showSpeed && speedPts.length > 1
         ? (() => {
             const path = monotonePath(
               speedPts.map((p) => ({
@@ -685,6 +750,40 @@ function TimelineSVG(props: {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            );
+          })()
+        : null}
+
+      {/* ---- Headwind overlay (opt-in) ---------------------------- */}
+      {/* Dashed line scaled to its own +head / −tail range across the
+          speed panel; exact values come from the tooltip/readout. */}
+      {showHeadwind && headwindPts.length > 1
+        ? (() => {
+            const ys = headwindPts.map((p) => p.y);
+            const lo = Math.min(0, ...ys);
+            const hi = Math.max(1, ...ys);
+            const path = monotonePath(
+              headwindPts.map((p) => ({
+                x: sx(p.x),
+                // Confine to the lower 60% of the panel so it stays clear
+                // of the speed trace's usual working range up top.
+                y: ySolve(p.y, lo, hi, SPEED_TOP + SPEED_H * 0.4, SPEED_H * 0.6),
+              })),
+            );
+            return (
+              <g clipPath="url(#dt-plot-clip)">
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="#0891b2"
+                  strokeWidth={1}
+                  strokeDasharray="4 3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.85}
                 />
               </g>
             );
@@ -767,15 +866,51 @@ function TimelineSVG(props: {
         </text>
       </g>
 
-      <ElevationBackdrop
-        elevPts={elevPts}
-        sx={sx}
-        top={BATT_TOP}
-        height={BATT_H}
-      />
+      {showElevation ? (
+        <ElevationBackdrop
+          elevPts={elevPts}
+          sx={sx}
+          top={BATT_TOP}
+          height={BATT_H}
+        />
+      ) : null}
+
+      {/* ---- Pack temp overlay (opt-in) --------------------------- */}
+      {/* Dashed pink line scaled to its own range within the battery
+          panel; exact °C/°F read out in the tooltip/readout. */}
+      {showPackTemp && packTempPts.length > 1
+        ? (() => {
+            const ys = packTempPts.map((p) => p.y);
+            const tLo = Math.min(...ys);
+            const tHi = Math.max(tLo + 1, Math.max(...ys));
+            // Confine to the middle band of the panel so it doesn't ride
+            // the SoC line or hug the frame edges.
+            const path = monotonePath(
+              packTempPts.map((p) => ({
+                x: sx(p.x),
+                y: ySolve(p.y, tLo, tHi, BATT_TOP + BATT_H * 0.15, BATT_H * 0.7),
+              })),
+            );
+            return (
+              <g clipPath="url(#dt-plot-clip)">
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="#f472b6"
+                  strokeWidth={1}
+                  strokeDasharray="4 3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.85}
+                />
+              </g>
+            );
+          })()
+        : null}
 
       {/* ---- SoC line --------------------------------------------- */}
-      {socPts.length > 1
+      {showBattery && socPts.length > 1
         ? (() => {
             const path = monotonePath(
               socPts.map((p) => ({
@@ -855,21 +990,23 @@ function TimelineSVG(props: {
       {/* ---- Cursor dots on each panel ---------------------------- */}
       {cursorVisible && cursorSample ? (
         <g pointerEvents="none" clipPath="url(#dt-plot-clip)">
-          <circle
-            cx={sx(cursorMs!)}
-            cy={ySolve(
-              cursorSample.SpeedMph || 0,
-              0,
-              speedMax,
-              SPEED_TOP,
-              SPEED_H,
-            )}
-            r={3}
-            fill={SERIES.speed}
-            stroke="#0a0a0a"
-            strokeWidth={1.5}
-          />
-          {cursorSoc != null ? (
+          {showSpeed ? (
+            <circle
+              cx={sx(cursorMs!)}
+              cy={ySolve(
+                cursorSample.SpeedMph || 0,
+                0,
+                speedMax,
+                SPEED_TOP,
+                SPEED_H,
+              )}
+              r={3}
+              fill={SERIES.speed}
+              stroke="#0a0a0a"
+              strokeWidth={1.5}
+            />
+          ) : null}
+          {showBattery && cursorSoc != null ? (
             <circle
               cx={sx(cursorMs!)}
               cy={ySolve(cursorSoc, socLo, socHi, BATT_TOP, BATT_H)}
@@ -1026,6 +1163,40 @@ function TimelineSVG(props: {
 }
 
 // ---- Subcomponents --------------------------------------------------------
+
+// TimelineChip is one entry in the tap-to-add legend above the chart —
+// filled when its layer is on, outlined when off. Mirrors the charge
+// page's SeriesChip so the two detail views feel consistent.
+function TimelineChip({
+  label,
+  color,
+  on,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+        on
+          ? "border-neutral-600 bg-neutral-800 text-neutral-100"
+          : "border-neutral-800 bg-neutral-950 text-neutral-500 hover:text-neutral-300"
+      }`}
+      aria-pressed={on}
+    >
+      <span
+        className="inline-block h-2 w-2 rounded-full"
+        style={{ backgroundColor: on ? color : "transparent", border: `1px solid ${color}` }}
+      />
+      {label}
+    </button>
+  );
+}
 
 function PowerRibbon({
   powerPts,
