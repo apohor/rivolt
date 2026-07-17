@@ -15,13 +15,25 @@ export function driveDurationSeconds(d: Drive): number {
 // collapseRoundTrips merges chains of consecutive drives that form a
 // closed loop into a single row. A chain [D1 … Dn] qualifies when:
 //   - every consecutive gap (Di.EndedAt → Di+1.StartedAt) ≤ maxGapMinutes, and
-//   - the chain's last drive ends within radiusMeters of the first
-//     drive's start point.
+//   - the chain's last drive ends within radiusMeters of the chain's
+//     ORIGIN point.
+//
+// Origin anchoring — the reason this isn't just "D1.Start": Rivian
+// telemetry routinely drops the first 60–90 s of a drive, so a drive's
+// recorded StartLat/Lon can be hundreds of metres down the road from
+// where it truly began (the car is already at speed by the first
+// packet). Endpoints, captured while parked, are reliable. Between two
+// consecutive drives the car is parked, so the PREVIOUS drive's End is
+// a trustworthy proxy for the next drive's true start. We anchor on
+// that when a predecessor exists (asc[i-1].End) and fall back to
+// D1.Start only for the very first drive, where there's nothing before
+// it. Without this, a clean out-and-back fails a tight radius purely
+// because the outbound leg's start drifted away from home.
 //
 // The greedy algorithm scans ascending and, at each position i, extends
 // the chain as far as the gap constraint allows, then picks the farthest
-// j for which the endpoint lands within radius of D[i].Start. This
-// handles 2-leg round trips (gym-and-back), 3-leg chains (A→B→C→A), and
+// j whose endpoint lands within radius of the origin. This handles
+// 2-leg round trips (gym-and-back), 3-leg chains (A→B→C→A), and
 // arbitrary multi-stop trips in a single O(n²) pass.
 //
 // Pure: the input (assumed DESC by StartedAt, i.e. the ListRecent
@@ -38,8 +50,17 @@ export function collapseRoundTrips(
   const merged: Drive[] = [];
   let i = 0;
   while (i < asc.length) {
+    // Origin anchor for this chain: the prior drive's End (the parking
+    // spot the car left from) when it exists and has real coords,
+    // otherwise the chain-head's own recorded start. See the header
+    // note on why the predecessor's End beats a raw StartLat/Lon.
+    const prev = i > 0 ? asc[i - 1] : undefined;
+    const prevEndValid =
+      prev != null && (prev.EndLat !== 0 || prev.EndLon !== 0);
+    const originLat = prevEndValid ? prev!.EndLat : asc[i].StartLat;
+    const originLon = prevEndValid ? prev!.EndLon : asc[i].StartLon;
     // Find the farthest j whose chain endpoint lands within radius of
-    // asc[i].Start, while all consecutive gaps stay within maxGap.
+    // the origin, while all consecutive gaps stay within maxGap.
     let best = i;
     for (let j = i + 1; j < asc.length; j++) {
       const gap =
@@ -48,8 +69,8 @@ export function collapseRoundTrips(
       if (gap < 0 || gap > maxGapMinutes * 60_000) break;
       if (
         haversineMeters(
-          asc[i].StartLat,
-          asc[i].StartLon,
+          originLat,
+          originLon,
           asc[j].EndLat,
           asc[j].EndLon,
         ) <= radiusMeters
