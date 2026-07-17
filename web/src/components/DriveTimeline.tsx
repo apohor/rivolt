@@ -565,17 +565,26 @@ function TimelineSVG(props: {
     moved: boolean;
   } | null>(null);
 
-  const eventToDataMs = (
-    e: ReactPointerEvent<SVGElement>,
+  // After a drag-to-zoom commits, the browser still fires a trailing
+  // `click`. This ref lets the click handler swallow that one event so a
+  // zoom gesture doesn't also drop the cursor at the release point.
+  const suppressClickRef = useRef(false);
+
+  const clientXToDataMs = (
+    clientX: number,
+    svg: SVGSVGElement | null,
   ): number | null => {
-    const svg = e.currentTarget.ownerSVGElement;
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     if (rect.width === 0) return null;
-    const vbX = ((e.clientX - rect.left) / rect.width) * VIEW_W;
+    const vbX = ((clientX - rect.left) / rect.width) * VIEW_W;
     if (vbX < PAD_L || vbX > VIEW_W - PAD_R) return null;
     return scale.invert(vbX);
   };
+  const eventToDataMs = (
+    e: ReactPointerEvent<SVGElement>,
+  ): number | null =>
+    clientXToDataMs(e.clientX, e.currentTarget.ownerSVGElement);
 
   // Speed Y-domain: 0 → max speed + headroom, with a 50 mph minimum so
   // city-only drives still get a reasonable scale.
@@ -1131,6 +1140,9 @@ function TimelineSVG(props: {
           if (!drag) return;
           (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
           if (drag.moved) {
+            // A drag emits a trailing click — swallow it so the zoom
+            // gesture doesn't also drop the cursor at the release point.
+            suppressClickRef.current = true;
             const lo = Math.min(drag.startMs, drag.endMs);
             const hi = Math.max(drag.startMs, drag.endMs);
             // Reject windows that are smaller than 1 % of the visible
@@ -1141,12 +1153,32 @@ function TimelineSVG(props: {
             }
           } else {
             // No movement → treat as a tap that sets the cursor at the
-            // press location (works for both mouse click and touch tap).
+            // press location. The onClick handler below is the primary
+            // tap path (it survives the pointercancel that touch-action
+            // pan-y fires on a jittery tap); this is a fast-path for
+            // mouse and clean taps.
             onCursorChange(snapToSample(drag.startMs, speedPts));
           }
           setDrag(null);
         }}
         onPointerCancel={() => setDrag(null)}
+        // Primary tap-to-inspect path. On touch, `touch-action: pan-y`
+        // makes the browser cancel the pointer stream the instant it
+        // suspects a vertical scroll, so onPointerUp is unreliable for
+        // taps — but a genuine tap (no scroll) still synthesizes a
+        // click, which lands here.
+        onClick={(e) => {
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+          }
+          const t = clientXToDataMs(
+            e.clientX,
+            (e.currentTarget as SVGElement).ownerSVGElement,
+          );
+          if (t == null) return;
+          onCursorChange(snapToSample(t, speedPts));
+        }}
         onPointerLeave={(e) => {
           // For mouse: clear the cursor so the readout disappears when
           // the pointer exits the chart. For touch/pen: keep the cursor
