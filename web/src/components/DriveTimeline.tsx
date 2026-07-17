@@ -239,13 +239,8 @@ export function DriveTimeline({
         onCursorChange={onCursorChange}
         onViewWindowChange={onViewWindowChange}
         onPointerTypeChange={setIsTouch}
-        isTouch={isTouch}
         cursorSample={cursorSample}
-        cursorPower={cursorPower}
         cursorSoc={cursorSoc}
-        cursorElev={cursorElev}
-        cursorHeadwind={cursorHeadwind}
-        tempUnit={tempUnit}
         maxSpeedMph={drive.MaxSpeedMph}
         startSoC={drive.StartSoCPct}
         endSoC={drive.EndSoCPct}
@@ -257,9 +252,8 @@ export function DriveTimeline({
         showHeadwind={showHeadwind}
       />
 
-      {/* HTML cursor readout — always readable regardless of SVG scale.
-          On desktop it mirrors the floating tooltip; on touch it's the
-          primary way to inspect a sample (no hover on mobile). Hidden
+      {/* HTML cursor readout — the single moment inspector for both
+          mouse and touch, always crisp regardless of SVG scale. Hidden
           when no cursor is active. */}
       {cursorSample ? (
         <CursorReadout
@@ -459,13 +453,8 @@ function TimelineSVG(props: {
   // when the user switches back to mouse. DriveTimeline uses this to
   // decide whether to show the HTML readout dismiss button.
   onPointerTypeChange: (isTouch: boolean) => void;
-  isTouch: boolean;
   cursorSample: Sample | null;
-  cursorPower: number | null;
   cursorSoc: number | null;
-  cursorElev: number | null;
-  cursorHeadwind: number | null;
-  tempUnit: "f" | "c";
   maxSpeedMph: number;
   startSoC: number;
   endSoC: number;
@@ -494,13 +483,8 @@ function TimelineSVG(props: {
     onCursorChange,
     onViewWindowChange,
     onPointerTypeChange,
-    isTouch,
     cursorSample,
-    cursorPower,
     cursorSoc,
-    cursorElev,
-    cursorHeadwind,
-    tempUnit,
     maxSpeedMph,
     startSoC,
     endSoC,
@@ -1029,21 +1013,10 @@ function TimelineSVG(props: {
         </g>
       ) : null}
 
-      {/* ---- Floating tooltip (mouse only) ------------------------- */}
-      {/* Shown for mouse/trackpad only. On touch the SVG scales down
-          to unreadable sizes and the HTML CursorReadout below the
-          chart is the primary data display instead. */}
-      {!isTouch && cursorVisible && cursorSample ? (
-        <FloatingTooltip
-          x={sx(cursorMs!)}
-          cursorSample={cursorSample}
-          cursorPower={cursorPower}
-          cursorSoc={cursorSoc}
-          cursorElev={cursorElev}
-          cursorHeadwind={cursorHeadwind}
-          tempUnit={tempUnit}
-        />
-      ) : null}
+      {/* The moment's readout lives in the HTML CursorReadout below the
+          chart (see DriveTimeline), which stays crisp at any scale —
+          matching the charge page. No in-SVG tooltip, so nothing here
+          fights preserveAspectRatio="none" and stretches. */}
 
       {/* ---- Brush-selection overlay (drawn during a drag) -------- */}
       {drag && drag.moved ? (
@@ -1452,154 +1425,6 @@ function TimeAxis({
                 {fmtClock(t)}
               </text>
             </g>
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
-function FloatingTooltip({
-  x,
-  cursorSample,
-  cursorPower,
-  cursorSoc,
-  cursorElev,
-  cursorHeadwind,
-  tempUnit,
-}: {
-  x: number;
-  cursorSample: Sample;
-  cursorPower: number | null;
-  cursorSoc: number | null;
-  cursorElev: number | null;
-  cursorHeadwind: number | null;
-  tempUnit: "f" | "c";
-}) {
-  const rows: { color: string; label: string; value: string }[] = [
-    {
-      color: SERIES.speed,
-      label: "Speed",
-      value: `${(cursorSample.SpeedMph || 0).toFixed(0)} mph`,
-    },
-  ];
-  if (cursorPower != null) {
-    rows.push({
-      color: cursorPower >= 0 ? SERIES.draw : SERIES.regen,
-      label: "Power",
-      value:
-        cursorPower >= 0
-          ? `+${cursorPower.toFixed(0)} kW`
-          : `${cursorPower.toFixed(0)} kW`,
-    });
-  }
-  if (cursorSoc != null) {
-    rows.push({
-      color: SERIES.battery,
-      label: "SoC",
-      value: `${cursorSoc.toFixed(1)} %`,
-    });
-  }
-  if (cursorElev != null) {
-    rows.push({
-      color: SERIES.elevation,
-      label: "Elev",
-      value: `${cursorElev.toFixed(0)} ft`,
-    });
-  }
-  if (cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0) {
-    rows.push({
-      color: "#fb923c",
-      label: "Outside",
-      value: fmtTemp(cursorSample.OutsideTempC, tempUnit),
-    });
-  }
-  if (cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0) {
-    rows.push({
-      color: "#f472b6",
-      label: "Battery",
-      value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit),
-    });
-  }
-  if (cursorHeadwind != null) {
-    rows.push({
-      color: "#0891b2",
-      label: "Wind",
-      value:
-        cursorHeadwind >= 0
-          ? `+${cursorHeadwind.toFixed(0)} mph head`
-          : `${cursorHeadwind.toFixed(0)} mph tail`,
-    });
-  }
-
-  const W = 198;
-  const headerH = 22;
-  const rowH = 14;
-  const H = headerH + rows.length * rowH + 8;
-  const flip = x > VIEW_W - PAD_R - W - 12;
-  const tx = flip ? x - W - 8 : x + 8;
-  const ty = SPEED_TOP - 4;
-  return (
-    <g pointerEvents="none">
-      <rect
-        x={tx}
-        y={ty}
-        width={W}
-        height={H}
-        rx={6}
-        fill="#0a0a0aee"
-        stroke="#404040"
-        strokeWidth={0.8}
-      />
-      <text
-        x={tx + 10}
-        y={ty + 14}
-        className="fill-neutral-100"
-        fontSize={11}
-        fontWeight={600}
-        style={{ fontVariantNumeric: "tabular-nums" }}
-      >
-        {fmtClockSec(new Date(cursorSample.At).getTime())}
-      </text>
-      <line
-        x1={tx + 8}
-        x2={tx + W - 8}
-        y1={ty + headerH - 4}
-        y2={ty + headerH - 4}
-        className="stroke-neutral-800"
-        strokeWidth={0.6}
-      />
-      {rows.map((r, i) => {
-        const ry = ty + headerH + i * rowH + 2;
-        return (
-          <g key={`tt-${i}`}>
-            <rect
-              x={tx + 10}
-              y={ry + 2}
-              width={6}
-              height={6}
-              rx={1}
-              fill={r.color}
-            />
-            <text
-              x={tx + 22}
-              y={ry + 8}
-              className="fill-neutral-300"
-              fontSize={10.5}
-            >
-              {r.label}
-            </text>
-            <text
-              x={tx + W - 10}
-              y={ry + 8}
-              textAnchor="end"
-              className="fill-neutral-100"
-              fontSize={10.5}
-              fontWeight={500}
-              style={{ fontVariantNumeric: "tabular-nums" }}
-            >
-              {r.value}
-            </text>
           </g>
         );
       })}
