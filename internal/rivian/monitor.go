@@ -1882,6 +1882,29 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 				"vehicle", vehicleID, "topic", "cabin_precondition",
 				"px_enum", f.Value, "px_precon", cabinPreconStateFromParallax(f.Value),
 				"vehicleState_precon", veh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
+		case rvmPetMode:
+			// comfort.cabin.pet_mode_status field 1 = PET_MODE_STATE (APK enum;
+			// field 1 confirmed live: 08 02 = DISABLED). f.ValueOK gates it so
+			// an absent field isn't read as OFF (enum 0).
+			ps := petModeFromParallax(f.Value)
+			var veh string
+			if prev != nil {
+				veh = prev.PetModeStatus
+			}
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "pet_mode",
+				"px_enum", f.Value, "px_pet", ps,
+				"vehicleState_pet", veh, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && f.ValueOK {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && base.PetModeStatus != ps {
+					next := *base
+					next.At = time.Now()
+					next.PetModeStatus = ps
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,

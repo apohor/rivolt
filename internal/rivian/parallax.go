@@ -824,6 +824,25 @@ func cabinPreconStateFromParallax(v uint64) string {
 	}
 }
 
+// petModeFromParallax: comfort.cabin.pet_mode_status field 1 (confirmed
+// live: 08 02 = DISABLED). PET_MODE_STATE (APK): 0 OFF, 1 ON, 2 DISABLED,
+// 3 FAULTY. Mapped to lowercase strings; isTruthyFlag treats "on" as the
+// only active state, so off/disabled/faulty hide the pet-mode chip.
+func petModeFromParallax(v uint64) string {
+	switch v {
+	case 0:
+		return "off"
+	case 1:
+		return "on"
+	case 2:
+		return "disabled"
+	case 3:
+		return "faulty"
+	default:
+		return ""
+	}
+}
+
 // TirePressure is one decoded wheel from a dynamics.tires.state frame.
 // Position 1=FL, 2=FR, 3=RL, 4=RR; Bar is the pressure in bar (matches
 // vehicleState's tire_pressure_*_bar). Confirmed live 2026-07-14: pressures
