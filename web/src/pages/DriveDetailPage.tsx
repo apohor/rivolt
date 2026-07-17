@@ -19,7 +19,7 @@ import {
 import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { analyzeDrivePower } from "../lib/power";
 import { useGPSThresholds } from "../lib/config";
-import { usePreferences, formatTemperature } from "../lib/preferences";
+import { usePreferences } from "../lib/preferences";
 
 export default function DriveDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -398,23 +398,6 @@ export default function DriveDetailPage() {
     return false;
   })();
 
-  // Resolve the sample closest to the synced cursor for the
-  // time/speed/SoC/lat-lon readout. Uses the unsmoothed driveSamples
-  // so the lat/lon stays exact (smoothing is a chart-only concern).
-  const cursorSample = (() => {
-    if (cursorMs == null || driveSamples.length === 0) return null;
-    let best = driveSamples[0];
-    let bestD = Math.abs(new Date(best.At).getTime() - cursorMs);
-    for (let i = 1; i < driveSamples.length; i++) {
-      const d = Math.abs(new Date(driveSamples[i].At).getTime() - cursorMs);
-      if (d < bestD) {
-        bestD = d;
-        best = driveSamples[i];
-      }
-    }
-    return best;
-  })();
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -483,47 +466,9 @@ export default function DriveDetailPage() {
         />
       </div>
 
-      {/* Synced cursor readout. Reserves a single line of vertical
-          space whether or not the user is hovering, so adding/removing
-          the cursor never shifts the charts below. */}
-      <div className="h-5 -mt-2 text-xs font-mono text-neutral-300 flex items-center gap-3">
-        {cursorSample ? (
-          <>
-            <span className="text-neutral-500">
-              {new Date(cursorSample.At).toLocaleTimeString(undefined, {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </span>
-            <span className="text-sky-400">
-              {(cursorSample.SpeedMph || 0).toFixed(0)} mph
-            </span>
-            <span className="text-emerald-400">
-              {(cursorSample.BatteryLevelPct || 0).toFixed(0)}%
-            </span>
-            {cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0 ? (
-              <span className="text-sky-300">
-                {formatTemperature(cursorSample.OutsideTempC, tempUnit, 0)}
-              </span>
-            ) : null}
-            {cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0 ? (
-              <span className="text-orange-300" title="Battery pack avg cell temperature">
-                pack {formatTemperature(cursorSample.pack_temp_avg_c, tempUnit, 0)}
-              </span>
-            ) : null}
-            {cursorSample.Lat || cursorSample.Lon ? (
-              <span className="text-neutral-500">
-                {cursorSample.Lat.toFixed(5)}, {cursorSample.Lon.toFixed(5)}
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <span className="text-neutral-600">
-            Tap or drag any chart or the route map to inspect a moment.
-          </span>
-        )}
-      </div>
+      {/* The synced-cursor readout lives inside DriveTimeline (below the
+          chart) — see its CursorReadout. It's the single moment inspector
+          for the timeline and the route map alike. */}
 
       <Card title="Drive timeline">
         {samples.isLoading ? (

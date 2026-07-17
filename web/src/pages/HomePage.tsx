@@ -108,7 +108,23 @@ export default function HomePage() {
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
   const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
-  const barDays = win === "7d" ? 7 : win === "30d" ? 30 : 60;
+  // Daily-bar count follows the window picker rather than pinning at 60.
+  // 7/30/90/365 map to their day counts; "all" spans from the earliest
+  // record to today, capped at ~2y so a multi-year corpus doesn't render
+  // thousands of hairline bars.
+  const barDays = useMemo(() => {
+    if (win === "7d") return 7;
+    if (win === "30d") return 30;
+    if (win === "90d") return 90;
+    if (win === "365d") return 365;
+    const times = [...winDrives, ...winCharges].map((x) =>
+      new Date(x.StartedAt).getTime(),
+    );
+    if (times.length === 0) return 30;
+    const spanDays =
+      Math.ceil((Date.now() - Math.min(...times)) / 86_400_000) + 1;
+    return Math.min(Math.max(spanDays, 7), 730);
+  }, [win, winDrives, winCharges]);
   const dailyMiles = useMemo(
     () => milesPerDay(winDrives, barDays),
     [winDrives, barDays],
@@ -117,6 +133,29 @@ export default function HomePage() {
     () => socTrend(winDrives, winCharges),
     [winDrives, winCharges],
   );
+
+  // Pack capacity as a % of nameplate/documented spec, for the dotted
+  // health-ceiling line on the SoC trend. Shares the ["packHealth", id]
+  // cache with PackHealthStat. Prefer the vehicle-reported ratio (always
+  // present once the car reports a capacity); fall back to the
+  // charge-fit % of nameplate.
+  const packHealth = useQuery({
+    queryKey: ["packHealth", activeVehicleID ?? ""],
+    queryFn: () => backend.packHealth(activeVehicleID as string),
+    enabled: !!activeVehicleID,
+    staleTime: 5 * 60_000,
+  });
+  const capacityPct = useMemo(() => {
+    const h = packHealth.data?.headline;
+    if (!h) return 0;
+    if (h.reported_pct_of_documented > 0) return h.reported_pct_of_documented;
+    if (h.pct_of_nameplate > 0) return h.pct_of_nameplate;
+    return 0;
+  }, [packHealth.data]);
+  const capacityBasis =
+    (packHealth.data?.headline.reported_pct_of_documented ?? 0) > 0
+      ? "documented spec"
+      : "nameplate";
 
   const isError = drives.isError || charges.isError;
 
@@ -211,7 +250,11 @@ export default function HomePage() {
             </Card>
           )}
 
-          <Card title={`Miles per day · last ${barDays}`}>
+          <Card
+            title={`Miles per day · ${
+              win === "all" ? "all time" : `last ${barDays} days`
+            }`}
+          >
             <BarChart
               data={dailyMiles}
               height={140}
@@ -233,7 +276,27 @@ export default function HomePage() {
                   // Carlson prevents the spline from overshooting
                   // beyond local SoC peaks (no >100% bumps).
                   curve: "monotone",
+                  label: "SoC",
                 },
+                // Pack-capacity ceiling: a flat dotted line at the pack's
+                // health % so SoC swings read against the real (degraded)
+                // full, not a notional 100%. Spans the trend's x-range.
+                ...(capacityPct > 0 && trend.length > 0
+                  ? [
+                      {
+                        points: [
+                          { x: trend[0].x, y: capacityPct },
+                          { x: trend[trend.length - 1].x, y: capacityPct },
+                        ],
+                        color: "#f59e0b",
+                        dash: "4 3",
+                        strokeWidth: 1,
+                        curve: "linear" as const,
+                        label: "Capacity",
+                        formatCursor: (y: number) => `${y.toFixed(0)}% cap`,
+                      },
+                    ]
+                  : []),
               ]}
               height={160}
               yDomain={[0, 100]}
@@ -245,6 +308,16 @@ export default function HomePage() {
                 })
               }
             />
+            {capacityPct > 0 ? (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
+                <span
+                  aria-hidden
+                  className="inline-block h-0 w-4 border-t border-dashed"
+                  style={{ borderColor: "#f59e0b" }}
+                />
+                Pack capacity — {capacityPct.toFixed(0)}% of {capacityBasis}
+              </p>
+            ) : null}
           </Card>
         </>
       )}
