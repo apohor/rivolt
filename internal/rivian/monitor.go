@@ -111,6 +111,13 @@ type StateMonitor struct {
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
 	// has stalled. Guarded by mu.
 	lastVehStateGPS map[string]time.Time
+	// lastVehStateSoC[vehicleID] is the most recent SoC% vehicleState
+	// reported, stashed before Parallax may overwrite BatteryLevelPct in
+	// the cache. Lets the battery_state subscriber log the Parallax-vs-
+	// vehicleState SoC delta (Phase-3 energy reconciliation) so we can
+	// quantify the offset before trusting Parallax SoC for energy math.
+	// Guarded by mu.
+	lastVehStateSoC map[string]float64
 
 	// Live recording stores (all optional — nil stores disable that
 	// particular writer). Samples captures every merged state update
@@ -255,6 +262,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxCapture:       parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS: make(map[string]time.Time),
+		lastVehStateSoC: make(map[string]float64),
 		lastParallaxAt:  make(map[string]time.Time),
 		lastPxGear:      make(map[string]string),
 		lastPxGearAt:    make(map[string]time.Time),
@@ -360,11 +368,25 @@ func (m *StateMonitor) parallaxLivenessWatch(ctx context.Context, vehicleID stri
 // with a raw vehicleState snapshot at each ingest point (WS push, REST
 // seed, REST refresh); a frame without a fix (lat==0) doesn't count.
 func (m *StateMonitor) noteVehStateGPS(vehicleID string, st *State) {
-	if st == nil || st.Latitude == 0 || !m.parallaxGPS {
+	if st == nil {
+		return
+	}
+	// GPS liveness (gnss stall detection) and SoC reconciliation both key
+	// off the raw vehicleState frame here, before Parallax may overwrite
+	// the cache. SoC is stashed whenever Parallax SoC is authoritative so
+	// the battery_state subscriber can log the delta.
+	gps := st.Latitude != 0 && m.parallaxGPS
+	soc := m.parallaxDriveDynamics && st.BatteryLevelPct > 0
+	if !gps && !soc {
 		return
 	}
 	m.mu.Lock()
-	m.lastVehStateGPS[vehicleID] = time.Now()
+	if gps {
+		m.lastVehStateGPS[vehicleID] = time.Now()
+	}
+	if soc {
+		m.lastVehStateSoC[vehicleID] = st.BatteryLevelPct
+	}
 	m.mu.Unlock()
 }
 
@@ -1395,8 +1417,20 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 			return
 		}
 		if bt.SoCPct != 0 || bt.PackKWh != 0 {
+			// Phase-3 reconciliation: log Parallax SoC next to the last
+			// vehicleState SoC and their delta so the offset (≈1% observed)
+			// can be quantified before Parallax SoC is trusted for the
+			// drive/charge energy math it already feeds.
+			m.mu.RLock()
+			vehSoC := m.lastVehStateSoC[vehicleID]
+			m.mu.RUnlock()
+			var socDelta float64
+			if vehSoC > 0 && bt.SoCPct > 0 {
+				socDelta = bt.SoCPct - vehSoC
+			}
 			m.logger.Info("parallax battery_state charge",
-				"vehicle", vehicleID, "px_soc", bt.SoCPct, "px_pack_kwh", bt.PackKWh)
+				"vehicle", vehicleID, "px_soc", bt.SoCPct, "px_pack_kwh", bt.PackKWh,
+				"vehicleState_soc", vehSoC, "soc_delta", socDelta)
 		}
 		m.mu.Lock()
 		if st := m.cache[vehicleID]; st != nil {

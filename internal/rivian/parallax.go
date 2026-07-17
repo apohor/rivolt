@@ -561,8 +561,15 @@ const (
 	rvmTrailer      = "body.trailer.state"
 	rvmLowVoltBatt  = "energy.low_voltage.battery_state"
 	rvmOtaState     = "ota.ota_state.vehicle_ota_state"
+	rvmOtaDeploy    = "ota.deployment.state"
 	rvmAlarmState   = "security.alarm.state"
 	rvmPreconStatus = "comfort.cabin.cabin_preconditioning_status"
+	// Read topics still pending their first live wire-shape capture (the
+	// focused RVM message differs from the APK's combined-message field
+	// numbers, so they must be RE'd from a real frame like cabin_temp was).
+	rvmPetMode     = "comfort.cabin.pet_mode_status"
+	rvmClimateHold = "comfort.cabin.climate_hold_status"
+	rvmImmobilizer = "security.access.immobilizer_state"
 )
 
 // CaptureRVMs are the read topics carried on the drive-dynamics
@@ -575,7 +582,8 @@ const (
 // once the preview logs confirm the mapping.
 var CaptureRVMs = []string{
 	rvmTrailer,
-	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
+	rvmLowVoltBatt, rvmOtaState, rvmOtaDeploy, rvmAlarmState, rvmPreconStatus,
+	rvmPetMode, rvmClimateHold, rvmImmobilizer,
 }
 
 // body.closures.states / body.locks.states enum values (APK 3.14.0).

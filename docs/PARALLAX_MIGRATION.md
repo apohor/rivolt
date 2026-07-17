@@ -157,6 +157,18 @@ alarm, and preconditioning (raw shadow capture).
 and `chargeKwh` (pack-health signal). Reconcile the two energy sources before
 either goes authoritative.
 
+**Status (2026-07-17):** SoC + pack capacity already decode from
+`battery_state` and apply under `RIVOLT_PARALLAX_DRIVE_DYNAMICS` (so
+Parallax SoC currently feeds BatteryLevelPct → drive/charge deltas in
+prod). Capacity is cross-checked via `observeBatteryCapacity` → the
+pack-health card (documented vs vehicle-reported). **Reconciliation
+instrument added:** the battery_state subscriber now logs
+`px_soc` / `vehicleState_soc` / `soc_delta` (vehicleState SoC stashed in
+`lastVehStateSoC` before Parallax overwrites the cache), so the ≈1%
+Parallax-vs-vehicleState offset can be quantified over real sessions
+before deciding whether Parallax SoC should stay the energy-math source
+or fall back to vehicleState. 12V health is applied on preview (Phase 4).
+
 ### Phase 4 - comfort / body / status
 `comfort.cabin.*` (temps, preconditioning, pet mode, hold),
 `body.{closures,locks,windows,trailer}.states`, `ota.*`, `security.alarm.state`.
