@@ -313,11 +313,11 @@ export function DriveTimeline({
 // ---- Layout ---------------------------------------------------------------
 
 const VIEW_W = 1000;
-// Left gutter has to fit the longest panel label ("BATTERY") next to a
-// 2-digit y-axis tick label ("90", "73") without collisions. 70 px gives
-// each side ~6 px of breathing room at fontSize=10.
+// Both gutters carry a y-axis: Speed on the left (left-anchored ticks),
+// SoC on the right. 70/44 px fit a 3-digit tick label plus breathing
+// room at fontSize=10.
 const PAD_L = 70;
-const PAD_R = 14;
+const PAD_R = 44;
 const PLOT_W = VIEW_W - PAD_L - PAD_R;
 
 // Dead-zone compression: a parked stretch or telemetry gap is drawn at a
@@ -327,13 +327,20 @@ const PLOT_W = VIEW_W - PAD_L - PAD_R;
 // dashed marker + label without dominating.
 const COMPRESSED_BAND_PX = 34;
 
+// One shared plot panel. Speed and SoC overlay in the same box on
+// independent axes (left = mph, right = %); the two-panel stack was
+// consolidated into a single graph to match the charge detail view.
 const RIBBON_TOP = 8;
 const RIBBON_H = 10;
-const SPEED_TOP = RIBBON_TOP + RIBBON_H + 4;
-const SPEED_H = 130;
-const BATT_TOP = SPEED_TOP + SPEED_H + 12;
-const BATT_H = 100;
-const PRECIP_TOP = BATT_TOP + BATT_H + 8;
+const PLOT_TOP = RIBBON_TOP + RIBBON_H + 4;
+const PLOT_H = 190;
+// Speed maps to the left axis, SoC to the right — both over the full
+// panel. Kept as named aliases so every data layer reads clearly.
+const SPEED_TOP = PLOT_TOP;
+const SPEED_H = PLOT_H;
+const BATT_TOP = PLOT_TOP;
+const BATT_H = PLOT_H;
+const PRECIP_TOP = PLOT_TOP + PLOT_H + 8;
 const PRECIP_H = 12;
 const MODE_STRIP_TOP = PRECIP_TOP + PRECIP_H + 3;
 const MODE_STRIP_H = 12;
@@ -598,9 +605,9 @@ function TimelineSVG(props: {
     <svg
       ref={svgRef}
       viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
-      // Taller floor on phones (abundant vertical space) so the three
-      // stacked panels aren't crushed; desktop uses the viewBox aspect.
-      className="w-full min-h-[360px] sm:min-h-[280px]"
+      // Comfortable floor on phones so the single plot panel + strips
+      // stay legible; desktop uses the viewBox aspect.
+      className="w-full min-h-[320px] sm:min-h-[260px]"
       preserveAspectRatio="none"
       role="img"
       aria-label="Drive timeline"
@@ -715,8 +722,8 @@ function TimelineSVG(props: {
       })}
       <g transform={textTF(4, SPEED_TOP + 12)}>
         <text
-          className="fill-neutral-400"
           fontSize={10}
+          fill={SERIES.speed}
           style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
         >
           Speed
@@ -740,7 +747,7 @@ function TimelineSVG(props: {
                 <path
                   d={`${path} L ${sx(last.x).toFixed(2)},${baseY.toFixed(2)} L ${sx(first.x).toFixed(2)},${baseY.toFixed(2)} Z`}
                   fill={SERIES.speed}
-                  opacity={0.18}
+                  opacity={0.12}
                 />
                 <path
                   d={path}
@@ -819,36 +826,29 @@ function TimelineSVG(props: {
         })}
       </g>
 
-      {/* ---- Battery panel: frame + ticks + elevation backdrop ---- */}
-      <rect
-        x={PAD_L}
-        y={BATT_TOP}
-        width={PLOT_W}
-        height={BATT_H}
-        fill="transparent"
-        className="stroke-neutral-800"
-        strokeWidth={0.7}
-      />
+      {/* ---- SoC right axis (shares the single plot panel) -------- */}
+      {/* No full-width gridlines here — the left (speed) axis already
+          draws them; the right axis contributes only edge ticks +
+          labels so the two scales stay visually separable. */}
       {socTicks.map((tv, i) => {
         const y = ySolve(tv, socLo, socHi, BATT_TOP, BATT_H);
         return (
           <g key={`bt-${i}`}>
             <line
-              x1={PAD_L}
-              x2={VIEW_W - PAD_R}
+              x1={VIEW_W - PAD_R}
+              x2={VIEW_W - PAD_R + 3}
               y1={y}
               y2={y}
-              className="stroke-neutral-800"
-              strokeWidth={0.5}
-              strokeDasharray={
-                i === 0 || i === socTicks.length - 1 ? undefined : "2 3"
-              }
+              stroke={SERIES.battery}
+              strokeWidth={0.6}
+              opacity={0.7}
             />
-            <g transform={textTF(PAD_L - 6, y + 3.5)}>
+            <g transform={textTF(VIEW_W - PAD_R + 6, y + 3.5)}>
               <text
-                textAnchor="end"
-                className="fill-neutral-500"
+                textAnchor="start"
                 fontSize={10}
+                fill={SERIES.battery}
+                fillOpacity={0.85}
               >
                 {tv}
               </text>
@@ -856,13 +856,14 @@ function TimelineSVG(props: {
           </g>
         );
       })}
-      <g transform={textTF(4, BATT_TOP + 12)}>
+      <g transform={textTF(VIEW_W - PAD_R - 2, BATT_TOP + 12)}>
         <text
-          className="fill-neutral-400"
+          textAnchor="end"
           fontSize={10}
+          fill={SERIES.battery}
           style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
         >
-          Battery
+          SoC
         </text>
       </g>
 
