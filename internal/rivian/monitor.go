@@ -1784,6 +1784,70 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 					m.mu.Unlock()
 				}
 			}
+		case rvmAlarmState:
+			// security.alarm.state field 1 = sound_alarm (APK enum). Applied
+			// to AlarmSoundStatus; logs the concurrent vehicleState value so
+			// the mapping can be verified against the legacy feed.
+			ps := alarmSoundFromParallax(f.Value)
+			var veh string
+			if prev != nil {
+				veh = prev.AlarmSoundStatus
+			}
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "alarm",
+				"px_enum", f.Value, "px_alarm", ps,
+				"vehicleState_alarm", veh, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ps != "" {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && base.AlarmSoundStatus != ps {
+					next := *base
+					next.At = time.Now()
+					next.AlarmSoundStatus = ps
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
+		case rvmLowVoltBatt:
+			// energy.low_voltage.battery_state field 1 = 12V health (APK enum).
+			ps := lowVoltHealthFromParallax(f.Value)
+			var veh string
+			if prev != nil {
+				veh = prev.TwelveVoltBatteryHealth
+			}
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "low_voltage_battery",
+				"px_enum", f.Value, "px_health", ps,
+				"vehicleState_health", veh, "ts_ms", f.TimestampMs)
+			if m.parallaxDriveDynamics && ps != "" {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil && base.TwelveVoltBatteryHealth != ps {
+					next := *base
+					next.At = time.Now()
+					next.TwelveVoltBatteryHealth = ps
+					m.cache[vehicleID] = &next
+				}
+				m.mu.Unlock()
+			}
+		case rvmTrailer:
+			// body.trailer.state field 1 = trailer_presence_status (APK enum).
+			// No State destination field yet — decode-and-log only.
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "trailer",
+				"px_enum", f.Value, "px_trailer", trailerPresenceFromParallax(f.Value),
+				"ts_ms", f.TimestampMs)
+		case rvmPreconStatus:
+			// comfort.cabin.cabin_preconditioning_status — decoded per the APK
+			// CABIN_PRECONDITIONING_STATE enum, but the topic's field number is
+			// unconfirmed (never emitted during RE), so log-only until a live
+			// preconditioning capture verifies it, then promote to apply.
+			var veh string
+			if prev != nil {
+				veh = prev.CabinPreconditioningStatus
+			}
+			m.logger.Info("parallax drive-dynamics shadow",
+				"vehicle", vehicleID, "topic", "cabin_precondition",
+				"px_enum", f.Value, "px_precon", cabinPreconStateFromParallax(f.Value),
+				"vehicleState_precon", veh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 		default:
 			// Any other not-yet-RE'd topic: log the raw payload + best-effort
 			// varint so its wire shape can be decoded offline from the logs,

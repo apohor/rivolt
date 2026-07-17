@@ -565,10 +565,14 @@ const (
 	rvmPreconStatus = "comfort.cabin.cabin_preconditioning_status"
 )
 
-// CaptureRVMs are the not-yet-authoritative read topics carried on the
-// drive-dynamics subscription for shadow capture. Passed only when the
-// preview capture flag is on, so prod isn't subscribed to topics it
-// doesn't yet apply. All still hit the raw default log case.
+// CaptureRVMs are the read topics carried on the drive-dynamics
+// subscription only under the preview capture flag, so prod isn't
+// subscribed to them yet. alarm + 12V health are decoded from the APK
+// enums and applied on preview (with the concurrent vehicleState value
+// logged for verification); trailer + precon are decode-logged only
+// (no State field / unconfirmed field number); OTA is a nested wrapper
+// still on the raw default case. Graduate each into the base list above
+// once the preview logs confirm the mapping.
 var CaptureRVMs = []string{
 	rvmTrailer,
 	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
@@ -739,6 +743,76 @@ func driveModeFromParallax(v uint64) string {
 		return "winter"
 	default:
 		return "" // 0 UNSPECIFIED, 1 INIT_MODE, 7 FAULT → vehicleState
+	}
+}
+
+// The following four map single-varint (field 1) Parallax status enums to
+// the lowercase strings the UI formatters already understand (see
+// LivePanel formatBoolish / formatTwelveVolt / formatPrecondition). All
+// numbers are from the Rivian APK 3.14.0 protobuf enums (extracted from
+// classes*.dex). 0 (UNSPECIFIED) and any unknown value return "" so the
+// field falls back to vehicleState.
+
+// alarmSoundFromParallax: security.alarm.state field 1 (sound_alarm).
+// SOUND_ALARM_STATUS: 0 UNSPECIFIED, 1 FALSE, 2 TRUE, 3 SNA.
+func alarmSoundFromParallax(v uint64) string {
+	switch v {
+	case 1:
+		return "false"
+	case 2:
+		return "true"
+	default:
+		return "" // UNSPECIFIED / SNA → vehicleState
+	}
+}
+
+// lowVoltHealthFromParallax: energy.low_voltage.battery_state field 1.
+// LOW_VOLTAGE_BATTERY_HEALTH_STATUS: 0 UNSPECIFIED, 1 NORMAL, 2 LOW.
+func lowVoltHealthFromParallax(v uint64) string {
+	switch v {
+	case 1:
+		return "normal"
+	case 2:
+		return "low"
+	default:
+		return ""
+	}
+}
+
+// trailerPresenceFromParallax: body.trailer.state field 1.
+// TRAILER_PRESENCE_STATUS: 0 UNSPECIFIED, 1 NOT_PRESENT, 2 PRESENT,
+// 3 PRESENT_WITH_BRAKES, 4 INVALID. No State destination field yet, so
+// this is decode-for-logging only.
+func trailerPresenceFromParallax(v uint64) string {
+	switch v {
+	case 1:
+		return "not_present"
+	case 2:
+		return "present"
+	case 3:
+		return "present_with_brakes"
+	case 4:
+		return "invalid"
+	default:
+		return ""
+	}
+}
+
+// cabinPreconStateFromParallax: comfort.cabin.cabin_preconditioning_status.
+// CABIN_PRECONDITIONING_STATE enum (0-9). Mapped to the small vocabulary
+// formatPrecondition expects. NOTE: the topic's field number is not yet
+// confirmed by a live capture (the car wasn't preconditioning during RE),
+// so this is decode-for-logging only until verified.
+func cabinPreconStateFromParallax(v uint64) string {
+	switch v {
+	case 1, 2, 3: // INITIATE, ACTIVE, ACTIVE_WARNING
+		return "preconditioning"
+	case 4: // COMPLETE_MAINTAIN
+		return "preconditioned"
+	case 8: // UNAVAILABLE
+		return "not_preconditioning"
+	default:
+		return "" // UNSPECIFIED / timeouts / errors → vehicleState
 	}
 }
 

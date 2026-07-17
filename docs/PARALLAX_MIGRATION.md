@@ -53,16 +53,17 @@ The plan reaches full Parallax coverage via mode 1, then does mode 2 opportunist
 | distanceToEmpty | `dynamics.vehicle.range` | **authoritative — PROD** — `{1:varint km}` (308 km = vehicleState 191.4 mi); applied to DistanceToEmpty (already km) |
 | tirePressure{FL,FR,RL,RR} | `dynamics.tires.state` | **authoritative — PROD** — repeated TireState{pos 1-4, pressure double bar}; 3.25/3.28/3.25/3.25 bar matched vehicleState |
 | batteryLevel / batteryCapacity | `energy.high_voltage.battery_state` | **authoritative on preview** — charge_state (field 1) → field 1 (double) = SoC %, field 2 (double) = pack capacity kWh. RE'd from a live frame (SoC 67.4 vs vehicleState 68.7; capacity 123.4 kWh) — note doubles, not the float32 the APK enum hinted |
-| twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | todo |
+| twelveVoltBatteryHealth | `energy.low_voltage.battery_state` | **applied on preview** — field 1 = LOW_VOLTAGE_BATTERY_HEALTH_STATUS (APK: 0 UNSPEC, 1 NORMAL, 2 LOW); mapped to normal/low → TwelveVoltBatteryHealth. Live capture: 1 (normal). Logged next to vehicleState for verify before prod |
 | cabinClimateInteriorTemperature | `comfort.cabin.cabin_temperatures` | **authoritative — PROD** — field 3 (float32 °C) = interior temp; 26.0 matched vehicleState inside_temp_c (field 4 = driver setpoint) |
-| cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | todo |
+| cabinPreconditioningStatus | `comfort.cabin.cabin_preconditioning_status` | **decode-logged (preview)** — CABIN_PRECONDITIONING_STATE enum mapped (APK: 1-3 preconditioning, 4 preconditioned, 8 not_preconditioning), but the topic's field number is unconfirmed (never emitted during RE — car wasn't preconditioning). Log-only until a live capture verifies, then apply |
 | cabinHoldStatus | `comfort.cabin.climate_hold_status` | todo |
 | petModeStatus | `comfort.cabin.pet_mode_status` | todo |
 | doors/closures/locks/windows | `body.{closures,locks}.states` | **authoritative — PROD** — repeated {instance, status}; APK enum maps instances→doors/frunk/liftgate/tailgate/tonneau + door locks→Locked. CLOSE=2, LOCKED=1. **Windows ride on the closures topic** as instances 12=FL / 13=FR / 14=RL / 15=RR (mapping confirmed live on the R1S 2026-07-17, one window at a time). Graduated from CaptureRVMs into the base drive-dynamics subscription |
 | windows (standalone) | `body.windows.states` | **dead — never emits** — the R1S reports window state on `body.closures.states` (above), not this topic; dropped from CaptureRVMs |
-| trailer | `body.trailer.state` | todo |
+| trailer | `body.trailer.state` | **decode-logged (preview)** — field 1 = TRAILER_PRESENCE_STATUS (APK: 0 UNSPEC, 1 NOT_PRESENT, 2 PRESENT, 3 PRESENT_WITH_BRAKES, 4 INVALID). Live capture: 1 (not present). No State destination field yet, so log-only |
 | ota{Current,Available}Version/Status/InstallProgress | `ota.{ota_state,deployment,install}.*` | todo |
-| alarmSoundStatus / gearGuardLocked | `security.alarm.state` / `security.access.*` | todo |
+| alarmSoundStatus | `security.alarm.state` | **applied on preview** — field 1 = SOUND_ALARM_STATUS (APK: 0 UNSPEC, 1 FALSE, 2 TRUE, 3 SNA); mapped to false/true → AlarmSoundStatus. Live capture: 1 (false). Logged next to vehicleState for verify before prod |
+| gearGuardLocked | `security.access.*` | todo — no clean gear-guard-locked enum found in APK 3.14.0 security topics |
 | powerState | `vehicle.power.state` | **authoritative — PROD** — `{1:varint}`, `3=ready`/`4=go` confirmed; applied to cache; sleep enum TBD |
 
 Coverage is effectively complete - every legacy field has a Parallax home.
