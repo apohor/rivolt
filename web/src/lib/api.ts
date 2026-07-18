@@ -333,12 +333,13 @@ export type PackHealthSample = {
 // the "% of nameplate" line. effective_kwh + pct_of_nameplate are
 // zero when no qualifying samples exist yet.
 // DayActivity is one calendar day's power-state split (hours), from
-// GET /api/sleep-activity. Populated forward from the deploy that began
-// persisting power_state.
+// GET /api/sleep-activity. idle_awake_h is the car awake while parked and
+// not charging — the vampire-drain signal. Populated forward from the
+// deploy that began persisting power_state.
 export type DayActivity = {
   day: string; // RFC3339 (UTC day start)
   asleep_h: number;
-  awake_h: number;
+  idle_awake_h: number;
 };
 
 export type PackHealthResponse = {

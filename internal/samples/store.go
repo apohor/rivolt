@@ -352,22 +352,30 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 	return out, rows.Err()
 }
 
-// DayActivity is one calendar day's (UTC) power-state time split, in
+// DayActivity is one calendar day's (UTC) power-state breakdown, in
 // hours, derived from the persisted power_state column (migration 0038).
-// Only intervals with a recorded power_state contribute, so the series
-// fills forward from the deploy.
+// IdleAwakeH is the interesting one: the car awake while parked and not
+// actively charging — i.e. staying awake for no obvious reason, the
+// vampire-drain signal. Driving and active charging are excluded (both
+// are expected awake time). Only intervals with a recorded power_state
+// contribute, so the series fills forward from the deploy.
 type DayActivity struct {
-	Day     time.Time `json:"day"`
-	AsleepH float64   `json:"asleep_h"`
-	AwakeH  float64   `json:"awake_h"`
+	Day        time.Time `json:"day"`
+	AsleepH    float64   `json:"asleep_h"`
+	IdleAwakeH float64   `json:"idle_awake_h"`
 }
 
-// SleepActivity attributes each inter-sample interval to the power_state
-// at its start and sums per UTC day over [since, until). Intervals are
-// capped at 20 min so a data outage never counts as one giant block —
+// SleepActivity attributes each inter-sample interval to the vehicle's
+// state at its start and sums per UTC day over [since, until). Intervals
+// are capped at 20 min so a data outage never counts as one giant block —
 // steady-state cadence stays well under that even while the car sleeps
 // (the Rivian cloud replays keep the sample stream dense). vehicleID
 // scopes to one car; empty aggregates all of the user's vehicles.
+//
+// idle_awake = awake (power_state<>'sleep') AND parked (gear not D/R/N)
+// AND not actively charging (charging_state<>'charging_active' and no
+// charger draw). That isolates unexplained awake time from normal
+// driving / charging.
 func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, until time.Time) ([]DayActivity, error) {
 	const capSec = 1200 // 20 min
 	args := []any{s.userID, since.UTC(), until.UTC(), capSec}
@@ -378,7 +386,8 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	}
 	query := `
 	WITH ivl AS (
-		SELECT vs.at, vs.power_state,
+		SELECT vs.at, vs.power_state, vs.shift_state, vs.charging_state,
+		       COALESCE(vs.charger_power_kw, 0) AS pkw,
 		       LEAST(
 		         EXTRACT(EPOCH FROM (LEAD(vs.at) OVER (PARTITION BY vs.vehicle_id ORDER BY vs.at) - vs.at)),
 		         $4
@@ -388,7 +397,12 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	)
 	SELECT date_trunc('day', at) AS day,
 	       COALESCE(SUM(dur_s) FILTER (WHERE power_state = 'sleep'), 0)/3600.0 AS asleep_h,
-	       COALESCE(SUM(dur_s) FILTER (WHERE power_state <> 'sleep'), 0)/3600.0 AS awake_h
+	       COALESCE(SUM(dur_s) FILTER (
+	         WHERE power_state <> 'sleep'
+	           AND shift_state NOT IN ('D','R','N')
+	           AND charging_state <> 'charging_active'
+	           AND pkw < 0.1
+	       ), 0)/3600.0 AS idle_awake_h
 	FROM ivl
 	WHERE dur_s IS NOT NULL
 	GROUP BY 1 ORDER BY 1`
@@ -400,7 +414,7 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	var out []DayActivity
 	for rows.Next() {
 		var d DayActivity
-		if err := rows.Scan(&d.Day, &d.AsleepH, &d.AwakeH); err != nil {
+		if err := rows.Scan(&d.Day, &d.AsleepH, &d.IdleAwakeH); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

@@ -168,15 +168,16 @@ export default function HomePage() {
     queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined),
     staleTime: 5 * 60_000,
   });
-  // Track AWAKE minutes/day rather than asleep hours: a parked car sleeps
-  // ~20 h/day so sleep bars are near-flat and uninformative, whereas awake
-  // time (drives + charging + idle vampire-drain) is the small, variable,
-  // minute-scale signal worth watching.
+  // Track IDLE-AWAKE minutes/day: the car awake while parked and not
+  // charging — staying awake for no obvious reason (vampire drain).
+  // Driving and active charging are excluded as expected awake time, and
+  // sleep (~20 h/day) is a flat non-signal — so this isolates the small,
+  // variable, minute-scale quantity actually worth watching.
   const sleepBars = useMemo(
     () =>
       (sleepActivity.data ?? []).map((d) => ({
         label: d.day.slice(0, 10),
-        value: d.awake_h * 60,
+        value: d.idle_awake_h * 60,
         x: new Date(d.day).getTime(),
       })),
     [sleepActivity.data],
@@ -349,7 +350,7 @@ export default function HomePage() {
             ) : null}
           </Card>
 
-          <Card title="Car awake · minutes/day">
+          <Card title="Idle-awake · minutes/day">
             {sleepBars.length > 0 ? (
               <>
                 <BarChart
@@ -360,9 +361,9 @@ export default function HomePage() {
                   formatX={(label) => String(label).slice(5)}
                 />
                 <p className="mt-2 text-[11px] text-neutral-500">
-                  Minutes the car was <span className="text-indigo-300">awake</span> each
-                  day (driving, charging, or idle-but-awake) — it slept the rest.
-                  Rising idle-awake time is the vampire-drain signal.
+                  Minutes/day the car was <span className="text-indigo-300">awake while
+                  parked and not charging</span> — staying awake for no obvious reason.
+                  This is the vampire-drain signal; driving and charging are excluded.
                 </p>
               </>
             ) : (
