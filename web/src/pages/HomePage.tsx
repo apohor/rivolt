@@ -154,10 +154,10 @@ export default function HomePage() {
     return 0;
   }, [packHealth.data]);
 
-  // Car sleep: per-day asleep hours from the persisted power_state
-  // (migration 0038). Only has data from when recording started, so it
-  // fills forward. `since` follows the window picker; "all" falls back
-  // to a wide 2-year lookback.
+  // Idle-awake activity: per-day power-state breakdown from the persisted
+  // power_state (migration 0038). Only has data from when recording
+  // started, so it fills forward. `since` follows the window picker;
+  // "all" falls back to a wide 2-year lookback.
   const sleepSince = useMemo(
     () =>
       (windowStart(win) ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
