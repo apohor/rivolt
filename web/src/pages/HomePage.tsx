@@ -16,6 +16,7 @@ import {
   filterByWindow,
   milesPerDay,
   socTrend,
+  windowStart,
   WINDOW_OPTIONS,
   type WindowKey,
 } from "../lib/analytics";
@@ -152,6 +153,34 @@ export default function HomePage() {
     if (h.pct_of_nameplate > 0) return h.pct_of_nameplate;
     return 0;
   }, [packHealth.data]);
+
+  // Car sleep: per-day asleep hours from the persisted power_state
+  // (migration 0038). Only has data from when recording started, so it
+  // fills forward. `since` follows the window picker; "all" falls back
+  // to a wide 2-year lookback.
+  const sleepSince = useMemo(
+    () =>
+      (windowStart(win) ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
+    [win],
+  );
+  const sleepActivity = useQuery({
+    queryKey: ["sleepActivity", win, activeVehicleID ?? ""],
+    queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined),
+    staleTime: 5 * 60_000,
+  });
+  // Track AWAKE minutes/day rather than asleep hours: a parked car sleeps
+  // ~20 h/day so sleep bars are near-flat and uninformative, whereas awake
+  // time (drives + charging + idle vampire-drain) is the small, variable,
+  // minute-scale signal worth watching.
+  const sleepBars = useMemo(
+    () =>
+      (sleepActivity.data ?? []).map((d) => ({
+        label: d.day.slice(0, 10),
+        value: d.awake_h * 60,
+        x: new Date(d.day).getTime(),
+      })),
+    [sleepActivity.data],
+  );
   const capacityBasis =
     (packHealth.data?.headline.reported_pct_of_documented ?? 0) > 0
       ? "documented spec"
@@ -318,6 +347,30 @@ export default function HomePage() {
                 Pack capacity — {capacityPct.toFixed(0)}% of {capacityBasis}
               </p>
             ) : null}
+          </Card>
+
+          <Card title="Car awake · minutes/day">
+            {sleepBars.length > 0 ? (
+              <>
+                <BarChart
+                  data={sleepBars}
+                  height={140}
+                  color="#6366f1"
+                  formatY={(v) => `${v.toFixed(0)}m`}
+                  formatX={(label) => String(label).slice(5)}
+                />
+                <p className="mt-2 text-[11px] text-neutral-500">
+                  Minutes the car was <span className="text-indigo-300">awake</span> each
+                  day (driving, charging, or idle-but-awake) — it slept the rest.
+                  Rising idle-awake time is the vampire-drain signal.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-neutral-500">
+                Collecting data — this graph fills in from when power-state
+                recording started (it wasn&apos;t stored historically).
+              </p>
+            )}
           </Card>
         </>
       )}

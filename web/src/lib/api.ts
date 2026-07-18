@@ -332,6 +332,15 @@ export type PackHealthSample = {
 // of the last N clean samples plus the vehicle's nameplate kWh for
 // the "% of nameplate" line. effective_kwh + pct_of_nameplate are
 // zero when no qualifying samples exist yet.
+// DayActivity is one calendar day's power-state split (hours), from
+// GET /api/sleep-activity. Populated forward from the deploy that began
+// persisting power_state.
+export type DayActivity = {
+  day: string; // RFC3339 (UTC day start)
+  asleep_h: number;
+  awake_h: number;
+};
+
 export type PackHealthResponse = {
   samples: PackHealthSample[];
   headline: {
@@ -1013,6 +1022,13 @@ export const backend = {
   // The store queries cap out at a few hundred rows so this stays cheap.
   allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
+  // Per-day asleep/awake hours for the overview sleep graph. `since`
+  // is RFC3339; `vehicle` scopes to one car (optional).
+  sleepActivity: (since: string, vehicleID?: string) =>
+    api.get<DayActivity[]>(
+      `/api/sleep-activity?since=${encodeURIComponent(since)}` +
+        (vehicleID ? `&vehicle=${encodeURIComponent(vehicleID)}` : ""),
+    ),
   packHealth: (vehicleID: string) =>
     api.get<PackHealthResponse>(
       `/api/vehicles/${encodeURIComponent(vehicleID)}/pack-health`,

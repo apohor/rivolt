@@ -733,6 +733,11 @@ func New(d Deps) http.Handler {
 			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
+			// Per-day asleep/awake hours for the overview sleep graph,
+			// from the persisted power_state column (migration 0038).
+			r.Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleSleepActivity(d.Samples.For(uid))(w, r)
+			}))
 			// Trip planner — pass-through to Rivian's
 			// planTripWithMultiStop. Caller supplies origin +
 			// destination + optional intermediate waypoints +

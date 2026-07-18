@@ -37,6 +37,10 @@ type Sample struct {
 	ShiftState     string
 	DriveMode      string `json:"drive_mode,omitempty"` // "everyday", "sport", "all-terrain", etc.; nullable in DB for legacy samples
 	ChargingState  string
+	// PowerState is the car's power/sleep state ("sleep" | "ready" |
+	// "standby" | "go"). Empty on legacy rows / imports (NULL in DB).
+	// Feeds the sleep/activity aggregation.
+	PowerState string `json:"power_state,omitempty"`
 	ChargerPowerKW float64
 	ChargeLimitPct float64
 	InsideTempC    float64
@@ -111,6 +115,15 @@ func (s *Store) Reset(ctx context.Context) (int64, error) {
 // InsertBatch inserts many samples in a single transaction.
 // Duplicate (vehicle_id, at) tuples are ignored so re-imports are
 // idempotent. All samples must belong to the same user.
+// nullStr maps an empty string to a SQL NULL so a nullable text column
+// stays distinguishable from "" (legacy rows read back as NULL, not "").
+func nullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	if len(batch) == 0 {
 		return nil
@@ -163,8 +176,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			inside_temp_c, outside_temp_c,
 			drive_number, charge_number, source,
 			altitude_m, tire_pressure_min_bar,
-			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c,
+			power_state
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -201,6 +215,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 			v.DriveNumber, v.ChargeNumber, v.Source,
 			alt, tirePsi,
 			ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
+			nullStr(v.PowerState),
 		); err != nil {
 			return err
 		}
@@ -333,6 +348,62 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 			v.PackTempMinC = &f
 		}
 		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// DayActivity is one calendar day's (UTC) power-state time split, in
+// hours, derived from the persisted power_state column (migration 0038).
+// Only intervals with a recorded power_state contribute, so the series
+// fills forward from the deploy.
+type DayActivity struct {
+	Day     time.Time `json:"day"`
+	AsleepH float64   `json:"asleep_h"`
+	AwakeH  float64   `json:"awake_h"`
+}
+
+// SleepActivity attributes each inter-sample interval to the power_state
+// at its start and sums per UTC day over [since, until). Intervals are
+// capped at 20 min so a data outage never counts as one giant block —
+// steady-state cadence stays well under that even while the car sleeps
+// (the Rivian cloud replays keep the sample stream dense). vehicleID
+// scopes to one car; empty aggregates all of the user's vehicles.
+func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, until time.Time) ([]DayActivity, error) {
+	const capSec = 1200 // 20 min
+	args := []any{s.userID, since.UTC(), until.UTC(), capSec}
+	vfilter := ""
+	if vehicleID != "" {
+		vfilter = " AND vs.vehicle_id = (SELECT id FROM vehicles WHERE rivian_vehicle_id = $5)"
+		args = append(args, vehicleID)
+	}
+	query := `
+	WITH ivl AS (
+		SELECT vs.at, vs.power_state,
+		       LEAST(
+		         EXTRACT(EPOCH FROM (LEAD(vs.at) OVER (PARTITION BY vs.vehicle_id ORDER BY vs.at) - vs.at)),
+		         $4
+		       ) AS dur_s
+		FROM vehicle_state vs
+		WHERE vs.user_id = $1 AND vs.at >= $2 AND vs.at < $3 AND vs.power_state IS NOT NULL` + vfilter + `
+	)
+	SELECT date_trunc('day', at) AS day,
+	       COALESCE(SUM(dur_s) FILTER (WHERE power_state = 'sleep'), 0)/3600.0 AS asleep_h,
+	       COALESCE(SUM(dur_s) FILTER (WHERE power_state <> 'sleep'), 0)/3600.0 AS awake_h
+	FROM ivl
+	WHERE dur_s IS NOT NULL
+	GROUP BY 1 ORDER BY 1`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DayActivity
+	for rows.Next() {
+		var d DayActivity
+		if err := rows.Scan(&d.Day, &d.AsleepH, &d.AwakeH); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
 	}
 	return out, rows.Err()
 }

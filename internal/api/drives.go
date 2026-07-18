@@ -212,3 +212,38 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
+
+// handleSleepActivity returns per-day asleep/awake hours derived from the
+// persisted power_state column (migration 0038). Query params: `since`
+// (RFC3339, default 30d ago), `until` (optional), `vehicle` (optional
+// Rivian vehicle id to scope to one car). The series only has data from
+// the deploy that started recording power_state forward.
+func handleSleepActivity(store *samples.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			writeJSON(w, http.StatusOK, []any{})
+			return
+		}
+		since := time.Now().Add(-30 * 24 * time.Hour)
+		if s := r.URL.Query().Get("since"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				since = t
+			}
+		}
+		until := time.Now()
+		if s := r.URL.Query().Get("until"); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				until = t
+			}
+		}
+		out, err := store.SleepActivity(r.Context(), r.URL.Query().Get("vehicle"), since, until)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if out == nil {
+			out = []samples.DayActivity{}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
