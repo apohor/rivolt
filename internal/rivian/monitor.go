@@ -106,6 +106,12 @@ type StateMonitor struct {
 	// still pushing during sleep, worth investigating for wake-keeping /
 	// battery drain. Guarded by mu.
 	parallaxSleepFrames map[string]int
+	// lastTopicTs[vehicleID|topic] is the highest event ts_ms seen for a
+	// Parallax topic, used to tell a genuinely new frame from a cloud
+	// keepalive replay (which re-sends the last snapshot with a frozen
+	// ts_ms). Only ts-advancing frames count toward parallaxSleepFrames.
+	// Guarded by mu.
+	lastTopicTs map[string]int64
 	// lastPxGear[vehicleID] is the most recent mapped Parallax gear and
 	// when it arrived. The recorder's drive-close debounce consults it:
 	// a fresh Parallax P corroborates a close immediately, a fresh
@@ -272,6 +278,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastVehStateSoC: make(map[string]float64),
 		lastParallaxAt:      make(map[string]time.Time),
 		parallaxSleepFrames: make(map[string]int),
+		lastTopicTs:         make(map[string]int64),
 		lastPxGear:      make(map[string]string),
 		lastPxGearAt:    make(map[string]time.Time),
 		cache:           make(map[string]*State),
@@ -333,16 +340,30 @@ func (m *StateMonitor) lastParallaxGear(vehicleID string) (string, time.Time) {
 // frame. Called from every Parallax subscriber callback so
 // parallaxLivenessWatch can distinguish a live-but-quiet feed from a dead
 // one. Cheap: a single guarded map write.
-func (m *StateMonitor) noteParallaxFrame(vehicleID string) {
+func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
 	m.mu.Lock()
 	m.lastParallaxAt[vehicleID] = time.Now()
-	// Count frames that land while the car is asleep — parallaxLivenessWatch
-	// reports the tally so we can prove Parallax doesn't keep a sleeping car
-	// awake. Only "sleep" (not the empty/boot state) so a waking car doesn't
-	// false-positive.
-	if st := m.cache[vehicleID]; st != nil &&
-		strings.EqualFold(strings.TrimSpace(st.PowerState), "sleep") {
-		m.parallaxSleepFrames[vehicleID]++
+	// Sleep hygiene: count only FRESH frames (event ts advancing past the
+	// last seen for this topic) while asleep. The Rivian cloud replays the
+	// last-known snapshot of every subscribed topic on a keepalive cadence
+	// with a frozen ts_ms; those replays are not the vehicle emitting, so
+	// they must not read as wake-keeping. tsMs<=0 (source without a usable
+	// event time) is skipped — a real wake still surfaces via gnss /
+	// drive-dynamics, which carry ts_ms.
+	if tsMs > 0 {
+		key := vehicleID + "|" + topic
+		last, seen := m.lastTopicTs[key]
+		if !seen || tsMs > last {
+			m.lastTopicTs[key] = tsMs
+			// Only an advance past an established baseline is a new event;
+			// the first sighting just sets the baseline.
+			if seen {
+				if st := m.cache[vehicleID]; st != nil &&
+					strings.EqualFold(strings.TrimSpace(st.PowerState), "sleep") {
+					m.parallaxSleepFrames[vehicleID]++
+				}
+			}
+		}
 	}
 	m.mu.Unlock()
 }
@@ -384,18 +405,20 @@ func (m *StateMonitor) parallaxLivenessWatch(ctx context.Context, vehicleID stri
 					"vehicle", vehicleID,
 					"since_last_frame", now.Sub(last).Round(time.Second).String())
 			}
-			// Sleep hygiene: while the car reports "sleep", Parallax should be
-			// quiet. Report the per-interval frame tally — 0 confirms Parallax
-			// isn't poking the car; a non-zero count flags a topic still
-			// pushing during sleep (cloud keepalive vs real wake-keeping is
-			// distinguishable by whether the shadow-log ts_ms advances).
+			// Sleep hygiene: sleepFrames counts only FRESH frames (ts_ms
+			// advancing) that arrived while asleep — cloud keepalive replays
+			// of a frozen snapshot are excluded. So a non-zero count means
+			// the vehicle genuinely emitted new telemetry while "sleep",
+			// which shouldn't happen and points at wake-keeping. 0 confirms
+			// Parallax is only receiving passive replays and isn't poking
+			// the car.
 			if ps == "sleep" {
 				if sleepFrames > 0 {
-					m.logger.Info("parallax frames while asleep",
-						"vehicle", vehicleID, "frames", sleepFrames,
+					m.logger.Info("parallax fresh frames while asleep",
+						"vehicle", vehicleID, "fresh_frames", sleepFrames,
 						"interval", (parallaxStaleThreshold / 2).String())
 				} else {
-					m.logger.Debug("parallax quiet while asleep", "vehicle", vehicleID)
+					m.logger.Debug("parallax quiet while asleep (replays only)", "vehicle", vehicleID)
 				}
 			}
 		}
@@ -1452,7 +1475,9 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 // vehicle is awake. SubscribeBatteryState handles reconnect/backoff.
 func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeBatteryState(ctx, vehicleID, func(bt *BatteryTemp) {
-		m.noteParallaxFrame(vehicleID)
+		// bt.Timestamp is a string of uncertain format; skip freshness
+		// (tsMs 0) — a real wake surfaces via gnss / drive-dynamics.
+		m.noteParallaxFrame(vehicleID, rvmBatteryState, 0)
 		if bt == nil {
 			return
 		}
@@ -1528,7 +1553,11 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 // Parallax keeping it warm would mask a dead vehicleState feed.
 func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDynamicsGNSS(ctx, vehicleID, func(g *DynamicsGNSS) {
-		m.noteParallaxFrame(vehicleID)
+		var gnssTs int64
+		if g != nil {
+			gnssTs = g.TimestampMs
+		}
+		m.noteParallaxFrame(vehicleID, "dynamics.vehicle.gnss", gnssTs)
 		if g == nil {
 			return
 		}
@@ -1601,7 +1630,7 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 		extra = CaptureRVMs
 	}
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, extra, func(f DriveDynamicsFrame) {
-		m.noteParallaxFrame(vehicleID)
+		m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.mu.Unlock()
