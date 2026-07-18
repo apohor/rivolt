@@ -3,7 +3,7 @@
 // individual charts for uplot without touching call sites.
 
 import {
-  useLayoutEffect,
+  useCallback,
   useRef,
   useState,
   type CSSProperties,
@@ -110,26 +110,37 @@ export function LineChart({
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   // preserveAspectRatio="none" stretches the viewBox non-uniformly, which
   // distorts text (squished on a phone, wide on desktop). Measure the
   // rendered box and counter-scale each label around its anchor (textTF,
   // below) so axis numbers, time marks and cursor values stay upright.
   // Hooks stay above the EmptyChart early returns (Rules of Hooks).
   const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
-  useLayoutEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        setAspect({ fx: r.width / width, fy: r.height / height });
-      }
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [height]);
+  // Callback ref, NOT useEffect: async data makes this chart render
+  // EmptyChart (no <svg>) on the first pass, so a mount-time effect would
+  // measure a null node, bail, and never retry when the real <svg> mounts
+  // later — leaving aspect at {1,1} and every label distorted (tall/thin
+  // on a phone). A callback ref binds the observer exactly when the node
+  // attaches, however late that is.
+  const attachSvg = useCallback(
+    (el: SVGSVGElement | null) => {
+      svgRef.current = el;
+      roRef.current?.disconnect();
+      if (!el) return;
+      const measure = () => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          setAspect({ fx: r.width / width, fy: r.height / height });
+        }
+      };
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      roRef.current = ro;
+    },
+    [height, width],
+  );
 
   // Gutters are sized in *screen px* (÷ the stretch factor) so the
   // counter-scaled, fixed-size labels always fit — otherwise a
@@ -274,7 +285,7 @@ export function LineChart({
 
   return (
     <svg
-      ref={svgRef}
+      ref={attachSvg}
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
       // Explicit pixel height: with w-full + preserveAspectRatio="none"
@@ -618,21 +629,28 @@ export function BarChart({
   const width = 1000;
   // Hooks must run before any early return (Rules of Hooks).
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const roRef = useRef<ResizeObserver | null>(null);
   const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
-  useLayoutEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        setAspect({ fx: r.width / width, fy: r.height / height });
-      }
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [height]);
+  // Callback ref so the observer binds when the <svg> actually mounts,
+  // even if an earlier render returned EmptyChart (see LineChart note).
+  const attachSvg = useCallback(
+    (el: SVGSVGElement | null) => {
+      svgRef.current = el;
+      roRef.current?.disconnect();
+      if (!el) return;
+      const measure = () => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          setAspect({ fx: r.width / width, fy: r.height / height });
+        }
+      };
+      measure();
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      roRef.current = ro;
+    },
+    [height, width],
+  );
   const textTF = (tx: number, ty: number) =>
     `translate(${tx} ${ty}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
 
@@ -653,7 +671,7 @@ export function BarChart({
 
   return (
     <svg
-      ref={svgRef}
+      ref={attachSvg}
       viewBox={`0 0 ${width} ${height}`}
       className={`w-full ${className ?? ""}`}
       // Pin pixel height so the bars don't collapse on narrow screens
