@@ -225,3 +225,70 @@ func TestParseBoolEnv(t *testing.T) {
 		}
 	}
 }
+
+// noteSubEnd warns only after a burst of short WS sessions — the
+// signature of a competing subscriber to the same vehicle repeatedly
+// kicking our feed — and rate-limits the warning.
+func TestNoteSubEnd_FlapWarningOnShortSessionBurst(t *testing.T) {
+	m := &StateMonitor{
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		shortSubEnds:   map[string][]time.Time{},
+		lastFlapWarnAt: map[string]time.Time{},
+	}
+	const veh = "veh-1"
+	short := flapSessionMax - time.Second
+
+	// Under the threshold: no warning yet.
+	for i := 0; i < flapCount-1; i++ {
+		if m.noteSubEnd(veh, short, false) {
+			t.Fatalf("warned after only %d short sessions, want >= %d", i+1, flapCount)
+		}
+	}
+	// The flapCount-th short session crosses the threshold.
+	if !m.noteSubEnd(veh, short, false) {
+		t.Fatalf("no flap warning after %d short sessions", flapCount)
+	}
+	// Rate-limited: an immediate follow-up must NOT re-warn.
+	if m.noteSubEnd(veh, short, false) {
+		t.Fatal("flap warning re-fired within the cooldown window")
+	}
+}
+
+// Nudge resubscribes (intentional fast bounces) and healthy long
+// sessions must never count toward flapping, no matter how many.
+func TestNoteSubEnd_IgnoresNudgesAndLongSessions(t *testing.T) {
+	m := &StateMonitor{
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		shortSubEnds:   map[string][]time.Time{},
+		lastFlapWarnAt: map[string]time.Time{},
+	}
+	const veh = "veh-1"
+	for i := 0; i < flapCount*3; i++ {
+		if m.noteSubEnd(veh, time.Second, true) { // nudged short session
+			t.Fatal("nudge resubscribe counted toward flapping")
+		}
+		if m.noteSubEnd(veh, flapSessionMax+time.Minute, false) { // healthy long session
+			t.Fatal("healthy long session counted toward flapping")
+		}
+	}
+	if got := len(m.shortSubEnds[veh]); got != 0 {
+		t.Fatalf("shortSubEnds recorded %d entries for nudges/long sessions, want 0", got)
+	}
+}
+
+// A short-session burst on one vehicle must not trip the warning for a
+// different vehicle (per-vehicle windows are independent).
+func TestNoteSubEnd_PerVehicleIsolation(t *testing.T) {
+	m := &StateMonitor{
+		logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		shortSubEnds:   map[string][]time.Time{},
+		lastFlapWarnAt: map[string]time.Time{},
+	}
+	short := flapSessionMax - time.Second
+	for i := 0; i < flapCount+2; i++ {
+		m.noteSubEnd("veh-A", short, false)
+	}
+	if m.noteSubEnd("veh-B", short, false) {
+		t.Fatal("veh-B warned off veh-A's short sessions; windows should be per-vehicle")
+	}
+}

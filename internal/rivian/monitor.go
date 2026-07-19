@@ -1109,9 +1109,11 @@ const (
 // kicking our feed (which surfaces days later as phantom drives and
 // split-brain state if undetected). Intentional nudge resubscribes and
 // normal long sessions don't count.
-func (m *StateMonitor) noteSubEnd(vehicleID string, sessionDur time.Duration, nudged bool) {
+// Returns true when this call crossed the threshold and emitted the
+// warning (also the assertion hook for tests).
+func (m *StateMonitor) noteSubEnd(vehicleID string, sessionDur time.Duration, nudged bool) bool {
 	if nudged || sessionDur >= flapSessionMax {
-		return
+		return false
 	}
 	now := time.Now()
 	m.mu.Lock()
@@ -1137,6 +1139,7 @@ func (m *StateMonitor) noteSubEnd(vehicleID string, sessionDur time.Duration, nu
 			"window", flapWindow.String(),
 			"hint", "another Rivolt instance / Rivian account is live-connected to the same VIN; only one live subscription per vehicle survives, so they kick each other and fragment recording")
 	}
+	return warn
 }
 
 // watchSubscription force-cancels the per-subscribe context if no
