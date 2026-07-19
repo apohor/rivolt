@@ -275,12 +275,21 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
+	// RIVOLT_PARALLAX is the single operator switch for the whole Parallax
+	// path — GPS backbone, authoritative drive dynamics, and the capture
+	// topics — now that all three are proven and run everywhere. The old
+	// granular RIVOLT_PARALLAX_{GPS,DRIVE_DYNAMICS,CAPTURE} vars are still
+	// honored as a fallback so a mid-rollout config keeps working, but
+	// RIVOLT_PARALLAX is the one flag going forward. (The internal fields
+	// stay split for now — a no-risk config collapse; fully merging them
+	// waits until the replay harness can validate the recorder offline.)
+	parallaxAll := parseBoolEnv(os.Getenv("RIVOLT_PARALLAX"))
 	return &StateMonitor{
 		client:          client,
 		logger:          logger,
-		parallaxGPS:           parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
-		parallaxDriveDynamics: parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
-		parallaxCapture:       parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
+		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
+		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS: make(map[string]time.Time),
 		lastVehStateSoC: make(map[string]float64),
 		lastParallaxAt:      make(map[string]time.Time),
