@@ -52,8 +52,15 @@ type StateMonitor struct {
 	// call and cleared on return; nil/missing entry means the
 	// supervisor is currently in backoff. Guarded by mu.
 	subCancel map[string]context.CancelCauseFunc
-	parent    context.Context //nolint:containedctx // outer ctx for spawned subscriptions
-	stopOnce  sync.Once
+	// shortSubEnds[vehicleID] holds recent timestamps of abnormally
+	// short-lived WS sessions. A burst of them means the live feed is
+	// flapping — the classic signature of a *competing subscriber to the
+	// same vehicle* (the same VIN connected from another Rivolt instance
+	// / Rivian account), which kicks our session repeatedly. Guarded by mu.
+	shortSubEnds   map[string][]time.Time
+	lastFlapWarnAt map[string]time.Time
+	parent         context.Context //nolint:containedctx // outer ctx for spawned subscriptions
+	stopOnce       sync.Once
 
 	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for the
 	// Parallax gnss subscriber. It mirrors the app's Firebase
@@ -286,6 +293,8 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		wsSeen:          make(map[string]bool),
 		active:          make(map[string]context.CancelFunc),
 		subCancel:       make(map[string]context.CancelCauseFunc),
+		shortSubEnds:    make(map[string][]time.Time),
+		lastFlapWarnAt:  make(map[string]time.Time),
 		sessions:        make(map[string]*liveSessions),
 		rehydrated:      make(map[string]bool),
 		lastSession:     make(map[string]*LiveSession),
@@ -990,6 +999,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// a clean WS without waiting for the watchdog window.
 		nudged := errors.Is(context.Cause(subCtx), errResubscribeRequested)
 
+		// Flap detection: a burst of short sessions means a competing
+		// subscriber to the same VIN keeps kicking us (see noteSubEnd).
+		m.noteSubEnd(vehicleID, sessionDur, nudged)
+
 		switch {
 		case nudged:
 			// Wake-up nudge from periodicRefresh. Reset backoff so
@@ -1078,6 +1091,53 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 // quiet periods for a sleeping car (which also gets periodic status
 // frames) while still recovering quickly from a silent dropout.
 const wsStaleThreshold = 10 * time.Minute
+
+// Flap detection: a competing subscriber to the same vehicle (same VIN
+// connected from another Rivolt instance / Rivian account) repeatedly
+// kicks our WS, producing a burst of very short sessions. A healthy
+// session lasts far longer — until the car sleeps and Rivian idles it.
+const (
+	flapSessionMax   = 3 * time.Minute  // shorter than this = a "kicked" session
+	flapWindow       = 20 * time.Minute // sliding window
+	flapCount        = 8                // short sessions in the window → flapping
+	flapWarnCooldown = 20 * time.Minute // rate-limit the loud warning
+)
+
+// noteSubEnd records that a WS session for vehicleID ended after
+// sessionDur and warns loudly when short sessions pile up — the
+// signature of a competing subscriber to the same vehicle repeatedly
+// kicking our feed (which surfaces days later as phantom drives and
+// split-brain state if undetected). Intentional nudge resubscribes and
+// normal long sessions don't count.
+func (m *StateMonitor) noteSubEnd(vehicleID string, sessionDur time.Duration, nudged bool) {
+	if nudged || sessionDur >= flapSessionMax {
+		return
+	}
+	now := time.Now()
+	m.mu.Lock()
+	ends := append(m.shortSubEnds[vehicleID], now)
+	cutoff := now.Add(-flapWindow)
+	kept := ends[:0]
+	for _, t := range ends {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	m.shortSubEnds[vehicleID] = kept
+	n := len(kept)
+	warn := n >= flapCount && now.Sub(m.lastFlapWarnAt[vehicleID]) >= flapWarnCooldown
+	if warn {
+		m.lastFlapWarnAt[vehicleID] = now
+	}
+	m.mu.Unlock()
+	if warn {
+		m.logger.Error("rivian ws feed flapping — likely a competing subscriber to this vehicle",
+			"vehicle", vehicleID,
+			"short_sessions", n,
+			"window", flapWindow.String(),
+			"hint", "another Rivolt instance / Rivian account is live-connected to the same VIN; only one live subscription per vehicle survives, so they kick each other and fragment recording")
+	}
+}
 
 // watchSubscription force-cancels the per-subscribe context if no
 // push has landed for wsStaleThreshold. Exits when its context is
