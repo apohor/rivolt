@@ -1,5 +1,13 @@
 # Recorder replay harness — design
 
+> **Status (2026-07-20):** Phase 1 landed — `internal/rivian/replay.go`
+> (`Replayer`: persistence-free monitor, feed full-snapshot frames, collect
+> closed drives via the close hook) + `replay_test.go` (hand-authored
+> fixtures: one clean drive; two drives across a park gap). Next: a
+> DB-export path (`cmd/replay export`) to turn a real `vehicle_state` window
+> into a fixture (the phantom-drive incident first), then the fake-clock
+> refactor.
+
 ## Why
 
 Live-recording logic (drive/charge lifecycle, sleep detection, Parallax
