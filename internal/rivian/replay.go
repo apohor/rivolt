@@ -1,14 +1,77 @@
 package rivian
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/apohor/rivolt/internal/drives"
 )
+
+// replayFrame is one JSONL line — the lifecycle-relevant columns of a
+// vehicle_state row, named to match the DB so a `SELECT row_to_json(...)`
+// export drops straight in. Units are the DB's (miles, mph); toState
+// converts to State's (km, kph).
+type replayFrame struct {
+	At            time.Time  `json:"at"`
+	ShiftState    string     `json:"shift_state"`
+	BatteryPct    float64    `json:"battery_level_pct"`
+	OdometerMi    float64    `json:"odometer_mi"`
+	RangeMi       float64    `json:"range_mi"`
+	SpeedMph      float64    `json:"speed_mph"`
+	Lat           float64    `json:"lat"`
+	Lon           float64    `json:"lon"`
+	ChargingState string     `json:"charging_state"`
+	ChargerKW     float64    `json:"charger_power_kw"`
+	PowerState    string     `json:"power_state"`
+	LocationFixAt *time.Time `json:"location_fix_at"`
+}
+
+func (f replayFrame) toState() State {
+	s := State{
+		At:              f.At,
+		Gear:            f.ShiftState,
+		BatteryLevelPct: f.BatteryPct,
+		OdometerKm:      f.OdometerMi / kmToMi,
+		DistanceToEmpty: f.RangeMi / kmToMi,
+		SpeedKph:        f.SpeedMph / kphToMi,
+		Latitude:        f.Lat,
+		Longitude:       f.Lon,
+		ChargerState:    f.ChargingState,
+		ChargerPowerKW:  f.ChargerKW,
+		PowerState:      f.PowerState,
+	}
+	if f.LocationFixAt != nil {
+		s.LocationFixAt = *f.LocationFixAt
+	}
+	return s
+}
+
+// FramesFromJSONL parses a newline-delimited stream of replayFrame objects
+// (a DB export or captured stream) into State frames, in file order. Blank
+// lines are skipped.
+func FramesFromJSONL(r io.Reader) ([]State, error) {
+	var out []State
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var f replayFrame
+		if err := json.Unmarshal([]byte(line), &f); err != nil {
+			return nil, err
+		}
+		out = append(out, f.toState())
+	}
+	return out, sc.Err()
+}
 
 // Replayer feeds a captured sequence of State frames through the real
 // recorder lifecycle with persistence disabled, collecting the drives it

@@ -1,12 +1,30 @@
 # Recorder replay harness — design
 
-> **Status (2026-07-20):** Phase 1 landed — `internal/rivian/replay.go`
-> (`Replayer`: persistence-free monitor, feed full-snapshot frames, collect
-> closed drives via the close hook) + `replay_test.go` (hand-authored
-> fixtures: one clean drive; two drives across a park gap). Next: a
-> DB-export path (`cmd/replay export`) to turn a real `vehicle_state` window
-> into a fixture (the phantom-drive incident first), then the fake-clock
-> refactor.
+> **Status (2026-07-20):** Phases 1-2 landed.
+> - `internal/rivian/replay.go` — `Replayer` (persistence-free monitor, feed
+>   full-snapshot frames, collect closed drives via the close hook) +
+>   `FramesFromJSONL` loader.
+> - `internal/rivian/replay_test.go` — hand-authored fixtures (one clean
+>   drive; two drives across a park gap; a **missed-park phantom** that's the
+>   regression target for the close hardening) + a **real DB-exported drive**
+>   fixture (`testdata/clean_drive.jsonl`).
+> - `cmd/replay run <fixture.jsonl>` — replay a stream and print the drives,
+>   for hand-debugging.
+>
+> **DB export (until `cmd/replay export` exists), one JSONL line per row:**
+> ```sql
+> select row_to_json(t) from (
+>   select vs.at, vs.shift_state, vs.battery_level_pct, vs.odometer_mi,
+>          vs.range_mi, vs.speed_mph, vs.lat, vs.lon, vs.charging_state,
+>          vs.charger_power_kw, vs.power_state, vs.location_fix_at
+>   from vehicle_state vs join vehicles v on v.id = vs.vehicle_id
+>   where v.rivian_vehicle_id = :vin and vs.at between :since and :until
+>   order by vs.at
+> ) t;
+> ```
+> The column names match the JSONL frame tags; the loader converts mi→km,
+> mph→kph. Next: the fake-clock refactor for deterministic timing, then a
+> raw-frame capture flag for Parallax decode fidelity.
 
 ## Why
 
