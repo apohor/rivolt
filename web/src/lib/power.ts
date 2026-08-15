@@ -24,10 +24,47 @@
 import type { Drive, Sample } from "./api";
 import { smoothGaussianTime } from "./smooth";
 
+// Sample-interval bounds for the physics model.
+//
+// MAX_DT_SEC drops telemetry holes: a 60 s gap produces a deceptively
+// huge dv/dt that reads as a phantom brake event.
+//
+// MIN_DT_SEC is the floor, and it matters just as much. The recorder's
+// live-merge path writes near-duplicate rows when a WS frame and a
+// REST fallback land together, with speeds differing by up to 63 mph.
+// Sample.At is an ISO string and Date is millisecond-resolution, so
+// pairs finer than 1 ms collapse to dt = 0 and were always rejected —
+// but 5,423 recorded intervals sit between 1 ms and 0.5 s and were
+// not.
+//
+// Since fAccel = mass × dv/dt, a 55 mph drop across 1 ms is
+// ~24,600 m/s², giving a spike near 1e6 kW. Points are emitted at
+// interval midpoints, so that spike is then integrated across the
+// seconds separating it from its neighbours. When dv is negative it
+// all lands in regenKwh, and the calibration clamp of [0.5, 2.0]
+// cannot undo an error of that size.
+//
+// 0.5 s sits comfortably below the recorder's 1–5 s driving cadence,
+// so no real sample is discarded.
+export const MIN_DT_SEC = 0.5;
+export const MAX_DT_SEC = 30;
+
+export type PowerPt = {
+  x: number;
+  y: number;
+  // Marks a discontinuity between the previous point and this one:
+  // the interval was rejected by the bounds above, so no power was
+  // modelled across it. Integrators — and the ribbon renderer — must
+  // skip such pairs. Points sit at interval midpoints, so consecutive
+  // entries are otherwise one sample apart; without this a 3-minute
+  // hole is treated as though the boundary power persisted throughout.
+  gap?: boolean;
+};
+
 export type PowerAnalysis = {
   // Time-series power in kW (positive = draw, negative = regen),
   // smoothed and calibrated to drive.EnergyUsedKWh.
-  powerPts: { x: number; y: number }[];
+  powerPts: PowerPt[];
   // Smoothed elevation series in feet, also reused as the Battery
   // panel's backdrop in the timeline. Empty when no samples carry
   // altitude (legacy ElectraFi rows, recorder offline, cold-cache
@@ -52,6 +89,7 @@ export function analyzeDrivePower(
   let drawKwh = 0;
   let regenKwh = 0;
   for (let i = 1; i < powerPts.length; i++) {
+    if (powerPts[i].gap) continue; // no power modelled across this hole
     const dtH = (powerPts[i].x - powerPts[i - 1].x) / 3_600_000;
     const avg = (powerPts[i].y + powerPts[i - 1].y) / 2;
     if (avg >= 0) drawKwh += avg * dtH;
@@ -78,7 +116,7 @@ export function derivePower(
   samples: Sample[],
   elevPts: { x: number; y: number }[],
   totalEnergyKwh: number,
-): { x: number; y: number }[] {
+): PowerPt[] {
   if (samples.length < 3) return [];
 
   // Vehicle constants. Roughly R1S Large pack with passengers + gear.
@@ -115,12 +153,20 @@ export function derivePower(
     elev: elevAt(new Date(s.At).getTime()),
   }));
 
-  const out: { x: number; y: number }[] = [];
+  const out: PowerPt[] = [];
+  // Set once an interval is rejected; stamped onto the next point we
+  // actually emit so integrators know the series breaks there. Starts
+  // true because the first point has no predecessor to integrate
+  // against.
+  let pendingGap = true;
   for (let i = 1; i < points.length; i++) {
     const dtSec = (points[i].t - points[i - 1].t) / 1000;
-    // Skip large telemetry gaps (parked at a charger mid-window etc.) —
-    // a 60 s gap can produce a deceptively huge dv/dt.
-    if (dtSec <= 0 || dtSec > 30) continue;
+    // Reject both ends: telemetry holes AND near-duplicate rows whose
+    // dv/dt is numerically explosive. See MIN_DT_SEC / MAX_DT_SEC.
+    if (dtSec < MIN_DT_SEC || dtSec > MAX_DT_SEC) {
+      pendingGap = true;
+      continue;
+    }
 
     const v = (points[i].v + points[i - 1].v) / 2;
     const dvdt = (points[i].v - points[i - 1].v) / dtSec;
@@ -147,7 +193,9 @@ export function derivePower(
     out.push({
       x: (points[i].t + points[i - 1].t) / 2,
       y: pBatteryW / 1000, // W → kW
+      gap: pendingGap,
     });
+    pendingGap = false;
   }
 
   // Calibrate to the drive's known net energy. Integrate the modeled
@@ -158,6 +206,9 @@ export function derivePower(
   if (totalEnergyKwh > 0 && out.length > 1) {
     let energyKwh = 0;
     for (let i = 1; i < out.length; i++) {
+      // Must match analyzeDrivePower, or the factor is derived from
+      // an integral no caller ever computes.
+      if (out[i].gap) continue;
       const dtH = (out[i].x - out[i - 1].x) / 3_600_000;
       const avg = (out[i].y + out[i - 1].y) / 2;
       energyKwh += avg * dtH;
@@ -174,5 +225,11 @@ export function derivePower(
   // Light smoothing: 4 s window cleans per-sample dvdt jitter without
   // erasing brake events, which last 5–15 s and are the whole point of
   // the ribbon.
-  return smoothGaussianTime(out, 4_000);
+  //
+  // smoothGaussianTime returns bare {x,y}, so re-attach the gap flags
+  // by index — smoothing rewrites y, it must not erase the topology.
+  // (Bleed across a gap is negligible regardless: at sigma 4 s the
+  // weight 30 s out is e^-28.)
+  const smoothed = smoothGaussianTime(out, 4_000);
+  return smoothed.map((p, i) => (out[i]?.gap ? { ...p, gap: true } : p));
 }

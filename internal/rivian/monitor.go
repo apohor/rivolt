@@ -34,6 +34,12 @@ type StateMonitor struct {
 	mu    sync.RWMutex
 	cache map[string]*State
 	stamp map[string]time.Time
+	// sampleMu/lastSampleAt enforce minSampleSpacing on vehicle_state
+	// writes. Separate from mu because every record() caller has
+	// already released mu by the time it reaches the recorder, and we
+	// must not re-take a lock the hot path just dropped.
+	sampleMu     sync.Mutex
+	lastSampleAt map[string]time.Time
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -299,6 +305,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastPxGearAt:    make(map[string]time.Time),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
+		lastSampleAt:          make(map[string]time.Time),
 		wsSeen:          make(map[string]bool),
 		active:          make(map[string]context.CancelFunc),
 		subCancel:       make(map[string]context.CancelCauseFunc),
@@ -750,6 +757,10 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 	m.sessMu.Lock()
 	delete(m.rehydrated, vehicleID)
 	m.sessMu.Unlock()
+	// Drop the sample-spacing cursor too: on re-subscribe the first
+	// frame should always be recorded rather than being gated by a
+	// timestamp from the previous ownership window.
+	m.forgetSampleSlot(vehicleID)
 	if ok && cancel != nil {
 		cancel()
 	}

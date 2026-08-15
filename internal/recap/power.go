@@ -43,6 +43,9 @@ func AnalyzeDrivePower(ss []samples.Sample, d drives.Drive) PowerAnalysis {
 	}
 	var draw, regen float64
 	for i := 1; i < len(power); i++ {
+		if power[i].Gap {
+			continue // no power was modelled across this hole
+		}
 		dtH := (power[i].T - power[i-1].T) / 3_600_000
 		avg := (power[i].Y + power[i-1].Y) / 2
 		if avg >= 0 {
@@ -58,10 +61,45 @@ func AnalyzeDrivePower(ss []samples.Sample, d drives.Drive) PowerAnalysis {
 	return PowerAnalysis{DrawKwh: draw, RegenKwh: regen, RegenPct: pct}
 }
 
+// Sample-interval bounds for the physics model.
+//
+// maxSampleDtSec drops telemetry gaps: a 60 s hole produces a
+// deceptively huge dv/dt that reads as a phantom brake event.
+//
+// minSampleDtSec is the floor, and it matters just as much. The
+// recorder's live-merge path writes near-duplicate rows when a WS
+// frame and a REST fallback land together, with speeds differing by
+// up to 63 mph. This model works in Unix milliseconds (UnixMilli
+// below), so pairs finer than 1 ms collapse to dt = 0 and were always
+// rejected — but 5,423 recorded intervals sit between 1 ms and 0.5 s
+// and were not.
+//
+// Since fAccel = mass * dv/dt, a 55 mph drop across 1 ms is
+// ~24,600 m/s^2, giving a spike near 1e6 kW. Points are emitted at
+// interval midpoints, so that spike is then integrated across the
+// seconds separating it from its neighbours. When dv is negative the
+// whole thing lands in RegenKwh, and the calibration factor is
+// clamped to [0.5, 2.0] so it cannot undo an error of that size.
+//
+// 0.5 s is comfortably below the recorder's 1–5 s driving cadence, so
+// no real sample is discarded.
+const (
+	minSampleDtSec = 0.5
+	maxSampleDtSec = 30.0
+)
+
 // pkW is one (timestamp_ms, power_kW) datum in the derived series.
 type pkW struct {
 	T float64 // unix ms
 	Y float64 // kW (positive = draw, negative = regen)
+	// Gap marks a discontinuity between the previous point and this
+	// one: the interval between them was rejected by the bounds
+	// above, so no power was modelled across it. Integrators MUST
+	// skip such pairs. Points are emitted at interval midpoints, so
+	// consecutive entries are otherwise a sample apart; without this
+	// flag a 3-minute hole is integrated as though the boundary power
+	// persisted throughout it.
+	Gap bool
 }
 
 // derivePower mirrors derivePower in web/src/lib/power.ts. Vehicle
@@ -123,12 +161,17 @@ func derivePower(ss []samples.Sample, totalEnergyKwh float64) []pkW {
 	}
 
 	out := make([]pkW, 0, len(pts))
+	// Set once an interval is rejected; stamped onto the next point we
+	// actually emit so integrators know the series is discontinuous
+	// there. Starts true because the first emitted point has no
+	// predecessor to integrate against.
+	pendingGap := true
 	for i := 1; i < len(pts); i++ {
 		dtSec := (pts[i].t - pts[i-1].t) / 1000
-		// Skip large telemetry gaps — a 60 s gap can produce a
-		// deceptively huge dv/dt that shows up as a phantom
-		// brake-event spike.
-		if dtSec <= 0 || dtSec > 30 {
+		// Reject both ends: telemetry holes AND near-duplicate rows
+		// whose dv/dt is numerically explosive. See the constants.
+		if dtSec < minSampleDtSec || dtSec > maxSampleDtSec {
+			pendingGap = true
 			continue
 		}
 		v := (pts[i].v + pts[i-1].v) / 2
@@ -157,9 +200,11 @@ func derivePower(ss []samples.Sample, totalEnergyKwh float64) []pkW {
 			pBattery = pWheels*etaRegen + accessoryKW*1000
 		}
 		out = append(out, pkW{
-			T: (pts[i].t + pts[i-1].t) / 2,
-			Y: pBattery / 1000,
+			T:   (pts[i].t + pts[i-1].t) / 2,
+			Y:   pBattery / 1000,
+			Gap: pendingGap,
 		})
+		pendingGap = false
 	}
 
 	// Calibrate to drive.EnergyUsedKWh integrated over time.
@@ -168,6 +213,11 @@ func derivePower(ss []samples.Sample, totalEnergyKwh float64) []pkW {
 	if totalEnergyKwh > 0 && len(out) > 1 {
 		var energy float64
 		for i := 1; i < len(out); i++ {
+			if out[i].Gap {
+				continue // must match AnalyzeDrivePower, or the
+				// factor is derived from an integral the caller
+				// never computes
+			}
 			dtH := (out[i].T - out[i-1].T) / 3_600_000
 			avg := (out[i].Y + out[i-1].Y) / 2
 			energy += avg * dtH
@@ -235,8 +285,11 @@ func gaussianSmooth(pts []pkW, sigmaMs float64) []pkW {
 			wSum += w
 			ySum += w * pts[j].Y
 		}
+		// Carry Gap through: smoothing rewrites Y, it must not erase
+		// the topology. (Bleed across a gap is negligible anyway —
+		// at sigma 4 s the weight 30 s out is e^-28.)
 		if wSum > 0 {
-			out[i] = pkW{T: t, Y: ySum / wSum}
+			out[i] = pkW{T: t, Y: ySum / wSum, Gap: pts[i].Gap}
 		} else {
 			out[i] = pts[i]
 		}
