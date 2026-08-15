@@ -993,6 +993,41 @@ to land eventually.
       auto-firing analysis on every plan can rack up tokens.
       Soft cap (e.g. 20 calls / user / day, configurable in
       Admin → AI providers) protects the operator's bill.
+- [ ] **Decouple sample persistence from frame arrival (Parallax
+      scaling).** Today `record()` writes one `vehicle_state` row per
+      *cache update*, and it is reached from five independent writers:
+      the REST seed, the vehicleState WS push, the Parallax GNSS and
+      drive-dynamics subscribers, and the live-session applier (plus
+      `recordSampleOnly` from `periodicRefresh`). Each stamps its own
+      `At`, so the store's exact `ON CONFLICT (vehicle_id, at)` key
+      never fires and near-simultaneous observations of the same state
+      both persist. Measured Aug 2026: 35,393 sub-0.5 s pairs in 30
+      days, 18,171 with identical speed *and* SoC, starting the week of
+      2026-07-13 when the Parallax subscription widened to more topics.
+
+      Mitigated for now by `minSampleSpacing` (500 ms) in
+      `internal/rivian/recorder.go`, which is safe because every writer
+      passes the *merged* cache — a dropped frame's data is already in
+      the cache and lands in the next accepted sample. But it is a rate
+      limiter fighting the shape of the design: row count scales with
+      **topic count**, and `docs/PARALLAX_MIGRATION.md` phases 2-4 keep
+      adding topics until phase 5 drops vehicleState entirely.
+
+      Proper fix: feeds update the merged cache only; one per-vehicle
+      sampler goroutine persists it on an adaptive tick (fast driving /
+      slow parked). Then each row is the union of every topic's latest
+      data (strictly more complete than any single frame), row volume
+      becomes `f(cadence)` independent of topic count — protecting the
+      ~2M rows/day budget in `docs/ARCHITECTURE.md` decision 9 — and
+      spacing becomes regular, which is what `internal/recap/power.go`
+      needs to derive `dv/dt` safely. Lifecycle must stay event-driven:
+      `dynamics.vehicle.gear` is authoritative for drive *open* and has
+      to be handled the moment the frame lands, not on the next tick.
+
+      Per the migration doc's measure-first rule, prove the cadence
+      over a real drive before flipping; `cmd/replay` + the
+      `TestReplay_*` fixtures are the regression net.
+
 - [ ] **RLS enforcement (stage 2 of migration 0008).** Split the
       app role into an owner + a runtime role, drop BYPASSRLS
       from runtime, FORCE the policies, add a chi middleware

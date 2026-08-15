@@ -812,3 +812,64 @@ func TestHandleDriveLifecycle_StaleFixReplayRejected(t *testing.T) {
 		t.Fatalf("stale replay must not move endLat; got %v", s.drive.endLat)
 	}
 }
+
+// Regression: several independent feeds record the same vehicle state
+// milliseconds apart, and the store's ON CONFLICT (vehicle_id, at) key
+// is exact, so both rows persisted. 35,393 sub-0.5 s pairs landed in
+// 30 days, 18,171 with identical speed and battery level. Downstream,
+// internal/recap/power.go derives power from dv/dt, where a 1 ms
+// interval yields ~24,600 m/s^2.
+func TestClaimSampleSlotEnforcesMinSpacing(t *testing.T) {
+	m := &StateMonitor{lastSampleAt: make(map[string]time.Time)}
+	base := time.Date(2026, 8, 15, 6, 26, 0, 0, time.UTC)
+
+	if !m.claimSampleSlot("veh1", base) {
+		t.Fatal("first sample for a vehicle must always be recorded")
+	}
+	// A second feed observing the same state 1 ms later.
+	if m.claimSampleSlot("veh1", base.Add(time.Millisecond)) {
+		t.Error("sample 1 ms after the last must be dropped")
+	}
+	// Still inside the floor.
+	if m.claimSampleSlot("veh1", base.Add(499*time.Millisecond)) {
+		t.Error("sample 499 ms after the last must be dropped")
+	}
+	// At the floor, it is a real sample.
+	if !m.claimSampleSlot("veh1", base.Add(minSampleSpacing)) {
+		t.Error("sample at exactly minSampleSpacing must be recorded")
+	}
+	// The cursor advances to the accepted sample, not the rejected ones.
+	if m.claimSampleSlot("veh1", base.Add(minSampleSpacing+time.Millisecond)) {
+		t.Error("cursor must advance to the accepted sample")
+	}
+
+	// Per-vehicle, not global: one car's cadence must not gate another.
+	if !m.claimSampleSlot("veh2", base.Add(time.Millisecond)) {
+		t.Error("a different vehicle must not be gated by veh1's cursor")
+	}
+}
+
+// Out-of-order frames would produce a negative interval downstream.
+func TestClaimSampleSlotRejectsBackwardsFrames(t *testing.T) {
+	m := &StateMonitor{lastSampleAt: make(map[string]time.Time)}
+	base := time.Date(2026, 8, 15, 6, 26, 0, 0, time.UTC)
+
+	if !m.claimSampleSlot("veh1", base) {
+		t.Fatal("first sample must be recorded")
+	}
+	if m.claimSampleSlot("veh1", base.Add(-2*time.Second)) {
+		t.Error("a frame stamped before the last persisted sample must be dropped")
+	}
+}
+
+// Unsubscribe/re-subscribe must not be gated by the previous window.
+func TestForgetSampleSlotAllowsImmediateResubscribe(t *testing.T) {
+	m := &StateMonitor{lastSampleAt: make(map[string]time.Time)}
+	base := time.Date(2026, 8, 15, 6, 26, 0, 0, time.UTC)
+
+	m.claimSampleSlot("veh1", base)
+	m.forgetSampleSlot("veh1")
+	if !m.claimSampleSlot("veh1", base.Add(time.Millisecond)) {
+		t.Error("after forgetSampleSlot the next frame must be recorded")
+	}
+}

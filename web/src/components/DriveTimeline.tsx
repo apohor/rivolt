@@ -25,7 +25,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { Drive, DriveWeatherSamplePoint, Sample } from "../lib/api";
-import { buildElevPts, derivePower } from "../lib/power";
+import { buildElevPts, derivePower, type PowerPt } from "../lib/power";
 import { smoothGaussianTime } from "../lib/smooth";
 
 type Mode = "Conserve" | "AllPurpose" | "Sport" | "Other";
@@ -439,7 +439,7 @@ function TimelineSVG(props: {
   speedPts: { x: number; y: number }[];
   socPts: { x: number; y: number }[];
   elevPts: { x: number; y: number }[];
-  powerPts: { x: number; y: number }[];
+  powerPts: PowerPt[];
   packTempPts: { x: number; y: number }[];
   headwindPts: { x: number; y: number }[];
   modeSegments: ModeSegment[];
@@ -1210,7 +1210,7 @@ function PowerRibbon({
   cap,
   textTF,
 }: {
-  powerPts: { x: number; y: number }[];
+  powerPts: PowerPt[];
   sx: (x: number) => number;
   cap: number;
   textTF: (x: number, y: number) => string;
@@ -1234,6 +1234,10 @@ function PowerRibbon({
       <g clipPath="url(#dt-plot-clip)">
         {powerPts.slice(0, -1).map((p, i) => {
           const next = powerPts[i + 1];
+          // No power was modelled across a gap, so don't paint one —
+          // a filled cell here would render a telemetry hole as
+          // minutes of steady draw or regen.
+          if (next.gap) return null;
           const x0 = sx(p.x);
           const x1 = sx(next.x);
           if (x1 <= x0) return null;
@@ -1836,7 +1840,7 @@ function buildHeadwindPts(
 function detectMoments(
   speedPts: { x: number; y: number }[],
   socPts: { x: number; y: number }[],
-  powerPts: { x: number; y: number }[],
+  powerPts: PowerPt[],
   headwindPts: { x: number; y: number }[],
 ): Moment[] {
   const out: Moment[] = [];

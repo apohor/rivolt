@@ -307,6 +307,45 @@ func (m *StateMonitor) recordSampleOnly(ctx context.Context, vehicleID string, p
 	m.recordFrame(ctx, vehicleID, prev, curr, false /* lifecycle */)
 }
 
+// minSampleSpacing is the floor between two persisted vehicle_state
+// rows for one vehicle. Chosen to match the lower bound
+// internal/recap/power.go applies when deriving power, so the writer
+// never produces an interval the analysis has to discard.
+//
+// Well below the recorder's real cadence (1–5 s driving, ~30 s
+// parked), so no genuine sample is lost — it only collapses the
+// near-simultaneous writes that several feeds make of the same state.
+const minSampleSpacing = 500 * time.Millisecond
+
+// claimSampleSlot reports whether a sample stamped at is far enough
+// from the last persisted one to be written, and records it if so.
+// First sample for a vehicle always wins.
+//
+// Out-of-order frames (at before the last write) are also rejected:
+// the samples table is read as a time series and a backwards row
+// would produce a negative interval downstream.
+func (m *StateMonitor) claimSampleSlot(vehicleID string, at time.Time) bool {
+	m.sampleMu.Lock()
+	defer m.sampleMu.Unlock()
+	if m.lastSampleAt == nil {
+		m.lastSampleAt = make(map[string]time.Time)
+	}
+	last, ok := m.lastSampleAt[vehicleID]
+	if ok && at.Sub(last) < minSampleSpacing {
+		return false
+	}
+	m.lastSampleAt[vehicleID] = at
+	return true
+}
+
+// forgetSampleSlot drops a vehicle's spacing cursor. Called on
+// Unsubscribe so a re-subscribe isn't gated by a stale timestamp.
+func (m *StateMonitor) forgetSampleSlot(vehicleID string) {
+	m.sampleMu.Lock()
+	defer m.sampleMu.Unlock()
+	delete(m.lastSampleAt, vehicleID)
+}
+
 func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, curr *State, lifecycle bool) {
 	if curr == nil {
 		return
@@ -397,10 +436,53 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		m.persistLiveState(vehicleID, snap)
 	}
 
-	// Sample insert: one row per cache update. WS pushes arrive only
-	// on changes, REST refresh fires every 2 min, charging poller
-	// every 30s — so this is naturally throttled.
-	if m.samplesStore != nil {
+	// Sample insert: one row per cache update, floored at
+	// minSampleSpacing.
+	//
+	// "Naturally throttled" was the old assumption here, and it was
+	// wrong. record() is reached from five independent writers — the
+	// REST seed, the vehicleState WS push, the Parallax GNSS and
+	// drive-dynamics subscribers, and the live-session applier — plus
+	// recordSampleOnly from periodicRefresh. Each stamps its own At
+	// (driveDynamicsSubscriber literally sets At = time.Now()), so
+	// two feeds observing the SAME vehicle state milliseconds apart
+	// produce two rows whose timestamps differ. The store's
+	// ON CONFLICT (vehicle_id, at) key is exact, so it never fires
+	// and both rows persist.
+	//
+	// Measured: 35,393 sub-0.5 s pairs in 30 days, 18,171 of them
+	// carrying identical speed AND battery level. It began the week
+	// of 2026-07-13, when the Parallax subscription was widened to
+	// more topics, and lands mostly while the car is stationary —
+	// parked frames (closures, locks, 12 V) change nothing the sample
+	// records, but still trigger a write.
+	//
+	// Downstream this is not cosmetic: internal/recap/power.go models
+	// power from dv/dt, and two rows 1 ms apart with different speeds
+	// yield ~24,600 m/s^2. Flooring the writer at the same 0.5 s the
+	// model floors its reader means the recorder now guarantees what
+	// the analysis assumes.
+	//
+	// Dropping the loser of a 500 ms race is safe because every
+	// caller passes the MERGED cache, not its own bare frame: each
+	// writer copies m.cache[vehicleID], folds in its own fields,
+	// stores it back, and hands that to record(). So a dropped
+	// frame's data is already in the cache and lands in the next
+	// accepted sample — the floor delays persistence by at most
+	// 500 ms, it does not discard readings.
+	//
+	// The floor guards only the sample write. Lifecycle handling ran
+	// above and must still see every frame — a gear or charger-state
+	// transition arriving 100 ms after the previous sample is real
+	// and must not be dropped. (dynamics.vehicle.gear is authoritative
+	// for drive-open per docs/PARALLAX_MIGRATION.md.)
+	//
+	// This is a rate limiter, not the end state: row count still
+	// scales with topic count, and the Parallax migration keeps
+	// adding topics. See docs/ROADMAP.md, "Decouple sample
+	// persistence from frame arrival", for the sampler design that
+	// replaces it.
+	if m.samplesStore != nil && m.claimSampleSlot(vehicleID, curr.At) {
 		s := samples.Sample{
 			VehicleID:       vehicleID,
 			At:              curr.At,
