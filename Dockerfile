@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.24
+# syntax=docker/dockerfile:1.26
 
 # ---- web builder ----------------------------------------------------------
 # Always run on the build host's native platform — the output is static
@@ -14,7 +14,7 @@ RUN mkdir -p /internal/web && npm run build
 # ---- go builder -----------------------------------------------------------
 # Also native — we cross-compile using GOOS/GOARCH from TARGET* args, which
 # is dramatically faster than running `go build` under QEMU.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 # VERSION is stamped into main.version via -ldflags -X. The workflow
