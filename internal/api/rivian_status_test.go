@@ -67,7 +67,7 @@ func TestRivianStatus_RehydratesSessionAcrossPods(t *testing.T) {
 		t.Fatal("precondition: fresh client must start unauthenticated")
 	}
 
-	h := handleRivianStatus(reg, store, pool, nil)
+	h := handleRivianStatus(reg, store, pool, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/rivian/", nil).
 		WithContext(auth.WithUser(ctx, uid))
 	w := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestRivianStatus_StoredSessionWinsOverLocalPendingMFA(t *testing.T) {
 		t.Fatal("precondition: client must start MFA-pending")
 	}
 
-	h := handleRivianStatus(reg, store, pool, nil)
+	h := handleRivianStatus(reg, store, pool, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/rivian/", nil).
 		WithContext(auth.WithUser(ctx, uid))
 	w := httptest.NewRecorder()

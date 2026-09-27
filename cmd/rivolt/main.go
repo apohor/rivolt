@@ -712,9 +712,9 @@ func runServer() {
 	//     that feature shipped never got one and a single email is easy
 	//     to miss. Re-sends to anyone still stuck, throttled per-user by
 	//     needs_reauth_notified_at.
-	//   - Finish-setup nudge: users who completed onboarding but never
-	//     connected a Rivian account get one email pointing them back to
-	//     the connect step.
+	//   - Finish-setup nudge: users who never connected a Rivian account
+	//     get up to two emails (a day after signup, then a week later)
+	//     pointing them back to the connect step.
 	//
 	// Both read a bounded "who is due?" set and Claim-gate each send, so
 	// every replica can run this without double-emailing.
@@ -727,6 +727,7 @@ func runServer() {
 		nudgeBaseURL := os.Getenv("RIVOLT_BASE_URL")
 		const reauthNudgeCooldown = 7 * 24 * time.Hour
 		const setupNudgeMinAge = 24 * time.Hour
+		const setupNudgeFollowUp = 6 * 24 * time.Hour
 		go func() {
 			runReauth := func(sctx context.Context) {
 				due, err := db.ListUsersDueForReauthNudge(sctx, pgPool, reauthNudgeCooldown)
@@ -753,14 +754,14 @@ func runServer() {
 				}
 			}
 			runSetup := func(sctx context.Context) {
-				due, err := db.ListUsersDueForSetupNudge(sctx, pgPool, setupNudgeMinAge)
+				due, err := db.ListUsersDueForSetupNudge(sctx, pgPool, setupNudgeMinAge, setupNudgeFollowUp)
 				if err != nil {
 					logger.Warn("setup nudge sweep: list failed", "err", err.Error())
 					return
 				}
 				sent := 0
 				for _, n := range due {
-					claimed, cerr := db.ClaimSetupNudge(sctx, pgPool, n.UserID)
+					claimed, cerr := db.ClaimSetupNudge(sctx, pgPool, n.UserID, n.Attempt)
 					if cerr != nil {
 						logger.Warn("setup nudge sweep: claim failed",
 							"user_id", n.UserID.String(), "err", cerr.Error())
@@ -769,7 +770,10 @@ func runServer() {
 					if !claimed {
 						continue // another replica took this one, or they just connected
 					}
-					sendSetupEmail(sctx, mailer, logger, n.Email, nudgeBaseURL)
+					sendSetupEmail(sctx, mailer, logger, n.Email, n.Attempt, nudgeBaseURL)
+					appMetrics.FunnelEventsTotal.WithLabelValues("setup_nudge_sent").Inc()
+					logger.Info("funnel", "event", "setup_nudge_sent",
+						"user_id", n.UserID.String(), "attempt", n.Attempt)
 					sent++
 				}
 				if sent > 0 {
@@ -1666,38 +1670,50 @@ func sendReauthEmail(ctx context.Context, mailer *email.Client, pool *sql.DB, lo
 	logger.Info("reauth email sent", "user_id", uid.String(), "reason", reason)
 }
 
-// sendSetupEmail nudges a user who finished onboarding but never
-// connected their Rivian account. Sent at most once per user (the
-// caller claims via db.ClaimSetupNudge first). Best-effort: a missing
-// mailer or a send error is logged, never retried - the user still has
-// the in-app Rivian panel whenever they return.
-func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logger, to, baseURL string) {
+// sendSetupEmail nudges a user who never connected their Rivian
+// account. attempt is 1 for the first email and 2 for the follow-up;
+// the caller claims each via db.ClaimSetupNudge first. Best-effort: a
+// missing mailer or a send error is logged, never retried - the user
+// still has the in-app connect prompt whenever they return.
+//
+// The link goes to the app root: a user who never finished onboarding
+// is routed to the connect step, and everyone else lands on the
+// Overview, which shows the Rivian sign-in form until connected.
+func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logger, to string, attempt int, baseURL string) {
 	if mailer == nil || to == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	link := strings.TrimRight(baseURL, "/") + "/settings#rivian"
+	link := strings.TrimRight(baseURL, "/") + "/"
 	if baseURL == "" {
-		link = "your Rivolt settings"
+		link = "your Rivolt account"
 	}
-	body := "Thanks for signing up for Rivolt. You're one step away from\n" +
+	subject := "Finish setting up Rivolt - connect your Rivian"
+	intro := "Thanks for signing up for Rivolt. You're one step away from\n" +
 		"seeing your drives, charging, and efficiency - connecting your\n" +
-		"Rivian account takes about two minutes.\n\n" +
+		"Rivian account takes about two minutes.\n\n"
+	if attempt > 1 {
+		subject = "Your Rivolt account is still waiting for your Rivian"
+		intro = "Quick reminder: your Rivolt account isn't connected to your\n" +
+			"Rivian yet, so nothing is being recorded. It's one sign-in -\n" +
+			"the same email and password you use in the Rivian app.\n\n"
+	}
+	body := intro +
 		"Connect it here:\n\n" +
 		"  " + link + "\n\n" +
 		"You'll sign in with your Rivian account (the same login you use\n" +
-		"in the Rivian app). Rivolt reads your vehicle data - it never\n" +
-		"sends commands to your car.\n"
+		"in the Rivian app). Rivolt only reads your vehicle data - it\n" +
+		"never sends commands to your car.\n"
 	if err := mailer.Send(ctx, email.Message{
 		To:      to,
-		Subject: "Finish setting up Rivolt - connect your Rivian",
+		Subject: subject,
 		Text:    body,
 	}); err != nil {
-		logger.Warn("setup email: send", "err", err.Error())
+		logger.Warn("setup email: send", "attempt", attempt, "err", err.Error())
 		return
 	}
-	logger.Info("setup email sent", "to", to)
+	logger.Info("setup email sent", "to", to, "attempt", attempt)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus

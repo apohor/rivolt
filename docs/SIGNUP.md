@@ -40,13 +40,13 @@ approved:
 3. Click **Finish signup** in the email. The signup form opens
    with your email already filled in — provide a display name
    and a 12+ character password.
-4. Click **Create account**, then **Sign in**.
+4. Click **Create account**. You're signed in straight away.
 
 The token is consumed on success and your identity is provisioned
 at `auth.rivolt.dev` (Ory Kratos under the hood).
 
-You land on the Overview page with no data yet. That's expected —
-the next step connects your truck.
+You land on the **Connect your Rivian** screen — the next step
+connects your truck.
 
 ---
 
@@ -57,11 +57,32 @@ telemetry WebSocket and read your drive / charge history. Calls
 are **read-only**; Rivolt has never sent a command to a Rivian
 endpoint and never will.
 
-### Recommended: dedicated Authorized Driver account
+1. Right after signup Rivolt shows the Rivian sign-in form. (Later,
+   it's on the Overview until you're connected, and always under
+   **Settings → Account → Rivian account**.)
+2. Enter the email + password you use in the Rivian app.
+3. Click **Sign in**.
 
-You *can* sign in with your primary Rivian credentials, but we
-recommend creating a second Rivian account (free) and adding it as
-an Authorized Driver on your vehicle. Benefits:
+If Rivian prompts for a one-time code, copy it from your phone /
+email and submit it. Rivolt seals the resulting session token
+locally; the password itself is never stored.
+
+After ~30 seconds the live panel on the Overview page should start
+showing your vehicle's current SoC, location, and gear. The first
+WebSocket connection also pulls the last few drives + charges into
+your history.
+
+Once signed in, Rivolt lists the vehicles it found on that Rivian
+account. If it says **No vehicles on this Rivian account**, the
+sign-in worked but there's nothing to record — usually an Authorized
+Driver account whose invite hasn't been accepted yet (see step 4
+below). Fix it in the Rivian app, then click **Check again**.
+
+### Optional: dedicated Authorized Driver account
+
+If you'd rather not hand Rivolt your primary Rivian login, you can
+create a second Rivian account (free), add it as an Authorized
+Driver on your vehicle, and connect that one instead. Benefits:
 
 - Rivolt uses *its* credentials, not yours.
 - Removing Rivolt is a one-click revocation in the Rivian app —
@@ -69,10 +90,7 @@ an Authorized Driver on your vehicle. Benefits:
 - A compromised Rivolt instance can't read your primary Rivian
   account metadata / inbox.
 
-If you'd rather just sign in with your primary account, skip
-ahead to "Add to Rivolt" below.
-
-To set up the dedicated account:
+To set it up:
 
 1. Create a new Rivian account at <https://rivian.com> with a
    different email from your primary one. A `+rivolt` Gmail alias
@@ -88,23 +106,8 @@ To set up the dedicated account:
    "Sent" status and the vehicle isn't actually added — Rivolt
    won't see it. Once you sign in, the invite flips to active and
    the vehicle appears in the dedicated account's vehicle list.
-5. Verify the new account can see your vehicle in the Rivian app
-   before continuing.
-
-### Add to Rivolt
-
-5. In Rivolt, go to **Settings → Account → Rivian account**.
-6. Paste the dedicated account's email + password.
-7. Click **Sign in**.
-
-If Rivian prompts for a one-time code, copy it from your phone /
-email and submit it. Rivolt seals the resulting session token
-locally; the password itself is never stored.
-
-After ~30 seconds the live panel on the Overview page should start
-showing your vehicle's current SoC, location, and gear. The first
-WebSocket connection also pulls the last few drives + charges into
-your history.
+5. Verify the new account can see your vehicle in the Rivian app,
+   then connect it in Rivolt using the steps above.
 
 ---
 

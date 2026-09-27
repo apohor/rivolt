@@ -14,6 +14,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 
@@ -144,7 +145,7 @@ func shouldAttemptPrime(uid uuid.UUID) bool {
 	return true
 }
 
-func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB *sql.DB, logger *slog.Logger) http.HandlerFunc {
+func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB *sql.DB, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
@@ -215,7 +216,13 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 				if n > 0 {
 					return
 				}
-				primeUserVehicles(ctx, lc, sqlDB, uid, logger)
+				// A connected account with no vehicles is usually an
+				// Authorized Driver whose invite hadn't been accepted
+				// yet at sign-in. When one finally shows up, mark it:
+				// that's the user leaving the stuck state on their own.
+				if found, err := primeUserVehicles(ctx, lc, sqlDB, uid, logger); err == nil && found > 0 {
+					recordFunnel(ctx, m, uid, funnelRivianVehiclesFound, "vehicles", found, "via", "lazy_prime")
+				}
 			}()
 		}
 	}
@@ -235,7 +242,7 @@ type pendingMFAClient interface {
 	RestorePending(rivian.PendingMFA)
 }
 
-func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, mailer *email.Client, d *sql.DB, logger *slog.Logger) http.HandlerFunc {
+func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, mailer *email.Client, d *sql.DB, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -261,9 +268,11 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			http.Error(w, "email and password required", http.StatusBadRequest)
 			return
 		}
+		recordFunnel(r.Context(), m, uid, funnelRivianLoginAttempt)
 		err := lc.Login(r.Context(), rivian.Credentials{Email: req.Email, Password: req.Password})
 		switch {
 		case errors.Is(err, rivian.ErrMFARequired):
+			recordFunnel(r.Context(), m, uid, funnelRivianMFARequired)
 			// Share the challenge so a peer pod can complete the OTP
 			// leg even though this pod handled the password leg.
 			if pc, ok := lc.(pendingMFAClient); ok {
@@ -293,6 +302,7 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 				)
 			}
 			slog.WarnContext(r.Context(), "rivian login failed", fields...)
+			recordFunnel(r.Context(), m, uid, funnelRivianLoginFailed, "class", upstreamClass(err))
 			// A user_action class on the password leg means Rivian
 			// rejected the email/password. Its gateway phrases this as
 			// "session expired: User is unauthenticated", which reads as
@@ -313,10 +323,7 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 		// no stored session yet, this login is their initial Rivian
 		// connection — notify the admin once it lands. Re-logins (token
 		// rotation, password change) skip the notification.
-		var hadSession bool
-		if existing, lerr := secrets.LoadRivianSession(r.Context(), store, uid); lerr == nil {
-			hadSession = existing.UserSessionToken != ""
-		}
+		hadSession := hasStoredRivianSession(r.Context(), store, uid)
 		// Fully authenticated — persist. A password-only success also
 		// supersedes any in-flight OTP challenge; drop the shared
 		// pending row so peers stop offering the dead token.
@@ -327,54 +334,126 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
-		if !hadSession {
-			username := ""
-			if d != nil {
-				if u, derr := db.LookupUsername(r.Context(), d, uid); derr == nil {
-					username = u
-				}
-			}
-			go notifyAdmin(context.Background(), mailer, logger,
-				"Rivolt user connected Rivian account",
-				"A user finished the Rivian sign-in step:\n\n"+
-					"  Rivolt user: "+username+" ("+uid.String()+")\n"+
-					"  Rivian email: "+lc.Email()+"\n\n"+
-					"Vehicles, drives, and charges should start appearing\n"+
-					"on the admin page within a few seconds.\n",
-			)
-		}
-		// Start (or no-op resume of) this user's StateMonitor so
-		// the recorder + WS subscription run under their identity.
-		if monitors != nil {
-			monitors.Start(r.Context(), uid)
-		}
-		// Seed the local vehicles table from the Rivian account so
-		// /api/vehicles/owned, ownership middleware, and the import
-		// picker all see the user's cars immediately — without this
-		// the table only fills lazily on the first Live-tab visit.
-		primeUserVehicles(r.Context(), lc, d, uid, logger)
+		n := finishRivianConnect(r.Context(), lc, monitors, mailer, d, m, uid, !hadSession, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
+			"vehicle_count": n,
 		})
 	}
 }
 
+// hasStoredRivianSession reports whether the user already had a
+// Rivian session persisted - i.e. whether a successful sign-in is a
+// re-login rather than their first connect.
+func hasStoredRivianSession(ctx context.Context, store *secrets.Store, uid uuid.UUID) bool {
+	existing, err := secrets.LoadRivianSession(ctx, store, uid)
+	return err == nil && existing.UserSessionToken != ""
+}
+
+// upstreamClass is the bounded error class for funnel/log labels:
+// the Rivian classification when there is one, else "unknown".
+func upstreamClass(err error) string {
+	var ue *rivian.UpstreamError
+	if errors.As(err, &ue) {
+		return ue.Class.String()
+	}
+	return "unknown"
+}
+
+// finishRivianConnect is the shared tail of a successful Rivian
+// sign-in, reached from either the password leg or the MFA leg once
+// the session is persisted: start the user's StateMonitor, seed the
+// vehicles table, record the funnel and, on a first connect, tell the
+// admin. Returns the number of vehicles found (-1 when the lookup
+// itself failed) so the SPA can react to an empty account.
+//
+// An empty account is the case worth shouting about. The sign-in
+// succeeded, so the UI says "connected", yet nothing will ever record:
+// typically an Authorized Driver account whose invite was never
+// accepted in the Rivian app. Before this was surfaced, those users
+// sat in the no-vehicle bucket with nothing telling them why.
+func finishRivianConnect(
+	ctx context.Context,
+	lc rivian.Account,
+	monitors *rivian.MonitorRegistry,
+	mailer *email.Client,
+	d *sql.DB,
+	m *metrics.Metrics,
+	uid uuid.UUID,
+	firstConnect bool,
+	logger *slog.Logger,
+) int {
+	// Start (or no-op resume of) this user's StateMonitor so
+	// the recorder + WS subscription run under their identity.
+	if monitors != nil {
+		monitors.Start(ctx, uid)
+	}
+	// Seed the local vehicles table from the Rivian account so
+	// /api/vehicles/owned, ownership middleware, and the import
+	// picker all see the user's cars immediately — without this
+	// the table only fills lazily on the first Live-tab visit.
+	n, err := primeUserVehicles(ctx, lc, d, uid, logger)
+	if err != nil {
+		n = -1
+	}
+	recordFunnel(ctx, m, uid, funnelRivianConnected, "first_connect", firstConnect, "vehicles", n)
+	if n == 0 {
+		recordFunnel(ctx, m, uid, funnelRivianNoVehicles, "first_connect", firstConnect)
+	}
+	if !firstConnect {
+		return n
+	}
+	username := ""
+	if d != nil {
+		if u, derr := db.LookupUsername(ctx, d, uid); derr == nil {
+			username = u
+		}
+	}
+	subject := "Rivolt user connected Rivian account"
+	var outcome string
+	switch {
+	case n > 0:
+		outcome = "Vehicles, drives, and charges should start appearing\n" +
+			"on the admin page within a few seconds.\n"
+	case n == 0:
+		subject = "Rivolt user connected Rivian - no vehicles found"
+		outcome = "Rivian returned NO vehicles for this account, so nothing\n" +
+			"will record. Most likely an Authorized Driver account whose\n" +
+			"invite hasn't been accepted (the new account must accept it\n" +
+			"and sign in to the Rivian app once). The user sees a warning\n" +
+			"with a \"Check again\" button.\n"
+	default:
+		outcome = "The vehicle lookup failed right after sign-in (see the\n" +
+			"\"rivian vehicles prime failed\" log line); it retries when\n" +
+			"the user next opens the app.\n"
+	}
+	go notifyAdmin(context.Background(), mailer, logger, subject,
+		"A user finished the Rivian sign-in step:\n\n"+
+			"  Rivolt user: "+username+" ("+uid.String()+")\n"+
+			"  Rivian email: "+lc.Email()+"\n\n"+
+			outcome,
+	)
+	return n
+}
+
 // primeUserVehicles fetches the user's vehicles from Rivian and
-// upserts them into the local vehicles table. Best-effort: any
-// upstream/database failure logs and returns without surfacing an
-// error to the caller, since the same upsert path runs lazily from
-// /api/vehicles on next Live-tab visit. Idempotent on the
-// (user_id, rivian_vehicle_id) unique constraint.
+// upserts them into the local vehicles table, returning how many rows
+// it wrote. The error is the Rivian lookup failing; callers treat it
+// as best-effort since the same upsert path runs lazily from
+// /api/vehicles on next Live-tab visit. A nil error with a zero count
+// is the important case: Rivian answered, and the account has no
+// vehicles. Idempotent on the (user_id, rivian_vehicle_id) unique
+// constraint.
 func primeUserVehicles(
 	ctx context.Context,
 	lc rivian.Account,
 	sqlDB *sql.DB,
 	uid uuid.UUID,
 	logger *slog.Logger,
-) {
+) (int, error) {
 	if sqlDB == nil || lc == nil {
-		return
+		return 0, errors.New("prime: no database or client")
 	}
 	// rivian.Account doesn't expose Vehicles() — that lives on the
 	// fuller Client interface that *LiveClient and *MockClient both
@@ -383,7 +462,7 @@ func primeUserVehicles(
 	// LiveClient type.
 	c, ok := lc.(rivian.Client)
 	if !ok {
-		return
+		return 0, errors.New("prime: client cannot list vehicles")
 	}
 	vs, err := c.Vehicles(ctx)
 	if err != nil {
@@ -391,8 +470,9 @@ func primeUserVehicles(
 			logger.Warn("rivian vehicles prime failed",
 				"user_id", uid.String(), "err", err.Error())
 		}
-		return
+		return 0, err
 	}
+	primed := 0
 	for i := range vs {
 		if vs[i].ID == "" {
 			continue
@@ -412,20 +492,34 @@ func primeUserVehicles(
 				pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
 				updated_at   = NOW()
 		`, uid, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
-		if uerr != nil && logger != nil {
-			logger.Warn("rivian vehicles prime upsert failed",
-				"user_id", uid.String(),
-				"rivian_vehicle_id", vs[i].ID,
-				"err", uerr.Error())
+		if uerr != nil {
+			if logger != nil {
+				logger.Warn("rivian vehicles prime upsert failed",
+					"user_id", uid.String(),
+					"rivian_vehicle_id", vs[i].ID,
+					"err", uerr.Error())
+			}
+			continue
 		}
+		primed++
 	}
+	if logger != nil {
+		logger.Info("rivian vehicles primed",
+			"user_id", uid.String(), "returned", len(vs), "primed", primed)
+	}
+	// Rivian had vehicles but none landed: that's a database failure,
+	// not an empty account, and must not read as "no vehicles found".
+	if primed == 0 && len(vs) > 0 {
+		return 0, errors.New("prime: every vehicle upsert failed")
+	}
+	return primed, nil
 }
 
 type rivianMFAReq struct {
 	OTP string `json:"otp"`
 }
 
-func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, d *sql.DB, logger *slog.Logger) http.HandlerFunc {
+func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors *rivian.MonitorRegistry, mailer *email.Client, d *sql.DB, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if reg == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
@@ -499,6 +593,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 				)
 			}
 			slog.WarnContext(r.Context(), "rivian mfa failed", fields...)
+			recordFunnel(r.Context(), m, uid, funnelRivianMFAFailed, "class", upstreamClass(err))
 			// Rivian answers a stale or superseded otpToken with a
 			// bare INTERNAL_SERVER_ERROR; surfacing that chain reads
 			// like a Rivolt outage. Translate the outage class into
@@ -515,19 +610,20 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 			return
 		}
 		// Challenge consumed — drop the shared pending row so a stray
-		// resubmit can't replay it.
+		// resubmit can't replay it. First-connect detection runs before
+		// the persist, same as the password leg: most Rivian accounts
+		// have MFA on, so this is where most first connects land.
 		_ = secrets.ClearPendingMFA(r.Context(), store, uid)
+		hadSession := hasStoredRivianSession(r.Context(), store, uid)
 		if perr := secrets.SaveRivianSession(r.Context(), store, uid, lc.Snapshot()); perr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": perr.Error()})
 			return
 		}
-		if monitors != nil {
-			monitors.Start(r.Context(), uid)
-		}
-		primeUserVehicles(r.Context(), lc, d, uid, logger)
+		n := finishRivianConnect(r.Context(), lc, monitors, mailer, d, m, uid, !hadSession, logger)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"authenticated": true,
 			"email":         lc.Email(),
+			"vehicle_count": n,
 		})
 	}
 }
@@ -558,5 +654,52 @@ func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store, monito
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+	}
+}
+
+// handleRivianRefreshVehicles — POST /api/settings/rivian/refresh-vehicles
+//
+// Re-reads the vehicle list from Rivian for an already-connected
+// account and seeds any new ones. Backs the "Check again" button the
+// SPA shows when a sign-in found no vehicles: the usual fix happens in
+// the Rivian app (accepting an Authorized Driver invite), and the user
+// shouldn't have to sign out and back in to pick it up.
+func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Store, d *sql.DB, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if reg == nil {
+			http.Error(w, "live rivian client not configured", http.StatusNotFound)
+			return
+		}
+		uid, ok := auth.UserFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		lc := reg.For(uid)
+		if lc == nil {
+			http.Error(w, "live rivian client not configured", http.StatusNotFound)
+			return
+		}
+		// Same cross-pod rehydrate as the status handler: the session
+		// may have been minted on a peer pod.
+		if store != nil && !lc.Authenticated() {
+			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+				lc.Restore(sess)
+			}
+		}
+		if !lc.Authenticated() {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "Rivian account is not connected"})
+			return
+		}
+		n, err := primeUserVehicles(r.Context(), lc, d, uid, logger)
+		if err != nil {
+			writeUpstreamError(w, err)
+			return
+		}
+		recordFunnel(r.Context(), m, uid, funnelRivianVehicleCheck, "vehicles", n)
+		if n > 0 {
+			recordFunnel(r.Context(), m, uid, funnelRivianVehiclesFound, "vehicles", n, "via", "recheck")
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"vehicle_count": n})
 	}
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
+import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
@@ -188,10 +189,23 @@ export default function HomePage() {
       : "nameplate";
 
   const isError = drives.isError || charges.isError;
+  // Connected with a vehicle but no history yet: the moment to offer
+  // the ElectraFi backfill.
+  const historyEmpty =
+    !!rivianStatus.data?.authenticated &&
+    (vehicles.data?.length ?? 0) > 0 &&
+    drives.isSuccess &&
+    all.length === 0 &&
+    charges.isSuccess &&
+    (charges.data?.length ?? 0) === 0;
 
   return (
     <div className="space-y-4">
-      <ConnectRivianPrompt context="Once connected, drives, charges, and live telemetry start streaming." />
+      <ConnectRivianPrompt
+        inline
+        context="Once connected, drives, charges, and live telemetry start streaming."
+      />
+      {historyEmpty && <ElectraFiImportHint />}
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
           row that floated between the hero card and the KPI card on
