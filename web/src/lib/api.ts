@@ -762,7 +762,7 @@ export const backend = {
     signup_token: string;
     display_name?: string;
     password: string;
-  }) => api.post<{ ok: boolean }>("/api/signup", body),
+  }) => api.post<{ ok: boolean; signed_in?: boolean }>("/api/signup", body),
   completeOnboarding: () =>
     api.post<{ ok: boolean }>("/api/onboarding/complete"),
   // oidcProviders returns the list of OIDC sign-in options the
@@ -832,16 +832,27 @@ export const backend = {
     return r ?? null;
   },
   rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
+  // vehicle_count on a completed sign-in: how many vehicles the Rivian
+  // account exposed (-1 if the lookup failed). 0 means connected but
+  // nothing to record - usually an unaccepted Authorized Driver invite.
   rivianLogin: (email: string, password: string) =>
-    api.post<{ authenticated: boolean; mfa_pending?: boolean; email?: string }>(
+    api.post<{
+      authenticated: boolean;
+      mfa_pending?: boolean;
+      email?: string;
+      vehicle_count?: number;
+    }>(
       "/api/settings/rivian/login",
       { email, password },
     ),
   rivianMFA: (otp: string) =>
-    api.post<{ authenticated: boolean; email?: string }>(
+    api.post<{ authenticated: boolean; email?: string; vehicle_count?: number }>(
       "/api/settings/rivian/mfa",
       { otp },
     ),
+  // Re-reads the connected Rivian account's vehicles ("Check again").
+  rivianRefreshVehicles: () =>
+    api.post<{ vehicle_count: number }>("/api/settings/rivian/refresh-vehicles"),
   rivianLogout: () =>
     api.post<{ authenticated: boolean }>("/api/settings/rivian/logout"),
   getChargingSettings: () =>

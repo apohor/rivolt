@@ -73,6 +73,14 @@ type Metrics struct {
 	// monthly increase against Resend's free-tier cap (3000) so we
 	// see the wall coming a few days out, not the morning after.
 	EmailSendTotal *prometheus.CounterVec
+
+	// Signup-to-first-vehicle funnel. One increment per step a user
+	// reaches (signup_created, rivian_login_attempt, rivian_connected,
+	// rivian_no_vehicles, ...; see internal/api/funnel.go for the
+	// full set). `event` is a fixed vocabulary, never a user id, so
+	// cardinality stays bounded. The per-user trail lives in the
+	// matching "funnel" log line instead.
+	FunnelEventsTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -158,6 +166,13 @@ func New() *Metrics {
 			},
 			[]string{"provider", "status"},
 		),
+		FunnelEventsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_funnel_events_total",
+				Help: "Signup-to-first-vehicle funnel steps reached, partitioned by event.",
+			},
+			[]string{"event"},
+		),
 	}
 
 	reg.MustRegister(
@@ -170,6 +185,7 @@ func New() *Metrics {
 		m.RivianRateLimitBlocked,
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
+		m.FunnelEventsTotal,
 	)
 	return m
 }

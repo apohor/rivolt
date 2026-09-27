@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { backend } from "../lib/api";
+import { backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
@@ -10,7 +10,11 @@ import { ErrorBox, Spinner } from "./ui";
 //   - Not auth'd    → email + password form.
 //   - MFA pending   → OTP form (email/password are already stashed in
 //                     the server-side LiveClient).
-//   - Authenticated → email + logout button.
+//   - Authenticated → email + logout button, plus the vehicles the
+//                     account exposes. Zero vehicles gets a warning and
+//                     a "Check again" button: the sign-in worked but
+//                     nothing will record (usually an Authorized Driver
+//                     invite that hasn't been accepted yet).
 //
 // Credentials are never stored in React state longer than the request
 // itself; the backend owns the bearer tokens.
@@ -53,6 +57,18 @@ export function RivianAccountPanel() {
   });
   const logout = useMutation({
     mutationFn: () => backend.rivianLogout(),
+    onSuccess: invalidate,
+  });
+  const authenticated = !!status.data?.authenticated;
+  // DB-backed list, filled by the server during sign-in, so it's
+  // current as soon as the login mutation invalidates it.
+  const owned = useQuery({
+    queryKey: ["vehicles", "owned"],
+    queryFn: () => backend.listOwnedVehicles(),
+    enabled: authenticated,
+  });
+  const recheck = useMutation({
+    mutationFn: () => backend.rivianRefreshVehicles(),
     onSuccess: invalidate,
   });
 
@@ -106,6 +122,13 @@ export function RivianAccountPanel() {
             {logout.isPending ? "Signing out…" : "Sign out"}
           </button>
         </div>
+        <ConnectedVehicles
+          vehicles={owned.data?.vehicles}
+          loading={owned.isLoading}
+          rechecking={recheck.isPending}
+          onRecheck={() => recheck.mutate()}
+          recheckError={recheck.isError ? String(recheck.error) : null}
+        />
       </div>
     );
   }
@@ -182,6 +205,10 @@ export function RivianAccountPanel() {
             can read it.
           </li>
           <li>
+            • <strong>Read-only</strong> — Rivolt reads telemetry, drives,
+            and charging. It never sends commands to your vehicle.
+          </li>
+          <li>
             • <strong>Disconnect any time</strong> via the Sign out button —
             the stored token is wiped immediately.
           </li>
@@ -216,5 +243,92 @@ export function RivianAccountPanel() {
         <ErrorBox title="Sign-in failed" detail={String(login.error)} />
       )}
     </form>
+  );
+}
+
+// ConnectedVehicles confirms what a successful sign-in actually found.
+// "Connected as …" alone read as done even when the Rivian account had
+// no vehicles, and those users never learned why nothing recorded.
+function ConnectedVehicles({
+  vehicles,
+  loading,
+  rechecking,
+  onRecheck,
+  recheckError,
+}: {
+  vehicles: OwnedVehicle[] | undefined;
+  loading: boolean;
+  rechecking: boolean;
+  onRecheck: () => void;
+  recheckError: string | null;
+}) {
+  if (loading || !vehicles) return null;
+  if (vehicles.length > 0) {
+    return (
+      <ul className="space-y-1 text-sm">
+        {vehicles.map((v) => (
+          <li key={v.id} className="flex items-center gap-2 text-neutral-300">
+            <span className="text-emerald-400" aria-hidden>
+              ✓
+            </span>
+            <span>{vehicleLabel(v)}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+      <div className="font-medium text-amber-200">
+        No vehicles on this Rivian account
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+        The sign-in worked, but Rivian doesn't list any vehicle for it, so
+        there's nothing to record yet. If this is an Authorized Driver
+        account, accept the invite and sign in to the Rivian app once with
+        it — then check again. Otherwise, sign out and connect the account
+        that owns the vehicle.
+      </p>
+      <button
+        type="button"
+        onClick={onRecheck}
+        disabled={rechecking}
+        className="mt-2 rounded-md border border-amber-500/50 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+      >
+        {rechecking ? "Checking…" : "Check again"}
+      </button>
+      {recheckError && (
+        <p className="mt-2 text-xs text-rose-300">{recheckError}</p>
+      )}
+    </div>
+  );
+}
+
+function vehicleLabel(v: OwnedVehicle): string {
+  const model = [v.model_year, v.model].filter(Boolean).join(" ");
+  if (v.display_name && model) return `${model} “${v.display_name}”`;
+  return v.display_name || model || v.vin || "Your Rivian";
+}
+
+// AuthorizedDriverNote is the optional, low-key alternative to
+// connecting the primary Rivian login. It used to be the headline
+// "Recommended" path, and asking a brand-new user to create a second
+// Rivian account first was where most signups gave up.
+export function AuthorizedDriverNote() {
+  return (
+    <p className="text-xs leading-relaxed text-neutral-500">
+      <span className="text-neutral-400">Optional:</span> prefer to keep your
+      main login out of it? Add a second Rivian account as an{" "}
+      <a
+        href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#optional-dedicated-authorized-driver-account"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline hover:text-neutral-300"
+      >
+        Authorized Driver
+      </a>{" "}
+      and connect that instead. It only sees your vehicle once it has
+      accepted the invite and signed in to the Rivian app.
+    </p>
   );
 }

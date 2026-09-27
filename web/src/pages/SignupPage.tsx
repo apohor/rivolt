@@ -120,15 +120,22 @@ export default function SignupPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await backend.signup({
+      const res = await backend.signup({
         signup_token: token,
         display_name: displayName.trim() || undefined,
         password,
       });
-      // Drop any existing session before showing the success screen so a
-      // previously-logged-in user (e.g. admin testing signup) isn't
-      // silently kept in their old account by the login page's whoami
-      // short-circuit.
+      // The server signs the new account in when it can - straight on
+      // to the Rivian connect step, no second sign-in. Its cookie
+      // replaces any session that was already in this browser.
+      if (res.signed_in) {
+        navigate("/onboarding", { replace: true });
+        return;
+      }
+      // Otherwise drop any existing session before showing the success
+      // screen so a previously-logged-in user (e.g. admin testing
+      // signup) isn't silently kept in their old account by the login
+      // page's whoami short-circuit.
       try { await backend.logout(); } catch { /* no session is fine */ }
       setCreated(true);
     } catch (err) {
@@ -341,10 +348,9 @@ export default function SignupPage() {
 
         {tokenStatus !== "checking" && (
           <div className="mt-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
-            <strong className="text-neutral-200">What's next:</strong> after
-            you sign in, a short setup wizard helps you connect your Rivian
-            account (a dedicated Authorized Driver login is the recommended
-            pattern — see the{" "}
+            <strong className="text-neutral-200">What's next:</strong> you'll
+            connect your Rivian account - the same login you use in the Rivian
+            app (see the{" "}
             <a
               href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
               target="_blank"
@@ -353,8 +359,8 @@ export default function SignupPage() {
             >
               signup walkthrough
             </a>
-            ) and lets you import past drives + charges from an ElectraFi
-            export so your stats start with real history, not a blank slate.
+            ). Used ElectraFi? You can import your past drives + charges
+            afterwards so your stats start with real history.
           </div>
         )}
 

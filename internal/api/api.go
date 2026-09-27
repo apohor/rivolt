@@ -348,7 +348,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.SignupRequests != nil {
-			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, d.Logger))
+			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -424,7 +424,7 @@ func New(d Deps) http.Handler {
 			// current user. Called by the frontend when the user
 			// reaches the final step and clicks "Done".
 			r.Post("/onboarding/complete", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleOnboardingComplete(d.DB)(uid, w, r)
+				handleOnboardingComplete(d.DB, d.Metrics)(uid, w, r)
 			}))
 
 			r.Route("/push", func(r chi.Router) {
@@ -528,9 +528,10 @@ func New(d Deps) http.Handler {
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
-				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Logger))
-				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Logger))
-				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors, d.DB, d.Logger))
+				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
+				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
+				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
+				r.Post("/refresh-vehicles", handleRivianRefreshVehicles(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
 				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets, d.Monitors))
 			})
 

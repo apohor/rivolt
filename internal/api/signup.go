@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/idp"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/signuprequests"
 )
 
@@ -81,10 +82,18 @@ func isValidEmail(s string) bool {
 // invite_code path was removed in v0.18.29 once the token flow
 // drained any in-flight codes.
 //
-// Success: 201 {"ok": true}
+// Success: 201 {"ok": true, "signed_in": bool}
 // Client errors: 400 / 409 / 410
 // Backend errors: 502 / 500
-func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, log *slog.Logger) http.HandlerFunc {
+//
+// signed_in reports whether the response also planted a Rivolt
+// session cookie. The user has just proven they own the approved
+// email (the token came from it) and chosen a password, so making
+// them sign in again straight away only adds a step - and the old
+// "wait a minute, then sign in" screen is where some signups gave up.
+// issueSession may be nil (no auth configured); the SPA then falls
+// back to sending the user to /login.
+func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, issueSession func(http.ResponseWriter, *http.Request, uuid.UUID) error, m *metrics.Metrics, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SignupToken string `json:"signup_token"`
@@ -173,7 +182,19 @@ func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, log
 				"request_id", tokenReq.ID.String(), "user_id", userID.String(), "err", err.Error())
 		}
 
-		writeJSON(w, http.StatusCreated, map[string]any{"ok": true})
+		recordFunnel(r.Context(), m, userID, funnelSignupCreated)
+
+		signedIn := false
+		if issueSession != nil {
+			if err := issueSession(w, r, userID); err != nil {
+				if log != nil {
+					log.Warn("signup: issue session", "user_id", userID.String(), "err", err.Error())
+				}
+			} else {
+				signedIn = true
+			}
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "signed_in": signedIn})
 	}
 }
 
@@ -213,15 +234,32 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 
 // handleOnboardingComplete — POST /api/onboarding/complete
 //
-// Marks the current user's onboarding stepper as finished. The
-// frontend calls this when the user reaches the last step and clicks
-// "Get started".
-func handleOnboardingComplete(d *sql.DB) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+// Marks the current user's onboarding as finished. The frontend calls
+// this when the user leaves the connect step, either connected or via
+// "I'll connect later" - the funnel records which.
+func handleOnboardingComplete(d *sql.DB, m *metrics.Metrics) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		if err := db.SetOnboardingCompleted(r.Context(), d, uid); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
+		var vehicles int
+		if err := d.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM vehicles WHERE user_id = $1`, uid,
+		).Scan(&vehicles); err == nil && vehicles == 0 {
+			recordFunnel(r.Context(), m, uid, funnelOnboardingSkipped)
+		}
+		recordFunnel(r.Context(), m, uid, funnelOnboardingComplete, "vehicles", vehicles)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
+}
+
+// signupSessionIssuer adapts the auth service for handleSignup,
+// returning nil when auth isn't configured so the handler skips the
+// sign-in rather than calling a nil service.
+func signupSessionIssuer(a *auth.Service) func(http.ResponseWriter, *http.Request, uuid.UUID) error {
+	if a == nil {
+		return nil
+	}
+	return a.IssueSession
 }

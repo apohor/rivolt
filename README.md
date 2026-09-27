@@ -132,8 +132,8 @@ dependency at any stop). Empty categories hide their headers.
 
 A five-tab layout for the per-user controls:
 
-- **Account** — Rivian connection (with the dedicated
-  Authorized Driver pattern documented in
+- **Account** — Rivian connection (with the optional dedicated
+  Authorized Driver setup documented in
   [`docs/SIGNUP.md`](docs/SIGNUP.md)).
 - **Vehicle** — vehicle profile (pack capacity), display units,
   home location.
