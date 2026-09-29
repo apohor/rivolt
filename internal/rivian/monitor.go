@@ -2173,6 +2173,10 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		if sess.PowerKW > 0 {
 			cp.ChargerPowerKW = sess.PowerKW
 		}
+		// sess.PowerKW falls back to the previous push's value, so a
+		// replayed frame after the session ended would put the old
+		// power straight back. Only an actively charging car draws.
+		dropIdleChargerPower(&cp)
 		merged = &cp
 		m.cache[vehicleID] = merged
 		m.stamp[vehicleID] = time.Now()
@@ -2271,7 +2275,38 @@ func mergeState(prev, next *State) *State {
 		out.TailgateClosed = next.TailgateClosed
 		out.TonneauClosed = next.TonneauClosed
 	}
+	dropIdleChargerPower(&out)
 	return &out
+}
+
+// chargerDrawing reports whether a Rivian chargerState means the pack
+// is taking power right now. charging_ready (plugged in, waiting on a
+// schedule or the limit), charging_complete, and the stopped/error
+// states all draw nothing, even with the cable connected.
+func chargerDrawing(cs string) bool {
+	switch strings.ToLower(strings.TrimSpace(cs)) {
+	case "charging_active", "charging_connecting":
+		return true
+	}
+	return false
+}
+
+// dropIdleChargerPower zeroes ChargerPowerKW once the car reports a
+// known charger state that isn't drawing.
+//
+// Charger power only ever arrives on charging-session pushes, and
+// mergeFloat's "non-zero wins" rule meant nothing ever cleared it: the
+// last session's power (e.g. 7.5 kW on a home wall charger) rode along
+// on every sample until the pod restarted, for weeks at a time. That
+// made SleepActivity count all parked time as charging (idle-awake
+// read zero), stamped zero-length "charges" with the stale peak, and
+// let the recorder integrate phantom energy through charging_ready
+// stretches. An empty state means "not reported in this frame", so it
+// leaves the value alone.
+func dropIdleChargerPower(s *State) {
+	if s.ChargerState != "" && !chargerDrawing(s.ChargerState) {
+		s.ChargerPowerKW = 0
+	}
 }
 
 func mergeFloat(dst *float64, src float64) {

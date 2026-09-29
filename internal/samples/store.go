@@ -373,9 +373,16 @@ type DayActivity struct {
 // scopes to one car; empty aggregates all of the user's vehicles.
 //
 // idle_awake = awake (power_state<>'sleep') AND parked (gear not D/R/N)
-// AND not actively charging (charging_state<>'charging_active' and no
-// charger draw). That isolates unexplained awake time from normal
-// driving / charging.
+// AND not actively charging (charging_state not charging_active /
+// charging_connecting). That isolates unexplained awake time from
+// normal driving / charging.
+//
+// Charging is judged by charging_state alone, not charger_power_kw:
+// until the recorder fix alongside this, the stored power kept the last
+// session's value on every parked sample (see dropIdleChargerPower in
+// internal/rivian), which made every awake hour look like charging and
+// flattened idle-awake to zero. charging_state was always right, so
+// keying on it corrects the history as well as new rows.
 func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, until time.Time) ([]DayActivity, error) {
 	const capSec = 1200 // 20 min
 	args := []any{s.userID, since.UTC(), until.UTC(), capSec}
@@ -387,7 +394,6 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	query := `
 	WITH ivl AS (
 		SELECT vs.at, vs.power_state, vs.shift_state, vs.charging_state,
-		       COALESCE(vs.charger_power_kw, 0) AS pkw,
 		       LEAST(
 		         EXTRACT(EPOCH FROM (LEAD(vs.at) OVER (PARTITION BY vs.vehicle_id ORDER BY vs.at) - vs.at)),
 		         $4
@@ -400,8 +406,7 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	       COALESCE(SUM(dur_s) FILTER (
 	         WHERE power_state <> 'sleep'
 	           AND shift_state NOT IN ('D','R','N')
-	           AND charging_state <> 'charging_active'
-	           AND pkw < 0.1
+	           AND charging_state NOT IN ('charging_active','charging_connecting')
 	       ), 0)/3600.0 AS idle_awake_h
 	FROM ivl
 	WHERE dur_s IS NOT NULL

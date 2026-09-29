@@ -102,6 +102,56 @@ func TestMergeStatePreservesLocationFixAt(t *testing.T) {
 	}
 }
 
+// TestMergeStateDropsIdleChargerPower: charger power must not outlive
+// the charge. It used to ride along at the last session's value (7.5 kW)
+// on every parked sample until a pod restart, which zeroed the
+// idle-awake chart for weeks and stamped phantom power on charges.
+func TestMergeStateDropsIdleChargerPower(t *testing.T) {
+	charging := &State{ChargerState: "charging_active", ChargerPowerKW: 7.5}
+
+	// A frame with no charger fields keeps the live reading.
+	if got := mergeState(charging, &State{PowerState: "ready"}).ChargerPowerKW; got != 7.5 {
+		t.Errorf("mid-charge frame without charger fields: power = %v, want 7.5", got)
+	}
+	// Charge finishes: power clears even though the push carried none.
+	done := mergeState(charging, &State{ChargerState: "charging_complete"})
+	if done.ChargerPowerKW != 0 {
+		t.Errorf("after charging_complete: power = %v, want 0", done.ChargerPowerKW)
+	}
+	// Plugged in, waiting on a schedule: nothing is drawing.
+	stale := &State{ChargerState: "charging_ready", ChargerPowerKW: 7.5}
+	if got := mergeState(stale, &State{PowerState: "ready"}).ChargerPowerKW; got != 0 {
+		t.Errorf("charging_ready with stale power: power = %v, want 0", got)
+	}
+	// Ramp-up counts as drawing.
+	if got := mergeState(&State{}, &State{ChargerState: "charging_connecting", ChargerPowerKW: 3}).ChargerPowerKW; got != 3 {
+		t.Errorf("charging_connecting: power = %v, want 3", got)
+	}
+}
+
+func TestChargerDrawing(t *testing.T) {
+	for cs, want := range map[string]bool{
+		"charging_active":       true,
+		"Charging_Connecting ":  true,
+		"charging_ready":        false,
+		"charging_complete":     false,
+		"charging_user_stopped": false,
+		"charger_disconnected":  false,
+		"waiting_on_charger":    false,
+		"":                      false,
+	} {
+		if got := chargerDrawing(cs); got != want {
+			t.Errorf("chargerDrawing(%q) = %v, want %v", cs, got, want)
+		}
+	}
+	// Unknown state leaves the value alone rather than guessing.
+	s := &State{ChargerPowerKW: 7.5}
+	dropIdleChargerPower(s)
+	if s.ChargerPowerKW != 7.5 {
+		t.Errorf("empty ChargerState: power = %v, want 7.5 untouched", s.ChargerPowerKW)
+	}
+}
+
 // TestWakeWorthyTransition exercises the heuristic used by
 // periodicRefresh to decide when a fresh REST snapshot warrants
 // kicking the WS resubscribe loop. Bias is toward false negatives:
