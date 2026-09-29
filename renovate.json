@@ -11,6 +11,7 @@
   "prHourlyLimit": 4,
   "prConcurrentLimit": 8,
   "postUpdateOptions": ["gomodTidy"],
+  "platformAutomerge": false,
   "packageRules": [
     {
       "description": "Image tag in the Helm chart is owned by CI (retag/promote release flow), never by Renovate",
@@ -58,6 +59,11 @@
       "description": "Container base images (Dockerfile + compose): one PR",
       "matchManagers": ["dockerfile", "docker-compose"],
       "groupName": "container base images"
+    },
+    {
+      "description": "Automerge non-major updates once every check (go, web, integration) is green. Renovate merges them itself on a later run instead of GitHub auto-merge (platformAutomerge off): main has no branch protection, so GitHub would merge before CI finished. A group containing a major is a major and stays manual. A merge only reaches preview; prod still needs a release tag.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
     }
   ]
 }

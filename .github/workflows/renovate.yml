@@ -2,8 +2,11 @@ name: Renovate
 
 on:
   schedule:
-    # Mondays at 06:00 ET (10:00 UTC)
-    - cron: "0 10 * * 1"
+    # Mondays every 2h, 06:00-18:00 ET (10:00-22:00 UTC). The first run
+    # opens PRs; later runs automerge the ones whose CI went green and
+    # rebase the rest. Renovate's own schedule ("on monday") still
+    # limits new PRs to Monday.
+    - cron: "0 10-22/2 * * 1"
   workflow_dispatch:
     inputs:
       logLevel:
