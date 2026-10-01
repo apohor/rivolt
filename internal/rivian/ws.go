@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -248,18 +249,51 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 	}
 	defer unsubscribe()
 
+	// Lifecycle log: one line when a subscription opens, one when it
+	// ends and why. Every Subscribe* wrapper resubscribes within a
+	// second or two of a server "complete", silently, so without these
+	// there's no way to line subscription churn up against the car's
+	// sleep/wake transitions (which is exactly the question when a car
+	// won't stay asleep). Volume is one pair per subscription lifetime.
+	started := time.Now()
+	frames := 0
+	topics := subscriptionTopics(vars)
+	slog.InfoContext(ctx, "rivian sub start",
+		"op", params.operationName, "vehicle", params.vehicleID, "topics", topics)
+	end := func(reason string, err error) {
+		attrs := []any{"op", params.operationName, "vehicle", params.vehicleID, "topics", topics,
+			"reason", reason, "dur", time.Since(started).Round(time.Second).String(), "frames", frames}
+		if err != nil {
+			attrs = append(attrs, "err", err.Error())
+		}
+		slog.InfoContext(context.WithoutCancel(ctx), "rivian sub end", attrs...)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
+			end("cancelled", nil)
 			return nil
 		case payload := <-sub.framesCh:
+			frames++
 			if err := onNext(payload); err != nil {
+				end("handler", err)
 				return err
 			}
 		case err := <-sub.errCh:
+			end("server", err)
 			return err
 		}
 	}
+}
+
+// subscriptionTopics summarises a subscription's variables for the
+// lifecycle log: the Parallax RVM count, 0 for the GraphQL ones.
+func subscriptionTopics(vars map[string]any) int {
+	if rvms, ok := vars["rvms"].([]string); ok {
+		return len(rvms)
+	}
+	return 0
 }
 
 // stateFromVehicleStateData is the subscription counterpart to the

@@ -363,6 +363,13 @@ type DayActivity struct {
 	Day        time.Time `json:"day"`
 	AsleepH    float64   `json:"asleep_h"`
 	IdleAwakeH float64   `json:"idle_awake_h"`
+	// Sleeps counts the times the car fell asleep that day;
+	// FailedSleeps the ones that ended within a minute. A healthy car
+	// sleeps a few times a day for hours; a high failed share means
+	// something keeps waking it, which is usually what drives
+	// IdleAwakeH up.
+	Sleeps       int `json:"sleeps"`
+	FailedSleeps int `json:"failed_sleeps"`
 }
 
 // SleepActivity attributes each inter-sample interval to the vehicle's
@@ -417,14 +424,69 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	}
 	defer rows.Close()
 	var out []DayActivity
+	byDay := map[time.Time]int{}
 	for rows.Next() {
 		var d DayActivity
 		if err := rows.Scan(&d.Day, &d.AsleepH, &d.IdleAwakeH); err != nil {
 			return nil, err
 		}
+		byDay[d.Day.UTC()] = len(out)
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.countSleeps(ctx, vehicleID, since, until, byDay, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// countSleeps fills Sleeps / FailedSleeps on the SleepActivity days.
+// A sleep starts at the first 'sleep' sample after a non-sleep one and
+// ends at the next non-sleep sample; failed means it lasted under 60 s
+// (the threshold the monitor's sleep gate logs with). A sleep still in
+// progress at the end of the window isn't counted.
+func (s *Store) countSleeps(ctx context.Context, vehicleID string, since, until time.Time, byDay map[time.Time]int, out []DayActivity) error {
+	args := []any{s.userID, since.UTC(), until.UTC()}
+	vfilter := ""
+	if vehicleID != "" {
+		vfilter = " AND vs.vehicle_id = (SELECT id FROM vehicles WHERE rivian_vehicle_id = $4)"
+		args = append(args, vehicleID)
+	}
+	query := `
+	WITH s AS (
+		SELECT vs.vehicle_id, vs.at, vs.power_state,
+		       LAG(vs.power_state) OVER (PARTITION BY vs.vehicle_id ORDER BY vs.at) AS prev_ps
+		FROM vehicle_state vs
+		WHERE vs.user_id = $1 AND vs.at >= $2 AND vs.at < $3 AND vs.power_state IS NOT NULL` + vfilter + `
+	), changes AS (
+		SELECT vehicle_id, at, power_state,
+		       LEAD(at) OVER (PARTITION BY vehicle_id ORDER BY at) AS next_change_at
+		FROM s WHERE power_state IS DISTINCT FROM prev_ps
+	)
+	SELECT date_trunc('day', at) AS day,
+	       COUNT(*) AS sleeps,
+	       COUNT(*) FILTER (WHERE next_change_at - at < interval '60 seconds') AS failed
+	FROM changes
+	WHERE power_state = 'sleep' AND next_change_at IS NOT NULL
+	GROUP BY 1`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var day time.Time
+		var sleeps, failed int
+		if err := rows.Scan(&day, &sleeps, &failed); err != nil {
+			return err
+		}
+		if i, ok := byDay[day.UTC()]; ok {
+			out[i].Sleeps, out[i].FailedSleeps = sleeps, failed
+		}
+	}
+	return rows.Err()
 }
 
 // ListAll returns every sample for this user, oldest first. Used by

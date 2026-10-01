@@ -340,6 +340,10 @@ export type DayActivity = {
   day: string; // RFC3339 (UTC day start)
   asleep_h: number;
   idle_awake_h: number;
+  // Times the car fell asleep that day, and how many of those sleeps
+  // ended within a minute (something woke it right back up).
+  sleeps: number;
+  failed_sleeps: number;
 };
 
 export type PackHealthResponse = {

@@ -453,6 +453,15 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Sleep gate: vehicles listed in the sleep_safe_vehicles flag
+		// have their non-vehicleState subscriptions parked while asleep;
+		// every vehicle's sleeps are timed into the sleeps metric.
+		if flagsStore != nil {
+			monitorRegistry.SetSleepSafe(func(vehicleID string) bool {
+				return flagsStore.SleepSafe().Covers(vehicleID)
+			})
+		}
+		monitorRegistry.SetSleepObserver(&sleepMetrics{m: appMetrics})
 		// Live-session persistence: when Redis is wired, install a
 		// per-user LiveStateStore factory so each StateMonitor can
 		// rehydrate its in-flight drive/charge accumulators across
@@ -1721,6 +1730,21 @@ func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logg
 // package) so the metrics package stays import-free of rivian; the
 // dependency direction is rivian → main → metrics, never the other
 // way.
+// sleepMetrics adapts rivian.SleepObserver onto appMetrics, for the
+// same dependency-direction reason as breakerMetrics below.
+type sleepMetrics struct{ m *metrics.Metrics }
+
+func (s *sleepMetrics) OnSleepEnded(_ string, _ time.Duration, failed bool) {
+	if s == nil || s.m == nil {
+		return
+	}
+	outcome := "lasted"
+	if failed {
+		outcome = "failed"
+	}
+	s.m.VehicleSleepsTotal.WithLabelValues(outcome).Inc()
+}
+
 type breakerMetrics struct{ m *metrics.Metrics }
 
 func (b *breakerMetrics) OnStateChange(_, to rivian.BreakerState) {

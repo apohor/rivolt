@@ -248,6 +248,13 @@ type StateMonitor struct {
 	// cost" — the charge row lands with Cost=0 and the read-path
 	// decorator computes an estimate instead.
 	priceLookup PriceLookup
+
+	// sleepSafe reports whether a vehicle's non-essential
+	// subscriptions should be parked while it sleeps, and
+	// sleepObserver hears about every completed sleep. Both drive the
+	// sleep gate (sleep_gate.go); nil disables each. Guarded by mu.
+	sleepSafe     func(vehicleID string) bool
+	sleepObserver SleepObserver
 }
 
 // PriceLookup returns the current home electricity rate and its
@@ -888,29 +895,35 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// refuses to REST-poll vehicleState at all for this reason.
 	refreshCtx, cancelRefresh := context.WithCancel(ctx)
 	defer cancelRefresh()
-	go m.periodicRefresh(refreshCtx, vehicleID)
-	go m.chargingSessionMetadataFetcher(refreshCtx, vehicleID)
-	go m.chargingSessionSubscriber(refreshCtx, vehicleID)
-	go m.batteryStateSubscriber(refreshCtx, vehicleID)
 	// Publish this vehicle's merged live State to the shared store so a
 	// peer replica that doesn't own the lease can serve /api/state with
 	// all subscription-only fields (see RemoteLatest). No-op without a
 	// shared store.
 	go m.liveStatePublisher(refreshCtx, vehicleID)
-	if eligibleParallaxGPS {
-		go m.dynamicsGNSSSubscriber(refreshCtx, vehicleID)
-		// Liveness watch (Phase-5 prerequisite): warn if the Parallax
-		// stream goes silent while driving — the invisible-death case that
-		// must be detectable before vehicleState can be dropped.
-		go m.parallaxLivenessWatch(refreshCtx, vehicleID)
-		// Phase 2 drive-dynamics: shadow-log gear/drive_mode/odometer/
-		// power.state vs vehicleState and apply them authoritatively
-		// (gear opens drives, odometer bridges stalls, power.state /
-		// drive_mode fill the cache).
-		if m.parallaxDriveDynamics {
-			go m.driveDynamicsSubscriber(refreshCtx, vehicleID)
+	// Everything else that talks to Rivian besides the vehicleState
+	// WebSocket below runs under the sleep gate, which parks it while a
+	// sleep-safe vehicle is asleep and restarts it on wake (see
+	// sleep_gate.go). For other vehicles the gate only observes.
+	go m.sleepGate(refreshCtx, vehicleID, func(wctx context.Context) {
+		go m.periodicRefresh(wctx, vehicleID)
+		go m.chargingSessionMetadataFetcher(wctx, vehicleID)
+		go m.chargingSessionSubscriber(wctx, vehicleID)
+		go m.batteryStateSubscriber(wctx, vehicleID)
+		if eligibleParallaxGPS {
+			go m.dynamicsGNSSSubscriber(wctx, vehicleID)
+			// Liveness watch (Phase-5 prerequisite): warn if the Parallax
+			// stream goes silent while driving — the invisible-death case that
+			// must be detectable before vehicleState can be dropped.
+			go m.parallaxLivenessWatch(wctx, vehicleID)
+			// Phase 2 drive-dynamics: shadow-log gear/drive_mode/odometer/
+			// power.state vs vehicleState and apply them authoritatively
+			// (gear opens drives, odometer bridges stalls, power.state /
+			// drive_mode fill the cache).
+			if m.parallaxDriveDynamics {
+				go m.driveDynamicsSubscriber(wctx, vehicleID)
+			}
 		}
-	}
+	})
 
 	// Resubscribe loop: SubscribeVehicleState has per-connection
 	// retry/backoff internally, but eventually returns (e.g. Rivian

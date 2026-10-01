@@ -183,6 +183,15 @@ export default function HomePage() {
       })),
     [sleepActivity.data],
   );
+  // Failed sleeps over the last two days (today is partial, so one day
+  // alone under-reads). A few a day is noise; past that the car can't
+  // stay asleep, which is what usually drives idle-awake up.
+  const sleepTrouble = useMemo(() => {
+    const recent = (sleepActivity.data ?? []).slice(-2);
+    const sleeps = recent.reduce((n, d) => n + (d.sleeps ?? 0), 0);
+    const failed = recent.reduce((n, d) => n + (d.failed_sleeps ?? 0), 0);
+    return failed >= 3 ? { sleeps, failed } : null;
+  }, [sleepActivity.data]);
   const capacityBasis =
     (packHealth.data?.headline.reported_pct_of_documented ?? 0) > 0
       ? "documented spec"
@@ -365,6 +374,14 @@ export default function HomePage() {
           </Card>
 
           <Card title="Idle-awake · minutes/day">
+            {sleepTrouble && (
+              <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
+                <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
+                {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two
+                days ended within a minute. Something keeps waking the car, which
+                drives the idle-awake time below up.
+              </div>
+            )}
             {sleepBars.length > 0 ? (
               <>
                 <BarChart
