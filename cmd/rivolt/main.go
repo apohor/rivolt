@@ -196,6 +196,26 @@ func runServer() {
 		}
 		pgPool = p
 		logger.Info("postgres connected")
+		// Read-only reporting role (Grafana's Postgres datasource):
+		// SELECT on an allowlist of non-secret tables. The role is
+		// created by CNPG on its own schedule, so re-apply after boot
+		// too; grants are idempotent and cheap. See internal/db/readonly.go.
+		if role := os.Getenv("RIVOLT_READONLY_ROLE"); role != "" {
+			go func() {
+				t := time.NewTicker(6 * time.Hour)
+				defer t.Stop()
+				for {
+					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
+					db.EnsureReadonlyGrants(gctx, pgPool, role, logger)
+					gcancel()
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+					}
+				}
+			}()
+		}
 	}
 
 	// Per-user data-plane factories. Each handler/recorder
