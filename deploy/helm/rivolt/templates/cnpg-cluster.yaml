@@ -64,6 +64,14 @@ spec:
       {{- range . }}
       - name: {{ .name | quote }}
         login: true
+        {{- if .bypassrls }}
+        # Reporting roles read per-user tables across tenants, which
+        # row-level security would otherwise hide entirely.
+        bypassrls: true
+        {{- end }}
+        {{- with .connectionLimit }}
+        connectionLimit: {{ . }}
+        {{- end }}
         {{- with .passwordSecret }}
         passwordSecret:
           name: {{ .name | quote }}
