@@ -64,6 +64,18 @@ const SignupCapName = "signup_cap"
 // a security control, so it must never brick the feature.
 const AICallCapName = "ai_call_cap"
 
+// SleepSafeName lists the vehicles whose non-essential Rivian
+// subscriptions are parked while the car reports it is asleep (see
+// rivian.StateMonitor's sleep gate). An operator switch, flipped over
+// psql with no deploy, e.g.:
+//
+//	INSERT INTO flags (name, value, updated_by)
+//	VALUES ('sleep_safe_vehicles', '{"vehicles":["01-242521064"]}', 'ops')
+//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+//
+// {"all": true} applies it to every vehicle.
+const SleepSafeName = "sleep_safe_vehicles"
+
 // DefaultPollInterval is how often the Store refreshes its
 // in-memory snapshot from Postgres. Chosen so a flipped flag
 // takes effect in roughly the time a human can notice — on the
@@ -106,6 +118,26 @@ type AICallCapState struct {
 	Actor      string `json:"actor,omitempty"`
 }
 
+// SleepSafeState is the JSONB payload for SleepSafeName. Vehicles are
+// Rivian vehicle IDs (e.g. "01-242521064").
+type SleepSafeState struct {
+	All      bool     `json:"all,omitempty"`
+	Vehicles []string `json:"vehicles,omitempty"`
+}
+
+// Covers reports whether vehicleID is in sleep-safe mode.
+func (s SleepSafeState) Covers(vehicleID string) bool {
+	if s.All {
+		return true
+	}
+	for _, v := range s.Vehicles {
+		if v == vehicleID {
+			return true
+		}
+	}
+	return false
+}
+
 // Store is the runtime flag cache. Start() kicks off the background
 // refresh; callers read via KillSwitch(). The type is safe for
 // concurrent use: all readers hit atomic.Value, only the refresh
@@ -127,6 +159,7 @@ type Store struct {
 	tripPlanner atomic.Pointer[TripPlannerState]
 	signupCap   atomic.Pointer[SignupCapState]
 	aiCallCap   atomic.Pointer[AICallCapState]
+	sleepSafe   atomic.Pointer[SleepSafeState]
 
 	startOnce sync.Once
 }
@@ -153,6 +186,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 		s.tripPlanner.Store(&TripPlannerState{Enabled: false})
 		s.signupCap.Store(&SignupCapState{Limit: 0})
 		s.aiCallCap.Store(&AICallCapState{DailyLimit: 0})
+		s.sleepSafe.Store(&SleepSafeState{})
 	}
 	return s, nil
 }
@@ -190,7 +224,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -199,6 +233,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	planner := TripPlannerState{Enabled: false}
 	signupCap := SignupCapState{Limit: 0}
 	aiCallCap := AICallCapState{DailyLimit: 0}
+	sleepSafe := SleepSafeState{}
 	for rows.Next() {
 		var name string
 		var raw []byte
@@ -222,6 +257,10 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &aiCallCap); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
+		case SleepSafeName:
+			if err := json.Unmarshal(raw, &sleepSafe); err != nil {
+				return fmt.Errorf("decode flag %q: %w", name, err)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -231,7 +270,18 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.tripPlanner.Store(&planner)
 	s.signupCap.Store(&signupCap)
 	s.aiCallCap.Store(&aiCallCap)
+	s.sleepSafe.Store(&sleepSafe)
 	return nil
+}
+
+// SleepSafe returns the cached sleep-safe vehicle list. Lock-free;
+// the monitor's sleep gate reads it every second per vehicle.
+func (s *Store) SleepSafe() SleepSafeState {
+	p := s.sleepSafe.Load()
+	if p == nil {
+		return SleepSafeState{}
+	}
+	return *p
 }
 
 // KillSwitch returns the current cached kill-switch state. Cheap

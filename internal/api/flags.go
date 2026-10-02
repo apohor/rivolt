@@ -39,6 +39,7 @@ func handleFlagsGet(store *flags.Store) http.HandlerFunc {
 			"kill_switch":  store.KillSwitch(),
 			"trip_planner": store.TripPlanner(),
 			"ai_call_cap":  store.AICallCap(),
+			"sleep_safe":   store.SleepSafe(),
 		})
 	}
 }

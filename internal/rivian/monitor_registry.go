@@ -51,6 +51,8 @@ type MonitorRegistry struct {
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
+	sleepSafe          func(vehicleID string) bool
+	sleepObserver      SleepObserver
 	logger             *slog.Logger
 
 	mu       sync.RWMutex
@@ -259,10 +261,28 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 			})
 		}
 	}
+	mon.SetSleepSafe(r.sleepSafe)
+	mon.SetSleepObserver(r.sleepObserver)
 	mon.Start(mctx)
 	r.monitors[uid] = &monitorEntry{monitor: mon, cancel: cancel}
 	r.logger.Info("monitor registry: started", "user_id", uid.String())
 	return mon
+}
+
+// SetSleepSafe installs the per-vehicle sleep-safe check handed to
+// every monitor started afterwards (see StateMonitor.sleepGate).
+func (r *MonitorRegistry) SetSleepSafe(fn func(vehicleID string) bool) {
+	r.mu.Lock()
+	r.sleepSafe = fn
+	r.mu.Unlock()
+}
+
+// SetSleepObserver installs the sleep metrics hook handed to every
+// monitor started afterwards.
+func (r *MonitorRegistry) SetSleepObserver(o SleepObserver) {
+	r.mu.Lock()
+	r.sleepObserver = o
+	r.mu.Unlock()
 }
 
 // Stop tears down the monitor for uid. Idempotent.

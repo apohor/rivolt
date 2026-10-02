@@ -81,6 +81,12 @@ type Metrics struct {
 	// cardinality stays bounded. The per-user trail lives in the
 	// matching "funnel" log line instead.
 	FunnelEventsTotal *prometheus.CounterVec
+
+	// Completed vehicle sleeps by outcome: "failed" when the car woke
+	// within a minute of falling asleep, "lasted" otherwise. A rising
+	// failed share is a car that can't stay asleep (vampire drain);
+	// the per-vehicle detail is in the "vehicle sleep ended" log line.
+	VehicleSleepsTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -173,6 +179,13 @@ func New() *Metrics {
 			},
 			[]string{"event"},
 		),
+		VehicleSleepsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_vehicle_sleeps_total",
+				Help: "Completed vehicle sleeps, partitioned by outcome (lasted|failed).",
+			},
+			[]string{"outcome"},
+		),
 	}
 
 	reg.MustRegister(
@@ -186,6 +199,7 @@ func New() *Metrics {
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
 		m.FunnelEventsTotal,
+		m.VehicleSleepsTotal,
 	)
 	return m
 }
