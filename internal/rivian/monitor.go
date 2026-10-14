@@ -268,6 +268,9 @@ type StateMonitor struct {
 	// frames, so close hooks (charge push notifications, drive weather
 	// fetches) don't fire for sessions that ended in the past.
 	quietHooks atomic.Bool
+	// catchup buffers recorder writes while a source monitor replays
+	// already-elapsed frames (replay_catchup.go). nil on live monitors.
+	catchup *catchupWriter
 }
 
 // DCFCPriceLookup returns the user's $/kWh for a DC fast-charging
@@ -361,6 +364,7 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 	// live subscriptions.
 	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture = false, false, false
 	m.source = src
+	m.catchup = newCatchupWriter(m)
 	for i := range vehicles {
 		v := vehicles[i]
 		m.vehicleInfo[v.ID] = &v
@@ -381,7 +385,16 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 	defer cancelPub()
 	go m.liveStatePublisher(pubCtx, vehicleID)
 
+	// Whatever catch-up buffered is persisted when the stream ends
+	// (lease loss, shutdown), on a detached context.
+	defer m.flushCatchup(vehicleID)
+
 	err := m.source.Stream(ctx, vehicleID, func(st State, catchingUp bool) {
+		if !catchingUp && m.quietHooks.Load() {
+			// Caught up: persist the backlog before the first live
+			// frame writes through, so writes stay in order.
+			m.flushCatchup(vehicleID)
+		}
 		m.quietHooks.Store(catchingUp)
 		cur := st
 		cur.VehicleID = vehicleID
@@ -391,6 +404,9 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
+		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples {
+			m.flushCatchup(vehicleID)
+		}
 	})
 	switch {
 	case errors.Is(err, ErrVehicleNotFound):

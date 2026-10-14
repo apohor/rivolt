@@ -441,7 +441,11 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 	m.sessMu.Unlock()
 
 	if saveSnapshot {
-		m.persistLiveState(vehicleID, snap)
+		if m.deferringWrites() {
+			m.catchup.setSnapshot(vehicleID, snap)
+		} else {
+			m.persistLiveState(vehicleID, snap)
+		}
 	}
 
 	// Sample insert: one row per cache update, floored at
@@ -490,7 +494,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 	// adding topics. See docs/ROADMAP.md, "Decouple sample
 	// persistence from frame arrival", for the sampler design that
 	// replaces it.
-	if m.samplesStore != nil && m.claimSampleSlot(vehicleID, curr.At) {
+	if (m.samplesStore != nil || m.deferringWrites()) && m.claimSampleSlot(vehicleID, curr.At) {
 		s := samples.Sample{
 			VehicleID:       vehicleID,
 			At:              curr.At,
@@ -549,7 +553,10 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			avg, mx, mn := curr.PackTempAvgC, curr.PackTempMaxC, curr.PackTempMinC
 			s.PackTempAvgC, s.PackTempMaxC, s.PackTempMinC = &avg, &mx, &mn
 		}
-		if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
+		if m.deferringWrites() {
+			// Replay catch-up: batched, see replay_catchup.go.
+			m.catchup.addSample(vehicleID, s)
+		} else if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
 			// failure is exactly what produces "the drive list has
@@ -709,7 +716,8 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		}
 		// Periodically re-upsert so a crash preserves the latest
 		// state. Cheap: single-row upsert against a sub-1k-row table.
-		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		// (Batched during replay catch-up, see replay_catchup.go.)
+		m.touchLiveDrive(ctx, curr.VehicleID, s.drive)
 		return s.drive.number
 	}
 
@@ -986,7 +994,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.endSoC = curr.BatteryLevelPct
 		s.charge.finalState = curr.ChargerState
-		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		m.touchLiveCharge(ctx, curr.VehicleID, s.charge)
 		return s.charge.number
 	}
 
@@ -1158,7 +1166,14 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 }
 
 func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {
-	if m.drivesStore == nil || d == nil {
+	if d == nil {
+		return
+	}
+	if m.catchup != nil {
+		// This write supersedes any buffered in-session row.
+		m.catchup.forgetDrive(vehicleID, d.id)
+	}
+	if m.drivesStore == nil {
 		return
 	}
 	// Phantom-drive guard, mirroring upsertLiveCharge. A drive with zero
@@ -1176,7 +1191,13 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 }
 
 func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c *liveCharge) {
-	if m.chargesStore == nil || c == nil {
+	if c == nil {
+		return
+	}
+	if m.catchup != nil {
+		m.catchup.forgetCharge(vehicleID, c.id)
+	}
+	if m.chargesStore == nil {
 		return
 	}
 
