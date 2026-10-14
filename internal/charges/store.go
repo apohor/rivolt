@@ -4,7 +4,9 @@ package charges
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -663,80 +665,245 @@ func (s *Store) LiveOverlap(ctx context.Context, rivianVehicleID, excludeID stri
 
 // RestampResult counts what RestampPlace changed (or would change).
 type RestampResult struct {
-	DryRun            bool `json:"dry_run"`
-	Changed           int  `json:"changed"`
-	ToHome            int  `json:"to_home"`
-	ToAway            int  `json:"to_away"`
-	Unchanged         int  `json:"unchanged"`
-	SkippedUserPriced int  `json:"skipped_user_priced"`
+	DryRun               bool       `json:"dry_run"`
+	Changed              int        `json:"changed"`
+	ToHome               int        `json:"to_home"`
+	ToAway               int        `json:"to_away"`
+	Unchanged            int        `json:"unchanged"`
+	SkippedUserPriced    int        `json:"skipped_user_priced"`
+	WouldPriceAtHomeRate int        `json:"would_price_at_home_rate"`
+	TotalCostDelta       float64    `json:"total_cost_delta"`
+	Currency             string     `json:"currency"`
+	RestampID            *uuid.UUID `json:"restamp_id"`
 }
 
-// RestampPlace recomputes the recorded place ('home' within radiusM of
-// (homeLat, homeLon), else 'away') on this user's charges that have a
-// position, in one transaction. It's the "my old home pin was wrong"
-// correction: only charges.place changes. Rows the user priced
-// (cost_source = 'user') and rows without a position are left alone;
-// no cost, price, source or network is touched. dryRun counts without
-// writing.
-func (s *Store) RestampPlace(ctx context.Context, homeLat, homeLon, radiusM float64, dryRun bool) (RestampResult, error) {
-	res := RestampResult{DryRun: dryRun}
+// RestampOptions configures RestampPlace.
+type RestampOptions struct {
+	HomeLat, HomeLon float64
+	RadiusM          float64
+	// HomeRate and Currency price AC charges that become home and are
+	// unpriced; HomeRate <= 0 prices nothing.
+	HomeRate float64
+	Currency string
+	// IsDCFC is the shared fast-charging rule (rivian.IsDCFCSession);
+	// fast charges are never priced at the home rate. nil treats every
+	// session as AC.
+	IsDCFC func(peakKW, energyKWh, activeSeconds float64, span time.Duration) bool
+	DryRun bool
+}
+
+// RestampPlace is the "my old home pin was wrong" correction: it
+// recomputes the recorded place ('home' within RadiusM of the home,
+// else 'away') on this user's charges that have a position, and prices
+// the AC charges that become home and were unpriced (no cost, no cost
+// source, some energy) at the home rate with cost_source 'home_rate', as
+// the recorder would have with the right pin. Rows the user priced are
+// never touched; no other price changes. One transaction; each changed
+// row is logged in charge_restamps under a new restamp id so
+// UndoRestamp can revert it. DryRun counts without writing.
+func (s *Store) RestampPlace(ctx context.Context, o RestampOptions) (RestampResult, error) {
+	res := RestampResult{DryRun: o.DryRun, Currency: o.Currency}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return res, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	const classify = `
-		SELECT id, place,
-		       CASE WHEN 2 * 6371000 * asin(sqrt(
-		                   power(sin(radians(lat - $2::float8) / 2), 2) +
-		                   cos(radians($2::float8)) * cos(radians(lat)) *
-		                   power(sin(radians(lon - $3::float8) / 2), 2))) <= $4::float8
-		            THEN 'home' ELSE 'away' END AS new_place
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, COALESCE(place, ''), lat, lon, COALESCE(cost_source, ''), cost IS NOT NULL,
+		       COALESCE(energy_added_kwh, 0), COALESCE(max_power_kw, 0), COALESCE(active_seconds, 0)::float8,
+		       started_at, ended_at
 		  FROM charges
 		 WHERE user_id = $1
 		   AND lat IS NOT NULL AND lon IS NOT NULL AND NOT (lat = 0 AND lon = 0)
-		   AND COALESCE(cost_source, '') <> 'user'`
-	rows, err := tx.QueryContext(ctx, `
-		SELECT COALESCE(place, ''), new_place, count(*) FROM (`+classify+`) c
-		 GROUP BY 1, 2`, s.userID, homeLat, homeLon, radiusM)
+		 ORDER BY started_at
+		   FOR UPDATE`, s.userID)
 	if err != nil {
 		return res, err
 	}
+	type change struct {
+		id        uuid.UUID
+		prev, now string
+		cost      float64 // > 0 when priced by this correction
+		energy    float64
+	}
+	var changes []change
 	for rows.Next() {
-		var oldP, newP string
-		var n int
-		if err := rows.Scan(&oldP, &newP, &n); err != nil {
+		var (
+			id                   uuid.UUID
+			place, source        string
+			lat, lon             float64
+			hasCost              bool
+			energy, peak, active float64
+			started, ended       time.Time
+		)
+		if err := rows.Scan(&id, &place, &lat, &lon, &source, &hasCost, &energy, &peak, &active, &started, &ended); err != nil {
 			rows.Close()
 			return res, err
 		}
-		switch {
-		case oldP == newP:
-			res.Unchanged += n
-		case newP == "home":
-			res.ToHome += n
-		default:
-			res.ToAway += n
+		if source == "user" {
+			continue
 		}
+		now := "away"
+		if haversineM(o.HomeLat, o.HomeLon, lat, lon) <= o.RadiusM {
+			now = "home"
+		}
+		if now == place {
+			res.Unchanged++
+			continue
+		}
+		c := change{id: id, prev: place, now: now, energy: energy}
+		if now == "home" {
+			res.ToHome++
+			dcfc := o.IsDCFC != nil && o.IsDCFC(peak, energy, active, ended.Sub(started))
+			if o.HomeRate > 0 && source == "" && !hasCost && energy > 0 && !dcfc {
+				c.cost = math.Round(o.HomeRate*energy*1e4) / 1e4
+				res.WouldPriceAtHomeRate++
+				res.TotalCostDelta += c.cost
+			}
+		} else {
+			res.ToAway++
+		}
+		changes = append(changes, c)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return res, err
 	}
-	res.Changed = res.ToHome + res.ToAway
+	res.Changed = len(changes)
+	res.TotalCostDelta = math.Round(res.TotalCostDelta*100) / 100
 	if err := tx.QueryRowContext(ctx,
 		`SELECT count(*) FROM charges WHERE user_id = $1 AND cost_source = 'user'`, s.userID,
 	).Scan(&res.SkippedUserPriced); err != nil {
 		return res, err
 	}
-	if dryRun || res.Changed == 0 {
+	if o.DryRun || len(changes) == 0 {
 		return res, nil
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE charges ch SET place = c.new_place, updated_at = NOW()
-		  FROM (`+classify+`) c
-		 WHERE ch.id = c.id AND ch.place IS DISTINCT FROM c.new_place`,
-		s.userID, homeLat, homeLon, radiusM); err != nil {
+	restampID := uuid.New()
+	for _, c := range changes {
+		if c.cost > 0 {
+			_, err = tx.ExecContext(ctx, `
+				UPDATE charges SET place = $2::text, cost = $3::numeric, price_per_kwh = $4::numeric,
+				       currency = NULLIF($5::text, ''), cost_source = 'home_rate', updated_at = NOW()
+				 WHERE id = $1`, c.id, c.now, c.cost, o.HomeRate, o.Currency)
+		} else {
+			_, err = tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1`, c.id, c.now)
+		}
+		if err != nil {
+			return res, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO charge_restamps (restamp_id, user_id, charge_id, prev_place, stamped_cost)
+			VALUES ($1, $2, $3, NULLIF($4::text, ''), $5::numeric)`,
+			restampID, s.userID, c.id, c.prev, nullIfZero(c.cost)); err != nil {
+			return res, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return res, err
 	}
+	res.RestampID = &restampID
+	return res, nil
+}
+
+// ErrNoRestamp is returned by UndoRestamp when there's nothing to undo.
+var ErrNoRestamp = errors.New("no restamp to undo")
+
+// UndoResult reports what UndoRestamp reverted.
+type UndoResult struct {
+	RestampID     uuid.UUID `json:"restamp_id"`
+	RestoredPlace int       `json:"restored_place"`
+	Unpriced      int       `json:"unpriced"`
+}
+
+// UndoRestamp reverts a correction (restampID, or the user's latest one
+// not yet undone when nil): every logged charge gets its previous place
+// back, and a home-rate price the correction added is removed only if
+// the row still carries exactly that price (a price the user set or
+// edited since is kept). One transaction; a correction can be undone
+// once.
+func (s *Store) UndoRestamp(ctx context.Context, restampID *uuid.UUID) (UndoResult, error) {
+	var res UndoResult
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	var id uuid.UUID
+	if restampID != nil {
+		id = *restampID
+	} else {
+		err := tx.QueryRowContext(ctx, `
+			SELECT restamp_id FROM charge_restamps
+			 WHERE user_id = $1 AND undone_at IS NULL
+			 ORDER BY created_at DESC LIMIT 1`, s.userID).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return res, ErrNoRestamp
+		}
+		if err != nil {
+			return res, err
+		}
+	}
+	type entry struct {
+		charge  uuid.UUID
+		prev    sql.NullString
+		stamped sql.NullFloat64
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT charge_id, prev_place, stamped_cost::float8 FROM charge_restamps
+		 WHERE restamp_id = $1 AND user_id = $2 AND undone_at IS NULL
+		   FOR UPDATE`, id, s.userID)
+	if err != nil {
+		return res, err
+	}
+	var entries []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.charge, &e.prev, &e.stamped); err != nil {
+			rows.Close()
+			return res, err
+		}
+		entries = append(entries, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	if len(entries) == 0 {
+		return res, ErrNoRestamp
+	}
+	for _, e := range entries {
+		if _, err := tx.ExecContext(ctx, `UPDATE charges SET place = $2::text, updated_at = NOW() WHERE id = $1 AND user_id = $3`,
+			e.charge, e.prev, s.userID); err != nil {
+			return res, err
+		}
+		res.RestoredPlace++
+		if e.stamped.Valid {
+			r, err := tx.ExecContext(ctx, `
+				UPDATE charges SET cost = NULL, price_per_kwh = NULL, currency = NULL, cost_source = NULL, updated_at = NOW()
+				 WHERE id = $1 AND user_id = $3 AND cost_source = 'home_rate' AND cost = $2::numeric`,
+				e.charge, e.stamped.Float64, s.userID)
+			if err != nil {
+				return res, err
+			}
+			if n, _ := r.RowsAffected(); n > 0 {
+				res.Unpriced++
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE charge_restamps SET undone_at = NOW() WHERE restamp_id = $1 AND user_id = $2`,
+		id, s.userID); err != nil {
+		return res, err
+	}
+	res.RestampID = id
 	return res, tx.Commit()
+}
+
+// haversineM is the great-circle distance in meters.
+func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	rad := func(d float64) float64 { return d * math.Pi / 180 }
+	dLat, dLon := rad(lat2-lat1), rad(lon2-lon1)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(rad(lat1))*math.Cos(rad(lat2))*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Sqrt(a))
 }

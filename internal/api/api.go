@@ -729,14 +729,10 @@ func New(d Deps) http.Handler {
 				handleDeleteCharge(d.Charges.For(uid))(w, r)
 			}))
 			r.Post("/charges/restamp-place", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				var store placeRestamper
-				if cs := d.Charges.For(uid); cs != nil {
-					store = cs
-				}
-				ss := d.Settings.For(uid)
-				handleRestampPlace(store, func(ctx context.Context) (settings.HomeLocation, error) {
-					return settings.GetHomeLocation(ctx, ss)
-				})(w, r)
+				handleRestampPlace(restamperFor(d, uid), restampSettingsFor(d, uid))(w, r)
+			}))
+			r.Post("/charges/restamp-place/undo", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleUndoRestamp(restamperFor(d, uid))(w, r)
 			}))
 			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePatchChargePricing(d.Charges.For(uid))(w, r)
