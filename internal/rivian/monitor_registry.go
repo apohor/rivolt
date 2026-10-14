@@ -55,6 +55,7 @@ type MonitorRegistry struct {
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	sleepSafe          func(vehicleID string) bool
 	sleepObserver      SleepObserver
+	wakeSafety         func(vehicleID string) WakeSafety
 	logger             *slog.Logger
 
 	mu       sync.RWMutex
@@ -300,6 +301,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	}
 	mon.SetSleepSafe(r.sleepSafe)
 	mon.SetSleepObserver(r.sleepObserver)
+	mon.SetWakeSafety(r.wakeSafety)
 	mon.Start(mctx)
 	r.monitors[uid] = &monitorEntry{monitor: mon, cancel: cancel}
 	r.logger.Info("monitor registry: started", "user_id", uid.String())
@@ -311,6 +313,14 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 func (r *MonitorRegistry) SetSleepSafe(fn func(vehicleID string) bool) {
 	r.mu.Lock()
 	r.sleepSafe = fn
+	r.mu.Unlock()
+}
+
+// SetWakeSafety installs the wake-safety switch lookup handed to every
+// monitor started afterwards (see wake_safety.go).
+func (r *MonitorRegistry) SetWakeSafety(fn func(vehicleID string) WakeSafety) {
+	r.mu.Lock()
+	r.wakeSafety = fn
 	r.mu.Unlock()
 }
 

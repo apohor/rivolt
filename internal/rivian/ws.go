@@ -132,6 +132,19 @@ type StateCallback func(*State)
 // The caller owns the lifetime via ctx; there is no separate
 // unsubscribe — ctx cancellation tears everything down cleanly.
 func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string, cb StateCallback) error {
+	return c.SubscribeVehicleStateHeld(ctx, vehicleID, nil, cb)
+}
+
+// ReconnectHold is consulted before a subscription the server ended is
+// reopened. It may block; it returns held = true if it waited (the
+// reopen then happens at once, without the backoff wait), and ctx's
+// error if ctx ended while it waited.
+type ReconnectHold func(ctx context.Context) (held bool, err error)
+
+// SubscribeVehicleStateHeld is SubscribeVehicleState with a hold
+// (wake-safety switch (c), see wake_safety.go). nil hold is
+// SubscribeVehicleState.
+func (c *LiveClient) SubscribeVehicleStateHeld(ctx context.Context, vehicleID string, hold ReconnectHold, cb StateCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -145,15 +158,25 @@ func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string
 		return errors.New("rivian: callback is required")
 	}
 
+	return subscribeLoop(ctx, func(ctx context.Context) error {
+		return c.runSubscription(ctx, vehicleID, userTok, cb)
+	}, hold, time.After)
+}
+
+// subscribeLoop runs one subscription until ctx ends or auth fails:
+// run a session, and when the server ends it, consult hold, then wait
+// out the backoff and reconnect. after is time.After (tests speed it
+// up).
+func subscribeLoop(ctx context.Context, run func(context.Context) error, hold ReconnectHold, after func(time.Duration) <-chan time.Time) error {
 	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		bo.start()
-		err := c.runSubscription(ctx, vehicleID, userTok, cb)
+		err := run(ctx)
 		if err == nil {
-			// runSubscription returns nil only on ctx.Done.
+			// run returns nil only on ctx.Done.
 			return ctx.Err()
 		}
 		// Fatal auth failures — don't retry, the caller needs to
@@ -164,10 +187,20 @@ func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string
 		// Back off 1s → 2s → 4s → … capped at 5m with jitter, HA-
 		// rivian's behaviour; reset after a healthy session (reconnect.go).
 		wait := bo.next()
+		if hold != nil {
+			held, herr := hold(ctx)
+			if herr != nil {
+				return herr
+			}
+			if held {
+				bo.attempt = 0
+				continue
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(wait):
+		case <-after(wait):
 		}
 	}
 }

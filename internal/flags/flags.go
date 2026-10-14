@@ -74,8 +74,25 @@ const AICallCapName = "ai_call_cap"
 //	VALUES ('sleep_safe_vehicles', '{"vehicles":["01-242521064"]}', 'ops')
 //	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
 //
-// {"all": true} applies it to every vehicle.
+// {"all": true} applies it to every vehicle; "except" opts vehicles
+// back out (a control group): {"all": true, "except": ["01-…"]}.
 const SleepSafeName = "sleep_safe_vehicles"
+
+// WakeSafetyName holds the battery-drain experiment's wake-safety
+// switches (D2). All off when the row is missing. Each switch selects
+// vehicles like sleep_safe_vehicles (all / vehicles / except), so an
+// experiment can run on a treatment group with the rest as control.
+// Flipped over psql with no deploy, picked up within the poll
+// interval:
+//
+//	INSERT INTO flags (name, value, updated_by)
+//	VALUES ('wake_safety', '{"capture_off":{"all":true},
+//	        "hold_asleep":{"vehicles":["01-…"]},"hold_check_every":"5m"}', 'ops')
+//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+//
+// A malformed value is logged and read as all-off, never blocking the
+// other flags. See WakeSafetyState.
+const WakeSafetyName = "wake_safety"
 
 // MoneyTabName gates the Money tab and its /api/ledger endpoints per
 // user. Default-off: a missing row, {"all": false} or a user not in
@@ -133,6 +150,68 @@ type AICallCapState struct {
 type SleepSafeState struct {
 	All      bool     `json:"all,omitempty"`
 	Vehicles []string `json:"vehicles,omitempty"`
+	// Except opts vehicles out, even under All.
+	Except []string `json:"except,omitempty"`
+}
+
+// VehicleSet selects vehicles by Rivian vehicle ID: every vehicle when
+// All, else those in Vehicles; Except always wins.
+type VehicleSet struct {
+	All      bool     `json:"all,omitempty"`
+	Vehicles []string `json:"vehicles,omitempty"`
+	Except   []string `json:"except,omitempty"`
+}
+
+// Covers reports whether vehicleID is selected.
+func (v VehicleSet) Covers(vehicleID string) bool {
+	return SleepSafeState(v).Covers(vehicleID)
+}
+
+// WakeSafetyState is the JSONB payload for WakeSafetyName.
+type WakeSafetyState struct {
+	// CaptureOff drops the Parallax capture topics (CaptureRVMs) from
+	// the drive-dynamics subscription, keeping GPS and drive dynamics.
+	// Takes effect at the subscription's next reconnect (≤ ~3 min).
+	CaptureOff VehicleSet `json:"capture_off"`
+	// RestQuiet skips the periodic REST GetVehicleState poll while the
+	// car reports asleep (drain experiment A). Don't combine with
+	// HoldAsleep, whose wake checks are REST calls.
+	RestQuiet VehicleSet `json:"rest_quiet"`
+	// HoldAsleep stops vehicleState from resubscribing after Rivian's
+	// ~3-min connection close while the car reports asleep. It
+	// resubscribes as soon as anything shows the car awake, a REST
+	// check every HoldCheckEvery finds it awake or moved, or after
+	// HoldMax.
+	HoldAsleep VehicleSet `json:"hold_asleep"`
+	// Go durations; empty or invalid means the default, out-of-range
+	// values are clamped (see CheckEvery, MaxHold).
+	HoldCheckEvery string `json:"hold_check_every,omitempty"`
+	HoldMax        string `json:"hold_max,omitempty"`
+	Actor          string `json:"actor,omitempty"`
+}
+
+// Hold timing defaults and bounds.
+const (
+	DefaultHoldCheckEvery = 5 * time.Minute
+	DefaultHoldMax        = 30 * time.Minute
+)
+
+// CheckEvery is the REST wake-check cadence while held, in [1m, 15m].
+func (w WakeSafetyState) CheckEvery() time.Duration {
+	return clampDuration(w.HoldCheckEvery, DefaultHoldCheckEvery, time.Minute, 15*time.Minute)
+}
+
+// MaxHold caps one hold, in [5m, 2h].
+func (w WakeSafetyState) MaxHold() time.Duration {
+	return clampDuration(w.HoldMax, DefaultHoldMax, 5*time.Minute, 2*time.Hour)
+}
+
+func clampDuration(v string, def, lo, hi time.Duration) time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(v))
+	if err != nil || d <= 0 {
+		return def
+	}
+	return min(max(d, lo), hi)
 }
 
 // MoneyTabState is the JSONB payload for MoneyTabName. Users are rivolt
@@ -161,6 +240,11 @@ func (s MoneyTabState) Enabled(userID string) bool {
 
 // Covers reports whether vehicleID is in sleep-safe mode.
 func (s SleepSafeState) Covers(vehicleID string) bool {
+	for _, v := range s.Except {
+		if v == vehicleID {
+			return false
+		}
+	}
 	if s.All {
 		return true
 	}
@@ -195,6 +279,7 @@ type Store struct {
 	aiCallCap   atomic.Pointer[AICallCapState]
 	sleepSafe   atomic.Pointer[SleepSafeState]
 	moneyTab    atomic.Pointer[MoneyTabState]
+	wakeSafety  atomic.Pointer[WakeSafetyState]
 
 	startOnce sync.Once
 }
@@ -223,6 +308,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 		s.aiCallCap.Store(&AICallCapState{DailyLimit: 0})
 		s.sleepSafe.Store(&SleepSafeState{})
 		s.moneyTab.Store(&MoneyTabState{})
+		s.wakeSafety.Store(&WakeSafetyState{})
 	}
 	return s, nil
 }
@@ -260,7 +346,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -271,6 +357,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	aiCallCap := AICallCapState{DailyLimit: 0}
 	sleepSafe := SleepSafeState{}
 	moneyTab := MoneyTabState{}
+	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
 		var name string
 		var raw []byte
@@ -302,6 +389,13 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &moneyTab); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
+		case WakeSafetyName:
+			// Experiment switches: a typo reads as all-off rather than
+			// freezing every other flag (kill switch included).
+			if err := json.Unmarshal(raw, &wakeSafety); err != nil {
+				s.logger.Warn("flags: wake_safety malformed, treating as off", "err", err.Error())
+				wakeSafety = WakeSafetyState{}
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -313,7 +407,20 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.aiCallCap.Store(&aiCallCap)
 	s.sleepSafe.Store(&sleepSafe)
 	s.moneyTab.Store(&moneyTab)
+	s.wakeSafety.Store(&wakeSafety)
 	return nil
+}
+
+// WakeSafety returns the cached wake-safety switches. Lock-free.
+func (s *Store) WakeSafety() WakeSafetyState {
+	if s == nil {
+		return WakeSafetyState{}
+	}
+	p := s.wakeSafety.Load()
+	if p == nil {
+		return WakeSafetyState{}
+	}
+	return *p
 }
 
 // MoneyTab returns the cached Money tab flag. Lock-free.

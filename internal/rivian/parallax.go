@@ -901,7 +901,11 @@ type DriveDynamicsCallback func(DriveDynamicsFrame)
 // with backoff. Phase 2 measurement — run in shadow alongside vehicleState to
 // pin the gear enum and compare cadence before any field is made
 // authoritative.
-func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra []string, cb DriveDynamicsCallback) error {
+//
+// extra, if non-nil, is called before every (re)connect for the extra
+// topics to carry, so a change (wake-safety capture switch) takes
+// effect at the next reconnect without a forced one.
+func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra func() []string, cb DriveDynamicsCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -914,14 +918,17 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := append([]string{
-		rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
-		rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
-	}, extra...)
 	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		rvms := []string{
+			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
+			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
+		}
+		if extra != nil {
+			rvms = append(rvms, extra()...)
 		}
 		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{

@@ -602,6 +602,18 @@ func runServer() {
 			monitorRegistry.SetSleepSafe(func(vehicleID string) bool {
 				return flagsStore.SleepSafe().Covers(vehicleID)
 			})
+			// Wake-safety switches (drain experiment D2), all off unless
+			// the wake_safety flag selects the vehicle.
+			monitorRegistry.SetWakeSafety(func(vehicleID string) rivian.WakeSafety {
+				w := flagsStore.WakeSafety()
+				return rivian.WakeSafety{
+					CaptureOff:     w.CaptureOff.Covers(vehicleID),
+					RestQuiet:      w.RestQuiet.Covers(vehicleID),
+					HoldAsleep:     w.HoldAsleep.Covers(vehicleID),
+					HoldCheckEvery: w.CheckEvery(),
+					HoldMax:        w.MaxHold(),
+				}
+			})
 		}
 		monitorRegistry.SetSleepObserver(&sleepMetrics{m: appMetrics})
 		// Price DC fast charges Rivian didn't bill at the rate of the

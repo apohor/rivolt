@@ -265,6 +265,18 @@ type StateMonitor struct {
 	sleepSafe     func(vehicleID string) bool
 	sleepObserver SleepObserver
 
+	// wakeSafety returns a vehicle's wake-safety switches (D2); nil is
+	// all off. holdingVS marks vehicles whose vehicleState resubscribe
+	// is being held (the watchdog ignores them). restFn is the hold's
+	// REST check and periodicRefresh's poll, nil meaning
+	// client.State (tests replace it).
+	wakeSafety func(vehicleID string) WakeSafety
+	holdingVS  map[string]bool
+	restFn     func(ctx context.Context, vehicleID string) (*State, error)
+	// restSkips counts rest_quiet skips per vehicle since its last REST
+	// call. Guarded by mu.
+	restSkips map[string]int
+
 	// source, when set, replaces the live Rivian subscription: run()
 	// feeds its frames straight to the recorder (see NewSourceMonitor).
 	// client is nil on such monitors.
@@ -814,7 +826,11 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 	// only when the data is genuinely ambiguous.
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	st, err := m.client.State(cctx, rivianVehicleID)
+	if m.restQuietAsleep(rivianVehicleID, "stale_charge_confirm") {
+		// Asleep means not charging: the open row is stale.
+		return false, ""
+	}
+	st, err := m.restState(cctx, rivianVehicleID, "stale_charge_confirm")
 	if err != nil || st == nil {
 		if err != nil && ctx.Err() == nil {
 			m.logger.Debug("stale charge REST confirm failed",
@@ -983,7 +999,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// something to overlay the deltas onto. Tire pressures (bar) and
 	// other subscription-only fields stay zero here and get filled
 	// in once the first push arrives.
-	if st, err := m.client.State(ctx, vehicleID); err == nil && st != nil {
+	if st, err := m.restState(ctx, vehicleID, "seed"); err == nil && st != nil {
 		m.noteVehStateGPS(vehicleID, st)
 		m.mu.Lock()
 		var merged *State
@@ -1112,7 +1128,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		connectAt := time.Now()
 		go m.watchSubscription(subCtx, vehicleID, cancelSub)
 
-		err := m.client.SubscribeVehicleState(subCtx, vehicleID, func(st *State) {
+		err := m.client.SubscribeVehicleStateHeld(subCtx, vehicleID, m.vehicleStateHold(vehicleID), func(st *State) {
 			atomic.AddInt64(&frameCount, 1)
 			// When Parallax GPS is authoritative, drop vehicleState's
 			// GPS before it reaches the cache so the gnss subscriber is
@@ -1312,7 +1328,12 @@ func (m *StateMonitor) watchSubscription(ctx context.Context, vehicleID string, 
 		case now := <-t.C:
 			m.mu.RLock()
 			last := m.stamp[vehicleID]
+			holding := m.holdingVS[vehicleID]
 			m.mu.RUnlock()
+			// A wake-safety hold is silence on purpose, not a zombie.
+			if holding {
+				continue
+			}
 			if !last.IsZero() && now.Sub(last) > wsStaleThreshold {
 				m.logger.Warn("rivian ws stale, forcing resubscribe",
 					"vehicle", vehicleID,
@@ -1414,55 +1435,62 @@ func (m *StateMonitor) adaptiveRefreshInterval(vehicleID string) time.Duration {
 // Bails on ctx cancellation.
 func (m *StateMonitor) periodicRefresh(ctx context.Context, vehicleID string) {
 	for {
-		interval := m.adaptiveRefreshInterval(vehicleID)
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		if !m.waitRefresh(ctx, vehicleID, m.adaptiveRefreshInterval(vehicleID)) {
 			return
-		case <-timer.C:
 		}
-		st, err := m.client.State(ctx, vehicleID)
-		if err != nil {
-			if ctx.Err() == nil {
-				m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
-			}
-			continue
-		}
-		if st == nil {
-			continue
-		}
-		m.noteVehStateGPS(vehicleID, st)
-		m.mu.Lock()
-		var merged *State
-		prev := m.cache[vehicleID]
-		if prev == nil {
-			merged = st
-		} else {
-			// mergeState(next=cached, prev=rest): cached values
-			// (which include WS deltas) win over REST where both
-			// are populated, REST fills in the zeros.
-			merged = mergeState(st, prev)
-		}
-		m.cache[vehicleID] = merged
-		m.stamp[vehicleID] = time.Now()
-		m.mu.Unlock()
-		// Resubscribe nudge: REST just observed an interesting
-		// transition (car woke up / plugged in / shifted into D /
-		// SoC moved meaningfully). Kick the supervise loop instead
-		// of waiting up to wsStaleThreshold for the watchdog to
-		// notice. No-op when no Subscribe is currently active.
-		if prev != nil && wakeWorthyTransition(prev, st) {
-			m.kickResubscribe(vehicleID, "rest detected wakeup transition")
-		}
-		// Sample-only: REST snapshots can replay a stale frame for
-		// hours when the car is in a cellular dead-zone (gateway
-		// keeps serving its last known gear/lat/lon/speed). Letting
-		// that drive lifecycle decisions fragmented a single 3-hour
-		// drive into 40+ stub drives. Lifecycle is now WS-driven
-		// only; REST stays a pure cache backfill.
-		m.recordSampleOnly(ctx, vehicleID, prev, merged)
+		m.refreshOnce(ctx, vehicleID)
 	}
+}
+
+// refreshOnce is one periodicRefresh tick: pull REST and fold it under
+// the cache.
+func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
+	// Experiment A (wake_safety rest_quiet): no REST poll while the
+	// car reports asleep. The vehicleState subscription stays up and
+	// is how a wake is noticed; the next tick after it re-polls.
+	if m.restQuietAsleep(vehicleID, "periodic_refresh") {
+		return
+	}
+	st, err := m.restState(ctx, vehicleID, "periodic_refresh")
+	if err != nil {
+		if ctx.Err() == nil {
+			m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
+		}
+		return
+	}
+	if st == nil {
+		return
+	}
+	m.noteVehStateGPS(vehicleID, st)
+	m.mu.Lock()
+	var merged *State
+	prev := m.cache[vehicleID]
+	if prev == nil {
+		merged = st
+	} else {
+		// mergeState(next=cached, prev=rest): cached values
+		// (which include WS deltas) win over REST where both
+		// are populated, REST fills in the zeros.
+		merged = mergeState(st, prev)
+	}
+	m.cache[vehicleID] = merged
+	m.stamp[vehicleID] = time.Now()
+	m.mu.Unlock()
+	// Resubscribe nudge: REST just observed an interesting
+	// transition (car woke up / plugged in / shifted into D /
+	// SoC moved meaningfully). Kick the supervise loop instead
+	// of waiting up to wsStaleThreshold for the watchdog to
+	// notice. No-op when no Subscribe is currently active.
+	if prev != nil && wakeWorthyTransition(prev, st) {
+		m.kickResubscribe(vehicleID, "rest detected wakeup transition")
+	}
+	// Sample-only: REST snapshots can replay a stale frame for
+	// hours when the car is in a cellular dead-zone (gateway
+	// keeps serving its last known gear/lat/lon/speed). Letting
+	// that drive lifecycle decisions fragmented a single 3-hour
+	// drive into 40+ stub drives. Lifecycle is now WS-driven
+	// only; REST stays a pure cache backfill.
+	m.recordSampleOnly(ctx, vehicleID, prev, merged)
 }
 
 // wakeWorthyTransition returns true when the REST snapshot reveals
@@ -1842,11 +1870,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity; see
 // docs/PARALLAX_MIGRATION.md Phase 2.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
-	var extra []string
-	if m.parallaxCapture {
-		extra = CaptureRVMs
-	}
-	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, extra, func(f DriveDynamicsFrame) {
+	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
 		m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
