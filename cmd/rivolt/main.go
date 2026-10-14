@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/drain"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/email"
@@ -812,6 +813,23 @@ func runServer() {
 	if pgPool != nil {
 		partitionJanitor := samples.NewPartitionJanitor(pgPool)
 		go partitionJanitor.Run(ctx)
+	}
+
+	// Fleet parked-drain gauges (D1): computed from vehicle_state on a
+	// ticker, served from a snapshot on scrape. Reads only our own
+	// database, never Rivian, so it can't wake a car.
+	// RIVOLT_DRAIN_METRICS_INTERVAL=off disables it.
+	if pgPool != nil {
+		iv, on, ierr := drain.ParseInterval(os.Getenv("RIVOLT_DRAIN_METRICS_INTERVAL"))
+		if ierr != nil {
+			logger.Warn("drain metrics: bad RIVOLT_DRAIN_METRICS_INTERVAL, using default", "err", ierr.Error())
+		}
+		if on {
+			dc := drain.NewCollector()
+			appMetrics.Registry().MustRegister(dc)
+			go dc.Run(ctx, pgPool, iv, logger)
+			logger.Info("drain metrics enabled", "interval", iv.String())
+		}
 	}
 
 	// Derive pack-health samples from existing charges on a slow
