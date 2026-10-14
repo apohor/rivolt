@@ -2110,6 +2110,9 @@ export function homeMoved(
 // geocoding backend as the planner's search box.
 export function HomeLocationPanel() {
   const qc = useQueryClient();
+  // The wrong-or-moved prompt rewrites history, so it ships with the
+  // money_tab_enabled flag only.
+  const shell = useMoneyTabEnabled();
   const homeQ = useQuery({
     queryKey: ["settings", "homeLocation"],
     queryFn: backend.homeLocationGet,
@@ -2136,7 +2139,7 @@ export function HomeLocationPanel() {
       qc.setQueryData(["settings", "homeLocation"], data);
       setAsk(null);
       restamp.reset();
-      if (prev?.set && vars.set && homeMoved(prev, vars)) restampDry.mutate();
+      if (shell && prev?.set && vars.set && homeMoved(prev, vars)) restampDry.mutate();
     },
   });
 
@@ -2236,9 +2239,9 @@ export function HomeLocationPanel() {
         <div role="group" aria-label="Wrong pin or moved" className="rounded-md border border-amber-500/30 bg-amber-950/20 p-3">
           <p className="text-neutral-100">Was the old location wrong, or did you move?</p>
           <p className="mt-1 text-xs text-neutral-400">
-            If it was wrong, we&apos;ll re-check {ask.changed} past {ask.changed === 1 ? "charge" : "charges"} against
-            the new home ({ask.to_home} will count as home charging). If you moved, history stays as recorded.
-            Prices are never changed.
+            If it was wrong, {ask.changed} past {ask.changed === 1 ? "charge" : "charges"} will be re-checked against
+            the new home: {ask.to_home} will move to Home and {ask.to_away} to away. Charges without a price stay
+            unpriced (you can add prices). This can&apos;t be undone from here. If you moved, history stays as recorded.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
