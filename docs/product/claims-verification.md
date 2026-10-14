@@ -7,7 +7,7 @@ Status 2026-10-13. Verdict: **cannot be stated as written.** A narrower claim is
 |---|---|---|
 | Owners requested "add your energy rates and have it calculate an est. cost per session"; thread unresolved, no Rivian reply | https://rivianforums.com/forum/threads/rivian-app-should-display-charging-session-cost.11297/ | Dec 2022 – Apr 2023 (stale) |
 | The Energy app (2025.18, mobile app 3.1+) graphs "show you dynamic cost and time estimates" during charging | https://rivian.com/stories/software-update-2025-18 | 2025 |
-| Vehicle screens show live charging cost at Tesla Superchargers | https://insideevs.com/news/713456/rivian-screens-display-live-charging-costs-tesla-superchargers/ (fetch failed; headline only) | 2023 |
+| Vehicle screens show live charging cost at Tesla Superchargers | https://insideevs.com/news/713456/rivian-screens-display-live-charging-costs-tesla-superchargers/ (**unverified**: page fetch failed, headline only) | 2023 |
 | Charging history exists at Profile > Manage Account > Charging history, for sessions started in-app or on Rivian chargers; authorized drivers see only their own | https://rivian.com/support/article/where-can-i-view-my-charging-history (page body not retrievable; text from search snippet) | n/a |
 | Public network prices are shown on the map site details | https://www.rivianownersforum.com/threads/ran-charging-costs.8951/ | n/a |
 

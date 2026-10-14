@@ -5,7 +5,9 @@ North star: **Activated vehicle = a connected vehicle whose owner views a priced
 ## Privacy rules
 - First-party only (own DB), no third-party analytics, no cookies beyond the session.
 - No coordinates, addresses, emails, VINs or amounts in event properties. Counts and enums only.
-- Visitor events use a random per-browser id (localStorage, optional); signed-in events use the user id. Honour DNT. Document in the Privacy Policy.
+- Visitor events use a random per-browser id in localStorage. That is a persistent identifier: disclose it in the Privacy Policy and honour DNT.
+- `POST /api/events` is unauthenticated: per-IP rate limit, small max payload (e.g. 2 KB, 20 events per batch), reject unknown event names and property keys.
+- Do not store IP address or User-Agent with events.
 - Self-hosters: off by default; one env flag.
 
 ## Events
