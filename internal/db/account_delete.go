@@ -59,19 +59,54 @@ type IdPDeleteFailure struct {
 }
 
 // RecordIdPDeleteFailure records (or, for a username already pending,
-// updates) a failed IdP deletion.
-func RecordIdPDeleteFailure(ctx context.Context, d *sql.DB, username, errMsg string) error {
+// updates) a failed IdP deletion and returns the row id, which is what
+// logs should carry instead of the username (an email address).
+func RecordIdPDeleteFailure(ctx context.Context, d *sql.DB, username, errMsg string) (uuid.UUID, error) {
 	if d == nil || username == "" {
-		return nil
+		return uuid.Nil, nil
 	}
-	_, err := d.ExecContext(ctx, `
+	var id uuid.UUID
+	err := d.QueryRowContext(ctx, `
 		INSERT INTO idp_delete_failures (username, error)
 		VALUES ($1, $2)
 		ON CONFLICT (lower(username)) DO UPDATE
 		   SET error = EXCLUDED.error,
 		       attempts = idp_delete_failures.attempts + 1,
-		       last_tried = NOW()`, username, errMsg)
-	return err
+		       last_tried = NOW()
+		RETURNING id`, username, errMsg).Scan(&id)
+	return id, err
+}
+
+// ClaimDueIdPDeleteFailures returns up to limit pending failures whose
+// backoff has elapsed (5 min × 2^(attempts-1), capped at 24 h; the
+// exponent is capped at 9 first, so a row failing daily for months can't
+// overflow the interval and break the query for every row) and
+// stamps them as tried now, so another replica running the same loop
+// skips them (FOR UPDATE SKIP LOCKED).
+func ClaimDueIdPDeleteFailures(ctx context.Context, d *sql.DB, limit int) ([]IdPDeleteFailure, error) {
+	rows, err := d.QueryContext(ctx, `
+		UPDATE idp_delete_failures f SET last_tried = NOW()
+		 WHERE f.id IN (
+		     SELECT id FROM idp_delete_failures
+		      WHERE last_tried <= NOW() - LEAST(interval '5 minutes' * power(2, LEAST(GREATEST(attempts - 1, 0), 9)), interval '24 hours')
+		      ORDER BY last_tried
+		      LIMIT $1
+		      FOR UPDATE SKIP LOCKED)
+		 RETURNING f.id, f.username, f.error, f.attempts, f.failed_at, f.last_tried,
+		           EXISTS (SELECT 1 FROM users u WHERE lower(u.username) = lower(f.username))`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []IdPDeleteFailure
+	for rows.Next() {
+		var f IdPDeleteFailure
+		if err := rows.Scan(&f.ID, &f.Username, &f.Error, &f.Attempts, &f.FailedAt, &f.LastTried, &f.AccountExists); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // ListIdPDeleteFailures returns pending IdP deletions, oldest first.
