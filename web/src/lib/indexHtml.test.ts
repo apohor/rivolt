@@ -8,6 +8,6 @@ describe("index.html CSP", () => {
     const html = readFileSync("index.html", "utf8");
     const inline = [...html.matchAll(/<script\b([^>]*)>/g)].filter((m) => !/\bsrc=/.test(m[1]));
     expect(inline).toHaveLength(0);
-    expect(html).toContain('src="/theme-init.js"');
+    expect(html).toMatch(/src="\/theme-init\.js(\?v=\d+)?"/);
   });
 });
