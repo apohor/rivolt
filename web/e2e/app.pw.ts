@@ -42,6 +42,11 @@ const views: View[] = [
   ...nowViews,
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
+  // Degraded-state banner: shown only when something is wrong.
+  { name: "banner-mfa", path: "/money", heading: "Money", opts: { rivian: "mfa" }, text: ["Rivian is waiting for your verification code."] },
+  { name: "banner-reauth", path: "/money", heading: "Money", opts: { rivian: "reauth" }, text: ["Your Rivian sign-in expired. Reconnect to keep recording."] },
+  { name: "banner-disconnected", path: "/money", heading: "Money", opts: { rivian: "disconnected" }, text: ["Rivian isn't connected."] },
+  { name: "banner-backend-down", path: "/money", heading: "Money", opts: { rivian: "backend-down" }, text: ["Rivolt can't reach its server."] },
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
   { name: "truck", path: "/truck", heading: "Truck", text: ["Pack capacity", "Lowest tire"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
@@ -96,6 +101,10 @@ for (const view of views) {
           await expect(page.getByRole("link", { name: "Full telemetry →" })).toBeVisible();
           const top = await page.getByRole("region", { name: "Now" }).evaluate((el) => el.getBoundingClientRect().top);
           expect(top).toBeLessThan(200);
+        }
+        if (!view.name.startsWith("banner-") && view.name !== "landing" && view.name !== "admin-idp") {
+          // Healthy: no degraded banner.
+          await expect(page.getByRole("status").filter({ hasText: /Rivian|reach its server/ })).toHaveCount(0);
         }
         if (view.name === "settings") {
           // Sign out lives in Settings now.

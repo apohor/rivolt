@@ -12,6 +12,7 @@ import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
+import DegradedBanner from "./DegradedBanner";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -196,6 +197,7 @@ export default function AppLayout() {
           <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
           {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
           <main className="min-w-0 flex-1 py-4 pb-24 md:py-6 md:pb-6">
+            <DegradedBanner />
             <SubNav tab={current} onPrefetch={prefetchRoute} />
             <Outlet />
           </main>
