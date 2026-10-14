@@ -624,3 +624,39 @@ func storedPricePerKWh(c Charge) any {
 	}
 	return nullIfZero(c.PricePerKWh)
 }
+
+// LiveOverlap describes the live session another recorder wrote over
+// the same time range: where it ends and what it already covers.
+type LiveOverlap struct {
+	EndedAt   time.Time
+	EndSoCPct float64
+	EnergyKWh float64
+}
+
+// LiveOverlap returns the latest-ending live charge for this vehicle,
+// other than excludeID, whose time range overlaps [start, end), or nil.
+// The recorder uses it when the overlap guard (migration 0041) rejected
+// one of its sessions: the session's tail after that row is still worth
+// writing if the other recorder stopped.
+func (s *Store) LiveOverlap(ctx context.Context, rivianVehicleID, excludeID string, start, end time.Time) (*LiveOverlap, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
+	var o LiveOverlap
+	err = s.db.QueryRowContext(ctx, `
+		SELECT ended_at, COALESCE(end_soc_pct, 0), COALESCE(energy_added_kwh, 0)
+		  FROM charges
+		 WHERE user_id = $1 AND vehicle_id = $2 AND source = 'live' AND external_id <> $3
+		   AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange($4::timestamptz, GREATEST($5::timestamptz, $4::timestamptz))
+		 ORDER BY ended_at DESC
+		 LIMIT 1`, s.userID, vid, excludeID, start.UTC(), end.UTC()).Scan(&o.EndedAt, &o.EndSoCPct, &o.EnergyKWh)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	o.EndedAt = o.EndedAt.UTC()
+	return &o, nil
+}

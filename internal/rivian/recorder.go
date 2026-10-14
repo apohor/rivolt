@@ -133,9 +133,14 @@ type liveSessions struct {
 
 type liveDrive struct {
 	// rejected is set when the database's live-session overlap guard
-	// (migration 0041) refused this drive: another recorder already owns
-	// an overlapping drive for the vehicle, so this one stops writing.
+	// (migration 0041) refused this drive: another recorder already wrote
+	// an overlapping drive for the vehicle. The drive keeps accumulating
+	// and retries with a trimmed start (rejected_session.go); final marks
+	// the close write, which always retries.
 	rejected   bool
+	rejectedAt time.Time
+	final      bool
+	trim       *sessionTrim
 	id         string
 	startedAt  time.Time
 	number     int64
@@ -189,15 +194,18 @@ type liveDrive struct {
 }
 
 type liveCharge struct {
-	// rejected: see liveDrive.rejected.
-	rejected  bool
-	id        string
-	startedAt time.Time
-	number    int64
-	startSoC  float64
-	lat       float64
-	lon       float64
-	maxPower  float64 // kW
+	// rejected, rejectedAt, final, trim: see liveDrive.
+	rejected   bool
+	rejectedAt time.Time
+	final      bool
+	trim       *sessionTrim
+	id         string
+	startedAt  time.Time
+	number     int64
+	startSoC   float64
+	lat        float64
+	lon        float64
+	maxPower   float64 // kW
 
 	endAt      time.Time
 	endSoC     float64
@@ -783,6 +791,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// route-fills from there to the parking frame's location so the
 		// rendered route reaches the true endpoint.
 		m.appendDrivePath(ctx, curr.VehicleID, s.drive, curr.Latitude, curr.Longitude, curr.At)
+		s.drive.final = true // a rejected drive retries once more at close
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		// Snapshot the row before the close hook fires so any async
 		// hook sees the persisted shape, not a half-mutated
@@ -793,6 +802,9 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		// upsertLiveDrive and never reached the store — don't run the
 		// post-close hook for them either.
 		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
+		// Still rejected after the close retry: another recorder owns
+		// this drive, so its hooks are that recorder's to fire.
+		rejected := s.drive.rejected
 		n := s.drive.number
 		// Retain for merge-on-reopen: a driving frame arriving within
 		// driveReopenWindow (odometer barely moved) resumes this row.
@@ -801,7 +813,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.drive = nil
 		// Not for drives replayed during catch-up: a first connect
 		// backfills weeks of them, each fetching weather.
-		if !phantom && m.driveCloseHook != nil && !m.quietHooks.Load() {
+		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
 			go m.runDriveCloseHook(closedRow)
 		}
 		return n
@@ -1027,12 +1039,15 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
 		s.charge.finalState = curr.ChargerState
+		s.charge.final = true // a rejected charge retries once more at close
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		// Snapshot the row before the hook fires (same pattern as the
 		// drive-close path) and decide whether to skip the hook for
 		// phantom rows that upsertLiveCharge already filtered out.
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
 		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		// Still rejected after the close retry: no duplicate push.
+		rejected := s.charge.rejected
 		n := s.charge.number
 		s.charge = nil
 		// Drop the cached LiveSession so its fields (energy, active,
@@ -1048,7 +1063,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && m.chargeCloseHook != nil && !m.quietHooks.Load() {
+		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
 			go m.runChargeCloseHook(closedRow)
 		}
 		return n
@@ -1149,7 +1164,7 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 			energy = socUsed / 100.0 * pack
 		}
 	}
-	return drives.Drive{
+	row := drives.Drive{
 		ID:              d.id,
 		VehicleID:       vehicleID,
 		StartedAt:       d.startedAt,
@@ -1169,6 +1184,8 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		Source:          "live",
 		RoutePolyline:   encodePolyline(d.path),
 	}
+	trimDrive(&row, d.trim, m.PackKWhFor(vehicleID))
+	return row
 }
 
 func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d *liveDrive) {
@@ -1190,18 +1207,25 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 	if !d.endAt.After(d.startedAt) && d.endSoC == d.startSoC && d.endOdoMi == d.startOdoMi {
 		return
 	}
-	if d.rejected {
+	if d.rejected && !m.prepareRejectedDrive(ctx, vehicleID, d) {
 		return
 	}
 	row := m.liveDriveRow(vehicleID, d)
 	if err := m.drivesStore.Upsert(ctx, row); err != nil {
 		if sessionOverlapRejected(err) {
-			d.rejected = true
-			m.logger.Warn("live drive rejected: overlaps another live drive for this vehicle (duplicate recorder?); no longer writing it",
-				"vehicle", vehicleID, "id", d.id, "err", err.Error())
+			if !d.rejected {
+				m.logger.Warn("live drive rejected: overlaps another live drive for this vehicle (duplicate recorder?); retrying with a trimmed start",
+					"vehicle", vehicleID, "id", d.id, "err", err.Error())
+			}
+			d.rejected, d.rejectedAt = true, time.Now()
 			return
 		}
 		m.logger.Debug("live drive upsert failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())
+		return
+	}
+	if d.rejected {
+		d.rejected = false
+		m.logger.Info("rejected live drive written after the overlapping one", "vehicle", vehicleID, "id", d.id, "from", row.StartedAt)
 	}
 }
 
@@ -1227,18 +1251,25 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		return
 	}
 
-	if c.rejected {
+	if c.rejected && !m.prepareRejectedCharge(ctx, vehicleID, c) {
 		return
 	}
 	row := m.liveChargeRow(vehicleID, c)
 	if err := m.chargesStore.Upsert(ctx, row); err != nil {
 		if sessionOverlapRejected(err) {
-			c.rejected = true
-			m.logger.Warn("live charge rejected: overlaps another live charge for this vehicle (duplicate recorder?); no longer writing it",
-				"vehicle", vehicleID, "id", c.id, "err", err.Error())
+			if !c.rejected {
+				m.logger.Warn("live charge rejected: overlaps another live charge for this vehicle (duplicate recorder?); retrying with a trimmed start",
+					"vehicle", vehicleID, "id", c.id, "err", err.Error())
+			}
+			c.rejected, c.rejectedAt = true, time.Now()
 			return
 		}
 		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())
+		return
+	}
+	if c.rejected {
+		c.rejected = false
+		m.logger.Info("rejected live charge written after the overlapping one", "vehicle", vehicleID, "id", c.id, "from", row.StartedAt)
 	}
 }
 
@@ -1451,6 +1482,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	homeNow := m.homeLookup
 	m.mu.RUnlock()
 	row.Place = PlaceOf(row.Lat, row.Lon, homeNow)
+	trimCharge(&row, c.trim)
 	return row
 }
 
