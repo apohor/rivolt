@@ -620,6 +620,16 @@ type sessionView struct {
 	spendOK bool // counts toward spend (priced, same currency)
 }
 
+// Classify reports how the ledger classifies one session: its cost
+// source (CostSource), place (home / away / unknown, honouring the
+// recorded place snapshot) and kind (ac / dcfc). It is exactly what
+// Build uses, exported so other surfaces (/api/charges, trips) show the
+// same answer as the Money tab. Pure; no behaviour of its own.
+func Classify(c Charge, cfg Config) (source, placeName, kind string) {
+	v := viewOf(c, cfg)
+	return v.source, v.place, v.kind
+}
+
 func viewOf(c Charge, cfg Config) sessionView {
 	v := sessionView{c: c, kind: kindOf(c)}
 	v.source, v.derived = CostSource(c, cfg)

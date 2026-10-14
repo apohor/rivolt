@@ -679,3 +679,43 @@ func ids(cs []Charge) []string {
 	}
 	return out
 }
+
+// Classify must return exactly what Build puts on a receipt.
+func TestClassify_MatchesBuild(t *testing.T) {
+	ac := charge("ac", "2026-10-02T00:00:00Z", time.Hour, 10, 7)
+	dc := charge("dc", "2026-10-04T00:00:00Z", 30*time.Minute, 50, 150)
+	cases := []Charge{
+		priced(ac, 0.11),                       // home rate, home, ac
+		ac,                                     // unpriced
+		priced(at(dc, awayLat, awayLon), 0.11), // home rate misapplied on DCFC
+		priced(at(dc, awayLat, awayLon), 0.48), // billed DCFC away
+		at(priced(ac, 0.30), awayLat, awayLon), // priced AC away
+	}
+	for i := range cases {
+		cases[i].ID = "c" + string(rune('a'+i))
+		cases[i].StartedAt = ts("2026-10-02T00:00:00Z").Add(time.Duration(i) * 24 * time.Hour)
+		cases[i].EndedAt = cases[i].StartedAt.Add(time.Hour)
+	}
+	pd, err := ParsePeriod("2026-10", time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A drive between sessions keeps each its own plug-in receipt.
+	var drives []Drive
+	for i := range cases {
+		st := cases[i].EndedAt.Add(2 * time.Hour)
+		drives = append(drives, Drive{ID: "d" + cases[i].ID, VehicleID: "veh-1", StartedAt: st,
+			EndedAt: st.Add(time.Hour), DistanceMi: f(10), EnergyKWh: f(3), Source: "live", CreatedAt: st})
+	}
+	m := Build(Input{Charges: cases, Drives: drives, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, pd, true)
+	if len(m.Receipts) != len(cases) {
+		t.Fatalf("receipts = %d, want %d", len(m.Receipts), len(cases))
+	}
+	for i, c := range cases {
+		src, pl, kind := Classify(c, cfg())
+		r := m.Receipts[i]
+		if src != r.CostSource || pl != r.Place || kind != r.Kind {
+			t.Errorf("%s: Classify = %s/%s/%s, Build = %s/%s/%s", c.ID, src, pl, kind, r.CostSource, r.Place, r.Kind)
+		}
+	}
+}
