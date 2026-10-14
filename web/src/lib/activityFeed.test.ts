@@ -76,4 +76,24 @@ describe("data-quality lines", () => {
     expect(chargeCostLine(legacy).tone).toBe("ok");
     expect(driveMissingEnergy(drive("a", "2026-10-02T08:00:00Z", 8, { EnergyUsedKWh: 0 }))).toBe(true);
   });
+
+  it("prefers the server's effective classification over client rules", () => {
+    const t = "2026-10-02T00:00:00Z";
+    // Stored as home rate on a 150 kW session, but the ledger says pending.
+    const pending = charge("p", t, { Cost: 8, CostSource: "home_rate", MaxPowerKW: 150, cost_source_effective: "home_rate_misapplied" });
+    expect(chargeCostLine(pending).text).toBe("Estimate pending");
+    // Away AC is unknown even though a stored cost exists.
+    expect(chargeCostLine(charge("a", t, { Cost: 3, cost_source_effective: "unknown" })).text).toBe("Unpriced");
+    expect(chargeCostLine(charge("n", t, { Cost: 20, cost_source_effective: "network_estimate" })).tone).toBe("est");
+    expect(chargeCostLine(charge("d", t, { Cost: 4, cost_source_effective: "home_rate", cost_source_derived: true })).tone).toBe("est");
+    expect(chargeCostLine(charge("f", t, { Cost: 0, cost_source_effective: "user" })).text).toBe("Free");
+  });
+  it("labels fast and home from the server's kind and place", () => {
+    const days = buildFeed([], [
+      charge("g", "2026-10-02T00:00:00Z", { MaxPowerKW: 200, kind: "ac", place: "home" }), // glitched peak
+    ], opts);
+    const it0 = days[0].items[0];
+    expect(it0.kind === "charge" && it0.fast).toBe(false);
+    expect(it0.kind === "charge" && it0.atHome).toBe(true);
+  });
 });
