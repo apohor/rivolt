@@ -229,3 +229,21 @@ func TestUsernameKeyOptInAndProviderCount(t *testing.T) {
 		t.Error("single provider keeps today's behaviour")
 	}
 }
+
+// First-party Hydra derives preferred_username from the email local
+// part. With RIVOLT_TRUST_FIRST_PARTY_EMAILS=false its email is
+// unverified; two people whose addresses share a local part must not
+// land on one account, on a single-provider install either.
+func TestResolveIdentityKey_HydraLocalPartTwinsGetSeparateAccounts(t *testing.T) {
+	const iss = "https://auth.example.com"
+	a := resolveIdentityKey(iss, "sub-a", "anton@a.com", false, "anton", false, true)
+	b := resolveIdentityKey(iss, "sub-b", "anton@b.com", false, "anton", false, true)
+	for _, k := range []identityKey{a, b} {
+		if k.Username == "anton" || strings.Contains(k.Username, "@") || !strings.HasPrefix(k.Username, iss+":") {
+			t.Fatalf("must key on iss:sub, got %q", k.Username)
+		}
+	}
+	if a.Username == b.Username {
+		t.Fatalf("local-part twins share a key: %q", a.Username)
+	}
+}
