@@ -24,6 +24,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
+import { useThemeChoice, type ThemeChoice } from "../lib/theme";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
@@ -132,6 +133,7 @@ export default function SettingsPage() {
           <Card title="Rivian account" id="rivian">
             <RivianAccountPanel />
           </Card>
+          {shell && <AppearanceCard />}
           {shell && (
             <Card title="Rivolt account">
               <SignOutButton />
@@ -2089,6 +2091,36 @@ function DeleteAccountBlock() {
         <p className="mt-2 text-xs text-rose-400">{error}</p>
       )}
     </div>
+  );
+}
+
+// AppearanceCard: System / Light / Dark, per device (localStorage). The
+// shell-only theme; the control is hidden when the shell is off.
+export function AppearanceCard() {
+  const [choice, setChoice] = useThemeChoice();
+  const opts: { key: ThemeChoice; label: string }[] = [
+    { key: "system", label: "System" },
+    { key: "light", label: "Light" },
+    { key: "dark", label: "Dark" },
+  ];
+  return (
+    <Card title="Appearance">
+      <div role="radiogroup" aria-label="Theme" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+        {opts.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={choice === o.key}
+            onClick={() => setChoice(o.key)}
+            className={`rounded-md px-3 py-1.5 ${choice === o.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-neutral-500">System follows your device. Saved on this device only.</p>
+    </Card>
   );
 }
 
