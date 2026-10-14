@@ -78,6 +78,8 @@ func main() {
 		case "--help", "-h", "help":
 			printUsage()
 			return
+		case "reprice":
+			os.Exit(runReprice(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -89,6 +91,9 @@ func printUsage() {
 Usage:
   rivolt          Start the HTTP server (default)
   rivolt --help   Show this help
+  rivolt reprice [--apply] [--user NAME]
+                  Classify legacy charge prices and re-price DC fast
+                  charges stored at the home rate (dry run unless --apply)
 
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
@@ -538,6 +543,29 @@ func runServer() {
 		rivianClient = rivian.NewStub()
 	}
 
+	// Server-side chargers PMTiles reader. Pulls the entire ~10 MB
+	// chargers.pmtiles into memory on first request (or any restart),
+	// then answers /api/maps/chargers-along queries fully in-process.
+	// Replaces the SPA's per-tile fan-out, which was producing
+	// hundreds of HTTP range requests per planner re-render. Lazy
+	// load: the first /api/maps/chargers-along call drives Reload.
+	var chargersArchive *chargers.Archive
+	if base := strings.TrimSpace(os.Getenv("RIVOLT_TILES_BASE_URL")); base != "" {
+		url := strings.TrimRight(base, "/") + "/chargers.pmtiles"
+		chargersArchive = chargers.New(url)
+		// Warm at startup, best-effort. A failed warm doesn't block
+		// boot — the endpoint will retry on demand.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := chargersArchive.Reload(ctx); err != nil {
+				logger.Warn("chargers archive warm-load failed (will retry on first request)", "err", err.Error())
+				return
+			}
+			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
+		}()
+	}
+
 	// Build the monitor registry. In live/mock modes the registry
 	// is the only thing that owns *StateMonitor instances. Stub
 	// mode skips it (no recorder, no WS).
@@ -557,6 +585,13 @@ func runServer() {
 			})
 		}
 		monitorRegistry.SetSleepObserver(&sleepMetrics{m: appMetrics})
+		// Price DC fast charges Rivian didn't bill at the rate of the
+		// station's network (nearest NREL DCFC within dcfcMatchRadiusM),
+		// honouring the user's memberships; unmatched → the table's
+		// "Unknown DCFC" rate. Without it they'd land on the home rate.
+		monitorRegistry.SetDCFCPriceLookupFactory(func(uid uuid.UUID) rivian.DCFCPriceLookup {
+			return newDCFCPricer(chargersArchive, settingsFactory.For(uid))
+		})
 		// Live-session persistence: when Redis is wired, install a
 		// per-user LiveStateStore factory so each StateMonitor can
 		// rehydrate its in-flight drive/charge accumulators across
@@ -1429,29 +1464,6 @@ func runServer() {
 	}
 	if tilesProxy != nil {
 		logger.Info("tiles same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_TILES_BASE_URL"))
-	}
-
-	// Server-side chargers PMTiles reader. Pulls the entire ~10 MB
-	// chargers.pmtiles into memory on first request (or any restart),
-	// then answers /api/maps/chargers-along queries fully in-process.
-	// Replaces the SPA's per-tile fan-out, which was producing
-	// hundreds of HTTP range requests per planner re-render. Lazy
-	// load: the first /api/maps/chargers-along call drives Reload.
-	var chargersArchive *chargers.Archive
-	if base := strings.TrimSpace(os.Getenv("RIVOLT_TILES_BASE_URL")); base != "" {
-		url := strings.TrimRight(base, "/") + "/chargers.pmtiles"
-		chargersArchive = chargers.New(url)
-		// Warm at startup, best-effort. A failed warm doesn't block
-		// boot — the endpoint will retry on demand.
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			if err := chargersArchive.Reload(ctx); err != nil {
-				logger.Warn("chargers archive warm-load failed (will retry on first request)", "err", err.Error())
-				return
-			}
-			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
-		}()
 	}
 
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the

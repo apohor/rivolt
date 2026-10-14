@@ -82,6 +82,13 @@ type Charge struct {
 	// legacy rows and non-live sources; the UI falls back to the wall
 	// span in that case.
 	ActiveSeconds float64
+	// CostSource says where Cost came from: "rivian" (billed),
+	// "home_rate", "network_estimate" (DCFC priced from the matched
+	// network's rate) or "user". Empty on legacy rows.
+	CostSource string
+	// Network is the matched DCFC network's display name for
+	// network_estimate rows; empty otherwise.
+	Network string
 }
 
 // Store wraps the charges table.
@@ -146,6 +153,7 @@ func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float
 		SET cost = $3,
 		    currency = NULLIF($4, ''),
 		    price_per_kwh = $5,
+		    cost_source = CASE WHEN $3::numeric IS NULL THEN NULL ELSE 'user' END,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND external_id = $2
 	`, s.userID, externalID, nullIfZero(cost), currency, nullIfZero(pricePerKWh))
@@ -173,8 +181,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			lat, lon, source,
 			cost, currency, price_per_kwh,
 			thermal_kwh,
-			active_seconds
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+			active_seconds,
+			cost_source, network
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -188,15 +197,19 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			lat              = EXCLUDED.lat,
 			lon              = EXCLUDED.lon,
 			source           = EXCLUDED.source,
-			cost             = EXCLUDED.cost,
-			currency         = EXCLUDED.currency,
-			price_per_kwh    = EXCLUDED.price_per_kwh,
+			-- A price the user entered survives the recorder re-saving
+			-- the session (lifecycle upserts keep firing until close).
+			cost             = CASE WHEN charges.cost_source = 'user' THEN charges.cost ELSE EXCLUDED.cost END,
+			currency         = CASE WHEN charges.cost_source = 'user' THEN charges.currency ELSE EXCLUDED.currency END,
+			price_per_kwh    = CASE WHEN charges.cost_source = 'user' THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
 			-- Only overwrite thermal_kwh when the new row actually
 			-- has one. A re-upsert from a path that doesn't track
 			-- this metric (REST poller, ElectraFi import) shouldn't
 			-- erase a value the Parallax stream already captured.
 			thermal_kwh      = COALESCE(EXCLUDED.thermal_kwh, charges.thermal_kwh),
 			active_seconds   = COALESCE(EXCLUDED.active_seconds, charges.active_seconds),
+			cost_source      = CASE WHEN charges.cost_source = 'user' THEN charges.cost_source ELSE EXCLUDED.cost_source END,
+			network          = CASE WHEN charges.cost_source = 'user' THEN charges.network ELSE EXCLUDED.network END,
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -208,7 +221,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		c.Source,
 		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh),
 		nullableFloatPtr(c.ThermalKWh),
-		nullIfZero(c.ActiveSeconds))
+		nullIfZero(c.ActiveSeconds),
+		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network))
 	return err
 }
 
@@ -238,7 +252,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       COALESCE(c.cost_source,''), COALESCE(c.network,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -260,7 +275,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal, &c.ActiveSeconds,
+			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network,
 		); err != nil {
 			return nil, err
 		}
@@ -291,7 +306,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       COALESCE(c.cost_source,''), COALESCE(c.network,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -317,7 +333,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
-		&thermal, &c.ActiveSeconds,
+		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network,
 	); err != nil {
 		return nil, err
 	}
@@ -486,7 +502,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       c.source,
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
-		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       COALESCE(c.cost_source,''), COALESCE(c.network,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -507,7 +524,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
-			&thermal, &c.ActiveSeconds,
+			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network,
 		); err != nil {
 			return nil, err
 		}

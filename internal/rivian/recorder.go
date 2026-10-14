@@ -1340,13 +1340,16 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		row.ThermalKWh = &v
 	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
-	// (they're the real billed amount); otherwise use the user's
-	// configured home $/kWh rate. Persisting means future rate
-	// changes don't retroactively rewrite history.
+	// (they're the real billed amount). A DC fast charge Rivian didn't
+	// bill (Tesla, Electrify America, ...) is priced at the network
+	// rate of the station it happened at; anything slower uses the
+	// user's home $/kWh rate. Persisting means future rate changes
+	// don't retroactively rewrite history; CostSource records which.
 	if liveSess != nil && liveSess.CurrentPrice != "" {
 		if cost, err := strconv.ParseFloat(liveSess.CurrentPrice, 64); err == nil && cost > 0 {
 			row.Cost = cost
 			row.Currency = liveSess.CurrentCurrency
+			row.CostSource = CostSourceRivian
 			if energy > 0 {
 				row.PricePerKWh = cost / energy
 			}
@@ -1354,13 +1357,23 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup := m.priceLookup
+		lookup, dcfc := m.priceLookup, m.dcfcPrice
 		m.mu.RUnlock()
-		if lookup != nil {
+		if dcfc != nil && row.MaxPowerKW >= DCFCMinKW {
+			if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
+				row.PricePerKWh = rate
+				row.Currency = cur
+				row.Cost = rate * energy
+				row.CostSource = CostSourceNetworkEstimate
+				row.Network = network
+			}
+		}
+		if row.Cost == 0 && lookup != nil {
 			if rate, cur := lookup(); rate > 0 {
 				row.PricePerKWh = rate
 				row.Currency = cur
 				row.Cost = rate * energy
+				row.CostSource = CostSourceHomeRate
 			}
 		}
 	}
@@ -1370,6 +1383,19 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 // isDrivingGear is true for any non-park gear. Empty ("") is treated
 // as parked so a missing/unknown value doesn't spuriously open a
 // drive session on startup.
+// DCFCMinKW is the session peak power at which a charge counts as DC
+// fast charging — the same line analytics.DefaultParams draws for the
+// Fast bucket (no AC L2 hardware exceeds ~22 kW).
+const DCFCMinKW = 50.0
+
+// Values of charges.Charge.CostSource (migration 0040).
+const (
+	CostSourceRivian          = "rivian"
+	CostSourceHomeRate        = "home_rate"
+	CostSourceNetworkEstimate = "network_estimate"
+	CostSourceUser            = "user"
+)
+
 func isDrivingGear(g string) bool {
 	switch strings.ToUpper(strings.TrimSpace(g)) {
 	case "D", "R", "N":

@@ -51,6 +51,7 @@ type MonitorRegistry struct {
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
+	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	sleepSafe          func(vehicleID string) bool
 	sleepObserver      SleepObserver
@@ -154,6 +155,15 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
 	r.driveCloseHook = factory
+	r.mu.Unlock()
+}
+
+// SetDCFCPriceLookupFactory wires a per-user fast-charge pricer (the
+// user's network memberships pick the rate). Safe to call at boot
+// before any Start.
+func (r *MonitorRegistry) SetDCFCPriceLookupFactory(factory func(uid uuid.UUID) DCFCPriceLookup) {
+	r.mu.Lock()
+	r.dcfcPriceFor = factory
 	r.mu.Unlock()
 }
 
@@ -274,6 +284,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 				}
 				return cfg.HomePricePerKWh, cfg.HomeCurrency
 			})
+		}
+	}
+	if r.dcfcPriceFor != nil {
+		if fn := r.dcfcPriceFor(uid); fn != nil {
+			mon.SetDCFCPriceLookup(fn)
 		}
 	}
 	mon.SetSleepSafe(r.sleepSafe)

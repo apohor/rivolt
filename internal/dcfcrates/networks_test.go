@@ -119,3 +119,22 @@ func TestRateTableSanity(t *testing.T) {
 		t.Errorf("unmatched guest rate out of range: %v", UnmatchedNetwork.GuestRate)
 	}
 }
+
+// NREL network codes resolve to the same networks planned stops do.
+func TestStationQueryResolvesNRELCodes(t *testing.T) {
+	cases := []struct{ network, station, slug string }{
+		{"Tesla", "Fort Stockton", "tesla_sc"},
+		{"Electrify America", "Walmart 1234", "ea"},
+		{"RIVIAN_ADVENTURE", "Big Bend Gateway", "ran"},
+		{"SHELL_RECHARGE", "", "shell_recharge"},
+		{"EVgo Network", "", "evgo"},
+		{"FLO", "", "flo"},
+		{"Non-Networked", "Diner", "unmatched"},
+		{"", "", "unmatched"},
+	}
+	for _, c := range cases {
+		if got := ResolveRate(StationQuery(c.network, c.station), nil).Slug; got != c.slug {
+			t.Errorf("%q/%q -> %q, want %q", c.network, c.station, got, c.slug)
+		}
+	}
+}

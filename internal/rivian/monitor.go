@@ -248,6 +248,10 @@ type StateMonitor struct {
 	// cost" — the charge row lands with Cost=0 and the read-path
 	// decorator computes an estimate instead.
 	priceLookup PriceLookup
+	// dcfcPrice prices a DC fast-charging session Rivian didn't bill,
+	// from the network of the station at its location. Nil leaves
+	// such sessions on the home rate (the pre-0040 behaviour).
+	dcfcPrice DCFCPriceLookup
 
 	// sleepSafe reports whether a vehicle's non-essential
 	// subscriptions should be parked while it sleeps, and
@@ -265,6 +269,12 @@ type StateMonitor struct {
 	// fetches) don't fire for sessions that ended in the past.
 	quietHooks atomic.Bool
 }
+
+// DCFCPriceLookup returns the user's $/kWh for a DC fast-charging
+// session at (lat, lon), the currency, and the matched network's
+// display name ("" when no station matched and a fallback rate was
+// used). ok=false means no estimate is available.
+type DCFCPriceLookup func(lat, lon float64) (ratePerKWh float64, currency, network string, ok bool)
 
 // PriceLookup returns the current home electricity rate and its
 // ISO-4217 currency code. Rate of 0 means "not configured"; callers
@@ -614,6 +624,13 @@ func (m *StateMonitor) SetPriceLookup(fn PriceLookup) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.priceLookup = fn
+}
+
+// SetDCFCPriceLookup wires the fast-charge pricer (see dcfcPrice).
+func (m *StateMonitor) SetDCFCPriceLookup(fn DCFCPriceLookup) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dcfcPrice = fn
 }
 
 // Start binds the monitor to a parent context. All subscriptions
