@@ -129,6 +129,9 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// DemoEnabled is always false for now; reserved for the
 		// public live-demo mode.
 		DemoEnabled bool `json:"demo_enabled"`
+		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
+		// SPA's track() helper sends nothing unless true.
+		EventsEnabled bool `json:"events_enabled"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -194,6 +197,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
 	base.AI.Enabled = aiEnabled
+	base.Features.EventsEnabled = eventsEnabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base
