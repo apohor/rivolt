@@ -205,9 +205,20 @@ func TestIdPDeleteRetrier(t *testing.T) {
 	if attempts(due) != 2 {
 		t.Errorf("retried before its 10 min backoff: attempts %d", attempts(due))
 	}
+	// A row that has failed for months: 5 min × 2^59 would overflow an
+	// interval and break the claim for every row; the exponent is capped.
+	stuck, _ := db.RecordIdPDeleteFailure(ctx, pool, "stuck@example.com", "kratos: 503")
+	if _, err := pool.ExecContext(ctx, `UPDATE idp_delete_failures SET attempts = 60, last_tried = NOW() - interval '25 hours' WHERE id = $1`, stuck); err != nil {
+		t.Fatal(err)
+	}
 	age(due, 11*time.Minute)
 	retryIdPDeleteFailures(ctx, pool, provider, nil)
-	if attempts(due) != -1 || len(provider.deleted) != 1 || provider.deleted[0] != "due@example.com" {
-		t.Errorf("after the IdP came back: due %d deleted %v; want gone, [due@example.com]", attempts(due), provider.deleted)
+	if attempts(stuck) != -1 {
+		t.Errorf("row at attempts=60 not retried (attempts %d): the claim query must survive large exponents", attempts(stuck))
+	}
+	deleted := strings.Join(provider.deleted, ",")
+	if attempts(due) != -1 || len(provider.deleted) != 2 || !strings.Contains(deleted, "due@example.com") ||
+		!strings.Contains(deleted, "stuck@example.com") {
+		t.Errorf("after the IdP came back: due %d deleted %v; want gone, due + stuck", attempts(due), provider.deleted)
 	}
 }

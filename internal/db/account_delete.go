@@ -78,7 +78,9 @@ func RecordIdPDeleteFailure(ctx context.Context, d *sql.DB, username, errMsg str
 }
 
 // ClaimDueIdPDeleteFailures returns up to limit pending failures whose
-// backoff has elapsed (5 min × 2^(attempts-1), capped at 24 h) and
+// backoff has elapsed (5 min × 2^(attempts-1), capped at 24 h; the
+// exponent is capped at 9 first, so a row failing daily for months can't
+// overflow the interval and break the query for every row) and
 // stamps them as tried now, so another replica running the same loop
 // skips them (FOR UPDATE SKIP LOCKED).
 func ClaimDueIdPDeleteFailures(ctx context.Context, d *sql.DB, limit int) ([]IdPDeleteFailure, error) {
@@ -86,7 +88,7 @@ func ClaimDueIdPDeleteFailures(ctx context.Context, d *sql.DB, limit int) ([]IdP
 		UPDATE idp_delete_failures f SET last_tried = NOW()
 		 WHERE f.id IN (
 		     SELECT id FROM idp_delete_failures
-		      WHERE last_tried <= NOW() - LEAST(interval '5 minutes' * power(2, attempts - 1), interval '24 hours')
+		      WHERE last_tried <= NOW() - LEAST(interval '5 minutes' * power(2, LEAST(GREATEST(attempts - 1, 0), 9)), interval '24 hours')
 		      ORDER BY last_tried
 		      LIMIT $1
 		      FOR UPDATE SKIP LOCKED)

@@ -6,7 +6,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -43,20 +46,56 @@ func deleteFromIdP(ctx context.Context, d *sql.DB, ac idp.UserProvider, username
 	// address that outlives the account only while the IdP still has it).
 	if d == nil {
 		if log != nil {
-			log.Error("idp delete failed (rivolt account already removed); no db to record it", "err", err.Error())
+			log.Error("idp delete failed (rivolt account already removed); no db to record it",
+				"err", redactIdentifier(err.Error(), username))
 		}
 		return idpFailed, err.Error()
 	}
 	id, rerr := db.RecordIdPDeleteFailure(context.WithoutCancel(ctx), d, username, err.Error())
 	if log != nil {
+		safe := redactIdentifier(err.Error(), username)
 		if rerr != nil {
-			log.Error("idp delete failed and could not be recorded", "err", err.Error(), "record_err", rerr.Error())
+			log.Error("idp delete failed and could not be recorded", "err", safe,
+				"record_err", redactIdentifier(rerr.Error(), username))
 		} else {
 			log.Error("idp delete failed (rivolt account already removed); queued for retry",
-				"failure_id", id.String(), "err", err.Error())
+				"failure_id", id.String(), "err", safe)
 		}
 	}
 	return idpFailed, err.Error()
+}
+
+// maxLoggedErr bounds third-party error text in logs.
+const maxLoggedErr = 300
+
+// redactIdentifier removes the identifier (an email address) from error
+// text before it's logged. The Kratos client's errors can echo it: the
+// identity lookup puts it in the query string, and a transport error
+// (*url.Error) prints the full URL; an API error includes up to 512
+// bytes of response body. Both the plain and URL-encoded forms are
+// removed, and the text is truncated.
+func redactIdentifier(msg, identifier string) string {
+	if identifier != "" {
+		for _, form := range []string{identifier, url.QueryEscape(identifier), url.PathEscape(identifier)} {
+			msg = replaceFold(msg, form, "<redacted>")
+		}
+	}
+	if len(msg) > maxLoggedErr {
+		cut := maxLoggedErr
+		for cut > 0 && !utf8.RuneStart(msg[cut]) {
+			cut-- // don't split a multi-byte character
+		}
+		msg = msg[:cut] + "…"
+	}
+	return msg
+}
+
+// replaceFold replaces every case-insensitive occurrence of old in s.
+func replaceFold(s, old, repl string) string {
+	if old == "" {
+		return s
+	}
+	return regexp.MustCompile("(?i)"+regexp.QuoteMeta(old)).ReplaceAllLiteralString(s, repl)
 }
 
 // idpRetryBatch bounds one retry pass.
