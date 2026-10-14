@@ -743,6 +743,12 @@ func New(d Deps) http.Handler {
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))
 			})
+			// Auto-grouped multi-day trips for the Activity tab. Read-only,
+			// per-user scoped; 404s unless money_tab_enabled covers the user.
+			r.Route("/trips", func(r chi.Router) {
+				r.Use(requireMoneyTabMW(moneyTabEnabled(d.Flags)))
+				r.Get("/", withUser(newLedgerAPI(d.DB, d.Settings).trips))
+			})
 			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
