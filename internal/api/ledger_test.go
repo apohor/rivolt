@@ -28,6 +28,7 @@ func ledgerRouter(enabled map[string]bool, la ledgerAPI) http.Handler {
 		r.Get("/enabled", handleLedgerEnabled)
 		r.Get("/monthly", withUser(la.monthly))
 		r.Get("/summary", withUser(la.summary))
+		r.Get("/trips", withUser(la.trips))
 	})
 	return r
 }
@@ -199,5 +200,34 @@ func TestLedger_MoneyTabPutValidates(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"users":["x"]}`)))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("nil store = %d, want 503", rec.Code)
+	}
+}
+
+func TestLedger_TripsValidation(t *testing.T) {
+	uid := uuid.New()
+	data := &fakeLedgerData{}
+	h := ledgerRouter(map[string]bool{uid.String(): true}, data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)))
+	cases := map[string]int{
+		"/api/ledger/trips": http.StatusOK,
+		"/api/ledger/trips?from=2026-09-01&to=2026-10-01&tz=America/Chicago": http.StatusOK,
+		"/api/ledger/trips?from=bad":                                         http.StatusBadRequest,
+		"/api/ledger/trips?from=2026-10-01&to=2026-09-01":                    http.StatusBadRequest,
+		"/api/ledger/trips?from=2024-01-01&to=2026-01-01":                    http.StatusBadRequest,
+	}
+	for path, want := range cases {
+		if rec := ledgerGET(t, h, uid, path); rec.Code != want {
+			t.Errorf("%s = %d, want %d (%s)", path, rec.Code, want, strings.TrimSpace(rec.Body.String()))
+		}
+	}
+	if rec := ledgerGET(t, h, uuid.New(), "/api/ledger/trips"); rec.Code != http.StatusNotFound {
+		t.Errorf("flag off = %d, want 404", rec.Code)
+	}
+	rec := ledgerGET(t, h, uid, "/api/ledger/trips?from=2026-09-01&to=2026-10-01")
+	if !strings.Contains(rec.Body.String(), `"trips":[]`) || !strings.Contains(rec.Body.String(), `"version":1`) {
+		t.Errorf("empty trips body = %s", rec.Body.String())
+	}
+	// Rows are loaded with padding around the window.
+	if !data.gotFrom.Before(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) || !data.gotTo.After(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("load window %s – %s not padded", data.gotFrom, data.gotTo)
 	}
 }

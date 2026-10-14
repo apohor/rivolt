@@ -103,7 +103,8 @@ func loadDrives(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID stri
 	rows, err := d.QueryContext(ctx, `
 		SELECT dr.external_id, v.rivian_vehicle_id,
 		       dr.started_at, dr.ended_at,
-		       dr.distance_mi, dr.energy_used_kwh, dr.source, dr.created_at
+		       dr.distance_mi, dr.energy_used_kwh, dr.source, dr.created_at,
+		       dr.start_lat, dr.start_lon, dr.end_lat, dr.end_lon
 		FROM drives dr
 		JOIN vehicles v ON v.id = dr.vehicle_id
 		WHERE dr.user_id = $1
@@ -119,11 +120,12 @@ func loadDrives(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID stri
 	var out []Drive
 	for rows.Next() {
 		var dr Drive
-		var dist, energy sql.NullFloat64
+		var dist, energy, sLat, sLon, eLat, eLon sql.NullFloat64
 		if err := rows.Scan(&dr.ID, &dr.VehicleID, &dr.StartedAt, &dr.EndedAt,
-			&dist, &energy, &dr.Source, &dr.CreatedAt); err != nil {
+			&dist, &energy, &dr.Source, &dr.CreatedAt, &sLat, &sLon, &eLat, &eLon); err != nil {
 			return nil, err
 		}
+		dr.StartLat, dr.StartLon, dr.EndLat, dr.EndLon = ptr(sLat), ptr(sLon), ptr(eLat), ptr(eLon)
 		dr.StartedAt, dr.EndedAt, dr.CreatedAt = dr.StartedAt.UTC(), dr.EndedAt.UTC(), dr.CreatedAt.UTC()
 		dr.DistanceMi, dr.EnergyKWh = ptr(dist), ptr(energy)
 		out = append(out, dr)
