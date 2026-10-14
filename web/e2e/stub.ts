@@ -104,7 +104,10 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
   ...o,
 });
 
+export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down";
+
 export type StubOptions = {
+  rivian?: RivianState;
   scenario?: NowScenario;
   signedIn?: boolean;
   landing?: boolean;
@@ -112,7 +115,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -134,8 +137,18 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/ledger/enabled") return json(route, { enabled: true });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
     if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12));
+    if (p === "/api/health") {
+      return rivian === "backend-down"
+        ? json(route, { error: "down" }, 503)
+        : json(route, { ok: true, version: "test", time: iso(0) });
+    }
     if (p === "/api/settings/rivian/") {
-      return json(route, { enabled: true, authenticated: true, mfa_pending: false });
+      return json(route, {
+        enabled: true,
+        authenticated: rivian === "ok" || rivian === "reauth" || rivian === "mfa",
+        mfa_pending: rivian === "mfa",
+        needs_reauth: rivian === "reauth",
+      });
     }
     if (p === "/api/vehicles") {
       return json(route, [{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135 }]);
