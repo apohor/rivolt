@@ -303,25 +303,27 @@ existing installs working.
 
 What changes with the defaults:
 
-- An identity whose only email is **unverified** (and which has no
-  plain `preferred_username`) can no longer sign in as the account
-  keyed by that email. If such an account exists the sign-in is
-  refused with "Your identity provider hasn't verified your email
-  address" (verify it at the provider and sign in again: you land on
-  the same account); if none exists, the identity gets its own
-  isolated account keyed by issuer and subject.
-- A `preferred_username` that contains `@` is treated like an
-  unverified email, never as a key by itself.
+- An identity whose email is **unverified** can no longer sign in as
+  the account keyed by that email (or by its `preferred_username`).
+  If such an account exists the sign-in is refused with "Your identity
+  provider hasn't verified your email address" (verify it at the
+  provider and sign in again: you land on the same account); if none
+  exists, the identity gets its own isolated account keyed by issuer
+  and subject.
+- A `preferred_username` is an account key **only for an IdP that
+  sends no email at all**. When an email is present it is never keyed
+  on (a username is not unique across people: an email local part, a
+  display name, a GitHub login). One containing `@` is treated like an
+  unverified email.
 - `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` promotes only a **verified** email.
 - Identities with no email at all keep their issuer+subject key.
 
 ### Upgrade note for installs with two or more OIDC providers
 
-With **one** provider configured, a bare `preferred_username` (no `@`)
-keys an account exactly as before. With **two or more**, two providers
-could hand out the same bare name, so a provider's bare
-`preferred_username` is an account key only if you opt that provider
-in:
+A bare `preferred_username` (no `@`) from an IdP that sends no email
+keys an account when **one** provider is configured, as before. With
+**two or more**, two providers could hand out the same bare name, so
+it is an account key only if you opt that provider in:
 
 ```
 RIVOLT_OIDC_<NAME>_USERNAME_KEY=true     # e.g. RIVOLT_OIDC_CORP_USERNAME_KEY=true
@@ -331,7 +333,10 @@ Without the opt-in the bare name is handled like an unverified email:
 if an account already exists under that name the sign-in is refused
 ("verify your email" / ask your administrator) rather than silently
 creating a second account, otherwise the identity is keyed by issuer
-and subject. If your users sign in through a provider that sends no
-verified email and relies on `preferred_username`, add the opt-in
-before upgrading. Providers that send a verified email (Google, GitHub's
+and subject. If your users sign in through a provider that sends no email and
+relies on `preferred_username`, add the opt-in before upgrading. If
+your provider sends an email it does not verify **and** your accounts
+are keyed by `preferred_username`, either enable email verification at
+the provider or set `RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true` to keep
+the old keying. Providers that send a verified email (Google, GitHub's
 primary, first-party Hydra) are unaffected.

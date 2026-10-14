@@ -700,27 +700,30 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail(),
 		s.bareUsernameKeyOK(p.cfg))
 	username, email := key.Username, key.Email
-	if key.UnverifiedCandidate != "" {
-		// An unverified email would have been the key. If an account
-		// already lives under it, signing in would be a takeover and a
-		// fresh iss:sub account would orphan its owner: refuse. With no
-		// such account the iss:sub key above stands (a new, isolated
-		// identity). Fails closed when existence can't be checked.
-		exists := true
-		if s.userExists != nil {
-			var uerr error
-			exists, uerr = s.userExists(r.Context(), key.UnverifiedCandidate)
-			if uerr != nil {
-				s.log.Error("oidc: account lookup", "err", uerr)
-				s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+	if len(key.UnverifiedCandidates) > 0 {
+		// The old rules would have keyed on one of these unverified
+		// values. If an account already lives under any of them,
+		// signing in would be a takeover and a fresh iss:sub account
+		// would orphan its owner: refuse. With none, the iss:sub key
+		// above stands (a new, isolated identity). Fails closed when
+		// existence can't be checked.
+		for _, cand := range key.UnverifiedCandidates {
+			exists := true
+			if s.userExists != nil {
+				var uerr error
+				exists, uerr = s.userExists(r.Context(), cand)
+				if uerr != nil {
+					s.log.Error("oidc: account lookup", "err", uerr)
+					s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+					return
+				}
+			}
+			if exists {
+				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "email_unverified: account exists under an unverified identifier")
+				s.clearStateCookie(w)
+				s.failRedirect(w, r, "email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
 				return
 			}
-		}
-		if exists {
-			s.log.Info("oidc: sign-in refused", "provider", name, "reason", "email_unverified: account exists under unverified email")
-			s.clearStateCookie(w)
-			s.failRedirect(w, r, "email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
-			return
 		}
 	}
 	if username == "" {
@@ -826,28 +829,34 @@ type identityKey struct {
 	// Email is the normalised email the IdP gave (display info; may be
 	// unverified).
 	Email string
-	// UnverifiedCandidate is set when an email, or an email-shaped
-	// preferred_username, the IdP did not verify would have been the key
-	// under the old rules. Username is then the iss:sub key, and the
-	// caller must refuse the sign-in if an account already exists under
-	// the candidate (that is the takeover path; falling back to iss:sub
-	// would silently orphan its owner).
-	UnverifiedCandidate string
+	// UnverifiedCandidates are the values (an unverified email, an
+	// email-shaped or non-key bare preferred_username) that the old
+	// rules would have used as the key. Username is then the iss:sub
+	// key, and the caller must refuse the sign-in if an account already
+	// exists under any candidate: that is the takeover path, and a
+	// fresh iss:sub account would silently orphan its owner.
+	UnverifiedCandidates []string
 }
 
 // resolveIdentityKey picks the deterministic account key for an IdP
 // principal.
 //
 //  1. A verified email wins: it joins cleanly across auth methods.
-//  2. A preferred_username without "@" is next (IdPs without email
-//     scope), but only when bareUsernameOK: with several providers
-//     configured two IdPs could mint the same bare name, so each must
-//     opt in (RIVOLT_OIDC_<NAME>_USERNAME_KEY=true); otherwise it is
-//     handled exactly like an unverified email (3). One WITH "@" is a
-//     self-asserted email and is never a key by itself.
-//  3. An unverified email-like candidate is a key only when
-//     trustUnverified (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL) says so;
-//     otherwise the key is iss:sub and UnverifiedCandidate is set.
+//  2. A bare preferred_username (no "@") keys an account only for an
+//     IdP that sent NO email at all (that is what it is for: IdPs
+//     without the email scope), and only when bareUsernameOK: with
+//     several providers configured two IdPs could mint the same bare
+//     name, so each must opt in (RIVOLT_OIDC_<NAME>_USERNAME_KEY).
+//     When an email is present it is never keyed on: a username (the
+//     email local part from first-party Hydra, a free-text display
+//     name, a GitHub login) is not unique across people or IdPs.
+//  3. Anything else the old rules would have keyed on (an unverified
+//     email, an email-shaped preferred_username, a non-key bare
+//     name) is a candidate. It is a key only with trustUnverified
+//     (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL), which restores the old
+//     order: preferred_username, then email; bare names still need
+//     bareUsernameOK. Otherwise the key is iss:sub and the candidates
+//     are returned for the caller's refuse-if-exists check.
 //  4. iss:sub is the floor, unique per IdP, unreachable from any other
 //     sign-in path.
 func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred string, trustUnverified, bareUsernameOK bool) identityKey {
@@ -856,26 +865,32 @@ func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred st
 	if email != "" && emailVerified {
 		return identityKey{Username: email, Email: email}
 	}
-	candidate := ""
-	switch {
-	case preferred != "" && !strings.Contains(preferred, "@") && bareUsernameOK:
-		return identityKey{Username: preferred, Email: email}
-	case preferred != "":
-		// An email-shaped preferred_username, or a bare one this
-		// provider isn't allowed to key on (see bareUsernameOK).
-		candidate = preferred
-	case email != "":
-		candidate = email
+	bare := preferred != "" && !strings.Contains(preferred, "@")
+	if email == "" && bare && bareUsernameOK {
+		return identityKey{Username: preferred}
 	}
-	if candidate != "" && trustUnverified {
-		return identityKey{Username: candidate, Email: email}
+	if trustUnverified {
+		switch {
+		case bare && bareUsernameOK:
+			return identityKey{Username: preferred, Email: email}
+		case preferred != "" && !bare:
+			return identityKey{Username: preferred, Email: email}
+		case email != "":
+			return identityKey{Username: email, Email: email}
+		}
+	}
+	var cands []string
+	for _, c := range []string{preferred, email} {
+		if c != "" {
+			cands = append(cands, c)
+		}
 	}
 	synthetic := ""
 	if strings.TrimSpace(sub) != "" {
 		// Lowercased so case-insensitive UUIDv5 stays stable.
 		synthetic = strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub))
 	}
-	return identityKey{Username: synthetic, Email: email, UnverifiedCandidate: candidate}
+	return identityKey{Username: synthetic, Email: email, UnverifiedCandidates: cands}
 }
 
 // bareUsernameKeyOK reports whether a bare preferred_username may key

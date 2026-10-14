@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -20,50 +21,55 @@ func TestResolveIdentityKey(t *testing.T) {
 		email     string
 		verified  bool
 		preferred string
-		trust     bool
-		bareOK    bool
+		trust     bool // RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL
+		bareOK    bool // single provider, or this one opted in
 
-		wantUsername  string
-		wantEmail     string
-		wantCandidate string
+		wantUsername   string
+		wantEmail      string
+		wantCandidates []string
 	}{
-		{name: "verified email wins", sub: "abc-123", email: "Alice@Example.com", verified: true, preferred: "alice-rivian",
+		// 1. verified email
+		{name: "verified email wins", sub: "abc-123", email: "Alice@Example.com", verified: true, preferred: "alice-rivian", bareOK: true,
 			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
-		{name: "unverified email loses to plain preferred_username", sub: "abc-123", email: "Alice@Example.com", preferred: "Alice-Rivian", bareOK: true,
-			wantUsername: "alice-rivian", wantEmail: "alice@example.com"},
-		{name: "unverified email only: iss:sub, candidate flagged", sub: "abc-123", email: "Alice@Example.com",
-			wantUsername: synth, wantEmail: "alice@example.com", wantCandidate: "alice@example.com"},
-		{name: "email-shaped preferred_username is not a key", sub: "abc-123", email: "", preferred: "Victim@Example.com",
-			wantUsername: synth, wantEmail: "", wantCandidate: "victim@example.com"},
-		{name: "email-shaped preferred beats unverified email as candidate", sub: "abc-123", email: "me@example.com", preferred: "victim@example.com",
-			wantUsername: synth, wantEmail: "me@example.com", wantCandidate: "victim@example.com"},
-		{name: "verified email still wins over email-shaped preferred", sub: "abc-123", email: "me@example.com", verified: true, preferred: "victim@example.com",
+		{name: "verified email beats an email-shaped preferred", sub: "abc-123", email: "me@example.com", verified: true, preferred: "victim@example.com",
 			wantUsername: "me@example.com", wantEmail: "me@example.com"},
-		{name: "trusted: unverified email keys as before", sub: "abc-123", email: "Alice@Example.com", trust: true,
-			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
-		{name: "trusted: email-shaped preferred keys as before", sub: "abc-123", preferred: "victim@example.com", trust: true,
-			wantUsername: "victim@example.com"},
-		{name: "multi-IdP, no opt-in: bare preferred is a candidate, not a key", sub: "abc-123", email: "", preferred: "Alice",
-			wantUsername: synth, wantEmail: "", wantCandidate: "alice"},
-		{name: "multi-IdP, opted in: bare preferred keys", sub: "abc-123", preferred: "Alice", bareOK: true,
-			wantUsername: "alice"},
-		{name: "multi-IdP, no opt-in, verified email still wins", sub: "abc-123", email: "a@example.com", verified: true, preferred: "alice",
-			wantUsername: "a@example.com", wantEmail: "a@example.com"},
-		{name: "multi-IdP, no opt-in, trust unverified: keys on the bare name as before", sub: "abc-123", preferred: "Alice", trust: true,
-			wantUsername: "alice"},
-		{name: "no email at all: iss:sub, nothing flagged", sub: "abc-123",
-			wantUsername: synth},
-		{name: "no sub, no email, no preferred: empty", wantUsername: ""},
-		{name: "no sub with an unverified email: no key, candidate flagged", email: "a@example.com",
-			wantUsername: "", wantEmail: "a@example.com", wantCandidate: "a@example.com"},
 		{name: "whitespace and case are normalised", sub: " ", email: "  ALICE@EXAMPLE.COM  ", verified: true,
 			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
+		// 2. bare preferred_username, only for IdPs that sent no email
+		{name: "no email, bare preferred, allowed: keys on it", sub: "abc-123", preferred: "Alice", bareOK: true,
+			wantUsername: "alice"},
+		{name: "no email, bare preferred, multi-IdP without opt-in: candidate, iss:sub", sub: "abc-123", preferred: "Alice",
+			wantUsername: synth, wantCandidates: []string{"alice"}},
+		{name: "email present: a bare preferred (Hydra local part, login, display name) never keys", sub: "abc-123",
+			email: "anton@a.com", preferred: "anton", bareOK: true,
+			wantUsername: synth, wantEmail: "anton@a.com", wantCandidates: []string{"anton", "anton@a.com"}},
+		// 3. unverified candidates
+		{name: "unverified email only: iss:sub, candidate flagged", sub: "abc-123", email: "Alice@Example.com", bareOK: true,
+			wantUsername: synth, wantEmail: "alice@example.com", wantCandidates: []string{"alice@example.com"}},
+		{name: "email-shaped preferred is not a key", sub: "abc-123", preferred: "Victim@Example.com", bareOK: true,
+			wantUsername: synth, wantCandidates: []string{"victim@example.com"}},
+		{name: "email-shaped preferred and an unverified email: both flagged", sub: "abc-123", email: "me@example.com", preferred: "victim@example.com",
+			wantUsername: synth, wantEmail: "me@example.com", wantCandidates: []string{"victim@example.com", "me@example.com"}},
+		// trusted (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL): today's keying
+		{name: "trusted: unverified email keys", sub: "abc-123", email: "Alice@Example.com", trust: true, bareOK: true,
+			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
+		{name: "trusted: bare preferred beats unverified email (old order)", sub: "abc-123", email: "alice@example.com", preferred: "alice-r", trust: true, bareOK: true,
+			wantUsername: "alice-r", wantEmail: "alice@example.com"},
+		{name: "trusted: email-shaped preferred keys", sub: "abc-123", preferred: "victim@example.com", trust: true,
+			wantUsername: "victim@example.com"},
+		{name: "trusted but bare name not allowed (multi-IdP): falls to the email", sub: "abc-123", email: "a@example.com", preferred: "alice", trust: true,
+			wantUsername: "a@example.com", wantEmail: "a@example.com"},
+		// 4. floor
+		{name: "no email, no preferred: iss:sub, nothing flagged", sub: "abc-123", wantUsername: synth},
+		{name: "nothing at all: empty", wantUsername: ""},
+		{name: "no sub with an unverified email: no key, candidate flagged", email: "a@example.com",
+			wantUsername: "", wantEmail: "a@example.com", wantCandidates: []string{"a@example.com"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := resolveIdentityKey(iss, tc.sub, tc.email, tc.verified, tc.preferred, tc.trust, tc.bareOK)
-			if got.Username != tc.wantUsername || got.Email != tc.wantEmail || got.UnverifiedCandidate != tc.wantCandidate {
-				t.Fatalf("got %+v, want {%q %q %q}", got, tc.wantUsername, tc.wantEmail, tc.wantCandidate)
+			if got.Username != tc.wantUsername || got.Email != tc.wantEmail || !reflect.DeepEqual(got.UnverifiedCandidates, tc.wantCandidates) {
+				t.Fatalf("got %+v, want {%q %q %v}", got, tc.wantUsername, tc.wantEmail, tc.wantCandidates)
 			}
 		})
 	}
