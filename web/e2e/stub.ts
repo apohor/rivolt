@@ -106,7 +106,11 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
 
 export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down";
 
+export type DrainMode = "absent" | "ok" | "insufficient";
+
 export type StubOptions = {
+  // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
+  drain?: DrainMode;
   rivian?: RivianState;
   // Serve GET /api/vehicles/{id}/now (replay connection).
   nowEndpoint?: boolean;
@@ -119,7 +123,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false, demo = false } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -170,6 +174,26 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         state_since: iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
         charge: scenario === "charging" ? { started_at: iso(3_600_000), soc_start: 40, peak_kw: 11 } : null,
       });
+    }
+    if (p === `/api/vehicles/${VEHICLE_ID}/drain`) {
+      if (drain === "absent") return json(route, { error: "not stubbed" }, 404);
+      const ok = drain === "ok";
+      const w = (days: number, rate: number) => ({
+        drain_pct_per_day: ok ? rate : null, drain_kwh_per_day: ok ? +(rate * 1.35).toFixed(1) : null,
+        idle_awake_hours_per_day: ok ? 1.4 : null, sleeps: ok ? days * 3 : 1, quick_rewakes: ok ? Math.round(days / 2) : 0,
+        median_sleep_seconds: ok ? 16_000 : null, parked_hours: ok ? days * 20 : 9,
+        power_state_observed_hours: ok ? days * 22 : 9, days_in_window: days, days_with_data: ok ? days - 1 : 1,
+        days_excluded: { charging: ok ? 1 : 0, driving: 0, insufficient: ok ? 0 : days - 1 }, sufficient: ok,
+      });
+      const daily = Array.from({ length: 30 }, (_, i) => {
+        const excluded = !ok ? (i < 28 ? "insufficient" : null) : i % 9 === 4 ? "charging" : i % 13 === 7 ? "driving" : null;
+        return {
+          day: new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10),
+          drain_pct: excluded || !ok ? null : 0.6 + ((i * 7) % 10) / 10,
+          idle_awake_hours: ok ? 1.2 : null, parked_hours: ok ? 20 : 0.3, sleeps: 3, quick_rewakes: 0, excluded,
+        };
+      });
+      return json(route, { version: 1, generated_at: iso(0), tz: "UTC", pack_kwh: 135, windows: { "7d": w(7, 0.9), "30d": w(30, 1.1) }, daily });
     }
     if (p === `/api/state/${VEHICLE_ID}`) return json(route, vehicleState(scenario));
     if (p === `/api/live-drive/${VEHICLE_ID}`) {
