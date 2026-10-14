@@ -1445,6 +1445,12 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			}
 		}
 	}
+	// Snapshot where it happened (migration 0044) so the ledger keeps
+	// classifying it the same way if the user later moves home.
+	m.mu.RLock()
+	homeNow := m.homeLookup
+	m.mu.RUnlock()
+	row.Place = PlaceOf(row.Lat, row.Lon, homeNow)
 	return row
 }
 
@@ -1497,14 +1503,30 @@ const HomeRadiusM = 250.0
 // HomeRadiusM from the saved home location. False when either the home
 // location or the position is unknown.
 func AwayFromHome(lat, lon float64, home HomeLookup) bool {
+	return PlaceOf(lat, lon, home) == PlaceAway
+}
+
+// Values of charges.Charge.Place (migration 0044).
+const (
+	PlaceHome = "home"
+	PlaceAway = "away"
+)
+
+// PlaceOf classifies (lat, lon) against the saved home location:
+// PlaceHome within HomeRadiusM, PlaceAway beyond it, "" when either the
+// home location or the position is unknown.
+func PlaceOf(lat, lon float64, home HomeLookup) string {
 	if home == nil || (lat == 0 && lon == 0) {
-		return false
+		return ""
 	}
 	hLat, hLon, ok := home()
 	if !ok {
-		return false
+		return ""
 	}
-	return haversineMeters(hLat, hLon, lat, lon) > HomeRadiusM
+	if haversineMeters(hLat, hLon, lat, lon) > HomeRadiusM {
+		return PlaceAway
+	}
+	return PlaceHome
 }
 
 // Values of charges.Charge.CostSource (migration 0040).

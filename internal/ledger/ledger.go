@@ -107,6 +107,9 @@ type Charge struct {
 	// ActiveSeconds is charges.active_seconds (time actually drawing
 	// power); nil when not recorded. Feeds the shared DCFC rule.
 	ActiveSeconds *float64
+	// Place is charges.place ("home" / "away") recorded with the row
+	// (migration 0044); "" when not recorded.
+	Place string
 	// CostSource is charges.cost_source; "" when NULL (legacy row) or
 	// the column doesn't exist yet.
 	CostSource string
@@ -557,7 +560,26 @@ func kindOf(c Charge) string {
 
 // place returns home/away/unknown and the distance in km (nil when
 // unknown).
+//
+// A place recorded on the row (migration 0044) wins, so moving home
+// doesn't reclassify past charges. km_from_home is then reported only
+// when the current home agrees with it (otherwise it would describe a
+// different home than the one the charge was classified against).
+// Rows without one (legacy, or no home / position when recorded) are
+// derived from the current home.
 func place(c Charge, home *LatLon) (string, *float64) {
+	derived, km := derivePlace(c, home)
+	switch snap := strings.ToLower(strings.TrimSpace(c.Place)); snap {
+	case "home", "away":
+		if derived != snap {
+			km = nil
+		}
+		return snap, km
+	}
+	return derived, km
+}
+
+func derivePlace(c Charge, home *LatLon) (string, *float64) {
 	if home == nil || c.Lat == nil || c.Lon == nil || (*c.Lat == 0 && *c.Lon == 0) {
 		return "unknown", nil
 	}
@@ -568,6 +590,15 @@ func place(c Charge, home *LatLon) (string, *float64) {
 	}
 	return "away", &km
 }
+
+// CrumbKWh is the energy below which a charge session is a crumb (a
+// plug-in blip, an abandoned stub): nothing to price, counted as
+// null_energy rather than "needs a price". Seen on preview: a 4.7e-7
+// kWh abandoned row counted as unpriced.
+const CrumbKWh = 0.05
+
+// hasEnergy reports whether a session delivered more than a crumb.
+func hasEnergy(c Charge) bool { return val(c.EnergyKWh) >= CrumbKWh }
 
 func isOpen(finalState string) bool {
 	return charges.IsOpenLiveFinalState(strings.ToLower(strings.TrimSpace(finalState)))
@@ -598,10 +629,10 @@ func viewOf(c Charge, cfg Config) sessionView {
 	}
 	// A session with no recorded energy (plug-in blip, abandoned stub)
 	// has nothing to price: it's counted as null_energy, not unpriced.
-	if v.source == SourceUnknown && positive(c.EnergyKWh) {
+	if v.source == SourceUnknown && hasEnergy(c) {
 		v.flags = append(v.flags, FlagUnpriced)
 	}
-	if !positive(c.EnergyKWh) {
+	if !hasEnergy(c) {
 		v.flags = append(v.flags, FlagNullEnergy)
 	}
 	if isOpen(c.FinalState) {
@@ -693,7 +724,7 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 
 		out.Energy.Sessions++
 		out.Energy.KWhAdded += kwh
-		if !positive(c.EnergyKWh) {
+		if !hasEnergy(c) {
 			out.Energy.NullEnergySessions++
 		}
 		var cost float64
@@ -708,7 +739,7 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		case v.source == SourceHomeRateMisapplied:
 			out.Spend.EstimatePendingSessions++
 			out.Spend.EstimatePendingKWh += kwh
-		case !positive(c.EnergyKWh):
+		case !hasEnergy(c):
 			// Nothing to price; counted in energy.null_energy_sessions.
 		default:
 			out.Spend.UnpricedSessions++
@@ -905,14 +936,14 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 		r.KWh += val(c.EnergyKWh)
 		// Zero-energy crumbs don't decide the receipt's cost source or
 		// make a priced receipt look unpriced.
-		if positive(c.EnergyKWh) || v.spendOK {
+		if hasEnergy(c) || v.spendOK {
 			sources[v.source] = true
 		}
 		if v.spendOK {
 			priced = true
 			cost += *c.Cost
 			pricedKWh += val(c.EnergyKWh)
-		} else if positive(c.EnergyKWh) {
+		} else if hasEnergy(c) {
 			r.UnpricedSessions++
 		}
 		for _, f := range v.flags {

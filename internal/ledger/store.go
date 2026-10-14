@@ -58,7 +58,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at, c.active_seconds::float8, `+pricingCols+`
+		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+`
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -82,7 +82,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 			&energy, &peak,
 			&cost, &c.Currency, &ppk,
 			&c.FinalState, &c.Source,
-			&lat, &lon, &c.CreatedAt, &active,
+			&lat, &lon, &c.CreatedAt, &active, &c.Place,
 			&costSource, &network,
 		); err != nil {
 			return nil, err
