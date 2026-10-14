@@ -23,9 +23,17 @@ Rivolt is operated by **[DECIDE: individual or entity, contact address]**. Indep
 | Push subscription (endpoint and keys) if you enable notifications | send alerts | `push_subscriptions` |
 | Session cookie (opaque token; only an HMAC of it is stored) | keep you signed in | `sessions` (`internal/sessions`) |
 | Technical logs: IP address, request paths, errors | security and operations | Loki / cluster logs **[VERIFY retention]** |
-| Product analytics events (if enabled): counts and enums, no location, amounts or emails | improve onboarding | `events` table, see docs/product/instrumentation.md **[not shipped yet]** |
+| Product analytics events (if enabled): event name plus counts and enums such as referrer host and utm_source; no location, amounts or emails; no IP address or User-Agent | improve onboarding | `events` table (migration 0046), see docs/product/instrumentation.md and #103 **[VERIFY at publication]** |
+
 
 We do not sell your data and do not use it for advertising.
+
+### Product analytics events (if enabled)
+- **Random browser id.** Before you sign in, the browser stores a random id (`anon_id`) in localStorage and attaches it to events. This is a persistent identifier. It is not a cookie.
+- **Linkable after sign-in.** Once you are signed in, each event row stores both `anon_id` and your `user_id`. Earlier events from the same browser (for example a landing-page view with its referrer host and utm_source) can therefore be linked to your account.
+- **Retention.** Events are deleted after 90 days.
+- **Do Not Track / Global Privacy Control.** If a request carries `DNT: 1` or `Sec-GPC: 1`, the server stores nothing (enforced server-side and covered by a test in `internal/api/events.go`).
+- **Deletion.** Deleting your account removes events linked to your `user_id`. Events recorded only under `anon_id` (before you signed in, or from a browser you never signed in on) have no `user_id`, so account deletion does not touch them and they cannot be tied to you. They are removed by an hourly purge of events older than 90 days, which runs at startup and every hour regardless of whether event collection is switched on. There is no other way to request deletion of anonymous-only events, because we cannot identify which are yours.
 
 ## 3. Location data
 Location is the most sensitive data we hold. It is stored per vehicle sample and per drive/charge. It is used to classify charges as Home / Public / Fast and to show maps. It is never shown to other users. Rivolt's public demo uses generated data only. Shared statement images contain no coordinates or addresses **[VERIFY once U3 ships]**.
