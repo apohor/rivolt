@@ -162,7 +162,7 @@ type Service struct {
 	// return ErrCapExceeded if creating a new account would
 	// exceed the configured signup cap. Returning nil for an
 	// already-existing username is how sign-ins stay exempt.
-	capGuard func(ctx context.Context, username, email string) error
+	capGuard func(ctx context.Context, username, email string, emailVerified bool) error
 
 	// capOverflowURL is where the callback redirects when capGuard
 	// returns ErrCapExceeded. Default "/signup/full".
@@ -226,7 +226,7 @@ type Config struct {
 	// CapGuard, when non-nil, gates new-account creation in the
 	// OIDC callback. Wired to a flags.Store + db.UserExists check
 	// in main. nil disables the cap (every sign-in proceeds).
-	CapGuard func(ctx context.Context, username, email string) error
+	CapGuard func(ctx context.Context, username, email string, emailVerified bool) error
 
 	// CapOverflowURL is the SPA path the callback redirects to
 	// when CapGuard returns ErrCapExceeded. Defaults to
@@ -689,7 +689,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.capGuard != nil {
-		if err := s.capGuard(r.Context(), username, email); err != nil {
+		if err := s.capGuard(r.Context(), username, email, claimEmailVerified && email != ""); err != nil {
 			if errors.Is(err, ErrSignupDisabled) {
 				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "signups_disabled: unknown identity")
 				s.clearStateCookie(w)

@@ -27,20 +27,22 @@ func Disabled() bool {
 const firstUserLockKey int64 = 0x52564c545f464952 // "RVLT_FIR"
 
 // Allow reports whether a sign-in by (username, email) may proceed
-// while signups are disabled:
+// while signups are disabled. The rules, in order:
 //
 //   - the account already exists (username is lower-cased and trimmed,
-//     the same way db.UserIDFor keys users), or
-//   - the email equals RIVOLT_BOOTSTRAP_ADMIN_EMAIL (compared
-//     trimmed and lower-cased), or
-//   - the users table is empty. That check and the insert that ends
-//     it run in one transaction under an advisory lock, so two
-//     concurrent first logins can't both pass. The row it inserts is
+//     the same way db.UserIDFor keys users): allowed;
+//   - RIVOLT_BOOTSTRAP_ADMIN_EMAIL is set: allowed only if the email
+//     equals it (trimmed, lower-cased) AND the IdP says the email is
+//     verified. An unverified address never matches, and while the
+//     variable is set nobody else may create the first account;
+//   - the variable is unset and the users table is empty: allowed. The
+//     check and the insert run in one transaction under an advisory
+//     lock, so two concurrent first logins can't both pass. The row is
 //     the same minimal row db.EnsureUserFull writes; it adds no admin
-//     logic of its own (a first-ever row's role comes from the
-//     migration 0015 trigger exactly as before, and the bootstrap
-//     email promotion stays in EnsureUserFull).
-func Allow(ctx context.Context, d *sql.DB, username, email, displayName string) (bool, error) {
+//     logic (a first-ever row's role comes from the migration 0015
+//     trigger, as before);
+//   - otherwise refused.
+func Allow(ctx context.Context, d *sql.DB, username, email string, emailVerified bool, displayName string) (bool, error) {
 	u := strings.ToLower(strings.TrimSpace(username))
 	exists, err := db.UserExistsByUsername(ctx, d, u)
 	if err != nil {
@@ -49,9 +51,8 @@ func Allow(ctx context.Context, d *sql.DB, username, email, displayName string) 
 	if exists {
 		return true, nil
 	}
-	if boot := strings.ToLower(strings.TrimSpace(os.Getenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL"))); boot != "" &&
-		strings.ToLower(strings.TrimSpace(email)) == boot {
-		return true, nil
+	if boot := strings.ToLower(strings.TrimSpace(os.Getenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL"))); boot != "" {
+		return emailVerified && strings.ToLower(strings.TrimSpace(email)) == boot, nil
 	}
 	if d == nil || u == "" {
 		return false, nil
@@ -87,8 +88,8 @@ func Allow(ctx context.Context, d *sql.DB, username, email, displayName string) 
 // blocks, otherwise the user count must be under it). With
 // RIVOLT_SIGNUP_DISABLED an unknown identity must also pass Allow.
 // limit reads the current signup_cap limit.
-func NewCapGuard(d *sql.DB, limit func() int) func(ctx context.Context, username, email string) error {
-	return func(ctx context.Context, username, email string) error {
+func NewCapGuard(d *sql.DB, limit func() int) func(ctx context.Context, username, email string, emailVerified bool) error {
+	return func(ctx context.Context, username, email string, emailVerified bool) error {
 		exists, err := db.UserExistsByUsername(ctx, d, username)
 		if err != nil {
 			return err
@@ -97,7 +98,7 @@ func NewCapGuard(d *sql.DB, limit func() int) func(ctx context.Context, username
 			return nil
 		}
 		if Disabled() {
-			ok, err := Allow(ctx, d, username, email, "")
+			ok, err := Allow(ctx, d, username, email, emailVerified, "")
 			if err != nil {
 				return err
 			}

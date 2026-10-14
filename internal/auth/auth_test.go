@@ -338,3 +338,52 @@ func TestIsImpersonating_FalseOnPlainContext(t *testing.T) {
 		t.Error("ImpersonatorFromContext ok=true on a plain WithUser context")
 	}
 }
+
+// A valid IdP session whose identity has no account on a closed
+// server stays unauthenticated but names the reason, so the SPA can
+// show it instead of a bare sign-in page.
+func TestKratos_ErrSignupClosedSetsAuthErrorHeader(t *testing.T) {
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			return uuid.Nil, false, ErrSignupClosed
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "valid-at-kratos"})
+	r.RemoteAddr = "1.2.3.4:1"
+	rec := httptest.NewRecorder()
+	var authed bool
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, authed = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rec, r)
+	if authed {
+		t.Fatal("must stay unauthenticated")
+	}
+	if got := rec.Header().Get(AuthErrorHeader); got != "signups_disabled" {
+		t.Fatalf("%s = %q, want signups_disabled", AuthErrorHeader, got)
+	}
+}
+
+// An ordinary "no session" answer sets no header.
+func TestKratos_NoSessionSetsNoAuthErrorHeader(t *testing.T) {
+	s, _ := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			return uuid.Nil, false, nil
+		},
+	})
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "stale"})
+	rec := httptest.NewRecorder()
+	s.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(rec, r)
+	if got := rec.Header().Get(AuthErrorHeader); got != "" {
+		t.Fatalf("header = %q, want none", got)
+	}
+}

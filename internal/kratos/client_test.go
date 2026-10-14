@@ -168,3 +168,25 @@ func TestNilClientDisabled(t *testing.T) {
 		t.Errorf("nil DeleteIdentity should error")
 	}
 }
+
+func TestIdentity_EmailVerified(t *testing.T) {
+	id := Identity{Traits: IdentityTraits{Email: " Boss@Example.com "}}
+	if id.EmailVerified() {
+		t.Fatal("no verifiable addresses must be unverified")
+	}
+	id.VerifiableAddresses = []VerifiableAddress{{Value: "boss@example.com", Verified: false}}
+	if id.EmailVerified() {
+		t.Fatal("unverified address must not count")
+	}
+	id.VerifiableAddresses = []VerifiableAddress{
+		{Value: "other@example.com", Verified: true},
+		{Value: "BOSS@example.com", Verified: true},
+	}
+	if !id.EmailVerified() {
+		t.Fatal("verified trait email (case-insensitive) must count")
+	}
+	id.VerifiableAddresses = []VerifiableAddress{{Value: "other@example.com", Verified: true}}
+	if id.EmailVerified() {
+		t.Fatal("a different verified address must not verify the trait email")
+	}
+}

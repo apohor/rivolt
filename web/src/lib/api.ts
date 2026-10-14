@@ -100,6 +100,17 @@ async function request<T>(
       parsed != null &&
       typeof parsed === "object" &&
       "class" in (parsed as Record<string, unknown>);
+    // An IdP session for an identity with no account on a closed
+    // server: the backend stays 401 but names the reason. Send the
+    // visitor to the login page with the same error the OIDC callback
+    // uses, once (the login page itself polls /api/auth/me).
+    if (
+      res.status === 401 &&
+      res.headers.get("X-Rivolt-Auth-Error") === "signups_disabled" &&
+      !new URLSearchParams(window.location.search).has("error")
+    ) {
+      window.location.replace("/login?error=signups_disabled");
+    }
     if (
       res.status === 401 &&
       !isUpstreamErr &&

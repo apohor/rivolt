@@ -1283,12 +1283,12 @@ func runServer() {
 				// RIVOLT_SIGNUP_DISABLED: a Kratos session for an
 				// identity with no Rivolt account doesn't create one.
 				if signupgate.Disabled() {
-					ok, err := signupgate.Allow(ctx, pgPool, email, email, id.Traits.DisplayName)
+					ok, err := signupgate.Allow(ctx, pgPool, email, email, id.EmailVerified(), id.Traits.DisplayName)
 					if err != nil {
 						return uuid.Nil, false, err
 					}
 					if !ok {
-						return uuid.Nil, false, nil
+						return uuid.Nil, false, auth.ErrSignupClosed
 					}
 				}
 				uid, err := db.EnsureUserFull(ctx, pgPool, email, email, id.Traits.DisplayName)

@@ -277,12 +277,15 @@ Still allowed:
   or `POST /api/admin/users` with `{"email": "...", "role": "user"}`;
   create the account first, then the person signs in with the same
   email through your IdP;
-- the address in `RIVOLT_BOOTSTRAP_ADMIN_EMAIL`;
-- the very first user of an empty install, so you can always create
-  your first admin (the check and the insert are serialised, so two
-  simultaneous first logins can't both get in). Set
-  `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` on a fresh install so that first user
-  is you rather than whoever signs in first.
+- the address in `RIVOLT_BOOTSTRAP_ADMIN_EMAIL`, but only when the
+  identity provider reports that email as **verified**; an unverified
+  address never matches;
+- the very first user of an empty install, **only when
+  `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` is not set** (the check and the
+  insert are serialised, so two simultaneous first logins can't both
+  get in). When the variable is set, only that verified address can
+  create the first account, so set it on a fresh install: the first
+  account is then yours, not whoever signs in first.
 
 Accounts are matched on the lower-cased, trimmed email, so
 `Alice@Example.com` and `alice@example.com` are the same account.

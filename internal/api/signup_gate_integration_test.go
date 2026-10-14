@@ -49,11 +49,11 @@ func TestSignupGate_FlagOffGuardIsTheOldCapGuard(t *testing.T) {
 	guard := signupgate.NewCapGuard(pool, func() int { return limit })
 
 	// Empty table, limit 0: blocked (no first-user exception off-flag).
-	if err := guard(ctx, "off-first@example.com", "off-first@example.com"); !errors.Is(err, oidc.ErrCapExceeded) {
+	if err := guard(ctx, "off-first@example.com", "off-first@example.com", true); !errors.Is(err, oidc.ErrCapExceeded) {
 		t.Fatalf("empty install, limit 0: %v, want ErrCapExceeded", err)
 	}
 	limit = 2
-	if err := guard(ctx, "off-first@example.com", "off-first@example.com"); err != nil {
+	if err := guard(ctx, "off-first@example.com", "off-first@example.com", true); err != nil {
 		t.Fatalf("under the cap: %v, want nil", err)
 	}
 	if _, err := db.EnsureUser(ctx, pool, "off-a@example.com"); err != nil {
@@ -63,14 +63,14 @@ func TestSignupGate_FlagOffGuardIsTheOldCapGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Two users, limit 2: at the cap, new identity blocked, existing passes.
-	if err := guard(ctx, "off-new@example.com", "off-new@example.com"); !errors.Is(err, oidc.ErrCapExceeded) {
+	if err := guard(ctx, "off-new@example.com", "off-new@example.com", true); !errors.Is(err, oidc.ErrCapExceeded) {
 		t.Fatalf("at the cap: %v, want ErrCapExceeded", err)
 	}
-	if err := guard(ctx, "OFF-A@example.com ", "off-a@example.com"); err != nil {
+	if err := guard(ctx, "OFF-A@example.com ", "off-a@example.com", true); err != nil {
 		t.Fatalf("existing user (case/space): %v, want nil", err)
 	}
 	limit = 0
-	if err := guard(ctx, "off-a@example.com", "off-a@example.com"); err != nil {
+	if err := guard(ctx, "off-a@example.com", "off-a@example.com", true); err != nil {
 		t.Fatalf("existing user, limit 0: %v, want nil", err)
 	}
 	// The flag-off guard never inserts a row.
@@ -86,28 +86,56 @@ func TestSignupGate_FlagOnRules(t *testing.T) {
 	t.Setenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL", "")
 	guard := signupgate.NewCapGuard(pool, func() int { return 100 }) // the cap would allow
 
-	// Empty install: the first sign-in is let in and its row exists.
-	if err := guard(ctx, "on-first@example.com", "on-first@example.com"); err != nil {
+	// Empty install, no bootstrap email: the first sign-in is let in
+	// and its row exists.
+	if err := guard(ctx, "on-first@example.com", "on-first@example.com", false); err != nil {
 		t.Fatalf("empty install: %v, want nil", err)
 	}
 	if ex, _ := db.UserExistsByUsername(ctx, pool, "on-first@example.com"); !ex {
 		t.Fatal("first user row not created under the lock")
 	}
 	// Now strangers are refused even though the cap has room.
-	if err := guard(ctx, "on-stranger@example.com", "on-stranger@example.com"); !errors.Is(err, oidc.ErrSignupDisabled) {
+	if err := guard(ctx, "on-stranger@example.com", "on-stranger@example.com", true); !errors.Is(err, oidc.ErrSignupDisabled) {
 		t.Fatalf("stranger: %v, want ErrSignupDisabled", err)
 	}
 	// Existing and admin-created users sign in.
 	if _, err := db.EnsureUser(ctx, pool, "on-invited@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if err := guard(ctx, "on-invited@example.com", "on-invited@example.com"); err != nil {
+	if err := guard(ctx, "ON-invited@example.com ", "on-invited@example.com", false); err != nil {
 		t.Fatalf("admin-created: %v, want nil", err)
 	}
-	// Bootstrap admin email passes, compared normalised.
+	// Bootstrap email: verified + normalised matches; unverified never.
 	t.Setenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL", "  Boss@Example.COM ")
-	if err := guard(ctx, "boss@example.com", "BOSS@example.com "); err != nil {
-		t.Fatalf("bootstrap admin: %v, want nil", err)
+	if err := guard(ctx, "boss@example.com", "BOSS@example.com ", true); err != nil {
+		t.Fatalf("verified bootstrap admin: %v, want nil", err)
+	}
+	if err := guard(ctx, "boss2@example.com", "boss@example.com", false); !errors.Is(err, oidc.ErrSignupDisabled) {
+		t.Fatalf("UNVERIFIED bootstrap email: %v, want ErrSignupDisabled", err)
+	}
+}
+
+// While a bootstrap admin email is configured, the empty-install
+// exception does not apply: only that verified address may create the
+// first account.
+func TestSignupGate_BootstrapEmailSetMeansNoEmptyInstallException(t *testing.T) {
+	ctx, pool := openGateDB(t)
+	cleanUsers(t, ctx, pool)
+	t.Setenv("RIVOLT_SIGNUP_DISABLED", "true")
+	t.Setenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL", "owner@example.com")
+	guard := signupgate.NewCapGuard(pool, func() int { return 100 })
+
+	if err := guard(ctx, "squatter@example.com", "squatter@example.com", true); !errors.Is(err, oidc.ErrSignupDisabled) {
+		t.Fatalf("squatter on empty install: %v, want ErrSignupDisabled", err)
+	}
+	if err := guard(ctx, "owner-key", "owner@example.com", false); !errors.Is(err, oidc.ErrSignupDisabled) {
+		t.Fatalf("unverified owner email: %v, want ErrSignupDisabled", err)
+	}
+	if n, _ := db.CountUsers(ctx, pool); n != 0 {
+		t.Fatalf("users = %d, refusals must not create rows", n)
+	}
+	if err := guard(ctx, "owner@example.com", "owner@example.com", true); err != nil {
+		t.Fatalf("verified owner: %v, want nil", err)
 	}
 }
 
@@ -126,7 +154,7 @@ func TestSignupGate_ConcurrentFirstLoginsOnlyOneWins(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			u := fmt.Sprintf("race-%d@example.com", i)
-			ok, err := signupgate.Allow(ctx, pool, u, u, "")
+			ok, err := signupgate.Allow(ctx, pool, u, u, true, "")
 			if err != nil {
 				t.Errorf("allow %d: %v", i, err)
 			}
