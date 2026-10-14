@@ -19,8 +19,8 @@ describe("buildTabs", () => {
 
   it("adds Admin under Truck only for admins", () => {
     const truck = (isAdmin: boolean) => buildTabs({ ...base, isAdmin }).find((t) => t.key === "truck")!;
-    expect(truck(false).subs.map((s) => s.to)).toEqual(["/settings"]);
-    expect(truck(true).subs.map((s) => s.to)).toEqual(["/settings", "/admin"]);
+    expect(truck(false).subs.map((s) => s.to)).toEqual(["/truck", "/settings"]);
+    expect(truck(true).subs.map((s) => s.to)).toEqual(["/truck", "/settings", "/admin"]);
   });
 
   it("hides Live while impersonating", () => {
@@ -39,6 +39,7 @@ describe("activeTab", () => {
     ["/charges/abc", "activity"],
     ["/money", "money"],
     ["/trips/plan", "plan"],
+    ["/truck", "truck"],
     ["/settings", "truck"],
     ["/admin", "truck"],
   ])("%s → %s", (path, key) => {

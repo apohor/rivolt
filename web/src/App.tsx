@@ -18,6 +18,7 @@ const ChargeDetailPage = lazy(pageLoaders.chargeDetail);
 const LivePage = lazy(pageLoaders.live);
 const TripPlanPage = lazy(pageLoaders.tripPlan);
 const MoneyPage = lazy(pageLoaders.money);
+const TruckPage = lazy(pageLoaders.truck);
 const SettingsPage = lazy(pageLoaders.settings);
 const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
@@ -41,6 +42,12 @@ function TripPlanGuard() {
 function MoneyGuard() {
   const enabled = useMoneyTabEnabled();
   return enabled ? <MoneyPage /> : <NotFoundPage />;
+}
+
+// TruckGuard: the Truck health tab ships with the money_tab_enabled shell.
+function TruckGuard() {
+  const enabled = useMoneyTabEnabled();
+  return enabled ? <TruckPage /> : <NotFoundPage />;
 }
 
 export default function App() {
@@ -81,6 +88,7 @@ export default function App() {
         <Route path="live" element={<LivePage />} />
         <Route path="trips/plan" element={<TripPlanGuard />} />
         <Route path="money" element={<MoneyGuard />} />
+        <Route path="truck" element={<TruckGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />

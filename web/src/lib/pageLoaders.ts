@@ -13,6 +13,7 @@ export const pageLoaders = {
   live: () => import("../pages/LivePage"),
   tripPlan: () => import("../pages/TripPlanPage"),
   money: () => import("../pages/MoneyPage"),
+  truck: () => import("../pages/TruckPage"),
   settings: () => import("../pages/SettingsPage"),
   admin: () => import("../pages/AdminPage"),
   login: () => import("../pages/LoginPage"),
@@ -33,6 +34,7 @@ export const navPrefetch: Record<string, PageKey> = {
   "/charges": "charges",
   "/trips/plan": "tripPlan",
   "/money": "money",
+  "/truck": "truck",
   "/settings": "settings",
   "/admin": "admin",
 };

@@ -67,9 +67,10 @@ export function buildTabs(ctx: TabContext): TabDef[] {
   const truck: TabDef = {
     key: "truck",
     label: "Truck",
-    to: "/settings",
-    match: ["/settings", "/admin"],
+    to: "/truck",
+    match: ["/truck", "/settings", "/admin"],
     subs: [
+      { to: "/truck", label: "Health" },
       { to: "/settings", label: "Settings" },
       ...(ctx.isAdmin ? [{ to: "/admin", label: "Admin" }] : []),
     ],
