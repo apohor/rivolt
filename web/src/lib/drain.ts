@@ -51,12 +51,21 @@ export function view(w: DrainWindow, key: "7d" | "30d"): DrainView {
   };
 }
 
-export type Bar = { day: string; value: number | null; excluded: DrainDay["excluded"]; h: number };
+export type Bar = {
+  day: string;
+  value: number | null;
+  excluded: DrainDay["excluded"];
+  h: number;
+  // SoC rose while parked (noise or a top-up): drawn as a baseline tick,
+  // never clamped into a fake 0% reading.
+  gained: number | null;
+};
 
 // bars scales the daily series to 0..1 against its own max; excluded or
 // unmeasured days keep their slot with no value (drawn hollow).
 export function bars(daily: DrainDay[]): { bars: Bar[]; max: number } {
-  const vals = daily.map((d) => (d.excluded == null && d.drain_pct != null ? Math.max(0, d.drain_pct) : null));
+  const measured = daily.map((d) => (d.excluded == null && d.drain_pct != null ? d.drain_pct : null));
+  const vals = measured.map((v) => (v == null ? null : Math.max(0, v)));
   const max = Math.max(0.5, ...vals.map((v) => v ?? 0));
   return {
     max,
@@ -65,6 +74,7 @@ export function bars(daily: DrainDay[]): { bars: Bar[]; max: number } {
       value: vals[i],
       excluded: d.excluded,
       h: vals[i] == null ? 0 : vals[i]! / max,
+      gained: measured[i] != null && measured[i]! < 0 ? -measured[i]! : null,
     })),
   };
 }

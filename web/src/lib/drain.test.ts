@@ -45,4 +45,12 @@ describe("bars", () => {
   it("has a floor on the scale so a near-zero month doesn't look huge", () => {
     expect(bars([d("a", 0.05)]).max).toBe(0.5);
   });
+
+  it("never clamps a negative day into a measured loss", () => {
+    const r = bars([d("a", 1), d("b", -0.4)]);
+    expect(r.bars[1].value).toBe(0);
+    expect(r.bars[1].gained).toBe(0.4);
+    expect(r.bars[0].gained).toBeNull();
+    expect(r.max).toBe(1);
+  });
 });

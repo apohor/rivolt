@@ -89,8 +89,12 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
                   <title>{`${b.day}: ${b.excluded ? EXCLUDED_LABEL[b.excluded] : "no data"}`}</title>
                 </rect>
               ) : (
-                <rect key={b.day} x={i * 10 + 1} y={39 - Math.max(1, b.h * 38)} width={8} height={Math.max(1, b.h * 38)} rx={1} fill="currentColor">
-                  <title>{`${b.day}: ${formatPct(b.value)}% / day`}</title>
+                <rect key={b.day} x={i * 10 + 1} y={39 - Math.max(1, b.h * 38)} width={8} height={Math.max(1, b.h * 38)} rx={1} fill="currentColor" fillOpacity={b.gained != null ? 0.5 : 1}>
+                  <title>
+                    {b.gained != null
+                      ? `${b.day}: battery rose ${formatPct(b.gained)}% while parked (measurement noise or a top-up)`
+                      : `${b.day}: ${formatPct(b.value)}% / day`}
+                  </title>
                 </rect>
               ),
             )}
