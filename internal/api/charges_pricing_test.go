@@ -109,7 +109,7 @@ func TestDecorateCharge_FreeGetsNoEstimate(t *testing.T) {
 func TestChargeResponse_CarriesClassification(t *testing.T) {
 	resp := chargeResponse{
 		Charge:         charges.Charge{ID: "c1", CostSource: "home_rate", Place: "home"},
-		Classification: ledger.Classification{CostSource: "unknown", Kind: "ac", Place: "away", Flags: []string{"unpriced"}},
+		Classification: &ledger.Classification{CostSource: "unknown", Kind: "ac", Place: "away", Flags: []string{"unpriced"}},
 	}
 	raw, err := json.Marshal(resp)
 	if err != nil {
@@ -121,5 +121,19 @@ func TestChargeResponse_CarriesClassification(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("JSON missing %s: %s", want, s)
 		}
+	}
+}
+
+// F5: without the user's charging settings the classification would be
+// wrong, so it's omitted and flagged rather than guessed.
+func TestChargeResponse_ClassificationUnavailable(t *testing.T) {
+	raw, err := json.Marshal(chargeResponse{Charge: charges.Charge{ID: "c1"}, ClassificationUnavailable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, `"classification_unavailable":true`) || strings.Contains(s, "cost_source_effective") ||
+		strings.Contains(s, `"kind"`) {
+		t.Errorf("unavailable classification JSON = %s", s)
 	}
 }

@@ -726,3 +726,22 @@ func TestClassifyFromCharge(t *testing.T) {
 		t.Errorf("crumb = %+v", c)
 	}
 }
+
+// F5: the list view applies the same dedupe as Money: an overlapping
+// duplicate is flagged superseded and isn't counted in spend.
+func TestClassifyAll_Superseded(t *testing.T) {
+	a := priced(charge("live_a", "2026-05-08T22:54:46Z", 156*time.Minute, 18.5, 7.5), 0.11)
+	b := priced(charge("live_b", "2026-05-08T22:54:49Z", 156*time.Minute, 18.1, 7.5), 0.11)
+	b.CreatedAt = a.CreatedAt.Add(4 * time.Second)
+	other := priced(charge("other", "2026-05-09T10:00:00Z", time.Hour, 10, 7.5), 0.11)
+	got := ClassifyAll([]Charge{b, a, other}, cfg())
+	if !got[1].CountsInSpend || hasFlag(got[1].Flags, FlagSuperseded) {
+		t.Errorf("winner = %+v", got[1])
+	}
+	if got[0].CountsInSpend || !hasFlag(got[0].Flags, FlagSuperseded) {
+		t.Errorf("duplicate = %+v, want superseded and not in spend", got[0])
+	}
+	if !got[2].CountsInSpend || hasFlag(got[2].Flags, FlagSuperseded) {
+		t.Errorf("unrelated row = %+v", got[2])
+	}
+}

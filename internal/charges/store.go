@@ -289,7 +289,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       COALESCE(c.cost_source,''), COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -343,7 +343,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       COALESCE(c.cost_source,''), COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -539,7 +539,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       COALESCE(c.cost_source,''), COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
