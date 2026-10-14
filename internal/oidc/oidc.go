@@ -79,6 +79,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
+
+	"github.com/apohor/rivolt/internal/identity"
 )
 
 // ProviderConfig is one IdP's static configuration, supplied by
@@ -153,10 +155,13 @@ type Service struct {
 	// make the handler trivially testable.
 	issueSession func(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error
 
+	// userExists, see Config.UserExists.
+	userExists func(ctx context.Context, username string) (bool, error)
+
 	// ensureUser upserts the user row for (username, email,
 	// displayName) and returns the stable UUID. Wired to
 	// db.EnsureUserFull by main.
-	ensureUser func(ctx context.Context, username, email, displayName string) (uuid.UUID, error)
+	ensureUser func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error)
 
 	// capGuard, when non-nil, runs before ensureUser. It should
 	// return ErrCapExceeded if creating a new account would
@@ -216,7 +221,11 @@ type provider struct {
 // service-wide identity / cookie wiring.
 type Config struct {
 	IssueSession func(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error
-	EnsureUser   func(ctx context.Context, username, email, displayName string) (uuid.UUID, error)
+	EnsureUser   func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error)
+	// UserExists reports whether an account is keyed by username. Used
+	// to refuse a sign-in that would take over (or orphan) an account
+	// keyed by an email the IdP did not verify. nil fails closed.
+	UserExists func(ctx context.Context, username string) (bool, error)
 	UserIDFor    func(string) uuid.UUID
 	PostLoginURL string
 	SecureCookie bool
@@ -272,6 +281,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	s := &Service{
 		issueSession:   cfg.IssueSession,
 		ensureUser:     cfg.EnsureUser,
+		userExists:     cfg.UserExists,
 		capGuard:       cfg.CapGuard,
 		capOverflowURL: overflow,
 		errorURL:       errURL,
@@ -676,7 +686,31 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		claimPreferred = claims.PreferredUsername
 		claimName = claims.Name
 	}
-	username, email := resolveIdentity(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred)
+	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail())
+	username, email := key.Username, key.Email
+	if key.UnverifiedCandidate != "" {
+		// An unverified email would have been the key. If an account
+		// already lives under it, signing in would be a takeover and a
+		// fresh iss:sub account would orphan its owner: refuse. With no
+		// such account the iss:sub key above stands (a new, isolated
+		// identity). Fails closed when existence can't be checked.
+		exists := true
+		if s.userExists != nil {
+			var uerr error
+			exists, uerr = s.userExists(r.Context(), key.UnverifiedCandidate)
+			if uerr != nil {
+				s.log.Error("oidc: account lookup", "err", uerr)
+				s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+				return
+			}
+		}
+		if exists {
+			s.log.Info("oidc: sign-in refused", "provider", name, "reason", "email_unverified: account exists under unverified email")
+			s.clearStateCookie(w)
+			s.failRedirect(w, r, "email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
+			return
+		}
+	}
 	if username == "" {
 		// Without a stable identity we can't safely mint a
 		// session — refusing is correct.
@@ -715,7 +749,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	uid, err := s.ensureUser(r.Context(), username, email, display)
+	uid, err := s.ensureUser(r.Context(), username, email, display, claimEmailVerified && email != "")
 	if err != nil {
 		// ErrUserForbidden lets main signal "this row exists but
 		// has been admin-disabled" without leaking the column
@@ -773,36 +807,58 @@ func (s *Service) clearStateCookie(w http.ResponseWriter) {
 	})
 }
 
-// resolveIdentity picks the best deterministic key for this IdP
-// principal. Verified email wins because it joins cleanly across
-// auth methods (a user who signs in by password with the same
-// email lands on the same UUIDv5). preferred_username is second
-// best for IdPs without email scope. iss+sub is the floor —
-// always present, but means the user-key is unique per IdP and
-// can't be reached from a non-OIDC sign-in path.
-func resolveIdentity(iss, sub, email string, emailVerified bool, preferred string) (username, returnedEmail string) {
+// identityKey is resolveIdentityKey's answer.
+type identityKey struct {
+	// Username is the account key ("" when nothing stable exists).
+	Username string
+	// Email is the normalised email the IdP gave (display info; may be
+	// unverified).
+	Email string
+	// UnverifiedCandidate is set when an email, or an email-shaped
+	// preferred_username, the IdP did not verify would have been the key
+	// under the old rules. Username is then the iss:sub key, and the
+	// caller must refuse the sign-in if an account already exists under
+	// the candidate (that is the takeover path; falling back to iss:sub
+	// would silently orphan its owner).
+	UnverifiedCandidate string
+}
+
+// resolveIdentityKey picks the deterministic account key for an IdP
+// principal.
+//
+//  1. A verified email wins: it joins cleanly across auth methods.
+//  2. A preferred_username without "@" is next (IdPs without email
+//     scope). One WITH "@" is a self-asserted email and is treated
+//     exactly like an unverified email, never as a key by itself.
+//  3. An unverified email-like candidate is a key only when
+//     trustUnverified (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL) says so;
+//     otherwise the key is iss:sub and UnverifiedCandidate is set.
+//  4. iss:sub is the floor, unique per IdP, unreachable from any other
+//     sign-in path.
+func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred string, trustUnverified bool) identityKey {
 	email = strings.ToLower(strings.TrimSpace(email))
 	preferred = strings.ToLower(strings.TrimSpace(preferred))
 	if email != "" && emailVerified {
-		return email, email
+		return identityKey{Username: email, Email: email}
 	}
-	if preferred != "" {
-		// We still surface email if the IdP gave one, even
-		// unverified — it's useful display info even when we
-		// don't trust it as the identity key.
-		return preferred, email
+	candidate := ""
+	switch {
+	case preferred != "" && !strings.Contains(preferred, "@"):
+		return identityKey{Username: preferred, Email: email}
+	case preferred != "":
+		candidate = preferred
+	case email != "":
+		candidate = email
 	}
-	if email != "" {
-		// Last resort: unverified email, but better than a
-		// per-IdP synthetic key.
-		return email, email
+	if candidate != "" && trustUnverified {
+		return identityKey{Username: candidate, Email: email}
 	}
-	if sub == "" {
-		return "", email
+	synthetic := ""
+	if strings.TrimSpace(sub) != "" {
+		// Lowercased so case-insensitive UUIDv5 stays stable.
+		synthetic = strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub))
 	}
-	// Synthetic key. Lowercased so case-insensitive UUIDv5 stays
-	// stable.
-	return strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub)), email
+	return identityKey{Username: synthetic, Email: email, UnverifiedCandidate: candidate}
 }
 
 // githubIdentity is the normalised shape we extract from GitHub's

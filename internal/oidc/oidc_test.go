@@ -11,80 +11,50 @@ import (
 // > iss+sub) are load-bearing — they decide whether a user
 // signing in by Google and a user signing in by password with the
 // same email land on the same UUIDv5. Tightly pin the table.
-func TestResolveIdentity(t *testing.T) {
-	const iss = "https://accounts.google.com"
+func TestResolveIdentityKey(t *testing.T) {
+	const iss = "https://idp.example.com"
+	synth := strings.ToLower(iss + ":abc-123")
 	cases := []struct {
-		name         string
-		sub          string
-		email        string
-		verified     bool
-		preferred    string
-		wantUsername string
-		wantEmail    string
+		name      string
+		sub       string
+		email     string
+		verified  bool
+		preferred string
+		trust     bool
+
+		wantUsername  string
+		wantEmail     string
+		wantCandidate string
 	}{
-		{
-			name:         "verified email wins",
-			sub:          "abc",
-			email:        "Alice@Example.com",
-			verified:     true,
-			preferred:    "alice-rivian",
-			wantUsername: "alice@example.com",
-			wantEmail:    "alice@example.com",
-		},
-		{
-			name:         "unverified email loses to preferred_username",
-			sub:          "abc",
-			email:        "Alice@Example.com",
-			verified:     false,
-			preferred:    "Alice-Rivian",
-			wantUsername: "alice-rivian",
-			wantEmail:    "alice@example.com",
-		},
-		{
-			name:         "unverified email is the floor when no preferred",
-			sub:          "abc",
-			email:        "Alice@Example.com",
-			verified:     false,
-			preferred:    "",
-			wantUsername: "alice@example.com",
-			wantEmail:    "alice@example.com",
-		},
-		{
-			name:         "iss+sub fallback when nothing else",
-			sub:          "abc-123",
-			email:        "",
-			verified:     false,
-			preferred:    "",
-			wantUsername: strings.ToLower(iss + ":abc-123"),
-			wantEmail:    "",
-		},
-		{
-			name:         "no sub, no email, no preferred → empty",
-			sub:          "",
-			email:        "",
-			verified:     false,
-			preferred:    "",
-			wantUsername: "",
-			wantEmail:    "",
-		},
-		{
-			name:         "whitespace and case are normalised",
-			sub:          " ",
-			email:        "  ALICE@EXAMPLE.COM  ",
-			verified:     true,
-			preferred:    "",
-			wantUsername: "alice@example.com",
-			wantEmail:    "alice@example.com",
-		},
+		{name: "verified email wins", sub: "abc-123", email: "Alice@Example.com", verified: true, preferred: "alice-rivian",
+			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
+		{name: "unverified email loses to plain preferred_username", sub: "abc-123", email: "Alice@Example.com", preferred: "Alice-Rivian",
+			wantUsername: "alice-rivian", wantEmail: "alice@example.com"},
+		{name: "unverified email only: iss:sub, candidate flagged", sub: "abc-123", email: "Alice@Example.com",
+			wantUsername: synth, wantEmail: "alice@example.com", wantCandidate: "alice@example.com"},
+		{name: "email-shaped preferred_username is not a key", sub: "abc-123", email: "", preferred: "Victim@Example.com",
+			wantUsername: synth, wantEmail: "", wantCandidate: "victim@example.com"},
+		{name: "email-shaped preferred beats unverified email as candidate", sub: "abc-123", email: "me@example.com", preferred: "victim@example.com",
+			wantUsername: synth, wantEmail: "me@example.com", wantCandidate: "victim@example.com"},
+		{name: "verified email still wins over email-shaped preferred", sub: "abc-123", email: "me@example.com", verified: true, preferred: "victim@example.com",
+			wantUsername: "me@example.com", wantEmail: "me@example.com"},
+		{name: "trusted: unverified email keys as before", sub: "abc-123", email: "Alice@Example.com", trust: true,
+			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
+		{name: "trusted: email-shaped preferred keys as before", sub: "abc-123", preferred: "victim@example.com", trust: true,
+			wantUsername: "victim@example.com"},
+		{name: "no email at all: iss:sub, nothing flagged", sub: "abc-123",
+			wantUsername: synth},
+		{name: "no sub, no email, no preferred: empty", wantUsername: ""},
+		{name: "no sub with an unverified email: no key, candidate flagged", email: "a@example.com",
+			wantUsername: "", wantEmail: "a@example.com", wantCandidate: "a@example.com"},
+		{name: "whitespace and case are normalised", sub: " ", email: "  ALICE@EXAMPLE.COM  ", verified: true,
+			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotU, gotE := resolveIdentity(iss, tc.sub, tc.email, tc.verified, tc.preferred)
-			if gotU != tc.wantUsername {
-				t.Fatalf("username: want %q got %q", tc.wantUsername, gotU)
-			}
-			if gotE != tc.wantEmail {
-				t.Fatalf("email: want %q got %q", tc.wantEmail, gotE)
+			got := resolveIdentityKey(iss, tc.sub, tc.email, tc.verified, tc.preferred, tc.trust)
+			if got.Username != tc.wantUsername || got.Email != tc.wantEmail || got.UnverifiedCandidate != tc.wantCandidate {
+				t.Fatalf("got %+v, want {%q %q %q}", got, tc.wantUsername, tc.wantEmail, tc.wantCandidate)
 			}
 		})
 	}

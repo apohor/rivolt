@@ -101,7 +101,13 @@ func EnsureUser(ctx context.Context, d *sql.DB, username string) (uuid.UUID, err
 	return EnsureUserFull(ctx, d, username, "", "")
 }
 
-// EnsureUserFull is EnsureUser plus optional email and display_name
+// EnsureUserFull is EnsureUserVerified for callers that cannot vouch
+// for the email: it never promotes the bootstrap admin.
+func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName string) (uuid.UUID, error) {
+	return EnsureUserVerified(ctx, d, username, email, displayName, false)
+}
+
+// EnsureUserVerified is EnsureUser plus optional email and display_name
 // columns. OIDC sign-in uses this so the user row reflects what the
 // IdP knows (display_name in particular is what the UI surfaces in
 // the account menu). Empty values are not written — a later sign-in
@@ -115,7 +121,7 @@ func EnsureUser(ctx context.Context, d *sql.DB, username string) (uuid.UUID, err
 // whose email matches it to admin on every sign-in. This makes it
 // safe to set the env up-front: an IdP user with that email always
 // becomes admin without any seed-time coordination.
-func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName string) (uuid.UUID, error) {
+func EnsureUserVerified(ctx context.Context, d *sql.DB, username, email, displayName string, emailVerified bool) (uuid.UUID, error) {
 	u := strings.ToLower(strings.TrimSpace(username))
 	if u == "" {
 		return uuid.Nil, fmt.Errorf("username is required")
@@ -143,7 +149,9 @@ func EnsureUserFull(ctx context.Context, d *sql.DB, username, email, displayName
 	// "first user becomes admin".
 	if bootstrapEmail := strings.ToLower(strings.TrimSpace(os.Getenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL"))); bootstrapEmail != "" {
 		em := strings.ToLower(strings.TrimSpace(email))
-		if em != "" && em == bootstrapEmail {
+		// Only a VERIFIED email may match: an address an IdP merely
+		// asserts must never grant admin.
+		if emailVerified && em != "" && em == bootstrapEmail {
 			if _, err := d.ExecContext(ctx,
 				`UPDATE users SET role = 'admin' WHERE id = $1 AND role <> 'admin'`,
 				id,

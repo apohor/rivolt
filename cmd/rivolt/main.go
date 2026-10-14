@@ -42,6 +42,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
+	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/kratos"
 	"github.com/apohor/rivolt/internal/leases"
@@ -99,6 +100,14 @@ Usage:
                   charges stored at the home rate (dry run unless --apply)
 
 Environment:
+  RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true
+                                 let an email the IdP did not verify be an
+                                 account key (unsafe with permissive IdPs).
+                                 Default false.
+  RIVOLT_TRUST_FIRST_PARTY_EMAILS=false
+                                 count Rivolt's own Kratos/Hydra emails as
+                                 verified only if Kratos verified them (for
+                                 open-registration Kratos). Default true.
   RIVOLT_SIGNUP_DISABLED=true    close sign-up: no /signup page or API, no
                                  access requests, and a first sign-in by an
                                  unknown OIDC/Kratos identity is refused.
@@ -1279,11 +1288,16 @@ func runServer() {
 			// same UUIDv5(email) the cookie / OIDC paths use,
 			// so a user who first appeared via Kratos resolves
 			// to the same identity downstream.
+			// One switch for every first-party path (the Hydra consent
+			// claim uses the same one): first-party emails count as
+			// verified unless RIVOLT_TRUST_FIRST_PARTY_EMAILS=false,
+			// in which case Kratos's own verification state decides.
+			firstPartyVerified := identity.FirstPartyEmailVerified(*id)
 			if pgPool != nil {
 				// RIVOLT_SIGNUP_DISABLED: a Kratos session for an
 				// identity with no Rivolt account doesn't create one.
 				if signupgate.Disabled() {
-					ok, err := signupgate.Allow(ctx, pgPool, email, email, id.EmailVerified(), id.Traits.DisplayName)
+					ok, err := signupgate.Allow(ctx, pgPool, email, email, firstPartyVerified, id.Traits.DisplayName)
 					if err != nil {
 						return uuid.Nil, false, err
 					}
@@ -1291,7 +1305,7 @@ func runServer() {
 						return uuid.Nil, false, auth.ErrSignupClosed
 					}
 				}
-				uid, err := db.EnsureUserFull(ctx, pgPool, email, email, id.Traits.DisplayName)
+				uid, err := db.EnsureUserVerified(ctx, pgPool, email, email, id.Traits.DisplayName, firstPartyVerified)
 				if err != nil {
 					return uuid.Nil, false, err
 				}
@@ -1337,8 +1351,11 @@ func runServer() {
 		}
 		svc, oerr := oidc.New(ctx, oidc.Config{
 			IssueSession: authSvc.IssueSession,
-			EnsureUser: func(ctx context.Context, username, email, displayName string) (uuid.UUID, error) {
-				uid, err := db.EnsureUserFull(ctx, pgPool, username, email, displayName)
+			UserExists: func(ctx context.Context, username string) (bool, error) {
+				return db.UserExistsByUsername(ctx, pgPool, username)
+			},
+			EnsureUser: func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error) {
+				uid, err := db.EnsureUserVerified(ctx, pgPool, username, email, displayName, emailVerified)
 				if err != nil {
 					return uuid.Nil, err
 				}
