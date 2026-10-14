@@ -392,11 +392,10 @@ func TestMarkFree(t *testing.T) {
 	}
 }
 
-// TestLiveOverlapGuard pins migration 0041: the database refuses a
-// second live charge or drive overlapping an existing one for the same
-// vehicle (SQLSTATE 23P01), while back-to-back sessions, imports, other
-// vehicles and pre-cutoff rows (the grandfathered May 2026 duplicates)
-// are unaffected.
+// TestLiveOverlapGuard pins migrations 0041/0043: the database refuses
+// a second live charge or drive overlapping an existing one for the same
+// vehicle (SQLSTATE 23P01) at any date, while back-to-back sessions,
+// imports and other vehicles are unaffected.
 func TestLiveOverlapGuard(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -441,13 +440,20 @@ func TestLiveOverlapGuard(t *testing.T) {
 	if err := store.Upsert(ctx, grown); !isExcl(err) {
 		t.Errorf("extending live-1 over live-3: err = %v, want 23P01", err)
 	}
-	// Grandfathered: overlapping live rows before the 2026-05-10 cutoff.
+	// 0043 dropped 0041's 2026-05-10 cutoff: old duplicates are refused too.
 	old := time.Date(2026, 5, 8, 22, 54, 46, 0, time.UTC)
 	if err := store.Upsert(ctx, sampleCharge("may-a", "rv-A", old, "charging_complete")); err != nil {
-		t.Fatalf("pre-cutoff charge: %v", err)
+		t.Fatalf("May 2026 charge: %v", err)
 	}
-	if err := store.Upsert(ctx, sampleCharge("may-b", "rv-A", old.Add(3*time.Second), "charging_complete")); err != nil {
-		t.Errorf("pre-cutoff duplicate rejected (should be grandfathered): %v", err)
+	if err := store.Upsert(ctx, sampleCharge("may-b", "rv-A", old.Add(3*time.Second), "charging_complete")); !isExcl(err) {
+		t.Errorf("May 2026 duplicate: err = %v, want 23P01 (no cutoff since 0043)", err)
+	}
+	var cutoffs int
+	if err := pool.QueryRowContext(ctx, `
+		SELECT count(*) FROM pg_constraint
+		 WHERE conname IN ('charges_live_no_overlap', 'drives_live_no_overlap')
+		   AND pg_get_constraintdef(oid) LIKE '%2026-05-10%'`).Scan(&cutoffs); err != nil || cutoffs != 0 {
+		t.Errorf("constraints still carrying the 2026-05-10 cutoff = %d (%v), want 0", cutoffs, err)
 	}
 
 	// Drives carry the same guard.
