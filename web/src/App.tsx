@@ -19,6 +19,7 @@ const LivePage = lazy(pageLoaders.live);
 const TripPlanPage = lazy(pageLoaders.tripPlan);
 const MoneyPage = lazy(pageLoaders.money);
 const TruckPage = lazy(pageLoaders.truck);
+const ActivityPage = lazy(pageLoaders.activity);
 const SettingsPage = lazy(pageLoaders.settings);
 const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
@@ -48,6 +49,12 @@ function MoneyGuard() {
 function TruckGuard() {
   const enabled = useMoneyTabEnabled();
   return enabled ? <TruckPage /> : <NotFoundPage />;
+}
+
+// ActivityGuard: the Activity feed ships with the money_tab_enabled shell.
+function ActivityGuard() {
+  const enabled = useMoneyTabEnabled();
+  return enabled ? <ActivityPage /> : <NotFoundPage />;
 }
 
 export default function App() {
@@ -89,6 +96,7 @@ export default function App() {
         <Route path="trips/plan" element={<TripPlanGuard />} />
         <Route path="money" element={<MoneyGuard />} />
         <Route path="truck" element={<TruckGuard />} />
+        <Route path="activity" element={<ActivityGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />

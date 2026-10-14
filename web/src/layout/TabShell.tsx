@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import type { TabDef, TabKey } from "./tabs";
 
 // Chrome for the money_tab_enabled shell: a bottom tab bar on mobile,
@@ -85,9 +85,8 @@ export function BottomTabBar({
           const isActive = t.key === active;
           return (
             <li key={t.key} className="flex-1">
-              <NavLink
+              <Link
                 to={t.to}
-                end={t.to === "/"}
                 aria-current={isActive ? "page" : undefined}
                 onTouchStart={() => onPrefetch?.(t.to)}
                 onFocus={() => onPrefetch?.(t.to)}
@@ -97,7 +96,7 @@ export function BottomTabBar({
               >
                 <TabIcon tab={t.key} />
                 <span>{t.label}</span>
-              </NavLink>
+              </Link>
             </li>
           );
         })}
@@ -125,9 +124,8 @@ export function SideRail({
           const isActive = t.key === active;
           return (
             <li key={t.key}>
-              <NavLink
+              <Link
                 to={t.to}
-                end={t.to === "/"}
                 aria-current={isActive ? "page" : undefined}
                 onMouseEnter={() => onPrefetch?.(t.to)}
                 onFocus={() => onPrefetch?.(t.to)}
@@ -141,7 +139,7 @@ export function SideRail({
                   <TabIcon tab={t.key} />
                 </span>
                 {t.label}
-              </NavLink>
+              </Link>
             </li>
           );
         })}
