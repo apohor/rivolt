@@ -174,7 +174,7 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 					"remoteChargingAvailable":         map[string]any{"value": "true"},
 					"cabinClimateInteriorTemperature": map[string]any{"value": 21.0},
 					"cabinPreconditioningStatus":      map[string]any{"value": "inactive"},
-					"powerState":                      map[string]any{"value": "sleep"},
+					"powerState":                      map[string]any{"value": "sleep", "timeStamp": "2026-04-23T17:59:00.250Z"},
 					"alarmSoundStatus":                map[string]any{"value": "false"},
 					"twelveVoltBatteryHealth":         map[string]any{"value": "good"},
 					"wiperFluidState":                 map[string]any{"value": "normal"},

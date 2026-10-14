@@ -141,6 +141,7 @@ func (m *StateMonitor) sleepGate(ctx context.Context, vehicleID string, startAwa
 			if obs != nil {
 				obs.OnSleepEnded(vehicleID, slept, failed)
 			}
+			m.logWakeAttribution(vehicleID, sleepAt, now, ps, failed)
 			if failed {
 				failures = append(failures, now)
 				for len(failures) > 0 && now.Sub(failures[0]) > sleepLoopWindow {
