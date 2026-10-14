@@ -78,6 +78,30 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	if snap.TirePressureMinB == nil || snap.LocationFixAt == nil {
 		t.Fatalf("tire/fix missing: %+v", snap)
 	}
+	// A state that has not changed inside the 7-day window has an
+	// unknown start: state_since is NULL, not the window edge.
+	var vold string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-old') RETURNING id`, alice).Scan(&vold); err != nil {
+		t.Fatal(err)
+	}
+	row(alice.String(), vold, 5*24*time.Hour, "ready", "P", "charger_disconnected", 80, 0)
+	row(alice.String(), vold, 1*time.Hour, "ready", "P", "charger_disconnected", 79, 0)
+	old, err := newNowSnapshotter(pool)(ctx, alice, "rv-old", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.State != "parked" || old.StateSince != nil {
+		t.Fatalf("old run: state=%q since=%v", old.State, old.StateSince)
+	}
+	// Plugged outranks asleep.
+	row(alice.String(), vold, 30*time.Minute, "sleep", "P", "charging_complete", 79, 0)
+	pl, err := newNowSnapshotter(pool)(ctx, alice, "rv-old", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.State != "plugged" {
+		t.Fatalf("plugged+asleep = %q, want plugged", pl.State)
+	}
 	// Not Alice's vehicle: no data, state empty.
 	other, err := newNowSnapshotter(pool)(ctx, alice, "rv-bob", now)
 	if err != nil {

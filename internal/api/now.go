@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -105,39 +106,54 @@ func envReplay() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("RIVIAN_CLIENT")), "replay")
 }
 
-// nowStateSQL derives (state, state_since, soc, peak kW) in one pass.
-// Precedence: driving (gear D/R only) > charging (charging_active) >
-// asleep (power_state) > plugged (connected, not charging) > parked.
-// Every query is scoped by user_id; the vehicle id is resolved through
-// the same user.
-const nowStateSQL = `
-WITH s AS (
-	SELECT vs.at, vs.battery_level_pct, vs.charger_power_kw,
-	       vs.location_fix_at, vs.tire_pressure_min_bar,
-	       CASE WHEN vs.shift_state IN ('D','R') THEN 'driving'
-	            WHEN vs.charging_state = 'charging_active' THEN 'charging'
-	            WHEN vs.power_state = 'sleep' THEN 'asleep'
-	            WHEN vs.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
-	            ELSE 'parked' END AS st
-	FROM vehicle_state vs
-	WHERE vs.user_id = $1
-	  AND vs.vehicle_id = (SELECT v.id FROM vehicles v WHERE v.user_id = $1 AND v.rivian_vehicle_id = $2)
-	  AND vs.at >= $3::timestamptz
+// nowStateCase classifies one vehicle_state row (alias vs). Precedence:
+// driving (gear D/R only) > charging (charging_active) > plugged
+// (connected, not charging) > asleep (power_state) > parked. A plugged
+// truck that is also asleep reads "plugged" (agreed with ux).
+const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
+	            WHEN %[1]s.charging_state = 'charging_active' THEN 'charging'
+	            WHEN %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN %[1]s.power_state = 'sleep' THEN 'asleep'
+	            ELSE 'parked' END`
+
+// nowStateSQL derives (state, state_since, soc, peak kW). The run start
+// is found with an early-stopping descending scan on the
+// (vehicle_id, at) key: newest row first, stop at the first row whose
+// state differs, so a poll touches only the current run (bounded by
+// the lookback). When no differing row exists inside the lookback the
+// state is older than the window and state_since is NULL (unknown),
+// not the window edge. Every read is scoped by user_id.
+var nowStateSQL = fmt.Sprintf(`
+WITH v AS (
+	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
-	SELECT at, st, location_fix_at FROM s ORDER BY at DESC LIMIT 1
+	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st
+	FROM vehicle_state vs
+	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
+	ORDER BY vs.at DESC LIMIT 1
 ), brk AS (
-	SELECT max(s.at) AS at FROM s, cur WHERE s.st <> cur.st
-), run AS (
-	SELECT s.* FROM s, brk WHERE brk.at IS NULL OR s.at > brk.at
+	SELECT vs.at
+	FROM vehicle_state vs, cur
+	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
+	  AND `+nowStateCase+` <> cur.st
+	ORDER BY vs.at DESC LIMIT 1
+), first AS (
+	SELECT vs.at, vs.battery_level_pct
+	FROM vehicle_state vs, brk
+	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at
+	ORDER BY vs.at ASC LIMIT 1
 )
 SELECT (SELECT at FROM cur),
        (SELECT st FROM cur),
        (SELECT location_fix_at FROM cur),
-       (SELECT at FROM run ORDER BY at LIMIT 1),
-       (SELECT battery_level_pct FROM run ORDER BY at LIMIT 1),
-       (SELECT max(charger_power_kw) FROM run),
-       (SELECT tire_pressure_min_bar FROM s WHERE tire_pressure_min_bar IS NOT NULL AND at >= $4::timestamptz
-        ORDER BY at DESC LIMIT 1)`
+       (SELECT at FROM first),
+       (SELECT battery_level_pct FROM first),
+       (SELECT max(vs.charger_power_kw) FROM vehicle_state vs, brk
+         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at),
+       (SELECT vs.tire_pressure_min_bar FROM vehicle_state vs
+         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
+           AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
+         ORDER BY vs.at DESC LIMIT 1)`, "vs")
 
 // nowSleepSQL counts sleeps that ended within a minute in the window,
 // with the same definition as the sleep-activity analytics: a sleep is
