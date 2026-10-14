@@ -129,9 +129,25 @@ function foldErrands(list: FeedItem[]): FeedItem[] {
 
 export type CostLine = { text: string; tone: "ok" | "est" | "missing" };
 
-export function chargeCostLine(c: Charge): CostLine {
+// homeRate lets legacy fast charges stamped with the home rate (no
+// CostSource) read as "Estimate pending", matching Money, instead of a
+// solid wrong figure.
+export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   if (isActiveCharge(c)) return { text: "Charging now", tone: "ok" };
   if (c.CostSource === "user" && c.Cost === 0) return { text: "Free", tone: "ok" };
+  if (c.CostSource === "network_estimate" && c.Cost > 0) {
+    return { text: `~${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim(), tone: "est" };
+  }
+  if (
+    c.Cost > 0 &&
+    !c.CostSource &&
+    c.MaxPowerKW >= 50 &&
+    homeRate != null &&
+    homeRate > 0 &&
+    Math.abs(c.PricePerKWh - homeRate) < 0.0005
+  ) {
+    return { text: "Estimate pending", tone: "missing" };
+  }
   if (c.Cost > 0) return { text: `${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim(), tone: "ok" };
   if (c.estimated_cost && c.estimated_cost > 0) {
     return { text: `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency || ""}`.trim(), tone: "est" };

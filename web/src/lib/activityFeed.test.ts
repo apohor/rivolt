@@ -66,6 +66,14 @@ describe("data-quality lines", () => {
     expect(chargeCostLine(charge("x", "2026-10-02T00:00:00Z", { CostSource: "user" })).text).toBe("Free");
     expect(chargeCostLine(charge("x", "2026-10-02T00:00:00Z", { estimated_cost: 3 })).tone).toBe("est");
     expect(chargeCostLine(charge("x", "2026-10-02T00:00:00Z")).text).toBe("Unpriced");
+    // network estimate is dotted, not solid
+    const net = chargeCostLine(charge("x", "2026-10-02T00:00:00Z", { Cost: 33.41, CostSource: "network_estimate", MaxPowerKW: 150 }));
+    expect(net.tone).toBe("est");
+    expect(net.text.startsWith("~")).toBe(true);
+    // legacy fast charge stamped at the home rate reads as pending
+    const legacy = charge("x", "2026-10-02T00:00:00Z", { Cost: 8, PricePerKWh: 0.11, MaxPowerKW: 150 });
+    expect(chargeCostLine(legacy, 0.11).text).toBe("Estimate pending");
+    expect(chargeCostLine(legacy).tone).toBe("ok");
     expect(driveMissingEnergy(drive("a", "2026-10-02T08:00:00Z", 8, { EnergyUsedKWh: 0 }))).toBe(true);
   });
 });

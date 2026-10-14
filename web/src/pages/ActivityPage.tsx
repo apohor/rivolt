@@ -43,6 +43,14 @@ export default function ActivityPage() {
     retry: 1,
   });
 
+  const settingsQ = useQuery({
+    queryKey: ["settings", "charging"],
+    queryFn: () => backend.getChargingSettings(),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+  const homeRate = settingsQ.data?.home_price_per_kwh ?? null;
+
   const days = useMemo(() => {
     const ds = drivesQ.data ?? [];
     const merged = roundTripsEnabled
@@ -108,7 +116,7 @@ export default function ActivityPage() {
                   it.kind === "drive" ? (
                     <li key={it.drive.ID}><DriveCard item={it} /></li>
                   ) : it.kind === "charge" ? (
-                    <li key={it.charge.ID}><ChargeCard item={it} /></li>
+                    <li key={it.charge.ID}><ChargeCard item={it} homeRate={homeRate} /></li>
                   ) : (
                     <li key={it.drives[0].drive.ID}><ErrandsRow item={it} /></li>
                   ),
@@ -171,9 +179,9 @@ function DriveCard({ item }: { item: DriveItem }) {
   );
 }
 
-function ChargeCard({ item }: { item: ChargeItem }) {
+function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | null }) {
   const c: Charge = item.charge;
-  const cost = chargeCostLine(c);
+  const cost = chargeCostLine(c, homeRate);
   const where = item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
   const energy = c.EnergyAddedKWh > 0 ? `${c.EnergyAddedKWh.toFixed(1)} kWh` : "no energy recorded";
   return (
