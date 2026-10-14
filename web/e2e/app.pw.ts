@@ -40,6 +40,8 @@ const nowViews: View[] = (["parked", "charging", "driving", "asleep", "offline"]
 
 const views: View[] = [
   ...nowViews,
+  // With GET /now: the Replay badge, "location as of" and "since".
+  { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /location as of/, /since /] },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
   // Degraded-state banner: shown only when something is wrong.

@@ -115,13 +115,25 @@ export default function NowCard({
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
 
+  // GET /now: the server's state, freshness inputs and charge baseline.
+  // Null when absent (older server / flag off): fall back to the
+  // client-derived path below.
+  const nowQ = useQuery({
+    queryKey: ["vehicle", "now", vehicleID],
+    queryFn: () => backend.vehicleNow(vehicleID),
+    refetchInterval: 15_000,
+    retry: 0,
+  });
+  const server = nowQ.data ?? null;
+
   // Server-side baselines: the open charge row carries the session's
   // true start SoC and peak kW (the client only sees frames since the
   // page opened). Newest row counts only if it's contiguous with now.
   const chargesQ = useQuery({
     queryKey: ["charges", "recent", vehicleID],
     queryFn: () => backend.recentCharges(3),
-    enabled: !!state && isChargingActive(state),
+    // Only needed when /now isn't available.
+    enabled: !!state && isChargingActive(state) && nowQ.isFetched && !server,
     refetchInterval: 60_000,
     retry: 0,
   });
@@ -150,13 +162,18 @@ export default function NowCard({
       state,
       nowMs,
       asleepSinceMs: tracker.asleepSinceMs,
-      socAtChargeStart: openCharge ? openCharge.StartSoCPct : null,
-      peakKw: openCharge ? Math.max(openCharge.MaxPowerKW, tracker.peakKw) : null,
+      socAtChargeStart: server?.charge ? server.charge.soc_start : openCharge ? openCharge.StartSoCPct : null,
+      peakKw: server?.charge
+        ? Math.max(server.charge.peak_kw, tracker.peakKw)
+        : openCharge
+          ? Math.max(openCharge.MaxPowerKW, tracker.peakKw)
+          : null,
+      server,
       packKwh,
       homeRate: chargingQ.data?.home_price_per_kwh ?? null,
       home,
     });
-  }, [state, nowMs, tracker, openCharge, packKwh, homeQ.data, chargingQ.data]);
+  }, [state, nowMs, tracker, openCharge, server, packKwh, homeQ.data, chargingQ.data]);
 
   const driveQ = useQuery({
     queryKey: ["rivian", "live-drive", vehicleID],
@@ -183,7 +200,14 @@ export default function NowCard({
   }
 
   const failed = (sleepQ.data ?? []).slice(-1)[0]?.failed_sleeps ?? 0;
-  const alerts = nowAlerts({ view, state, vehicleName, failedSleepsToday: failed });
+  const alerts = nowAlerts({
+    view,
+    state,
+    vehicleName,
+    failedSleepsToday: failed,
+    failedSleeps6h: server ? server.failed_sleeps_6h : null,
+    tireMinBar: server?.tire_pressure_min_bar ?? null,
+  });
   const currency = chargingQ.data?.home_currency || "USD";
   const offline = view.kind === "offline";
   const critical = view.critical && !offline;
@@ -310,11 +334,27 @@ function placeLine(v: NowView): string | null {
   return null;
 }
 
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 function freshness(v: NowView): string {
-  const at = v.lastContactMs > 0 ? new Date(v.lastContactMs).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
-  if (v.kind === "offline") return at ? `Last contact ${at} (${formatAgo(v.ageSec)})` : "No contact yet";
-  if (v.kind === "asleep") return `Asleep · updated ${formatAgo(v.ageSec)}`;
-  return `Updated ${formatAgo(v.ageSec)}`;
+  const at = v.lastContactMs > 0 ? clock(v.lastContactMs) : null;
+  let base: string;
+  if (v.kind === "offline") base = at ? `Last contact ${at} (${formatAgo(v.ageSec)})` : "No contact yet";
+  else if (v.kind === "asleep") base = `Asleep · updated ${formatAgo(v.ageSec)}`;
+  else base = `Updated ${formatAgo(v.ageSec)}`;
+  const parts = [base];
+  // A location fix older than 10 min is shown as such, never as "now".
+  if (v.locationFixMs != null && v.lastContactMs - v.locationFixMs > 10 * 60_000 && v.kind !== "driving") {
+    parts.push(`location as of ${clock(v.locationFixMs)}`);
+  }
+  if (v.stateSinceMs != null && (v.kind === "parked" || v.kind === "plugged" || v.kind === "asleep")) {
+    const dsoc = v.socChange != null && Math.abs(v.socChange) >= 0.5 ? ` (${v.socChange > 0 ? "+" : "−"}${Math.abs(Math.round(v.socChange))}%)` : "";
+    parts.push(`since ${clock(v.stateSinceMs)}${dsoc}`);
+  }
+  if (v.replay) parts.push("Replay");
+  return parts.join(" · ");
 }
 
 function details(

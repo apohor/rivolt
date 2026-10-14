@@ -3,7 +3,7 @@
 // Rivian session feed is unavailable (replay / preview). Everything
 // time-dependent takes `nowMs` so it is unit-testable.
 
-import type { VehicleState } from "./api";
+import type { NowSnapshot, VehicleState } from "./api";
 
 export type NowKind = "offline" | "driving" | "charging" | "plugged" | "asleep" | "parked";
 export type ChargeFlavor = "home_l2" | "away_ac" | "dcfc";
@@ -44,6 +44,8 @@ export type NowInput = {
   packKwh: number | null;
   homeRate: number | null;
   home: { latitude: number; longitude: number } | null;
+  // GET /now, when the server has it. Its `state` is taken as-is.
+  server?: NowSnapshot | null;
 };
 
 export type NowView = {
@@ -70,6 +72,12 @@ export type NowView = {
   atLimit: boolean;
   // Driving
   speedMph: number | null;
+  // From /now (null when absent).
+  replay: boolean;
+  locationFixMs: number | null;
+  stateSinceMs: number | null;
+  // SoC change since the current state began (parked/plugged/asleep).
+  socChange: number | null;
 };
 
 const KM_PER_MI = 1.609344;
@@ -100,7 +108,11 @@ export function haversineM(a: { latitude: number; longitude: number }, b: { lati
 }
 
 // rawKind is the precedence ladder without freshness or hysteresis.
-function rawKind(s: VehicleState): Exclude<NowKind, "offline"> {
+const SERVER_STATES = new Set(["driving", "charging", "plugged", "parked", "asleep"]);
+
+function rawKind(s: VehicleState, server?: NowSnapshot | null): Exclude<NowKind, "offline"> {
+  // The server decides the state when it can (one place for the rules).
+  if (server && SERVER_STATES.has(server.state)) return server.state as Exclude<NowKind, "offline">;
   if (isDrivingGear(s)) return "driving";
   if (isChargingActive(s)) return "charging";
   if (isPlugged(s)) return "plugged";
@@ -114,7 +126,7 @@ export function computeNow(i: NowInput): NowView {
   const lastContactMs = Number.isFinite(atMs) ? atMs : 0;
   const ageSec = lastContactMs > 0 ? Math.max(0, (i.nowMs - lastContactMs) / 1000) : Infinity;
 
-  let kind: Exclude<NowKind, "offline"> = rawKind(s);
+  let kind: Exclude<NowKind, "offline"> = rawKind(s, i.server);
   // 2-minute sleep debounce: a brief sleep reads as parked.
   if (kind === "asleep") {
     const sleptSec = i.asleepSinceMs == null ? 0 : (i.nowMs - i.asleepSinceMs) / 1000;
@@ -191,6 +203,13 @@ export function computeNow(i: NowInput): NowView {
     priceUnknown,
     atLimit: limitPct != null && soc >= limitPct - 1.5,
     speedMph: kind === "driving" && s.speed_kph >= 0 ? s.speed_kph / KM_PER_MI : null,
+    replay: i.server?.connection === "replay",
+    locationFixMs: i.server?.location_fix_at ? Date.parse(i.server.location_fix_at) || null : null,
+    stateSinceMs: i.server?.state_since ? Date.parse(i.server.state_since) || null : null,
+    socChange:
+      i.server?.soc_at_state_start != null && (kind === "parked" || kind === "plugged" || kind === "asleep")
+        ? soc - i.server.soc_at_state_start
+        : null,
   };
 }
 
@@ -226,26 +245,43 @@ export function nowAlerts(opts: {
   // Today's sleep record: how many times the car fell asleep, and how
   // many of those ended inside a minute.
   failedSleepsToday: number;
+  // From /now: failed sleeps in the last 6 h, and the min tire bar
+  // (preferred over the per-wheel fields, which replay doesn't carry).
+  failedSleeps6h?: number | null;
+  tireMinBar?: number | null;
 }): NowAlert[] {
   const out: NowAlert[] = [];
-  const { view, state, vehicleName, failedSleepsToday } = opts;
+  const { view, state, vehicleName, failedSleepsToday, failedSleeps6h, tireMinBar } = opts;
   if (view.critical && view.kind !== "offline") {
     out.push({ id: "critical-soc", tone: "rose", text: `Battery at ${Math.round(view.soc)}%. Plan a charge soon.` });
   }
-  if (failedSleepsToday >= 3) {
+  // The server's sub-day count when present, else today's rollup.
+  if (failedSleeps6h != null) {
+    if (failedSleeps6h >= 3) {
+      out.push({
+        id: "waking",
+        tone: "amber",
+        text: `${vehicleName} woke up ${failedSleeps6h} times in the last 6 hours.`,
+        to: "/truck",
+      });
+    }
+  } else if (failedSleepsToday >= 3) {
     out.push({
       id: "waking",
       tone: "amber",
       text: `${vehicleName} woke up ${failedSleepsToday} times today.`,
-      to: "/settings",
+      to: "/truck",
     });
   }
-  const tires = [
-    state.tire_pressure_fl_bar,
-    state.tire_pressure_fr_bar,
-    state.tire_pressure_rl_bar,
-    state.tire_pressure_rr_bar,
-  ].filter((v) => Number.isFinite(v) && v > 0);
+  const tires =
+    tireMinBar != null && tireMinBar > 0
+      ? [tireMinBar]
+      : [
+          state.tire_pressure_fl_bar,
+          state.tire_pressure_fr_bar,
+          state.tire_pressure_rl_bar,
+          state.tire_pressure_rr_bar,
+        ].filter((v) => Number.isFinite(v) && v > 0);
   if (tires.length > 0) {
     const low = Math.min(...tires);
     if (low < LOW_TIRE_BAR) {
