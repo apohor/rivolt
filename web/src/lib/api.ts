@@ -405,6 +405,16 @@ export type Charge = {
   // Where Cost came from (ledger contract §10/§12): "user" with Cost 0
   // is an explicit Free. Absent on older builds.
   CostSource?: string;
+  // The ledger's classification of this row (contract §16): the same
+  // rules the Money tab uses. Absent on builds that predate it, where
+  // callers fall back to the stored fields.
+  cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "user" | "home_rate_misapplied" | "unknown";
+  cost_source_derived?: boolean;
+  kind?: "ac" | "dcfc";
+  place?: "home" | "away" | "unknown";
+  km_from_home?: number | null;
+  counts_in_spend?: boolean;
+  ledger_flags?: string[];
 };
 
 export type ChargingSettings = {

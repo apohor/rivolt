@@ -632,12 +632,18 @@ function Stat({
 // manual override); otherwise we fall back to the estimated_cost
 // the API attaches via the configured home rate. Em-dash if neither
 // is available.
+// Free is an explicit user price of zero. The server's effective source
+// wins when present (contract §16); stored CostSource otherwise.
 export function isFreeCharge(c: import("../lib/api").Charge): boolean {
-  return c.CostSource === "user" && c.Cost === 0;
+  return (c.cost_source_effective ?? c.CostSource) === "user" && c.Cost === 0;
 }
 
 function chargeCostLabel(c: import("../lib/api").Charge): string {
   if (isFreeCharge(c)) return "Free";
+  // The ledger's verdict: not priced (away AC, unknown DCFC) or a legacy
+  // home-rate stamp on a fast charge that Money shows as pending.
+  if (c.cost_source_effective === "home_rate_misapplied") return "Pending";
+  if (c.cost_source_effective === "unknown") return "—";
   if (c.Cost > 0) {
     return `${c.Cost.toFixed(2)}${c.Currency ? ` ${c.Currency}` : ""}`;
   }
@@ -653,6 +659,9 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // tile collapses cleanly when we have nothing useful to say.
 function chargeCostHint(c: import("../lib/api").Charge): string | undefined {
   if (isFreeCharge(c)) return "marked free by you";
+  if (c.cost_source_effective === "home_rate_misapplied") return "estimate pending · was priced at your home rate";
+  if (c.cost_source_effective === "unknown") return "price unknown · add it below";
+  if (c.cost_source_effective === "network_estimate") return "estimated from a charging-network rate";
   if (c.Cost > 0) {
     const ppk =
       c.PricePerKWh > 0

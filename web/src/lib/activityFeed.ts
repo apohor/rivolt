@@ -73,8 +73,10 @@ export function buildFeed(
         kind: "charge",
         at: new Date(c.StartedAt).getTime(),
         charge: c,
-        atHome: isHome(opts.home, c.Lat, c.Lon),
-        fast: c.MaxPowerKW >= 50,
+        // The server's classification when present (matches Money);
+        // geometry and peak power only for older builds.
+        atHome: c.place ? c.place === "home" : isHome(opts.home, c.Lat, c.Lon),
+        fast: c.kind ? c.kind === "dcfc" : c.MaxPowerKW >= 50,
       });
     }
   }
@@ -129,15 +131,37 @@ function foldErrands(list: FeedItem[]): FeedItem[] {
 
 export type CostLine = { text: string; tone: "ok" | "est" | "missing" };
 
-// homeRate lets legacy fast charges stamped with the home rate (no
-// CostSource) read as "Estimate pending", matching Money, instead of a
-// solid wrong figure.
+// chargeCostLine reads the server's effective classification
+// (cost_source_effective) so the feed agrees with Money. Builds that
+// predate it fall back to the stored fields, where homeRate lets legacy
+// fast charges stamped at the home rate read "Estimate pending".
 export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   if (isActiveCharge(c)) return { text: "Charging now", tone: "ok" };
-  if (c.CostSource === "user" && c.Cost === 0) return { text: "Free", tone: "ok" };
-  if (c.CostSource === "network_estimate" && c.Cost > 0) {
-    return { text: `~${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim(), tone: "est" };
+  const money = `${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim();
+  const est = { text: `~${money}`, tone: "est" as const };
+  const src = c.cost_source_effective;
+  if (src) {
+    switch (src) {
+      case "unknown":
+        return { text: "Unpriced", tone: "missing" };
+      case "home_rate_misapplied":
+        return { text: "Estimate pending", tone: "missing" };
+      case "user":
+        return c.Cost === 0 ? { text: "Free", tone: "ok" } : { text: money, tone: "ok" };
+      case "network_estimate":
+        return c.Cost > 0 ? est : { text: "Unpriced", tone: "missing" };
+      default:
+        // rivian / home_rate. A derived source was worked out from the
+        // home rate rather than recorded: show it as an estimate.
+        if (c.Cost > 0) return c.cost_source_derived ? est : { text: money, tone: "ok" };
+        if (c.estimated_cost && c.estimated_cost > 0) {
+          return { text: `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency || ""}`.trim(), tone: "est" };
+        }
+        return { text: "Unpriced", tone: "missing" };
+    }
   }
+  if (c.CostSource === "user" && c.Cost === 0) return { text: "Free", tone: "ok" };
+  if (c.CostSource === "network_estimate" && c.Cost > 0) return est;
   if (
     c.Cost > 0 &&
     !c.CostSource &&
@@ -148,7 +172,7 @@ export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   ) {
     return { text: "Estimate pending", tone: "missing" };
   }
-  if (c.Cost > 0) return { text: `${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim(), tone: "ok" };
+  if (c.Cost > 0) return { text: money, tone: "ok" };
   if (c.estimated_cost && c.estimated_cost > 0) {
     return { text: `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency || ""}`.trim(), tone: "est" };
   }
