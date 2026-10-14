@@ -78,7 +78,7 @@ type SplitKey = Place | ChargeKind | "public";
 const SPLIT_META: Record<SplitKey, { label: string; bar: string; dot: string }> = {
   home: { label: "Home", bar: "bg-emerald-500", dot: "bg-emerald-400" },
   away: { label: "Away", bar: "bg-sky-500", dot: "bg-sky-400" },
-  public: { label: "Public", bar: "bg-sky-500", dot: "bg-sky-400" },
+  public: { label: "Away", bar: "bg-sky-500", dot: "bg-sky-400" },
   unknown: { label: "Unknown place", bar: "bg-neutral-500", dot: "bg-neutral-400" },
   ac: { label: "AC", bar: "bg-emerald-500", dot: "bg-emerald-400" },
   dcfc: { label: "DCFC", bar: "bg-amber-500", dot: "bg-amber-400" },

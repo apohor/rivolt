@@ -211,7 +211,7 @@ function Statement({
           )}
         </div>
         <div className="mt-1">
-          <ShareStatementButton m={m} disabled={sample || empty} />
+          <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
@@ -355,14 +355,22 @@ function Statement({
 // Exports the month as a 1080x1080 PNG built from aggregate totals only
 // (no places, coordinates or receipts). Uses the share sheet when the
 // device can share files, otherwise downloads.
-function ShareStatementButton({ m, disabled }: { m: LedgerMonth; disabled: boolean }) {
+function ShareStatementButton({
+  m,
+  partialFrom,
+  disabled,
+}: {
+  m: LedgerMonth;
+  partialFrom: string | null;
+  disabled: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const onClick = async () => {
     setBusy(true);
     setErr(null);
     try {
-      const blob = await statementCardBlob(buildStatementCardModel(m));
+      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom }));
       if (!blob) throw new Error("Image export isn't available in this browser.");
       const file = new File([blob], `rivolt-${m.period}.png`, { type: "image/png" });
       if (navigator.canShare?.({ files: [file] })) {
@@ -373,7 +381,8 @@ function ShareStatementButton({ m, disabled }: { m: LedgerMonth; disabled: boole
         a.href = url;
         a.download = file.name;
         a.click();
-        URL.revokeObjectURL(url);
+        // Revoking immediately can cancel the download in Safari/Firefox.
+        window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
       }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {

@@ -15,21 +15,36 @@ export type StatementCardModel = {
   total: string;
   subtitle: string;
   partial: boolean;
+  // ISO date the data starts, when the month is partial (MQ8).
+  partialFrom: string | null;
+  // Sessions the total excludes, so the card never overstates it.
+  notIncluded: string | null;
   estimatedPct: number | null;
   buckets: { label: string; value: number; display: string; color: string }[];
   footnote: string;
 };
 
+function notIncluded(m: LedgerMonth): string | null {
+  const unpriced = m.spend.unpriced_sessions ?? 0;
+  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const n = unpriced + pending;
+  if (n <= 0) return null;
+  return `+ ${n} ${n === 1 ? "session" : "sessions"} not yet priced`;
+}
+
 const COLORS = { home: "#10b981", public: "#38bdf8", dcfc: "#f59e0b", unknown: "#737373" };
 
-export function buildStatementCardModel(m: LedgerMonth): StatementCardModel {
+export function buildStatementCardModel(
+  m: LedgerMonth,
+  opts: { partialFrom?: string | null } = {},
+): StatementCardModel {
   const cur = m.currency;
   const e = m.energy;
   const pk = e.by_place_kind;
   const raw: { label: string; cost: number; color: string }[] = pk
     ? [
         { label: "Home", cost: pk.home.ac.cost, color: COLORS.home },
-        { label: "Public", cost: pk.away.ac.cost, color: COLORS.public },
+        { label: "Away", cost: pk.away.ac.cost, color: COLORS.public },
         { label: "Fast charging", cost: e.by_kind.dcfc.cost, color: COLORS.dcfc },
         ...(pk.unknown.ac.sessions > 0 ? [{ label: "Other", cost: pk.unknown.ac.cost, color: COLORS.unknown }] : []),
       ]
@@ -46,6 +61,8 @@ export function buildStatementCardModel(m: LedgerMonth): StatementCardModel {
     total: formatMoney(m.spend.total, cur),
     subtitle: parts.join(" · "),
     partial: m.is_current_month,
+    partialFrom: opts.partialFrom ?? null,
+    notIncluded: notIncluded(m),
     estimatedPct: est > 0 ? Math.round(est * 100) : null,
     buckets: raw.map((b) => ({ label: b.label, color: b.color, value: Math.round(b.cost * 100) / 100, display: formatMoney(b.cost, cur) })),
     footnote: "Charging cost, tracked with Rivolt",
@@ -67,16 +84,34 @@ export function paintStatementCard(canvas: HTMLCanvasElement, c: StatementCardMo
   g.textBaseline = "alphabetic";
   g.fillStyle = "#a3a3a3";
   g.font = `500 44px ${font}`;
-  g.fillText(c.title + (c.partial ? " · month to date" : ""), 80, 140);
+  let head = c.title;
+  if (c.partialFrom) {
+    const d = new Date(c.partialFrom);
+    if (!Number.isNaN(d.getTime())) head += ` · from ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  } else if (c.partial) head += " · month to date";
+  g.fillText(head, 80, 140);
   g.fillStyle = "#fafafa";
-  g.font = `700 200px ${font}`;
+  // Shrink the total to fit the 920px column ("$1,000.00" and longer).
+  let size = 200;
+  g.font = `700 ${size}px ${font}`;
+  while (size > 80 && g.measureText(c.total).width > W - 160) {
+    size -= 8;
+    g.font = `700 ${size}px ${font}`;
+  }
   g.fillText(c.total, 80, 360);
   g.fillStyle = "#a3a3a3";
   g.font = `400 44px ${font}`;
   g.fillText(c.subtitle, 80, 440);
+  g.font = `400 34px ${font}`;
+  let noteY = 500;
   if (c.estimatedPct != null) {
-    g.font = `400 34px ${font}`;
-    g.fillText(`Includes ${c.estimatedPct}% estimated from network rates`, 80, 500);
+    g.fillText(`Includes ${c.estimatedPct}% estimated from network rates`, 80, noteY);
+    noteY += 48;
+  }
+  if (c.notIncluded) {
+    g.fillStyle = "#fbbf24";
+    g.fillText(c.notIncluded, 80, noteY);
+    g.fillStyle = "#a3a3a3";
   }
   const sum = c.buckets.reduce((a, b) => a + Math.max(0, b.value), 0);
   let x = 80;
