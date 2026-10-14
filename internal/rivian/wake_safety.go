@@ -26,6 +26,9 @@ import (
 //	    promptly on wake. Every REST call is logged with its reason
 //	    (restState) and every skip with a per-sleep count. It overrides
 //	    HoldAsleep for the same vehicle, whose wake checks are REST.
+//	    Guardrail: one "safety_poll" after 6 h of REST-quiet sleep, or
+//	    after 30 min without a vehicleState frame (a dead WS would
+//	    otherwise hide a drive), at most once per 30 min.
 //	(c) HoldAsleep: when Rivian closes the vehicleState subscription
 //	    (the ~3-min TTL) while the car reports asleep, don't reopen it.
 //	    Reopen as soon as the cached state shows the car awake (any
@@ -219,18 +222,66 @@ func (m *StateMonitor) holdWhileAsleep(ctx context.Context, vehicleID string, ws
 	}
 }
 
-// restQuietAsleep reports whether switch (d) suppresses a REST call
-// (reason says which) for vehicleID right now. Each skip is logged with
-// the count of skips in the current sleep; a REST call or a wake
-// resets the count.
-func (m *StateMonitor) restQuietAsleep(vehicleID, reason string) bool {
+// rest_quiet guardrail. rest_quiet trusts the cached power state; if
+// the vehicleState WS died while the cache said asleep, REST would stay
+// off and a drive could go unseen until the WS came back. So one REST
+// poll ("safety_poll") is still allowed after restQuietMaxQuiet of
+// REST-quiet sleep, or when no vehicleState frame has arrived for
+// restQuietMaxSilence (normally one lands every ~3 min, the TTL
+// reconnect's replay), at most once per restQuietMaxSilence. Vars so
+// tests can shrink them.
+var (
+	restQuietMaxQuiet   = 6 * time.Hour
+	restQuietMaxSilence = 30 * time.Minute
+	restQuietNow        = time.Now
+)
+
+// restQuiet decides switch (d) for a REST call (reason says which) to
+// vehicleID right now: skip it, or make it, with the reason to log it
+// under (reason, or "safety_poll" when the guardrail lets it through).
+// Each skip is logged with the count of skips in the current sleep; a
+// REST call or a wake resets the count.
+func (m *StateMonitor) restQuiet(vehicleID, reason string) (skip bool, callReason string) {
 	if !m.wakeSafetyFor(vehicleID).RestQuiet {
-		return false
+		return false, reason
 	}
-	if ps, _ := m.cachedPowerState(vehicleID); ps != "sleep" {
-		return false
-	}
+	ps, _ := m.cachedPowerState(vehicleID)
+	now := restQuietNow()
 	m.mu.Lock()
+	if ps != "sleep" {
+		delete(m.restQuietSince, vehicleID)
+		m.mu.Unlock()
+		return false, reason
+	}
+	if m.restQuietSince == nil {
+		m.restQuietSince = map[string]time.Time{}
+		m.lastSafetyPoll = map[string]time.Time{}
+	}
+	since, ok := m.restQuietSince[vehicleID]
+	if !ok {
+		since = now
+		m.restQuietSince[vehicleID] = now
+	}
+	lastFrame := m.lastVSFrame[vehicleID]
+	if lastFrame.Before(since) {
+		// No frame seen during this stretch yet: give the WS a grace
+		// period from its start.
+		lastFrame = since
+	}
+	why := ""
+	switch {
+	case now.Sub(since) >= restQuietMaxQuiet:
+		why = "rest_quiet for " + now.Sub(since).Round(time.Minute).String()
+	case now.Sub(lastFrame) >= restQuietMaxSilence && now.Sub(m.lastSafetyPoll[vehicleID]) >= restQuietMaxSilence:
+		why = "no vehicleState frame for " + now.Sub(lastFrame).Round(time.Minute).String()
+	}
+	if why != "" {
+		m.lastSafetyPoll[vehicleID] = now
+		m.restQuietSince[vehicleID] = now
+		m.mu.Unlock()
+		m.logger.Info("wake-safety: rest_quiet safety poll", "vehicle", vehicleID, "for", reason, "why", why)
+		return false, "safety_poll"
+	}
 	if m.restSkips == nil {
 		m.restSkips = map[string]int{}
 	}
@@ -243,7 +294,7 @@ func (m *StateMonitor) restQuietAsleep(vehicleID, reason string) bool {
 		// In the wake-attribution stream next to the requests made.
 		m.client.noteAction(vehicleID, "skip", "GetVehicleState", reason)
 	}
-	return true
+	return true, reason
 }
 
 // restState is every REST GetVehicleState call the monitor makes, each
