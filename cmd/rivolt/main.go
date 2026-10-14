@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drain"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
@@ -420,6 +421,11 @@ func runServer() {
 			if len(allowed) == 0 {
 				logger.Warn("RIVOLT_REPLAY_ALLOWED_USERS is empty; no user can connect a demo vehicle")
 			}
+			// The public demo account (RIVOLT_DEMO, preview only) is
+			// always allowed its replay vehicle.
+			if demo.Enabled() {
+				allowed[demo.UserID()] = true
+			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
 		}
 		accountRegistry = rivian.NewReplayAccountRegistry(feed)
@@ -757,6 +763,19 @@ func runServer() {
 			)
 		} else {
 			logger.Info("elevation lookup disabled", "reason", "ELEVATION_ENABLED!=1 (opt-in)")
+		}
+	}
+
+	// Public demo (RIVOLT_DEMO=true on a replay install; preview only):
+	// seed the demo user, settings, replay session and older charges
+	// before the hydrate sweep below connects it. Idempotent.
+	if demo.Enabled() && pgPool != nil && secretsStore != nil {
+		if err := demo.Seed(ctx, demo.Deps{
+			DB: pgPool, Settings: settingsFactory, Charges: chargesFactory, Secrets: secretsStore,
+		}); err != nil {
+			logger.Error("demo seed failed", "err", err.Error())
+		} else {
+			logger.Info("demo account seeded", "vehicle", demo.VehicleID())
 		}
 	}
 

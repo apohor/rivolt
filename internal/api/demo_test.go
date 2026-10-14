@@ -1,0 +1,201 @@
+package api
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/auth"
+)
+
+const demoVeh = "demo-0000"
+
+func TestDemoAllowed(t *testing.T) {
+	cases := []struct {
+		method, path string
+		want         bool
+	}{
+		{"GET", "/api/vehicles", true},
+		{"HEAD", "/api/charges", true},
+		{"GET", "/api/charges/", true},
+		{"GET", "/api/ledger/monthly", true},
+		{"GET", "/api/ledger/trips", true},
+		{"GET", "/api/trips", false},
+		{"GET", "/api/trips/saved", false},
+		{"GET", "/api/trips/plan/diag", false},
+		{"GET", "/api/state/" + demoVeh, true},
+		{"GET", "/api/vehicles/" + demoVeh + "/now", true},
+		{"GET", "/api/charges/clusters", true},
+		{"GET", "/api/settings/charging", true},
+		{"GET", "/api/settings/home-location", true},
+		{"GET", "/api/vehicles/" + demoVeh + "/pack-health", true},
+		{"PUT", "/api/settings/charging", false},
+		{"PUT", "/api/settings/home-location", false},
+		{"GET", "/api/settings/charging/networks", false},
+		{"POST", "/api/settings/charging/networks/reset", false},
+		{"GET", "/api/vehicles/other/pack-health", false},
+		// other vehicles
+		{"GET", "/api/state/other", false},
+		{"GET", "/api/vehicles/other/now", false},
+		{"GET", "/api/state/" + demoVeh + "/debug", false},
+		{"GET", "/api/state/" + demoVeh + "/fresh", false},
+		// writes and non-allowlisted reads
+		{"POST", "/api/charges", false},
+		{"PATCH", "/api/charges/x/pricing", false},
+		{"DELETE", "/api/charges/x", false},
+		{"PUT", "/api/settings/charging", false},
+		{"GET", "/api/admin/users", false},
+		{"GET", "/api/auth/me", false},
+		{"GET", "/api/vehicles/owned", false},
+		{"GET", "/api/ledger/export", false},
+		{"GET", "/api/ledger/../admin/users", false},
+	}
+	for _, c := range cases {
+		if got := demoAllowed(c.method, c.path, demoVeh); got != c.want {
+			t.Errorf("%s %s = %v, want %v", c.method, c.path, got, c.want)
+		}
+	}
+}
+
+func demoChain(limiter *ipLimiter, real *uuid.UUID) (http.Handler, uuid.UUID) {
+	demoUID := uuid.New()
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, ok := auth.UserFromContext(r.Context()); ok {
+			w.Header().Set("X-Test-User", u.String())
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	h := demoAccessMW(demoUID, demoVeh, limiter, newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	if real != nil {
+		// Simulate a session resolved by the auth middleware upstream.
+		h = func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), *real)))
+			})
+		}(h)
+	}
+	return h, demoUID
+}
+
+func demoReq(h http.Handler, method, path string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, nil)
+	req.RemoteAddr = "203.0.113.9:4000"
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestDemoAccessMW_AnonymousAllowlistedBecomesDemoUser(t *testing.T) {
+	h, uid := demoChain(newDemoLimiter(), nil)
+	rec := demoReq(h, "GET", "/api/charges")
+	if rec.Header().Get("X-Test-User") != uid.String() || rec.Header().Get(demoHeader) != "1" {
+		t.Fatalf("anonymous allowlisted GET not served as demo: %v", rec.Header())
+	}
+	for _, c := range [][2]string{
+		{"POST", "/api/charges"},
+		{"GET", "/api/admin/users"},
+		{"GET", "/api/state/other"},
+		{"GET", "/api/settings/charging/networks"},
+	} {
+		rec := demoReq(h, c[0], c[1])
+		if rec.Header().Get("X-Test-User") != "" || rec.Header().Get(demoHeader) != "" {
+			t.Errorf("%s %s got demo identity", c[0], c[1])
+		}
+	}
+}
+
+func TestDemoAccessMW_SignedInUserIsNeverSwitched(t *testing.T) {
+	real := uuid.New()
+	h, _ := demoChain(newDemoLimiter(), &real)
+	rec := demoReq(h, "GET", "/api/charges")
+	if rec.Header().Get("X-Test-User") != real.String() || rec.Header().Get(demoHeader) != "" {
+		t.Fatalf("signed-in user was switched: %v", rec.Header())
+	}
+}
+
+func TestDemoAccessMW_RateLimited(t *testing.T) {
+	h, _ := demoChain(newIPLimiter(3, time.Minute, time.Hour), nil)
+	codes := []int{}
+	for i := 0; i < 5; i++ {
+		codes = append(codes, demoReq(h, "GET", "/api/charges").Code)
+	}
+	if codes[2] != 200 || codes[3] != http.StatusTooManyRequests {
+		t.Fatalf("codes = %v", codes)
+	}
+	// Non-allowlisted requests don't consume demo budget.
+	if demoReq(h, "GET", "/api/admin/users").Code != 200 {
+		t.Fatal("non-demo request was rate limited by the demo limiter")
+	}
+}
+
+func TestDemoConfigFlagOffByDefault(t *testing.T) {
+	t.Setenv("RIVOLT_DEMO", "")
+	t.Setenv("RIVIAN_CLIENT", "replay")
+	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
+	rec := httptest.NewRecorder()
+	handleConfig(false, false, false, false, nil, nil)(rec, httptest.NewRequest("GET", "/api/config", nil))
+	if !contains(rec.Body.String(), `"demo_enabled":false`) {
+		t.Fatalf("demo_enabled should be false: %s", rec.Body)
+	}
+	t.Setenv("RIVOLT_DEMO", "true")
+	rec = httptest.NewRecorder()
+	handleConfig(false, false, false, false, nil, nil)(rec, httptest.NewRequest("GET", "/api/config", nil))
+	if !contains(rec.Body.String(), `"demo_enabled":true`) {
+		t.Fatalf("demo_enabled should be true: %s", rec.Body)
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDemoRateLimitKeyedOnCFConnectingIP(t *testing.T) {
+	l := newDemoLimiter()
+	l.rps, l.burst = 0, 2 // two requests per key, no refill
+	h, _ := demoChain(l, nil)
+	do := func(cf, spoof string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.RemoteAddr = "10.0.0.1:1"
+		req.Header.Set("CF-Connecting-IP", cf)
+		req.Header.Set("X-Real-IP", spoof) // client-controlled; must not matter
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if do("198.51.100.1", "1.1.1.1") != 200 || do("198.51.100.1", "2.2.2.2") != 200 {
+		t.Fatal("first two should pass")
+	}
+	if got := do("198.51.100.1", "3.3.3.3"); got != http.StatusTooManyRequests {
+		t.Fatalf("spoofing X-Real-IP evaded the limit: %d", got)
+	}
+	if do("198.51.100.2", "3.3.3.3") != 200 {
+		t.Fatal("a different client IP has its own bucket")
+	}
+}
+
+func TestDemoGlobalLimiter(t *testing.T) {
+	g := newDemoGlobalLimiter()
+	g.rps, g.burst = 0, 2
+	demoUID := uuid.New()
+	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), g)(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	codes := []int{}
+	for i := 0; i < 4; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.Header.Set("CF-Connecting-IP", "198.51.100."+string(rune('1'+i)))
+		h.ServeHTTP(rec, req)
+		codes = append(codes, rec.Code)
+	}
+	if codes[1] != 200 || codes[2] != http.StatusTooManyRequests {
+		t.Fatalf("global cap should bind across client IPs: %v", codes)
+	}
+}

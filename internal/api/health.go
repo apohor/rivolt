@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -126,8 +127,8 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// SPA shows the public landing page to signed-out visitors
 		// only when true.
 		LandingEnabled bool `json:"landing_enabled"`
-		// DemoEnabled is always false for now; reserved for the
-		// public live-demo mode.
+		// DemoEnabled mirrors demo.Enabled (RIVOLT_DEMO=true on a
+		// replay install); false everywhere else, prod included.
 		DemoEnabled bool `json:"demo_enabled"`
 		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
 		// SPA's track() helper sends nothing unless true.
@@ -198,6 +199,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()
+	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base
