@@ -164,6 +164,30 @@ func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float
 	return n, nil
 }
 
+// MarkFree records that the user paid nothing for a session: cost and
+// price_per_kwh are stored as 0 (not NULL), cost_source = 'user'. It is
+// deliberately separate from UpdatePricing, where a zero still means
+// "clear the price". Upsert keeps user-priced rows, so a session marked
+// free while the recorder still has it open stays free. currency may be
+// empty. Returns rows affected (0 → not found for this user).
+func (s *Store) MarkFree(ctx context.Context, externalID, currency string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET cost = 0,
+		    price_per_kwh = 0,
+		    currency = NULLIF($3, ''),
+		    cost_source = 'user',
+		    network = NULL,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND external_id = $2
+	`, s.userID, externalID, currency)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Upsert inserts or replaces a charge by external_id within the
 // (user_id, vehicle_id) scope.
 func (s *Store) Upsert(ctx context.Context, c Charge) error {

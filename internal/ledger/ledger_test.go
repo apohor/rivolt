@@ -451,6 +451,15 @@ func TestBuild_PersistedNetworkEstimate(t *testing.T) {
 	user.CostSource, user.Cost = SourceUser, f(0) // marked free
 
 	m := Build(Input{Charges: []Charge{ea, topUp, home, user}, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, month, true)
+	for _, r := range m.Receipts {
+		if r.ReceiptID == "rcpt_l1" && (!hasFlag(r.Flags, FlagFree) || !hasFlag(r.Sessions[0].Flags, FlagFree) ||
+			hasFlag(r.Flags, FlagUnpriced) || r.Cost == nil || *r.Cost != 0 || r.CostSource != SourceUser) {
+			t.Errorf("free receipt = %+v", r)
+		}
+		if r.ReceiptID != "rcpt_l1" && hasFlag(r.Flags, FlagFree) {
+			t.Errorf("only the $0 user session is free, got %s %v", r.ReceiptID, r.Flags)
+		}
+	}
 	if m.Spend.BySource[SourceNetworkEstimate] != round4(75*0.36) || m.Spend.BySource[SourceUser] != 0 ||
 		m.Spend.PricedSessions != 4 || m.Spend.UnpricedSessions != 0 {
 		t.Errorf("spend = %+v", m.Spend)

@@ -344,3 +344,46 @@ func TestCloseStaleOpenLiveBefore(t *testing.T) {
 		t.Errorf("B's stale row touched by A's janitor: %+v", bGot)
 	}
 }
+
+// TestMarkFree pins the explicit-free contract: cost/price stored as 0
+// (not NULL) with cost_source=user, survives the recorder re-saving the
+// session, is user-scoped, and UpdatePricing(0) still clears instead.
+func TestMarkFree(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	ctx := context.Background()
+	a := factory.For(uidA)
+	start := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	c := sampleCharge("c-free", "rv-A", start, "charging_active")
+	c.CostSource, c.Network = "network_estimate", "Electrify America"
+	if err := a.Upsert(ctx, c); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	if n, err := factory.For(uidB).MarkFree(ctx, "c-free", "USD"); err != nil || n != 0 {
+		t.Fatalf("other user's MarkFree = %d, %v; want 0 rows", n, err)
+	}
+	if n, err := a.MarkFree(ctx, "c-free", "USD"); err != nil || n != 1 {
+		t.Fatalf("MarkFree = %d, %v", n, err)
+	}
+	// Recorder re-saves the still-open session with its own price.
+	if err := a.Upsert(ctx, c); err != nil {
+		t.Fatalf("re-Upsert: %v", err)
+	}
+	got, err := a.ListRecent(ctx, 10)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("ListRecent = %v, %v", got, err)
+	}
+	if g := got[0]; g.Cost != 0 || g.PricePerKWh != 0 || g.CostSource != "user" || g.Network != "" || g.Currency != "USD" {
+		t.Errorf("after MarkFree + re-upsert: cost %v ppk %v source %q network %q currency %q",
+			g.Cost, g.PricePerKWh, g.CostSource, g.Network, g.Currency)
+	}
+
+	// Zero via UpdatePricing still means "clear": NULL cost, no source.
+	if _, err := a.UpdatePricing(ctx, "c-free", 0, "", 0); err != nil {
+		t.Fatalf("UpdatePricing: %v", err)
+	}
+	got, _ = a.ListRecent(ctx, 10)
+	if got[0].CostSource != "" {
+		t.Errorf("UpdatePricing(0) must clear cost_source, got %q", got[0].CostSource)
+	}
+}

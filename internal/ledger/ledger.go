@@ -79,6 +79,9 @@ const (
 	FlagContinuedFromPrev  = "continued_from_previous_month"
 	FlagCurrencyMismatch   = "currency_mismatch"
 	FlagEstimatePending    = "estimate_pending"
+	// FlagFree marks a session the user priced at $0 (cost_source=user,
+	// cost 0): priced, counted in spend at zero, shown as "Free".
+	FlagFree = "free"
 )
 
 // Charge is the projection of a charges row the ledger needs. Pointer
@@ -563,6 +566,9 @@ func viewOf(c Charge, cfg Config) sessionView {
 	homeStamped := v.source == SourceHomeRate || v.source == SourceHomeRateMisapplied
 	if v.source == SourceHomeRateMisapplied {
 		v.flags = append(v.flags, FlagEstimatePending)
+	}
+	if v.source == SourceUser && c.Cost != nil && *c.Cost == 0 {
+		v.flags = append(v.flags, FlagFree)
 	}
 	if homeStamped && isDCFC(c) {
 		v.flags = append(v.flags, FlagHomeRateOnDCFC)
