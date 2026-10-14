@@ -16,6 +16,7 @@ package charges_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -579,5 +580,72 @@ func TestLiveOverlap(t *testing.T) {
 	}
 	if ov, _ := store.LiveOverlap(ctx, "rv-A", "mine", ghost.EndedAt, ghost.EndedAt.Add(time.Hour)); ov != nil {
 		t.Errorf("a range starting at the ghost's end doesn't overlap, got %+v", ov)
+	}
+}
+
+// TestRestampPlace pins A15's correction: only place changes, user-priced
+// and position-less rows are left alone, and a dry run writes nothing.
+func TestRestampPlace(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "restamp-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	start := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	// sampleCharge sits at 30.27,-97.74; "away" at 35.47,-97.52.
+	mk := func(id string, i int, lat, lon float64, place, source string) {
+		c := sampleCharge(id, "rv-A", start.Add(time.Duration(i)*time.Hour), "charging_complete")
+		c.Lat, c.Lon, c.Place, c.CostSource = lat, lon, place, source
+		if err := store.Upsert(ctx, c); err != nil {
+			t.Fatalf("Upsert %s: %v", id, err)
+		}
+	}
+	mk("was-away", 0, 30.27, -97.74, "away", "home_rate")  // at the corrected home
+	mk("no-place", 1, 30.27, -97.74, "", "")               // legacy, NULL place
+	mk("really-away", 2, 35.47, -97.52, "away", "")        // stays away
+	mk("user-priced", 3, 30.27, -97.74, "away", "user")    // never touched
+	mk("no-position", 4, 0, 0, "away", "")                 // never touched
+	placeOf := func(id string) string {
+		var p sql.NullString
+		if err := pool.QueryRowContext(ctx, `SELECT place FROM charges WHERE external_id = $1`, id).Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		return p.String
+	}
+	var costBefore float64
+	_ = pool.QueryRowContext(ctx, `SELECT sum(cost)::float8 FROM charges WHERE user_id = $1`, uid).Scan(&costBefore)
+
+	dry, err := store.RestampPlace(ctx, 30.27, -97.74, 250, true)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !dry.DryRun || dry.Changed != 2 || dry.ToHome != 2 || dry.ToAway != 0 || dry.Unchanged != 1 || dry.SkippedUserPriced != 1 {
+		t.Errorf("dry run = %+v", dry)
+	}
+	if placeOf("was-away") != "away" {
+		t.Error("dry run wrote")
+	}
+
+	res, err := store.RestampPlace(ctx, 30.27, -97.74, 250, false)
+	if err != nil || res.Changed != 2 {
+		t.Fatalf("apply = %+v, %v", res, err)
+	}
+	for id, want := range map[string]string{"was-away": "home", "no-place": "home", "really-away": "away",
+		"user-priced": "away", "no-position": "away"} {
+		if got := placeOf(id); got != want {
+			t.Errorf("%s place = %q, want %q", id, got, want)
+		}
+	}
+	var costAfter float64
+	_ = pool.QueryRowContext(ctx, `SELECT sum(cost)::float8 FROM charges WHERE user_id = $1`, uid).Scan(&costAfter)
+	if costAfter != costBefore {
+		t.Errorf("costs changed: %v → %v", costBefore, costAfter)
 	}
 }
