@@ -35,7 +35,12 @@ const (
 	drainDays            = 30
 	drainMinParkedH7d    = 24.0
 	drainMinParkedH30d   = 72.0
-	drainMinDailyParkedH = 3.0
+	// A day's bar needs 12 h of valid parked pairs: on 3 h prod days
+	// swung from -0.9 to 7.3 %/day. The window rate still uses every
+	// pair; this only gates the per-day bar.
+	drainMinDailyParkedH = 12.0
+	// A day's idle-awake figure needs this much observed power state.
+	drainMinDailyObsH = 3.0
 	drainCacheTTL        = 60 * time.Second
 )
 
@@ -116,7 +121,7 @@ func buildDrain(raw drainRaw, now time.Time, loc *time.Location) drainResponse {
 			ex := "insufficient"
 			row.Excluded = &ex
 		}
-		if a.ObsH >= drainMinDailyParkedH {
+		if a.ObsH >= drainMinDailyObsH {
 			v := drainRound(24 * a.AwakeH / a.ObsH)
 			row.IdleAwakeHours = &v
 		}
