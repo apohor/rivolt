@@ -62,8 +62,8 @@ describe("MoneyPage", () => {
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getByText(/Estimate · Electrify America/)).toBeInTheDocument();
     // Two server-owned splits: where (by_place) and how (by_kind).
-    expect(screen.getByRole("img", { name: /^Where: Home .*, Away / })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /^How: AC .*, DCFC / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^Charging: Home .*, Public .*, DCFC / })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /^Where:/ })).toBeNull();
   });
 
   it("filters receipts and expands folded top-ups", async () => {
@@ -122,5 +122,19 @@ describe("MoneyPage", () => {
     });
     renderAt("/money");
     expect(await screen.findByText(/No charging recorded in/)).toBeInTheDocument();
+  });
+
+  it("falls back to the two bars when by_place_kind is absent", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    delete (m.energy as { by_place_kind?: unknown }).by_place_kind;
+    stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [] } },
+    });
+    renderAt("/money");
+    await screen.findByRole("region", { name: "Statement" });
+    expect(screen.getByRole("img", { name: /^Where: Home .*, Away / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^How: AC .*, DCFC / })).toBeInTheDocument();
   });
 });

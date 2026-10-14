@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { backend } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { kindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
+import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import {
@@ -156,8 +156,13 @@ function Statement({
 }) {
   const cur = m.currency;
   // Server-owned splits only; by_place is absent on pre-§10 builds.
-  const where = m.energy.by_place ? placeSegments(m.energy.by_place) : null;
-  const how = kindSegments(m.energy.by_kind);
+  // One Home/Public/DCFC bar when the server sends by_place_kind (§11);
+  // otherwise today's two bars.
+  const combined = m.energy.by_place_kind
+    ? placeKindSegments(m.energy.by_place_kind, m.energy.by_kind)
+    : null;
+  const where = !combined && m.energy.by_place ? placeSegments(m.energy.by_place) : null;
+  const how = combined ? null : kindSegments(m.energy.by_kind);
   const pending = m.spend.estimate_pending_sessions ?? 0;
   const estShare = estimatedShare(m);
   const notes = useMemo(() => dataQualityNotes(m), [m]);
@@ -281,8 +286,9 @@ function Statement({
             }
           >
             <div className="space-y-4">
+              {combined && <SplitBar label="Charging" segments={combined} currency={cur} metric={metric} />}
               {where && <SplitBar label="Where" segments={where} currency={cur} metric={metric} />}
-              <SplitBar label="How" segments={how} currency={cur} metric={metric} />
+              {how && <SplitBar label="How" segments={how} currency={cur} metric={metric} />}
             </div>
           </Card>
 

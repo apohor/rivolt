@@ -74,10 +74,11 @@ export function MoneyValue({
 
 // Colours follow the app's semantics: emerald = Home / AC, sky = Away,
 // amber = DCFC, neutral = unknown.
-type SplitKey = Place | ChargeKind;
+type SplitKey = Place | ChargeKind | "public";
 const SPLIT_META: Record<SplitKey, { label: string; bar: string; dot: string }> = {
   home: { label: "Home", bar: "bg-emerald-500", dot: "bg-emerald-400" },
   away: { label: "Away", bar: "bg-sky-500", dot: "bg-sky-400" },
+  public: { label: "Public", bar: "bg-sky-500", dot: "bg-sky-400" },
   unknown: { label: "Unknown place", bar: "bg-neutral-500", dot: "bg-neutral-400" },
   ac: { label: "AC", bar: "bg-emerald-500", dot: "bg-emerald-400" },
   dcfc: { label: "DCFC", bar: "bg-amber-500", dot: "bg-amber-400" },
@@ -94,6 +95,23 @@ export function placeSegments(byPlace: Record<Place, KindTotals>): SplitSegments
     { key: "away", totals: byPlace.away },
   ];
   if (byPlace.unknown.sessions > 0) segs.push({ key: "unknown", totals: byPlace.unknown });
+  return segs;
+}
+
+// One bar, three honest buckets (contract §11): Home = home AC,
+// Public = away AC, DCFC = every fast session. Cells come from the
+// server; nothing is cross-tabulated client-side. Unknown-place AC only
+// appears when it has sessions.
+export function placeKindSegments(
+  byPlaceKind: Record<Place, Record<ChargeKind, KindTotals>>,
+  byKind: Record<ChargeKind, KindTotals>,
+): SplitSegments {
+  const segs: SplitSegments = [
+    { key: "home", totals: byPlaceKind.home.ac },
+    { key: "public", totals: byPlaceKind.away.ac },
+    { key: "dcfc", totals: byKind.dcfc },
+  ];
+  if (byPlaceKind.unknown.ac.sessions > 0) segs.push({ key: "unknown", totals: byPlaceKind.unknown.ac });
   return segs;
 }
 
@@ -119,7 +137,7 @@ export function SplitBar({
 }) {
   const total = segments.reduce((a, s) => a + s.totals[metric], 0);
   const fmt = (t: KindTotals) => (metric === "cost" ? formatMoney(t.cost, currency) : `${t.kwh.toFixed(0)} kWh`);
-  const cols = segments.length === 3 ? "grid-cols-3" : "grid-cols-2";
+  const cols = segments.length === 4 ? "grid-cols-2 sm:grid-cols-4" : segments.length === 3 ? "grid-cols-3" : "grid-cols-2";
   return (
     <div>
       <div className="mb-1.5 text-[11px] uppercase tracking-wide text-neutral-500">{label}</div>
