@@ -69,6 +69,8 @@ export function buildFeed(
   }
   if (opts.filter !== "drives") {
     for (const c of charges) {
+      // A duplicate the ledger drops (§16.1) isn't a session of its own.
+      if (c.ledger_flags?.includes("superseded")) continue;
       items.push({
         kind: "charge",
         at: new Date(c.StartedAt).getTime(),
@@ -137,6 +139,9 @@ export type CostLine = { text: string; tone: "ok" | "est" | "missing" };
 // fast charges stamped at the home rate read "Estimate pending".
 export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   if (isActiveCharge(c)) return { text: "Charging now", tone: "ok" };
+  // The server couldn't classify (settings unreadable): say so rather
+  // than guess with client rules.
+  if (c.classification_unavailable) return { text: "Price unavailable", tone: "missing" };
   const money = `${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim();
   const est = { text: `~${money}`, tone: "est" as const };
   const src = c.cost_source_effective;

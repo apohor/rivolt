@@ -415,6 +415,9 @@ export type Charge = {
   km_from_home?: number | null;
   counts_in_spend?: boolean;
   ledger_flags?: string[];
+  // Settings couldn't be read, so the classification fields are omitted
+  // (contract §16.1): don't derive labels client-side.
+  classification_unavailable?: boolean;
 };
 
 export type ChargingSettings = {
