@@ -422,16 +422,13 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 			}
 			username = u
 		}
-		if err := db.DeleteUser(r.Context(), d.DB, uid); err != nil {
+		if err := db.DeleteUserAccount(r.Context(), d.DB, uid); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
-		if d.Users != nil && d.Users.Enabled() && username != "" {
-			if err := d.Users.DeleteUser(r.Context(), username); err != nil && d.Logger != nil {
-				d.Logger.Warn("self-delete: idp delete failed (rivolt row already removed)",
-					"username", username, "err", err.Error())
-			}
-		}
+		// A failed IdP deletion is recorded for the admin page; the
+		// account is gone on our side either way.
+		_, _ = deleteFromIdP(r.Context(), d.DB, d.Users, username, d.Logger)
 		// Clear the session cookie so the next request from this
 		// browser is unauthenticated. The session row was already
 		// cascaded out of `sessions` by DeleteUser; this just stops

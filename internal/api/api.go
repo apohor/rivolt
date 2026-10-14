@@ -619,6 +619,8 @@ func New(d Deps) http.Handler {
 				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
 				r.Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
+				r.Get("/idp-delete-failures", handleAdminIdPFailures(d.DB))
+				r.Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.DB, d.Users, d.Logger))
 				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
 				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
 				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))

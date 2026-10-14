@@ -345,17 +345,17 @@ func handleAdminUserDelete(d *sql.DB, ac idp.UserProvider, log *slog.Logger) htt
 			}
 			username = u
 		}
-		if err := db.DeleteUser(r.Context(), d, target); err != nil {
+		if err := db.DeleteUserAccount(r.Context(), d, target); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
-		if ac != nil && ac.Enabled() && username != "" {
-			if err := ac.DeleteUser(r.Context(), username); err != nil && log != nil {
-				log.Warn("admin: idp delete failed (rivolt row already removed)",
-					"username", username, "err", err.Error())
-			}
+		resp := map[string]any{"ok": true}
+		status, msg := deleteFromIdP(r.Context(), d, ac, username, log)
+		resp["idp"] = status
+		if msg != "" {
+			resp["idp_error"] = msg
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

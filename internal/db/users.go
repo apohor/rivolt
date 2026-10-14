@@ -337,6 +337,14 @@ func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := deleteUserTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// deleteUserTx is DeleteUser's body inside a caller's transaction.
+func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM subscription_leases
 		 WHERE vehicle_id IN (
@@ -344,10 +352,8 @@ func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 		 )`, uid); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
+	return err
 }
 
 // ListUsersWithRivianSession returns every user_id that currently has
