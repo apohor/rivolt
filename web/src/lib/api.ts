@@ -1038,6 +1038,7 @@ export const backend = {
   // The store queries cap out at a few hundred rows so this stays cheap.
   allDrives: () => api.get<Drive[]>(`/api/drives?limit=5000`),
   allCharges: () => api.get<Charge[]>(`/api/charges?limit=5000`),
+  recentCharges: (n: number) => api.get<Charge[]>(`/api/charges?limit=${n}`),
   // Per-day asleep/awake hours for the overview sleep graph. `since`
   // is RFC3339; `vehicle` scopes to one car (optional).
   sleepActivity: (since: string, vehicleID?: string) =>

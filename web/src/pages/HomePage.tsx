@@ -26,8 +26,11 @@ import { usePreferences } from "../lib/preferences";
 import { WindowPicker } from "../components/WindowPicker";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
+import { useMoneyTabEnabled } from "../lib/ledger";
+import NowCard from "../components/NowCard";
 
 export default function HomePage() {
+  const shellEnabled = useMoneyTabEnabled();
   const [win, setWin] = useState<WindowKey>("30d");
   const {
     roundTripsEnabled,
@@ -229,6 +232,16 @@ export default function HomePage() {
         selectedVehicleID={activeVehicleID}
         onSelectVehicle={selectVehicle}
       />
+
+      {shellEnabled && activeVehicleID && (
+        <NowCard
+          vehicleID={activeVehicleID}
+          vehicleName={
+            vehicles.data?.find((v) => v.id === activeVehicleID)?.name || "Your truck"
+          }
+          packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
+        />
+      )}
 
       {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
           at the top of the data area now — it's the highest-signal
