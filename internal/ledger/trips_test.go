@@ -85,3 +85,54 @@ func TestBuildTrips_NoHome(t *testing.T) {
 		t.Errorf("trips without home = %+v", res.Trips)
 	}
 }
+
+// F4 (devils-advocate on #100, ux-slice-spec §4.3): a trip needs both
+// distance and a DC fast charge; a multi-night stay away is one trip.
+func TestBuildTrips_Rules(t *testing.T) {
+	win := func(in Input) []Trip {
+		return BuildTrips(in, ts("2026-09-01T00:00:00Z"), ts("2026-12-01T00:00:00Z"), time.UTC).Trips
+	}
+	const latNear = 30.36 // ~10 km from home
+
+	// 400 km away and back, hotel L2 only: far, but no DC fast charge.
+	farNoFast := []Drive{
+		drv("a1", "2026-10-03T08:00:00Z", 4*time.Hour, 250, 100, latHome, latB),
+		drv("a2", "2026-10-04T08:00:00Z", 4*time.Hour, 250, 100, latB, latHome),
+	}
+	if got := win(Input{Drives: farNoFast, Config: cfg()}); len(got) != 0 {
+		t.Errorf("far without DCFC = %+v, want no trip", got)
+	}
+
+	// Weekly fast charge 10 km from home: not a trip.
+	near := []Drive{
+		drv("n1", "2026-10-05T08:00:00Z", 15*time.Minute, 6, 2, latHome, latNear),
+		drv("n2", "2026-10-05T09:00:00Z", 15*time.Minute, 6, 2, latNear, latHome),
+	}
+	nearDC := at(priced(charge("ndc", "2026-10-05T08:20:00Z", 30*time.Minute, 50, 150), 0.4), latNear, -97.74)
+	if got := win(Input{Drives: near, Charges: []Charge{nearDC}, Config: cfg()}); len(got) != 0 {
+		t.Errorf("DCFC near home = %+v, want no trip", got)
+	}
+
+	// Road trip with two nights (a 40 h park) at the destination: one trip.
+	stay := []Drive{
+		drv("s1", "2026-10-10T08:00:00Z", 2*time.Hour, 125, 50, latHome, latA),
+		drv("s2", "2026-10-10T11:00:00Z", 2*time.Hour, 125, 50, latA, latB),
+		drv("s3", "2026-10-12T05:00:00Z", 4*time.Hour, 250, 100, latB, latHome),
+	}
+	stayDC := at(priced(charge("sdc", "2026-10-10T10:10:00Z", 30*time.Minute, 60, 180), 0.4), latA, -97.74)
+	got := win(Input{Drives: stay, Charges: []Charge{stayDC}, Config: cfg()})
+	if len(got) != 1 || len(got[0].DriveIDs) != 3 {
+		t.Errorf("two-night stay = %+v, want one trip with 3 drives", got)
+	}
+
+	// Parked away beyond the 14-day safety cap: the outing ends there.
+	long := []Drive{
+		drv("l1", "2026-10-15T08:00:00Z", 4*time.Hour, 250, 100, latHome, latB),
+		drv("l2", "2026-11-05T08:00:00Z", 4*time.Hour, 250, 100, latB, latHome),
+	}
+	longDC := at(priced(charge("ldc", "2026-10-15T10:00:00Z", 30*time.Minute, 60, 180), 0.4), latA, -97.74)
+	got = win(Input{Drives: long, Charges: []Charge{longDC}, Config: cfg()})
+	if len(got) != 1 || len(got[0].DriveIDs) != 1 || got[0].DriveIDs[0] != "l1" {
+		t.Errorf("21-day stay away = %+v, want the outbound leg as its own trip", got)
+	}
+}

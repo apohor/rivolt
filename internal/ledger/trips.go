@@ -8,19 +8,26 @@ import (
 
 // Trips (Activity auto-Trips; trips-contract v1).
 //
-// A trip is an outing that went somewhere: consecutive drives and
-// charges from leaving home to getting back (or to a long park), that
-// either went more than TripMinKMFromHome from home or stopped at a DC
-// fast charger. Money uses the ledger's own per-session classification,
-// so a trip's cost always matches the Money tab.
+// A trip is a road trip: consecutive drives and charges from leaving
+// home to getting back that went more than TripMinKMFromHome from home
+// AND stopped at a DC fast charger (ux-slice-spec §4.3). A fast charge
+// near home is just a fast charge, not a trip. When distance from home
+// can't be measured (no saved home, no positions), a DC fast charge
+// alone qualifies. Money uses the ledger's own per-session
+// classification, so a trip's cost always matches the Money tab.
 
 // TripMinKMFromHome is how far from home an outing must go to count as
 // a trip (when the home location is known).
 const TripMinKMFromHome = 150.0
 
-// TripMaxParked is the longest a car can sit parked inside one trip; a
-// longer stop ends it (a multi-day stay is two trips).
+// TripMaxParked is the longest a car can sit parked at home (or where
+// we can't tell) inside one outing; a longer park ends it. Away from
+// home a multi-night stay stays one trip (arriving home ends it), up to
+// TripMaxParkedAway as a safety valve.
 const TripMaxParked = 12 * time.Hour
+
+// TripMaxParkedAway caps a park away from home inside one trip.
+const TripMaxParkedAway = 14 * 24 * time.Hour
 
 // TripsResponse is the GET /api/trips body.
 type TripsResponse struct {
@@ -122,8 +129,15 @@ func splitOutings(evs []tripEvent, home *LatLon) [][]tripEvent {
 		}
 	}
 	for _, e := range evs {
-		if len(cur) > 0 && e.start.Sub(cur[len(cur)-1].end) > TripMaxParked {
-			flush()
+		if len(cur) > 0 {
+			gap := e.start.Sub(cur[len(cur)-1].end)
+			limit := TripMaxParked
+			if lastAway(cur, home) {
+				limit = TripMaxParkedAway
+			}
+			if gap > limit {
+				flush()
+			}
 		}
 		// Leaving home starts a new outing.
 		if e.drive != nil && home != nil && isHomePoint(e.drive.StartLat, e.drive.StartLon, home) && len(cur) > 0 {
@@ -137,6 +151,27 @@ func splitOutings(evs []tripEvent, home *LatLon) [][]tripEvent {
 	}
 	flush()
 	return out
+}
+
+// lastAway reports whether the outing's last known position is known
+// and away from home.
+func lastAway(evs []tripEvent, home *LatLon) bool {
+	for i := len(evs) - 1; i >= 0; i-- {
+		var lat, lon *float64
+		switch {
+		case evs[i].drive != nil:
+			lat, lon = evs[i].drive.EndLat, evs[i].drive.EndLon
+			if lat == nil {
+				lat, lon = evs[i].drive.StartLat, evs[i].drive.StartLon
+			}
+		case evs[i].charge != nil:
+			lat, lon = evs[i].charge.Lat, evs[i].charge.Lon
+		}
+		if km, ok := kmFrom(lat, lon, home); ok {
+			return km > HomeRadiusKM
+		}
+	}
+	return false
 }
 
 func isHomePoint(lat, lon *float64, home *LatLon) bool {
@@ -213,7 +248,7 @@ func tripFrom(evs []tripEvent, cfg Config) (Trip, bool) {
 		t.MaxKMFromHome = &km
 	}
 	far := knownKM && maxKM > TripMinKMFromHome
-	if len(t.DriveIDs) == 0 || (!far && t.FastSessions == 0) {
+	if len(t.DriveIDs) == 0 || t.FastSessions == 0 || (knownKM && !far) {
 		return Trip{}, false
 	}
 	t.TripID = "trip_" + t.DriveIDs[0]
