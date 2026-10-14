@@ -54,9 +54,10 @@ describe("MoneyPage", () => {
     // Not sample data: the API answered.
     expect(screen.queryByText(/Sample data/)).toBeNull();
 
-    // Unknown + pending → Add price; home rate away (in total) → Fix price.
-    expect(screen.getAllByText("Add price →").length).toBe(3);
-    expect(screen.getAllByText("Fix price →").length).toBe(1);
+    // Any receipt with an unpriced or pending session → Add price (the
+    // mixed DCFC stop's pending part outranks its likely-wrong tail).
+    expect(screen.getAllByText("Add price →").length).toBe(4);
+    expect(screen.queryByText("Fix price →")).toBeNull();
     expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getByText(/Estimate · Electrify America/)).toBeInTheDocument();

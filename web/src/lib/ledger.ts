@@ -327,8 +327,30 @@ type Priceable = {
   cost: number | null;
   cost_source: ReceiptCostSource;
   flags: ReceiptFlag[];
-  sessions?: Pick<ReceiptSession, "cost_source">[];
+  sessions?: Pick<ReceiptSession, "cost_source" | "flags">[];
 };
+
+// isSuspect: a session counted in the total at the home rate while
+// away from home. On a receipt, look at its sessions: a misapplied
+// DCFC session also carries home_rate_away (contract §10.3), but it's
+// out of the total and must not make a billed receipt look wrong.
+function isSuspect(r: Priceable): boolean {
+  if (r.sessions) {
+    return r.sessions.some((x) => x.cost_source === "home_rate" && x.flags.includes("home_rate_away"));
+  }
+  return r.cost_source === "home_rate" && r.flags.includes("home_rate_away");
+}
+
+// needsPrice: some session on the receipt has no usable price yet
+// (unpriced, or a pending legacy DCFC stamp), even if other sessions
+// are priced and the receipt shows a figure.
+export function needsPrice(r: Pick<Receipt, "flags" | "sessions">): boolean {
+  return (
+    r.flags.includes("unpriced") ||
+    r.flags.includes("estimate_pending") ||
+    r.sessions.some((x) => x.cost == null || x.cost_source === "unknown" || x.cost_source === "home_rate_misapplied")
+  );
+}
 
 export function grammarFor(r: Priceable): CostGrammar {
   if (r.cost_source === "home_rate_misapplied") return "pending";
@@ -340,9 +362,7 @@ export function grammarFor(r: Priceable): CostGrammar {
   if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate")) {
     return "estimated";
   }
-  if (r.flags.includes("home_rate_away") && (r.cost_source === "home_rate" || r.cost_source === "mixed")) {
-    return "suspect";
-  }
+  if (isSuspect(r)) return "suspect";
   return "recorded";
 }
 
@@ -364,8 +384,13 @@ export function sourceLabel(
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
       return "Estimate pending · fast charge was priced at your home rate";
-    case "mixed":
-      return r.flags.includes("estimate_pending") ? "Mixed prices · part pending" : "Mixed prices";
+    case "mixed": {
+      const parts = [
+        r.flags.includes("estimate_pending") ? "part pending" : null,
+        r.flags.includes("unpriced") ? "part unpriced" : null,
+      ].filter(Boolean);
+      return parts.length ? `Mixed prices · ${parts.join(", ")}` : "Mixed prices";
+    }
     case "unknown":
       return "Price unknown";
   }

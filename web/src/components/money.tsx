@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   formatMoney,
   grammarFor,
+  needsPrice,
   sourceLabel,
   type ChargeKind,
   type KindTotals,
@@ -185,15 +186,17 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   const chip = kindChip(r);
   const g = grammarFor(r);
   const parentID = r.sessions[0]?.charge_id ?? r.receipt_id.replace(/^rcpt_/, "");
-  // The session to price: the first one without a usable price.
-  const fixID =
-    r.sessions.find((x) => x.cost_source === "home_rate_misapplied" || x.cost == null || x.flags.includes("home_rate_away"))
-      ?.charge_id ?? parentID;
   const notes = r.flags.map((f) => FLAG_TEXT[f]).filter(Boolean) as string[];
   if (r.spans_days > 1) notes.unshift(`${r.spans_days} days`);
   const extra = r.session_count - 1;
-  const action =
-    g === "unknown" || g === "pending" ? "Add price →" : g === "suspect" ? "Fix price →" : null;
+  // One action per row. A missing or pending price outranks a likely
+  // wrong one; the link opens the first session with that problem.
+  const addPrice = g === "unknown" || g === "pending" || needsPrice(r);
+  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : null;
+  const target = addPrice
+    ? r.sessions.find((x) => x.cost == null || x.cost_source === "unknown" || x.cost_source === "home_rate_misapplied")
+    : r.sessions.find((x) => x.cost_source === "home_rate" && x.flags.includes("home_rate_away"));
+  const fixID = target?.charge_id ?? parentID;
   return (
     <li className="py-1">
       <div className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-900/70">
