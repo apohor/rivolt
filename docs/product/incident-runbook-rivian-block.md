@@ -32,8 +32,8 @@ Pause costs: no new data until resumed (history already stored remains, gaps app
 **Resume:** same endpoint, `{"paused": false}`. Resume during a quiet hour; expect a reconnect burst, which the breaker and token bucket contain.
 **Degrade (no deploy needed):**
 1. Turn the sleep gate on for everyone: set flag `sleep_safe_vehicles` to `{"all": true}` (see `internal/flags/flags.go` comment for the SQL). This parks non-essential subscriptions while vehicles sleep.
-2. Lower token-bucket rates via env/config and roll pods **[VERIFY how rates are configured]**.
-3. Stop accepting new connections: set flag `signup_cap` to a low `limit` (0 blocks all new signups).
+2. Lowering token-bucket rates is **not** a no-deploy action: the rates are in code (only the Redis address is in `values.yaml`), so it needs a code change and release. Prefer steps 1, 3 and 4 in an incident. **[DECIDE: expose rates as flags or env so this step becomes available.]**
+3. Stop new signups: set flag `signup_cap`. It is a cap on the total number of accounts: `limit` 0 blocks all new signups, and any limit at or below the current user count does too. Existing users are unaffected.
 4. Turn off optional features that call Rivian per request (trip planner) via `trip_planner_enabled`.
 **Preserve evidence:** save 30 minutes of logs and a metrics screenshot before changing anything.
 

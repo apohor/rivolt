@@ -37,13 +37,16 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 | Cloud hosting / backup storage **[DECIDE: provider names]** | encrypted at rest as configured | run the service |
 | Weather provider (Open-Meteo) | coordinates and times of drives **[VERIFY exact payload]** | weather in trip analysis |
 | Charger data (NREL AFDC) | queried against a local archive; **[VERIFY no user data sent]** | charger lookup |
-| LLM provider(s) (Anthropic / OpenAI / Gemini are implemented in `internal/ai`) | trip or drive summaries for AI advice, only when you use the feature; capped per user per day (`internal/aibudget`) | explanations **[VERIFY exactly what fields are sent and which provider is enabled in prod; consider stripping coordinates]** |
-| Email provider for signup links **[VERIFY]** | your email | account |
+| LLM provider(s) (Anthropic / OpenAI / Gemini are implemented in `internal/ai`) | trip or drive summaries for AI advice, only when you use the feature; capped per user per day (`internal/aibudget`) | explanations **[VERIFY exactly what fields are sent and which provider is enabled in prod. DECIDE: strip coordinates and addresses from LLM payloads before sending.]** |
+| Resend (email) | your email address | signup links and notices |
+| AWS S3 (elevation tiles) | tile coordinates, which can reveal the area of your routes | elevation in trip analysis **[VERIFY and consider proxying or caching]** |
+| Open-Meteo (geocoding and weather archive) | place names and coordinates | place lookup, weather |
+| Browser push services (Apple, Google, Mozilla) | an encrypted notification payload via your browser's push endpoint | notifications, only if you enable them |
 Maps and routing are self-hosted (Protomaps basemap, Valhalla): no third-party map requests carry your data **[VERIFY]**.
 
 ## 5. Retention, export and deletion
 - **Retention.** We keep vehicle samples, drives and charges until you delete them. There is currently **no automatic deletion** of history in the code; partition drops are manual (ROADMAP Phase 1 notes). **[DECIDE: adopt a retention period, e.g. raw samples 24 months, and implement before promising it.]**
-- **Export.** Signed-in users can download all their drives, charges and samples as one JSON bundle: `GET /api/data/backup` (`internal/api/data.go`). **[VERIFY coverage: settings, saved places and receipts are not obviously in the bundle; CSV statement export is planned.]**
+- **Export.** Signed-in users can download all their drives, charges and samples as one JSON bundle: `GET /api/data/backup` (`internal/api/data.go`). The bundle includes settings (`internal/api/data.go`). **[VERIFY: saved places, receipts and price overrides; CSV statement export is planned, not shipped.]**
 - **Delete history only.** `DELETE /api/data/sessions` wipes samples, drives and charges, keeping your account and settings.
 - **Delete everything.** `DELETE /api/data/account` deletes your account and cascades through per-user tables (drives, charges, samples, settings, user_secrets, push subscriptions, sessions), then removes your identity-provider record. Last admin accounts are protected.
 - **Disconnect Rivian.** Logging out of Rivian in Rivolt deletes the sealed session. You can also revoke an Authorized Driver from the Rivian app.
