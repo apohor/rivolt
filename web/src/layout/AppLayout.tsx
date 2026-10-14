@@ -3,10 +3,13 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
+import { useMoneyTabEnabled } from "../lib/ledger";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import { stopImpersonation, useImpersonationTarget } from "../lib/impersonation";
 import Logo from "../components/Logo";
 import IOSInstallBanner from "../components/IOSInstallBanner";
+import { activeTab, buildTabs } from "./tabs";
+import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -195,6 +198,53 @@ export default function AppLayout() {
     ? baseNav.filter((n) => n.to !== "/live")
     : baseNav;
   const navItems = me.data?.role === "admin" ? [...withoutLive, ...adminNav] : withoutLive;
+
+  // money_tab_enabled swaps the top nav for the tab-bar shell. Flag
+  // off (the default, and the fallback until /api/config resolves)
+  // renders exactly the layout below, unchanged.
+  const moneyTabEnabled = useMoneyTabEnabled();
+  if (moneyTabEnabled) {
+    const tabs = buildTabs({
+      tripPlannerEnabled,
+      isAdmin: me.data?.role === "admin",
+      liveAvailable: !impersonating,
+    });
+    const current = activeTab(tabs, location.pathname);
+    return (
+      <div className="min-h-full flex flex-col">
+        <ImpersonationBanner />
+        <IOSInstallBanner />
+        <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+            <NavLink
+              to="/"
+              className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
+            >
+              <Logo size={22} className="text-emerald-400" />
+              <span>Rivolt</span>
+            </NavLink>
+            <div className="flex items-center gap-2">
+              <StatusPill />
+              <SignOutButton />
+            </div>
+          </div>
+        </header>
+        <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
+          <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
+          {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
+          <main className="min-w-0 flex-1 py-4 pb-24 md:py-6 md:pb-6">
+            <SubNav tab={current} onPrefetch={prefetchRoute} />
+            <Outlet />
+          </main>
+        </div>
+        <div className="pb-16 md:pb-0">
+          <Footer />
+        </div>
+        <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
