@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/flags"
@@ -271,6 +272,11 @@ func New(d Deps) http.Handler {
 	// middleware is a no-op — the single-tenant legacy UX stays.
 	if d.Auth != nil {
 		r.Use(d.Auth.Middleware)
+		// Public demo (preview only): allowlisted anonymous GETs are
+		// served as the demo user. Not installed unless RIVOLT_DEMO.
+		if demo.Enabled() {
+			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter()))
+		}
 		// impersonationMW must run immediately after auth resolves
 		// the real identity and before any route reads
 		// auth.UserFromContext, so the swap it performs is
@@ -343,6 +349,10 @@ func New(d Deps) http.Handler {
 					})
 				}
 			})
+		}
+		// Public demo discovery (preview only; 404 when off).
+		if demo.Enabled() {
+			r.Get("/demo", handleDemoInfo)
 		}
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user
@@ -775,7 +785,7 @@ func New(d Deps) http.Handler {
 			// Money tab ledger: server-side spend/energy statement.
 			// Read-only; 404s unless money_tab_enabled covers the user.
 			r.Route("/ledger", func(r chi.Router) {
-				r.Use(requireMoneyTabMW(moneyTabEnabled(d.Flags)))
+				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
 				la := newLedgerAPI(d.DB, d.Settings)
 				r.Get("/enabled", handleLedgerEnabled)
 				r.Get("/monthly", withUser(la.monthly))
