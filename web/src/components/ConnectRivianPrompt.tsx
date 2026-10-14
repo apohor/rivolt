@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
+import { getConfig } from "../lib/config";
 import { AuthorizedDriverNote, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
 
@@ -74,6 +75,14 @@ export default function ConnectRivianPrompt({
           )}
           <RivianAccountPanel />
           {!noVehicles && <AuthorizedDriverNote />}
+          {!noVehicles && getConfig().features.demoEnabled && (
+            <p className="text-xs text-neutral-500">
+              Want to look around first?{" "}
+              <Link to="/demo" className="text-emerald-300 hover:underline">
+                Try the sample truck
+              </Link>
+            </p>
+          )}
         </div>
       </Card>
     );

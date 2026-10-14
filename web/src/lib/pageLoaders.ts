@@ -23,6 +23,7 @@ export const pageLoaders = {
   onboarding: () => import("../pages/OnboardingPage"),
   notFound: () => import("../pages/NotFoundPage"),
   landing: () => import("../pages/LandingPage"),
+  demo: () => import("../pages/DemoPage"),
 } as const;
 
 export type PageKey = keyof typeof pageLoaders;
