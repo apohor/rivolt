@@ -522,7 +522,7 @@ func New(d Deps) http.Handler {
 					},
 					now: time.Now,
 				}
-				r.With(requireMoneyTabMW(moneyTabEnabled(d.Flags)), vehicleScoped).
+				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).
 					Get("/vehicles/{vehicleID}/now", withUser(na.handle))
 			}
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

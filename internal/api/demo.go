@@ -35,7 +35,7 @@ var demoExactPaths = map[string]bool{
 	"/api/ledger/summary":         true,
 	"/api/charges":                true,
 	"/api/drives":                 true,
-	"/api/trips":                  true,
+	"/api/ledger/trips":           true,
 	"/api/sleep-activity":         true,
 	"/api/charges/clusters":       true,
 	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
