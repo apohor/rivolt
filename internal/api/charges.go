@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -63,22 +64,37 @@ func handleDeleteCharge(store *charges.Store) http.HandlerFunc {
 	}
 }
 
+// chargePricer is the slice of *charges.Store the pricing handler
+// uses, so it can be tested without Postgres.
+type chargePricer interface {
+	UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error)
+	MarkFree(ctx context.Context, externalID, currency string) (int64, error)
+}
+
 // handlePatchChargePricing accepts {cost?, currency?, price_per_kwh?}
 // and overwrites those three columns on the matching charge. Any
 // missing/zero field clears its column, letting the API-layer
 // fallbacks (recent-charge rate, home rate) take over again on the
-// next read. Returns 204/404/400/500.
+// next read. {"free": true[, "currency"]} instead records an explicit
+// $0 price (cost_source=user), which a zero cost can't express because
+// zero means "clear". Returns 204/404/400/500.
 func handlePatchChargePricing(store *charges.Store) http.HandlerFunc {
+	if store == nil {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+		}
+	}
+	return patchChargePricing(store)
+}
+
+func patchChargePricing(store chargePricer) http.HandlerFunc {
 	type body struct {
 		Cost        *float64 `json:"cost"`
 		Currency    *string  `json:"currency"`
 		PricePerKWh *float64 `json:"price_per_kwh"`
+		Free        *bool    `json:"free"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		if store == nil {
-			http.Error(w, "charges disabled", http.StatusServiceUnavailable)
-			return
-		}
 		id := strings.TrimSpace(chi.URLParam(r, "id"))
 		if id == "" {
 			http.Error(w, "missing id", http.StatusBadRequest)
@@ -106,7 +122,17 @@ func handlePatchChargePricing(store *charges.Store) http.HandlerFunc {
 			http.Error(w, "values must be non-negative", http.StatusBadRequest)
 			return
 		}
-		n, err := store.UpdatePricing(r.Context(), id, cost, cur, ppk)
+		var n int64
+		var err error
+		if b.Free != nil && *b.Free {
+			if cost != 0 || ppk != 0 {
+				http.Error(w, "free cannot be combined with cost or price_per_kwh", http.StatusBadRequest)
+				return
+			}
+			n, err = store.MarkFree(r.Context(), id, cur)
+		} else {
+			n, err = store.UpdatePricing(r.Context(), id, cost, cur, ppk)
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -135,7 +161,9 @@ func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeRespons
 	// when the session closed. Only fall back to the current rate
 	// for legacy rows (imports, pre-v0.3.29 live) that have no
 	// persisted cost.
-	if c.Cost > 0 {
+	// A user-entered price wins too — including an explicit "free"
+	// ($0), which must not pick up a home-rate estimate.
+	if c.Cost > 0 || c.CostSource == "user" {
 		return resp
 	}
 	// An unpriced DC fast charge is unknown, not home-priced: that
