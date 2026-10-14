@@ -15,7 +15,7 @@ export const LEDGER_CONTRACT_VERSION = 1;
 
 // v1 cost sources. `rivian` really means "a recorded price that isn't
 // the current home rate" (Rivian-billed, a manual edit, or an older
-// home rate), so the UI labels it "recorded price", not "Rivian".
+// home rate), so the UI labels it "Billed", not "Rivian".
 export type CostSource = "rivian" | "home_rate" | "unknown";
 export type ReceiptCostSource = CostSource | "mixed";
 
@@ -305,7 +305,7 @@ export function sourceLabel(
     case "home_rate":
       return `Home rate${rate}`;
     case "rivian":
-      return `Recorded price${rate}`;
+      return `Billed${rate}`;
     case "mixed":
       return "Mixed prices";
     case "unknown":
