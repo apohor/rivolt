@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -33,21 +34,79 @@ func deleteFromIdP(ctx context.Context, d *sql.DB, ac idp.UserProvider, username
 	if err == nil {
 		if d != nil {
 			if cerr := db.ClearIdPDeleteFailure(context.WithoutCancel(ctx), d, username); cerr != nil && log != nil {
-				log.Warn("clear idp delete failure", "username", username, "err", cerr.Error())
+				log.Warn("clear idp delete failure", "err", cerr.Error())
 			}
 		}
 		return idpDeleted, ""
 	}
-	if log != nil {
-		log.Warn("idp delete failed (rivolt account already removed); recorded for admin retry",
-			"username", username, "err", err.Error())
+	// Logs carry the failure row's id, never the username (an email
+	// address that outlives the account only while the IdP still has it).
+	if d == nil {
+		if log != nil {
+			log.Error("idp delete failed (rivolt account already removed); no db to record it", "err", err.Error())
+		}
+		return idpFailed, err.Error()
 	}
-	if d != nil {
-		if rerr := db.RecordIdPDeleteFailure(context.WithoutCancel(ctx), d, username, err.Error()); rerr != nil && log != nil {
-			log.Error("record idp delete failure", "username", username, "err", rerr.Error())
+	id, rerr := db.RecordIdPDeleteFailure(context.WithoutCancel(ctx), d, username, err.Error())
+	if log != nil {
+		if rerr != nil {
+			log.Error("idp delete failed and could not be recorded", "err", err.Error(), "record_err", rerr.Error())
+		} else {
+			log.Error("idp delete failed (rivolt account already removed); queued for retry",
+				"failure_id", id.String(), "err", err.Error())
 		}
 	}
 	return idpFailed, err.Error()
+}
+
+// idpRetryBatch bounds one retry pass.
+const idpRetryBatch = 20
+
+// RunIdPDeleteRetrier retries recorded IdP deletion failures every
+// interval until ctx ends, with per-row exponential backoff (see
+// db.ClaimDueIdPDeleteFailures). Safe to run on every replica: rows are
+// claimed with SKIP LOCKED. No-op without a database or an enabled IdP.
+func RunIdPDeleteRetrier(ctx context.Context, d *sql.DB, ac idp.UserProvider, log *slog.Logger, interval time.Duration) {
+	if d == nil || ac == nil || !ac.Enabled() {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			retryIdPDeleteFailures(ctx, d, ac, log)
+		}
+	}
+}
+
+// retryIdPDeleteFailures runs one retry pass. A row whose person has a
+// Rivolt account again (signed back in through the surviving identity)
+// is dropped: the identity is in use, and deleting it would lock them
+// out.
+func retryIdPDeleteFailures(ctx context.Context, d *sql.DB, ac idp.UserProvider, log *slog.Logger) {
+	due, err := db.ClaimDueIdPDeleteFailures(ctx, d, idpRetryBatch)
+	if err != nil {
+		if log != nil {
+			log.Warn("idp delete retry: claim failed", "err", err.Error())
+		}
+		return
+	}
+	for _, f := range due {
+		if f.AccountExists {
+			if err := db.ResolveIdPDeleteFailure(ctx, d, f.ID); err == nil && log != nil {
+				log.Info("idp delete retry: account exists again; dropped the failure", "failure_id", f.ID.String())
+			}
+			continue
+		}
+		if status, _ := deleteFromIdP(ctx, d, ac, f.Username, log); status == idpDeleted {
+			if err := db.ResolveIdPDeleteFailure(ctx, d, f.ID); err == nil && log != nil {
+				log.Info("idp delete retry: resolved", "failure_id", f.ID.String(), "attempts", f.Attempts)
+			}
+		}
+	}
 }
 
 // handleAdminIdPFailures — GET /api/admin/idp-delete-failures: pending
@@ -105,8 +164,14 @@ func handleAdminIdPFailureRetry(d *sql.DB, ac idp.UserProvider, log *slog.Logger
 			return
 		}
 		if exists {
+			// The identity is in use again: nothing left to clean up.
+			if err := db.ResolveIdPDeleteFailure(r.Context(), d, id); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+				return
+			}
 			writeJSON(w, http.StatusConflict, map[string]any{
-				"error": "a Rivolt account with this username exists again; delete that account instead",
+				"error":   "a Rivolt account with this username exists again; the failure was dropped. Delete that account to remove the identity.",
+				"dropped": true,
 			})
 			return
 		}

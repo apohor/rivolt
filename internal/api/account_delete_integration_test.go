@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -130,27 +131,83 @@ func TestAccountDelete_PurgesSignupRequestsAndRecordsIdPFailures(t *testing.T) {
 		t.Errorf("after failed retry: %+v, want attempts 2", failures)
 	}
 
-	// Person signed back in through the surviving identity: refuse.
+	// Person signed back in through the surviving identity: refuse and
+	// drop the failure (the identity is in use; nothing to clean up).
 	again, err := db.EnsureUser(ctx, pool, "gone@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(http.MethodPost, "/idp-delete-failures/"+f.ID.String()+"/retry"); rec.Code != http.StatusConflict {
-		t.Errorf("retry with a re-created account = %d, want 409", rec.Code)
+	if rec := do(http.MethodPost, "/idp-delete-failures/"+f.ID.String()+"/retry"); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), `"dropped":true`) {
+		t.Errorf("retry with a re-created account = %d %s, want 409 dropped", rec.Code, rec.Body.String())
+	}
+	if failures, _ = db.ListIdPDeleteFailures(ctx, pool); len(failures) != 0 {
+		t.Errorf("failures after the 409 = %+v, want none", failures)
 	}
 	if err := db.DeleteUser(ctx, pool, again); err != nil {
 		t.Fatal(err)
 	}
 
-	// IdP back: retry resolves and the row (with the email) is gone.
-	provider.failing = false
-	if rec := do(http.MethodPost, "/idp-delete-failures/"+f.ID.String()+"/retry"); rec.Code != http.StatusOK {
-		t.Errorf("retry with IdP up = %d %s, want 200", rec.Code, rec.Body.String())
-	}
-	if failures, _ = db.ListIdPDeleteFailures(ctx, pool); len(failures) != 0 {
-		t.Errorf("failures after successful retry = %+v, want none", failures)
-	}
 	if rec := do(http.MethodPost, "/idp-delete-failures/"+uuid.NewString()+"/retry"); rec.Code != http.StatusNotFound {
 		t.Errorf("unknown failure id = %d, want 404", rec.Code)
+	}
+}
+
+// The background retrier: per-row backoff, resolves when the IdP is back,
+// and drops rows whose person signed back up (A13).
+func TestIdPDeleteRetrier(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	provider := &flakyIdP{failing: true}
+
+	due, err := db.RecordIdPDeleteFailure(ctx, pool, "due@example.com", "kratos: 503")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := db.RecordIdPDeleteFailure(ctx, pool, "fresh@example.com", "kratos: 503")
+	back, _ := db.RecordIdPDeleteFailure(ctx, pool, "back@example.com", "kratos: 503")
+	if _, err := db.EnsureUser(ctx, pool, "back@example.com"); err != nil { // signed back up
+		t.Fatal(err)
+	}
+	age := func(id uuid.UUID, d time.Duration) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, `UPDATE idp_delete_failures SET last_tried = NOW() - $2::interval WHERE id = $1`,
+			id, fmt.Sprintf("%d seconds", int(d.Seconds()))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attempts := func(id uuid.UUID) int {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT attempts FROM idp_delete_failures WHERE id = $1`, id).Scan(&n); err != nil {
+			return -1 // gone
+		}
+		return n
+	}
+	age(due, 6*time.Minute)  // first backoff (5 min) elapsed
+	age(back, 6*time.Minute) // due too, but the person is back
+	// fresh: tried just now, not due
+
+	retryIdPDeleteFailures(ctx, pool, provider, nil)
+	if attempts(due) != 2 || attempts(fresh) != 1 || attempts(back) != -1 || len(provider.deleted) != 0 {
+		t.Fatalf("after a failing pass: due %d fresh %d back %d deleted %v; want 2, 1, gone, none",
+			attempts(due), attempts(fresh), attempts(back), provider.deleted)
+	}
+
+	// Second backoff is 10 min: not due after 6.
+	age(due, 6*time.Minute)
+	provider.failing = false
+	retryIdPDeleteFailures(ctx, pool, provider, nil)
+	if attempts(due) != 2 {
+		t.Errorf("retried before its 10 min backoff: attempts %d", attempts(due))
+	}
+	age(due, 11*time.Minute)
+	retryIdPDeleteFailures(ctx, pool, provider, nil)
+	if attempts(due) != -1 || len(provider.deleted) != 1 || provider.deleted[0] != "due@example.com" {
+		t.Errorf("after the IdP came back: due %d deleted %v; want gone, [due@example.com]", attempts(due), provider.deleted)
 	}
 }

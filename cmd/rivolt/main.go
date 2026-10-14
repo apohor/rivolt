@@ -1483,6 +1483,10 @@ func runServer() {
 		signupRequestStore = signuprequests.New(pgPool)
 	}
 
+	// Retry identity-provider deletions that failed during account
+	// deletion (recorded in idp_delete_failures), with per-row backoff.
+	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
+
 	handler := api.New(api.Deps{
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
