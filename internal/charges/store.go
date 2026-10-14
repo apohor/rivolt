@@ -158,6 +158,8 @@ func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float
 		    currency = NULLIF($4, ''),
 		    price_per_kwh = $5,
 		    cost_source = CASE WHEN $3::numeric IS NULL THEN NULL ELSE 'user' END,
+		    legacy_cost = NULL,
+		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND external_id = $2
 	`, s.userID, externalID, nullIfZero(cost), currency, nullIfZero(pricePerKWh))
@@ -182,6 +184,11 @@ func (s *Store) MarkFree(ctx context.Context, externalID, currency string) (int6
 		    currency = NULLIF($3, ''),
 		    cost_source = 'user',
 		    network = NULL,
+		    -- A user price ends any reprice undo window for this row:
+		    -- 0040's undo selects on legacy_cost IS NOT NULL and would
+		    -- otherwise revert the user's edit.
+		    legacy_cost = NULL,
+		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND external_id = $2
 	`, s.userID, externalID, currency)
@@ -248,7 +255,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		c.FinalState,
 		nullIfZero(c.Lat), nullIfZero(c.Lon),
 		c.Source,
-		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh),
+		storedCost(c), nullIfEmpty(c.Currency), storedPricePerKWh(c),
 		nullableFloatPtr(c.ThermalKWh),
 		nullIfZero(c.ActiveSeconds),
 		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place))
@@ -597,4 +604,23 @@ func nullableFloatPtr(p *float64) sql.NullFloat64 {
 		return sql.NullFloat64{}
 	}
 	return sql.NullFloat64{Float64: *p, Valid: true}
+}
+
+// storedCost is the cost column Upsert writes. Zero normally means "no
+// price" (NULL), but a user-priced row with cost 0 is an explicit Free
+// (MarkFree) and must stay 0, or a backup restored through Upsert would
+// turn Free into "unknown".
+func storedCost(c Charge) any {
+	if c.CostSource == "user" {
+		return c.Cost
+	}
+	return nullIfZero(c.Cost)
+}
+
+// storedPricePerKWh is storedCost for price_per_kwh.
+func storedPricePerKWh(c Charge) any {
+	if c.CostSource == "user" {
+		return c.PricePerKWh
+	}
+	return nullIfZero(c.PricePerKWh)
 }

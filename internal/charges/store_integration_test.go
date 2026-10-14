@@ -502,3 +502,56 @@ func TestPlaceRoundTrip(t *testing.T) {
 		t.Error("place accepted a value other than home/away")
 	}
 }
+
+// User prices end the reprice undo window (0040's undo selects on
+// legacy_cost IS NOT NULL), and a Free row written through Upsert, as a
+// backup restore does, keeps cost 0 instead of becoming "no price".
+func TestUserPriceClearsLegacyAndFreeSurvivesUpsert(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "legacy-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	start := time.Now().UTC().Add(-6 * time.Hour).Truncate(time.Second)
+	for i, id := range []string{"repriced-free", "repriced-edit"} {
+		c := sampleCharge(id, "rv-A", start.Add(time.Duration(i)*time.Hour), "charging_complete")
+		c.CostSource = "network_estimate"
+		if err := store.Upsert(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+		// What `rivolt reprice --apply` leaves behind.
+		if _, err := pool.ExecContext(ctx, `UPDATE charges SET legacy_cost = 5.5, legacy_price_per_kwh = 0.11 WHERE external_id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.MarkFree(ctx, "repriced-free", "USD"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdatePricing(ctx, "repriced-edit", 12.5, "USD", 0.25); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE legacy_cost IS NOT NULL`).Scan(&left); err != nil || left != 0 {
+		t.Errorf("rows still in the reprice undo set = %d (%v), want 0", left, err)
+	}
+
+	restored := sampleCharge("restored-free", "rv-A", start.Add(3*time.Hour), "charging_complete")
+	restored.Cost, restored.PricePerKWh, restored.CostSource = 0, 0, "user"
+	if err := store.Upsert(ctx, restored); err != nil {
+		t.Fatal(err)
+	}
+	var cost, ppk *float64
+	if err := pool.QueryRowContext(ctx, `SELECT cost::float8, price_per_kwh::float8 FROM charges WHERE external_id = 'restored-free'`).Scan(&cost, &ppk); err != nil {
+		t.Fatal(err)
+	}
+	if cost == nil || *cost != 0 || ppk == nil || *ppk != 0 {
+		t.Errorf("restored Free row: cost %v ppk %v, want 0 / 0 (not NULL)", cost, ppk)
+	}
+}

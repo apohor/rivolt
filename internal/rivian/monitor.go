@@ -413,7 +413,7 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
-		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples {
+		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples && m.catchup.flushDue(vehicleID) {
 			m.flushCatchup(vehicleID)
 		}
 	})
