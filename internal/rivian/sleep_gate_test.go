@@ -125,9 +125,11 @@ func TestSleepGateParksAndResumes(t *testing.T) {
 
 	h.setPower("standby")
 	h.waitFor("workers resumed", func() bool { return h.starts() == 2 && h.latestRunning() })
-	if !strings.Contains(h.logs.String(), "sleep-safe: resumed subscriptions") {
-		t.Errorf("missing resume log:\n%s", h.logs.String())
-	}
+	// The resume log can land just after the workers restart; wait for
+	// it rather than racing it (flaked on CI).
+	h.waitFor("resume log", func() bool {
+		return strings.Contains(h.logs.String(), "sleep-safe: resumed subscriptions")
+	})
 }
 
 // Without sleep-safe the gate never touches the workers, but still
