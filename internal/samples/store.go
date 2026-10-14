@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,15 +34,15 @@ type Sample struct {
 	// types: a zero time.Time would serialize as "0001-01-01T00:00:00Z"
 	// and the frontend would compute a 2000-year fix age. nil
 	// renders as "fix age unknown" upstream.
-	LocationFixAt  *time.Time `json:",omitempty"`
-	SpeedMph       float64
-	ShiftState     string
-	DriveMode      string `json:"drive_mode,omitempty"` // "everyday", "sport", "all-terrain", etc.; nullable in DB for legacy samples
-	ChargingState  string
+	LocationFixAt *time.Time `json:",omitempty"`
+	SpeedMph      float64
+	ShiftState    string
+	DriveMode     string `json:"drive_mode,omitempty"` // "everyday", "sport", "all-terrain", etc.; nullable in DB for legacy samples
+	ChargingState string
 	// PowerState is the car's power/sleep state ("sleep" | "ready" |
 	// "standby" | "go"). Empty on legacy rows / imports (NULL in DB).
 	// Feeds the sleep/activity aggregation.
-	PowerState string `json:"power_state,omitempty"`
+	PowerState     string `json:"power_state,omitempty"`
 	ChargerPowerKW float64
 	ChargeLimitPct float64
 	InsideTempC    float64
@@ -128,6 +130,95 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	if len(batch) == 0 {
 		return nil
 	}
+	uuids, err := s.prepareBatch(ctx, batch)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO vehicle_state (`+sampleColumns+`
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+		ON CONFLICT (vehicle_id, at) DO NOTHING`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, v := range batch {
+		if _, err := stmt.ExecContext(ctx, s.sampleArgs(uuids[v.VehicleID], v)...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// bulkInsertRows bounds one multi-row INSERT: 500 rows × 26 params stays
+// far below Postgres's 65,535 bind-parameter limit.
+const bulkInsertRows = 500
+
+// InsertBulk is InsertBatch for large batches: each chunk of up to
+// bulkInsertRows samples is one multi-row INSERT (one round trip)
+// instead of one EXEC per row. Same columns, same ON CONFLICT DO
+// NOTHING, same partition and vehicle handling. Chunks commit
+// independently; a failure returns the error and leaves earlier
+// chunks written, which is safe because inserts are idempotent.
+// Used by replay catch-up; the live recorder keeps InsertBatch.
+func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	uuids, err := s.prepareBatch(ctx, batch)
+	if err != nil {
+		return err
+	}
+	const nCols = 26
+	for start := 0; start < len(batch); start += bulkInsertRows {
+		chunk := batch[start:min(start+bulkInsertRows, len(batch))]
+		var q strings.Builder
+		q.WriteString("INSERT INTO vehicle_state (" + sampleColumns + ") VALUES ")
+		args := make([]any, 0, len(chunk)*nCols)
+		for i, v := range chunk {
+			if i > 0 {
+				q.WriteString(",")
+			}
+			q.WriteString("(")
+			for c := 0; c < nCols; c++ {
+				if c > 0 {
+					q.WriteString(",")
+				}
+				q.WriteString("$" + strconv.Itoa(i*nCols+c+1))
+			}
+			q.WriteString(")")
+			args = append(args, s.sampleArgs(uuids[v.VehicleID], v)...)
+		}
+		q.WriteString(" ON CONFLICT (vehicle_id, at) DO NOTHING")
+		if _, err := s.db.ExecContext(ctx, q.String(), args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sampleColumns is the vehicle_state column list both insert paths
+// write, in sampleArgs order.
+const sampleColumns = `
+			user_id, vehicle_id, at,
+			battery_level_pct, range_mi, odometer_mi,
+			lat, lon, location_fix_at,
+			speed_mph, shift_state, drive_mode, charging_state,
+			charger_power_kw, charge_limit_pct,
+			inside_temp_c, outside_temp_c,
+			drive_number, charge_number, source,
+			altitude_m, tire_pressure_min_bar,
+			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c,
+			power_state`
+
+// prepareBatch ensures every month the batch touches has a partition
+// and resolves each distinct Rivian id to its vehicles.id.
+func (s *Store) prepareBatch(ctx context.Context, batch []Sample) (map[string]uuid.UUID, error) {
 	// vehicle_state is RANGE-partitioned by month (migration 0007).
 	// The partition janitor only keeps current+future months hot;
 	// historical writes (ElectraFi imports, backfills) hit months
@@ -145,7 +236,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		if _, err := s.db.ExecContext(ctx,
 			`SELECT rivolt_ensure_vehicle_state_partition($1)`, m,
 		); err != nil {
-			return fmt.Errorf("ensure partition for %s: %w", m.Format("2006-01"), err)
+			return nil, fmt.Errorf("ensure partition for %s: %w", m.Format("2006-01"), err)
 		}
 	}
 	// Resolve every distinct Rivian id outside the tx so a new
@@ -157,70 +248,47 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 		}
 		id, err := s.vehicles.Resolve(ctx, v.VehicleID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		uuids[v.VehicleID] = id
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+	return uuids, nil
+}
+
+// sampleArgs returns one sample's bind values in sampleColumns order.
+func (s *Store) sampleArgs(vehicleID uuid.UUID, v Sample) []any {
+	// Pass NULL for a missing LocationFixAt so legacy/imported rows
+	// stay distinguishable from "fix observed at the unix epoch".
+	var fixAt any
+	if v.LocationFixAt != nil && !v.LocationFixAt.IsZero() {
+		fixAt = v.LocationFixAt.UTC()
 	}
-	defer func() { _ = tx.Rollback() }()
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO vehicle_state (
-			user_id, vehicle_id, at,
-			battery_level_pct, range_mi, odometer_mi,
-			lat, lon, location_fix_at,
-			speed_mph, shift_state, drive_mode, charging_state,
-			charger_power_kw, charge_limit_pct,
-			inside_temp_c, outside_temp_c,
-			drive_number, charge_number, source,
-			altitude_m, tire_pressure_min_bar,
-			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c,
-			power_state
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
-		ON CONFLICT (vehicle_id, at) DO NOTHING`)
-	if err != nil {
-		return err
+	var alt any
+	if v.AltitudeM != nil {
+		alt = *v.AltitudeM
 	}
-	defer stmt.Close()
-	for _, v := range batch {
-		// Pass NULL for a missing LocationFixAt so legacy/imported rows
-		// stay distinguishable from "fix observed at the unix epoch".
-		var fixAt any
-		if v.LocationFixAt != nil && !v.LocationFixAt.IsZero() {
-			fixAt = v.LocationFixAt.UTC()
-		}
-		var alt any
-		if v.AltitudeM != nil {
-			alt = *v.AltitudeM
-		}
-		var tirePsi any
-		if v.TirePressureMinBar != nil {
-			tirePsi = *v.TirePressureMinBar
-		}
-		ptr := func(p *float64) any {
-			if p != nil {
-				return *p
-			}
-			return nil
-		}
-		if _, err := stmt.ExecContext(ctx,
-			s.userID, uuids[v.VehicleID], v.At.UTC(),
-			v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
-			v.Lat, v.Lon, fixAt,
-			v.SpeedMph, v.ShiftState, v.DriveMode, v.ChargingState,
-			v.ChargerPowerKW, v.ChargeLimitPct,
-			v.InsideTempC, v.OutsideTempC,
-			v.DriveNumber, v.ChargeNumber, v.Source,
-			alt, tirePsi,
-			ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
-			nullStr(v.PowerState),
-		); err != nil {
-			return err
-		}
+	var tirePsi any
+	if v.TirePressureMinBar != nil {
+		tirePsi = *v.TirePressureMinBar
 	}
-	return tx.Commit()
+	ptr := func(p *float64) any {
+		if p != nil {
+			return *p
+		}
+		return nil
+	}
+	return []any{
+		s.userID, vehicleID, v.At.UTC(),
+		v.BatteryLevelPct, v.RangeMi, v.OdometerMi,
+		v.Lat, v.Lon, fixAt,
+		v.SpeedMph, v.ShiftState, v.DriveMode, v.ChargingState,
+		v.ChargerPowerKW, v.ChargeLimitPct,
+		v.InsideTempC, v.OutsideTempC,
+		v.DriveNumber, v.ChargeNumber, v.Source,
+		alt, tirePsi,
+		ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
+		nullStr(v.PowerState),
+	}
 }
 
 // Count returns the total number of samples for this user.
