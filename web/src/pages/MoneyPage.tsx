@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { backend } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -108,7 +109,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -140,6 +141,7 @@ function MonthPicker({ month, max, onChange }: { month: string; max: string; onC
 }
 
 function Statement({
+  sample,
   m,
   months,
   metric,
@@ -147,6 +149,7 @@ function Statement({
   filter,
   onFilter,
 }: {
+  sample: boolean;
   m: LedgerMonth;
   months: MonthSummary[];
   metric: "cost" | "kwh";
@@ -206,6 +209,9 @@ function Statement({
               {monthLabel(prev!.period).split(" ")[0]}
             </div>
           )}
+        </div>
+        <div className="mt-1">
+          <ShareStatementButton m={m} disabled={sample || empty} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
@@ -343,5 +349,52 @@ function Statement({
         </Card>
       )}
     </>
+  );
+}
+
+// Exports the month as a 1080x1080 PNG built from aggregate totals only
+// (no places, coordinates or receipts). Uses the share sheet when the
+// device can share files, otherwise downloads.
+function ShareStatementButton({ m, disabled }: { m: LedgerMonth; disabled: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const onClick = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const blob = await statementCardBlob(buildStatementCardModel(m));
+      if (!blob) throw new Error("Image export isn't available in this browser.");
+      const file = new File([blob], `rivolt-${m.period}.png`, { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Rivolt ${m.period}` });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setErr(e instanceof Error ? e.message : "Couldn't create the image.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled || busy}
+        className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-300 hover:bg-neutral-800 disabled:opacity-40"
+        title="Image with totals only: no places or addresses"
+      >
+        {busy ? "Preparing…" : "Share statement"}
+      </button>
+      {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
+    </div>
   );
 }
