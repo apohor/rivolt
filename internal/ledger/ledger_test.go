@@ -513,6 +513,24 @@ func TestBuild_GlitchedPeakIsNotDCFC(t *testing.T) {
 	}
 }
 
+// D2 F1, the preview case: a 4-second, 0.12 kWh fragment with a 114 kW
+// sample inside a home plug-in must not turn the receipt into
+// "DCFC at home · estimate pending".
+func TestBuild_TinyGlitchedFragmentStaysHome(t *testing.T) {
+	month, _ := ParsePeriod("2026-09", time.UTC)
+	main := priced(charge("main", "2026-09-29T22:00:00Z", 6*time.Hour, 40, 7.6), 0.11)
+	frag := priced(charge("frag", "2026-09-30T04:30:00Z", 4*time.Second, 0.12, 114.5), 0.11)
+	m := Build(Input{Charges: []Charge{main, frag}, Config: cfg(), Now: ts("2026-10-01T00:00:00Z")}, month, true)
+	if len(m.Receipts) != 1 {
+		t.Fatalf("receipts = %d, want 1", len(m.Receipts))
+	}
+	r := m.Receipts[0]
+	if r.Kind != "ac" || r.CostSource != SourceHomeRate || hasFlag(r.Flags, FlagEstimatePending) ||
+		m.Spend.EstimatePendingSessions != 0 || m.Energy.ByKind["dcfc"].Sessions != 0 {
+		t.Errorf("receipt kind %s source %s flags %v; pending %d", r.Kind, r.CostSource, r.Flags, m.Spend.EstimatePendingSessions)
+	}
+}
+
 // A5 / D2 F3 (owner decision): AC charging away from home is unknown
 // until priced, whether the home rate was stamped by the old recorder
 // (legacy) or by #62's (persisted home_rate). It needs a price, stays

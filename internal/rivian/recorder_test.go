@@ -956,6 +956,10 @@ func TestIsDCFCSession(t *testing.T) {
 		{"active time beats wall span", 120, 40, 1800, 3 * time.Hour, true},
 		{"L2", 11, 30, 0, 3 * time.Hour, false},
 		{"no energy", 150, 0, 0, time.Hour, false},
+		// Preview: a 4 s fragment of a home session, 0.12 kWh with a
+		// 114 kW sample, averages ~110 kW but isn't a fast charge.
+		{"tiny glitched fragment", 114.5, 0.12, 0, 4 * time.Second, false},
+		{"short real top-up", 120, 6, 0, 4 * time.Minute, true},
 	}
 	for _, c := range cases {
 		if got := IsDCFCSession(c.peak, c.kwh, c.activeSec, c.span); got != c.want {

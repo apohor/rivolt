@@ -1462,11 +1462,20 @@ const DCFCMinKW = 50.0
 // averages well above any AC charger's ~11-19 kW.
 const DCFCMinEffectiveKW = 20.0
 
+// DCFCMinKWh is the least energy a session must deliver to count as DC
+// fast charging. A few-second fragment of a home session can carry a
+// spurious high-kW sample, and over 4 s even 0.12 kWh averages ~110 kW
+// (seen on preview), so the effective-power test alone can't reject it.
+// A real fast-charging stop delivers tens of kWh; anything under 1 kWh
+// isn't worth pricing as one.
+const DCFCMinKWh = 1.0
+
 // IsDCFCSession reports whether a charge was DC fast charging: peak at
-// or above DCFCMinKW AND energy divided by active charging time (wall
-// span when that's unknown) at or above DCFCMinEffectiveKW.
+// or above DCFCMinKW, at least DCFCMinKWh delivered, AND energy divided
+// by active charging time (wall span when that's unknown) at or above
+// DCFCMinEffectiveKW.
 func IsDCFCSession(peakKW, energyKWh, activeSeconds float64, span time.Duration) bool {
-	if peakKW < DCFCMinKW || energyKWh <= 0 {
+	if peakKW < DCFCMinKW || energyKWh < DCFCMinKWh {
 		return false
 	}
 	secs := activeSeconds
