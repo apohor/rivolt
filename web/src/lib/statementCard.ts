@@ -47,7 +47,7 @@ export function buildStatementCardModel(m: LedgerMonth): StatementCardModel {
     subtitle: parts.join(" · "),
     partial: m.is_current_month,
     estimatedPct: est > 0 ? Math.round(est * 100) : null,
-    buckets: raw.map((b) => ({ ...b, value: Math.round(b.cost * 100) / 100, display: formatMoney(b.cost, cur) })),
+    buckets: raw.map((b) => ({ label: b.label, color: b.color, value: Math.round(b.cost * 100) / 100, display: formatMoney(b.cost, cur) })),
     footnote: "Charging cost, tracked with Rivolt",
   };
 }

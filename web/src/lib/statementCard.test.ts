@@ -20,7 +20,7 @@ describe("buildStatementCardModel", () => {
       expect(text).not.toContain(r.receipt_id);
       expect(text).not.toContain(r.vehicle_id);
     }
-    expect(text).not.toMatch(/-?\d{1,3}\.\d{4,}/); // no lat/lon-like numbers
+    expect(text, text).not.toMatch(/-?\d{1,3}\.\d{4,}/); // no lat/lon-like numbers
     expect(text).not.toMatch(/street|avenue|\bst\b|address/i);
   });
 });
