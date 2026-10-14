@@ -192,3 +192,27 @@ func TestReplayClient_AllowedUsers(t *testing.T) {
 		t.Fatalf("login for allowed user: %v", err)
 	}
 }
+
+// A scheduled pause (charging_ready) between charging frames keeps the
+// cable plugged; driving or charger_disconnected clears it.
+func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
+	var p plugTracker
+	seq := []struct {
+		gear, cs, status string
+		wantPlugged      bool
+	}{
+		{"P", "charging_active", "chrgr_sts_connected_charging", true},
+		{"P", "charging_ready", "chrgr_sts_not_connected", true}, // pause mid-session
+		{"P", "charging_active", "chrgr_sts_connected_charging", true},
+		{"P", "charger_disconnected", "chrgr_sts_not_connected", false},
+		{"P", "charging_ready", "chrgr_sts_not_connected", false}, // unplugged, idle
+		{"D", "charging_ready", "chrgr_sts_not_connected", false},
+	}
+	for i, f := range seq {
+		st := State{Gear: f.gear, ChargerState: f.cs, ChargerStatus: f.status}
+		p.apply(&st)
+		if got := isPluggedCS(st.ChargerStatus); got != f.wantPlugged {
+			t.Errorf("frame %d (%s/%s): plugged=%v, want %v", i, f.gear, f.cs, got, f.wantPlugged)
+		}
+	}
+}

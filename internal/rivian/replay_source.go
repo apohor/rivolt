@@ -167,6 +167,7 @@ func (f *ReplayFeed) Stream(ctx context.Context, vehicleID string, emit func(st 
 	}
 	f.logger.Info("replay stream start", "vehicle", vehicleID, "from", cursor.UTC().Format(time.RFC3339))
 	caughtUp := false
+	var plug plugTracker
 	for ctx.Err() == nil {
 		now := time.Now()
 		to := cursor.Add(replayChunk)
@@ -191,6 +192,7 @@ func (f *ReplayFeed) Stream(ctx context.Context, vehicleID string, emit func(st 
 				if ctx.Err() != nil {
 					return nil
 				}
+				plug.apply(&st)
 				emit(st, now.Sub(st.At) > replayLiveSlack)
 			}
 			cursor = to
@@ -236,6 +238,25 @@ func (f *ReplayFeed) latest(ctx context.Context, w time.Time) (*State, error) {
 	}
 	placed := f.timeline.place(*st, replaySegment{shift: ls.Sub(f.timeline.start), loop: k})
 	return &placed, nil
+}
+
+// plugTracker carries cable state across replayed frames. toState can
+// only infer "plugged" from unambiguous charging states, so a scheduled
+// pause (charging_ready mid-session) read as unplugged and split one
+// overnight charge in two. Once a frame shows the cable in, it stays in
+// through charging_ready until the car reports it disconnected or
+// drives off — what a live chargerStatus would have said.
+type plugTracker struct{ plugged bool }
+
+func (p *plugTracker) apply(st *State) {
+	switch {
+	case isDrivingGear(st.Gear), strings.EqualFold(st.ChargerState, "charger_disconnected"):
+		p.plugged = false
+	case isPluggedCS(st.ChargerStatus):
+		p.plugged = true
+	case p.plugged && strings.EqualFold(st.ChargerState, "charging_ready"):
+		st.ChargerStatus = "chrgr_sts_connected_charging"
+	}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {
