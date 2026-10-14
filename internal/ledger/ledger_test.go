@@ -116,7 +116,7 @@ func TestCostSource_LegacyDerivation(t *testing.T) {
 		{"no home rate set", priced(ac, 0.11), 0, SourceRivian},
 	}
 	for _, tc := range cases {
-		got, derived := CostSource(tc.c, tc.home)
+		got, derived := CostSource(tc.c, Config{HomeRate: tc.home, Home: home})
 		if got != tc.want || !derived {
 			t.Errorf("%s: CostSource = %s (derived %v), want %s (derived)", tc.name, got, derived, tc.want)
 		}
@@ -128,23 +128,23 @@ func TestCostSource_PersistedWins(t *testing.T) {
 	for _, src := range []string{SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser} {
 		c := dc
 		c.CostSource = src
-		if got, derived := CostSource(c, 0.11); got != src || derived {
+		if got, derived := CostSource(c, Config{HomeRate: 0.11, Home: home}); got != src || derived {
 			t.Errorf("persisted %s: got %s derived %v", src, got, derived)
 		}
 	}
 	free := dc
 	free.CostSource, free.Cost = SourceUser, f(0)
-	if got, _ := CostSource(free, 0.11); got != SourceUser {
+	if got, _ := CostSource(free, Config{HomeRate: 0.11, Home: home}); got != SourceUser {
 		t.Errorf("user $0 (free) = %s, want user", got)
 	}
 	noCost := dc
 	noCost.CostSource, noCost.Cost = SourceNetworkEstimate, nil
-	if got, derived := CostSource(noCost, 0.11); got != SourceUnknown || derived {
+	if got, derived := CostSource(noCost, Config{HomeRate: 0.11, Home: home}); got != SourceUnknown || derived {
 		t.Errorf("persisted source without cost = %s derived %v, want unknown", got, derived)
 	}
 	odd := dc
 	odd.CostSource = "something_new"
-	if got, derived := CostSource(odd, 0.11); got != SourceHomeRateMisapplied || !derived {
+	if got, derived := CostSource(odd, Config{HomeRate: 0.11, Home: home}); got != SourceHomeRateMisapplied || !derived {
 		t.Errorf("unrecognised persisted source must fall back to derivation, got %s %v", got, derived)
 	}
 }
@@ -234,7 +234,9 @@ func TestBuild_SpendBySourceAndQuality(t *testing.T) {
 	if m.Spend.PricedSessions != 2 || m.Spend.UnpricedSessions != 1 || m.Spend.UnpricedKWh != 20 {
 		t.Errorf("priced/unpriced = %d/%d kwh %v", m.Spend.PricedSessions, m.Spend.UnpricedSessions, m.Spend.UnpricedKWh)
 	}
-	if m.Spend.UnpricedHomeRateEstimate == nil || *m.Spend.UnpricedHomeRateEstimate != round4(20*0.11) {
+	// The only unpriced session is AC away from home: no "at your home
+	// rate" hint for it.
+	if m.Spend.UnpricedHomeRateEstimate == nil || *m.Spend.UnpricedHomeRateEstimate != 0 {
 		t.Errorf("unpriced estimate = %v", m.Spend.UnpricedHomeRateEstimate)
 	}
 	if m.Energy.Sessions != 5 || m.Energy.KWhAdded != 210 {
@@ -331,16 +333,21 @@ func TestBuild_ReceiptsGroupByPlugIn(t *testing.T) {
 	if plug.ReceiptID != "rcpt_s1" || plug.SessionCount != 3 || plug.Kind != "ac" || plug.Place != "home" {
 		t.Errorf("plug-in receipt = %+v", plug)
 	}
-	if plug.KWh != 40.8 || plug.UnpricedSessions != 1 || plug.CostSource != SourceMixed {
+	// s3 is a zero-energy crumb: it neither makes the receipt "mixed" nor
+	// counts as unpriced (D2 F2).
+	if plug.KWh != 40.8 || plug.UnpricedSessions != 0 || plug.CostSource != SourceHomeRate {
 		t.Errorf("plug-in totals: kwh %v unpriced %d source %s", plug.KWh, plug.UnpricedSessions, plug.CostSource)
 	}
 	if plug.Cost == nil || *plug.Cost != round4(40.8*0.11) || plug.Rate == nil || *plug.Rate != 0.11 {
 		t.Errorf("plug-in cost %v rate %v", plug.Cost, plug.Rate)
 	}
-	for _, fl := range []string{FlagFragmentsFolded, FlagUnpriced, FlagNullEnergy} {
+	for _, fl := range []string{FlagFragmentsFolded, FlagNullEnergy} {
 		if !hasFlag(plug.Flags, fl) {
 			t.Errorf("plug-in flags %v missing %s", plug.Flags, fl)
 		}
+	}
+	if hasFlag(plug.Flags, FlagUnpriced) {
+		t.Errorf("a zero-energy crumb must not mark a priced receipt unpriced: %v", plug.Flags)
 	}
 	if plug.SpansDays != 2 || plug.LocalDate != "2026-10-12" {
 		t.Errorf("spans_days %d local_date %s", plug.SpansDays, plug.LocalDate)
@@ -489,6 +496,79 @@ func TestBuild_PersistedNetworkEstimate(t *testing.T) {
 		t.Errorf("by_kind.ac sessions = %d, want 3 (per-session classification)", ac.Sessions)
 	}
 	assertPlaceKindReconciles(t, m)
+}
+
+// A5 / D2 F1: the ledger uses the recorder's DCFC rule. A 15-hour home
+// L2 session with one glitched 145 kW sample is AC at the home rate, not
+// a DC fast charge stuck at "estimate pending".
+func TestBuild_GlitchedPeakIsNotDCFC(t *testing.T) {
+	month, _ := ParsePeriod("2026-09", time.UTC)
+	glitch := priced(charge("glitch", "2026-09-14T02:00:00Z", 15*time.Hour, 66, 145), 0.11)
+	m := Build(Input{Charges: []Charge{glitch}, Config: cfg(), Now: ts("2026-10-01T00:00:00Z")}, month, true)
+	if m.Energy.ByKind["dcfc"].Sessions != 0 || m.Spend.EstimatePendingSessions != 0 || m.Spend.Total != round4(66*0.11) {
+		t.Errorf("glitched home session: by_kind %+v pending %d total %v", m.Energy.ByKind, m.Spend.EstimatePendingSessions, m.Spend.Total)
+	}
+	if r := m.Receipts[0]; r.Kind != "ac" || r.CostSource != SourceHomeRate || hasFlag(r.Flags, FlagEstimatePending) {
+		t.Errorf("receipt = kind %s source %s flags %v", r.Kind, r.CostSource, r.Flags)
+	}
+}
+
+// A5 / D2 F3 (owner decision): AC charging away from home is unknown
+// until priced, whether the home rate was stamped by the old recorder
+// (legacy) or by #62's (persisted home_rate). It needs a price, stays
+// out of spend and out of the "at your home rate" hint.
+func TestBuild_AwayACIsUnknown(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	legacy := at(priced(charge("legacy", "2026-10-11T02:00:00Z", 10*time.Hour, 20, 1.4), 0.11), awayLat, awayLon)
+	persisted := at(priced(charge("persisted", "2026-10-12T02:00:00Z", 10*time.Hour, 30, 1.4), 0.11), awayLat, awayLon)
+	persisted.CostSource = SourceHomeRate
+	homeAC := priced(charge("home", "2026-10-13T02:00:00Z", 6*time.Hour, 40, 7.6), 0.11)
+	homeUnpriced := charge("home-unpriced", "2026-10-14T02:00:00Z", 2*time.Hour, 10, 7.6)
+	dcUnpriced := at(charge("dc-unpriced", "2026-10-15T18:00:00Z", 30*time.Minute, 50, 150), awayLat, awayLon)
+
+	m := Build(Input{Charges: []Charge{legacy, persisted, homeAC, homeUnpriced, dcUnpriced}, Config: cfg(),
+		Now: ts("2026-10-20T00:00:00Z")}, month, true)
+	if m.Spend.Total != round4(40*0.11) || m.Spend.BySource[SourceHomeRate] != round4(40*0.11) {
+		t.Errorf("spend = %+v, want only the home session", m.Spend)
+	}
+	if m.Spend.UnpricedSessions != 4 || m.Spend.UnpricedKWh != 110 {
+		t.Errorf("unpriced = %d / %v kWh, want 4 / 110", m.Spend.UnpricedSessions, m.Spend.UnpricedKWh)
+	}
+	// Hint covers only AC that could have been at home.
+	if est := m.Spend.UnpricedHomeRateEstimate; est == nil || *est != round4(10*0.11) {
+		t.Errorf("home-rate hint = %v, want %v (home AC only)", est, round4(10*0.11))
+	}
+	if m.DataQuality.HomeRateAway != 2 {
+		t.Errorf("home_rate_away = %d, want 2", m.DataQuality.HomeRateAway)
+	}
+	for _, r := range m.Receipts {
+		for _, sess := range r.Sessions {
+			if sess.ChargeID != "legacy" && sess.ChargeID != "persisted" {
+				continue
+			}
+			if sess.CostSource != SourceUnknown || !sess.CostSourceDerived ||
+				!hasFlag(sess.Flags, FlagUnpriced) || !hasFlag(sess.Flags, FlagHomeRateAway) {
+				t.Errorf("away AC session %s = source %s derived %v flags %v", sess.ChargeID, sess.CostSource, sess.CostSourceDerived, sess.Flags)
+			}
+		}
+	}
+}
+
+// A5 / D2 F2: zero-energy crumbs are null_energy, not "needs a price".
+func TestBuild_ZeroEnergyCrumbsAreNotUnpriced(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	crumb := charge("crumb", "2026-10-02T00:00:00Z", 30*time.Second, 0, 7)
+	crumb.EnergyKWh = nil
+	zero := charge("zero", "2026-10-03T00:00:00Z", time.Minute, 0, 7)
+	m := Build(Input{Charges: []Charge{crumb, zero}, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, month, true)
+	if m.Spend.UnpricedSessions != 0 || m.Energy.NullEnergySessions != 2 {
+		t.Errorf("unpriced %d null_energy %d, want 0 / 2", m.Spend.UnpricedSessions, m.Energy.NullEnergySessions)
+	}
+	for _, r := range m.Receipts {
+		if r.CostSource != SourceUnknown || r.UnpricedSessions != 0 || hasFlag(r.Flags, FlagUnpriced) {
+			t.Errorf("crumb-only receipt = source %s unpriced %d flags %v", r.CostSource, r.UnpricedSessions, r.Flags)
+		}
+	}
 }
 
 // assertPlaceKindReconciles checks the by_place_kind invariants from

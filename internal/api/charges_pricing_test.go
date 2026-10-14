@@ -84,11 +84,20 @@ func handlePatchChargePricingStatus(t *testing.T) int {
 func TestDecorateCharge_FreeGetsNoEstimate(t *testing.T) {
 	cfg := settings.ChargingConfig{HomePricePerKWh: 0.11, HomeCurrency: "USD"}
 	free := charges.Charge{EnergyAddedKWh: 20, MaxPowerKW: 1.4, Cost: 0, CostSource: "user"}
-	if got := decorateCharge(free, cfg); got.EstimatedCost != 0 {
+	if got := decorateCharge(free, cfg, nil); got.EstimatedCost != 0 {
 		t.Errorf("free session estimated at %v, want none", got.EstimatedCost)
 	}
 	unpriced := charges.Charge{EnergyAddedKWh: 20, MaxPowerKW: 1.4}
-	if got := decorateCharge(unpriced, cfg); got.EstimatedCost != 20*0.11 {
+	if got := decorateCharge(unpriced, cfg, nil); got.EstimatedCost != 20*0.11 {
 		t.Errorf("unpriced AC estimate = %v, want %v", got.EstimatedCost, 20*0.11)
+	}
+	home := func() (float64, float64, bool) { return 30.27, -97.74, true }
+	away := charges.Charge{EnergyAddedKWh: 20, MaxPowerKW: 1.4, Lat: 35.47, Lon: -97.52}
+	if got := decorateCharge(away, cfg, home); got.EstimatedCost != 0 {
+		t.Errorf("away AC estimated at %v, want none (unknown until priced)", got.EstimatedCost)
+	}
+	atHome := charges.Charge{EnergyAddedKWh: 20, MaxPowerKW: 7.6, Lat: 30.2702, Lon: -97.7401}
+	if got := decorateCharge(atHome, cfg, home); got.EstimatedCost != 20*0.11 {
+		t.Errorf("home AC estimate = %v, want %v", got.EstimatedCost, 20*0.11)
 	}
 }

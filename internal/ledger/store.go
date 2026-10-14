@@ -58,7 +58,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at, `+pricingCols+`
+		       c.lat, c.lon, c.created_at, c.active_seconds::float8, `+pricingCols+`
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -74,7 +74,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 	var out []Charge
 	for rows.Next() {
 		var c Charge
-		var startSoC, endSoC, energy, peak, cost, ppk, lat, lon sql.NullFloat64
+		var startSoC, endSoC, energy, peak, cost, ppk, lat, lon, active sql.NullFloat64
 		var costSource, network sql.NullString
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
@@ -82,7 +82,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 			&energy, &peak,
 			&cost, &c.Currency, &ppk,
 			&c.FinalState, &c.Source,
-			&lat, &lon, &c.CreatedAt,
+			&lat, &lon, &c.CreatedAt, &active,
 			&costSource, &network,
 		); err != nil {
 			return nil, err
@@ -92,6 +92,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		c.EnergyKWh, c.PeakKW = ptr(energy), ptr(peak)
 		c.Cost, c.PricePerKWh = ptr(cost), ptr(ppk)
 		c.Lat, c.Lon = ptr(lat), ptr(lon)
+		c.ActiveSeconds = ptr(active)
 		c.CostSource, c.Network = costSource.String, network.String
 		out = append(out, c)
 	}

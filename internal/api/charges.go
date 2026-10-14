@@ -28,9 +28,11 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 			return
 		}
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
+		home, _ := settings.GetHomeLocation(r.Context(), settingsStore)
+		homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
 		decorated := make([]chargeResponse, 0, len(out))
 		for _, c := range out {
-			decorated = append(decorated, decorateCharge(c, cfg))
+			decorated = append(decorated, decorateCharge(c, cfg, homeLookup))
 		}
 		writeJSON(w, http.StatusOK, decorated)
 	}
@@ -155,7 +157,7 @@ type chargeResponse struct {
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 }
 
-func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeResponse {
+func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {
 	resp := chargeResponse{Charge: c}
 	// Persisted cost wins: it was snapshotted at the rate in effect
 	// when the session closed. Only fall back to the current rate
@@ -169,6 +171,11 @@ func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeRespons
 	// An unpriced DC fast charge is unknown, not home-priced: that
 	// estimate was the bug migration 0040 fixed on the write path.
 	if rivian.IsDCFCSession(c.MaxPowerKW, c.EnergyAddedKWh, c.ActiveSeconds, c.EndedAt.Sub(c.StartedAt)) {
+		return resp
+	}
+	// Nor is AC charging away from home: unknown until the user prices
+	// it (owner decision 2026-10-13), same as the recorder and ledger.
+	if rivian.AwayFromHome(c.Lat, c.Lon, home) {
 		return resp
 	}
 	if cfg.HomePricePerKWh > 0 && c.EnergyAddedKWh > 0 {

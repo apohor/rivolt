@@ -284,6 +284,13 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 				}
 				return cfg.HomePricePerKWh, cfg.HomeCurrency
 			})
+			mon.SetHomeLookup(func() (float64, float64, bool) {
+				h, err := settings.GetHomeLocation(mctx, ss)
+				if err != nil || !h.Set {
+					return 0, 0, false
+				}
+				return h.Latitude, h.Longitude, true
+			})
 		}
 	}
 	if r.dcfcPriceFor != nil {

@@ -963,3 +963,43 @@ func TestIsDCFCSession(t *testing.T) {
 		}
 	}
 }
+
+// Owner decision 2026-10-13: AC charging away from home stays unpriced
+// ("unknown until priced"). Home AC keeps the home rate; with no saved
+// home or no position the recorder can't tell, so it keeps the home
+// rate; DC fast charging is unaffected.
+func TestLiveChargeRow_AwayACUnpriced(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	m.SetDCFCPriceLookup(func(lat, lon float64) (float64, string, string, bool) {
+		return 0.48, "USD", "Electrify America", true
+	})
+	homeSet := true
+	m.SetHomeLookup(func() (float64, float64, bool) { return 30.27, -97.74, homeSet })
+	start := time.Date(2026, 10, 9, 2, 0, 0, 0, time.UTC)
+	ac := func(id string, lat, lon float64) *liveCharge {
+		return &liveCharge{id: id, startedAt: start, endAt: start.Add(10 * time.Hour),
+			startSoC: 30, endSoC: 60, maxPower: 1.4, energyIntKWh: 14, lat: lat, lon: lon,
+			finalState: "charging_complete"}
+	}
+
+	if away := m.liveChargeRow("veh-1", ac("away", 35.47, -97.52)); away.Cost != 0 || away.CostSource != "" {
+		t.Errorf("away L1: source=%q cost=%.2f, want unpriced", away.CostSource, away.Cost)
+	}
+	if home := m.liveChargeRow("veh-1", ac("home", 30.2705, -97.7403)); home.CostSource != CostSourceHomeRate || home.PricePerKWh != 0.11 {
+		t.Errorf("home L1 (~50 m from home): source=%q rate=%.2f, want home_rate", home.CostSource, home.PricePerKWh)
+	}
+	if noPos := m.liveChargeRow("veh-1", ac("nopos", 0, 0)); noPos.CostSource != CostSourceHomeRate {
+		t.Errorf("no position: source=%q, want home_rate", noPos.CostSource)
+	}
+	dc := &liveCharge{id: "dc", startedAt: start, endAt: start.Add(40 * time.Minute), startSoC: 20, endSoC: 60,
+		maxPower: 150, energyIntKWh: 50, lat: 35.47, lon: -97.52, finalState: "charging_complete"}
+	if row := m.liveChargeRow("veh-1", dc); row.CostSource != CostSourceNetworkEstimate {
+		t.Errorf("away DCFC: source=%q, want network_estimate", row.CostSource)
+	}
+
+	homeSet = false
+	if row := m.liveChargeRow("veh-1", ac("nohome", 35.47, -97.52)); row.CostSource != CostSourceHomeRate {
+		t.Errorf("no saved home: source=%q, want home_rate", row.CostSource)
+	}
+}
