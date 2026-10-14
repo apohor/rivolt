@@ -8,6 +8,20 @@
     />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0a0a0a" />
+    <script>
+      // Apply the light theme before first paint, but only for users
+      // whose money_tab_enabled shell was on last time (cached by
+      // lib/theme.ts). Anything else, including blocked storage, stays dark.
+      try {
+        if (
+          localStorage.getItem("rivolt.money_tab_enabled") === "1" &&
+          window.matchMedia("(prefers-color-scheme: light)").matches
+        ) {
+          document.documentElement.setAttribute("data-theme", "light");
+          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#fafafa");
+        }
+      } catch (e) {}
+    </script>
     <meta
       name="description"
       content="Self-hosted Rivian companion. Your data stays on your hardware."

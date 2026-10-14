@@ -4,6 +4,21 @@
 
 import { useEffect } from "react";
 
+// The shell flag resolves after first paint, which would flash dark ->
+// light on every load. The last resolved value is cached and index.html
+// applies the theme from it before React mounts. Storage may throw
+// (private windows, blocked site data): fall back to dark.
+export const FLAG_CACHE_KEY = "rivolt.money_tab_enabled";
+
+export function cacheShellFlag(enabled: boolean) {
+  try {
+    window.localStorage.setItem(FLAG_CACHE_KEY, enabled ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  if (!enabled) applyTheme(false);
+}
+
 const DARK_THEME_COLOR = "#0a0a0a";
 const LIGHT_THEME_COLOR = "#fafafa";
 

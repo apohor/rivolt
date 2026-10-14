@@ -7,6 +7,7 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { cacheShellFlag } from "./theme";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 
@@ -195,6 +196,7 @@ export function loadMoneyTabEnabled(): Promise<boolean> {
       .catch(() => false)
       .then((v) => {
         flagCache = v;
+        cacheShellFlag(v);
         return v;
       });
   }
