@@ -764,3 +764,76 @@ func TestLiveCovers(t *testing.T) {
 	check("other vehicle", store, "rv-B", start, start.Add(time.Hour), false)
 	check("other user", factory.For(uidB), "rv-A", start, start.Add(time.Hour), false)
 }
+
+// TestUndoRestampLatestOnly: an older correction can't be undone over a
+// newer one (it would put back places the newer one changed).
+func TestUndoRestampLatestOnly(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "restamp-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	c := sampleCharge("order-1", "rv-A", time.Now().UTC().Add(-24*time.Hour).Truncate(time.Second), "charging_complete")
+	c.Lat, c.Lon, c.Place = 30.27, -97.74, "away"
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	place := func() string {
+		var p sql.NullString
+		if err := pool.QueryRowContext(ctx, `SELECT place FROM charges WHERE external_id = 'order-1'`).Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		return p.String
+	}
+	restamp := func(lat, lon float64) uuid.UUID {
+		t.Helper()
+		res, err := store.RestampPlace(ctx, charges.RestampOptions{HomeLat: lat, HomeLon: lon, RadiusM: 250,
+			IsDCFC: func(float64, float64, float64, time.Duration) bool { return false }})
+		if err != nil || res.RestampID == nil {
+			t.Fatalf("restamp: %+v, %v", res, err)
+		}
+		return *res.RestampID
+	}
+	a := restamp(30.27, -97.74) // away → home
+	b := restamp(35.47, -97.52) // home → away
+	if place() != "away" {
+		t.Fatalf("after both corrections: %q", place())
+	}
+
+	if _, err := store.UndoRestamp(ctx, &a); !errors.Is(err, charges.ErrRestampNotLatest) {
+		t.Errorf("undo older = %v, want ErrRestampNotLatest", err)
+	}
+	if place() != "away" {
+		t.Errorf("a refused undo changed the row: %q", place())
+	}
+	if _, err := store.UndoRestamp(ctx, &b); err != nil {
+		t.Fatalf("undo latest by id: %v", err)
+	}
+	if place() != "home" {
+		t.Errorf("after undoing b: %q, want home", place())
+	}
+	if _, err := store.UndoRestamp(ctx, ptr(uuid.New())); !errors.Is(err, charges.ErrNoRestamp) {
+		t.Errorf("unknown id = %v, want ErrNoRestamp", err)
+	}
+	if _, err := store.UndoRestamp(ctx, &b); !errors.Is(err, charges.ErrNoRestamp) {
+		t.Errorf("undone id = %v, want ErrNoRestamp", err)
+	}
+	if _, err := store.UndoRestamp(ctx, &a); err != nil { // now the latest
+		t.Fatalf("undo a: %v", err)
+	}
+	if place() != "away" {
+		t.Errorf("after undoing both: %q, want the original away", place())
+	}
+	if _, err := store.UndoRestamp(ctx, nil); !errors.Is(err, charges.ErrNoRestamp) {
+		t.Errorf("nothing left = %v, want ErrNoRestamp", err)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

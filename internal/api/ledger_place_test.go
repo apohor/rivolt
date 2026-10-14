@@ -92,4 +92,8 @@ func TestUndoRestamp(t *testing.T) {
 	if rec := do(handleUndoRestamp(&fakeRestamper{undoErr: charges.ErrNoRestamp}), "/undo"); rec.Code != http.StatusNotFound {
 		t.Errorf("nothing to undo = %d, want 404", rec.Code)
 	}
+	if rec := do(handleUndoRestamp(&fakeRestamper{undoErr: charges.ErrRestampNotLatest}), "/undo?restamp_id="+id.String()); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "only the latest correction") {
+		t.Errorf("older correction = %d %s, want 409", rec.Code, rec.Body.String())
+	}
 }

@@ -809,6 +809,12 @@ func (s *Store) RestampPlace(ctx context.Context, o RestampOptions) (RestampResu
 // ErrNoRestamp is returned by UndoRestamp when there's nothing to undo.
 var ErrNoRestamp = errors.New("no restamp to undo")
 
+// ErrRestampNotLatest is returned by UndoRestamp for a correction that
+// is still undoable but isn't the user's latest: undoing it would put
+// back places a newer correction already changed. Undo the newer ones
+// first.
+var ErrRestampNotLatest = errors.New("only the latest restamp can be undone")
+
 // UndoResult reports what UndoRestamp reverted.
 type UndoResult struct {
 	RestampID     uuid.UUID `json:"restamp_id"`
@@ -816,8 +822,10 @@ type UndoResult struct {
 	Unpriced      int       `json:"unpriced"`
 }
 
-// UndoRestamp reverts a correction (restampID, or the user's latest one
-// not yet undone when nil): every logged charge gets its previous place
+// UndoRestamp reverts the user's latest correction not yet undone
+// (restampID, if given, must be that one: ErrRestampNotLatest for an
+// older pending one, ErrNoRestamp for an unknown or undone one): every
+// logged charge gets its previous place
 // back, and a home-rate price the correction added is removed only if
 // the row still carries exactly that price (a price the user set or
 // edited since is kept). One transaction; a correction can be undone
@@ -829,20 +837,32 @@ func (s *Store) UndoRestamp(ctx context.Context, restampID *uuid.UUID) (UndoResu
 		return res, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	// The latest pending correction, locked so concurrent undos (and
+	// the check below) serialize.
 	var id uuid.UUID
-	if restampID != nil {
-		id = *restampID
-	} else {
-		err := tx.QueryRowContext(ctx, `
-			SELECT restamp_id FROM charge_restamps
-			 WHERE user_id = $1 AND undone_at IS NULL
-			 ORDER BY created_at DESC LIMIT 1`, s.userID).Scan(&id)
-		if errors.Is(err, sql.ErrNoRows) {
-			return res, ErrNoRestamp
-		}
-		if err != nil {
+	err = tx.QueryRowContext(ctx, `
+		SELECT restamp_id FROM charge_restamps
+		 WHERE user_id = $1 AND undone_at IS NULL
+		 ORDER BY created_at DESC LIMIT 1
+		   FOR UPDATE`, s.userID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return res, ErrNoRestamp
+	}
+	if err != nil {
+		return res, err
+	}
+	if restampID != nil && *restampID != id {
+		var pending bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS (SELECT 1 FROM charge_restamps
+			                WHERE restamp_id = $1 AND user_id = $2 AND undone_at IS NULL)`,
+			*restampID, s.userID).Scan(&pending); err != nil {
 			return res, err
 		}
+		if pending {
+			return res, ErrRestampNotLatest
+		}
+		return res, ErrNoRestamp
 	}
 	type entry struct {
 		charge  uuid.UUID
