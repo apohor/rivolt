@@ -79,6 +79,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
+
+	"github.com/apohor/rivolt/internal/identity"
 )
 
 // ProviderConfig is one IdP's static configuration, supplied by
@@ -107,6 +109,12 @@ type ProviderConfig struct {
 	// Examples: "https://accounts.google.com",
 	// "https://auth.example.com". Ignored when Kind="oauth2-github".
 	IssuerURL string
+
+	// UsernameKey lets this provider's bare preferred_username (no
+	// "@") be an account key when two or more providers are
+	// configured (RIVOLT_OIDC_<NAME>_USERNAME_KEY=true). With a single
+	// provider it is always allowed, as it has always been.
+	UsernameKey bool
 
 	// ClientID / ClientSecret are the OAuth2 application
 	// credentials. ClientSecret may be empty for public clients
@@ -153,10 +161,17 @@ type Service struct {
 	// make the handler trivially testable.
 	issueSession func(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error
 
+	// providerCount is how many providers are configured (counting
+	// ones still retrying discovery).
+	providerCount int
+
+	// userExists, see Config.UserExists.
+	userExists func(ctx context.Context, username string) (bool, error)
+
 	// ensureUser upserts the user row for (username, email,
 	// displayName) and returns the stable UUID. Wired to
 	// db.EnsureUserFull by main.
-	ensureUser func(ctx context.Context, username, email, displayName string) (uuid.UUID, error)
+	ensureUser func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error)
 
 	// capGuard, when non-nil, runs before ensureUser. It should
 	// return ErrCapExceeded if creating a new account would
@@ -216,7 +231,11 @@ type provider struct {
 // service-wide identity / cookie wiring.
 type Config struct {
 	IssueSession func(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error
-	EnsureUser   func(ctx context.Context, username, email, displayName string) (uuid.UUID, error)
+	EnsureUser   func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error)
+	// UserExists reports whether an account is keyed by username. Used
+	// to refuse a sign-in that would take over (or orphan) an account
+	// keyed by an email the IdP did not verify. nil fails closed.
+	UserExists func(ctx context.Context, username string) (bool, error)
 	UserIDFor    func(string) uuid.UUID
 	PostLoginURL string
 	SecureCookie bool
@@ -272,6 +291,8 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	s := &Service{
 		issueSession:   cfg.IssueSession,
 		ensureUser:     cfg.EnsureUser,
+		userExists:     cfg.UserExists,
+		providerCount:  len(cfg.Providers),
 		capGuard:       cfg.CapGuard,
 		capOverflowURL: overflow,
 		errorURL:       errURL,
@@ -676,7 +697,35 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		claimPreferred = claims.PreferredUsername
 		claimName = claims.Name
 	}
-	username, email := resolveIdentity(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred)
+	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail(),
+		s.bareUsernameKeyOK(p.cfg))
+	username, email := key.Username, key.Email
+	if len(key.UnverifiedCandidates) > 0 {
+		// The old rules would have keyed on one of these unverified
+		// values. If an account already lives under any of them,
+		// signing in would be a takeover and a fresh iss:sub account
+		// would orphan its owner: refuse. With none, the iss:sub key
+		// above stands (a new, isolated identity). Fails closed when
+		// existence can't be checked.
+		for _, cand := range key.UnverifiedCandidates {
+			exists := true
+			if s.userExists != nil {
+				var uerr error
+				exists, uerr = s.userExists(r.Context(), cand)
+				if uerr != nil {
+					s.log.Error("oidc: account lookup", "err", uerr)
+					s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
+					return
+				}
+			}
+			if exists {
+				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "email_unverified: account exists under an unverified identifier")
+				s.clearStateCookie(w)
+				s.failRedirect(w, r, "email_unverified", "Your identity provider hasn't verified your email address. Verify it there and try again, or ask your administrator.")
+				return
+			}
+		}
+	}
 	if username == "" {
 		// Without a stable identity we can't safely mint a
 		// session — refusing is correct.
@@ -715,7 +764,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	uid, err := s.ensureUser(r.Context(), username, email, display)
+	uid, err := s.ensureUser(r.Context(), username, email, display, claimEmailVerified && email != "")
 	if err != nil {
 		// ErrUserForbidden lets main signal "this row exists but
 		// has been admin-disabled" without leaking the column
@@ -773,36 +822,82 @@ func (s *Service) clearStateCookie(w http.ResponseWriter) {
 	})
 }
 
-// resolveIdentity picks the best deterministic key for this IdP
-// principal. Verified email wins because it joins cleanly across
-// auth methods (a user who signs in by password with the same
-// email lands on the same UUIDv5). preferred_username is second
-// best for IdPs without email scope. iss+sub is the floor —
-// always present, but means the user-key is unique per IdP and
-// can't be reached from a non-OIDC sign-in path.
-func resolveIdentity(iss, sub, email string, emailVerified bool, preferred string) (username, returnedEmail string) {
+// identityKey is resolveIdentityKey's answer.
+type identityKey struct {
+	// Username is the account key ("" when nothing stable exists).
+	Username string
+	// Email is the normalised email the IdP gave (display info; may be
+	// unverified).
+	Email string
+	// UnverifiedCandidates are the values (an unverified email, an
+	// email-shaped or non-key bare preferred_username) that the old
+	// rules would have used as the key. Username is then the iss:sub
+	// key, and the caller must refuse the sign-in if an account already
+	// exists under any candidate: that is the takeover path, and a
+	// fresh iss:sub account would silently orphan its owner.
+	UnverifiedCandidates []string
+}
+
+// resolveIdentityKey picks the deterministic account key for an IdP
+// principal.
+//
+//  1. A verified email wins: it joins cleanly across auth methods.
+//  2. A bare preferred_username (no "@") keys an account only for an
+//     IdP that sent NO email at all (that is what it is for: IdPs
+//     without the email scope), and only when bareUsernameOK: with
+//     several providers configured two IdPs could mint the same bare
+//     name, so each must opt in (RIVOLT_OIDC_<NAME>_USERNAME_KEY).
+//     When an email is present it is never keyed on: a username (the
+//     email local part from first-party Hydra, a free-text display
+//     name, a GitHub login) is not unique across people or IdPs.
+//  3. Anything else the old rules would have keyed on (an unverified
+//     email, an email-shaped preferred_username, a non-key bare
+//     name) is a candidate. It is a key only with trustUnverified
+//     (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL), which restores the old
+//     order: preferred_username, then email; bare names still need
+//     bareUsernameOK. Otherwise the key is iss:sub and the candidates
+//     are returned for the caller's refuse-if-exists check.
+//  4. iss:sub is the floor, unique per IdP, unreachable from any other
+//     sign-in path.
+func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred string, trustUnverified, bareUsernameOK bool) identityKey {
 	email = strings.ToLower(strings.TrimSpace(email))
 	preferred = strings.ToLower(strings.TrimSpace(preferred))
 	if email != "" && emailVerified {
-		return email, email
+		return identityKey{Username: email, Email: email}
 	}
-	if preferred != "" {
-		// We still surface email if the IdP gave one, even
-		// unverified — it's useful display info even when we
-		// don't trust it as the identity key.
-		return preferred, email
+	bare := preferred != "" && !strings.Contains(preferred, "@")
+	if email == "" && bare && bareUsernameOK {
+		return identityKey{Username: preferred}
 	}
-	if email != "" {
-		// Last resort: unverified email, but better than a
-		// per-IdP synthetic key.
-		return email, email
+	if trustUnverified {
+		switch {
+		case bare && bareUsernameOK:
+			return identityKey{Username: preferred, Email: email}
+		case preferred != "" && !bare:
+			return identityKey{Username: preferred, Email: email}
+		case email != "":
+			return identityKey{Username: email, Email: email}
+		}
 	}
-	if sub == "" {
-		return "", email
+	var cands []string
+	for _, c := range []string{preferred, email} {
+		if c != "" {
+			cands = append(cands, c)
+		}
 	}
-	// Synthetic key. Lowercased so case-insensitive UUIDv5 stays
-	// stable.
-	return strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub)), email
+	synthetic := ""
+	if strings.TrimSpace(sub) != "" {
+		// Lowercased so case-insensitive UUIDv5 stays stable.
+		synthetic = strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub))
+	}
+	return identityKey{Username: synthetic, Email: email, UnverifiedCandidates: cands}
+}
+
+// bareUsernameKeyOK reports whether a bare preferred_username may key
+// an account for provider pc: always with a single provider (today's
+// behaviour), otherwise only for providers that opted in.
+func (s *Service) bareUsernameKeyOK(pc ProviderConfig) bool {
+	return s.providerCount <= 1 || pc.UsernameKey
 }
 
 // githubIdentity is the normalised shape we extract from GitHub's
@@ -1000,6 +1095,7 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 			ClientSecret: clientSecret,
 			RedirectURL:  bu + "/api/auth/oidc/" + name + "/callback",
 			Scopes:       scopes,
+			UsernameKey:  strings.EqualFold(strings.TrimSpace(getenv(prefix+"USERNAME_KEY")), "true"),
 		})
 	}
 	return out, nil

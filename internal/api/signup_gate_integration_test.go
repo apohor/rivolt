@@ -175,3 +175,42 @@ func TestSignupGate_ConcurrentFirstLoginsOnlyOneWins(t *testing.T) {
 		t.Fatalf("users = %d, want 1", c)
 	}
 }
+
+// Admin promotion from RIVOLT_BOOTSTRAP_ADMIN_EMAIL needs a verified
+// email; callers that can't vouch for it (EnsureUserFull) never
+// promote.
+func TestEnsureUser_BootstrapPromotionRequiresVerifiedEmail(t *testing.T) {
+	ctx, pool := openGateDB(t)
+	cleanUsers(t, ctx, pool)
+	t.Setenv("RIVOLT_BOOTSTRAP_ADMIN_EMAIL", "owner@example.com")
+	// A filler user so the first-row trigger can't promote anyone.
+	if _, err := db.EnsureUser(ctx, pool, "filler@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	roleOf := func(username string) string {
+		var role string
+		if err := pool.QueryRowContext(ctx, `SELECT role FROM users WHERE username = $1`, username).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		return role
+	}
+	uid, err := db.EnsureUserVerified(ctx, pool, "owner@example.com", "owner@example.com", "", false)
+	if err != nil || uid.String() == "" {
+		t.Fatal(err)
+	}
+	if got := roleOf("owner@example.com"); got != "user" {
+		t.Fatalf("unverified bootstrap email promoted: role = %s", got)
+	}
+	if _, err := db.EnsureUserFull(ctx, pool, "owner@example.com", "owner@example.com", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := roleOf("owner@example.com"); got != "user" {
+		t.Fatalf("EnsureUserFull promoted: role = %s", got)
+	}
+	if _, err := db.EnsureUserVerified(ctx, pool, "owner@example.com", "Owner@Example.com ", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := roleOf("owner@example.com"); got != "admin" {
+		t.Fatalf("verified bootstrap email not promoted: role = %s", got)
+	}
+}

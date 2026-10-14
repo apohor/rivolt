@@ -289,3 +289,54 @@ Still allowed:
 
 Accounts are matched on the lower-cased, trimmed email, so
 `Alice@Example.com` and `alice@example.com` are the same account.
+
+## Identity trust: which emails may key or promote an account
+
+Rivolt keys an account on the email your identity provider verified.
+Two switches decide how much an address is trusted; the defaults keep
+existing installs working.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL` | `false` | When `true`, an email (or an email-shaped `preferred_username`) the IdP did **not** verify may be an account key, as it was in older versions. Unsafe with an IdP that lets anyone register any address; for IdPs that never send `email_verified`. |
+| `RIVOLT_TRUST_FIRST_PARTY_EMAILS` | `true` | Rivolt's own Kratos/Hydra only holds identities created through Rivolt sign-up or by an admin, so its email counts as verified even when Kratos email verification is off. One switch for every first-party path: the Hydra `email_verified` claim, the direct Kratos-session path, admin promotion and the sign-ups-closed bootstrap exception. If your Kratos allows open registration, set it to `false`; then only Kratos's own verification state counts. |
+
+What changes with the defaults:
+
+- An identity whose email is **unverified** can no longer sign in as
+  the account keyed by that email (or by its `preferred_username`).
+  If such an account exists the sign-in is refused with "Your identity
+  provider hasn't verified your email address" (verify it at the
+  provider and sign in again: you land on the same account); if none
+  exists, the identity gets its own isolated account keyed by issuer
+  and subject.
+- A `preferred_username` is an account key **only for an IdP that
+  sends no email at all**. When an email is present it is never keyed
+  on (a username is not unique across people: an email local part, a
+  display name, a GitHub login). One containing `@` is treated like an
+  unverified email.
+- `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` promotes only a **verified** email.
+- Identities with no email at all keep their issuer+subject key.
+
+### Upgrade note for installs with two or more OIDC providers
+
+A bare `preferred_username` (no `@`) from an IdP that sends no email
+keys an account when **one** provider is configured, as before. With
+**two or more**, two providers could hand out the same bare name, so
+it is an account key only if you opt that provider in:
+
+```
+RIVOLT_OIDC_<NAME>_USERNAME_KEY=true     # e.g. RIVOLT_OIDC_CORP_USERNAME_KEY=true
+```
+
+Without the opt-in the bare name is handled like an unverified email:
+if an account already exists under that name the sign-in is refused
+("verify your email" / ask your administrator) rather than silently
+creating a second account, otherwise the identity is keyed by issuer
+and subject. If your users sign in through a provider that sends no email and
+relies on `preferred_username`, add the opt-in before upgrading. If
+your provider sends an email it does not verify **and** your accounts
+are keyed by `preferred_username`, either enable email verification at
+the provider or set `RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true` to keep
+the old keying. Providers that send a verified email (Google, GitHub's
+primary, first-party Hydra) are unaffected.

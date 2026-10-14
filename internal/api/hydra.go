@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/hydra"
+	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/kratos"
 )
 
@@ -225,7 +226,13 @@ func hydraConsentGET(d hydraDeps) http.HandlerFunc {
 				claims := map[string]any{}
 				if id.Traits.Email != "" {
 					claims["email"] = id.Traits.Email
-					claims["email_verified"] = true
+					// First-party identities exist only via Rivolt
+					// sign-up or an admin, so by default the address
+					// counts as verified even with Kratos verification
+					// off (prod). One switch governs this and every
+					// other first-party path; false defers to Kratos's
+					// own verification state.
+					claims["email_verified"] = identity.FirstPartyEmailVerified(*id)
 				}
 				if id.Traits.DisplayName != "" {
 					claims["name"] = id.Traits.DisplayName
