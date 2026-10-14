@@ -46,6 +46,18 @@ const views: View[] = [
   // Stale frame: the pill must not say Live next to an old timestamp.
   { name: "now-stale", path: "/", heading: "Now", opts: { scenario: "stale" }, text: [/Last seen [5-7] min ago/, /Updated [5-7] min ago/] },
   { name: "demo-stale", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, scenario: "stale" }, text: [/Last seen [5-7] min ago/] },
+  {
+    name: "plan-vs-actual",
+    path: "/trips/plan",
+    heading: "Plan vs actual",
+    text: [
+      "We'll compare once you've driven it.",
+      "Confirm",
+      "Charging stops",
+      "price unavailable",
+      "One extra stop after a detour",
+    ],
+  },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
   // Degraded-state banner: shown only when something is wrong.

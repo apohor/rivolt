@@ -242,6 +242,38 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       ]);
     }
     if (p === "/api/charges/clusters") return json(route, []);
+    if (p === "/api/trips/saved") {
+      const inputs = {
+        origin: { lat: 40.0, lon: -100.0, label: "Home" },
+        destination: { lat: 41.0, lon: -101.0, label: "Sample destination" },
+        extra_stops: [],
+      };
+      return json(
+        route,
+        ["none", "suggested", "full", "partial"].map((k, i) => ({
+          id: `st-${k}`, name: `Sample trip ${i + 1}`, inputs, created_at: iso(86_400_000), updated_at: iso(86_400_000),
+        })),
+      );
+    }
+    const pva = p.match(/^\/api\/trips\/saved\/st-(none|suggested|full|partial)\/actual$/);
+    if (pva) {
+      const k = pva[1];
+      const planned = { currency: "USD", cost: 52.1, kwh: 150, stops: 3, network: "Sample network", arrival_soc: 22, duration_min: 640 };
+      const base = { saved_trip_id: `st-${k}`, planned };
+      if (k === "none") return json(route, { ...base, status: "none" });
+      if (k === "suggested") {
+        return json(route, { ...base, status: "suggested", candidate: { trip_id: "trip-1", started_at: iso(3 * 86_400_000), miles: 612 } });
+      }
+      const actual = {
+        cost: k === "full" ? 48.22 : null, cost_source: k === "full" ? "network_estimate" : "unknown",
+        kwh: 146, stops: 4, networks: ["Sample network"], arrival_soc: 18, duration_min: 700,
+        unpriced_sessions: k === "full" ? 0 : 2, started_at: iso(3 * 86_400_000),
+      };
+      return json(route, {
+        ...base, status: "matched", actual,
+        reasons: { stops: "One extra stop after a detour", duration: "The extra stop added about an hour" },
+      });
+    }
     if (p === `/api/vehicles/${VEHICLE_ID}/pack-health`) {
       const samples = Array.from({ length: 8 }, (_, i) => ({
         vehicle_id: VEHICLE_ID, charge_id: `c${i}`, at: iso((8 - i) * 5 * 86_400_000),

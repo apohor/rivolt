@@ -1363,6 +1363,21 @@ export const backend = {
   // trip can render the result instantly while still letting the
   // user re-plan against current station / weather state.
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
+  // Provisional path (see PlanVsActual). Null when the endpoint is
+  // absent (404), so the section simply doesn't render.
+  planVsActual: async (savedTripID: string): Promise<PlanVsActual | null> => {
+    try {
+      return await api.get<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/actual`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  planVsActualLink: (savedTripID: string, tripID: string | null) =>
+    api.post<PlanVsActual>(
+      `/api/trips/saved/${encodeURIComponent(savedTripID)}/actual/${tripID ? "confirm" : "unlink"}`,
+      tripID ? { trip_id: tripID } : null,
+    ),
   savedTripCreate: (body: SavedTripBody) =>
     api.post<SavedTrip>("/api/trips/saved", body),
   savedTripUpdate: (id: string, body: SavedTripBody) =>
@@ -2021,6 +2036,46 @@ export type SavedTripInputs = {
   overnight_limit_mode?: "soc" | "time" | "depart";
   overnight_parked_hours?: number;
   overnight_departure_local?: string;
+};
+
+// PlanVsActual is a saved trip compared with what was driven
+// (plan-vs-actual-contract; provisional shape until the architect's v1
+// lands, kept in one place so adapting is local). Nulls mean unknown,
+// never 0.
+export type PvaCostSource = "rivian" | "home_rate" | "network_estimate" | "user" | "mixed" | "unknown";
+
+export type PvaPlanned = {
+  currency: string;
+  cost: number | null;
+  kwh: number | null;
+  stops: number;
+  network: string | null;
+  arrival_soc: number | null;
+  duration_min: number | null;
+};
+
+export type PvaActual = {
+  cost: number | null;
+  cost_source: PvaCostSource;
+  kwh: number | null;
+  stops: number;
+  networks: string[];
+  arrival_soc: number | null;
+  duration_min: number | null;
+  unpriced_sessions: number;
+  started_at: string;
+};
+
+export type PlanVsActual = {
+  saved_trip_id: string;
+  status: "none" | "suggested" | "matched";
+  // The candidate drive for a suggested match.
+  candidate?: { trip_id: string; started_at: string; miles: number } | null;
+  planned: PvaPlanned;
+  actual?: PvaActual | null;
+  // Server-authored one-line reasons per metric, e.g. "cost": "Used
+  // Electrify America ($0.48) instead of the planned $0.36 member rate".
+  reasons?: Partial<Record<"cost" | "kwh" | "stops" | "arrival_soc" | "duration", string>>;
 };
 
 export type SavedTrip = {

@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PlanVsActualSection } from "../components/PlanVsActual";
+import { useMoneyTabEnabled } from "../lib/ledger";
 import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
@@ -158,6 +160,7 @@ function normalizeDriveMode(v: unknown): DriveMode {
 }
 
 export default function TripPlanPage() {
+  const moneyShell = useMoneyTabEnabled();
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
   const [extraStops, setExtraStops] = useState<NonNullable<Selection>[]>([]);
@@ -897,6 +900,8 @@ export default function TripPlanPage() {
           </div>
         </form>
       </Card>
+
+      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} />}
 
       <SavedTripsCard
         trips={savedTripsQuery.data ?? []}
