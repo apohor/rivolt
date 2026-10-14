@@ -639,6 +639,7 @@ export function isFreeCharge(c: import("../lib/api").Charge): boolean {
 }
 
 function chargeCostLabel(c: import("../lib/api").Charge): string {
+  if (c.classification_unavailable) return "—";
   if (isFreeCharge(c)) return "Free";
   // The ledger's verdict: not priced (away AC, unknown DCFC) or a legacy
   // home-rate stamp on a fast charge that Money shows as pending.
@@ -658,6 +659,7 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // number or a home-rate estimate. Falls back to undefined so the
 // tile collapses cleanly when we have nothing useful to say.
 function chargeCostHint(c: import("../lib/api").Charge): string | undefined {
+  if (c.classification_unavailable) return "price classification unavailable right now";
   if (isFreeCharge(c)) return "marked free by you";
   if (c.cost_source_effective === "home_rate_misapplied") return "estimate pending · was priced at your home rate";
   if (c.cost_source_effective === "unknown") return "price unknown · add it below";

@@ -96,4 +96,11 @@ describe("data-quality lines", () => {
     expect(it0.kind === "charge" && it0.fast).toBe(false);
     expect(it0.kind === "charge" && it0.atHome).toBe(true);
   });
+
+  it("doesn't guess when classification is unavailable, and drops superseded duplicates", () => {
+    const t = "2026-10-02T00:00:00Z";
+    expect(chargeCostLine(charge("u", t, { Cost: 4, classification_unavailable: true })).text).toBe("Price unavailable");
+    const days = buildFeed([], [charge("a", t), charge("dup", t, { ledger_flags: ["superseded"], counts_in_spend: false })], opts);
+    expect(days[0].items).toHaveLength(1);
+  });
 });
