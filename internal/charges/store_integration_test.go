@@ -16,6 +16,7 @@ package charges_test
 
 import (
 	"context"
+	"errors"
 	"database/sql"
 	"fmt"
 	"os"
@@ -583,8 +584,10 @@ func TestLiveOverlap(t *testing.T) {
 	}
 }
 
-// TestRestampPlace pins A15's correction: only place changes, user-priced
-// and position-less rows are left alone, and a dry run writes nothing.
+// TestRestampPlace pins A15/A15b: only place changes, except that AC
+// charges becoming home and unpriced get the home rate; user-priced and
+// position-less rows are left alone; a dry run writes nothing; undo puts
+// it all back without removing a price the user set since.
 func TestRestampPlace(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -599,53 +602,94 @@ func TestRestampPlace(t *testing.T) {
 	}
 	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
 	start := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
-	// sampleCharge sits at 30.27,-97.74; "away" at 35.47,-97.52.
-	mk := func(id string, i int, lat, lon float64, place, source string) {
+	// sampleCharge: 30 min, 50 kWh, peak 200 kW (DCFC), priced, at 30.27,-97.74.
+	mk := func(id string, i int, lat, lon float64, place, source string, peak float64, priced bool) {
 		c := sampleCharge(id, "rv-A", start.Add(time.Duration(i)*time.Hour), "charging_complete")
-		c.Lat, c.Lon, c.Place, c.CostSource = lat, lon, place, source
+		c.Lat, c.Lon, c.Place, c.CostSource, c.MaxPowerKW = lat, lon, place, source, peak
+		if !priced {
+			c.Cost, c.PricePerKWh, c.Currency = 0, 0, ""
+		}
 		if err := store.Upsert(ctx, c); err != nil {
 			t.Fatalf("Upsert %s: %v", id, err)
 		}
 	}
-	mk("was-away", 0, 30.27, -97.74, "away", "home_rate")  // at the corrected home
-	mk("no-place", 1, 30.27, -97.74, "", "")               // legacy, NULL place
-	mk("really-away", 2, 35.47, -97.52, "away", "")        // stays away
-	mk("user-priced", 3, 30.27, -97.74, "away", "user")    // never touched
-	mk("no-position", 4, 0, 0, "away", "")                 // never touched
-	placeOf := func(id string) string {
-		var p sql.NullString
-		if err := pool.QueryRowContext(ctx, `SELECT place FROM charges WHERE external_id = $1`, id).Scan(&p); err != nil {
+	mk("was-away", 0, 30.27, -97.74, "away", "home_rate", 7.6, true)  // priced: keeps its price
+	mk("unpriced-ac", 1, 30.27, -97.74, "away", "", 7.6, false)       // gets the home rate
+	mk("unpriced-dcfc", 2, 30.27, -97.74, "away", "", 200, false)     // fast: stays unpriced
+	mk("really-away", 3, 35.47, -97.52, "away", "", 7.6, false)       // stays away and unpriced
+	mk("user-priced", 4, 30.27, -97.74, "away", "user", 7.6, true)    // never touched
+	mk("no-position", 5, 0, 0, "away", "", 7.6, false)                // never touched
+	mk("unpriced-ac2", 6, 30.27, -97.74, "away", "", 7.6, false)      // gets the home rate, then the user edits it
+	type row struct {
+		place, source string
+		cost          sql.NullFloat64
+	}
+	get := func(id string) row {
+		var r row
+		var p, src sql.NullString
+		if err := pool.QueryRowContext(ctx, `SELECT place, cost_source, cost::float8 FROM charges WHERE external_id = $1`, id).
+			Scan(&p, &src, &r.cost); err != nil {
 			t.Fatal(err)
 		}
-		return p.String
+		r.place, r.source = p.String, src.String
+		return r
 	}
-	var costBefore float64
-	_ = pool.QueryRowContext(ctx, `SELECT sum(cost)::float8 FROM charges WHERE user_id = $1`, uid).Scan(&costBefore)
+	opts := charges.RestampOptions{HomeLat: 30.27, HomeLon: -97.74, RadiusM: 250, HomeRate: 0.16, Currency: "USD",
+		IsDCFC: func(peak, _, _ float64, _ time.Duration) bool { return peak >= 50 }}
 
-	dry, err := store.RestampPlace(ctx, 30.27, -97.74, 250, true)
+	opts.DryRun = true
+	dry, err := store.RestampPlace(ctx, opts)
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
-	if !dry.DryRun || dry.Changed != 2 || dry.ToHome != 2 || dry.ToAway != 0 || dry.Unchanged != 1 || dry.SkippedUserPriced != 1 {
+	if dry.Changed != 4 || dry.ToHome != 4 || dry.WouldPriceAtHomeRate != 2 || dry.TotalCostDelta != 16 ||
+		dry.Unchanged != 1 || dry.SkippedUserPriced != 1 || dry.RestampID != nil {
 		t.Errorf("dry run = %+v", dry)
 	}
-	if placeOf("was-away") != "away" {
+	if get("unpriced-ac").place != "away" {
 		t.Error("dry run wrote")
 	}
 
-	res, err := store.RestampPlace(ctx, 30.27, -97.74, 250, false)
-	if err != nil || res.Changed != 2 {
+	opts.DryRun = false
+	res, err := store.RestampPlace(ctx, opts)
+	if err != nil || res.RestampID == nil || res.Changed != 4 {
 		t.Fatalf("apply = %+v, %v", res, err)
 	}
-	for id, want := range map[string]string{"was-away": "home", "no-place": "home", "really-away": "away",
-		"user-priced": "away", "no-position": "away"} {
-		if got := placeOf(id); got != want {
+	if r := get("unpriced-ac"); r.place != "home" || r.source != "home_rate" || !r.cost.Valid || r.cost.Float64 != 8 {
+		t.Errorf("unpriced AC after correction = %+v, want home / home_rate / 8.0", r)
+	}
+	if r := get("unpriced-dcfc"); r.place != "home" || r.cost.Valid {
+		t.Errorf("unpriced DCFC = %+v, want home and still unpriced", r)
+	}
+	if r := get("was-away"); r.place != "home" || r.cost.Float64 != 18.5 {
+		t.Errorf("priced row = %+v, want home with its price kept", r)
+	}
+	for id, want := range map[string]string{"really-away": "away", "user-priced": "away", "no-position": "away"} {
+		if got := get(id).place; got != want {
 			t.Errorf("%s place = %q, want %q", id, got, want)
 		}
 	}
-	var costAfter float64
-	_ = pool.QueryRowContext(ctx, `SELECT sum(cost)::float8 FROM charges WHERE user_id = $1`, uid).Scan(&costAfter)
-	if costAfter != costBefore {
-		t.Errorf("costs changed: %v → %v", costBefore, costAfter)
+
+	// The user re-prices one of the corrected charges by hand, then
+	// undoes the correction: places revert, the home-rate price the
+	// correction added goes, the user's own price stays.
+	if _, err := store.UpdatePricing(ctx, "unpriced-ac2", 2.5, "USD", 0.05); err != nil {
+		t.Fatal(err)
+	}
+	undo, err := store.UndoRestamp(ctx, nil)
+	if err != nil || undo.RestampID != *res.RestampID || undo.RestoredPlace != 4 || undo.Unpriced != 1 {
+		t.Fatalf("undo = %+v, %v", undo, err)
+	}
+	if r := get("unpriced-ac"); r.place != "away" || r.cost.Valid || r.source != "" {
+		t.Errorf("unpriced AC after undo = %+v, want away and unpriced", r)
+	}
+	if r := get("unpriced-ac2"); r.place != "away" || r.source != "user" || r.cost.Float64 != 2.5 {
+		t.Errorf("user re-priced row after undo = %+v, want away with the user's price kept", r)
+	}
+	if r := get("unpriced-dcfc"); r.place != "away" || r.cost.Valid {
+		t.Errorf("DCFC after undo = %+v, want away and unpriced", r)
+	}
+	if _, err := store.UndoRestamp(ctx, nil); !errors.Is(err, charges.ErrNoRestamp) {
+		t.Errorf("second undo = %v, want ErrNoRestamp", err)
 	}
 }
