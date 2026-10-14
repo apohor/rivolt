@@ -711,9 +711,17 @@ func TestClassify_MatchesBuild(t *testing.T) {
 	if len(m.Receipts) != len(cases) {
 		t.Fatalf("receipts = %d, want %d", len(m.Receipts), len(cases))
 	}
-	for i, c := range cases {
+	for _, c := range cases {
 		src, pl, kind := Classify(c, cfg())
-		r := m.Receipts[i]
+		var r Receipt
+		for _, x := range m.Receipts {
+			if x.StartedAt.Equal(c.StartedAt) {
+				r = x
+			}
+		}
+		if r.ReceiptID == "" {
+			t.Fatalf("%s: no receipt starting %v", c.ID, c.StartedAt)
+		}
 		if src != r.CostSource || pl != r.Place || kind != r.Kind {
 			t.Errorf("%s: Classify = %s/%s/%s, Build = %s/%s/%s", c.ID, src, pl, kind, r.CostSource, r.Place, r.Kind)
 		}
