@@ -36,4 +36,11 @@ describe("sleepSummary", () => {
     expect(s.daysWithData).toBe(0);
     expect(s.trouble).toBeNull();
   });
+
+  it("averages completed days only, leaving out the partial today", () => {
+    const now = new Date("2026-10-03T08:00:00Z");
+    const s = sleepSummary([day("2026-10-01", 2, 0, 0), day("2026-10-02", 4, 0, 0), day("2026-10-03", 0.1, 0, 0)], 3, now);
+    expect(s.avgDays).toBe(2);
+    expect(s.avgIdleMinutes).toBe(180);
+  });
 });
