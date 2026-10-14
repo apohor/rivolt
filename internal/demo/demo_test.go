@@ -7,20 +7,24 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
-func TestEnabledNeedsReplayClient(t *testing.T) {
+func TestEnabledNeedsReplayOverSampleCorpus(t *testing.T) {
 	for _, c := range []struct {
-		demo, client string
-		want         bool
+		demo, client, source string
+		want                 bool
 	}{
-		{"", "replay", false},
-		{"true", "", false},
-		{"true", "live", false},
-		{"true", "stub", false},
-		{"true", "replay", true},
-		{"TRUE", "REPLAY", true},
+		{"", "replay", "sample", false},
+		{"true", "", "sample", false},
+		{"true", "live", "sample", false},
+		{"true", "stub", "sample", false},
+		// replaying a recorded vehicle must never be public
+		{"true", "replay", "", false},
+		{"true", "replay", "01-242521064", false},
+		{"true", "replay", "sample", true},
+		{"TRUE", "REPLAY", "sample", true},
 	} {
 		t.Setenv("RIVOLT_DEMO", c.demo)
 		t.Setenv("RIVIAN_CLIENT", c.client)
+		t.Setenv("RIVOLT_REPLAY_SOURCE", c.source)
 		if got := Enabled(); got != c.want {
 			t.Errorf("%+v: Enabled = %v", c, got)
 		}

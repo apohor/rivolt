@@ -65,7 +65,7 @@ func demoChain(limiter *ipLimiter, real *uuid.UUID) (http.Handler, uuid.UUID) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	h := demoAccessMW(demoUID, demoVeh, limiter)(inner)
+	h := demoAccessMW(demoUID, demoVeh, limiter, newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	if real != nil {
 		// Simulate a session resolved by the auth middleware upstream.
 		h = func(next http.Handler) http.Handler {
@@ -131,6 +131,7 @@ func TestDemoAccessMW_RateLimited(t *testing.T) {
 func TestDemoConfigFlagOffByDefault(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "")
 	t.Setenv("RIVIAN_CLIENT", "replay")
+	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
 	rec := httptest.NewRecorder()
 	handleConfig(false, false, false, false, nil, nil)(rec, httptest.NewRequest("GET", "/api/config", nil))
 	if !contains(rec.Body.String(), `"demo_enabled":false`) {
@@ -151,4 +152,47 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestDemoRateLimitKeyedOnCFConnectingIP(t *testing.T) {
+	l := newDemoLimiter()
+	l.rps, l.burst = 0, 2 // two requests per key, no refill
+	h, _ := demoChain(l, nil)
+	do := func(cf, spoof string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.RemoteAddr = "10.0.0.1:1"
+		req.Header.Set("CF-Connecting-IP", cf)
+		req.Header.Set("X-Real-IP", spoof) // client-controlled; must not matter
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if do("198.51.100.1", "1.1.1.1") != 200 || do("198.51.100.1", "2.2.2.2") != 200 {
+		t.Fatal("first two should pass")
+	}
+	if got := do("198.51.100.1", "3.3.3.3"); got != http.StatusTooManyRequests {
+		t.Fatalf("spoofing X-Real-IP evaded the limit: %d", got)
+	}
+	if do("198.51.100.2", "3.3.3.3") != 200 {
+		t.Fatal("a different client IP has its own bucket")
+	}
+}
+
+func TestDemoGlobalLimiter(t *testing.T) {
+	g := newDemoGlobalLimiter()
+	g.rps, g.burst = 0, 2
+	demoUID := uuid.New()
+	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), g)(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	codes := []int{}
+	for i := 0; i < 4; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.Header.Set("CF-Connecting-IP", "198.51.100."+string(rune('1'+i)))
+		h.ServeHTTP(rec, req)
+		codes = append(codes, rec.Code)
+	}
+	if codes[1] != 200 || codes[2] != http.StatusTooManyRequests {
+		t.Fatalf("global cap should bind across client IPs: %v", codes)
+	}
 }

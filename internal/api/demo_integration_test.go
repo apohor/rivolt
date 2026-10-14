@@ -21,6 +21,7 @@ import (
 func TestDemoSeed_IdempotentNonAdminAndScoped(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "true")
 	t.Setenv("RIVIAN_CLIENT", "replay")
+	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))

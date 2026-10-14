@@ -1,6 +1,6 @@
 // Package demo seeds and identifies the public read-only demo account
 // (B7). It is PREVIEW ONLY: Enabled requires RIVOLT_DEMO=true and
-// RIVIAN_CLIENT=replay, so a production install (live client) never
+// RIVIAN_CLIENT=replay and RIVOLT_REPLAY_SOURCE=sample, so a production install (live client) never
 // turns it on even if the variable leaks into its environment.
 package demo
 
@@ -43,10 +43,14 @@ const (
 const replaySessionToken = "replay-session"
 
 // Enabled reports whether the demo is on: RIVOLT_DEMO=true on an
-// install running the replay client.
+// install running the replay client over the GENERATED sample corpus
+// (RIVOLT_REPLAY_SOURCE=sample). Replaying a recorded vehicle would
+// publish a real person's history anonymously, so anything else fails
+// closed.
 func Enabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_DEMO")), "true") &&
-		strings.EqualFold(strings.TrimSpace(os.Getenv("RIVIAN_CLIENT")), "replay")
+		strings.EqualFold(strings.TrimSpace(os.Getenv("RIVIAN_CLIENT")), "replay") &&
+		strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE")) == "sample"
 }
 
 // UserID is the demo account's user id.

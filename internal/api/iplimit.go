@@ -26,6 +26,9 @@ type ipLimiter struct {
 	rps     rate.Limit
 	burst   int
 	idleTTL time.Duration
+	// key overrides the bucket key (default clientIP). Used by the demo
+	// limiter to key on CF-Connecting-IP and to add a global bucket.
+	key func(*http.Request) string
 
 	mu      sync.Mutex
 	buckets map[string]*ipBucket
@@ -54,6 +57,9 @@ func newIPLimiter(perWindow int, window, idleTTL time.Duration) *ipLimiter {
 func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
+		if l.key != nil {
+			ip = l.key(r)
+		}
 		if !l.allow(ip) {
 			w.Header().Set("Retry-After", "60")
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{

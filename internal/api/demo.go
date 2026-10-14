@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -61,17 +62,18 @@ func demoAllowed(method, path, vehicleID string) bool {
 // It runs after authentication resolves the real identity and before
 // impersonation, so a real session always wins and impersonation sees
 // only the (non-admin) demo user.
-func demoAccessMW(uid uuid.UUID, vehicleID string, limiter *ipLimiter) func(http.Handler) http.Handler {
+func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, signedIn := auth.UserFromContext(r.Context()); signedIn || !demoAllowed(r.Method, r.URL.Path, vehicleID) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(demoHeader, "1")
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
-			})).ServeHTTP(w, r)
+			})
+			global.Middleware(limiter.Middleware(serve)).ServeHTTP(w, r)
 		})
 	}
 }
@@ -99,4 +101,37 @@ func moneyTabEnabledOrDemo(store *flags.Store) func(string) bool {
 	}
 }
 
-func newDemoLimiter() *ipLimiter { return newIPLimiter(demoRatePerMin, time.Minute, time.Hour) }
+// demoRateGlobalPerMin caps the whole anonymous demo regardless of
+// client address, so a spoofed or rotating address can't evade the
+// per-client limit.
+const demoRateGlobalPerMin = 1200
+
+// demoClientKey keys the per-client bucket. Cloudflare sets
+// CF-Connecting-IP (overwriting any client-supplied value) in front of
+// every deployment; chi's RealIP trusts client-supplied X-Real-IP /
+// X-Forwarded-For, so those are not used. Without the header (direct
+// access, tests) it falls back to the connection address.
+func demoClientKey(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
+		return ip
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// newDemoLimiter is the per-client limiter; newDemoGlobalLimiter the
+// install-wide one. demoAccessMW applies both.
+func newDemoLimiter() *ipLimiter {
+	l := newIPLimiter(demoRatePerMin, time.Minute, time.Hour)
+	l.key = demoClientKey
+	return l
+}
+
+func newDemoGlobalLimiter() *ipLimiter {
+	l := newIPLimiter(demoRateGlobalPerMin, time.Minute, time.Hour)
+	l.key = func(*http.Request) string { return "global" }
+	return l
+}

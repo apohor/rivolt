@@ -275,7 +275,7 @@ func New(d Deps) http.Handler {
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
-			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter()))
+			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
 		}
 		// impersonationMW must run immediately after auth resolves
 		// the real identity and before any route reads
