@@ -49,6 +49,12 @@
     padding-top: max(env(safe-area-inset-top), 0px);
   }
 
+  /* Fixed bottom tab bar (money_tab_enabled shell): a fixed element
+   ignores body padding, so it pads itself past the home indicator. */
+  .app-safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+
   /* Leaflet theming. We ship Carto's dark_all tiles so we just need to
    match the map background and tone down the attribution bar. */
   .leaflet-container {

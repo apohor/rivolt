@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
 import { useTripPlannerEnabled } from "./lib/config";
+import { useMoneyTabEnabled } from "./lib/ledger";
 import { pageLoaders } from "./lib/pageLoaders";
 
 // Route pages are split into their own chunks so the initial bundle
@@ -16,6 +17,7 @@ const ChargesPage = lazy(pageLoaders.charges);
 const ChargeDetailPage = lazy(pageLoaders.chargeDetail);
 const LivePage = lazy(pageLoaders.live);
 const TripPlanPage = lazy(pageLoaders.tripPlan);
+const MoneyPage = lazy(pageLoaders.money);
 const SettingsPage = lazy(pageLoaders.settings);
 const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
@@ -31,6 +33,14 @@ const NotFoundPage = lazy(pageLoaders.notFound);
 function TripPlanGuard() {
   const enabled = useTripPlannerEnabled();
   return enabled ? <TripPlanPage /> : <NotFoundPage />;
+}
+
+// MoneyGuard mirrors TripPlanGuard for the money_tab_enabled flag:
+// with the flag off, /money is indistinguishable from a route that
+// never existed.
+function MoneyGuard() {
+  const enabled = useMoneyTabEnabled();
+  return enabled ? <MoneyPage /> : <NotFoundPage />;
 }
 
 export default function App() {
@@ -70,6 +80,7 @@ export default function App() {
         <Route path="charges/:id" element={<ChargeDetailPage />} />
         <Route path="live" element={<LivePage />} />
         <Route path="trips/plan" element={<TripPlanGuard />} />
+        <Route path="money" element={<MoneyGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />
