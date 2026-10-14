@@ -122,6 +122,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// takes effect on next page load (or whenever the SPA
 		// re-fetches /api/config).
 		TripPlannerEnabled bool `json:"trip_planner_enabled"`
+		// LandingEnabled mirrors $RIVOLT_LANDING (default false). The
+		// SPA shows the public landing page to signed-out visitors
+		// only when true.
+		LandingEnabled bool `json:"landing_enabled"`
+		// DemoEnabled is always false for now; reserved for the
+		// public live-demo mode.
+		DemoEnabled bool `json:"demo_enabled"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -187,6 +194,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.Tiles.ChargersURL = "/api/maps/tiles/chargers.pmtiles"
 	}
 	base.AI.Enabled = aiEnabled
+	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base
 		if flagsStore != nil {

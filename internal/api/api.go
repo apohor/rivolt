@@ -881,6 +881,9 @@ func New(d Deps) http.Handler {
 //     associated with their account.
 //     frame-ancestors 'none' prevents clickjacking; the SPA never
 //     embeds in an iframe.
+//     No third-party script or connect origins are allowed: Rivolt
+//     serves no analytics beacon (Cloudflare Web Analytics origins
+//     were removed), so script-src and connect-src are 'self' only.
 //   - Strict-Transport-Security: 1 year with subdomains. Cloudflare
 //     in front already terminates TLS for rivolt.dev / preview.rivolt.dev,
 //     but the header makes the policy explicit on origin responses
@@ -896,11 +899,11 @@ func New(d Deps) http.Handler {
 //     parse CSP.
 func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
-		"script-src 'self' https://static.cloudflareinsights.com; " +
+		"script-src 'self'; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; " +
 		"font-src 'self' data:; " +
-		"connect-src 'self' https://cloudflareinsights.com; " +
+		"connect-src 'self'; " +
 		"worker-src 'self'; " +
 		"manifest-src 'self'; " +
 		"frame-ancestors 'none'; " +
