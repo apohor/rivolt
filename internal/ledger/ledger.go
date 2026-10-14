@@ -133,6 +133,10 @@ type Drive struct {
 	EnergyKWh  *float64
 	Source     string
 	CreatedAt  time.Time
+	// Start and end positions; nil when not recorded. Used only to
+	// measure distance from home (trips); never returned.
+	StartLat, StartLon *float64
+	EndLat, EndLon     *float64
 }
 
 // LatLon is a WGS84 point.
