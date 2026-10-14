@@ -80,8 +80,8 @@ func buildTrips(cs []ledger.Charge, ds []ledger.Drive, cfg ledger.Config) []trip
 	}
 	for i := range kc {
 		c := &kc[i]
-		src, pl, kind := ledger.Classify(*c, cfg)
-		e := tripEvent{start: c.StartedAt, end: c.EndedAt, charge: c, source: src, place: pl, kind: kind}
+		cl := ledger.Classify(*c, cfg)
+		e := tripEvent{start: c.StartedAt, end: c.EndedAt, charge: c, source: cl.CostSource, place: cl.Place, kind: cl.Kind}
 		if cfg.Home != nil && c.Lat != nil && c.Lon != nil && !(*c.Lat == 0 && *c.Lon == 0) {
 			km := math.Round(haversineKM(cfg.Home.Lat, cfg.Home.Lon, *c.Lat, *c.Lon)*10) / 10
 			e.kmHome = &km
