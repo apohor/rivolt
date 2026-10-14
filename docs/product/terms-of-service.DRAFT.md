@@ -14,7 +14,7 @@ Rivolt reads your vehicle data through Rivian's unofficial, undocumented interfa
 - Rivolt may stop working, show stale or wrong data, or be unavailable for long periods without notice.
 - Rivian could, in principle, act against accounts that use unofficial access (for example by limiting or suspending the account). We have no control over that. Using a dedicated Authorized Driver account (section 4) limits the exposure of your main account.
 - Rivolt's calls to Rivian can count against limits on your account. If you see problems in the official Rivian app (for example "No Cloud Connection"), disconnect Rivolt and contact us.
-- Rivolt's requests to Rivian currently present themselves with the Rivian iOS app's User-Agent and client-name headers. This is part of what makes the access unofficial and could be a reason for Rivian to act against it.
+- Rivolt's REST requests to Rivian currently present themselves with the Rivian iOS app's User-Agent and client-name headers. This is part of what makes the access unofficial and could be a reason for Rivian to act against it.
 - Rivolt is read-only: it does not send commands to your vehicle (the only mutations it issues are sign-in calls).
 
 ## 3. Your account and Rivian sign-in
