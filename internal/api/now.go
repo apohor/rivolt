@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -116,14 +117,9 @@ const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 	            WHEN %[1]s.power_state = 'sleep' THEN 'asleep'
 	            ELSE 'parked' END`
 
-// nowStateSQL derives (state, state_since, soc, peak kW). The run start
-// is found with an early-stopping descending scan on the
-// (vehicle_id, at) key: newest row first, stop at the first row whose
-// state differs, so a poll touches only the current run (bounded by
-// the lookback). When no differing row exists inside the lookback the
-// state is older than the window and state_since is NULL (unknown),
-// not the window edge. Every read is scoped by user_id.
-var nowStateSQL = fmt.Sprintf(`
+// nowCurSQL reads the newest row's state, fix time and the newest tire
+// pressure in the last 6 h: two LIMIT 1 index probes, cheap every poll.
+var nowCurSQL = fmt.Sprintf(`
 WITH v AS (
 	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
@@ -131,11 +127,28 @@ WITH v AS (
 	FROM vehicle_state vs
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
 	ORDER BY vs.at DESC LIMIT 1
+)
+SELECT (SELECT at FROM cur),
+       (SELECT st FROM cur),
+       (SELECT location_fix_at FROM cur),
+       (SELECT vs.tire_pressure_min_bar FROM vehicle_state vs
+         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
+           AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
+         ORDER BY vs.at DESC LIMIT 1)`, "vs")
+
+// nowRunSQL finds where the current run ($5 = its state) began: an
+// early-stopping descending scan on the (vehicle_id, at) key that stops
+// at the first row whose state differs. This is the part worth
+// caching; with no differing row inside the lookback the state is older
+// than the window and the start is NULL (unknown), not the window edge.
+var nowRunSQL = fmt.Sprintf(`
+WITH v AS (
+	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), brk AS (
 	SELECT vs.at
-	FROM vehicle_state vs, cur
+	FROM vehicle_state vs
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
-	  AND `+nowStateCase+` <> cur.st
+	  AND `+nowStateCase+` <> $5::text
 	ORDER BY vs.at DESC LIMIT 1
 ), first AS (
 	SELECT vs.at, vs.battery_level_pct
@@ -143,17 +156,10 @@ WITH v AS (
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at
 	ORDER BY vs.at ASC LIMIT 1
 )
-SELECT (SELECT at FROM cur),
-       (SELECT st FROM cur),
-       (SELECT location_fix_at FROM cur),
-       (SELECT at FROM first),
+SELECT (SELECT at FROM first),
        (SELECT battery_level_pct FROM first),
        (SELECT max(vs.charger_power_kw) FROM vehicle_state vs, brk
-         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at),
-       (SELECT vs.tire_pressure_min_bar FROM vehicle_state vs
-         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
-           AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
-         ORDER BY vs.at DESC LIMIT 1)`, "vs")
+         WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at > brk.at)`, "vs")
 
 // nowSleepSQL counts sleeps that ended within a minute in the window,
 // with the same definition as the sleep-activity analytics: a sleep is
@@ -175,17 +181,75 @@ SELECT COUNT(*) FROM changes
 WHERE power_state = 'sleep' AND next_change_at IS NOT NULL
   AND next_change_at - at < interval '60 seconds'`
 
-// newNowSnapshotter is the production seam: two read-only queries.
+// nowRun is the cached, expensive part of a snapshot: where the
+// current state's run began, its start SoC and peak kW, and the 6 h
+// failed-sleep count.
+type nowRun struct {
+	state   string
+	since   *time.Time
+	soc     *float64
+	peak    *float64
+	failed  int
+	expires time.Time
+}
+
+// nowRunCache holds nowRun per (user, vehicle) for nowRunTTL. An entry
+// is valid only while the vehicle is still in the state it was
+// computed for, so a state change invalidates it immediately; the TTL
+// bounds staleness of peak kW and the sleep count.
+type nowRunCache struct {
+	mu  sync.Mutex
+	m   map[string]nowRun
+	ttl time.Duration
+}
+
+const nowRunTTL = 60 * time.Second
+
+func newNowRunCache(ttl time.Duration) *nowRunCache {
+	return &nowRunCache{m: map[string]nowRun{}, ttl: ttl}
+}
+
+func nowCacheKey(uid uuid.UUID, rivianID string) string { return uid.String() + "|" + rivianID }
+
+func (c *nowRunCache) get(uid uuid.UUID, rivianID, state string, now time.Time) (nowRun, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.m[nowCacheKey(uid, rivianID)]
+	if !ok || r.state != state || !now.Before(r.expires) {
+		return nowRun{}, false
+	}
+	return r, true
+}
+
+func (c *nowRunCache) put(uid uuid.UUID, rivianID string, r nowRun, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) > 1024 {
+		for k, v := range c.m {
+			if !now.Before(v.expires) {
+				delete(c.m, k)
+			}
+		}
+	}
+	r.expires = now.Add(c.ttl)
+	c.m[nowCacheKey(uid, rivianID)] = r
+}
+
+// newNowSnapshotter is the production seam: a cheap current-row query
+// every poll, plus the run/sleep queries cached per vehicle.
 func newNowSnapshotter(pool *sql.DB) func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+	return newCachedNowSnapshotter(pool, newNowRunCache(nowRunTTL))
+}
+
+func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
 	return func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) (nowSnapshot, error) {
 		var out nowSnapshot
-		var at, fix, since sql.NullTime
+		var at, fix sql.NullTime
 		var st sql.NullString
-		var soc, peak, tire sql.NullFloat64
+		var tire sql.NullFloat64
 		sleepFrom := now.Add(-nowSleepWindow).UTC()
-		err := pool.QueryRowContext(ctx, nowStateSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom).
-			Scan(&at, &st, &fix, &since, &soc, &peak, &tire)
-		if err != nil {
+		if err := pool.QueryRowContext(ctx, nowCurSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom).
+			Scan(&at, &st, &fix, &tire); err != nil {
 			return out, err
 		}
 		if at.Valid {
@@ -196,23 +260,38 @@ func newNowSnapshotter(pool *sql.DB) func(context.Context, uuid.UUID, string, ti
 			t := fix.Time.UTC()
 			out.LocationFixAt = &t
 		}
-		if since.Valid {
-			t := since.Time.UTC()
-			out.StateSince = &t
-		}
-		out.State = st.String
-		if soc.Valid {
-			out.SoCAtStateStart = &soc.Float64
-		}
-		if peak.Valid && peak.Float64 > 0 {
-			out.ChargePeakKW = &peak.Float64
-		}
 		if tire.Valid {
 			out.TirePressureMinB = &tire.Float64
 		}
-		if err := pool.QueryRowContext(ctx, nowSleepSQL, uid, rivianID, sleepFrom).Scan(&out.FailedSleeps6h); err != nil {
-			return out, err
+		out.State = st.String
+		if !st.Valid {
+			return out, nil // no rows in the lookback
 		}
+		run, ok := cache.get(uid, rivianID, out.State, now)
+		if !ok {
+			var since sql.NullTime
+			var soc, peak sql.NullFloat64
+			if err := pool.QueryRowContext(ctx, nowRunSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom, out.State).
+				Scan(&since, &soc, &peak); err != nil {
+				return out, err
+			}
+			run = nowRun{state: out.State}
+			if since.Valid {
+				t := since.Time.UTC()
+				run.since = &t
+			}
+			if soc.Valid {
+				run.soc = &soc.Float64
+			}
+			if peak.Valid && peak.Float64 > 0 {
+				run.peak = &peak.Float64
+			}
+			if err := pool.QueryRowContext(ctx, nowSleepSQL, uid, rivianID, sleepFrom).Scan(&run.failed); err != nil {
+				return out, err
+			}
+			cache.put(uid, rivianID, run, now)
+		}
+		out.StateSince, out.SoCAtStateStart, out.ChargePeakKW, out.FailedSleeps6h = run.since, run.soc, run.peak, run.failed
 		return out, nil
 	}
 }

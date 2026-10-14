@@ -73,3 +73,27 @@ func TestNowHandler(t *testing.T) {
 		t.Fatalf("empty: %v", m)
 	}
 }
+
+func TestNowRunCache(t *testing.T) {
+	c := newNowRunCache(60 * time.Second)
+	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	alice, bob := uuid.New(), uuid.New()
+	since := t0.Add(-time.Hour)
+	c.put(alice, "rv-1", nowRun{state: "parked", since: &since, failed: 2}, t0)
+
+	if r, ok := c.get(alice, "rv-1", "parked", t0.Add(30*time.Second)); !ok || r.failed != 2 || !r.since.Equal(since) {
+		t.Fatalf("hit expected: %+v %v", r, ok)
+	}
+	if _, ok := c.get(alice, "rv-1", "charging", t0.Add(time.Second)); ok {
+		t.Fatal("state change must invalidate")
+	}
+	if _, ok := c.get(alice, "rv-1", "parked", t0.Add(61*time.Second)); ok {
+		t.Fatal("entry must expire after the TTL")
+	}
+	if _, ok := c.get(bob, "rv-1", "parked", t0.Add(time.Second)); ok {
+		t.Fatal("cache must be per user")
+	}
+	if _, ok := c.get(alice, "rv-2", "parked", t0.Add(time.Second)); ok {
+		t.Fatal("cache must be per vehicle")
+	}
+}
