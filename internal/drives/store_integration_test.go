@@ -308,3 +308,20 @@ func TestLiveOverlap(t *testing.T) {
 		t.Errorf("own row must be excluded, got %+v", ov)
 	}
 }
+
+// TestLiveCovers: see charges.TestLiveCovers.
+func TestLiveCovers(t *testing.T) {
+	factory, uidA, _ := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-5 * time.Hour).Truncate(time.Second)
+	if err := store.Upsert(ctx, sampleDrive("live-1", "rv-A", start)); err != nil { // 30 min, live
+		t.Fatal(err)
+	}
+	if got, err := store.LiveCovers(ctx, "rv-A", start.Add(5*time.Minute), start.Add(time.Hour)); err != nil || !got {
+		t.Errorf("overlapping range: %v, %v; want true", got, err)
+	}
+	if got, err := store.LiveCovers(ctx, "rv-A", start.Add(30*time.Minute), start.Add(time.Hour)); err != nil || got {
+		t.Errorf("range starting at the live drive's end: %v, %v; want false", got, err)
+	}
+}

@@ -907,3 +907,21 @@ func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(rad(lat1))*math.Cos(rad(lat2))*math.Sin(dLon/2)*math.Sin(dLon/2)
 	return 2 * r * math.Asin(math.Sqrt(a))
 }
+
+// LiveCovers reports whether a live (recorder) charge for this vehicle
+// overlaps [start, end). Importers use it to leave sessions the
+// recorder already captured alone instead of double-counting them.
+func (s *Store) LiveCovers(ctx context.Context, rivianVehicleID string, start, end time.Time) (bool, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return false, err
+	}
+	var ok bool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM charges
+		   WHERE user_id = $1 AND vehicle_id = $2 AND source = 'live'
+		     AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange($3::timestamptz, GREATEST($4::timestamptz, $3::timestamptz)))`,
+		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
+	return ok, err
+}

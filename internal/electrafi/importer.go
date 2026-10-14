@@ -47,6 +47,11 @@ type Result struct {
 	Drives      int
 	Charges     int
 	SkippedRows int
+	// SkippedLive counts derived drives and charges not written because
+	// the live recorder already has a session overlapping them (the
+	// recorder's row is authoritative; importing it again would double
+	// count the trip or the kWh).
+	SkippedLive int
 }
 
 // Importer runs against the three stores. Samples is optional — when
@@ -75,6 +80,29 @@ type Importer struct {
 	// must not block (it's called from the row loop); the API
 	// handler uses it to flush NDJSON lines.
 	OnProgress func(phase string, rows int)
+	// LiveCovers, when set, replaces the store lookup that decides
+	// whether a live session already covers [start, end) ("drive" or
+	// "charge"). Tests use it; nil means ask the stores.
+	LiveCovers func(ctx context.Context, kind string, start, end time.Time) (bool, error)
+}
+
+// liveCovered reports whether the recorder already has a live session
+// of this kind overlapping [start, end) for the import's vehicle.
+func (i *Importer) liveCovered(ctx context.Context, kind string, start, end time.Time) (bool, error) {
+	if i.LiveCovers != nil {
+		return i.LiveCovers(ctx, kind, start, end)
+	}
+	switch kind {
+	case "drive":
+		if i.Drives != nil {
+			return i.Drives.LiveCovers(ctx, i.VehicleID, start, end)
+		}
+	case "charge":
+		if i.Charges != nil {
+			return i.Charges.LiveCovers(ctx, i.VehicleID, start, end)
+		}
+	}
+	return false, nil
 }
 
 // DefaultPackKWh is the usable capacity we assume when the operator
@@ -249,7 +277,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	// vehicle_state but don't anchor any drive (the SPA joins drive →
 	// samples by time window, not by drive_number).
 	const minParkedWindow = 30 * time.Minute
-	driveRowsEmitted := 0
+	driveRowsEmitted, chargeRowsEmitted, skippedLive := 0, 0, 0
 	for _, snaps := range driveGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
 		for _, sub := range splitFrozenGPS(snaps, minParkedWindow) {
@@ -260,6 +288,14 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			// into the drive row that the dashboard will then aggregate as
 			// if it were real.
 			d := deriveDrive(id, vehicleID, sub, i.PackKWh)
+			covered, err := i.liveCovered(ctx, "drive", d.StartedAt, d.EndedAt)
+			if err != nil {
+				return Result{}, fmt.Errorf("live overlap check for drive %s: %w", id, err)
+			}
+			if covered {
+				skippedLive++
+				continue
+			}
 			if err := i.Drives.Upsert(ctx, d); err != nil {
 				return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
 			}
@@ -273,9 +309,18 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
 		id := stableID(vehicleID, "c", snaps[0].at)
 		c := deriveCharge(id, vehicleID, snaps, i.pack())
+		covered, err := i.liveCovered(ctx, "charge", c.StartedAt, c.EndedAt)
+		if err != nil {
+			return Result{}, fmt.Errorf("live overlap check for charge %s: %w", id, err)
+		}
+		if covered {
+			skippedLive++
+			continue
+		}
 		if err := i.Charges.Upsert(ctx, c); err != nil {
 			return Result{}, fmt.Errorf("upsert charge %s: %w", id, err)
 		}
+		chargeRowsEmitted++
 	}
 
 	return Result{
@@ -283,8 +328,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		Rows:        rows,
 		Samples:     sampleCount,
 		Drives:      driveRowsEmitted,
-		Charges:     len(chargeGroups),
+		Charges:     chargeRowsEmitted,
 		SkippedRows: skipped,
+		SkippedLive: skippedLive,
 	}, nil
 }
 
