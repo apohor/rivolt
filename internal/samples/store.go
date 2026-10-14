@@ -449,7 +449,8 @@ type DayActivity struct {
 //
 // idle_awake = awake (power_state<>'sleep') AND parked (gear not D/R/N)
 // AND not actively charging (charging_state not charging_active /
-// charging_connecting). That isolates unexplained awake time from
+// charging_connecting). An unknown (NULL) gear or charging state counts
+// as parked and not charging, as in internal/drain. That isolates unexplained awake time from
 // normal driving / charging.
 //
 // Charging is judged by charging_state alone, not charger_power_kw:
@@ -480,8 +481,8 @@ func (s *Store) SleepActivity(ctx context.Context, vehicleID string, since, unti
 	       COALESCE(SUM(dur_s) FILTER (WHERE power_state = 'sleep'), 0)/3600.0 AS asleep_h,
 	       COALESCE(SUM(dur_s) FILTER (
 	         WHERE power_state <> 'sleep'
-	           AND shift_state NOT IN ('D','R','N')
-	           AND charging_state NOT IN ('charging_active','charging_connecting')
+	           AND COALESCE(shift_state, '') NOT IN ('D','R','N')
+	           AND COALESCE(charging_state, '') NOT IN ('charging_active','charging_connecting')
 	       ), 0)/3600.0 AS idle_awake_h
 	FROM ivl
 	WHERE dur_s IS NOT NULL

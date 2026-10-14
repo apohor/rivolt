@@ -16,7 +16,8 @@
 //   - Idle-awake (h/day): hours awake while parked and not charging,
 //     per 24 h of recorded power state. Intervals are capped at 20 min
 //     and attributed to the state at their start, as in
-//     samples.SleepActivity.
+//     samples.SleepActivity, except that an unknown (NULL) gear or
+//     charging state counts as parked and not charging, as for drain.
 //   - Sleeps: a sleep runs from the first 'sleep' sample after a
 //     non-sleep one to the next non-sleep sample. A quick re-wake is a
 //     sleep that lasted under 60 s (the sleep gate's failed sleep).
@@ -80,8 +81,8 @@ WITH s AS (
 	        AND COALESCE(cs, '') NOT IN ('charging_active', 'charging_connecting')) AS idle,
 	       LAG(COALESCE(gear, '') IN ('P', '') AND COALESCE(mph, 0) < 1
 	           AND COALESCE(cs, '') NOT IN ('charging_active', 'charging_connecting')) OVER w AS pidle,
-	       LAG(gear NOT IN ('D', 'R', 'N')
-	           AND cs NOT IN ('charging_active', 'charging_connecting')) OVER w AS pparked
+	       LAG(COALESCE(gear, '') NOT IN ('D', 'R', 'N')
+	           AND COALESCE(cs, '') NOT IN ('charging_active', 'charging_connecting')) OVER w AS pparked
 	  FROM s
 	WINDOW w AS (PARTITION BY vehicle_id ORDER BY at)
 ), iv AS (
