@@ -483,6 +483,27 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleProfilePut(d.DB)(uid, w, r)
 			}))
+			// Now-card state fields (location_fix_at, connection,
+			// state_since, tire min). Read-only; 404s unless
+			// money_tab_enabled covers the user.
+			if d.DB != nil {
+				na := nowAPI{
+					snapshot: newNowSnapshotter(d.DB),
+					connection: func(uid uuid.UUID) string {
+						paused := d.Flags != nil && d.Flags.KillSwitch().Paused
+						needs := false
+						if d.Accounts != nil {
+							if a := d.Accounts.For(uid); a != nil {
+								needs, _ = a.NeedsReauth()
+							}
+						}
+						return connectionState(envReplay(), paused, needs)
+					},
+					now: time.Now,
+				}
+				r.With(requireMoneyTabMW(moneyTabEnabled(d.Flags)), vehicleScoped).
+					Get("/vehicles/{vehicleID}/now", withUser(na.handle))
+			}
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handlePackHealthGet(d.DB, d.PackHealth)(uid, w, r)
 			}))
