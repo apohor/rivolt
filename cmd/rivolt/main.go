@@ -347,7 +347,7 @@ func runServer() {
 	// off and split-brains the recorder). Anything but the network-free
 	// modes is the live client, so refuse to boot rather than rely on
 	// the kill switch or a dead session to keep it quiet.
-	if os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN") == "true" {
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN")) {
 		switch os.Getenv("RIVIAN_CLIENT") {
 		case "replay", "mock", "stub":
 		default:

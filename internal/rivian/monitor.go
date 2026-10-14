@@ -261,8 +261,8 @@ type StateMonitor struct {
 	// client is nil on such monitors.
 	source FrameSource
 	// quietHooks is set while a source is replaying already-elapsed
-	// frames, so charge-close push notifications don't fire for
-	// sessions that ended in the past.
+	// frames, so close hooks (charge push notifications, drive weather
+	// fetches) don't fire for sessions that ended in the past.
 	quietHooks atomic.Bool
 }
 
@@ -395,7 +395,11 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 // parseBoolEnv treats "1", "true", "yes", "on" (any case) as true; all
 // else (including empty) is false. Central so feature flags read the
 // same way everywhere.
-func parseBoolEnv(v string) bool {
+func parseBoolEnv(v string) bool { return ParseBoolEnv(v) }
+
+// ParseBoolEnv is parseBoolEnv for other packages' env flags (main's
+// live-client guard), so every switch reads truthiness the same way.
+func ParseBoolEnv(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "1", "true", "yes", "on":
 		return true
