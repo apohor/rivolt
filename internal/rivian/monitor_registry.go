@@ -35,8 +35,9 @@ import (
 //   - AllVehicleInfo unions every monitor's known vehicles so the
 //     coordinator's vehicleSource sees one flat set.
 //
-// The registry is wired only in live mode. Mock and stub paths
-// don't have a recorder, so they don't need this layer.
+// The registry records for live accounts and for replay accounts
+// (RIVIAN_CLIENT=replay, source-fed monitors). Mock and stub paths
+// don't have a recorder.
 type MonitorRegistry struct {
 	pool               *sql.DB
 	accounts           AccountRegistry
@@ -181,9 +182,9 @@ func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) 
 }
 
 // Start launches a monitor for uid if one is not already running.
-// Returns the monitor (existing or new). Returns nil only when the
-// account registry hands back a non-LiveClient (mock/stub paths
-// shouldn't be calling Start; this is a defensive guard).
+// Returns the monitor (existing or new). Returns nil when the account
+// is neither a LiveClient nor an authenticated FrameSource (mock/stub
+// paths shouldn't be calling Start; this is a defensive guard).
 func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonitor {
 	if uid == uuid.Nil {
 		return nil
@@ -203,8 +204,13 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		parent = ctx
 	}
 
-	lc := liveClientFromAccount(r.accounts.For(uid))
-	if lc == nil {
+	// A live account gets a WS-subscribing monitor; an authenticated
+	// FrameSource account (RIVIAN_CLIENT=replay) gets a source-fed one
+	// with no Rivian client at all.
+	acct := r.accounts.For(uid)
+	lc := liveClientFromAccount(acct)
+	src, isSource := acct.(FrameSource)
+	if lc == nil && (!isSource || !acct.Authenticated()) {
 		// User has no live session yet (or registry is mock/stub).
 		// Login flow will call Start again once Login completes.
 		return nil
@@ -217,7 +223,16 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	}
 
 	mctx, cancel := context.WithCancel(parent)
-	mon := NewStateMonitor(lc, r.logger.With("user_id", uid.String()))
+	var mon *StateMonitor
+	if lc != nil {
+		mon = NewStateMonitor(lc, r.logger.With("user_id", uid.String()))
+	} else {
+		var vehicles []Vehicle
+		if c, ok := acct.(Client); ok {
+			vehicles, _ = c.Vehicles(mctx)
+		}
+		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
+	}
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),

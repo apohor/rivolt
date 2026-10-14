@@ -255,6 +255,15 @@ type StateMonitor struct {
 	// sleep gate (sleep_gate.go); nil disables each. Guarded by mu.
 	sleepSafe     func(vehicleID string) bool
 	sleepObserver SleepObserver
+
+	// source, when set, replaces the live Rivian subscription: run()
+	// feeds its frames straight to the recorder (see NewSourceMonitor).
+	// client is nil on such monitors.
+	source FrameSource
+	// quietHooks is set while a source is replaying already-elapsed
+	// frames, so charge-close push notifications don't fire for
+	// sessions that ended in the past.
+	quietHooks atomic.Bool
 }
 
 // PriceLookup returns the current home electricity rate and its
@@ -328,6 +337,58 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		// that's a 3-second cold-start spread, well below Rivian's
 		// observed rate-limit window.
 		staggerInterval: 50 * time.Millisecond,
+	}
+}
+
+// NewSourceMonitor returns a monitor whose vehicles are fed by src
+// instead of a Rivian subscription — the replay/demo path. It has no
+// client, so nothing it does can reach Rivian. vehicles seeds the
+// metadata cache that RefreshVehicleInfo would otherwise fetch.
+func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) *StateMonitor {
+	m := NewStateMonitor(nil, logger)
+	// Recorded frames are already the merged output of whichever feeds
+	// produced them; the Parallax field-authority rules only apply to
+	// live subscriptions.
+	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture = false, false, false
+	m.source = src
+	for i := range vehicles {
+		v := vehicles[i]
+		m.vehicleInfo[v.ID] = &v
+	}
+	return m
+}
+
+// runSource is run() for source-fed monitors: frames are full
+// snapshots, so each one becomes the cached state as-is (no delta
+// merge) and drives the recorder exactly as a live push would.
+func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
+	defer func() {
+		m.mu.Lock()
+		delete(m.active, vehicleID)
+		m.mu.Unlock()
+	}()
+	pubCtx, cancelPub := context.WithCancel(ctx)
+	defer cancelPub()
+	go m.liveStatePublisher(pubCtx, vehicleID)
+
+	err := m.source.Stream(ctx, vehicleID, func(st State, catchingUp bool) {
+		m.quietHooks.Store(catchingUp)
+		cur := st
+		cur.VehicleID = vehicleID
+		m.mu.Lock()
+		prev := m.cache[vehicleID]
+		m.cache[vehicleID] = &cur
+		m.stamp[vehicleID] = time.Now()
+		m.mu.Unlock()
+		m.record(ctx, vehicleID, prev, &cur)
+	})
+	switch {
+	case errors.Is(err, ErrVehicleNotFound):
+		// A real vehicle owned by the same user: the source doesn't
+		// serve it, and must not pretend to.
+		m.logger.Debug("frame source: vehicle not served", "vehicle", vehicleID)
+	case err != nil && ctx.Err() == nil:
+		m.logger.Warn("frame source ended", "vehicle", vehicleID, "err", err.Error())
 	}
 }
 
@@ -572,7 +633,10 @@ func (m *StateMonitor) Start(ctx context.Context) {
 	// helps a row whose process died and never came back. Runs every
 	// 10 min, marks anything still 'charging_*' with ended_at older
 	// than 1h as 'abandoned'.
-	if m.chargesStore != nil {
+	// Source-fed monitors skip it: with no client the janitor can't
+	// confirm a session over REST, and a replay closes its charges
+	// through the normal lifecycle anyway.
+	if m.chargesStore != nil && m.client != nil {
 		go m.runStaleChargeJanitor(ctx)
 	}
 }
@@ -788,6 +852,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		m.mu.Lock()
 		delete(m.active, vehicleID)
 		m.mu.Unlock()
+		return
+	}
+	if m.source != nil {
+		m.runSource(ctx, vehicleID)
 		return
 	}
 
@@ -2527,6 +2595,10 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 // not an error — PackKWh still gets populated from the vehicles
 // query.
 func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
+	if m.client == nil {
+		// Source-fed monitor: metadata was seeded at construction.
+		return nil
+	}
 	vehicles, err := m.client.Vehicles(ctx)
 	if err != nil {
 		return err

@@ -30,6 +30,18 @@ type replayFrame struct {
 	ChargerKW     float64    `json:"charger_power_kw"`
 	PowerState    string     `json:"power_state"`
 	LocationFixAt *time.Time `json:"location_fix_at"`
+
+	// Display-only columns. Optional in JSONL fixtures; the DB-backed
+	// replay corpus fills them so a demo vehicle's Live panel isn't a
+	// wall of em-dashes. Nullable columns arrive as JSON null → zero.
+	DriveMode       string  `json:"drive_mode"`
+	ChargeLimitPct  float64 `json:"charge_limit_pct"`
+	InsideTempC     float64 `json:"inside_temp_c"`
+	OutsideTempC    float64 `json:"outside_temp_c"`
+	TirePressureBar float64 `json:"tire_pressure_min_bar"`
+	PackTempAvgC    float64 `json:"pack_temp_avg_c"`
+	PackTempMaxC    float64 `json:"pack_temp_max_c"`
+	PackTempMinC    float64 `json:"pack_temp_min_c"`
 }
 
 func (f replayFrame) toState() State {
@@ -45,10 +57,44 @@ func (f replayFrame) toState() State {
 		ChargerState:    f.ChargingState,
 		ChargerPowerKW:  f.ChargerKW,
 		PowerState:      f.PowerState,
+		DriveMode:       f.DriveMode,
+		ChargeTargetPct: f.ChargeLimitPct,
+		CabinTempC:      f.InsideTempC,
+		OutsideTempC:    f.OutsideTempC,
+		PackTempAvgC:    f.PackTempAvgC,
+		PackTempMaxC:    f.PackTempMaxC,
+		PackTempMinC:    f.PackTempMinC,
+		// vehicle_state keeps only the worst corner; spread it to all
+		// four so the recorder's min-of-4 round-trips it unchanged.
+		TirePressureFLBar: f.TirePressureBar,
+		TirePressureFRBar: f.TirePressureBar,
+		TirePressureRLBar: f.TirePressureBar,
+		TirePressureRRBar: f.TirePressureBar,
+	}
+	// chargerStatus (cable connected?) isn't a vehicle_state column, but
+	// the charge lifecycle requires it to open a session, so infer it.
+	// Only from states that mean a live charger: Rivian also reports
+	// charging_ready while unplugged and even while driving, and
+	// recorded charger power can outlive the session, so neither is
+	// evidence on its own.
+	if f.ChargingState != "" {
+		s.ChargerStatus = "chrgr_sts_not_connected"
+		switch strings.ToLower(f.ChargingState) {
+		case "charging_active", "charging_connecting", "waiting_on_charger",
+			"charging_station_err", "charging_station_error",
+			"charging_user_stopped", "charging_complete":
+			if !isDrivingGear(f.ShiftState) {
+				s.ChargerStatus = "chrgr_sts_connected_charging"
+			}
+		}
 	}
 	if f.LocationFixAt != nil {
 		s.LocationFixAt = *f.LocationFixAt
 	}
+	// Rows recorded before the stale-charger-power fix carry the last
+	// session's kW through idle states; the live path clears it in
+	// mergeState, which replay bypasses, so clear it here too.
+	dropIdleChargerPower(&s)
 	return s
 }
 
@@ -99,13 +145,10 @@ type Replayer struct {
 // captured via the drive-close hook.
 func NewReplayer(vehicleID string) *Replayer {
 	r := &Replayer{vehicle: vehicleID}
-	m := &StateMonitor{
-		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-		sessions:    map[string]*liveSessions{},
-		cache:       map[string]*State{},
-		stamp:       map[string]time.Time{},
-		vehicleInfo: map[string]*Vehicle{},
-	}
+	// The full constructor, so every lifecycle map (charge bonds, live
+	// sessions, …) exists once frames exercise the charge path too.
+	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture = false, false, false
 	m.driveCloseHook = func(_ context.Context, d drives.Drive) {
 		r.mu.Lock()
 		r.closed = append(r.closed, d)

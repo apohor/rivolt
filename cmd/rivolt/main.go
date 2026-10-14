@@ -92,7 +92,17 @@ Usage:
 
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
-  RIVIAN_CLIENT=stub|live|mock   (default: stub)
+  RIVIAN_CLIENT=stub|live|mock|replay   (default: stub)
+  RIVOLT_REPLAY_SOURCE_VEHICLE   replay: Rivian id of the vehicle whose
+                                 recorded history demo vehicles replay.
+  RIVOLT_REPLAY_FROM/_TO         replay: optional corpus bounds (RFC 3339
+                                 or YYYY-MM-DD).
+  RIVOLT_REPLAY_BACKFILL         replay: history recorded on first connect
+                                 (Go duration, default 720h).
+  RIVOLT_REPLAY_ALLOWED_USERS    replay: comma-separated usernames allowed a
+                                 demo vehicle (default: everyone).
+  RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
+                                 client (preview: replay/mock/stub only).
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
                                  legacy "local" user on boot, then continue.
                                  Vehicles/settings/push are preserved.
@@ -331,7 +341,67 @@ func runServer() {
 	if redisKeyPrefix == "" {
 		redisKeyPrefix = "rivolt"
 	}
+	// Fail closed on installs that must never talk to Rivian (preview:
+	// a second live subscriber on a VIN prod also streams kicks both
+	// off and split-brains the recorder). Anything but the network-free
+	// modes is the live client, so refuse to boot rather than rely on
+	// the kill switch or a dead session to keep it quiet.
+	if os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN") == "true" {
+		switch os.Getenv("RIVIAN_CLIENT") {
+		case "replay", "mock", "stub":
+		default:
+			logger.Error("RIVOLT_RIVIAN_LIVE_FORBIDDEN is set; RIVIAN_CLIENT must be replay, mock or stub",
+				"rivian_client", os.Getenv("RIVIAN_CLIENT"))
+			os.Exit(1)
+		}
+	}
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
+	case "replay":
+		// Demo vehicles: every signed-in user who "connects Rivian"
+		// (any credentials) gets one vehicle that replays a recorded
+		// vehicle's history, time-shifted to now, through the real
+		// recorder. No LiveClient is ever built in this mode.
+		src := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE_VEHICLE"))
+		if pgPool == nil || src == "" {
+			logger.Error("RIVIAN_CLIENT=replay needs DATABASE_URL and RIVOLT_REPLAY_SOURCE_VEHICLE")
+			os.Exit(1)
+		}
+		from, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_FROM"))
+		if err != nil {
+			logger.Error("bad RIVOLT_REPLAY_FROM", "err", err.Error())
+			os.Exit(1)
+		}
+		to, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_TO"))
+		if err != nil {
+			logger.Error("bad RIVOLT_REPLAY_TO", "err", err.Error())
+			os.Exit(1)
+		}
+		backfill := 30 * 24 * time.Hour
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_BACKFILL")); v != "" {
+			if backfill, err = time.ParseDuration(v); err != nil {
+				logger.Error("bad RIVOLT_REPLAY_BACKFILL", "err", err.Error())
+				os.Exit(1)
+			}
+		}
+		feed, err := rivian.NewDBReplayFeed(ctx, pgPool, src, from, to, backfill, logger)
+		if err != nil {
+			logger.Error("replay feed", "err", err.Error())
+			os.Exit(1)
+		}
+		// The corpus is a real vehicle's history, and preview shares
+		// sign-in with prod: limit demo vehicles to listed usernames.
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_ALLOWED_USERS")); v != "" {
+			allowed := map[uuid.UUID]bool{}
+			for _, u := range strings.Split(v, ",") {
+				if u = strings.TrimSpace(u); u != "" {
+					allowed[db.UserIDFor(u)] = true
+				}
+			}
+			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
+		}
+		accountRegistry = rivian.NewReplayAccountRegistry(feed)
+		rivianClient = rivian.NewStub()
+		logger.Info("rivian client: replay (no network)", "source_vehicle", src)
 	case "mock":
 		// Mock starts logged-out; the UI sign-in panel drives Login()
 		// just like the live client. Per-user instances so two test
@@ -670,8 +740,13 @@ func runServer() {
 				if sess.UserSessionToken == "" {
 					continue
 				}
-				userLC := accountRegistry.For(uid).(*rivian.LiveClient)
-				userLC.Restore(sess)
+				acct := accountRegistry.For(uid)
+				acct.Restore(sess)
+				// A replay account ignores sessions it didn't issue (e.g.
+				// a real Rivian session from before the switch); skip it.
+				if _, live := acct.(*rivian.LiveClient); !live && !acct.Authenticated() {
+					continue
+				}
 				if monitorRegistry != nil {
 					monitorRegistry.Start(ctx, uid)
 				}
@@ -679,7 +754,7 @@ func runServer() {
 				logger.Info("rivian session restored",
 					"user_id", uid.String(), "email", sess.Email)
 			}
-			logger.Info("rivian client: live", "users_hydrated", restored)
+			logger.Info("rivian sessions hydrated", "mode", os.Getenv("RIVIAN_CLIENT"), "users_hydrated", restored)
 		}
 	}
 
@@ -1816,4 +1891,17 @@ func (a emailMetricsAdapter) IncEmailSend(provider, status string) {
 		return
 	}
 	a.m.EmailSendTotal.WithLabelValues(provider, status).Inc()
+}
+
+// parseReplayBound reads an optional RIVOLT_REPLAY_FROM/_TO value:
+// RFC 3339 or a bare YYYY-MM-DD (UTC midnight). Empty means unbounded.
+func parseReplayBound(v string) (time.Time, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02", v)
 }
