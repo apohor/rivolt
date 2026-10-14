@@ -28,7 +28,7 @@ Alerts to add if missing **[DECIDE]**: rate_limited ratio > 5% for 10 min; break
 Pause costs: no new data until resumed (history already stored remains, gaps appear). Degrading costs: staler data. When in doubt about owner-app impact, pause.
 
 ## 3. Actions
-**Pause (all Rivian traffic):** `PUT /api/admin/kill-switch` with `{"paused": true, "reason": "...", "actor": "..."}` (`internal/api/api.go`, `internal/flags.KillSwitchState`). Every pod picks it up within about 10 s (flags poll interval). Every outbound Rivian call returns `ErrUpstreamPaused`. Confirm via `GET /api/admin/kill-switch` and a drop in `rivolt_rivian_results_total`.
+**Pause (all Rivian traffic):** `PUT /api/admin/kill-switch` with `{"paused": true, "reason": "..."} (the server stamps the actor from your session)` (`internal/api/api.go`, `internal/flags.KillSwitchState`). Every pod picks it up within about 10 s (flags poll interval). Every outbound Rivian call returns `ErrUpstreamPaused`. Confirm via `GET /api/admin/kill-switch` and a drop in `rivolt_rivian_results_total`.
 **Resume:** same endpoint, `{"paused": false}`. Resume during a quiet hour; expect a reconnect burst, which the breaker and token bucket contain.
 **Degrade (no deploy needed):**
 1. Turn the sleep gate on for everyone: set flag `sleep_safe_vehicles` to `{"all": true}` (see `internal/flags/flags.go` comment for the SQL). This parks non-essential subscriptions while vehicles sleep.
