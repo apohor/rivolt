@@ -11,6 +11,7 @@ import (
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/signupgate"
 )
 
 // handleHealthz is the kubelet liveness endpoint: synchronous, no
@@ -130,6 +131,9 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// DemoEnabled mirrors demo.Enabled (RIVOLT_DEMO=true on a
 		// replay install); false everywhere else, prod included.
 		DemoEnabled bool `json:"demo_enabled"`
+		// SignupEnabled is false when RIVOLT_SIGNUP_DISABLED=true: the
+		// SPA hides "Create an account" and shows /signup as closed.
+		SignupEnabled bool `json:"signup_enabled"`
 		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
 		// SPA's track() helper sends nothing unless true.
 		EventsEnabled bool `json:"events_enabled"`
@@ -200,6 +204,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()
 	base.Features.DemoEnabled = demo.Enabled()
+	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base

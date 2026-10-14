@@ -137,6 +137,12 @@ var ErrUserForbidden = errors.New("oidc: user forbidden")
 // it to a redirect to CapOverflowURL with the email pre-filled.
 var ErrCapExceeded = errors.New("oidc: signup cap exceeded")
 
+// ErrSignupDisabled is the sentinel CapGuard returns when
+// RIVOLT_SIGNUP_DISABLED is on and the identity has no account (and
+// isn't the bootstrap admin or the first user of an empty install).
+// The callback redirects to the login page with a clear message.
+var ErrSignupDisabled = errors.New("oidc: signups disabled")
+
 // Service is the OIDC handler set, registered under
 // /api/auth/oidc by api.go. Multiple providers live in one
 // Service.
@@ -684,6 +690,12 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	if s.capGuard != nil {
 		if err := s.capGuard(r.Context(), username, email); err != nil {
+			if errors.Is(err, ErrSignupDisabled) {
+				s.log.Info("oidc: sign-in refused, signups disabled", "provider", name)
+				s.clearStateCookie(w)
+				s.failRedirect(w, r, "signups_disabled", "Sign-ups are closed on this server. Ask the administrator for an account.")
+				return
+			}
 			if errors.Is(err, ErrCapExceeded) {
 				s.log.Info("oidc: signup cap exceeded, redirecting",
 					"provider", name, "email", email)

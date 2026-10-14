@@ -239,3 +239,33 @@ you can re-import cleanly.
 For deeper architecture questions see
 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for what's coming see
 [`docs/ROADMAP.md`](ROADMAP.md).
+
+## Self-hosting: closing sign-ups
+
+A self-hosted install that signs in through its own identity provider
+(for example Pocket ID) usually doesn't want anyone else creating an
+account. Set
+
+```
+RIVOLT_SIGNUP_DISABLED=true
+```
+
+(default `false`; hosted behaviour is unchanged). Then:
+
+- the **Create an account** link is hidden on the login page and
+  `/signup` says sign-ups are closed;
+- `POST /api/signup`, `POST /api/signup/request`, the magic-link
+  lookup and the admin access-request routes are not served
+  (`/api/config` reports `features.signup_enabled: false`);
+- **a first sign-in by an identity that has no Rivolt account is
+  refused**, for OIDC and Kratos alike, with "Sign-ups are closed on
+  this server". Without this, a successful login at your identity
+  provider would still create an account (up to the `signup_cap`
+  flag, which defaults to 100).
+
+Still allowed: users that already exist, users an admin creates
+(`POST /api/admin/users`), the address in
+`RIVOLT_BOOTSTRAP_ADMIN_EMAIL`, and the very first user of an empty
+install, so you can always create your first admin. Set
+`RIVOLT_BOOTSTRAP_ADMIN_EMAIL` on a fresh install so that first user
+is you rather than whoever signs in first.
