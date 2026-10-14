@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,6 +200,9 @@ func TestLatestOpenLive_Whitelist(t *testing.T) {
 	}
 	for i, c := range cases {
 		drv := sampleCharge(fmt.Sprintf("c-%d", i), "rv-A", start.Add(time.Duration(i)*time.Minute), c.state)
+		// Back-to-back, not overlapping: migration 0041 rejects two live
+		// sessions for one vehicle at the same time.
+		drv.EndedAt = drv.StartedAt.Add(30 * time.Second)
 		if err := store.Upsert(ctx, drv); err != nil {
 			t.Fatalf("Upsert %q: %v", c.state, err)
 		}
@@ -385,5 +389,77 @@ func TestMarkFree(t *testing.T) {
 	got, _ = a.ListRecent(ctx, 10)
 	if got[0].CostSource != "" {
 		t.Errorf("UpdatePricing(0) must clear cost_source, got %q", got[0].CostSource)
+	}
+}
+
+// TestLiveOverlapGuard pins migration 0041: the database refuses a
+// second live charge or drive overlapping an existing one for the same
+// vehicle (SQLSTATE 23P01), while back-to-back sessions, imports, other
+// vehicles and pre-cutoff rows (the grandfathered May 2026 duplicates)
+// are unaffected.
+func TestLiveOverlapGuard(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "overlap-guard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	isExcl := func(err error) bool { return err != nil && strings.Contains(err.Error(), "23P01") }
+
+	start := time.Now().UTC().Add(-6 * time.Hour).Truncate(time.Second)
+	first := sampleCharge("live-1", "rv-A", start, "charging_complete") // 30 min
+	if err := store.Upsert(ctx, first); err != nil {
+		t.Fatalf("first live charge: %v", err)
+	}
+	// Second recorder, same session 3 s later: rejected.
+	dup := sampleCharge("live-2", "rv-A", start.Add(3*time.Second), "charging_complete")
+	if err := store.Upsert(ctx, dup); !isExcl(err) {
+		t.Fatalf("overlapping live charge: err = %v, want exclusion violation 23P01", err)
+	}
+	// Back-to-back (starts exactly at the previous end): allowed.
+	if err := store.Upsert(ctx, sampleCharge("live-3", "rv-A", first.EndedAt, "charging_complete")); err != nil {
+		t.Errorf("back-to-back live charge rejected: %v", err)
+	}
+	// Same time on another vehicle, or from an import: allowed.
+	if err := store.Upsert(ctx, sampleCharge("live-other", "rv-B", start, "charging_complete")); err != nil {
+		t.Errorf("other vehicle rejected: %v", err)
+	}
+	imp := sampleCharge("electrafi-1", "rv-A", start.Add(time.Minute), "Complete")
+	imp.Source = "electrafi_import"
+	if err := store.Upsert(ctx, imp); err != nil {
+		t.Errorf("overlapping import rejected: %v", err)
+	}
+	// Extending an existing row into the next session is rejected too.
+	grown := first
+	grown.EndedAt = first.EndedAt.Add(5 * time.Minute)
+	if err := store.Upsert(ctx, grown); !isExcl(err) {
+		t.Errorf("extending live-1 over live-3: err = %v, want 23P01", err)
+	}
+	// Grandfathered: overlapping live rows before the 2026-05-10 cutoff.
+	old := time.Date(2026, 5, 8, 22, 54, 46, 0, time.UTC)
+	if err := store.Upsert(ctx, sampleCharge("may-a", "rv-A", old, "charging_complete")); err != nil {
+		t.Fatalf("pre-cutoff charge: %v", err)
+	}
+	if err := store.Upsert(ctx, sampleCharge("may-b", "rv-A", old.Add(3*time.Second), "charging_complete")); err != nil {
+		t.Errorf("pre-cutoff duplicate rejected (should be grandfathered): %v", err)
+	}
+
+	// Drives carry the same guard.
+	var vid string
+	if err := pool.QueryRowContext(ctx, `SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = 'rv-A'`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	ins := `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, source) VALUES ($1, $2, $3, $4, $5, 'live')`
+	if _, err := pool.ExecContext(ctx, ins, uid, vid, "d-1", start, start.Add(time.Hour)); err != nil {
+		t.Fatalf("first live drive: %v", err)
+	}
+	if _, err := pool.ExecContext(ctx, ins, uid, vid, "d-2", start.Add(time.Minute), start.Add(2*time.Hour)); !isExcl(err) {
+		t.Errorf("overlapping live drive: err = %v, want 23P01", err)
 	}
 }

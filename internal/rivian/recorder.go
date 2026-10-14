@@ -132,6 +132,10 @@ type liveSessions struct {
 }
 
 type liveDrive struct {
+	// rejected is set when the database's live-session overlap guard
+	// (migration 0041) refused this drive: another recorder already owns
+	// an overlapping drive for the vehicle, so this one stops writing.
+	rejected   bool
 	id         string
 	startedAt  time.Time
 	number     int64
@@ -185,6 +189,8 @@ type liveDrive struct {
 }
 
 type liveCharge struct {
+	// rejected: see liveDrive.rejected.
+	rejected  bool
 	id        string
 	startedAt time.Time
 	number    int64
@@ -1184,8 +1190,17 @@ func (m *StateMonitor) upsertLiveDrive(ctx context.Context, vehicleID string, d 
 	if !d.endAt.After(d.startedAt) && d.endSoC == d.startSoC && d.endOdoMi == d.startOdoMi {
 		return
 	}
+	if d.rejected {
+		return
+	}
 	row := m.liveDriveRow(vehicleID, d)
 	if err := m.drivesStore.Upsert(ctx, row); err != nil {
+		if sessionOverlapRejected(err) {
+			d.rejected = true
+			m.logger.Warn("live drive rejected: overlaps another live drive for this vehicle (duplicate recorder?); no longer writing it",
+				"vehicle", vehicleID, "id", d.id, "err", err.Error())
+			return
+		}
 		m.logger.Debug("live drive upsert failed", "vehicle", vehicleID, "id", d.id, "err", err.Error())
 	}
 }
@@ -1212,8 +1227,17 @@ func (m *StateMonitor) upsertLiveCharge(ctx context.Context, vehicleID string, c
 		return
 	}
 
+	if c.rejected {
+		return
+	}
 	row := m.liveChargeRow(vehicleID, c)
 	if err := m.chargesStore.Upsert(ctx, row); err != nil {
+		if sessionOverlapRejected(err) {
+			c.rejected = true
+			m.logger.Warn("live charge rejected: overlaps another live charge for this vehicle (duplicate recorder?); no longer writing it",
+				"vehicle", vehicleID, "id", c.id, "err", err.Error())
+			return
+		}
 		m.logger.Debug("live charge upsert failed", "vehicle", vehicleID, "id", c.id, "err", err.Error())
 	}
 }
