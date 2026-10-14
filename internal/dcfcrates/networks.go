@@ -172,6 +172,29 @@ var Networks = []Network{
 	},
 }
 
+// nrelNetworkNames maps NREL AFDC ev_network codes that no
+// MatchPatterns substring catches as-is onto a name that does. Codes
+// not listed are matched with underscores read as spaces.
+var nrelNetworkNames = map[string]string{
+	// A DCFC station on the Tesla network is a Supercharger
+	// (Destination chargers are L2 and never reach DCFC pricing).
+	"TESLA":            "Tesla Supercharger",
+	"RIVIAN_ADVENTURE": "Rivian Adventure Network",
+	"FLO":              "Flo Charging",
+}
+
+// StationQuery turns an NREL station's network code and name into the
+// text ResolveRate matches, so a recorded DCFC session priced from the
+// station it happened at resolves the same rows a planned stop does.
+func StationQuery(nrelNetwork, stationName string) string {
+	code := strings.TrimSpace(nrelNetwork)
+	name, ok := nrelNetworkNames[strings.ToUpper(code)]
+	if !ok {
+		name = strings.ReplaceAll(code, "_", " ")
+	}
+	return strings.TrimSpace(name + " " + stationName)
+}
+
 // UnmatchedNetwork is the fallback when MatchNetwork can't pin a
 // stop to a known operator. Pinned at "unknown" rather than guessing
 // - every per-stop quote should be traceable to a row in this file.

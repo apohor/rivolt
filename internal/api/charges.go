@@ -10,6 +10,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -135,6 +136,11 @@ func decorateCharge(c charges.Charge, cfg settings.ChargingConfig) chargeRespons
 	// for legacy rows (imports, pre-v0.3.29 live) that have no
 	// persisted cost.
 	if c.Cost > 0 {
+		return resp
+	}
+	// An unpriced DC fast charge is unknown, not home-priced: that
+	// estimate was the bug migration 0040 fixed on the write path.
+	if rivian.IsDCFCSession(c.MaxPowerKW, c.EnergyAddedKWh, c.ActiveSeconds, c.EndedAt.Sub(c.StartedAt)) {
 		return resp
 	}
 	if cfg.HomePricePerKWh > 0 && c.EnergyAddedKWh > 0 {

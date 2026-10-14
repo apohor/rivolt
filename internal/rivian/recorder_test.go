@@ -1,6 +1,7 @@
 package rivian
 
 import (
+	"math"
 	"context"
 	"testing"
 	"time"
@@ -871,5 +872,94 @@ func TestForgetSampleSlotAllowsImmediateResubscribe(t *testing.T) {
 	m.forgetSampleSlot("veh1")
 	if !m.claimSampleSlot("veh1", base.Add(time.Millisecond)) {
 		t.Error("after forgetSampleSlot the next frame must be recorded")
+	}
+}
+
+// A charge Rivian didn't bill is priced by source: DCFC at the matched
+// network's rate, slower charging at the home rate, and a Rivian price
+// always wins.
+func TestLiveChargeRow_CostSource(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	m.SetDCFCPriceLookup(func(lat, lon float64) (float64, string, string, bool) {
+		return 0.48, "USD", "Electrify America", true
+	})
+	start := time.Date(2026, 10, 7, 14, 0, 0, 0, time.UTC)
+	charge := func(id string, maxKW, kwh float64, dur time.Duration) *liveCharge {
+		return &liveCharge{id: id, startedAt: start, endAt: start.Add(dur),
+			startSoC: 20, endSoC: 60, maxPower: maxKW, energyIntKWh: kwh,
+			lat: 30.9, lon: -102.9, finalState: "charging_complete"}
+	}
+
+	dc := m.liveChargeRow("veh-1", charge("dc", 150, 50, 40*time.Minute))
+	if dc.CostSource != CostSourceNetworkEstimate || dc.Network != "Electrify America" ||
+		dc.PricePerKWh != 0.48 || math.Abs(dc.Cost-0.48*dc.EnergyAddedKWh) > 0.01 {
+		t.Errorf("DCFC: source=%q network=%q rate=%.2f cost=%.2f for %.1f kWh, want network_estimate/Electrify America at 0.48",
+			dc.CostSource, dc.Network, dc.PricePerKWh, dc.Cost, dc.EnergyAddedKWh)
+	}
+
+	l2 := m.liveChargeRow("veh-1", charge("l2", 11, 10, 2*time.Hour))
+	if l2.CostSource != CostSourceHomeRate || l2.Network != "" ||
+		l2.PricePerKWh != 0.11 || math.Abs(l2.Cost-0.11*l2.EnergyAddedKWh) > 0.01 {
+		t.Errorf("L2: source=%q network=%q rate=%.2f cost=%.2f, want home_rate at 0.11", l2.CostSource, l2.Network, l2.PricePerKWh, l2.Cost)
+	}
+
+	billed := charge("ran", 200, 60, 30*time.Minute)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD"}
+	m.lastSessionFor["veh-1"] = billed.id
+	m.mu.Unlock()
+	ran := m.liveChargeRow("veh-1", billed)
+	if ran.CostSource != CostSourceRivian || ran.Cost != 27 {
+		t.Errorf("Rivian-billed: source=%q cost=%.2f, want rivian/27.00", ran.CostSource, ran.Cost)
+	}
+}
+
+// A home L2 session with one glitched high-kW sample stays on the home
+// rate, and a real fast charge with no station match stays unpriced
+// instead of getting a guessed rate stamped on it.
+func TestLiveChargeRow_DCFCGuards(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	matched := true
+	m.SetDCFCPriceLookup(func(lat, lon float64) (float64, string, string, bool) {
+		if !matched {
+			return 0, "", "", false
+		}
+		return 0.48, "USD", "Electrify America", true
+	})
+	start := time.Date(2026, 9, 14, 2, 0, 0, 0, time.UTC)
+
+	glitch := m.liveChargeRow("veh-1", &liveCharge{id: "g", startedAt: start, endAt: start.Add(15 * time.Hour),
+		startSoC: 20, endSoC: 70, maxPower: 145, energyIntKWh: 66, finalState: "charging_complete"})
+	if glitch.CostSource != CostSourceHomeRate {
+		t.Errorf("glitched-peak home session: source=%q cost=%.2f, want home_rate", glitch.CostSource, glitch.Cost)
+	}
+
+	matched = false
+	nomatch := m.liveChargeRow("veh-1", &liveCharge{id: "n", startedAt: start, endAt: start.Add(35 * time.Minute),
+		startSoC: 20, endSoC: 60, maxPower: 180, energyIntKWh: 50, finalState: "charging_complete"})
+	if nomatch.Cost != 0 || nomatch.CostSource != "" {
+		t.Errorf("unmatched DCFC: source=%q cost=%.2f, want unpriced", nomatch.CostSource, nomatch.Cost)
+	}
+}
+
+func TestIsDCFCSession(t *testing.T) {
+	cases := []struct {
+		name                 string
+		peak, kwh, activeSec float64
+		span                 time.Duration
+		want                 bool
+	}{
+		{"real DCFC", 150, 50, 0, 40 * time.Minute, true},
+		{"glitched home L2", 145, 66, 0, 15 * time.Hour, false},
+		{"active time beats wall span", 120, 40, 1800, 3 * time.Hour, true},
+		{"L2", 11, 30, 0, 3 * time.Hour, false},
+		{"no energy", 150, 0, 0, time.Hour, false},
+	}
+	for _, c := range cases {
+		if got := IsDCFCSession(c.peak, c.kwh, c.activeSec, c.span); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
 	}
 }

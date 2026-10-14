@@ -352,6 +352,88 @@ func (a *Archive) QueryCorridor(path [][2]float64, filter Filter, opts QueryCorr
 // to WGS84, and returns the subset that passes the filter + corridor
 // distance check.
 func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj projectedPath, trimM, corridorM float64, opts QueryCorridorOptions) ([]POI, error) {
+	all, err := a.tilePOIs(z, x, y)
+	if err != nil {
+		return nil, err
+	}
+	pois := make([]POI, 0, 8)
+	for _, poi := range all {
+		if opts.MinPowerKW > 0 && poi.MaxPowerKW > 0 && poi.MaxPowerKW < opts.MinPowerKW {
+			continue
+		}
+		if !poi.matches(filter) {
+			continue
+		}
+		// Corridor distance + endpoint trim. +Inf = endpoint-
+		// projection-rejected; any larger-than-corridor value =
+		// outside the band. Tile bbox is wider than the corridor
+		// by design (slippy-map tile grid doesn't align with the
+		// corridor band), so this is the real filter.
+		perp := proj.perpDistanceM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
+		if perp == math.Inf(1) || perp > corridorM {
+			continue
+		}
+		pois = append(pois, poi)
+	}
+	return pois, nil
+}
+
+// matches reports whether poi passes filter.
+func (poi POI) matches(filter Filter) bool {
+	switch filter {
+	case FilterDCFC:
+		return poi.IsDCFC
+	case FilterL2:
+		return poi.IsL2
+	case FilterHotels:
+		return hotelFacilityTypes[strNormUpper(poi.FacilityType)] && poi.IsL2
+	}
+	return true
+}
+
+// Nearest returns the closest charger passing filter within maxM
+// meters of (lat, lon). Used to attribute a recorded charging session
+// to the station (and network) it happened at. Searches the point's
+// tile and its eight neighbours, so maxM must stay well under a z14
+// tile (~2.4 km at the equator). Concurrent-safe.
+func (a *Archive) Nearest(lat, lon, maxM float64, filter Filter) (POI, bool, error) {
+	cx, cy := lonToTileX(lon, chargersZoom), latToTileY(lat, chargersZoom)
+	var best POI
+	bestD := math.Inf(1)
+	for dx := -1; dx <= 1; dx++ {
+		for dy := -1; dy <= 1; dy++ {
+			x, y := int64(cx)+int64(dx), int64(cy)+int64(dy)
+			if x < 0 || y < 0 {
+				continue
+			}
+			pois, err := a.tilePOIs(chargersZoom, uint32(x), uint32(y))
+			if err != nil {
+				return POI{}, false, err
+			}
+			for _, p := range pois {
+				if !p.matches(filter) {
+					continue
+				}
+				if d := haversineM(lat, lon, p.Lat, p.Lon); d <= maxM && d < bestD {
+					best, bestD = p, d
+				}
+			}
+		}
+	}
+	return best, !math.IsInf(bestD, 1), nil
+}
+
+func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	rad := math.Pi / 180
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Sqrt(h))
+}
+
+// tilePOIs decodes every charger feature in one tile.
+func (a *Archive) tilePOIs(z uint8, x, y uint32) ([]POI, error) {
 	raw, err := a.tileBytes(z, x, y)
 	if err != nil || len(raw) == 0 {
 		return nil, err
@@ -381,12 +463,12 @@ func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj proje
 			props := f.Properties
 			poi.Name = stringProp(props, "name")
 			poi.FacilityType = stringProp(props, "facility_type")
-			poi.EVNetwork = stringProp(props, "ev_network")
-			poi.EVPricing = stringProp(props, "ev_pricing")
-			poi.EntityID = stringProp(props, "entity_id")
-			if poi.EntityID == "" {
-				poi.EntityID = stringProp(props, "id")
-			}
+			// The tile build (rivolt-infra maps/tiles chargers.yaml)
+			// renames NREL's ev_network → network, ev_pricing → fee and
+			// id → "@id"; the NREL names stay as fallbacks.
+			poi.EVNetwork = firstStringProp(props, "network", "ev_network")
+			poi.EVPricing = firstStringProp(props, "fee", "ev_pricing")
+			poi.EntityID = firstStringProp(props, "@id", "entity_id", "id")
 			poi.MaxPowerKW = maxPowerKW(props)
 			poi.DCFCCount = intProp(props, "dcfc_count")
 			poi.L2Count = intProp(props, "l2_count")
@@ -408,37 +490,6 @@ func (a *Archive) featuresInTile(z uint8, x, y uint32, filter Filter, proj proje
 				poi.IsL2 = true
 			} else if !poi.IsDCFC {
 				poi.IsL2 = true
-			}
-
-			if opts.MinPowerKW > 0 && poi.MaxPowerKW > 0 && poi.MaxPowerKW < opts.MinPowerKW {
-				continue
-			}
-			switch filter {
-			case FilterDCFC:
-				if !poi.IsDCFC {
-					continue
-				}
-			case FilterL2:
-				if !poi.IsL2 {
-					continue
-				}
-			case FilterHotels:
-				if !hotelFacilityTypes[strNormUpper(poi.FacilityType)] {
-					continue
-				}
-				if !poi.IsL2 {
-					continue
-				}
-			}
-
-			// Corridor distance + endpoint trim. +Inf = endpoint-
-			// projection-rejected; any larger-than-corridor value =
-			// outside the band. Tile bbox is wider than the corridor
-			// by design (slippy-map tile grid doesn't align with the
-			// corridor band), so this is the real filter.
-			perp := proj.perpDistanceM(poi.Lat, poi.Lon, trimM, !opts.IncludeEndpoints)
-			if perp == math.Inf(1) || perp > corridorM {
-				continue
 			}
 			pois = append(pois, poi)
 		}
@@ -462,6 +513,16 @@ func pointCoord(g orb.Geometry) ([2]float64, bool) {
 		}
 	}
 	return [2]float64{}, false
+}
+
+// firstStringProp returns the first non-empty string among keys.
+func firstStringProp(props map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if s := stringProp(props, k); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func stringProp(props map[string]any, key string) string {
