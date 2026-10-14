@@ -79,7 +79,7 @@ export default function LandingPage() {
         <section aria-label="Your Rivian login" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">
           <h2 className="text-xl font-semibold">How your Rivian login is handled</h2>
           <ul className="mt-3 space-y-2 text-sm text-neutral-300">
-            <li>Your Rivian session is stored encrypted.</li>
+            <li>Your Rivian session is stored encrypted, and your Rivian password is never stored.</li>
             <li>
               We recommend connecting a separate Authorized Driver account, so Rivolt never holds your primary
               login.

@@ -4,7 +4,6 @@
 // users get the app, signed-out users the usual login redirect.
 
 import { useEffect, useState } from "react";
-import { backend } from "./api";
 import { ensureConfig } from "./config";
 
 export type LandingGate = "off" | "loading" | "landing";
@@ -13,8 +12,10 @@ export async function resolveLanding(): Promise<"off" | "landing"> {
   try {
     const cfg = await ensureConfig();
     if (!cfg.features.landingEnabled) return "off";
-    const me = await backend.whoami();
-    return me ? "off" : "landing";
+    // Only a 401 means "signed out". A 404 is auth disabled (self-host
+    // without auth), where the app itself must stay reachable at "/".
+    const r = await fetch("/api/auth/me", { credentials: "same-origin" });
+    return r.status === 401 ? "landing" : "off";
   } catch {
     return "off";
   }
