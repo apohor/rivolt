@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -146,11 +145,12 @@ func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string
 		return errors.New("rivian: callback is required")
 	}
 
-	attempt := 0
+	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		bo.start()
 		err := c.runSubscription(ctx, vehicleID, userTok, cb)
 		if err == nil {
 			// runSubscription returns nil only on ctx.Done.
@@ -162,12 +162,8 @@ func (c *LiveClient) SubscribeVehicleState(ctx context.Context, vehicleID string
 			return err
 		}
 		// Back off 1s → 2s → 4s → … capped at 5m with jitter, HA-
-		// rivian's behaviour.
-		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
-		if wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
-		attempt++
+		// rivian's behaviour; reset after a healthy session (reconnect.go).
+		wait := bo.next()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
