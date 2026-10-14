@@ -21,6 +21,7 @@ func TestResolveIdentityKey(t *testing.T) {
 		verified  bool
 		preferred string
 		trust     bool
+		bareOK    bool
 
 		wantUsername  string
 		wantEmail     string
@@ -28,7 +29,7 @@ func TestResolveIdentityKey(t *testing.T) {
 	}{
 		{name: "verified email wins", sub: "abc-123", email: "Alice@Example.com", verified: true, preferred: "alice-rivian",
 			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
-		{name: "unverified email loses to plain preferred_username", sub: "abc-123", email: "Alice@Example.com", preferred: "Alice-Rivian",
+		{name: "unverified email loses to plain preferred_username", sub: "abc-123", email: "Alice@Example.com", preferred: "Alice-Rivian", bareOK: true,
 			wantUsername: "alice-rivian", wantEmail: "alice@example.com"},
 		{name: "unverified email only: iss:sub, candidate flagged", sub: "abc-123", email: "Alice@Example.com",
 			wantUsername: synth, wantEmail: "alice@example.com", wantCandidate: "alice@example.com"},
@@ -42,6 +43,14 @@ func TestResolveIdentityKey(t *testing.T) {
 			wantUsername: "alice@example.com", wantEmail: "alice@example.com"},
 		{name: "trusted: email-shaped preferred keys as before", sub: "abc-123", preferred: "victim@example.com", trust: true,
 			wantUsername: "victim@example.com"},
+		{name: "multi-IdP, no opt-in: bare preferred is a candidate, not a key", sub: "abc-123", email: "", preferred: "Alice",
+			wantUsername: synth, wantEmail: "", wantCandidate: "alice"},
+		{name: "multi-IdP, opted in: bare preferred keys", sub: "abc-123", preferred: "Alice", bareOK: true,
+			wantUsername: "alice"},
+		{name: "multi-IdP, no opt-in, verified email still wins", sub: "abc-123", email: "a@example.com", verified: true, preferred: "alice",
+			wantUsername: "a@example.com", wantEmail: "a@example.com"},
+		{name: "multi-IdP, no opt-in, trust unverified: keys on the bare name as before", sub: "abc-123", preferred: "Alice", trust: true,
+			wantUsername: "alice"},
 		{name: "no email at all: iss:sub, nothing flagged", sub: "abc-123",
 			wantUsername: synth},
 		{name: "no sub, no email, no preferred: empty", wantUsername: ""},
@@ -52,7 +61,7 @@ func TestResolveIdentityKey(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolveIdentityKey(iss, tc.sub, tc.email, tc.verified, tc.preferred, tc.trust)
+			got := resolveIdentityKey(iss, tc.sub, tc.email, tc.verified, tc.preferred, tc.trust, tc.bareOK)
 			if got.Username != tc.wantUsername || got.Email != tc.wantEmail || got.UnverifiedCandidate != tc.wantCandidate {
 				t.Fatalf("got %+v, want {%q %q %q}", got, tc.wantUsername, tc.wantEmail, tc.wantCandidate)
 			}
@@ -183,4 +192,34 @@ func TestParseProvidersFromEnv(t *testing.T) {
 			t.Fatalf("scopes: %v", got[0].Scopes)
 		}
 	})
+}
+
+func TestUsernameKeyOptInAndProviderCount(t *testing.T) {
+	env := map[string]string{
+		"RIVOLT_OIDC_PROVIDERS":         "google,corp",
+		"RIVOLT_BASE_URL":               "https://rivolt.example.com",
+		"RIVOLT_OIDC_GOOGLE_ISSUER":     "https://accounts.google.com",
+		"RIVOLT_OIDC_GOOGLE_CLIENT_ID":  "g",
+		"RIVOLT_OIDC_CORP_ISSUER":       "https://sso.corp.example.com",
+		"RIVOLT_OIDC_CORP_CLIENT_ID":    "c",
+		"RIVOLT_OIDC_CORP_USERNAME_KEY": "true",
+	}
+	provs, err := ParseProvidersFromEnv(func(k string) string { return env[k] }, env["RIVOLT_BASE_URL"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provs) != 2 || provs[0].UsernameKey || !provs[1].UsernameKey {
+		t.Fatalf("UsernameKey parse: %+v", provs)
+	}
+	multi := &Service{providerCount: 2}
+	if multi.bareUsernameKeyOK(provs[0]) {
+		t.Error("multi-provider install: a provider without the opt-in must not key on a bare username")
+	}
+	if !multi.bareUsernameKeyOK(provs[1]) {
+		t.Error("multi-provider install: an opted-in provider may key on a bare username")
+	}
+	single := &Service{providerCount: 1}
+	if !single.bareUsernameKeyOK(provs[0]) {
+		t.Error("single provider keeps today's behaviour")
+	}
 }

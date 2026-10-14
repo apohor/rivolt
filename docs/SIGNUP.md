@@ -314,3 +314,24 @@ What changes with the defaults:
   unverified email, never as a key by itself.
 - `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` promotes only a **verified** email.
 - Identities with no email at all keep their issuer+subject key.
+
+### Upgrade note for installs with two or more OIDC providers
+
+With **one** provider configured, a bare `preferred_username` (no `@`)
+keys an account exactly as before. With **two or more**, two providers
+could hand out the same bare name, so a provider's bare
+`preferred_username` is an account key only if you opt that provider
+in:
+
+```
+RIVOLT_OIDC_<NAME>_USERNAME_KEY=true     # e.g. RIVOLT_OIDC_CORP_USERNAME_KEY=true
+```
+
+Without the opt-in the bare name is handled like an unverified email:
+if an account already exists under that name the sign-in is refused
+("verify your email" / ask your administrator) rather than silently
+creating a second account, otherwise the identity is keyed by issuer
+and subject. If your users sign in through a provider that sends no
+verified email and relies on `preferred_username`, add the opt-in
+before upgrading. Providers that send a verified email (Google, GitHub's
+primary, first-party Hydra) are unaffected.

@@ -110,6 +110,12 @@ type ProviderConfig struct {
 	// "https://auth.example.com". Ignored when Kind="oauth2-github".
 	IssuerURL string
 
+	// UsernameKey lets this provider's bare preferred_username (no
+	// "@") be an account key when two or more providers are
+	// configured (RIVOLT_OIDC_<NAME>_USERNAME_KEY=true). With a single
+	// provider it is always allowed, as it has always been.
+	UsernameKey bool
+
 	// ClientID / ClientSecret are the OAuth2 application
 	// credentials. ClientSecret may be empty for public clients
 	// (PKCE-only), though most server-side flows ship one.
@@ -154,6 +160,10 @@ type Service struct {
 	// dependency rather than an import to avoid a cycle and to
 	// make the handler trivially testable.
 	issueSession func(w http.ResponseWriter, r *http.Request, uid uuid.UUID) error
+
+	// providerCount is how many providers are configured (counting
+	// ones still retrying discovery).
+	providerCount int
 
 	// userExists, see Config.UserExists.
 	userExists func(ctx context.Context, username string) (bool, error)
@@ -282,6 +292,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		issueSession:   cfg.IssueSession,
 		ensureUser:     cfg.EnsureUser,
 		userExists:     cfg.UserExists,
+		providerCount:  len(cfg.Providers),
 		capGuard:       cfg.CapGuard,
 		capOverflowURL: overflow,
 		errorURL:       errURL,
@@ -686,7 +697,8 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		claimPreferred = claims.PreferredUsername
 		claimName = claims.Name
 	}
-	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail())
+	key := resolveIdentityKey(p.cfg.IssuerURL, claimSub, claimEmail, claimEmailVerified, claimPreferred, identity.TrustUnverifiedOIDCEmail(),
+		s.bareUsernameKeyOK(p.cfg))
 	username, email := key.Username, key.Email
 	if key.UnverifiedCandidate != "" {
 		// An unverified email would have been the key. If an account
@@ -828,14 +840,17 @@ type identityKey struct {
 //
 //  1. A verified email wins: it joins cleanly across auth methods.
 //  2. A preferred_username without "@" is next (IdPs without email
-//     scope). One WITH "@" is a self-asserted email and is treated
-//     exactly like an unverified email, never as a key by itself.
+//     scope), but only when bareUsernameOK: with several providers
+//     configured two IdPs could mint the same bare name, so each must
+//     opt in (RIVOLT_OIDC_<NAME>_USERNAME_KEY=true); otherwise it is
+//     handled exactly like an unverified email (3). One WITH "@" is a
+//     self-asserted email and is never a key by itself.
 //  3. An unverified email-like candidate is a key only when
 //     trustUnverified (RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL) says so;
 //     otherwise the key is iss:sub and UnverifiedCandidate is set.
 //  4. iss:sub is the floor, unique per IdP, unreachable from any other
 //     sign-in path.
-func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred string, trustUnverified bool) identityKey {
+func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred string, trustUnverified, bareUsernameOK bool) identityKey {
 	email = strings.ToLower(strings.TrimSpace(email))
 	preferred = strings.ToLower(strings.TrimSpace(preferred))
 	if email != "" && emailVerified {
@@ -843,9 +858,11 @@ func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred st
 	}
 	candidate := ""
 	switch {
-	case preferred != "" && !strings.Contains(preferred, "@"):
+	case preferred != "" && !strings.Contains(preferred, "@") && bareUsernameOK:
 		return identityKey{Username: preferred, Email: email}
 	case preferred != "":
+		// An email-shaped preferred_username, or a bare one this
+		// provider isn't allowed to key on (see bareUsernameOK).
 		candidate = preferred
 	case email != "":
 		candidate = email
@@ -859,6 +876,13 @@ func resolveIdentityKey(iss, sub, email string, emailVerified bool, preferred st
 		synthetic = strings.ToLower(strings.TrimSpace(iss) + ":" + strings.TrimSpace(sub))
 	}
 	return identityKey{Username: synthetic, Email: email, UnverifiedCandidate: candidate}
+}
+
+// bareUsernameKeyOK reports whether a bare preferred_username may key
+// an account for provider pc: always with a single provider (today's
+// behaviour), otherwise only for providers that opted in.
+func (s *Service) bareUsernameKeyOK(pc ProviderConfig) bool {
+	return s.providerCount <= 1 || pc.UsernameKey
 }
 
 // githubIdentity is the normalised shape we extract from GitHub's
@@ -1056,6 +1080,7 @@ func ParseProvidersFromEnv(getenv func(string) string, baseURL string) ([]Provid
 			ClientSecret: clientSecret,
 			RedirectURL:  bu + "/api/auth/oidc/" + name + "/callback",
 			Scopes:       scopes,
+			UsernameKey:  strings.EqualFold(strings.TrimSpace(getenv(prefix+"USERNAME_KEY")), "true"),
 		})
 	}
 	return out, nil
