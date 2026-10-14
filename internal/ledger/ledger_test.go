@@ -637,6 +637,24 @@ func TestBuild_CrumbFloor(t *testing.T) {
 	}
 }
 
+// D2 F6: under MinMilesForCostPerMile the ratio is noise, so it's null.
+func TestBuild_CostPerMileNeedsDistance(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	cs := []Charge{priced(charge("c", "2026-10-02T00:00:00Z", time.Hour, 60, 7), 0.11)}
+	drive := func(mi float64) []Drive {
+		return []Drive{{ID: "d", VehicleID: "veh-1", StartedAt: ts("2026-10-03T10:00:00Z"),
+			EndedAt: ts("2026-10-03T11:00:00Z"), DistanceMi: f(mi), Source: "live"}}
+	}
+	short := Build(Input{Charges: cs, Drives: drive(5.75), Config: cfg(), Now: ts("2026-10-04T00:00:00Z")}, month, false)
+	if short.Driving.CostPerMile != nil || short.Driving.Coverage == nil {
+		t.Errorf("5.75 mi: cost_per_mile %v (want null), coverage %v (still reported)", short.Driving.CostPerMile, short.Driving.Coverage)
+	}
+	long := Build(Input{Charges: cs, Drives: drive(150), Config: cfg(), Now: ts("2026-10-04T00:00:00Z")}, month, false)
+	if long.Driving.CostPerMile == nil || *long.Driving.CostPerMile != round4(60*0.11/150) {
+		t.Errorf("150 mi: cost_per_mile %v", long.Driving.CostPerMile)
+	}
+}
+
 // assertPlaceKindReconciles checks the by_place_kind invariants from
 // contract §11: rows sum to by_kind, columns to by_place, and cell costs
 // to the cost already attributed by_place.

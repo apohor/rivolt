@@ -37,6 +37,11 @@ const Version = 1
 // "Fast" bucket) so the two surfaces agree.
 const FastMinKW = 50.0
 
+// MinMilesForCostPerMile is the driven distance below which
+// driving.cost_per_mile is null: with only a few miles, one charge
+// dominates and the ratio is meaningless (D2 F6).
+const MinMilesForCostPerMile = 100.0
+
 // HomeRadiusKM is how close to the saved home location a session must
 // start to count as "home". Matches the ~200 m DBSCAN epsilon the
 // Charges page uses, with a little GPS slack.
@@ -810,7 +815,9 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 	if out.Driving.Miles > 0 {
 		cov := round4(out.Driving.MilesWithEnergy / out.Driving.Miles)
 		out.Driving.Coverage = &cov
-		if out.Spend.Total > 0 {
+		// Below MinMilesForCostPerMile a single charge dominates and the
+		// ratio is noise (e.g. $1.13/mi from 5.75 mi early in a month).
+		if out.Spend.Total > 0 && out.Driving.Miles >= MinMilesForCostPerMile {
 			cpm := round4(out.Spend.Total / out.Driving.Miles)
 			out.Driving.CostPerMile = &cpm
 		}
