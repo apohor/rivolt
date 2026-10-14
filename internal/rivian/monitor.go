@@ -252,6 +252,11 @@ type StateMonitor struct {
 	// from the network of the station at its location. Nil leaves
 	// such sessions on the home rate (the pre-0040 behaviour).
 	dcfcPrice DCFCPriceLookup
+	// homeLookup returns the user's saved home location. The recorder
+	// uses it to leave AC charging away from home unpriced instead of
+	// stamping the home rate on it. nil (or ok=false) = home unknown,
+	// in which case slow charging keeps the home rate.
+	homeLookup HomeLookup
 
 	// sleepSafe reports whether a vehicle's non-essential
 	// subscriptions should be parked while it sleeps, and
@@ -278,6 +283,10 @@ type StateMonitor struct {
 // display name ("" when no station matched and a fallback rate was
 // used). ok=false means no estimate is available.
 type DCFCPriceLookup func(lat, lon float64) (ratePerKWh float64, currency, network string, ok bool)
+
+// HomeLookup returns the user's saved home location; ok=false when the
+// user hasn't set one.
+type HomeLookup func() (lat, lon float64, ok bool)
 
 // PriceLookup returns the current home electricity rate and its
 // ISO-4217 currency code. Rate of 0 means "not configured"; callers
@@ -640,6 +649,13 @@ func (m *StateMonitor) SetPriceLookup(fn PriceLookup) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.priceLookup = fn
+}
+
+// SetHomeLookup wires the home-location lookup (see homeLookup).
+func (m *StateMonitor) SetHomeLookup(fn HomeLookup) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.homeLookup = fn
 }
 
 // SetDCFCPriceLookup wires the fast-charge pricer (see dcfcPrice).

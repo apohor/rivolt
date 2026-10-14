@@ -159,7 +159,9 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 	m := ledger.Build(ledger.Input{Charges: cs, Drives: ds,
 		Config: ledger.Config{Currency: "USD", HomeRate: 0.11}, Now: in}, p, true)
 	if m.Spend.Total != 3.355 || m.Spend.BySource["network_estimate"] != 3.355 ||
-		m.Spend.UnpricedSessions != 1 || m.Energy.NullEnergySessions != 1 {
+		// c-null has no recorded energy: a crumb, counted as null_energy
+		// and not as "needs a price" (A5 / D2 F2).
+		m.Spend.UnpricedSessions != 0 || m.Energy.NullEnergySessions != 1 {
 		t.Errorf("built from DB rows: spend %+v energy %+v", m.Spend, m.Energy)
 	}
 }

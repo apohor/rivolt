@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
 // Version is the response contract version. Additive changes keep it;
@@ -39,7 +40,7 @@ const FastMinKW = 50.0
 // HomeRadiusKM is how close to the saved home location a session must
 // start to count as "home". Matches the ~200 m DBSCAN epsilon the
 // Charges page uses, with a little GPS slack.
-const HomeRadiusKM = 0.25
+const HomeRadiusKM = rivian.HomeRadiusM / 1000
 
 // homeRateTolerance is how close a legacy row's $/kWh must be to the
 // configured home rate to be attributed to it (rows without a persisted
@@ -103,6 +104,9 @@ type Charge struct {
 	Source      string
 	Lat, Lon    *float64
 	CreatedAt   time.Time
+	// ActiveSeconds is charges.active_seconds (time actually drawing
+	// power); nil when not recorded. Feeds the shared DCFC rule.
+	ActiveSeconds *float64
 	// CostSource is charges.cost_source; "" when NULL (legacy row) or
 	// the column doesn't exist yet.
 	CostSource string
@@ -460,29 +464,65 @@ func driveBeats(a, b Drive) bool {
 // ---- classification -------------------------------------------------
 
 // CostSource reports where a session's cost came from and whether the
-// answer was derived at query time. A persisted charges.cost_source wins
-// (a row with no cost is still unknown). Legacy rows (NULL) derive:
-// no cost → unknown; a rate within homeRateTolerance of the user's home
-// rate → home_rate below FastMinKW, home_rate_misapplied at or above it;
-// any other price → rivian (billed, or a manual edit / older home rate).
-func CostSource(c Charge, homeRate float64) (string, bool) {
-	switch s := strings.ToLower(strings.TrimSpace(c.CostSource)); s {
-	case SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser:
+// answer was derived at query time rather than read from the row.
+//
+//   - A persisted rivian / network_estimate / user source wins (a row
+//     with no cost is still unknown).
+//   - Legacy rows (NULL source) with no cost are unknown.
+//   - A persisted home_rate wins, except AC away from home → unknown
+//     (owner decision 2026-10-13: away AC is unknown until priced).
+//   - A legacy rate within homeRateTolerance of the user's home rate:
+//     DC fast charging → home_rate_misapplied (estimate pending); AC
+//     away from home → unknown, needs a price; otherwise → home_rate.
+//   - Any other legacy price → rivian (billed, or a manual edit / an
+//     older home rate).
+func CostSource(c Charge, cfg Config) (string, bool) {
+	persisted := strings.ToLower(strings.TrimSpace(c.CostSource))
+	switch persisted {
+	case SourceRivian, SourceNetworkEstimate, SourceUser:
 		if c.Cost == nil {
 			return SourceUnknown, false
 		}
-		return s, false
+		return persisted, false
+	case SourceHomeRate:
+		// Persisted wins, except AC away from home (rows the recorder
+		// stamped before it learned to leave those unpriced).
+		if c.Cost == nil {
+			return SourceUnknown, false
+		}
+		if pl, _ := place(c, cfg.Home); pl == "away" && !isDCFC(c) {
+			return SourceUnknown, true
+		}
+		return SourceHomeRate, false
 	}
 	if !positive(c.Cost) {
 		return SourceUnknown, true
 	}
-	if homeRate > 0 && c.PricePerKWh != nil && math.Abs(*c.PricePerKWh-homeRate) <= homeRateTolerance {
+	if homeRateStamped(c, cfg) {
 		if isDCFC(c) {
 			return SourceHomeRateMisapplied, true
+		}
+		if pl, _ := place(c, cfg.Home); pl == "away" {
+			return SourceUnknown, true
 		}
 		return SourceHomeRate, true
 	}
 	return SourceRivian, true
+}
+
+// homeRateStamped reports whether the row carries the home rate: a
+// persisted home_rate source, or a legacy row priced within
+// homeRateTolerance of the user's current home rate.
+func homeRateStamped(c Charge, cfg Config) bool {
+	switch strings.ToLower(strings.TrimSpace(c.CostSource)) {
+	case SourceHomeRate:
+		return c.Cost != nil
+	case SourceRivian, SourceNetworkEstimate, SourceUser:
+		return false
+	}
+	// Legacy (NULL) or unrecognised source: judge by the rate.
+	return positive(c.Cost) && cfg.HomeRate > 0 && c.PricePerKWh != nil &&
+		math.Abs(*c.PricePerKWh-cfg.HomeRate) <= homeRateTolerance
 }
 
 // isPriced reports whether a cost source counts toward spend.
@@ -501,7 +541,12 @@ func networkOf(c Charge) *string {
 	return nil
 }
 
-func isDCFC(c Charge) bool { return c.PeakKW != nil && *c.PeakKW >= FastMinKW }
+// isDCFC is the recorder's rule (rivian.IsDCFCSession): peak ≥ 50 kW AND
+// energy over active (else wall) time ≥ 20 kW, so one glitched peak
+// sample on a long home session doesn't make it a fast charge.
+func isDCFC(c Charge) bool {
+	return rivian.IsDCFCSession(val(c.PeakKW), val(c.EnergyKWh), val(c.ActiveSeconds), c.EndedAt.Sub(c.StartedAt))
+}
 
 func kindOf(c Charge) string {
 	if isDCFC(c) {
@@ -546,12 +591,14 @@ type sessionView struct {
 
 func viewOf(c Charge, cfg Config) sessionView {
 	v := sessionView{c: c, kind: kindOf(c)}
-	v.source, v.derived = CostSource(c, cfg.HomeRate)
+	v.source, v.derived = CostSource(c, cfg)
 	v.place, v.kmHome = place(c, cfg.Home)
 	if !currencyMatches(c, cfg) {
 		v.flags = append(v.flags, FlagCurrencyMismatch)
 	}
-	if v.source == SourceUnknown {
+	// A session with no recorded energy (plug-in blip, abandoned stub)
+	// has nothing to price: it's counted as null_energy, not unpriced.
+	if v.source == SourceUnknown && positive(c.EnergyKWh) {
 		v.flags = append(v.flags, FlagUnpriced)
 	}
 	if !positive(c.EnergyKWh) {
@@ -563,7 +610,7 @@ func viewOf(c Charge, cfg Config) sessionView {
 	if strings.EqualFold(c.FinalState, "abandoned") {
 		v.flags = append(v.flags, FlagAbandoned)
 	}
-	homeStamped := v.source == SourceHomeRate || v.source == SourceHomeRateMisapplied
+	homeStamped := homeRateStamped(c, cfg)
 	if v.source == SourceHomeRateMisapplied {
 		v.flags = append(v.flags, FlagEstimatePending)
 	}
@@ -661,10 +708,16 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		case v.source == SourceHomeRateMisapplied:
 			out.Spend.EstimatePendingSessions++
 			out.Spend.EstimatePendingKWh += kwh
+		case !positive(c.EnergyKWh):
+			// Nothing to price; counted in energy.null_energy_sessions.
 		default:
 			out.Spend.UnpricedSessions++
 			out.Spend.UnpricedKWh += kwh
-			unpricedEstimate += kwh * in.Config.HomeRate
+			// The "≈ $X at your home rate" hint only makes sense for
+			// charging that could have been at home.
+			if v.kind == "ac" && v.place != "away" {
+				unpricedEstimate += kwh * in.Config.HomeRate
+			}
 		}
 		addLine(out.Energy.ByKind, v.kind, c, kwh, cost)
 		addLine(out.Energy.ByPlace, v.place, c, kwh, cost)
@@ -850,12 +903,16 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			r.PeakKW = &pk
 		}
 		r.KWh += val(c.EnergyKWh)
-		sources[v.source] = true
+		// Zero-energy crumbs don't decide the receipt's cost source or
+		// make a priced receipt look unpriced.
+		if positive(c.EnergyKWh) || v.spendOK {
+			sources[v.source] = true
+		}
 		if v.spendOK {
 			priced = true
 			cost += *c.Cost
 			pricedKWh += val(c.EnergyKWh)
-		} else {
+		} else if positive(c.EnergyKWh) {
 			r.UnpricedSessions++
 		}
 		for _, f := range v.flags {
@@ -893,11 +950,14 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			r.Rate = &rate
 		}
 	}
-	if len(sources) == 1 {
+	switch len(sources) {
+	case 0: // only zero-energy crumbs
+		r.CostSource = SourceUnknown
+	case 1:
 		for s := range sources {
 			r.CostSource = s
 		}
-	} else {
+	default:
 		r.CostSource = SourceMixed
 	}
 	if len(in) > 1 {

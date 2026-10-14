@@ -1410,7 +1410,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup, dcfc := m.priceLookup, m.dcfcPrice
+		lookup, dcfc, home := m.priceLookup, m.dcfcPrice, m.homeLookup
 		m.mu.RUnlock()
 		fast := dcfc != nil && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
 		if fast {
@@ -1431,7 +1431,12 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			// network. The ledger shows "unknown", and `rivolt reprice`
 			// can price it later; nothing is stamped.
 		}
-		if !fast && row.Cost == 0 && lookup != nil {
+		// AC charging away from home (a destination L1/L2, a friend's
+		// outlet, a paid public L2) has no known price: leave it unpriced
+		// for the user to fill in rather than stamp the home rate on it.
+		// Without a saved home location or a session position we can't
+		// tell, so slow charging keeps the home rate.
+		if !fast && row.Cost == 0 && lookup != nil && !AwayFromHome(row.Lat, row.Lon, home) {
 			if rate, cur := lookup(); rate > 0 {
 				row.PricePerKWh = rate
 				row.Currency = cur
@@ -1457,11 +1462,20 @@ const DCFCMinKW = 50.0
 // averages well above any AC charger's ~11-19 kW.
 const DCFCMinEffectiveKW = 20.0
 
+// DCFCMinKWh is the least energy a session must deliver to count as DC
+// fast charging. A few-second fragment of a home session can carry a
+// spurious high-kW sample, and over 4 s even 0.12 kWh averages ~110 kW
+// (seen on preview), so the effective-power test alone can't reject it.
+// A real fast-charging stop delivers tens of kWh; anything under 1 kWh
+// isn't worth pricing as one.
+const DCFCMinKWh = 1.0
+
 // IsDCFCSession reports whether a charge was DC fast charging: peak at
-// or above DCFCMinKW AND energy divided by active charging time (wall
-// span when that's unknown) at or above DCFCMinEffectiveKW.
+// or above DCFCMinKW, at least DCFCMinKWh delivered, AND energy divided
+// by active charging time (wall span when that's unknown) at or above
+// DCFCMinEffectiveKW.
 func IsDCFCSession(peakKW, energyKWh, activeSeconds float64, span time.Duration) bool {
-	if peakKW < DCFCMinKW || energyKWh <= 0 {
+	if peakKW < DCFCMinKW || energyKWh < DCFCMinKWh {
 		return false
 	}
 	secs := activeSeconds
@@ -1472,6 +1486,25 @@ func IsDCFCSession(peakKW, energyKWh, activeSeconds float64, span time.Duration)
 		return false
 	}
 	return energyKWh/(secs/3600) >= DCFCMinEffectiveKW
+}
+
+// HomeRadiusM is how far from the saved home location a charge can start
+// and still count as charging at home. Shared with the ledger so the
+// recorder's pricing and the Money tab's Home/Away agree.
+const HomeRadiusM = 250.0
+
+// AwayFromHome reports whether (lat, lon) is known to be more than
+// HomeRadiusM from the saved home location. False when either the home
+// location or the position is unknown.
+func AwayFromHome(lat, lon float64, home HomeLookup) bool {
+	if home == nil || (lat == 0 && lon == 0) {
+		return false
+	}
+	hLat, hLon, ok := home()
+	if !ok {
+		return false
+	}
+	return haversineMeters(hLat, hLon, lat, lon) > HomeRadiusM
 }
 
 // Values of charges.Charge.CostSource (migration 0040).
