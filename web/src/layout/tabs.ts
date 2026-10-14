@@ -43,9 +43,10 @@ export function buildTabs(ctx: TabContext): TabDef[] {
   const activity: TabDef = {
     key: "activity",
     label: "Activity",
-    to: "/drives",
-    match: ["/drives", "/charges"],
+    to: "/activity",
+    match: ["/activity", "/drives", "/charges"],
     subs: [
+      { to: "/activity", label: "Feed" },
       { to: "/drives", label: "Drives" },
       { to: "/charges", label: "Charges" },
     ],
