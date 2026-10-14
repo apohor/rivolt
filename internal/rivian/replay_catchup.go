@@ -65,11 +65,20 @@ type catchupWriter struct {
 	mu    sync.Mutex
 	bufs  map[string]*catchupBuffer
 	sinks catchupSinks
+	// retryAt holds back size-triggered flushes for a vehicle after a
+	// failed sample insert, so a database outage isn't hit on every
+	// frame. Transition and stream-end flushes always try.
+	retryAt map[string]time.Time
 }
+
+// catchupRetryBackoff is how long size-triggered flushes wait after a
+// failed one.
+const catchupRetryBackoff = 10 * time.Second
 
 func newCatchupWriter(m *StateMonitor) *catchupWriter {
 	return &catchupWriter{
-		bufs: map[string]*catchupBuffer{},
+		bufs:    map[string]*catchupBuffer{},
+		retryAt: map[string]time.Time{},
 		sinks: catchupSinks{
 			insertSamples: func(ctx context.Context, batch []samples.Sample) error {
 				if m.samplesStore == nil {
@@ -146,6 +155,27 @@ func (w *catchupWriter) pendingSamples(vehicleID string) int {
 	return 0
 }
 
+// requeue puts samples (and the snapshot taken at the same point) back
+// at the front of vehicleID's buffer after a failed flush, ahead of
+// anything buffered since, so the next flush writes them in order.
+func (w *catchupWriter) requeue(vehicleID string, batch []samples.Sample, snap *LiveStateSnapshot) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	b := w.buf(vehicleID)
+	b.samples = append(batch, b.samples...)
+	if b.snap == nil {
+		b.snap = snap
+	}
+	w.retryAt[vehicleID] = time.Now().Add(catchupRetryBackoff)
+}
+
+// flushDue reports whether a size-triggered flush may run now.
+func (w *catchupWriter) flushDue(vehicleID string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return !time.Now().Before(w.retryAt[vehicleID])
+}
+
 func (w *catchupWriter) take(vehicleID string) *catchupBuffer {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -203,8 +233,14 @@ func (m *StateMonitor) flushCatchup(vehicleID string) {
 	}
 	if len(b.samples) > 0 {
 		if err := sinks.insertSamples(ctx, b.samples); err != nil {
-			m.logger.Warn("replay catch-up sample flush failed",
+			// Keep the batch (and the snapshot taken with it) for the
+			// next flush rather than dropping it: later flushes would
+			// otherwise move the persisted max(at) past these frames
+			// and the replay would never resume over the hole.
+			m.logger.Error("replay catch-up sample flush failed; keeping the batch for the next flush",
 				"vehicle", vehicleID, "samples", len(b.samples), "err", err.Error())
+			m.catchup.requeue(vehicleID, b.samples, b.snap)
+			return
 		}
 	}
 	if b.snap != nil {

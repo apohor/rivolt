@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -196,5 +197,46 @@ func TestReplayCatchup_LiveMonitorUnaffected(t *testing.T) {
 	m.quietHooks.Store(true) // even if set, no catch-up writer on live monitors
 	if m.catchup != nil || m.deferringWrites() {
 		t.Fatal("live monitor must never defer writes")
+	}
+}
+
+// A failed sample flush keeps the batch and writes it (in order, ahead of
+// newer frames) on a later flush, instead of leaving a permanent hole
+// behind the persisted max(at) (devils-advocate, #72).
+func TestReplayCatchup_FailedFlushRequeues(t *testing.T) {
+	t0 := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	backlog := catchupFrames(t0, 1600, 0)
+	live := backlog[len(backlog)-1]
+	live.At = time.Now()
+	src := &scriptedSource{frames: append(backlog, live), liveFrom: len(backlog)}
+	m, log := newCatchupMonitor(src)
+	failures := 1
+	insert := m.catchup.sinks.insertSamples
+	m.catchup.sinks.insertSamples = func(ctx context.Context, b []samples.Sample) error {
+		if failures > 0 {
+			failures--
+			return errors.New("db down")
+		}
+		return insert(ctx, b)
+	}
+	m.runSource(context.Background(), "demo-1")
+
+	if failures != 0 {
+		t.Fatal("the failing flush never ran")
+	}
+	if got := log.totalSamples(); got != len(backlog) {
+		t.Fatalf("samples persisted = %d, want all %d (none lost to the failed flush)", got, len(backlog))
+	}
+	var prev time.Time
+	for _, b := range log.batches {
+		for _, s := range b {
+			if !s.At.After(prev) {
+				t.Fatalf("samples out of order after requeue: %s after %s", s.At, prev)
+			}
+			prev = s.At
+		}
+	}
+	if m.catchup.pendingSamples("demo-1") != 0 {
+		t.Error("buffer not drained")
 	}
 }
