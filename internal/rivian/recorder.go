@@ -1024,7 +1024,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && m.chargeCloseHook != nil {
+		if !phantom && m.chargeCloseHook != nil && !m.quietHooks.Load() {
 			go m.runChargeCloseHook(closedRow)
 		}
 		return n
