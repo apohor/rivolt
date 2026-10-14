@@ -110,6 +110,8 @@ export type StubOptions = {
   rivian?: RivianState;
   // Serve GET /api/vehicles/{id}/now (replay connection).
   nowEndpoint?: boolean;
+  // Serve GET /api/demo (public sample truck).
+  demo?: boolean;
   scenario?: NowScenario;
   signedIn?: boolean;
   landing?: boolean;
@@ -117,7 +119,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false, demo = false } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -135,6 +137,11 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: false },
         impersonation: { disabled: true },
       });
+    }
+    if (p === "/api/demo") {
+      return demo
+        ? json(route, { enabled: true, vehicle_id: VEHICLE_ID, home_label: "Sample lot" })
+        : json(route, { error: "not found" }, 404);
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));

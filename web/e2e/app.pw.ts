@@ -42,6 +42,7 @@ const views: View[] = [
   ...nowViews,
   // With GET /now: the Replay badge, "location as of" and "since".
   { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /location as of/, /since /] },
+  { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect my Rivian"] },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
   // Degraded-state banner: shown only when something is wrong.
@@ -120,7 +121,7 @@ for (const view of views) {
         }
 
         // Light theme only applies inside the shell, signed in.
-        if (scheme === "light" && view.name !== "landing") {
+        if (scheme === "light" && view.name !== "landing" && view.name !== "demo") {
           await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
         } else if (scheme === "dark") {
           await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");

@@ -104,7 +104,10 @@ async function request<T>(
       res.status === 401 &&
       !isUpstreamErr &&
       !url.endsWith("/api/auth/me") &&
-      !url.startsWith("/api/auth/hydra/login")
+      !url.startsWith("/api/auth/hydra/login") &&
+      // The public demo is signed out on purpose; a 401 for something
+      // outside its read-only allowlist is not "your login expired".
+      !window.location.pathname.startsWith("/demo")
     ) {
       const here = window.location.pathname + window.location.search;
       if (!window.location.pathname.startsWith("/login")) {
@@ -473,6 +476,7 @@ export type NowSnapshot = {
   failed_sleeps_6h: number;
   charge: { started_at: string; soc_start: number; peak_kw: number } | null;
 };
+export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
 export type LiveDrive = {
   vehicle_id: string;
@@ -862,6 +866,16 @@ export const backend = {
       return await api.get<NowSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/now`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // demoInfo: GET /api/demo (public). Null when the demo is off (404).
+  demoInfo: async (): Promise<DemoInfo | null> => {
+    try {
+      const r = await api.get<DemoInfo>("/api/demo");
+      return r?.enabled ? r : null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 401)) return null;
       throw e;
     }
   },
