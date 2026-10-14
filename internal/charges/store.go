@@ -660,3 +660,83 @@ func (s *Store) LiveOverlap(ctx context.Context, rivianVehicleID, excludeID stri
 	o.EndedAt = o.EndedAt.UTC()
 	return &o, nil
 }
+
+// RestampResult counts what RestampPlace changed (or would change).
+type RestampResult struct {
+	DryRun            bool `json:"dry_run"`
+	Changed           int  `json:"changed"`
+	ToHome            int  `json:"to_home"`
+	ToAway            int  `json:"to_away"`
+	Unchanged         int  `json:"unchanged"`
+	SkippedUserPriced int  `json:"skipped_user_priced"`
+}
+
+// RestampPlace recomputes the recorded place ('home' within radiusM of
+// (homeLat, homeLon), else 'away') on this user's charges that have a
+// position, in one transaction. It's the "my old home pin was wrong"
+// correction: only charges.place changes. Rows the user priced
+// (cost_source = 'user') and rows without a position are left alone;
+// no cost, price, source or network is touched. dryRun counts without
+// writing.
+func (s *Store) RestampPlace(ctx context.Context, homeLat, homeLon, radiusM float64, dryRun bool) (RestampResult, error) {
+	res := RestampResult{DryRun: dryRun}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	const classify = `
+		SELECT id, place,
+		       CASE WHEN 2 * 6371000 * asin(sqrt(
+		                   power(sin(radians(lat - $2::float8) / 2), 2) +
+		                   cos(radians($2::float8)) * cos(radians(lat)) *
+		                   power(sin(radians(lon - $3::float8) / 2), 2))) <= $4::float8
+		            THEN 'home' ELSE 'away' END AS new_place
+		  FROM charges
+		 WHERE user_id = $1
+		   AND lat IS NOT NULL AND lon IS NOT NULL AND NOT (lat = 0 AND lon = 0)
+		   AND COALESCE(cost_source, '') <> 'user'`
+	rows, err := tx.QueryContext(ctx, `
+		SELECT COALESCE(place, ''), new_place, count(*) FROM (`+classify+`) c
+		 GROUP BY 1, 2`, s.userID, homeLat, homeLon, radiusM)
+	if err != nil {
+		return res, err
+	}
+	for rows.Next() {
+		var oldP, newP string
+		var n int
+		if err := rows.Scan(&oldP, &newP, &n); err != nil {
+			rows.Close()
+			return res, err
+		}
+		switch {
+		case oldP == newP:
+			res.Unchanged += n
+		case newP == "home":
+			res.ToHome += n
+		default:
+			res.ToAway += n
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	res.Changed = res.ToHome + res.ToAway
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM charges WHERE user_id = $1 AND cost_source = 'user'`, s.userID,
+	).Scan(&res.SkippedUserPriced); err != nil {
+		return res, err
+	}
+	if dryRun || res.Changed == 0 {
+		return res, nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE charges ch SET place = c.new_place, updated_at = NOW()
+		  FROM (`+classify+`) c
+		 WHERE ch.id = c.id AND ch.place IS DISTINCT FROM c.new_place`,
+		s.userID, homeLat, homeLon, radiusM); err != nil {
+		return res, err
+	}
+	return res, tx.Commit()
+}
