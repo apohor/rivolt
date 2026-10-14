@@ -555,3 +555,29 @@ func TestUserPriceClearsLegacyAndFreeSurvivesUpsert(t *testing.T) {
 		t.Errorf("restored Free row: cost %v ppk %v, want 0 / 0 (not NULL)", cost, ppk)
 	}
 }
+
+// TestLiveOverlap pins the lookup a rejected recorder uses to write only
+// the tail of its session after another recorder's overlapping row.
+func TestLiveOverlap(t *testing.T) {
+	factory, uidA, _ := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-5 * time.Hour).Truncate(time.Second)
+	ghost := sampleCharge("ghost", "rv-A", start, "charging_active") // [start, start+30m], 50 kWh, 80%
+	if err := store.Upsert(ctx, ghost); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	ov, err := store.LiveOverlap(ctx, "rv-A", "mine", start.Add(time.Second), start.Add(time.Hour))
+	if err != nil || ov == nil {
+		t.Fatalf("LiveOverlap = %v, %v; want the ghost row", ov, err)
+	}
+	if !ov.EndedAt.Equal(ghost.EndedAt) || ov.EndSoCPct != 80 || ov.EnergyKWh != 50 {
+		t.Errorf("overlap = %+v", ov)
+	}
+	if ov, _ := store.LiveOverlap(ctx, "rv-A", "ghost", start, start.Add(time.Hour)); ov != nil {
+		t.Errorf("own row must be excluded, got %+v", ov)
+	}
+	if ov, _ := store.LiveOverlap(ctx, "rv-A", "mine", ghost.EndedAt, ghost.EndedAt.Add(time.Hour)); ov != nil {
+		t.Errorf("a range starting at the ghost's end doesn't overlap, got %+v", ov)
+	}
+}

@@ -286,3 +286,25 @@ func TestListRecent_FiltersShortDrives(t *testing.T) {
 		t.Errorf("Count: got %d want 2", n)
 	}
 }
+
+// TestLiveOverlap: see charges.TestLiveOverlap.
+func TestLiveOverlap(t *testing.T) {
+	factory, uidA, _ := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-5 * time.Hour).Truncate(time.Second)
+	ghost := sampleDrive("ghost", "rv-A", start) // [start, start+30m], 80→70%, odo 10000→10025
+	if err := store.Upsert(ctx, ghost); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	ov, err := store.LiveOverlap(ctx, "rv-A", "mine", start.Add(time.Second), start.Add(time.Hour))
+	if err != nil || ov == nil {
+		t.Fatalf("LiveOverlap = %v, %v; want the ghost row", ov, err)
+	}
+	if !ov.EndedAt.Equal(ghost.EndedAt) || ov.EndSoCPct != 70 || ov.EndOdometerMi != 10025 {
+		t.Errorf("overlap = %+v", ov)
+	}
+	if ov, _ := store.LiveOverlap(ctx, "rv-A", "ghost", start, start.Add(time.Hour)); ov != nil {
+		t.Errorf("own row must be excluded, got %+v", ov)
+	}
+}
