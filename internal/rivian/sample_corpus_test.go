@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/dcfcrates"
 )
 
 // Same seed, same bytes (docs/product/sample-truck.md acceptance).
@@ -97,6 +99,39 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 	for _, d := range drives {
 		if d.DistanceMi > 400 || d.DistanceMi <= 0 {
 			t.Errorf("drive %s distance %.1f mi", d.ID, d.DistanceMi)
+		}
+	}
+}
+
+// Every DC fast charge sits on one of the real stations, each of the
+// three is used, and each prices as a known network (not "unmatched"),
+// so the demo's network estimates resolve.
+func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	used := map[int]int{}
+	for _, s := range c.segs {
+		if s.kind != segCharge || !s.dcfc {
+			continue
+		}
+		found := -1
+		for i, st := range sampleDCFCStations {
+			if haversineMeters(s.path[0].Lat, s.path[0].Lon, st.at.Lat, st.at.Lon) <= 1 {
+				found = i
+			}
+		}
+		if found < 0 {
+			t.Errorf("DC fast charge at %+v isn't at a sample station", s.path[0])
+			continue
+		}
+		used[found]++
+	}
+	if len(used) != len(sampleDCFCStations) {
+		t.Errorf("stations used %v, want all %d", used, len(sampleDCFCStations))
+	}
+	for _, st := range sampleDCFCStations {
+		n := dcfcrates.MatchNetwork(dcfcrates.StationQuery(st.network, st.name))
+		if n.Slug == dcfcrates.UnmatchedNetwork.Slug {
+			t.Errorf("%s (%s) doesn't match a priced network", st.name, st.network)
 		}
 	}
 }

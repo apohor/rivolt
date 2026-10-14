@@ -58,16 +58,31 @@ var (
 		{34.1184, -118.3004}, // Griffith Observatory
 		{34.1478, -118.1445}, // Pasadena City Hall
 	}
-	sampleBarstow   = samplePoint{34.8987, -117.0228}
-	sampleBaker     = samplePoint{35.2652, -116.0731}
-	sampleVegas     = samplePoint{36.1699, -115.1398}
-	sampleHoover    = samplePoint{36.0160, -114.7377}
-	samplePrimm     = samplePoint{35.6106, -115.3883}
-	sampleLebec     = samplePoint{34.9881, -118.9455}
-	sampleKettleman = samplePoint{36.0083, -119.9618}
-	sampleGilroy    = samplePoint{37.0058, -121.5683}
-	sampleSF        = samplePoint{37.7955, -122.3937}
+	sampleBaker  = samplePoint{35.2652, -116.0731}
+	sampleVegas  = samplePoint{36.1699, -115.1398}
+	sampleHoover = samplePoint{36.0160, -114.7377}
+	sampleLebec  = samplePoint{34.9881, -118.9455}
+	sampleGilroy = samplePoint{37.0058, -121.5683}
+	sampleSF     = samplePoint{37.7955, -122.3937}
+
+	// The DC fast-charging stops sit on real stations from the NREL
+	// charger archive (chargers.pmtiles, read 2026-10-14), so the
+	// recorder's network pricing (nearest DCFC within 250 m) resolves
+	// them as on a real trip, across three networks.
+	sampleBarstow   = sampleDCFCStations[0].at
+	samplePrimm     = sampleDCFCStations[1].at
+	sampleKettleman = sampleDCFCStations[2].at
 )
+
+// sampleDCFCStations are the stations the sample truck fast-charges at.
+var sampleDCFCStations = []struct {
+	at            samplePoint
+	network, name string // as in the archive (EVNetwork, Name)
+}{
+	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA"},
+	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)"},
+	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger"},
+}
 
 type sampleSegKind int
 
