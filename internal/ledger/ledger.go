@@ -247,6 +247,10 @@ type Energy struct {
 	NullEnergySessions int                 `json:"null_energy_sessions"`
 	ByKind             map[string]KindLine `json:"by_kind"`
 	ByPlace            map[string]KindLine `json:"by_place"`
+	// ByPlaceKind is the place × kind cross-tab of the same per-session
+	// classification: summed over places it equals ByKind, over kinds
+	// ByPlace. All six cells are always present.
+	ByPlaceKind map[string]map[string]KindLine `json:"by_place_kind"`
 }
 
 // KindLine is one by_kind / by_place bucket. Sessions are classified
@@ -603,6 +607,11 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		Energy: Energy{
 			ByKind:  map[string]KindLine{"ac": {}, "dcfc": {}},
 			ByPlace: map[string]KindLine{"home": {}, "away": {}, "unknown": {}},
+			ByPlaceKind: map[string]map[string]KindLine{
+				"home":    {"ac": {}, "dcfc": {}},
+				"away":    {"ac": {}, "dcfc": {}},
+				"unknown": {"ac": {}, "dcfc": {}},
+			},
 		},
 		Driving: Driving{CostPerMileBasis: "spend_over_miles"},
 	}
@@ -653,6 +662,7 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		}
 		addLine(out.Energy.ByKind, v.kind, c, kwh, cost)
 		addLine(out.Energy.ByPlace, v.place, c, kwh, cost)
+		addLine(out.Energy.ByPlaceKind[v.place], v.kind, c, kwh, cost)
 		if v.derived {
 			out.DataQuality.CostSourceInferred = true
 			out.DataQuality.CostSourceDerivedSessions++
@@ -985,7 +995,11 @@ func roundMonthly(m *Monthly) {
 	}
 	m.Spend.UnpricedKWh = round4(m.Spend.UnpricedKWh)
 	m.Energy.KWhAdded = round4(m.Energy.KWhAdded)
-	for _, lines := range []map[string]KindLine{m.Energy.ByKind, m.Energy.ByPlace} {
+	all := []map[string]KindLine{m.Energy.ByKind, m.Energy.ByPlace}
+	for _, byKind := range m.Energy.ByPlaceKind {
+		all = append(all, byKind)
+	}
+	for _, lines := range all {
 		for k, v := range lines {
 			v.KWh = round4(v.KWh)
 			v.Cost = round4(v.Cost)
