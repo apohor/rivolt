@@ -100,7 +100,8 @@ Environment:
   RIVOLT_REPLAY_BACKFILL         replay: history recorded on first connect
                                  (Go duration, default 720h).
   RIVOLT_REPLAY_ALLOWED_USERS    replay: comma-separated usernames allowed a
-                                 demo vehicle (default: everyone).
+                                 demo vehicle; "*" for everyone (default:
+                                 nobody).
   RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
                                  client (preview: replay/mock/stub only).
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
@@ -346,7 +347,7 @@ func runServer() {
 	// off and split-brains the recorder). Anything but the network-free
 	// modes is the live client, so refuse to boot rather than rely on
 	// the kill switch or a dead session to keep it quiet.
-	if os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN") == "true" {
+	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN")) {
 		switch os.Getenv("RIVIAN_CLIENT") {
 		case "replay", "mock", "stub":
 		default:
@@ -389,13 +390,17 @@ func runServer() {
 			os.Exit(1)
 		}
 		// The corpus is a real vehicle's history, and preview shares
-		// sign-in with prod: limit demo vehicles to listed usernames.
-		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_ALLOWED_USERS")); v != "" {
+		// sign-in with prod: demo vehicles go only to listed usernames.
+		// Fails closed: unset means nobody; "*" opts everyone in.
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_ALLOWED_USERS")); v != "*" {
 			allowed := map[uuid.UUID]bool{}
 			for _, u := range strings.Split(v, ",") {
 				if u = strings.TrimSpace(u); u != "" {
 					allowed[db.UserIDFor(u)] = true
 				}
+			}
+			if len(allowed) == 0 {
+				logger.Warn("RIVOLT_REPLAY_ALLOWED_USERS is empty; no user can connect a demo vehicle")
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
 		}

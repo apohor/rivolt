@@ -777,7 +777,9 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.lastClosed = s.drive
 		s.lastClosedAt = curr.At
 		s.drive = nil
-		if !phantom && m.driveCloseHook != nil {
+		// Not for drives replayed during catch-up: a first connect
+		// backfills weeks of them, each fetching weather.
+		if !phantom && m.driveCloseHook != nil && !m.quietHooks.Load() {
 			go m.runDriveCloseHook(closedRow)
 		}
 		return n
