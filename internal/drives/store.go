@@ -284,3 +284,20 @@ func (s *Store) LiveOverlap(ctx context.Context, rivianVehicleID, excludeID stri
 	o.EndedAt = o.EndedAt.UTC()
 	return &o, nil
 }
+
+// LiveCovers reports whether a live (recorder) drive for this vehicle
+// overlaps [start, end). See charges.Store.LiveCovers.
+func (s *Store) LiveCovers(ctx context.Context, rivianVehicleID string, start, end time.Time) (bool, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return false, err
+	}
+	var ok bool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM drives
+		   WHERE user_id = $1 AND vehicle_id = $2 AND source = 'live'
+		     AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange($3::timestamptz, GREATEST($4::timestamptz, $3::timestamptz)))`,
+		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
+	return ok, err
+}

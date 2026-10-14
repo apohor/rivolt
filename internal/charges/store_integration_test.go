@@ -735,3 +735,32 @@ func TestListRecent_UserNullCostIsNotFree(t *testing.T) {
 		t.Errorf("cost sources = %v, want broken: \"\" (unpriced), free: user", src)
 	}
 }
+
+// TestLiveCovers pins the lookup importers use to skip sessions the
+// live recorder already captured (A7).
+func TestLiveCovers(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-5 * time.Hour).Truncate(time.Second)
+	if err := store.Upsert(ctx, sampleCharge("live-1", "rv-A", start, "charging_complete")); err != nil { // 30 min
+		t.Fatal(err)
+	}
+	imp := sampleCharge("electrafi-1", "rv-A", start.Add(2*time.Hour), "Complete")
+	imp.Source = "electrafi_import"
+	if err := store.Upsert(ctx, imp); err != nil {
+		t.Fatal(err)
+	}
+	check := func(name string, s *charges.Store, vid string, from, to time.Time, want bool) {
+		t.Helper()
+		got, err := s.LiveCovers(ctx, vid, from, to)
+		if err != nil || got != want {
+			t.Errorf("%s: LiveCovers = %v, %v; want %v", name, got, err, want)
+		}
+	}
+	check("overlaps the live row", store, "rv-A", start.Add(10*time.Minute), start.Add(time.Hour), true)
+	check("starts at its end", store, "rv-A", start.Add(30*time.Minute), start.Add(time.Hour), false)
+	check("only an import there", store, "rv-A", start.Add(2*time.Hour), start.Add(3*time.Hour), false)
+	check("other vehicle", store, "rv-B", start, start.Add(time.Hour), false)
+	check("other user", factory.For(uidB), "rv-A", start, start.Add(time.Hour), false)
+}
