@@ -106,3 +106,38 @@ func TestDrainStore_PairsSleepsDaysAndIsolation(t *testing.T) {
 		t.Fatalf("cross-user leak: %+v", other)
 	}
 }
+
+// Rows with NULL gear and charging_state (some recorder paths write
+// them) are parked-awake time, not a gap: awake hours must equal the
+// observed hours for an all-awake history.
+func TestDrainStore_NullGearAndChargingStateCountAsParkedAwake(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "drain-null-gear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-null-gear') RETURNING id`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Minute)
+	for i := 0; i < 7; i++ {
+		if _, err := pool.Exec(`INSERT INTO vehicle_state (user_id, vehicle_id, at, source, battery_level_pct, odometer_mi, power_state)
+			VALUES ($1,$2,$3,'live',80,1000,'ready')`, uid, vid, now.Add(-time.Duration(60-i*10)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := newDrainStore(pool)(ctx, uid, "rv-null-gear", time.UTC, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.W7.ObsH < 0.99 || raw.W7.AwakeH < 0.99 || raw.W7.AwakeH > raw.W7.ObsH+1e-9 {
+		t.Fatalf("awake %v should equal observed %v for NULL gear/charging rows", raw.W7.AwakeH, raw.W7.ObsH)
+	}
+}

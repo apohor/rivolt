@@ -175,7 +175,8 @@ WITH v AS (
 	        AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) AS idle,
 	       LAG(COALESCE(gear,'') IN ('P','') AND COALESCE(mph,0) < 1
 	           AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) OVER w AS pidle,
-	       LAG(gear NOT IN ('D','R','N') AND cs NOT IN ('charging_active','charging_connecting')) OVER w AS pparked,
+	       LAG(COALESCE(gear,'') NOT IN ('D','R','N')
+	           AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) OVER w AS pparked,
 	       LAG(cs IN ('charging_active','charging_connecting')) OVER w AS pcharging,
 	       LAG(gear IN ('D','R')) OVER w AS pdriving
 	  FROM s WINDOW w AS (ORDER BY at)
