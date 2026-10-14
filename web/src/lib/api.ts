@@ -402,6 +402,9 @@ export type Charge = {
   // legacy rows, imports, and non-Parallax live sessions; the UI falls
   // back to the wall span then.
   ActiveSeconds?: number;
+  // Where Cost came from (ledger contract §10/§12): "user" with Cost 0
+  // is an explicit Free. Absent on older builds.
+  CostSource?: string;
 };
 
 export type ChargingSettings = {
@@ -1063,7 +1066,10 @@ export const backend = {
   // recent-charge or home-rate fallbacks take over again.
   updateChargePricing: (
     id: string,
-    body: { cost?: number; currency?: string; price_per_kwh?: number },
+    // free:true marks the session explicitly free (contract §12, cost 0,
+    // source user). {} or cost 0 still clears the price, which is how
+    // Free is undone. free + a non-zero cost is a 400.
+    body: { cost?: number; currency?: string; price_per_kwh?: number; free?: boolean },
   ) =>
     api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
   samples: (since: Date, limit = 1000, until?: Date) => {

@@ -1,3 +1,4 @@
+import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -130,6 +131,7 @@ export default function ChargeDetailPage() {
       cost?: number;
       currency?: string;
       price_per_kwh?: number;
+      free?: boolean;
     }) => backend.updateChargePricing(id!, body),
     onSuccess: () => {
       // Charges are the input to the per-drive cost calculation, so
@@ -137,6 +139,8 @@ export default function ChargeDetailPage() {
       // corrected rate flowing through.
       qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["drives"] });
+      // Money's statement is a server aggregate over these charges.
+      qc.invalidateQueries({ queryKey: ["ledger"] });
     },
   });
 
@@ -628,7 +632,12 @@ function Stat({
 // manual override); otherwise we fall back to the estimated_cost
 // the API attaches via the configured home rate. Em-dash if neither
 // is available.
+export function isFreeCharge(c: import("../lib/api").Charge): boolean {
+  return c.CostSource === "user" && c.Cost === 0;
+}
+
 function chargeCostLabel(c: import("../lib/api").Charge): string {
+  if (isFreeCharge(c)) return "Free";
   if (c.Cost > 0) {
     return `${c.Cost.toFixed(2)}${c.Currency ? ` ${c.Currency}` : ""}`;
   }
@@ -643,6 +652,7 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // number or a home-rate estimate. Falls back to undefined so the
 // tile collapses cleanly when we have nothing useful to say.
 function chargeCostHint(c: import("../lib/api").Charge): string | undefined {
+  if (isFreeCharge(c)) return "marked free by you";
   if (c.Cost > 0) {
     const ppk =
       c.PricePerKWh > 0
@@ -1069,6 +1079,7 @@ function PricingCard({
       cost?: number;
       currency?: string;
       price_per_kwh?: number;
+      free?: boolean;
     }) => void;
     isPending: boolean;
     isError: boolean;
@@ -1086,6 +1097,8 @@ function PricingCard({
         : 0;
   const [ppk, setPpk] = useState(seed > 0 ? seed.toFixed(3) : "");
   const [currency, setCurrency] = useState(charge.Currency || "USD");
+  // Explicit Free ships with the money_tab_enabled flag.
+  const freeEnabled = useMoneyTabEnabled();
 
   // Network price book — the user-managed list from
   // /api/settings/charging/networks. Failure is non-fatal: the
@@ -1106,8 +1119,7 @@ function PricingCard({
         Override the per-kWh rate for this charge — handy when you
         paid for fast-charging outside the Rivian app and we don't
         have an upstream price. Total cost is derived from rate ×
-        energy. Leave blank to clear the override and let the home
-        rate take over again on read.
+        energy. Leave blank to clear your price (this also undoes Free).
       </p>
       <form
         className="grid grid-cols-1 sm:grid-cols-2 gap-3"
@@ -1208,6 +1220,22 @@ function PricingCard({
               ? `≈ ${previewCost.toFixed(2)} ${currency} over ${energy.toFixed(1)} kWh`
               : `Energy: ${energy.toFixed(1)} kWh`}
           </p>
+          {freeEnabled && (
+          <button
+            type="button"
+            disabled={mutation.isPending}
+            onClick={() =>
+              mutation.mutate({
+                free: true,
+                currency: currency.trim().toUpperCase() || undefined,
+              })
+            }
+            className="px-3 py-1.5 text-xs rounded-md border border-neutral-700 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+            title="Record this session as free (counts as priced, at zero)"
+          >
+            Mark as free
+          </button>
+          )}
           <button
             type="submit"
             disabled={mutation.isPending}
