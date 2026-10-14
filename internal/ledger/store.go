@@ -32,7 +32,25 @@ func Load(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID string, fr
 	return cs, ds, nil
 }
 
+// pricingColumnsSQL reports whether migration 0040's charges.cost_source
+// and charges.network exist. The ledger ships independently of that
+// migration, so it reads them only when present; without them every row
+// is treated as legacy (cost_source derived at query time).
+const pricingColumnsSQL = `
+	SELECT count(*) = 2 FROM information_schema.columns
+	WHERE table_schema = current_schema()
+	  AND table_name = 'charges'
+	  AND column_name IN ('cost_source', 'network')`
+
 func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID string, from, to time.Time) ([]Charge, error) {
+	var havePricing bool
+	if err := d.QueryRowContext(ctx, pricingColumnsSQL).Scan(&havePricing); err != nil {
+		return nil, err
+	}
+	pricingCols := `NULL::text, NULL::text`
+	if havePricing {
+		pricingCols = `c.cost_source, c.network`
+	}
 	rows, err := d.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -40,7 +58,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at
+		       c.lat, c.lon, c.created_at, `+pricingCols+`
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -57,6 +75,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 	for rows.Next() {
 		var c Charge
 		var startSoC, endSoC, energy, peak, cost, ppk, lat, lon sql.NullFloat64
+		var costSource, network sql.NullString
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&startSoC, &endSoC,
@@ -64,6 +83,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 			&cost, &c.Currency, &ppk,
 			&c.FinalState, &c.Source,
 			&lat, &lon, &c.CreatedAt,
+			&costSource, &network,
 		); err != nil {
 			return nil, err
 		}
@@ -72,6 +92,7 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		c.EnergyKWh, c.PeakKW = ptr(energy), ptr(peak)
 		c.Cost, c.PricePerKWh = ptr(cost), ptr(ppk)
 		c.Lat, c.Lon = ptr(lat), ptr(lon)
+		c.CostSource, c.Network = costSource.String, network.String
 		out = append(out, c)
 	}
 	return out, rows.Err()

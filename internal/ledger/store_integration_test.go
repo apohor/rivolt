@@ -138,9 +138,28 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 		t.Errorf("bob sees %+v, %v", bobs, err)
 	}
 
+	if cs[0].CostSource != "" || cs[0].Network != "" {
+		t.Errorf("before the pricing columns exist, cost_source/network must load empty: %+v", cs[0])
+	}
+
+	// Simulate migration 0040 (idempotent if it has already run) and
+	// check the loader picks the columns up without a restart.
+	mustExec(t, pool, `ALTER TABLE charges ADD COLUMN IF NOT EXISTS cost_source TEXT`)
+	mustExec(t, pool, `ALTER TABLE charges ADD COLUMN IF NOT EXISTS network TEXT`)
+	mustExec(t, pool, `UPDATE charges SET cost_source = 'network_estimate', network = 'Electrify America'
+		WHERE external_id = 'c-priced'`)
+	cs, ds, err = ledger.Load(ctx, pool, alice, "", from, to)
+	if err != nil {
+		t.Fatalf("Load after 0040: %v", err)
+	}
+	if cs[0].CostSource != "network_estimate" || cs[0].Network != "Electrify America" || cs[1].CostSource != "" {
+		t.Errorf("pricing columns: %q/%q, legacy %q", cs[0].CostSource, cs[0].Network, cs[1].CostSource)
+	}
+
 	m := ledger.Build(ledger.Input{Charges: cs, Drives: ds,
 		Config: ledger.Config{Currency: "USD", HomeRate: 0.11}, Now: in}, p, true)
-	if m.Spend.Total != 3.355 || m.Spend.UnpricedSessions != 1 || m.Energy.NullEnergySessions != 1 {
+	if m.Spend.Total != 3.355 || m.Spend.BySource["network_estimate"] != 3.355 ||
+		m.Spend.UnpricedSessions != 1 || m.Energy.NullEnergySessions != 1 {
 		t.Errorf("built from DB rows: spend %+v energy %+v", m.Spend, m.Energy)
 	}
 }

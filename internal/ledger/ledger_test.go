@@ -98,20 +98,54 @@ func TestLastMonths(t *testing.T) {
 	}
 }
 
-func TestCostSource(t *testing.T) {
-	c := charge("c", "2026-10-02T00:00:00Z", time.Hour, 10, 7)
-	if got := CostSource(c, 0.11); got != SourceUnknown {
-		t.Errorf("unpriced = %s", got)
+func TestCostSource_LegacyDerivation(t *testing.T) {
+	ac := charge("ac", "2026-10-02T00:00:00Z", time.Hour, 10, 7)
+	dc := charge("dc", "2026-10-02T00:00:00Z", 30*time.Minute, 50, 150)
+	cases := []struct {
+		name string
+		c    Charge
+		home float64
+		want string
+	}{
+		{"unpriced", ac, 0.11, SourceUnknown},
+		{"home rate on AC", priced(ac, 0.11), 0.11, SourceHomeRate},
+		{"within 0.0005", priced(ac, 0.1104), 0.11, SourceHomeRate},
+		{"outside 0.0005", priced(ac, 0.1106), 0.11, SourceRivian},
+		{"home rate on DCFC", priced(dc, 0.11), 0.11, SourceHomeRateMisapplied},
+		{"billed DCFC", priced(dc, 0.4837), 0.11, SourceRivian},
+		{"no home rate set", priced(ac, 0.11), 0, SourceRivian},
 	}
-	if got := CostSource(priced(c, 0.11), 0.11); got != SourceHomeRate {
-		t.Errorf("home-rate stamp = %s", got)
+	for _, tc := range cases {
+		got, derived := CostSource(tc.c, tc.home)
+		if got != tc.want || !derived {
+			t.Errorf("%s: CostSource = %s (derived %v), want %s (derived)", tc.name, got, derived, tc.want)
+		}
 	}
-	if got := CostSource(priced(c, 0.4837), 0.11); got != SourceRivian {
-		t.Errorf("billed = %s", got)
+}
+
+func TestCostSource_PersistedWins(t *testing.T) {
+	dc := priced(charge("dc", "2026-10-02T00:00:00Z", 30*time.Minute, 50, 150), 0.11)
+	for _, src := range []string{SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser} {
+		c := dc
+		c.CostSource = src
+		if got, derived := CostSource(c, 0.11); got != src || derived {
+			t.Errorf("persisted %s: got %s derived %v", src, got, derived)
+		}
 	}
-	// No home rate configured: any priced row is "rivian" (billed).
-	if got := CostSource(priced(c, 0.11), 0); got != SourceRivian {
-		t.Errorf("no home rate = %s", got)
+	free := dc
+	free.CostSource, free.Cost = SourceUser, f(0)
+	if got, _ := CostSource(free, 0.11); got != SourceUser {
+		t.Errorf("user $0 (free) = %s, want user", got)
+	}
+	noCost := dc
+	noCost.CostSource, noCost.Cost = SourceNetworkEstimate, nil
+	if got, derived := CostSource(noCost, 0.11); got != SourceUnknown || derived {
+		t.Errorf("persisted source without cost = %s derived %v, want unknown", got, derived)
+	}
+	odd := dc
+	odd.CostSource = "something_new"
+	if got, derived := CostSource(odd, 0.11); got != SourceHomeRateMisapplied || !derived {
+		t.Errorf("unrecognised persisted source must fall back to derivation, got %s %v", got, derived)
 	}
 }
 
@@ -179,17 +213,25 @@ func TestBuild_SpendBySourceAndQuality(t *testing.T) {
 	}
 	m := Build(in, month, true)
 
-	wantTotal := round4(60*0.11 + 70*0.11 + 50*0.48)
+	// The DCFC stamped with the home rate is a legacy misapplication:
+	// estimate pending, out of spend.
+	wantTotal := round4(60*0.11 + 50*0.48)
 	if m.Spend.Total != wantTotal {
 		t.Errorf("spend.total = %v, want %v", m.Spend.Total, wantTotal)
 	}
 	if got := m.Spend.BySource[SourceRivian]; got != round4(50*0.48) {
 		t.Errorf("by_source.rivian = %v", got)
 	}
-	if got := m.Spend.BySource[SourceHomeRate]; got != round4(130*0.11) {
+	if got := m.Spend.BySource[SourceHomeRate]; got != round4(60*0.11) {
 		t.Errorf("by_source.home_rate = %v", got)
 	}
-	if m.Spend.PricedSessions != 3 || m.Spend.UnpricedSessions != 1 || m.Spend.UnpricedKWh != 20 {
+	if m.Spend.EstimatePendingSessions != 1 || m.Spend.EstimatePendingKWh != 70 {
+		t.Errorf("estimate pending = %d / %v kWh, want 1 / 70", m.Spend.EstimatePendingSessions, m.Spend.EstimatePendingKWh)
+	}
+	if m.Spend.EstimatedShare == nil || *m.Spend.EstimatedShare != 0 {
+		t.Errorf("estimated_share = %v, want 0 (no network estimates)", m.Spend.EstimatedShare)
+	}
+	if m.Spend.PricedSessions != 2 || m.Spend.UnpricedSessions != 1 || m.Spend.UnpricedKWh != 20 {
 		t.Errorf("priced/unpriced = %d/%d kwh %v", m.Spend.PricedSessions, m.Spend.UnpricedSessions, m.Spend.UnpricedKWh)
 	}
 	if m.Spend.UnpricedHomeRateEstimate == nil || *m.Spend.UnpricedHomeRateEstimate != round4(20*0.11) {
@@ -198,11 +240,20 @@ func TestBuild_SpendBySourceAndQuality(t *testing.T) {
 	if m.Energy.Sessions != 5 || m.Energy.KWhAdded != 210 {
 		t.Errorf("energy = %d sessions %v kWh, want 5 / 210", m.Energy.Sessions, m.Energy.KWhAdded)
 	}
-	if dc := m.Energy.ByKind["dcfc"]; dc.Sessions != 2 || dc.KWh != 120 || dc.PeakKW == nil || *dc.PeakKW != 180 {
+	if dc := m.Energy.ByKind["dcfc"]; dc.Sessions != 2 || dc.KWh != 120 || dc.PeakKW == nil || *dc.PeakKW != 180 ||
+		dc.Cost != round4(50*0.48) {
 		t.Errorf("by_kind.dcfc = %+v", dc)
 	}
+	// by_place classifies per session and reconciles with the totals.
+	hp, ap := m.Energy.ByPlace["home"], m.Energy.ByPlace["away"]
+	if hp.Sessions != 2 || hp.KWh != 70 || ap.Sessions != 3 || ap.KWh != 140 || m.Energy.ByPlace["unknown"].Sessions != 0 {
+		t.Errorf("by_place home %+v away %+v", hp, ap)
+	}
+	if hp.Cost+ap.Cost != m.Spend.Total {
+		t.Errorf("by_place cost %v + %v != spend %v", hp.Cost, ap.Cost, m.Spend.Total)
+	}
 	dq := m.DataQuality
-	if !dq.CostSourceInferred || dq.SupersededExcluded != 1 || dq.HomeRateOnDCFC != 1 ||
+	if !dq.CostSourceInferred || dq.CostSourceDerivedSessions != 5 || dq.SupersededExcluded != 1 || dq.HomeRateOnDCFC != 1 ||
 		dq.HomeRateAway != 1 || dq.CurrencyMismatchExcluded != 1 {
 		t.Errorf("data_quality = %+v", dq)
 	}
@@ -236,9 +287,16 @@ func TestBuild_ReceiptsGroupByPlugIn(t *testing.T) {
 	}
 	// Newest first.
 	dc, plug := m.Receipts[0], m.Receipts[1]
-	if dc.ReceiptID != "rcpt_f1" || dc.Kind != "dcfc" || dc.Place != "away" ||
-		!hasFlag(dc.Flags, FlagHomeRateOnDCFC) || !hasFlag(dc.Flags, FlagHomeRateAway) {
+	if dc.ReceiptID != "rcpt_f1" || dc.Kind != "dcfc" || dc.Place != "away" || dc.CostSource != SourceHomeRateMisapplied ||
+		!hasFlag(dc.Flags, FlagHomeRateOnDCFC) || !hasFlag(dc.Flags, FlagHomeRateAway) || !hasFlag(dc.Flags, FlagEstimatePending) {
 		t.Errorf("dcfc receipt = %+v", dc)
+	}
+	// UX counts under-priced sessions from session-level flags.
+	if sf := dc.Sessions[0].Flags; !hasFlag(sf, FlagHomeRateOnDCFC) || !hasFlag(sf, FlagHomeRateAway) {
+		t.Errorf("session flags = %v, want home_rate_on_dcfc + home_rate_away", sf)
+	}
+	if s0 := dc.Sessions[0]; s0.Kind != "dcfc" || s0.Place != "away" || !s0.CostSourceDerived || s0.Network != nil {
+		t.Errorf("session = %+v", s0)
 	}
 	if plug.ReceiptID != "rcpt_s1" || plug.SessionCount != 3 || plug.Kind != "ac" || plug.Place != "home" {
 		t.Errorf("plug-in receipt = %+v", plug)
@@ -332,9 +390,11 @@ func TestBuild_EmptyMonthShape(t *testing.T) {
 	}
 	s := string(raw)
 	for _, want := range []string{
-		`"version":1`, `"receipts":[]`, `"by_source":{"home_rate":0,"rivian":0}`,
+		`"version":1`, `"receipts":[]`,
+		`"by_source":{"home_rate":0,"network_estimate":0,"rivian":0,"user":0}`,
+		`"by_place":{"away":`, `"estimated_share":null`, `"estimate_pending_sessions":0`,
 		`"coverage":null`, `"cost_per_mile":null`, `"unpriced_home_rate_estimate":null`,
-		`"first_activity_at":null`, `"is_current_month":false`, `"cost_source_inferred":true`,
+		`"first_activity_at":null`, `"is_current_month":false`, `"cost_source_inferred":false`,
 		`"cost_per_mile_basis":"spend_over_miles"`,
 	} {
 		if !strings.Contains(s, want) {
@@ -344,6 +404,50 @@ func TestBuild_EmptyMonthShape(t *testing.T) {
 	sum, _ := json.Marshal(MonthSummary{Monthly: m})
 	if strings.Contains(string(sum), `"receipts"`) {
 		t.Errorf("summary JSON must omit receipts: %s", sum)
+	}
+}
+
+// Rows priced by the pricing-aware recorder carry cost_source and
+// network; they count in spend as-is and surface the network.
+func TestBuild_PersistedNetworkEstimate(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	ea := at(priced(charge("ea", "2026-10-09T18:00:00Z", 30*time.Minute, 70, 180), 0.36), awayLat, awayLon)
+	ea.CostSource, ea.Network = SourceNetworkEstimate, "Electrify America"
+	topUp := at(priced(charge("ea2", "2026-10-09T18:40:00Z", 10*time.Minute, 5, 40), 0.36), awayLat, awayLon)
+	topUp.CostSource, topUp.Network = SourceNetworkEstimate, "Electrify America"
+	home := priced(charge("home", "2026-10-10T03:00:00Z", 8*time.Hour, 60, 7.5), 0.11)
+	home.CostSource = SourceHomeRate
+	user := at(charge("l1", "2026-10-11T02:00:00Z", 10*time.Hour, 20, 1.4), awayLat, awayLon)
+	user.CostSource, user.Cost = SourceUser, f(0) // marked free
+
+	m := Build(Input{Charges: []Charge{ea, topUp, home, user}, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, month, true)
+	if m.Spend.BySource[SourceNetworkEstimate] != round4(75*0.36) || m.Spend.BySource[SourceUser] != 0 ||
+		m.Spend.PricedSessions != 4 || m.Spend.UnpricedSessions != 0 {
+		t.Errorf("spend = %+v", m.Spend)
+	}
+	wantShare := round4(75 * 0.36 / (75*0.36 + 60*0.11))
+	if m.Spend.EstimatedShare == nil || *m.Spend.EstimatedShare != wantShare {
+		t.Errorf("estimated_share = %v, want %v", m.Spend.EstimatedShare, wantShare)
+	}
+	if m.DataQuality.CostSourceInferred || m.DataQuality.CostSourceDerivedSessions != 0 || m.DataQuality.HomeRateOnDCFC != 0 {
+		t.Errorf("persisted rows must not count as inferred: %+v", m.DataQuality)
+	}
+	var trip *Receipt
+	for i := range m.Receipts {
+		if m.Receipts[i].ReceiptID == "rcpt_ea" {
+			trip = &m.Receipts[i]
+		}
+	}
+	if trip == nil || trip.Network == nil || *trip.Network != "Electrify America" || trip.SessionCount != 2 ||
+		trip.CostSource != SourceNetworkEstimate {
+		t.Fatalf("network receipt = %+v", trip)
+	}
+	// A DCFC receipt can fold an AC-peak session; kinds stay per session.
+	if trip.Kind != "dcfc" || trip.Sessions[1].Kind != "ac" {
+		t.Errorf("receipt kind %s, second session kind %s", trip.Kind, trip.Sessions[1].Kind)
+	}
+	if ac := m.Energy.ByKind["ac"]; ac.Sessions != 3 {
+		t.Errorf("by_kind.ac sessions = %d, want 3 (per-session classification)", ac.Sessions)
 	}
 }
 

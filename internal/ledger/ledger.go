@@ -41,22 +41,29 @@ const FastMinKW = 50.0
 // Charges page uses, with a little GPS slack.
 const HomeRadiusKM = 0.25
 
-// homeRateTolerance is how close a persisted $/kWh must be to the
-// configured home rate to be attributed to it. price_per_kwh is
-// numeric(12,6), so anything stamped from the setting matches exactly;
-// the slack only absorbs float conversion.
-const homeRateTolerance = 1e-4
+// homeRateTolerance is how close a legacy row's $/kWh must be to the
+// configured home rate to be attributed to it (rows without a persisted
+// cost_source).
+const homeRateTolerance = 0.0005
 
 // padding is how far beyond the month the loader reaches so dedupe and
 // plug-in grouping see sessions that straddle the boundary.
 const padding = 72 * time.Hour
 
-// Cost sources. v1 infers them (there is no persisted provenance yet).
+// Cost sources. Rows closed by the pricing-aware recorder persist one
+// of rivian / home_rate / network_estimate / user in charges.cost_source
+// (migration 0040). Legacy rows (NULL) are derived at query time, which
+// adds home_rate_misapplied: the old recorder's home rate stamped on a
+// DC fast session, shown as "estimate pending" and kept out of spend
+// until `rivolt reprice` backfills it.
 const (
-	SourceRivian   = "rivian"
-	SourceHomeRate = "home_rate"
-	SourceUnknown  = "unknown"
-	SourceMixed    = "mixed"
+	SourceRivian             = "rivian"
+	SourceHomeRate           = "home_rate"
+	SourceNetworkEstimate    = "network_estimate"
+	SourceUser               = "user"
+	SourceHomeRateMisapplied = "home_rate_misapplied"
+	SourceUnknown            = "unknown"
+	SourceMixed              = "mixed"
 )
 
 // Flags on receipts and sessions.
@@ -71,6 +78,7 @@ const (
 	FlagContinuesNextMonth = "continues_next_month"
 	FlagContinuedFromPrev  = "continued_from_previous_month"
 	FlagCurrencyMismatch   = "currency_mismatch"
+	FlagEstimatePending    = "estimate_pending"
 )
 
 // Charge is the projection of a charges row the ledger needs. Pointer
@@ -92,6 +100,12 @@ type Charge struct {
 	Source      string
 	Lat, Lon    *float64
 	CreatedAt   time.Time
+	// CostSource is charges.cost_source; "" when NULL (legacy row) or
+	// the column doesn't exist yet.
+	CostSource string
+	// Network is charges.network (e.g. "Electrify America") for
+	// network-estimated sessions; "" when unknown.
+	Network string
 }
 
 // Drive is the projection of a drives row the ledger needs.
@@ -217,10 +231,13 @@ type Range struct {
 type Spend struct {
 	Total                    float64            `json:"total"`
 	BySource                 map[string]float64 `json:"by_source"`
+	EstimatedShare           *float64           `json:"estimated_share"`
 	PricedSessions           int                `json:"priced_sessions"`
 	UnpricedSessions         int                `json:"unpriced_sessions"`
 	UnpricedKWh              float64            `json:"unpriced_kwh"`
 	UnpricedHomeRateEstimate *float64           `json:"unpriced_home_rate_estimate"`
+	EstimatePendingSessions  int                `json:"estimate_pending_sessions"`
+	EstimatePendingKWh       float64            `json:"estimate_pending_kwh"`
 }
 
 // Energy is energy added by charging.
@@ -229,9 +246,12 @@ type Energy struct {
 	KWhAdded           float64             `json:"kwh_added"`
 	NullEnergySessions int                 `json:"null_energy_sessions"`
 	ByKind             map[string]KindLine `json:"by_kind"`
+	ByPlace            map[string]KindLine `json:"by_place"`
 }
 
-// KindLine is one by_kind bucket.
+// KindLine is one by_kind / by_place bucket. Sessions are classified
+// one by one (session peak for kind, session location for place), so
+// each map's lines sum to the Energy totals.
 type KindLine struct {
 	Sessions int      `json:"sessions"`
 	KWh      float64  `json:"kwh"`
@@ -267,6 +287,7 @@ type Receipt struct {
 	PeakKW           *float64         `json:"peak_kw"`
 	Cost             *float64         `json:"cost"`
 	CostSource       string           `json:"cost_source"`
+	Network          *string          `json:"network"`
 	Rate             *float64         `json:"rate"`
 	SessionCount     int              `json:"session_count"`
 	UnpricedSessions int              `json:"unpriced_sessions"`
@@ -286,21 +307,31 @@ type ReceiptSession struct {
 	Cost        *float64  `json:"cost"`
 	PricePerKWh *float64  `json:"price_per_kwh"`
 	CostSource  string    `json:"cost_source"`
-	FinalState  string    `json:"final_state"`
-	Source      string    `json:"source"`
-	Flags       []string  `json:"flags"`
+	// CostSourceDerived is true when cost_source was derived at query
+	// time (legacy row) rather than persisted by the recorder.
+	CostSourceDerived bool     `json:"cost_source_derived"`
+	Network           *string  `json:"network"`
+	Kind              string   `json:"kind"`
+	Place             string   `json:"place"`
+	FinalState        string   `json:"final_state"`
+	Source            string   `json:"source"`
+	Flags             []string `json:"flags"`
 }
 
 // DataQuality carries the counts behind the Money tab's quality notes.
 type DataQuality struct {
-	CostSourceInferred       bool         `json:"cost_source_inferred"`
-	SupersededExcluded       int          `json:"superseded_excluded"`
-	Superseded               []Superseded `json:"superseded,omitempty"`
-	DrivesSupersededExcluded int          `json:"drives_superseded_excluded"`
-	OpenSessions             int          `json:"open_sessions"`
-	HomeRateOnDCFC           int          `json:"home_rate_on_dcfc"`
-	HomeRateAway             int          `json:"home_rate_away"`
-	CurrencyMismatchExcluded int          `json:"currency_mismatch_excluded"`
+	// CostSourceInferred is true when any session in the month had its
+	// cost_source derived (legacy NULL); CostSourceDerivedSessions counts
+	// them.
+	CostSourceInferred        bool         `json:"cost_source_inferred"`
+	CostSourceDerivedSessions int          `json:"cost_source_derived_sessions"`
+	SupersededExcluded        int          `json:"superseded_excluded"`
+	Superseded                []Superseded `json:"superseded,omitempty"`
+	DrivesSupersededExcluded  int          `json:"drives_superseded_excluded"`
+	OpenSessions              int          `json:"open_sessions"`
+	HomeRateOnDCFC            int          `json:"home_rate_on_dcfc"`
+	HomeRateAway              int          `json:"home_rate_away"`
+	CurrencyMismatchExcluded  int          `json:"currency_mismatch_excluded"`
 }
 
 // Superseded names a duplicate excluded in favour of its winner.
@@ -421,18 +452,46 @@ func driveBeats(a, b Drive) bool {
 
 // ---- classification -------------------------------------------------
 
-// CostSource infers where a session's persisted cost came from. With no
-// provenance column yet: no cost → unknown; a rate equal to the user's
-// current home rate → home_rate; anything else priced → rivian (which
-// in practice also covers manual edits and older home rates).
-func CostSource(c Charge, homeRate float64) string {
+// CostSource reports where a session's cost came from and whether the
+// answer was derived at query time. A persisted charges.cost_source wins
+// (a row with no cost is still unknown). Legacy rows (NULL) derive:
+// no cost → unknown; a rate within homeRateTolerance of the user's home
+// rate → home_rate below FastMinKW, home_rate_misapplied at or above it;
+// any other price → rivian (billed, or a manual edit / older home rate).
+func CostSource(c Charge, homeRate float64) (string, bool) {
+	switch s := strings.ToLower(strings.TrimSpace(c.CostSource)); s {
+	case SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser:
+		if c.Cost == nil {
+			return SourceUnknown, false
+		}
+		return s, false
+	}
 	if !positive(c.Cost) {
-		return SourceUnknown
+		return SourceUnknown, true
 	}
 	if homeRate > 0 && c.PricePerKWh != nil && math.Abs(*c.PricePerKWh-homeRate) <= homeRateTolerance {
-		return SourceHomeRate
+		if isDCFC(c) {
+			return SourceHomeRateMisapplied, true
+		}
+		return SourceHomeRate, true
 	}
-	return SourceRivian
+	return SourceRivian, true
+}
+
+// isPriced reports whether a cost source counts toward spend.
+func isPriced(source string) bool {
+	switch source {
+	case SourceRivian, SourceHomeRate, SourceNetworkEstimate, SourceUser:
+		return true
+	}
+	return false
+}
+
+func networkOf(c Charge) *string {
+	if n := strings.TrimSpace(c.Network); n != "" {
+		return &n
+	}
+	return nil
 }
 
 func isDCFC(c Charge) bool { return c.PeakKW != nil && *c.PeakKW >= FastMinKW }
@@ -470,6 +529,8 @@ func currencyMatches(c Charge, cfg Config) bool {
 type sessionView struct {
 	c       Charge
 	source  string
+	derived bool
+	kind    string
 	place   string
 	kmHome  *float64
 	flags   []string
@@ -477,7 +538,8 @@ type sessionView struct {
 }
 
 func viewOf(c Charge, cfg Config) sessionView {
-	v := sessionView{c: c, source: CostSource(c, cfg.HomeRate)}
+	v := sessionView{c: c, kind: kindOf(c)}
+	v.source, v.derived = CostSource(c, cfg.HomeRate)
 	v.place, v.kmHome = place(c, cfg.Home)
 	if !currencyMatches(c, cfg) {
 		v.flags = append(v.flags, FlagCurrencyMismatch)
@@ -494,13 +556,17 @@ func viewOf(c Charge, cfg Config) sessionView {
 	if strings.EqualFold(c.FinalState, "abandoned") {
 		v.flags = append(v.flags, FlagAbandoned)
 	}
-	if v.source == SourceHomeRate && isDCFC(c) {
+	homeStamped := v.source == SourceHomeRate || v.source == SourceHomeRateMisapplied
+	if v.source == SourceHomeRateMisapplied {
+		v.flags = append(v.flags, FlagEstimatePending)
+	}
+	if homeStamped && isDCFC(c) {
 		v.flags = append(v.flags, FlagHomeRateOnDCFC)
 	}
-	if v.source == SourceHomeRate && v.place == "away" {
+	if homeStamped && v.place == "away" {
 		v.flags = append(v.flags, FlagHomeRateAway)
 	}
-	v.spendOK = v.source != SourceUnknown && currencyMatches(c, cfg)
+	v.spendOK = isPriced(v.source) && c.Cost != nil && currencyMatches(c, cfg)
 	sort.Strings(v.flags)
 	return v
 }
@@ -530,13 +596,15 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		Currency:       in.Config.Currency,
 		IsCurrentMonth: !in.Now.Before(p.Start) && in.Now.Before(p.End),
 		Spend: Spend{
-			BySource: map[string]float64{SourceRivian: 0, SourceHomeRate: 0},
+			BySource: map[string]float64{
+				SourceRivian: 0, SourceHomeRate: 0, SourceNetworkEstimate: 0, SourceUser: 0,
+			},
 		},
 		Energy: Energy{
-			ByKind: map[string]KindLine{"ac": {}, "dcfc": {}},
+			ByKind:  map[string]KindLine{"ac": {}, "dcfc": {}},
+			ByPlace: map[string]KindLine{"home": {}, "away": {}, "unknown": {}},
 		},
-		Driving:     Driving{CostPerMileBasis: "spend_over_miles"},
-		DataQuality: DataQuality{CostSourceInferred: true},
+		Driving: Driving{CostPerMileBasis: "spend_over_miles"},
 	}
 	inMonth := func(t time.Time) bool { return !t.Before(p.Start) && t.Before(p.End) }
 	noteActivity := func(t time.Time) {
@@ -566,29 +634,29 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		if !positive(c.EnergyKWh) {
 			out.Energy.NullEnergySessions++
 		}
-		kl := out.Energy.ByKind[kindOf(c)]
-		kl.Sessions++
-		kl.KWh += kwh
-		if c.PeakKW != nil && (kl.PeakKW == nil || *c.PeakKW > *kl.PeakKW) {
-			pk := *c.PeakKW
-			kl.PeakKW = &pk
-		}
-
+		var cost float64
 		switch {
 		case hasFlag(v.flags, FlagCurrencyMismatch):
 			out.DataQuality.CurrencyMismatchExcluded++
 		case v.spendOK:
-			cost := *c.Cost
+			cost = *c.Cost
 			out.Spend.Total += cost
 			out.Spend.BySource[v.source] += cost
 			out.Spend.PricedSessions++
-			kl.Cost += cost
+		case v.source == SourceHomeRateMisapplied:
+			out.Spend.EstimatePendingSessions++
+			out.Spend.EstimatePendingKWh += kwh
 		default:
 			out.Spend.UnpricedSessions++
 			out.Spend.UnpricedKWh += kwh
 			unpricedEstimate += kwh * in.Config.HomeRate
 		}
-		out.Energy.ByKind[kindOf(c)] = kl
+		addLine(out.Energy.ByKind, v.kind, c, kwh, cost)
+		addLine(out.Energy.ByPlace, v.place, c, kwh, cost)
+		if v.derived {
+			out.DataQuality.CostSourceInferred = true
+			out.DataQuality.CostSourceDerivedSessions++
+		}
 
 		if hasFlag(v.flags, FlagOpenSession) {
 			out.DataQuality.OpenSessions++
@@ -603,6 +671,10 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 	if in.Config.HomeRate > 0 {
 		est := round4(unpricedEstimate)
 		out.Spend.UnpricedHomeRateEstimate = &est
+	}
+	if out.Spend.Total > 0 {
+		share := round4(out.Spend.BySource[SourceNetworkEstimate] / out.Spend.Total)
+		out.Spend.EstimatedShare = &share
 	}
 	for _, s := range lost {
 		if c, ok := findCharge(in.Charges, s.ChargeID); ok && inMonth(c.StartedAt) {
@@ -773,20 +845,27 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 		for _, f := range v.flags {
 			flagSet[f] = true
 		}
+		if r.Network == nil {
+			r.Network = networkOf(c)
+		}
 		r.Sessions = append(r.Sessions, ReceiptSession{
-			ChargeID:    c.ID,
-			StartedAt:   c.StartedAt.UTC(),
-			EndedAt:     c.EndedAt.UTC(),
-			SoCStart:    c.StartSoC,
-			SoCEnd:      c.EndSoC,
-			KWh:         c.EnergyKWh,
-			PeakKW:      c.PeakKW,
-			Cost:        c.Cost,
-			PricePerKWh: c.PricePerKWh,
-			CostSource:  v.source,
-			FinalState:  c.FinalState,
-			Source:      c.Source,
-			Flags:       nonNil(v.flags),
+			ChargeID:          c.ID,
+			StartedAt:         c.StartedAt.UTC(),
+			EndedAt:           c.EndedAt.UTC(),
+			SoCStart:          c.StartSoC,
+			SoCEnd:            c.EndSoC,
+			KWh:               c.EnergyKWh,
+			PeakKW:            c.PeakKW,
+			Cost:              c.Cost,
+			PricePerKWh:       c.PricePerKWh,
+			CostSource:        v.source,
+			CostSourceDerived: v.derived,
+			Network:           networkOf(c),
+			Kind:              v.kind,
+			Place:             v.place,
+			FinalState:        c.FinalState,
+			Source:            c.Source,
+			Flags:             nonNil(v.flags),
 		})
 	}
 	r.EndedAt = end.UTC()
@@ -885,6 +964,20 @@ func nonNil(s []string) []string {
 
 func round4(f float64) float64 { return math.Round(f*1e4) / 1e4 }
 
+// addLine folds one session into a by_kind / by_place bucket. cost is
+// the session's spend contribution (0 when not priced).
+func addLine(m map[string]KindLine, key string, c Charge, kwh, cost float64) {
+	l := m[key]
+	l.Sessions++
+	l.KWh += kwh
+	l.Cost += cost
+	if c.PeakKW != nil && (l.PeakKW == nil || *c.PeakKW > *l.PeakKW) {
+		pk := *c.PeakKW
+		l.PeakKW = &pk
+	}
+	m[key] = l
+}
+
 func roundMonthly(m *Monthly) {
 	m.Spend.Total = round4(m.Spend.Total)
 	for k, v := range m.Spend.BySource {
@@ -892,11 +985,14 @@ func roundMonthly(m *Monthly) {
 	}
 	m.Spend.UnpricedKWh = round4(m.Spend.UnpricedKWh)
 	m.Energy.KWhAdded = round4(m.Energy.KWhAdded)
-	for k, v := range m.Energy.ByKind {
-		v.KWh = round4(v.KWh)
-		v.Cost = round4(v.Cost)
-		m.Energy.ByKind[k] = v
+	for _, lines := range []map[string]KindLine{m.Energy.ByKind, m.Energy.ByPlace} {
+		for k, v := range lines {
+			v.KWh = round4(v.KWh)
+			v.Cost = round4(v.Cost)
+			lines[k] = v
+		}
 	}
+	m.Spend.EstimatePendingKWh = round4(m.Spend.EstimatePendingKWh)
 	m.Driving.Miles = round4(m.Driving.Miles)
 	m.Driving.MilesWithEnergy = round4(m.Driving.MilesWithEnergy)
 	m.Driving.KWhUsedKnown = round4(m.Driving.KWhUsedKnown)
