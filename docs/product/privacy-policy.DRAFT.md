@@ -34,6 +34,7 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 | Recipient | What | Why |
 |---|---|---|
 | Rivian | your credentials and requests, as in your own app | read your vehicle data |
+| Cloudflare (CDN / proxy) | every request to rivolt.dev, including your IP address and request metadata, passes through it | delivery, caching, DDoS protection **[VERIFY: Cloudflare's logging/retention and whether TLS terminates there]** |
 | Cloud hosting / backup storage **[DECIDE: provider names]** | encrypted at rest as configured | run the service |
 | Weather provider (Open-Meteo) | coordinates and times of drives **[VERIFY exact payload]** | weather in trip analysis |
 | Charger data (NREL AFDC) | queried against a local archive; **[VERIFY no user data sent]** | charger lookup |
@@ -42,6 +43,7 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 | AWS S3 (elevation tiles) | tile coordinates, which can reveal the area of your routes | elevation in trip analysis **[VERIFY and consider proxying or caching]** |
 | Open-Meteo (geocoding and weather archive) | place names and coordinates | place lookup, weather |
 | Browser push services (Apple, Google, Mozilla) | an encrypted notification payload via your browser's push endpoint | notifications, only if you enable them |
+**Analytics:** the Content-Security-Policy allows `static.cloudflareinsights.com` (Cloudflare Web Analytics), but no beacon is served today. **[VERIFY: if it is ever enabled it must be disclosed here and contradicts instrumentation.md's "no third-party analytics"; otherwise remove the CSP entry.]**
 Maps and routing are self-hosted (Protomaps basemap, Valhalla): no third-party map requests carry your data **[VERIFY]**.
 
 ## 5. Retention, export and deletion
