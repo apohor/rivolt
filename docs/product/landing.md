@@ -15,12 +15,12 @@ Page lives at `/` for signed-out visitors, plus `/demo` (public, no login).
 ## Copy (draft)
 **Hero**
 - H1: What your Rivian actually costs.
-- Sub: Every charge and trip priced at your rates, with the source of every number. Open source. Self-host it or let us run it.
+- Sub: Every charge and trip priced at your rates, or flagged when we can't price it, with the source of every number. Open source. Self-host it or let us run it.
 - Buttons: *Try the demo truck* · *Connect my Rivian*
 - Under buttons: Free while in beta. Invite-only.
 
 **Claim 1: Every dollar has a source**
-Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. You always see which one.
+Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. Charges we can't price are flagged, not guessed. You always see which one.
 *Screenshot: receipts with source labels.*
 
 **Claim 2: Price the trip, then check yourself**
@@ -28,18 +28,18 @@ See DCFC spend versus charging at home before you leave. After the trip, see pla
 *Screenshot: Plan summary + Activity trip.* (Plan-vs-actual is slice 8: ship the claim only when live.)
 
 **Claim 3: Yours to keep**
-MIT licensed. Export everything as CSV. Run it on your own server with one command, or use ours.
+MIT licensed. Download all your data as a JSON backup (CSV statement export is planned; don't claim it until shipped). Run it on your own server with docker compose and an OIDC provider (maps and planner need the optional tiles and Valhalla services), or use ours.
 *Link: GitHub, self-host guide.*
 
 **Trust block**
 - We store your Rivian session encrypted; your password is never stored. (Verify against the code before publishing.)
 - We recommend a separate Authorized Driver account. Step-by-step guide linked.
-- You can revoke Rivolt from the Rivian app at any time, and delete your data from Settings.
+- With an Authorized Driver account you can revoke Rivolt from the Rivian app at any time. Either way you can delete your data from Settings.
 
 **Honest limits**
 - Unofficial: Rivolt uses Rivian's unofficial API and is not affiliated with Rivian. It can break.
 - No fleet leaderboards or software-rollout tracker: use Roamer for those.
-- Beta: about a dozen vehicles; expect rough edges.
+- Beta: fewer than ten vehicles today; expect rough edges. (Update the number at publish time; don't hard-code.)
 
 ## Live-demo idea
 `/demo` shows a generated truck ("Sample R1S") through the real Money, Now and Activity screens, read-only, no login, no Rivian call. Banner: "Sample data". Spec: sample-truck.md.

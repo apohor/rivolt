@@ -10,7 +10,7 @@ A visitor sees the real product with realistic data before handing over Rivian c
 - Behind a flag, default off.
 
 ## Corpus requirements (generator, owned by architect)
-One vehicle, 45 days, seeded and deterministic (fixed seed, reproducible in CI).
+One vehicle, 45 days, seeded and deterministic (fixed seed, reproducible in CI). The synthetic "home" must be pinned to a public, non-residential place (e.g. a stadium or park lot) so it can never coincide with a real residence.
 | Need | Why |
 |---|---|
 | About 20 home L2 sessions with 1–3 top-ups per plug-in | exercises receipt grouping |
