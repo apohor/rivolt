@@ -162,7 +162,7 @@ export function RivianAccountPanel() {
           <button
             type="submit"
             disabled={mfa.isPending || otp.trim().length < 4}
-            className="rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-neutral-50 hover:bg-emerald-500 disabled:opacity-50"
+            className="rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
           >
             {mfa.isPending ? "…" : "Verify"}
           </button>
@@ -235,7 +235,7 @@ export function RivianAccountPanel() {
       <button
         type="submit"
         disabled={login.isPending || !email || !password}
-        className="rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-neutral-50 hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
       >
         {login.isPending ? "Signing in…" : "Sign in"}
       </button>
