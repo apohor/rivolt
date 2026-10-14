@@ -1,3 +1,4 @@
+import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -138,6 +139,8 @@ export default function ChargeDetailPage() {
       // corrected rate flowing through.
       qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["drives"] });
+      // Money's statement is a server aggregate over these charges.
+      qc.invalidateQueries({ queryKey: ["ledger"] });
     },
   });
 
@@ -1094,6 +1097,8 @@ function PricingCard({
         : 0;
   const [ppk, setPpk] = useState(seed > 0 ? seed.toFixed(3) : "");
   const [currency, setCurrency] = useState(charge.Currency || "USD");
+  // Explicit Free ships with the money_tab_enabled flag.
+  const freeEnabled = useMoneyTabEnabled();
 
   // Network price book — the user-managed list from
   // /api/settings/charging/networks. Failure is non-fatal: the
@@ -1114,8 +1119,7 @@ function PricingCard({
         Override the per-kWh rate for this charge — handy when you
         paid for fast-charging outside the Rivian app and we don't
         have an upstream price. Total cost is derived from rate ×
-        energy. Leave blank to clear the override (this also undoes Free) and
-        let the home rate take over again on read.
+        energy. Leave blank to clear your price (this also undoes Free).
       </p>
       <form
         className="grid grid-cols-1 sm:grid-cols-2 gap-3"
@@ -1216,6 +1220,7 @@ function PricingCard({
               ? `≈ ${previewCost.toFixed(2)} ${currency} over ${energy.toFixed(1)} kWh`
               : `Energy: ${energy.toFixed(1)} kWh`}
           </p>
+          {freeEnabled && (
           <button
             type="button"
             disabled={mutation.isPending}
@@ -1230,6 +1235,7 @@ function PricingCard({
           >
             Mark as free
           </button>
+          )}
           <button
             type="submit"
             disabled={mutation.isPending}
