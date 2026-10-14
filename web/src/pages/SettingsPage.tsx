@@ -12,6 +12,7 @@ import {
   type GeocodeResult,
   type HomeLocation,
   type RestampResult,
+  type RestampUndoResult,
   type PlannerPrefs,
   type ImportResult,
   type ImportProgress,
@@ -2132,6 +2133,13 @@ export function HomeLocationPanel() {
       qc.invalidateQueries({ queryKey: ["charges"] });
     },
   });
+  const undo = useMutation({
+    mutationFn: (id: string | null | undefined) => backend.restampPlaceUndo(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+      qc.invalidateQueries({ queryKey: ["charges"] });
+    },
+  });
   const save = useMutation({
     mutationFn: (h: HomeLocation) => backend.homeLocationPut(h),
     onSuccess: (data, vars) => {
@@ -2139,6 +2147,7 @@ export function HomeLocationPanel() {
       qc.setQueryData(["settings", "homeLocation"], data);
       setAsk(null);
       restamp.reset();
+      undo.reset();
       if (shell && prev?.set && vars.set && homeMoved(prev, vars)) restampDry.mutate();
     },
   });
@@ -2240,8 +2249,11 @@ export function HomeLocationPanel() {
           <p className="text-neutral-100">Was the old location wrong, or did you move?</p>
           <p className="mt-1 text-xs text-neutral-400">
             If it was wrong, {ask.changed} past {ask.changed === 1 ? "charge" : "charges"} will be re-checked against
-            the new home: {ask.to_home} will move to Home and {ask.to_away} to away. Charges without a price stay
-            unpriced (you can add prices). This can&apos;t be undone from here. If you moved, history stays as recorded.
+            the new home: {ask.to_home} will move to Home and {ask.to_away} to away.{" "}
+            {(ask.would_price_at_home_rate ?? 0) > 0
+              ? `${ask.would_price_at_home_rate} unpriced home ${ask.would_price_at_home_rate === 1 ? "charge" : "charges"} will be priced at your home rate (+${(ask.total_cost_delta ?? 0).toFixed(2)} ${ask.currency ?? ""}). `
+              : "Charges without a price stay unpriced (you can add prices). "}
+            You can undo this right after. If you moved, history stays as recorded.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
@@ -2264,9 +2276,30 @@ export function HomeLocationPanel() {
           {restamp.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(restamp.error)}</p>}
         </div>
       )}
-      {restamp.isSuccess && (
+      {restamp.isSuccess && !undo.isSuccess && (
+        <div role="status" className="flex flex-wrap items-center gap-3 text-xs text-emerald-300">
+          <span>
+            Updated {restamp.data.changed} {restamp.data.changed === 1 ? "charge" : "charges"}
+            {(restamp.data.would_price_at_home_rate ?? 0) > 0
+              ? `, ${restamp.data.would_price_at_home_rate} priced at your home rate`
+              : ""}
+            .
+          </span>
+          <button
+            type="button"
+            disabled={undo.isPending}
+            onClick={() => undo.mutate(restamp.data.restamp_id)}
+            className="rounded-md border border-neutral-700 px-2 py-1 text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            {undo.isPending ? "Undoing…" : "Undo"}
+          </button>
+          {undo.isError && <span className="text-rose-400">Couldn&apos;t undo: {String(undo.error)}</span>}
+        </div>
+      )}
+      {undo.isSuccess && (
         <p role="status" className="text-xs text-emerald-300">
-          Updated {restamp.data.changed} {restamp.data.changed === 1 ? "charge" : "charges"}.
+          Restored {(undo.data as RestampUndoResult).restored_place} {(undo.data as RestampUndoResult).restored_place === 1 ? "charge" : "charges"}
+          {(undo.data as RestampUndoResult).unpriced > 0 ? `; ${(undo.data as RestampUndoResult).unpriced} unpriced again` : ""}.
         </p>
       )}
       <p className="text-xs text-neutral-500">

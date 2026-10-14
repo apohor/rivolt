@@ -1025,6 +1025,13 @@ export const backend = {
   // touched. 409 when no home is saved.
   restampPlace: (dryRun: boolean) =>
     api.post<RestampResult>(`/api/charges/restamp-place${dryRun ? "?dry_run=1" : ""}`, null),
+  // Undoes a correction (latest when restampId is omitted). 404 when
+  // there is nothing to undo.
+  restampPlaceUndo: (restampId?: string | null) =>
+    api.post<RestampUndoResult>(
+      `/api/charges/restamp-place/undo${restampId ? `?restamp_id=${encodeURIComponent(restampId)}` : ""}`,
+      null,
+    ),
   // Pre-account waitlist. Public requestSignup is used by /signup
   // when the visitor has no invite code. Admin endpoints sit under
   // the same role gate as the rest of /api/admin.
@@ -1442,7 +1449,16 @@ export type RestampResult = {
   to_away: number;
   unchanged: number;
   skipped_user_priced: number;
+  // A15b: charges that become home AC and unpriced get the home rate.
+  // Absent on older servers.
+  would_price_at_home_rate?: number;
+  total_cost_delta?: number;
+  currency?: string;
+  // Null on a dry run, or when nothing changed; needed for undo.
+  restamp_id?: string | null;
 };
+
+export type RestampUndoResult = { restamp_id: string; restored_place: number; unpriced: number };
 
 // IdpDeleteFailure is one pending identity-provider delete failure
 // (GET /api/admin/idp-delete-failures).
