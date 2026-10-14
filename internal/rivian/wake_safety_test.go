@@ -499,3 +499,95 @@ func TestRestQuietOverridesHold(t *testing.T) {
 		t.Errorf("rest_quiet + hold_asleep: held=%v err=%v; want no hold (its checks are REST)", held, err)
 	}
 }
+
+// The rest_quiet guardrail: one safety_poll after 6 h of REST-quiet
+// sleep, or after 30 min without a vehicleState frame (rate-limited).
+func TestRestQuietSafetyPoll(t *testing.T) {
+	now := time.Date(2026, 10, 15, 2, 0, 0, 0, time.UTC)
+	old := restQuietNow
+	restQuietNow = func() time.Time { return now }
+	t.Cleanup(func() { restQuietNow = old })
+
+	logs := &syncBuffer{}
+	m := NewStateMonitor(NewLive(), slog.New(slog.NewTextHandler(logs, nil)))
+	var reasons []string
+	m.restFn = func(ctx context.Context, vid string) (*State, error) {
+		reasons = append(reasons, actionReason(ctx))
+		return &State{VehicleID: vid, PowerState: "sleep"}, nil
+	}
+	m.SetWakeSafety(func(string) WakeSafety { return WakeSafety{RestQuiet: true} })
+	set := func(ps string) {
+		m.mu.Lock()
+		m.cache["veh-1"] = &State{VehicleID: "veh-1", PowerState: ps}
+		m.mu.Unlock()
+	}
+	frame := func() {
+		m.mu.Lock()
+		if m.lastVSFrame == nil {
+			m.lastVSFrame = map[string]time.Time{}
+		}
+		m.lastVSFrame["veh-1"] = now
+		m.mu.Unlock()
+	}
+	tick := func(d time.Duration, frames bool) {
+		// Advance in 3-min steps (the TTL reconnect's replay frame),
+		// running a refresh tick at the end.
+		for end := now.Add(d); now.Before(end); {
+			now = now.Add(3 * time.Minute)
+			if now.After(end) {
+				now = end
+			}
+			if frames {
+				frame()
+			}
+		}
+		m.refreshOnce(context.Background(), "veh-1")
+	}
+	want := func(step string, n int, last string) {
+		t.Helper()
+		if len(reasons) != n || (last != "" && reasons[n-1] != last) {
+			t.Fatalf("%s: REST calls %v, want %d ending %q", step, reasons, n, last)
+		}
+	}
+
+	set("sleep")
+	frame()
+	tick(0, true)
+	want("asleep, healthy WS", 0, "")
+	tick(5*time.Hour+59*time.Minute, true)
+	want("just under 6 h", 0, "")
+	tick(time.Minute, true)
+	want("6 h quiet", 1, "safety_poll")
+	if !strings.Contains(logs.String(), `"wake-safety: rest_quiet safety poll" vehicle=veh-1 for=periodic_refresh why="rest_quiet for 6h0m0s"`) {
+		t.Errorf("logs:\n%s", logs.String())
+	}
+	tick(30*time.Minute, true)
+	want("the 6 h clock restarted", 1, "")
+
+	// The WS goes silent.
+	tick(29*time.Minute, false)
+	want("29 min without a frame", 1, "")
+	tick(time.Minute, false)
+	want("30 min without a frame", 2, "safety_poll")
+	tick(10*time.Minute, false)
+	want("rate-limited", 2, "")
+	tick(20*time.Minute, false)
+	want("30 min after the last safety poll", 3, "safety_poll")
+
+	// Awake: an ordinary poll, and the quiet stretch resets.
+	set("standby")
+	tick(0, true)
+	want("awake", 4, "periodic_refresh")
+	m.mu.Lock()
+	_, stillQuiet := m.restQuietSince["veh-1"]
+	m.mu.Unlock()
+	if stillQuiet {
+		t.Error("a wake must end the REST-quiet stretch")
+	}
+
+	// Switch off: polls as always, never a safety poll.
+	m.SetWakeSafety(nil)
+	set("sleep")
+	tick(7*time.Hour, false)
+	want("switch off", 5, "periodic_refresh")
+}
