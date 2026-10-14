@@ -1,3 +1,4 @@
+import { useLandingGate } from "./lib/landingGate";
 import { lazy, Suspense } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
@@ -27,6 +28,7 @@ const HydraLoginPage = lazy(pageLoaders.hydraLogin);
 const SignupPage = lazy(pageLoaders.signup);
 const OnboardingPage = lazy(pageLoaders.onboarding);
 const NotFoundPage = lazy(pageLoaders.notFound);
+const LandingPage = lazy(pageLoaders.landing);
 
 // TripPlanGuard renders the planner page only when the feature
 // flag is on. When off it falls through to the 404 — same surface
@@ -59,6 +61,17 @@ function ActivityGuard() {
 
 export default function App() {
   const location = useLocation();
+  // Signed-out visitors at "/" see the landing page when the install
+  // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
+  const landing = useLandingGate(location.pathname);
+  if (landing === "loading") return <div className="p-4"><Spinner /></div>;
+  if (landing === "landing") {
+    return (
+      <Suspense fallback={<div className="p-4"><Spinner /></div>}>
+        <LandingPage />
+      </Suspense>
+    );
+  }
   return (
     <ErrorBoundary
       // Reset on navigation — a crash on one route shouldn't lock

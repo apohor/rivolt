@@ -22,6 +22,7 @@ export const pageLoaders = {
   signup: () => import("../pages/SignupPage"),
   onboarding: () => import("../pages/OnboardingPage"),
   notFound: () => import("../pages/NotFoundPage"),
+  landing: () => import("../pages/LandingPage"),
 } as const;
 
 export type PageKey = keyof typeof pageLoaders;

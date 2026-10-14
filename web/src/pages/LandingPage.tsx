@@ -1,0 +1,183 @@
+import { Link } from "react-router-dom";
+import Logo from "../components/Logo";
+import { getConfig } from "../lib/config";
+
+// Public landing page for signed-out visitors (docs/product/landing.md),
+// rendered at "/" only when the install enables it. Copy follows
+// claims-verification.md: claims about Rivolt's own behaviour only,
+// nothing about Rivian's app, no "real-time" or "battery-friendly"
+// headline. Illustrations are drawn components with masked figures,
+// never real data or screenshots. No third-party assets.
+
+const REPO = "https://github.com/apohor/rivolt";
+
+export default function LandingPage() {
+  const demo = getConfig().features.demoEnabled;
+  return (
+    <div className="min-h-full bg-neutral-950 text-neutral-100">
+      <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+        <span className="flex items-center gap-2 font-semibold tracking-tight">
+          <Logo size={22} className="text-emerald-400" />
+          Rivolt
+        </span>
+        <Link to="/login" className="text-sm text-neutral-300 hover:text-neutral-100">
+          Sign in
+        </Link>
+      </header>
+
+      <main className="mx-auto max-w-5xl space-y-16 px-4 pb-16">
+        <section className="grid gap-8 pt-6 md:grid-cols-2 md:items-center">
+          <div>
+            <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">What your Rivian actually costs.</h1>
+            <p className="mt-4 text-lg text-neutral-300">
+              Every charge and trip priced at your rates, or flagged when we can&apos;t price it, with the source of
+              every number. Open source. Self-host it or let us run it.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              {demo && (
+                <Link to="/demo" className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
+                  Try the demo truck
+                </Link>
+              )}
+              <Link
+                to="/login"
+                className={
+                  demo
+                    ? "rounded-md border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-900"
+                    : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                }
+              >
+                Connect my Rivian
+              </Link>
+            </div>
+            <p className="mt-3 text-xs text-neutral-500">Free while in beta. Invite-only.</p>
+          </div>
+          <StatementIllustration />
+        </section>
+
+        <section aria-label="What Rivolt does" className="grid gap-6 md:grid-cols-3">
+          <Claim
+            title="Every dollar has a source"
+            body="Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. Charges we can't price are flagged, not guessed. You always see which one."
+          >
+            <SourceLegend />
+          </Claim>
+          <Claim
+            title="Price the trip before you go"
+            body="See DCFC spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
+          />
+          <Claim
+            title="Yours to keep"
+            body="MIT licensed. Download all your data as a JSON backup. Run it on your own server with docker compose and an OIDC provider (maps and the planner need the optional tiles and Valhalla services), or use ours."
+          >
+            <a href={REPO} className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+              Source and self-host guide
+            </a>
+          </Claim>
+        </section>
+
+        <section aria-label="Your Rivian login" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">
+          <h2 className="text-xl font-semibold">How your Rivian login is handled</h2>
+          <ul className="mt-3 space-y-2 text-sm text-neutral-300">
+            <li>Your Rivian session is stored encrypted, and your Rivian password is never stored.</li>
+            <li>
+              We recommend connecting a separate Authorized Driver account, so Rivolt never holds your primary
+              login.
+            </li>
+            <li>
+              With an Authorized Driver account you can revoke Rivolt from the Rivian app at any time. Either way you
+              can delete your data from Settings.
+            </li>
+          </ul>
+        </section>
+
+        <section aria-label="Limits" className="rounded-xl border border-neutral-800 p-6">
+          <h2 className="text-xl font-semibold">What Rivolt can&apos;t do</h2>
+          <ul className="mt-3 space-y-2 text-sm text-neutral-300">
+            <li>
+              Unofficial: Rivolt uses Rivian&apos;s unofficial API and is not affiliated with Rivian. It can break.
+            </li>
+            <li>No fleet leaderboards or software-rollout tracking.</li>
+            <li>Beta: expect rough edges.</li>
+          </ul>
+        </section>
+      </main>
+
+      <footer className="border-t border-neutral-800 px-4 py-6 text-xs text-neutral-500">
+        <div className="mx-auto max-w-5xl space-y-1">
+          <p>
+            Rivolt is open source under the MIT license.{" "}
+            <a href={REPO} className="text-neutral-300 hover:underline">
+              GitHub
+            </a>
+          </p>
+          <p>
+            Rivian is a trademark of Rivian Automotive, LLC. Rivolt is an independent project and is not affiliated
+            with, endorsed by or sponsored by Rivian.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function Claim({ title, body, children }: { title: string; body: string; children?: React.ReactNode }) {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="mt-2 text-sm text-neutral-300">{body}</p>
+      {children}
+    </div>
+  );
+}
+
+// Drawn illustration of a statement with masked figures: it shows the
+// shape of the product (source labels per charge), not anyone's data.
+function StatementIllustration() {
+  const rows: { label: string; source: string; tone: string }[] = [
+    { label: "Home charge", source: "home rate", tone: "text-emerald-300" },
+    { label: "Fast charge", source: "network estimate", tone: "text-amber-300" },
+    { label: "Fast charge", source: "billed by Rivian", tone: "text-sky-300" },
+    { label: "Away charge", source: "needs a price", tone: "text-neutral-400" },
+  ];
+  return (
+    <div
+      role="img"
+      aria-label="Illustration of a monthly statement: each charge lists its price source. Amounts are masked."
+      className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5"
+    >
+      <div className="text-xs uppercase tracking-wide text-neutral-500">Sample statement · figures masked</div>
+      <div className="mt-1 text-4xl font-semibold tabular-nums">$•••.••</div>
+      <ul className="mt-4 divide-y divide-neutral-800 text-sm">
+        {rows.map((r, i) => (
+          <li key={i} className="flex items-baseline justify-between gap-3 py-2">
+            <span>{r.label}</span>
+            <span className="flex items-baseline gap-3">
+              <span className={`text-xs ${r.tone}`}>{r.source}</span>
+              <span className="tabular-nums text-neutral-400">$•.••</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SourceLegend() {
+  const items = [
+    ["Billed", "bg-sky-400"],
+    ["Home rate", "bg-emerald-400"],
+    ["Network estimate", "bg-amber-400"],
+    ["Entered by you", "bg-neutral-400"],
+  ] as const;
+  return (
+    <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
+      {items.map(([t, c]) => (
+        <li key={t} className="flex items-center gap-1.5">
+          <span className={`inline-block h-2 w-2 rounded-full ${c}`} />
+          {t}
+        </li>
+      ))}
+    </ul>
+  );
+}
