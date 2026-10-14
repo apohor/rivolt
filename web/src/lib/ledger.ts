@@ -136,6 +136,8 @@ export type MonthSummary = {
     by_kind: Record<ChargeKind, KindTotals>;
     // §10: per-session place split; reconciles with the totals.
     by_place?: Record<Place, KindTotals>;
+    // §11: per-session place x kind cells, always all six when present.
+    by_place_kind?: Record<Place, Record<ChargeKind, KindTotals>>;
   };
   driving: {
     drives: number;
@@ -646,6 +648,11 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
   const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
   const by_kind: Record<ChargeKind, KindTotals> = { ac: empty(), dcfc: empty() };
   const by_place: Record<Place, KindTotals> = { home: empty(), away: empty(), unknown: empty() };
+  const by_place_kind: Record<Place, Record<ChargeKind, KindTotals>> = {
+    home: { ac: empty(), dcfc: empty() },
+    away: { ac: empty(), dcfc: empty() },
+    unknown: { ac: empty(), dcfc: empty() },
+  };
   const by_source: SpendBySource = { rivian: 0, home_rate: 0, network_estimate: 0, user: 0 };
   let priced = 0;
   let unpriced = 0;
@@ -659,7 +666,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
   const sessions = receipts.flatMap((r) => r.sessions);
   for (const x of sessions) {
     const kwh = x.kwh ?? 0;
-    for (const line of [by_kind[x.kind!], by_place[x.place!]]) {
+    for (const line of [by_kind[x.kind!], by_place[x.place!], by_place_kind[x.place!][x.kind!]]) {
       line.sessions += 1;
       line.kwh += kwh;
       if (x.peak_kw != null) line.peak_kw = Math.max(line.peak_kw ?? 0, x.peak_kw);
@@ -710,6 +717,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       null_energy_sessions: nullEnergy,
       by_kind,
       by_place,
+      by_place_kind,
     },
     driving: {
       drives: 61,
