@@ -44,6 +44,9 @@ func TestBuildDrain_WindowsSufficiencyAndDaily(t *testing.T) {
 		t.Fatalf("7d days: %+v", w7)
 	}
 	today, d12, quiet := got.Daily[29], got.Daily[27], got.Daily[10]
+	if today.AwakeHours != 0.5 || today.ObservedHours != 14 {
+		t.Fatalf("raw awake/observed hours missing: %+v", today)
+	}
 	if today.DrainPct == nil || *today.DrainPct != 0.92 || today.Excluded != nil || today.ChargingHours != 1 {
 		t.Fatalf("today = %+v", today)
 	}
