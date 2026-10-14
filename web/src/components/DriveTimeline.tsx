@@ -649,7 +649,7 @@ function TimelineSVG(props: {
                 y={SPEED_TOP}
                 width={w}
                 height={BATT_TOP + BATT_H - SPEED_TOP}
-                fill="#171717"
+                className="fill-neutral-900"
                 fillOpacity={isGap ? 0.35 : 0.55}
               />
               {/* Always label the (now-compressed) band; counter-scaled
@@ -972,7 +972,7 @@ function TimelineSVG(props: {
                   x2={cx}
                   y1={SPEED_TOP}
                   y2={MODE_STRIP_TOP + MODE_STRIP_H}
-                  stroke="#a3a3a3"
+                  className="stroke-neutral-400"
                   strokeWidth={1}
                   vectorEffect="non-scaling-stroke"
                 />
@@ -996,7 +996,7 @@ function TimelineSVG(props: {
               )}
               r={3}
               fill={SERIES.speed}
-              stroke="#0a0a0a"
+              className="stroke-neutral-950"
               strokeWidth={1.5}
             />
           ) : null}
@@ -1006,7 +1006,7 @@ function TimelineSVG(props: {
               cy={ySolve(cursorSoc, socLo, socHi, BATT_TOP, BATT_H)}
               r={3}
               fill={SERIES.battery}
-              stroke="#0a0a0a"
+              className="stroke-neutral-950"
               strokeWidth={1.5}
             />
           ) : null}

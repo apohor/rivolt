@@ -463,7 +463,7 @@ export function LineChart({
             x2={sx(cursorXClamped)}
             y1={padT}
             y2={padT + innerH}
-            stroke="#a3a3a3"
+            className="stroke-neutral-400"
             strokeWidth={1}
             strokeDasharray="3 3"
             vectorEffect="non-scaling-stroke"
@@ -494,17 +494,16 @@ export function LineChart({
                   cy={cy}
                   r={3.5}
                   fill={color}
-                  stroke="#0a0a0a"
+                  className="stroke-neutral-950"
                   strokeWidth={1.5}
                 />
                 <g transform={textTF(labelX, labelY)}>
                   <text
                     textAnchor={labelAnchor}
-                    className="fill-neutral-100"
+                    className="fill-neutral-100 stroke-neutral-950"
                     fontSize={11}
                     fontWeight={600}
                     paintOrder="stroke"
-                    stroke="#0a0a0a"
                     strokeWidth={3}
                     strokeLinejoin="round"
                   >
