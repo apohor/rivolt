@@ -47,7 +47,7 @@ describe("MoneyPage", () => {
       new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(m.spend.total),
     );
     expect(statement).toHaveTextContent("Month to date");
-    expect(statement).toHaveTextContent(/Likely too low:\s*3 sessions/);
+    expect(statement).toHaveTextContent(/Likely too low:\s*4 sessions/);
     expect(statement).toHaveTextContent(/Not included: 3 unpriced sessions/);
     // Not sample data: the API answered.
     expect(screen.queryByText(/Sample data/)).toBeNull();

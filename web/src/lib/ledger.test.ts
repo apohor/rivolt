@@ -77,7 +77,21 @@ describe("homePublicSplit", () => {
     const s = homePublicSplit(m)!;
     expect(s).not.toBeNull();
     expect(s.home.kwh + s.public.kwh).toBeCloseTo(m.energy.by_kind.ac.kwh, 6);
-    expect(s.public.sessions).toBe(2);
+    // 2 away L1 sessions + the sub-50 kW tail fragment of a DCFC stop.
+    expect(s.public.sessions).toBe(3);
+  });
+
+  it("reconciles a DCFC receipt with an AC-classified tail fragment (server buckets per session)", () => {
+    const m = ledgerMonthFixture("2026-09");
+    const mixed = m.receipts.find((r) => r.kind === "dcfc" && r.sessions.some((x) => (x.peak_kw ?? 0) < 50));
+    expect(mixed).toBeDefined();
+    expect(homePublicSplit(m)).not.toBeNull();
+  });
+
+  it("tolerates a missing data_quality.superseded (omitted when empty)", () => {
+    const m = ledgerMonthFixture("2026-09");
+    const { superseded: _omit, ...dq } = m.data_quality;
+    expect(() => dataQualityNotes({ ...m, data_quality: dq })).not.toThrow();
   });
 
   it("falls back (null) when receipts don't match the server's AC total", () => {
@@ -90,9 +104,9 @@ describe("homePublicSplit", () => {
 describe("quality notes", () => {
   it("counts under-priced sessions once even when both flags are set", () => {
     const m = ledgerMonthFixture("2026-09");
-    expect(m.data_quality.home_rate_on_dcfc + m.data_quality.home_rate_away).toBe(6);
-    expect(suspectSessionCount(m)).toBe(3);
-    expect(dataQualityNotes(m).join(" ")).toMatch(/^3 sessions were priced at your home rate/);
+    expect(m.data_quality.home_rate_on_dcfc + m.data_quality.home_rate_away).toBe(7);
+    expect(suspectSessionCount(m)).toBe(4);
+    expect(dataQualityNotes(m).join(" ")).toMatch(/^4 sessions were priced at your home rate/);
   });
 
   it("says nothing about coverage when it's high", () => {

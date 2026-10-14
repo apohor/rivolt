@@ -128,7 +128,8 @@ export type MonthSummary = {
 export type LedgerMonth = MonthSummary & {
   receipts: Receipt[];
   data_quality: MonthSummary["data_quality"] & {
-    superseded: { charge_id: string; superseded_by: string }[];
+    // Omitted when empty (contract §9); treat missing as [].
+    superseded?: { charge_id: string; superseded_by: string }[];
   };
 };
 
@@ -320,17 +321,30 @@ export function sourceLabel(
 // never disagree with the server's totals.
 export type PlaceSplit = { home: KindTotals; public: KindTotals; dcfc: KindTotals };
 
+export const DCFC_MIN_KW = 50;
+
+// Session kind exactly as the server's by_kind buckets it (contract
+// §3.1): peak ≥ 50 kW is DCFC, everything else (incl. unknown peak)
+// is AC. Per *session*, not per receipt: a DCFC receipt can carry a
+// sub-50 kW tail fragment that the server counts as AC.
+export function sessionKind(x: Pick<ReceiptSession, "peak_kw">): ChargeKind {
+  return x.peak_kw != null && x.peak_kw >= DCFC_MIN_KW ? "dcfc" : "ac";
+}
+
 export function homePublicSplit(m: LedgerMonth, tolerance = 0.05): PlaceSplit | null {
   const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
   const home = empty();
   const pub = empty();
   for (const r of m.receipts) {
-    if (r.kind !== "ac") continue;
-    const b = r.place === "home" ? home : pub;
-    b.sessions += r.session_count;
-    b.kwh += r.kwh;
-    b.cost += r.cost ?? 0;
-    b.peak_kw = Math.max(b.peak_kw ?? 0, r.peak_kw ?? 0) || b.peak_kw;
+    for (const x of r.sessions) {
+      if (sessionKind(x) !== "ac") continue;
+      const b = r.place === "home" ? home : pub;
+      b.sessions += 1;
+      b.kwh += x.kwh ?? 0;
+      // by_kind cost sums only priced, same-currency sessions (§9).
+      if (x.cost != null && !x.flags.includes("currency_mismatch")) b.cost += x.cost;
+      if (x.peak_kw != null) b.peak_kw = Math.max(b.peak_kw ?? 0, x.peak_kw);
+    }
   }
   const ac = m.energy.by_kind.ac;
   const ok =
@@ -499,7 +513,12 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       ),
     ]),
     receipt("home", 0, [sess(at(26, 20, 5), at(27, 7, 0), { kwh: 72.8, peak_kw: 7.6, soc_start: 38.4, soc_end: 96.8 })]),
-    receipt("away", 300, [sess(at(27, 10, 28), at(27, 11, 11), { kwh: 83.9, peak_kw: 211.4, soc_start: 17.2, soc_end: 85, flags: [...onDcfc] })]),
+    receipt("away", 300, [
+      sess(at(27, 10, 28), at(27, 11, 4), { kwh: 81.5, peak_kw: 211.4, soc_start: 17.2, soc_end: 83, flags: [...onDcfc] }),
+      // Taper tail recorded as its own fragment, under the DCFC
+      // threshold: counted as AC by by_kind, folded into this receipt.
+      sess(at(27, 11, 5), at(27, 11, 11), { kwh: 2.4, peak_kw: 38, soc_start: 83, soc_end: 85, flags: ["home_rate_away"] }),
+    ]),
     receipt("away", 530, [sess(at(27, 13, 35), at(27, 14, 15), { kwh: 64.2, peak_kw: 128.5, soc_start: 19.6, soc_end: 71.9, flags: [...onDcfc] })]),
     receipt("away", 640, [sess(at(27, 21, 41), at(28, 11, 0), { kwh: 15.5, peak_kw: 1.4, soc_start: 37.8, soc_end: 50.4, cost: null })]),
     receipt("away", 640, [sess(at(28, 18, 31), at(30, 8, 2), { kwh: 38.2, peak_kw: 1.4, soc_start: 27.2, soc_end: 58.3, cost: null })]),
@@ -510,7 +529,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
   receipts.sort((a, b) => b.started_at.localeCompare(a.started_at));
 
   // Totals computed once here, the way the server would.
-  const all = receipts.flatMap((r) => r.sessions.map((x) => ({ ...x, kind: r.kind })));
+  const all = receipts.flatMap((r) => r.sessions.map((x) => ({ ...x, kind: sessionKind(x) })));
   const by_kind: Record<ChargeKind, KindTotals> = {
     ac: { sessions: 0, kwh: 0, cost: 0, peak_kw: null },
     dcfc: { sessions: 0, kwh: 0, cost: 0, peak_kw: null },
@@ -574,7 +593,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       drives_superseded_excluded: 0,
       open_sessions: 0,
       home_rate_on_dcfc: 3,
-      home_rate_away: 3,
+      home_rate_away: 4,
       currency_mismatch_excluded: 0,
     },
   };
