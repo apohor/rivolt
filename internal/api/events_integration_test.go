@@ -56,6 +56,7 @@ func TestEventsSink_InsertPurgeAndActivatedView(t *testing.T) {
 		t.Fatalf("late user activated = %d (%v)", n, err)
 	}
 	// Purge removes only rows older than 90 days.
+	sink.lastPurge.Store(0) // Insert already ran (and rate-limited) a purge
 	sink.maybePurge()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
