@@ -614,6 +614,7 @@ func New(d Deps) http.Handler {
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
+				r.Put("/flags/money-tab", handleFlagsMoneyTabPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
 				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
 				r.Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
@@ -731,6 +732,15 @@ func New(d Deps) http.Handler {
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
 			}))
+			// Money tab ledger: server-side spend/energy statement.
+			// Read-only; 404s unless money_tab_enabled covers the user.
+			r.Route("/ledger", func(r chi.Router) {
+				r.Use(requireMoneyTabMW(moneyTabEnabled(d.Flags)))
+				la := newLedgerAPI(d.DB, d.Settings)
+				r.Get("/enabled", handleLedgerEnabled)
+				r.Get("/monthly", withUser(la.monthly))
+				r.Get("/summary", withUser(la.summary))
+			})
 			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)
 			}))
