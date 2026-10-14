@@ -250,7 +250,14 @@ account. Set
 RIVOLT_SIGNUP_DISABLED=true
 ```
 
-(default `false`; hosted behaviour is unchanged). Then:
+(default `false`; hosted behaviour is unchanged).
+
+**Who decides what.** With sign-ups disabled, your identity provider
+decides who can *authenticate*, and Rivolt decides who *has an
+account*. A successful login at the IdP is not enough: the person must
+already have a Rivolt account.
+
+What changes:
 
 - the **Create an account** link is hidden on the login page and
   `/signup` says sign-ups are closed;
@@ -263,9 +270,19 @@ RIVOLT_SIGNUP_DISABLED=true
   provider would still create an account (up to the `signup_cap`
   flag, which defaults to 100).
 
-Still allowed: users that already exist, users an admin creates
-(`POST /api/admin/users`), the address in
-`RIVOLT_BOOTSTRAP_ADMIN_EMAIL`, and the very first user of an empty
-install, so you can always create your first admin. Set
-`RIVOLT_BOOTSTRAP_ADMIN_EMAIL` on a fresh install so that first user
-is you rather than whoever signs in first.
+Still allowed:
+
+- users that already exist;
+- users an admin creates. Use **Admin -> Create user** in the web UI,
+  or `POST /api/admin/users` with `{"email": "...", "role": "user"}`;
+  create the account first, then the person signs in with the same
+  email through your IdP;
+- the address in `RIVOLT_BOOTSTRAP_ADMIN_EMAIL`;
+- the very first user of an empty install, so you can always create
+  your first admin (the check and the insert are serialised, so two
+  simultaneous first logins can't both get in). Set
+  `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` on a fresh install so that first user
+  is you rather than whoever signs in first.
+
+Accounts are matched on the lower-cased, trimmed email, so
+`Alice@Example.com` and `alice@example.com` are the same account.

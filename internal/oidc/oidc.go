@@ -691,7 +691,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if s.capGuard != nil {
 		if err := s.capGuard(r.Context(), username, email); err != nil {
 			if errors.Is(err, ErrSignupDisabled) {
-				s.log.Info("oidc: sign-in refused, signups disabled", "provider", name)
+				s.log.Info("oidc: sign-in refused", "provider", name, "reason", "signups_disabled: unknown identity")
 				s.clearStateCookie(w)
 				s.failRedirect(w, r, "signups_disabled", "Sign-ups are closed on this server. Ask the administrator for an account.")
 				return

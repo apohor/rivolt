@@ -1283,7 +1283,7 @@ func runServer() {
 				// RIVOLT_SIGNUP_DISABLED: a Kratos session for an
 				// identity with no Rivolt account doesn't create one.
 				if signupgate.Disabled() {
-					ok, err := signupgate.Allow(ctx, pgPool, email, email)
+					ok, err := signupgate.Allow(ctx, pgPool, email, email, id.Traits.DisplayName)
 					if err != nil {
 						return uuid.Nil, false, err
 					}
@@ -1362,42 +1362,7 @@ func runServer() {
 			SecureCookie: secureCookie,
 			Logger:       logger,
 			Providers:    provs,
-			CapGuard: func(ctx context.Context, username, email string) error {
-				// Returning users (row already exists) bypass the
-				// cap. The limit only gates new-account creation.
-				exists, err := db.UserExistsByUsername(ctx, pgPool, username)
-				if err != nil {
-					return err
-				}
-				if exists {
-					return nil
-				}
-				// RIVOLT_SIGNUP_DISABLED: an unknown identity may
-				// only create an account if it's the bootstrap admin
-				// or the first user of an empty install.
-				if signupgate.Disabled() {
-					ok, err := signupgate.Allow(ctx, pgPool, username, email)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						return oidc.ErrSignupDisabled
-					}
-					return nil
-				}
-				st := flagsStore.SignupCap()
-				if st.Limit <= 0 {
-					return oidc.ErrCapExceeded
-				}
-				n, err := db.CountUsers(ctx, pgPool)
-				if err != nil {
-					return err
-				}
-				if n >= st.Limit {
-					return oidc.ErrCapExceeded
-				}
-				return nil
-			},
+			CapGuard:     signupgate.NewCapGuard(pgPool, func() int { return flagsStore.SignupCap().Limit }),
 		})
 		if oerr != nil {
 			logger.Error("oidc init", "err", oerr.Error())
