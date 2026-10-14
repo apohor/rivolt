@@ -31,11 +31,27 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
 		home, _ := settings.GetHomeLocation(r.Context(), settingsStore)
 		homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
-		lcfg, _ := ledgerConfig(r.Context(), settingsStore)
+		// Without the user's charging settings (home rate, home
+		// location) the classification would be wrong (home-rate rows
+		// read as billed, every place unknown), so leave it out.
+		lcfg, cerr := ledgerConfig(r.Context(), settingsStore)
+		var classes []ledger.Classification
+		if cerr == nil {
+			rows := make([]ledger.Charge, len(out))
+			for i, c := range out {
+				rows[i] = ledger.FromCharge(c)
+			}
+			classes = ledger.ClassifyAll(rows, lcfg)
+		}
 		decorated := make([]chargeResponse, 0, len(out))
-		for _, c := range out {
+		for i, c := range out {
 			resp := decorateCharge(c, cfg, homeLookup)
-			resp.Classification = ledger.Classify(ledger.FromCharge(c), lcfg)
+			if classes != nil {
+				cl := classes[i]
+				resp.Classification = &cl
+			} else {
+				resp.ClassificationUnavailable = true
+			}
 			decorated = append(decorated, resp)
 		}
 		writeJSON(w, http.StatusOK, decorated)
@@ -160,9 +176,12 @@ type chargeResponse struct {
 	// The ledger's classification (cost_source_effective, kind, place,
 	// ledger_flags, ...): the same rules as the Money tab, so the
 	// Charges list and charge page don't re-derive them.
-	ledger.Classification
-	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
-	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
+	// nil (fields omitted) when the settings couldn't be read; see
+	// ClassificationUnavailable.
+	*ledger.Classification
+	ClassificationUnavailable bool    `json:"classification_unavailable,omitempty"`
+	EstimatedCost             float64 `json:"estimated_cost,omitempty"`
+	EstimatedCurrency         string  `json:"estimated_currency,omitempty"`
 }
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {

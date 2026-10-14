@@ -85,6 +85,9 @@ const (
 	FlagContinuedFromPrev  = "continued_from_previous_month"
 	FlagCurrencyMismatch   = "currency_mismatch"
 	FlagEstimatePending    = "estimate_pending"
+	// FlagSuperseded marks a row the ledger drops as an overlapping
+	// duplicate of another (EffectiveCharges); it isn't in any total.
+	FlagSuperseded = "superseded"
 	// FlagFree marks a session the user priced at $0 (cost_source=user,
 	// cost 0): priced, counted in spend at zero, shown as "Free".
 	FlagFree = "free"
@@ -696,6 +699,28 @@ func Classify(c Charge, cfg Config) Classification {
 		CountsInSpend:     v.spendOK,
 		Flags:             nonNil(v.flags),
 	}
+}
+
+// ClassifyAll is Classify over a list, with the ledger's dedupe
+// applied: a row EffectiveCharges drops as an overlapping duplicate gets
+// CountsInSpend=false and the superseded flag, so a list built from it
+// agrees with the Money tab about what's in spend. Results are in the
+// input order.
+func ClassifyAll(cs []Charge, cfg Config) []Classification {
+	_, lost := EffectiveCharges(cs)
+	superseded := make(map[string]bool, len(lost))
+	for _, s := range lost {
+		superseded[s.ChargeID] = true
+	}
+	out := make([]Classification, len(cs))
+	for i, c := range cs {
+		out[i] = Classify(c, cfg)
+		if superseded[c.ID] {
+			out[i].CountsInSpend = false
+			out[i].Flags = append(append([]string(nil), out[i].Flags...), FlagSuperseded)
+		}
+	}
+	return out
 }
 
 // FromCharge converts a charges.Charge as the store lists it (zeros for

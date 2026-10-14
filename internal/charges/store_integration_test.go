@@ -693,3 +693,45 @@ func TestRestampPlace(t *testing.T) {
 		t.Errorf("second undo = %v, want ErrNoRestamp", err)
 	}
 }
+
+// A user-priced row with a NULL cost (left by the pre-#93 restore bug)
+// is not Free: the list reports it with no cost source, as unpriced,
+// matching how the ledger reads it.
+func TestListRecent_UserNullCostIsNotFree(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "user-null-cost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	start := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	if err := store.Upsert(ctx, sampleCharge("broken", "rv-A", start, "charging_complete")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Upsert(ctx, sampleCharge("free", "rv-A", start.Add(time.Hour), "charging_complete")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET cost = NULL, price_per_kwh = NULL, cost_source = 'user' WHERE external_id = 'broken'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkFree(ctx, "free", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ListRecent(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := map[string]string{}
+	for _, c := range got {
+		src[c.ID] = c.CostSource
+	}
+	if src["broken"] != "" || src["free"] != "user" {
+		t.Errorf("cost sources = %v, want broken: \"\" (unpriced), free: user", src)
+	}
+}
