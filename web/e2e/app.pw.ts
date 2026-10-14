@@ -51,7 +51,7 @@ const views: View[] = [
   { name: "banner-disconnected", path: "/money", heading: "Money", opts: { rivian: "disconnected" }, text: ["Rivian isn't connected."] },
   { name: "banner-backend-down", path: "/money", heading: "Money", opts: { rivian: "backend-down" }, text: ["Rivolt can't reach its server."] },
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
-  { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /Awake 1\.4 h a day/] },
+  { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /Awake 54 min a day/] },
   { name: "truck-drain-thin", path: "/truck", heading: "Truck", opts: { drain: "insufficient" }, text: ["Not enough parked time yet to measure drain."] },
   { name: "truck", path: "/truck", heading: "Truck", text: ["Pack capacity", "Lowest tire"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
