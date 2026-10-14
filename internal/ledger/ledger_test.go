@@ -252,6 +252,13 @@ func TestBuild_SpendBySourceAndQuality(t *testing.T) {
 	if hp.Cost+ap.Cost != m.Spend.Total {
 		t.Errorf("by_place cost %v + %v != spend %v", hp.Cost, ap.Cost, m.Spend.Total)
 	}
+	assertPlaceKindReconciles(t, m)
+	if c := m.Energy.ByPlaceKind["away"]["dcfc"]; c.Sessions != 2 || c.KWh != 120 || c.Cost != round4(50*0.48) {
+		t.Errorf("by_place_kind.away.dcfc = %+v", c)
+	}
+	if c := m.Energy.ByPlaceKind["away"]["ac"]; c.Sessions != 1 || c.KWh != 20 || c.Cost != 0 {
+		t.Errorf("by_place_kind.away.ac = %+v", c)
+	}
 	dq := m.DataQuality
 	if !dq.CostSourceInferred || dq.CostSourceDerivedSessions != 5 || dq.SupersededExcluded != 1 || dq.HomeRateOnDCFC != 1 ||
 		dq.HomeRateAway != 1 || dq.CurrencyMismatchExcluded != 1 {
@@ -415,7 +422,7 @@ func TestBuild_EmptyMonthShape(t *testing.T) {
 	for _, want := range []string{
 		`"version":1`, `"receipts":[]`,
 		`"by_source":{"home_rate":0,"network_estimate":0,"rivian":0,"user":0}`,
-		`"by_place":{"away":`, `"estimated_share":null`, `"estimate_pending_sessions":0`,
+		`"by_place":{"away":`, `"by_place_kind":{"away":{"ac":`, `"estimated_share":null`, `"estimate_pending_sessions":0`,
 		`"coverage":null`, `"cost_per_mile":null`, `"unpriced_home_rate_estimate":null`,
 		`"first_activity_at":null`, `"is_current_month":false`, `"cost_source_inferred":false`,
 		`"cost_per_mile_basis":"spend_over_miles"`,
@@ -471,6 +478,42 @@ func TestBuild_PersistedNetworkEstimate(t *testing.T) {
 	}
 	if ac := m.Energy.ByKind["ac"]; ac.Sessions != 3 {
 		t.Errorf("by_kind.ac sessions = %d, want 3 (per-session classification)", ac.Sessions)
+	}
+	assertPlaceKindReconciles(t, m)
+}
+
+// assertPlaceKindReconciles checks the by_place_kind invariants from
+// contract §11: rows sum to by_kind, columns to by_place, and cell costs
+// to the cost already attributed by_place.
+func assertPlaceKindReconciles(t *testing.T, m Monthly) {
+	t.Helper()
+	places, kinds := []string{"home", "away", "unknown"}, []string{"ac", "dcfc"}
+	for _, k := range kinds {
+		var sum KindLine
+		for _, p := range places {
+			c, ok := m.Energy.ByPlaceKind[p][k]
+			if !ok {
+				t.Fatalf("by_place_kind missing %s.%s", p, k)
+			}
+			sum.Sessions += c.Sessions
+			sum.KWh += c.KWh
+			sum.Cost += c.Cost
+		}
+		if want := m.Energy.ByKind[k]; sum.Sessions != want.Sessions || round4(sum.KWh) != want.KWh || round4(sum.Cost) != want.Cost {
+			t.Errorf("Σ places of %s = %+v, by_kind = %+v", k, sum, want)
+		}
+	}
+	for _, p := range places {
+		var sum KindLine
+		for _, k := range kinds {
+			c := m.Energy.ByPlaceKind[p][k]
+			sum.Sessions += c.Sessions
+			sum.KWh += c.KWh
+			sum.Cost += c.Cost
+		}
+		if want := m.Energy.ByPlace[p]; sum.Sessions != want.Sessions || round4(sum.KWh) != want.KWh || round4(sum.Cost) != want.Cost {
+			t.Errorf("Σ kinds of %s = %+v, by_place = %+v", p, sum, want)
+		}
 	}
 }
 
