@@ -213,6 +213,14 @@ type liveCharge struct {
 	// the UI can show real charging time instead of time-plugged-in.
 	activeSeconds float64
 
+	// dcfcPriced caches the fast-charge network price once resolved, so
+	// the per-frame upserts of an open session don't re-run the station
+	// lookup. Unset until the session first qualifies as DCFC.
+	dcfcPriced  bool
+	dcfcRate    float64
+	dcfcCur     string
+	dcfcNetwork string
+
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
 	// or chargerState transitioned. The stale-session guard measures
@@ -1359,16 +1367,26 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		m.mu.RLock()
 		lookup, dcfc := m.priceLookup, m.dcfcPrice
 		m.mu.RUnlock()
-		if dcfc != nil && row.MaxPowerKW >= DCFCMinKW {
-			if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
-				row.PricePerKWh = rate
-				row.Currency = cur
-				row.Cost = rate * energy
-				row.CostSource = CostSourceNetworkEstimate
-				row.Network = network
+		fast := dcfc != nil && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
+		if fast {
+			if !c.dcfcPriced {
+				if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
+					c.dcfcPriced, c.dcfcRate, c.dcfcCur, c.dcfcNetwork = true, rate, cur, network
+				}
 			}
+			if c.dcfcPriced {
+				row.PricePerKWh = c.dcfcRate
+				row.Currency = c.dcfcCur
+				row.Cost = c.dcfcRate * energy
+				row.CostSource = CostSourceNetworkEstimate
+				row.Network = c.dcfcNetwork
+			}
+			// No station matched (or the archive isn't loaded): leave
+			// it unpriced rather than at the home rate or a guessed
+			// network. The ledger shows "unknown", and `rivolt reprice`
+			// can price it later; nothing is stamped.
 		}
-		if row.Cost == 0 && lookup != nil {
+		if !fast && row.Cost == 0 && lookup != nil {
 			if rate, cur := lookup(); rate > 0 {
 				row.PricePerKWh = rate
 				row.Currency = cur
@@ -1387,6 +1405,29 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 // fast charging — the same line analytics.DefaultParams draws for the
 // Fast bucket (no AC L2 hardware exceeds ~22 kW).
 const DCFCMinKW = 50.0
+
+// DCFCMinEffectiveKW is the energy-over-charging-time floor a session
+// must also clear. Recorded peaks glitch: prod has 15-hour home L2
+// sessions with a single "145 kW" sample. Real DC fast charging
+// averages well above any AC charger's ~11-19 kW.
+const DCFCMinEffectiveKW = 20.0
+
+// IsDCFCSession reports whether a charge was DC fast charging: peak at
+// or above DCFCMinKW AND energy divided by active charging time (wall
+// span when that's unknown) at or above DCFCMinEffectiveKW.
+func IsDCFCSession(peakKW, energyKWh, activeSeconds float64, span time.Duration) bool {
+	if peakKW < DCFCMinKW || energyKWh <= 0 {
+		return false
+	}
+	secs := activeSeconds
+	if secs <= 0 {
+		secs = span.Seconds()
+	}
+	if secs <= 0 {
+		return false
+	}
+	return energyKWh/(secs/3600) >= DCFCMinEffectiveKW
+}
 
 // Values of charges.Charge.CostSource (migration 0040).
 const (

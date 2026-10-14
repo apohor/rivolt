@@ -17,18 +17,20 @@ const dcfcMatchRadiusM = 250.0
 
 // newDCFCPricer prices a DC fast charge Rivian didn't bill at the rate
 // of the nearest NREL DCFC station's network, honouring the user's
-// memberships (ss may be nil: guest rates). No station within
-// dcfcMatchRadiusM, or no archive, falls back to the rate table's
-// "Unknown DCFC" row. Shared by the recorder and `rivolt reprice` so
-// both price a session the same way.
+// memberships (ss may be nil: guest rates). ok=false when no station is
+// within dcfcMatchRadiusM or the archive isn't loaded: the session
+// stays unpriced rather than getting a guessed rate stamped on it.
+// Shared by the recorder and `rivolt reprice` so both price alike.
 func newDCFCPricer(archive *chargers.Archive, ss *settings.Store) rivian.DCFCPriceLookup {
 	return func(lat, lon float64) (float64, string, string, bool) {
-		query := ""
-		if archive != nil && (lat != 0 || lon != 0) {
-			if poi, ok, err := archive.Nearest(lat, lon, dcfcMatchRadiusM, chargers.FilterDCFC); err == nil && ok {
-				query = dcfcrates.StationQuery(poi.EVNetwork, poi.Name)
-			}
+		if archive == nil || (lat == 0 && lon == 0) {
+			return 0, "", "", false
 		}
+		poi, ok, err := archive.Nearest(lat, lon, dcfcMatchRadiusM, chargers.FilterDCFC)
+		if err != nil || !ok {
+			return 0, "", "", false
+		}
+		query := dcfcrates.StationQuery(poi.EVNetwork, poi.Name)
 		var overrides []dcfcrates.NetworkOverride
 		if ss != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

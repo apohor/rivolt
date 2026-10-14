@@ -914,3 +914,52 @@ func TestLiveChargeRow_CostSource(t *testing.T) {
 		t.Errorf("Rivian-billed: source=%q cost=%.2f, want rivian/27.00", ran.CostSource, ran.Cost)
 	}
 }
+
+// A home L2 session with one glitched high-kW sample stays on the home
+// rate, and a real fast charge with no station match stays unpriced
+// instead of getting a guessed rate stamped on it.
+func TestLiveChargeRow_DCFCGuards(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	matched := true
+	m.SetDCFCPriceLookup(func(lat, lon float64) (float64, string, string, bool) {
+		if !matched {
+			return 0, "", "", false
+		}
+		return 0.48, "USD", "Electrify America", true
+	})
+	start := time.Date(2026, 9, 14, 2, 0, 0, 0, time.UTC)
+
+	glitch := m.liveChargeRow("veh-1", &liveCharge{id: "g", startedAt: start, endAt: start.Add(15 * time.Hour),
+		startSoC: 20, endSoC: 70, maxPower: 145, energyIntKWh: 66, finalState: "charging_complete"})
+	if glitch.CostSource != CostSourceHomeRate {
+		t.Errorf("glitched-peak home session: source=%q cost=%.2f, want home_rate", glitch.CostSource, glitch.Cost)
+	}
+
+	matched = false
+	nomatch := m.liveChargeRow("veh-1", &liveCharge{id: "n", startedAt: start, endAt: start.Add(35 * time.Minute),
+		startSoC: 20, endSoC: 60, maxPower: 180, energyIntKWh: 50, finalState: "charging_complete"})
+	if nomatch.Cost != 0 || nomatch.CostSource != "" {
+		t.Errorf("unmatched DCFC: source=%q cost=%.2f, want unpriced", nomatch.CostSource, nomatch.Cost)
+	}
+}
+
+func TestIsDCFCSession(t *testing.T) {
+	cases := []struct {
+		name                 string
+		peak, kwh, activeSec float64
+		span                 time.Duration
+		want                 bool
+	}{
+		{"real DCFC", 150, 50, 0, 40 * time.Minute, true},
+		{"glitched home L2", 145, 66, 0, 15 * time.Hour, false},
+		{"active time beats wall span", 120, 40, 1800, 3 * time.Hour, true},
+		{"L2", 11, 30, 0, 3 * time.Hour, false},
+		{"no energy", 150, 0, 0, time.Hour, false},
+	}
+	for _, c := range cases {
+		if got := IsDCFCSession(c.peak, c.kwh, c.activeSec, c.span); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}

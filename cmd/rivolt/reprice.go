@@ -17,18 +17,23 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 )
 
-// runReprice backfills charges.cost_source (migration 0040) for legacy
-// rows and re-prices DC fast charges that were stored at the home rate.
-// Dry run by default: it prints every row it would change (dates,
-// energy, power, old → new cost; never locations) and a total per user.
-// --apply writes the changes in one transaction.
+// runReprice re-prices DC fast charges the recorder stored at the
+// user's home rate before migration 0040 — the only legacy rows it
+// touches. Other legacy rows keep cost_source NULL and the ledger
+// derives their source at read time (an old row can't distinguish a
+// Rivian bill from a user edit or an older home rate, so nothing is
+// stamped on a guess).
 //
-// Legacy rows are classified from what was stored:
-//   - priced at the user's home rate (or unpriced) and peak >= 50 kW →
-//     the bug: re-priced via the network pricer, network_estimate;
-//   - priced at the home rate, slower → home_rate, cost unchanged;
-//   - any other price → rivian (billed, or a user edit; the old schema
-//     can't tell them apart), cost unchanged.
+// A row qualifies when its cost is at the current home rate (or unset),
+// it was a real DC fast charge (rivian.IsDCFCSession: peak AND effective
+// power, so glitched home-L2 peaks don't count), and the nearest NREL
+// DCFC station gives a network rate. No station → left alone.
+//
+// Dry run by default: prints each change (date, energy, power, old →
+// new cost, network; never locations) and per-user totals. --apply
+// writes them in one transaction, keeping the old cost and rate in
+// legacy_cost / legacy_price_per_kwh (undo: migration 0040's comment),
+// and refuses to run without the chargers archive.
 func runReprice(args []string) int {
 	fs := flag.NewFlagSet("reprice", flag.ContinueOnError)
 	apply := fs.Bool("apply", false, "write the changes (default: dry run)")
@@ -51,21 +56,28 @@ func runReprice(args []string) int {
 		err := archive.Reload(lctx)
 		cancel()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "reprice: chargers archive:", err, "(unmatched DCFC rate will be used)")
+			fmt.Fprintln(os.Stderr, "reprice: chargers archive:", err)
 			archive = nil
 		}
-	} else {
-		fmt.Fprintln(os.Stderr, "reprice: RIVOLT_TILES_BASE_URL unset; unmatched DCFC rate will be used")
+	}
+	if archive == nil {
+		if *apply {
+			fmt.Fprintln(os.Stderr, "reprice: refusing --apply without the chargers archive (RIVOLT_TILES_BASE_URL)")
+			return 1
+		}
+		fmt.Fprintln(os.Stderr, "reprice: no chargers archive; no station can match, so nothing will be re-priced")
 	}
 
 	rows, err := pool.QueryContext(ctx, `
-		SELECT c.id, c.user_id, u.username, c.started_at,
+		SELECT c.id, c.user_id, u.username, c.started_at, c.ended_at,
 		       COALESCE(c.energy_added_kwh,0), COALESCE(c.max_power_kw,0),
+		       COALESCE(c.active_seconds,0)::float8,
 		       COALESCE(c.lat,0), COALESCE(c.lon,0),
 		       COALESCE(c.cost,0)::float8, COALESCE(c.price_per_kwh,0)::float8
 		FROM charges c JOIN users u ON u.id = c.user_id
-		WHERE c.cost_source IS NULL AND ($1 = '' OR lower(u.username) = lower($1))
-		ORDER BY u.username, c.started_at`, *user)
+		WHERE c.cost_source IS NULL AND COALESCE(c.max_power_kw,0) >= $2
+		  AND ($1 = '' OR lower(u.username) = lower($1))
+		ORDER BY u.username, c.started_at`, *user, rivian.DCFCMinKW)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reprice: query:", err)
 		return 1
@@ -75,10 +87,11 @@ func runReprice(args []string) int {
 		user                      string
 		at                        time.Time
 		kwh, kw, oldCost, newCost float64
-		rate                      float64
-		source, network           string
+		oldRate, rate             float64
+		network                   string
 	}
 	var changes []change
+	skipped := map[string]int{}
 	sf := settings.NewFactory(pool)
 	pricers := map[uuid.UUID]rivian.DCFCPriceLookup{}
 	homeRates := map[uuid.UUID]float64{}
@@ -86,9 +99,11 @@ func runReprice(args []string) int {
 		var (
 			c             change
 			uid           uuid.UUID
+			ended         time.Time
+			active        float64
 			lat, lon, ppk float64
 		)
-		if err := rows.Scan(&c.id, &uid, &c.user, &c.at, &c.kwh, &c.kw, &lat, &lon, &c.oldCost, &ppk); err != nil {
+		if err := rows.Scan(&c.id, &uid, &c.user, &c.at, &ended, &c.kwh, &c.kw, &active, &lat, &lon, &c.oldCost, &ppk); err != nil {
 			fmt.Fprintln(os.Stderr, "reprice: scan:", err)
 			return 1
 		}
@@ -102,23 +117,20 @@ func runReprice(args []string) int {
 			}
 		}
 		home := homeRates[uid]
-		atHomeRate := c.oldCost == 0 || (home > 0 && math.Abs(ppk-home) < 0.0005)
-		c.newCost, c.rate = c.oldCost, ppk
-		switch {
-		case atHomeRate && c.kw >= rivian.DCFCMinKW && c.kwh > 0:
-			rate, _, network, ok := pricers[uid](lat, lon)
-			if !ok {
-				continue
-			}
-			c.rate, c.newCost = rate, rate*c.kwh
-			c.source, c.network = rivian.CostSourceNetworkEstimate, network
-		case atHomeRate && c.oldCost > 0:
-			c.source = rivian.CostSourceHomeRate
-		case atHomeRate:
-			continue // unpriced slow charge: leave for the read-path fallback
-		default:
-			c.source = rivian.CostSourceRivian
+		if !(c.oldCost == 0 || (home > 0 && math.Abs(ppk-home) < 0.0005)) {
+			skipped["priced other than home rate"]++
+			continue
 		}
+		if !rivian.IsDCFCSession(c.kw, c.kwh, active, ended.Sub(c.at)) {
+			skipped["peak glitch (effective power below DCFC)"]++
+			continue
+		}
+		rate, _, network, ok := pricers[uid](lat, lon)
+		if !ok {
+			skipped["no DCFC station within range"]++
+			continue
+		}
+		c.oldRate, c.rate, c.newCost, c.network = ppk, rate, rate*c.kwh, network
 		changes = append(changes, c)
 	}
 	if err := rows.Err(); err != nil {
@@ -128,19 +140,18 @@ func runReprice(args []string) int {
 	_ = rows.Close()
 
 	totals := map[string][2]float64{}
-	repriced := 0
 	for _, c := range changes {
 		t := totals[c.user]
 		t[0] += c.oldCost
 		t[1] += c.newCost
 		totals[c.user] = t
-		if c.source == rivian.CostSourceNetworkEstimate {
-			repriced++
-			fmt.Printf("%s  %-10s %6.1f kWh  %5.0f kW  $%7.2f → $%7.2f  %s @ $%.2f/kWh\n",
-				c.at.Format("2006-01-02 15:04"), c.user, c.kwh, c.kw, c.oldCost, c.newCost, c.network, c.rate)
-		}
+		fmt.Printf("%s  %-24s %6.1f kWh  %5.0f kW  $%7.2f → $%7.2f  %s @ $%.2f/kWh\n",
+			c.at.Format("2006-01-02 15:04"), c.user, c.kwh, c.kw, c.oldCost, c.newCost, c.network, c.rate)
 	}
-	fmt.Printf("\n%d legacy rows classified, %d DC fast charges re-priced\n", len(changes), repriced)
+	fmt.Printf("\n%d DC fast charges to re-price\n", len(changes))
+	for reason, n := range skipped {
+		fmt.Printf("  skipped %d: %s\n", n, reason)
+	}
 	for u, t := range totals {
 		fmt.Printf("  %s: $%.2f → $%.2f (%+.2f)\n", u, t[0], t[1], t[1]-t[0])
 	}
@@ -155,18 +166,13 @@ func runReprice(args []string) int {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, c := range changes {
-		var err error
-		if c.source == rivian.CostSourceNetworkEstimate {
-			_, err = tx.ExecContext(ctx, `
-				UPDATE charges SET cost = $2, price_per_kwh = $3, currency = 'USD',
-				       cost_source = $4, network = NULLIF($5, ''), updated_at = NOW()
-				WHERE id = $1 AND cost_source IS NULL`,
-				c.id, c.newCost, c.rate, c.source, c.network)
-		} else {
-			_, err = tx.ExecContext(ctx,
-				`UPDATE charges SET cost_source = $2 WHERE id = $1 AND cost_source IS NULL`, c.id, c.source)
-		}
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE charges SET
+			       legacy_cost = cost, legacy_price_per_kwh = price_per_kwh,
+			       cost = $2, price_per_kwh = $3, currency = 'USD',
+			       cost_source = $4, network = NULLIF($5, ''), updated_at = NOW()
+			WHERE id = $1 AND cost_source IS NULL`,
+			c.id, c.newCost, c.rate, rivian.CostSourceNetworkEstimate, c.network); err != nil {
 			fmt.Fprintln(os.Stderr, "reprice: update:", err)
 			return 1
 		}
@@ -175,6 +181,6 @@ func runReprice(args []string) int {
 		fmt.Fprintln(os.Stderr, "reprice: commit:", err)
 		return 1
 	}
-	fmt.Printf("applied %d updates\n", len(changes))
+	fmt.Printf("applied %d updates (old values kept in legacy_cost / legacy_price_per_kwh)\n", len(changes))
 	return 0
 }
