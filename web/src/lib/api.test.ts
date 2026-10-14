@@ -54,3 +54,35 @@ describe("api 401 handling", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 });
+
+describe("signups_disabled auth header", () => {
+  it("redirects a 401 carrying X-Rivolt-Auth-Error once to the login error", async () => {
+    const replace = vi.fn();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, pathname: "/", search: "", replace, assign });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unauthorized", { status: 401, headers: { "X-Rivolt-Auth-Error": "signups_disabled" } })),
+    );
+    const { api } = await import("./api");
+    await expect(api.get("/api/auth/me")).rejects.toBeTruthy();
+    expect(replace).toHaveBeenCalledWith("/login?error=signups_disabled");
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not loop when the error is already in the URL", async () => {
+    const replace = vi.fn();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, pathname: "/login", search: "?error=signups_disabled", replace, assign });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unauthorized", { status: 401, headers: { "X-Rivolt-Auth-Error": "signups_disabled" } })),
+    );
+    const { api } = await import("./api");
+    await expect(api.get("/api/auth/me")).rejects.toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});

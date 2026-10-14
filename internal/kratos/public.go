@@ -18,6 +18,33 @@ type Identity struct {
 	ID             string             `json:"id"`
 	Traits         IdentityTraits     `json:"traits"`
 	MetadataPublic IdentityMetaPublic `json:"metadata_public,omitempty"`
+	// VerifiableAddresses carries Kratos's per-address verification
+	// state; see EmailVerified.
+	VerifiableAddresses []VerifiableAddress `json:"verifiable_addresses,omitempty"`
+}
+
+// VerifiableAddress is one of an identity's contact addresses and
+// whether Kratos has verified it.
+type VerifiableAddress struct {
+	Value    string `json:"value"`
+	Via      string `json:"via,omitempty"`
+	Verified bool   `json:"verified"`
+}
+
+// EmailVerified reports whether the identity's trait email is a
+// verified address. False when Kratos doesn't list it (verification
+// disabled) or lists it unverified.
+func (i Identity) EmailVerified() bool {
+	want := strings.ToLower(strings.TrimSpace(i.Traits.Email))
+	if want == "" {
+		return false
+	}
+	for _, a := range i.VerifiableAddresses {
+		if a.Verified && strings.ToLower(strings.TrimSpace(a.Value)) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // IdentityTraits matches our rivolt_user schema (email + display).

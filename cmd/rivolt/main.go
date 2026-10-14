@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/sessions"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
@@ -98,6 +99,13 @@ Usage:
                   charges stored at the home rate (dry run unless --apply)
 
 Environment:
+  RIVOLT_SIGNUP_DISABLED=true    close sign-up: no /signup page or API, no
+                                 access requests, and a first sign-in by an
+                                 unknown OIDC/Kratos identity is refused.
+                                 Existing and admin-created users, the
+                                 RIVOLT_BOOTSTRAP_ADMIN_EMAIL address and the
+                                 first user of an empty install still work.
+                                 Default false.
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
   RIVIAN_CLIENT=stub|live|mock|replay   (default: stub)
   RIVOLT_REPLAY_SOURCE=sample    replay: use the generated sample truck
@@ -1272,6 +1280,17 @@ func runServer() {
 			// so a user who first appeared via Kratos resolves
 			// to the same identity downstream.
 			if pgPool != nil {
+				// RIVOLT_SIGNUP_DISABLED: a Kratos session for an
+				// identity with no Rivolt account doesn't create one.
+				if signupgate.Disabled() {
+					ok, err := signupgate.Allow(ctx, pgPool, email, email, id.EmailVerified(), id.Traits.DisplayName)
+					if err != nil {
+						return uuid.Nil, false, err
+					}
+					if !ok {
+						return uuid.Nil, false, auth.ErrSignupClosed
+					}
+				}
 				uid, err := db.EnsureUserFull(ctx, pgPool, email, email, id.Traits.DisplayName)
 				if err != nil {
 					return uuid.Nil, false, err
@@ -1343,29 +1362,7 @@ func runServer() {
 			SecureCookie: secureCookie,
 			Logger:       logger,
 			Providers:    provs,
-			CapGuard: func(ctx context.Context, username, email string) error {
-				// Returning users (row already exists) bypass the
-				// cap. The limit only gates new-account creation.
-				exists, err := db.UserExistsByUsername(ctx, pgPool, username)
-				if err != nil {
-					return err
-				}
-				if exists {
-					return nil
-				}
-				st := flagsStore.SignupCap()
-				if st.Limit <= 0 {
-					return oidc.ErrCapExceeded
-				}
-				n, err := db.CountUsers(ctx, pgPool)
-				if err != nil {
-					return err
-				}
-				if n >= st.Limit {
-					return oidc.ErrCapExceeded
-				}
-				return nil
-			},
+			CapGuard:     signupgate.NewCapGuard(pgPool, func() int { return flagsStore.SignupCap().Limit }),
 		})
 		if oerr != nil {
 			logger.Error("oidc init", "err", oerr.Error())
@@ -1379,6 +1376,9 @@ func runServer() {
 		logger.Info("oidc enabled", "providers", names)
 	}
 
+	if signupgate.Disabled() {
+		logger.Info("signups disabled (RIVOLT_SIGNUP_DISABLED): /signup, access requests and first sign-in of unknown identities are closed; existing and admin-created users are unaffected")
+	}
 	authEnforced := oidcSvc != nil || len(trustedNets) > 0 || bypassUserID != uuid.Nil
 	if authEnforced {
 		logger.Info("auth enforced",

@@ -58,6 +58,11 @@ export type RuntimeConfig = {
     landingEnabled: boolean;
     // demoEnabled: whether /demo exists; gates the landing's demo CTA.
     demoEnabled: boolean;
+    // signupEnabled is false when the operator set
+    // RIVOLT_SIGNUP_DISABLED: the login page hides "Create an
+    // account" and /signup shows a closed notice. An older server
+    // that doesn't send the field is treated as enabled.
+    signupEnabled: boolean;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -92,7 +97,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -111,7 +116,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -128,6 +133,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         tripPlannerEnabled: !!j?.features?.trip_planner_enabled,
         landingEnabled: !!j?.features?.landing_enabled,
         demoEnabled: !!j?.features?.demo_enabled,
+        signupEnabled: j?.features?.signup_enabled !== false,
       },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
@@ -215,6 +221,23 @@ export function chargersPMTilesURL(): string {
 // permanently see `false` (no state subscription).
 export function aiEnabled(): boolean {
   return cached.ai.enabled;
+}
+
+// useSignupEnabled resolves to null until /api/config has loaded, then
+// to features.signupEnabled. Callers render nothing signup-related
+// while it is null, so a closed server never flashes the link.
+export function useSignupEnabled(): boolean | null {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(c.features.signupEnabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
 }
 
 // useAIEnabled is the React-friendly variant of aiEnabled(). It

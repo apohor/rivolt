@@ -432,6 +432,16 @@ func IsImpersonating(ctx context.Context) bool {
 	return ok
 }
 
+// ErrSignupClosed is what a Kratos resolver returns for a valid
+// session whose identity has no Rivolt account while sign-ups are
+// disabled. The middleware leaves the request unauthenticated and
+// sets AuthErrorHeader.
+var ErrSignupClosed = errors.New("auth: sign-ups are closed for this identity")
+
+// AuthErrorHeader carries a stable machine-readable reason on the
+// 401 for an IdP-authenticated but not-provisioned identity.
+const AuthErrorHeader = "X-Rivolt-Auth-Error"
+
 // Middleware resolves the active user from (in order) a trusted
 // proxy header, a signed session cookie, or the debug bypass, and
 // injects the user_id into request context. Requests with none of
@@ -472,9 +482,17 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		// signed in via Hydra/Kratos.
 		if s.kratosResolver != nil {
 			if _, err := r.Cookie(s.kratosCookieName); err == nil {
-				if uid, ok, err := s.kratosResolver(r.Context(), r.Header.Get("Cookie")); err == nil && ok {
+				uid, ok, err := s.kratosResolver(r.Context(), r.Header.Get("Cookie"))
+				if err == nil && ok {
 					s.serveAsUser(next, w, r, uid, false)
 					return
+				}
+				if errors.Is(err, ErrSignupClosed) {
+					// A valid IdP session for an identity that has no
+					// account on a closed server. Stay unauthenticated
+					// but tell the SPA why, so it shows the message
+					// instead of a bare sign-in page.
+					w.Header().Set(AuthErrorHeader, "signups_disabled")
 				}
 				// Resolver said "no session" or hit a transient
 				// error: fall through to the cookie path so a

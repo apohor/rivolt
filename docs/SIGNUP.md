@@ -239,3 +239,53 @@ you can re-import cleanly.
 For deeper architecture questions see
 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for what's coming see
 [`docs/ROADMAP.md`](ROADMAP.md).
+
+## Self-hosting: closing sign-ups
+
+A self-hosted install that signs in through its own identity provider
+(for example Pocket ID) usually doesn't want anyone else creating an
+account. Set
+
+```
+RIVOLT_SIGNUP_DISABLED=true
+```
+
+(default `false`; hosted behaviour is unchanged).
+
+**Who decides what.** With sign-ups disabled, your identity provider
+decides who can *authenticate*, and Rivolt decides who *has an
+account*. A successful login at the IdP is not enough: the person must
+already have a Rivolt account.
+
+What changes:
+
+- the **Create an account** link is hidden on the login page and
+  `/signup` says sign-ups are closed;
+- `POST /api/signup`, `POST /api/signup/request`, the magic-link
+  lookup and the admin access-request routes are not served
+  (`/api/config` reports `features.signup_enabled: false`);
+- **a first sign-in by an identity that has no Rivolt account is
+  refused**, for OIDC and Kratos alike, with "Sign-ups are closed on
+  this server". Without this, a successful login at your identity
+  provider would still create an account (up to the `signup_cap`
+  flag, which defaults to 100).
+
+Still allowed:
+
+- users that already exist;
+- users an admin creates. Use **Admin -> Create user** in the web UI,
+  or `POST /api/admin/users` with `{"email": "...", "role": "user"}`;
+  create the account first, then the person signs in with the same
+  email through your IdP;
+- the address in `RIVOLT_BOOTSTRAP_ADMIN_EMAIL`, but only when the
+  identity provider reports that email as **verified**; an unverified
+  address never matches;
+- the very first user of an empty install, **only when
+  `RIVOLT_BOOTSTRAP_ADMIN_EMAIL` is not set** (the check and the
+  insert are serialised, so two simultaneous first logins can't both
+  get in). When the variable is set, only that verified address can
+  create the first account, so set it on a fresh install: the first
+  account is then yours, not whoever signs in first.
+
+Accounts are matched on the lower-cased, trimmed email, so
+`Alice@Example.com` and `alice@example.com` are the same account.

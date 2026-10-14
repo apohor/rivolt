@@ -100,8 +100,20 @@ async function request<T>(
       parsed != null &&
       typeof parsed === "object" &&
       "class" in (parsed as Record<string, unknown>);
+    // An IdP session for an identity with no account on a closed
+    // server: the backend stays 401 but names the reason. Send the
+    // visitor to the login page with the same error the OIDC callback
+    // uses, once (the login page itself polls /api/auth/me).
+    const closedSignup =
+      res.status === 401 && res.headers.get("X-Rivolt-Auth-Error") === "signups_disabled";
+    if (closedSignup && !new URLSearchParams(window.location.search).has("error")) {
+      window.location.replace("/login?error=signups_disabled");
+    }
+    // Exclusive with the generic bounce below, which would otherwise
+    // navigate to plain /login afterwards and drop the message.
     if (
       res.status === 401 &&
+      !closedSignup &&
       !isUpstreamErr &&
       !url.endsWith("/api/auth/me") &&
       !url.startsWith("/api/auth/hydra/login") &&

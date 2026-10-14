@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
+import { useSignupEnabled } from "../lib/config";
 
 // Providers we surface on the signup page. Hydra is rivolt's own
 // federation backend (used by downstream apps) — it doesn't make
@@ -32,6 +33,9 @@ export default function SignupPage() {
   const fullMode = location.pathname === "/signup/full";
   const fullEmail = search.get("email") ?? "";
   const fullProvider = search.get("provider") ?? "";
+  // null while /api/config loads; false when the operator closed
+  // sign-ups (RIVOLT_SIGNUP_DISABLED).
+  const signupEnabled = useSignupEnabled();
 
   // Social-sign-in providers (Google / GitHub), fetched once on mount.
   // null = still loading; [] = no eligible providers configured.
@@ -178,6 +182,29 @@ export default function SignupPage() {
     } finally {
       setReqSubmitting(false);
     }
+  }
+
+  if (signupEnabled === null) {
+    return <div className="min-h-full" aria-busy="true" />;
+  }
+  if (signupEnabled === false) {
+    return (
+      <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
+        <div className="w-full max-w-sm rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
+          <div className="mb-6 flex items-center gap-2 text-neutral-100">
+            <Logo size={24} className="text-emerald-400" />
+            <span className="text-lg font-semibold tracking-tight">Rivolt</span>
+          </div>
+          <h1 className="text-base font-medium text-neutral-100">Sign-ups are closed on this server</h1>
+          <p className="mt-2 text-sm text-neutral-400">
+            Ask the administrator for an account, then sign in.
+          </p>
+          <a href="/login" className="mt-5 inline-block text-sm text-emerald-500 hover:underline">
+            Back to sign in
+          </a>
+        </div>
+      </div>
+    );
   }
 
   if (created) {

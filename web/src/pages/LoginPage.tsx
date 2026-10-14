@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { backend, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
+import { useSignupEnabled } from "../lib/config";
 
 // LoginPage is the cookie-issuing front door. It sits outside the
 // AppLayout route tree on purpose — no header, no nav, no API
@@ -22,6 +23,8 @@ function signInErrorMessage(code: string, description: string): string {
       return "Couldn't complete sign-in with the provider. Please try again.";
     case "verification_failed":
       return "We couldn't verify your sign-in. Please try again.";
+    case "signups_disabled":
+      return "Sign-ups are closed on this server. Ask the administrator for an account.";
     case "account_disabled":
       return "This account has been disabled. Contact the administrator if you think this is a mistake.";
     case "server_error":
@@ -35,6 +38,9 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const nextPath = params.get("next") || "/";
+  // null until /api/config loads; the "Create an account" link only
+  // renders once the server has confirmed sign-ups are open.
+  const signupEnabled = useSignupEnabled();
 
   // The OIDC callback redirects here with ?error + ?error_description
   // on any sign-in failure (expired state, IdP error, disabled
@@ -155,12 +161,14 @@ export default function LoginPage() {
           </>
         )}
 
-        <p className="mt-5 text-center text-xs text-neutral-600">
-          New here?{" "}
-          <a href="/signup" className="text-emerald-500 hover:underline">
-            Create an account
-          </a>
-        </p>
+        {signupEnabled === true && (
+          <p className="mt-5 text-center text-xs text-neutral-600">
+            New here?{" "}
+            <a href="/signup" className="text-emerald-500 hover:underline">
+              Create an account
+            </a>
+          </p>
+        )}
       </div>
     </div>
   );

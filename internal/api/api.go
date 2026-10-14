@@ -39,6 +39,7 @@ import (
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -357,7 +358,7 @@ func New(d Deps) http.Handler {
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
-		if d.SignupRequests != nil {
+		if d.SignupRequests != nil && !signupgate.Disabled() {
 			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger))
 		}
 		// Public "request access" form companion to /signup. Anyone
@@ -369,7 +370,7 @@ func New(d Deps) http.Handler {
 		// this is the in-pod fallback if CF ever lets traffic
 		// through. Beta scale: 5/hr is generous for a human filling
 		// out the form and trivial to enforce.
-		if d.SignupRequests != nil {
+		if d.SignupRequests != nil && !signupgate.Disabled() {
 			signupReqLimiter := newIPLimiter(5, time.Hour, time.Hour)
 			r.With(signupReqLimiter.Middleware, maxBodyBytes(maxJSONBody)).Post(
 				"/signup/request",
@@ -678,7 +679,7 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 				r.Get("/settings/gps", handleGPSSettingsGet(d.SettingsMgr))
 				r.Put("/settings/gps", handleGPSSettingsPut(d.SettingsMgr))
-				if d.SignupRequests != nil {
+				if d.SignupRequests != nil && !signupgate.Disabled() {
 					r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
 					r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
 					r.Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
