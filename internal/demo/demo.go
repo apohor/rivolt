@@ -50,7 +50,10 @@ const replaySessionToken = "replay-session"
 func Enabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_DEMO")), "true") &&
 		strings.EqualFold(strings.TrimSpace(os.Getenv("RIVIAN_CLIENT")), "replay") &&
-		strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE")) == "sample"
+		strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE")) == "sample" &&
+		// Defense in depth, independent of merge order: a configured
+		// source vehicle means a recorded truck may be what replays.
+		strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE_VEHICLE")) == ""
 }
 
 // UserID is the demo account's user id.

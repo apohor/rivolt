@@ -25,9 +25,18 @@ func TestEnabledNeedsReplayOverSampleCorpus(t *testing.T) {
 		t.Setenv("RIVOLT_DEMO", c.demo)
 		t.Setenv("RIVIAN_CLIENT", c.client)
 		t.Setenv("RIVOLT_REPLAY_SOURCE", c.source)
+		t.Setenv("RIVOLT_REPLAY_SOURCE_VEHICLE", "")
 		if got := Enabled(); got != c.want {
 			t.Errorf("%+v: Enabled = %v", c, got)
 		}
+	}
+	// A recorded source vehicle configured alongside sample: off.
+	t.Setenv("RIVOLT_DEMO", "true")
+	t.Setenv("RIVIAN_CLIENT", "replay")
+	t.Setenv("RIVOLT_REPLAY_SOURCE", "sample")
+	t.Setenv("RIVOLT_REPLAY_SOURCE_VEHICLE", "01-242521064")
+	if Enabled() {
+		t.Error("Enabled must be false while RIVOLT_REPLAY_SOURCE_VEHICLE is set")
 	}
 }
 
