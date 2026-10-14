@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -246,11 +245,12 @@ func (c *LiveClient) SubscribeBatteryState(ctx context.Context, vehicleID string
 		return errors.New("rivian: callback is required")
 	}
 
-	attempt := 0
+	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{
 			operationName: "ParallaxMessages",
 			query:         qParallaxMessagesSubscription,
@@ -277,11 +277,7 @@ func (c *LiveClient) SubscribeBatteryState(ctx context.Context, vehicleID string
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
 		}
-		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
-		if wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
-		attempt++
+		wait := bo.next()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -311,11 +307,12 @@ func (c *LiveClient) SubscribeDynamicsGNSS(ctx context.Context, vehicleID string
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	attempt := 0
+	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{
 			operationName: "ParallaxMessages",
 			query:         qParallaxMessagesSubscription,
@@ -344,11 +341,7 @@ func (c *LiveClient) SubscribeDynamicsGNSS(ctx context.Context, vehicleID string
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
 		}
-		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
-		if wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
-		attempt++
+		wait := bo.next()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -908,7 +901,11 @@ type DriveDynamicsCallback func(DriveDynamicsFrame)
 // with backoff. Phase 2 measurement — run in shadow alongside vehicleState to
 // pin the gear enum and compare cadence before any field is made
 // authoritative.
-func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra []string, cb DriveDynamicsCallback) error {
+//
+// extra, if non-nil, is called before every (re)connect for the extra
+// topics to carry, so a change (wake-safety capture switch) takes
+// effect at the next reconnect without a forced one.
+func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra func() []string, cb DriveDynamicsCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -921,15 +918,19 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	if cb == nil {
 		return errors.New("rivian: callback is required")
 	}
-	rvms := append([]string{
-		rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
-		rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
-	}, extra...)
-	attempt := 0
+	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		rvms := []string{
+			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
+			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
+		}
+		if extra != nil {
+			rvms = append(rvms, extra()...)
+		}
+		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{
 			operationName: "ParallaxMessages",
 			query:         qParallaxMessagesSubscription,
@@ -964,11 +965,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
 		}
-		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
-		if wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
-		attempt++
+		wait := bo.next()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

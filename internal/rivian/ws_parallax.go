@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"time"
 )
 
@@ -94,11 +93,12 @@ func (c *LiveClient) SubscribeParallaxCharging(ctx context.Context, vehicleID st
 		return errors.New("rivian: callback is required")
 	}
 
-	attempt := 0
+	var bo reconnectBackoff
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		bo.start()
 		c.RecordChargingEvent(vehicleID, "parallax-open", "")
 		err := c.runParallaxChargingSubscription(ctx, vehicleID, userTok, cb)
 		if err != nil {
@@ -112,11 +112,7 @@ func (c *LiveClient) SubscribeParallaxCharging(ctx context.Context, vehicleID st
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
 		}
-		wait := time.Duration(1<<attempt)*time.Second + time.Duration(rand.Intn(1000))*time.Millisecond
-		if wait > 5*time.Minute {
-			wait = 5 * time.Minute
-		}
-		attempt++
+		wait := bo.next()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

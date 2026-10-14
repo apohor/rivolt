@@ -1,6 +1,7 @@
 package rivian
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -117,6 +118,20 @@ func (c *LiveClient) noteAction(vehicleID, kind, op, detail string) {
 // [from, to], oldest first.
 func (c *LiveClient) RecentActions(vehicleID string, from, to time.Time) []RivoltAction {
 	return c.actions.around(vehicleID, from, to)
+}
+
+type actionReasonKey struct{}
+
+// withActionReason tags the Rivian request made under ctx with why it
+// was made; it shows as the action's detail in wake attribution
+// (e.g. "request GetVehicleState(periodic_refresh)").
+func withActionReason(ctx context.Context, reason string) context.Context {
+	return context.WithValue(ctx, actionReasonKey{}, reason)
+}
+
+func actionReason(ctx context.Context) string {
+	s, _ := ctx.Value(actionReasonKey{}).(string)
+	return s
 }
 
 // vehicleOf pulls the vehicle id out of GraphQL variables, whichever
