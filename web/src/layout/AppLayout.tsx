@@ -8,6 +8,7 @@ import { useMoneyTabEnabled } from "../lib/ledger";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import { stopImpersonation, useImpersonationTarget } from "../lib/impersonation";
 import Logo from "../components/Logo";
+import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
@@ -98,42 +99,6 @@ function StatusPill() {
   );
 }
 
-// SignOutButton hides itself when auth is disabled on the server
-// (whoami returns null). When present, clicking it clears the
-// session cookie server-side and sends the browser to /login.
-// Using window.location instead of react-router so the full SPA
-// state is dropped — we don't want cached queries leaking between
-// users on a shared-browser install.
-function SignOutButton() {
-  const me = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: () => backend.whoami(),
-    staleTime: 5 * 60_000,
-  });
-  if (!me.data) return null;
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        // Impersonation is read-only server-side (see
-        // impersonationMW): a POST /api/auth/logout sent with the
-        // X-Rivolt-Impersonate header still attached would 405
-        // instead of actually signing out. Clear it first so this
-        // always signs the real admin (or user) out cleanly.
-        stopImpersonation();
-        try {
-          await backend.logout();
-        } finally {
-          window.location.assign("/login");
-        }
-      }}
-      title={`Signed in as ${me.data.username}`}
-      className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100"
-    >
-      Sign out
-    </button>
-  );
-}
 
 // ImpersonationBanner is the persistent, impossible-to-miss
 // indicator that an admin is viewing the app as someone else. Exit
@@ -225,10 +190,6 @@ export default function AppLayout() {
               <Logo size={22} className="text-emerald-400" />
               <span>Rivolt</span>
             </NavLink>
-            <div className="flex items-center gap-2">
-              <StatusPill />
-              <SignOutButton />
-            </div>
           </div>
         </header>
         <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">

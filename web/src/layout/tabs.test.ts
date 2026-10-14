@@ -23,9 +23,10 @@ describe("buildTabs", () => {
     expect(truck(true).subs.map((s) => s.to)).toEqual(["/truck", "/settings", "/admin"]);
   });
 
-  it("hides Live while impersonating", () => {
-    const now = buildTabs({ ...base, liveAvailable: false }).find((t) => t.key === "now")!;
-    expect(now.subs.map((s) => s.to)).toEqual(["/"]);
+  it("Now and Activity have no sub-nav (one nav row; Live is linked from the Now card)", () => {
+    const tabs = buildTabs(base);
+    expect(tabs.find((t) => t.key === "now")!.subs).toEqual([]);
+    expect(tabs.find((t) => t.key === "activity")!.subs).toEqual([]);
   });
 });
 

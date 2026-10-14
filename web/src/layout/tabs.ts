@@ -35,21 +35,17 @@ export function buildTabs(ctx: TabContext): TabDef[] {
     label: "Now",
     to: "/",
     match: ["/", "/live"],
-    subs: [
-      { to: "/", label: "Overview", end: true },
-      ...(ctx.liveAvailable ? [{ to: "/live", label: "Live" }] : []),
-    ],
+    // The Now card leads; full telemetry (/live) is linked from it.
+    subs: [],
   };
   const activity: TabDef = {
     key: "activity",
     label: "Activity",
     to: "/activity",
     match: ["/activity", "/drives", "/charges"],
-    subs: [
-      { to: "/activity", label: "Feed" },
-      { to: "/drives", label: "Drives" },
-      { to: "/charges", label: "Charges" },
-    ],
+    // One nav row: the feed's own All/Drives/Charges filter. The
+    // table pages stay reachable from a link in the feed.
+    subs: [],
   };
   const money: TabDef = {
     key: "money",

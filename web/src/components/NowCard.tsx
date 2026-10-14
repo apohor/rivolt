@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { useImpersonationTarget } from "../lib/impersonation";
 import { backend, type VehicleState } from "../lib/api";
 import {
   advanceTripDistance,
@@ -74,6 +75,8 @@ export default function NowCard({
   vehicleName: string;
   packKwh: number | null;
 }) {
+  // Live is hidden while impersonating (matches AppLayout).
+  const impersonating = useImpersonationTarget() != null;
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
@@ -248,9 +251,14 @@ export default function NowCard({
           ))}
         </dl>
 
-        <p className="mt-3 text-xs text-neutral-500" data-testid="now-freshness">
-          {freshness(view)}
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
+          <p data-testid="now-freshness">{freshness(view)}</p>
+          {!impersonating && (
+            <Link to="/live" className="text-neutral-300 hover:text-emerald-300">
+              Full telemetry →
+            </Link>
+          )}
+        </div>
       </div>
 
       {alerts.map((a) => {
