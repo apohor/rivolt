@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -180,15 +180,10 @@ func handleEvents(sink eventsSink) http.HandlerFunc {
 	}
 }
 
-// pgEventsSink writes to the events table and, at most hourly, purges
-// rows older than the retention window.
-type pgEventsSink struct {
-	db        *sql.DB
-	lastPurge atomic.Int64 // unix seconds
-	now       func() time.Time
-}
+// pgEventsSink writes to the events table.
+type pgEventsSink struct{ db *sql.DB }
 
-func newPGEventsSink(db *sql.DB) *pgEventsSink { return &pgEventsSink{db: db, now: time.Now} }
+func newPGEventsSink(db *sql.DB) *pgEventsSink { return &pgEventsSink{db: db} }
 
 func (s *pgEventsSink) Insert(ctx context.Context, anonID string, userID *uuid.UUID, evs []storedEvent) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -211,22 +206,32 @@ func (s *pgEventsSink) Insert(ctx context.Context, anonID string, userID *uuid.U
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	s.maybePurge()
-	return nil
+	return tx.Commit()
 }
 
-func (s *pgEventsSink) maybePurge() {
-	now := s.now()
-	last := s.lastPurge.Load()
-	if now.Unix()-last < int64(eventsPurgeEvery.Seconds()) || !s.lastPurge.CompareAndSwap(last, now.Unix()) {
-		return
-	}
-	go func() {
+// purgeEvents deletes events older than the retention window.
+func purgeEvents(ctx context.Context, db *sql.DB, now time.Time) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM events WHERE ts < $1::timestamptz`, now.Add(-eventsRetention).UTC())
+	return err
+}
+
+// startEventsPurge purges at boot and then hourly for the life of the
+// process. It runs whether or not RIVOLT_EVENTS is on, so rows never
+// outlive the 90-day promise after the flag is turned off.
+func startEventsPurge(db *sql.DB) {
+	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _ = s.db.ExecContext(ctx, `DELETE FROM events WHERE ts < $1::timestamptz`, now.Add(-eventsRetention).UTC())
+		if err := purgeEvents(ctx, db, time.Now()); err != nil {
+			slog.Warn("events purge failed", "err", err)
+		}
+	}
+	go func() {
+		run()
+		t := time.NewTicker(eventsPurgeEvery)
+		defer t.Stop()
+		for range t.C {
+			run()
+		}
 	}()
 }

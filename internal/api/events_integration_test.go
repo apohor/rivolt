@@ -56,19 +56,14 @@ func TestEventsSink_InsertPurgeAndActivatedView(t *testing.T) {
 		t.Fatalf("late user activated = %d (%v)", n, err)
 	}
 	// Purge removes only rows older than 90 days.
-	sink.lastPurge.Store(0) // Insert already ran (and rate-limited) a purge
-	sink.maybePurge()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE name = 'landing_view'`).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n == 0 || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := purgeEvents(ctx, pool, time.Now()); err != nil {
+		t.Fatal(err)
 	}
-	if n != 0 {
-		t.Fatalf("100-day-old event not purged")
+	var left int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE name = 'landing_view'`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("100-day-old event not purged: %d (%v)", left, err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE user_id = $1`, uid).Scan(&left); err != nil || left != 2 {
+		t.Fatalf("recent events purged: %d (%v)", left, err)
 	}
 }
