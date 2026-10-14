@@ -1005,8 +1005,21 @@ export const backend = {
       const text = await res.text();
       const parsed = text ? JSON.parse(text) : null;
       if (!res.ok) throw new ApiError(res.status, parsed);
-      return parsed as { ok: true };
+      return parsed as {
+        ok: true;
+        // Account deletion also removes the sign-in identity; "failed"
+        // means the Rivolt account is gone but the identity remains.
+        idp?: "deleted" | "failed" | "skipped";
+        idp_error?: string;
+      };
     }),
+  adminIdpFailures: () =>
+    api.get<IdpDeleteFailure[]>("/api/admin/idp-delete-failures"),
+  // 200 resolved; 502 still failing; 409 the account exists again.
+  adminRetryIdpFailure: (id: string) =>
+    api.post<{ resolved: boolean }>(
+      `/api/admin/idp-delete-failures/${encodeURIComponent(id)}/retry`,
+    ),
   // Pre-account waitlist. Public requestSignup is used by /signup
   // when the visitor has no invite code. Admin endpoints sit under
   // the same role gate as the rest of /api/admin.
@@ -1415,6 +1428,20 @@ export type AdminFlagsState = {
 export type AdminSignupCapState = {
   signup_cap: { limit: number; actor?: string };
   used: number;
+};
+
+// IdpDeleteFailure is one pending identity-provider delete failure
+// (GET /api/admin/idp-delete-failures).
+export type IdpDeleteFailure = {
+  id: string;
+  username: string;
+  error: string;
+  attempts: number;
+  failed_at: string;
+  last_tried: string;
+  // True when the person signed back in and a Rivolt account exists
+  // again: Retry isn't offered; delete that account instead.
+  account_exists: boolean;
 };
 
 // AdminUserRow is one entry from GET /api/admin/users.
