@@ -160,10 +160,12 @@ func TestCompute(t *testing.T) {
 	}
 	f := func(v float64) *float64 { return &v }
 
+	// The row at exactly now is outside [now-7d, now), so rv-a's last
+	// 10-min interval (asleep) isn't seen: 19 h 50 m parked and observed.
 	a1 := got["rv-a/24h"]
-	near("rv-a 24h parked h", f(a1.ParkedHours), 20, 1e-6)
+	near("rv-a 24h parked h", f(a1.ParkedHours), 20-1.0/6, 1e-6)
 	near("rv-a 24h drain", a1.DrainPctPerDay, 2.4, 1e-6)
-	near("rv-a 24h awake", a1.IdleAwakeHPerDay, 24*(8-30.0/3600)/20, 1e-6)
+	near("rv-a 24h awake", a1.IdleAwakeHPerDay, 24*(8-30.0/3600)/(20-1.0/6), 1e-6)
 	if a1.Sleeps != 2 || a1.QuickRewakes != 1 {
 		t.Errorf("rv-a 24h sleeps = %d, quick = %d; want 2, 1", a1.Sleeps, a1.QuickRewakes)
 	}
