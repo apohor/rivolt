@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -30,9 +31,12 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
 		home, _ := settings.GetHomeLocation(r.Context(), settingsStore)
 		homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
+		lcfg, _ := ledgerConfig(r.Context(), settingsStore)
 		decorated := make([]chargeResponse, 0, len(out))
 		for _, c := range out {
-			decorated = append(decorated, decorateCharge(c, cfg, homeLookup))
+			d := decorateCharge(c, cfg, homeLookup)
+			classifyCharge(&d, c, lcfg)
+			decorated = append(decorated, d)
 		}
 		writeJSON(w, http.StatusOK, decorated)
 	}
@@ -155,6 +159,56 @@ type chargeResponse struct {
 	charges.Charge
 	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
+	// CostSource, Place and Kind are the ledger's classification of the
+	// session (same code the Money tab uses), so the Activity feed and
+	// charge page agree with it. CostSource is the effective source:
+	// rivian / home_rate / network_estimate / user /
+	// home_rate_misapplied / unknown. Place is home / away / unknown
+	// (honouring the recorded place snapshot), Kind is ac / dcfc.
+	// CostSourceDerived is true when the answer was derived at query
+	// time rather than read from the row. Additive; the stored
+	// PascalCase CostSource/Place fields are unchanged.
+	CostSource        string `json:"cost_source"`
+	CostSourceDerived bool   `json:"cost_source_derived"`
+	Place             string `json:"place"`
+	Kind              string `json:"kind"`
+}
+
+// classifyCharge fills the ledger classification on resp for stored
+// charge c. A nil-ish ledger config (settings unavailable) still
+// classifies; home just reads as unset.
+func classifyCharge(resp *chargeResponse, c charges.Charge, cfg ledger.Config) {
+	lc := ledgerChargeOf(c)
+	resp.CostSource, resp.Place, resp.Kind = ledger.Classify(lc, cfg)
+	_, resp.CostSourceDerived = ledger.CostSource(lc, cfg)
+}
+
+// ledgerChargeOf maps a stored charge to the ledger's projection. The
+// store's non-null floats lose NULL: a cost counts as recorded when
+// positive or when the user priced it (an explicit $0 is Free), and
+// zero lat/lon or active seconds read as not recorded.
+func ledgerChargeOf(c charges.Charge) ledger.Charge {
+	p := func(v float64) *float64 { return &v }
+	lc := ledger.Charge{
+		ID: c.ID, VehicleID: c.VehicleID,
+		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+		EnergyKWh: p(c.EnergyAddedKWh), PeakKW: p(c.MaxPowerKW),
+		Currency: c.Currency, FinalState: c.FinalState, Source: c.Source,
+		Place: c.Place, CostSource: c.CostSource, Network: c.Network,
+	}
+	if c.Cost > 0 || strings.EqualFold(strings.TrimSpace(c.CostSource), "user") {
+		lc.Cost = p(c.Cost)
+	}
+	if c.PricePerKWh > 0 {
+		lc.PricePerKWh = p(c.PricePerKWh)
+	}
+	if !(c.Lat == 0 && c.Lon == 0) {
+		lc.Lat, lc.Lon = p(c.Lat), p(c.Lon)
+	}
+	if c.ActiveSeconds > 0 {
+		lc.ActiveSeconds = p(c.ActiveSeconds)
+	}
+	return lc
 }
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {
