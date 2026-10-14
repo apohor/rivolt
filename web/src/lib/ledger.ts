@@ -359,14 +359,16 @@ export function homePublicSplit(m: LedgerMonth, tolerance = 0.05): PlaceSplit | 
 // can overlap on the same session, so count from receipts and fall
 // back to the larger counter when receipts aren't available.
 export function suspectSessionCount(m: LedgerMonth): number {
-  if (m.receipts.length === 0) return Math.max(m.data_quality.home_rate_on_dcfc, m.data_quality.home_rate_away);
+  const floor = Math.max(m.data_quality.home_rate_on_dcfc, m.data_quality.home_rate_away);
   let n = 0;
   for (const r of m.receipts) {
     for (const x of r.sessions) {
       if (x.flags.some((f) => SUSPECT_FLAGS.includes(f))) n += 1;
     }
   }
-  return n;
+  // If session-level flags aren't populated, never report fewer than
+  // the server's own counters say exist.
+  return Math.max(n, floor);
 }
 
 // Plain-English quality notes from data_quality + coverage (spec MQ*).

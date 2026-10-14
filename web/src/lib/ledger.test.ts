@@ -109,6 +109,12 @@ describe("quality notes", () => {
     expect(dataQualityNotes(m).join(" ")).toMatch(/^4 sessions were priced at your home rate/);
   });
 
+  it("never reports fewer than the server's counters when session flags are missing", () => {
+    const m = ledgerMonthFixture("2026-09");
+    const bare = { ...m, receipts: m.receipts.map((r) => ({ ...r, sessions: r.sessions.map((x) => ({ ...x, flags: [] })) })) };
+    expect(suspectSessionCount(bare)).toBe(4);
+  });
+
   it("says nothing about coverage when it's high", () => {
     const m = ledgerMonthFixture("2026-09");
     expect(dataQualityNotes(m).join(" ")).not.toMatch(/of miles driven/);
