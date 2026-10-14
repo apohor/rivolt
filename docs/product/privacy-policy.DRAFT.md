@@ -23,9 +23,17 @@ Rivolt is operated by **[DECIDE: individual or entity, contact address]**. Indep
 | Push subscription (endpoint and keys) if you enable notifications | send alerts | `push_subscriptions` |
 | Session cookie (opaque token; only an HMAC of it is stored) | keep you signed in | `sessions` (`internal/sessions`) |
 | Technical logs: IP address, request paths, errors | security and operations | Loki / cluster logs **[VERIFY retention]** |
-| Product analytics events (if enabled): counts and enums, no location, amounts or emails | improve onboarding | `events` table, see docs/product/instrumentation.md **[not shipped yet]** |
+| Product analytics events (if enabled): event name plus counts and enums such as referrer host and utm_source; no location, amounts or emails; no IP address or User-Agent | improve onboarding | `events` table (migration 0046), see docs/product/instrumentation.md and #103 **[VERIFY against the merged code at publication]** |
+
 
 We do not sell your data and do not use it for advertising.
+
+### Product analytics events (if enabled)
+- **Random browser id.** Before you sign in, the browser stores a random id (`anon_id`) in localStorage and attaches it to events. This is a persistent identifier. It is not a cookie.
+- **Linkable after sign-in.** Once you are signed in, each event row stores both `anon_id` and your `user_id`. Earlier events from the same browser (for example a landing-page view with its referrer host and utm_source) can therefore be linked to your account.
+- **Retention.** Events are deleted after 90 days.
+- **Do Not Track / Global Privacy Control.** If your browser sends DNT or GPC, nothing is recorded. **[VERIFY: server side as well as client side]**
+- **Deletion.** Deleting your account removes events linked to your `user_id`. **[VERIFY: events with only `anon_id` cannot be matched to you and expire at 90 days; confirm the delete path.]**
 
 ## 3. Location data
 Location is the most sensitive data we hold. It is stored per vehicle sample and per drive/charge. It is used to classify charges as Home / Public / Fast and to show maps. It is never shown to other users. Rivolt's public demo uses generated data only. Shared statement images contain no coordinates or addresses **[VERIFY once U3 ships]**.
