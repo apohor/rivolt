@@ -187,7 +187,7 @@ var errWSUnauthenticated = errors.New("rivian: websocket unauthenticated")
 func (c *LiveClient) runSubscription(ctx context.Context, vehicleID, userTok string, cb StateCallback) error {
 	return c.runGenericSubscription(ctx, userTok, subParams{
 		operationName: "VehicleState",
-		query:         qVehicleStateSubscription,
+		query:         withPowerStateTS(qVehicleStateSubscription),
 		vehicleID:     vehicleID,
 	}, func(raw json.RawMessage) error {
 		var payload wsNextPayload
@@ -260,6 +260,7 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 	topics := subscriptionTopics(vars)
 	slog.InfoContext(ctx, "rivian sub start",
 		"op", params.operationName, "vehicle", params.vehicleID, "topics", topics)
+	c.noteAction(params.vehicleID, "subscribe", params.operationName, topicsDetail(vars))
 	end := func(reason string, err error) {
 		attrs := []any{"op", params.operationName, "vehicle", params.vehicleID, "topics", topics,
 			"reason", reason, "dur", time.Since(started).Round(time.Second).String(), "frames", frames}
@@ -273,6 +274,7 @@ func (c *LiveClient) runGenericSubscription(ctx context.Context, userTok string,
 		select {
 		case <-ctx.Done():
 			end("cancelled", nil)
+			c.noteAction(params.vehicleID, "unsubscribe", params.operationName, topicsDetail(vars))
 			return nil
 		case payload := <-sub.framesCh:
 			frames++
@@ -357,6 +359,7 @@ func stateFromVehicleStateData(vehicleID string, data vehicleStateData) *State {
 		CabinTempC:                 vs.CabinClimateInteriorTemperature.Value,
 		CabinPreconditioningStatus: ps(vs.CabinPreconditioningStatus.Value),
 		PowerState:                 strings.ToLower(strings.TrimSpace(ps(vs.PowerState.Value))),
+		PowerStateAt:               parseGNSSFixTime(vs.PowerState.TimeStamp),
 		AlarmSoundStatus:           ps(vs.AlarmSoundStatus.Value),
 		TwelveVoltBatteryHealth:    ps(vs.TwelveVoltBatteryHealth.Value),
 		WiperFluidState:            ps(vs.WiperFluidState.Value),

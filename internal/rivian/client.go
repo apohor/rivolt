@@ -108,6 +108,10 @@ type State struct {
 	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
 	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
 	PowerState string `json:"power_state"`
+	// PowerStateAt is when the car reported PowerState (Rivian's
+	// powerState.timeStamp, or the Parallax power.state frame time);
+	// zero when unknown. Anchors wake attribution (actions.go).
+	PowerStateAt time.Time `json:"-"`
 	// Safety / maintenance.
 	AlarmSoundStatus        string `json:"alarm_sound_status"`
 	TwelveVoltBatteryHealth string `json:"twelve_volt_battery_health"`

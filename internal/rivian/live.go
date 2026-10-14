@@ -59,6 +59,10 @@ var ErrMFARequired = errors.New("rivian: MFA code required")
 // LiveClient talks to the real Rivian Owner App GraphQL gateway.
 // All exported methods are safe to call concurrently.
 type LiveClient struct {
+	// actions notes every request made to Rivian, per vehicle, for
+	// wake attribution (actions.go).
+	actions actionLog
+
 	httpClient    *http.Client
 	endpoint      string
 	clientName    string
@@ -565,6 +569,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			return zero, err
 		}
 	}
+	c.noteAction(vehicleOf(req.Variables), "request", req.OperationName, "")
 
 	// Wrap the call in a span named after the GraphQL operation so
 	// Tempo shows "rivian.<Op>" in the trace tree instead of just
@@ -1247,7 +1252,7 @@ func (c *LiveClient) StateRaw(ctx context.Context, vehicleID string) (map[string
 	}
 	data, err := doGraphQL[map[string]any](ctx, c, graphQLRequest{
 		OperationName: "GetVehicleState",
-		Query:         qVehicleState,
+		Query:         withPowerStateTS(qVehicleState),
 		Variables:     map[string]any{"vehicleID": vehicleID},
 	}, c.authHeaders())
 	if err != nil {
@@ -1451,6 +1456,7 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 			httpReq.Header.Set(k, v)
 		}
 	}
+	c.noteAction(vehicleID, "request", "Probe", field)
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -1477,7 +1483,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 	}
 	data, err := doGraphQL[vehicleStateData](ctx, c, graphQLRequest{
 		OperationName: "GetVehicleState",
-		Query:         qVehicleState,
+		Query:         withPowerStateTS(qVehicleState),
 		Variables:     map[string]any{"vehicleID": vehicleID},
 	}, c.authHeaders())
 	if err != nil {
@@ -1541,6 +1547,7 @@ func (c *LiveClient) State(ctx context.Context, vehicleID string) (*State, error
 		OutsideTempC:               0,
 		CabinPreconditioningStatus: ps(vs.CabinPreconditioningStatus.Value),
 		PowerState:                 strings.ToLower(strings.TrimSpace(ps(vs.PowerState.Value))),
+		PowerStateAt:               parseGNSSFixTime(vs.PowerState.TimeStamp),
 		AlarmSoundStatus:           ps(vs.AlarmSoundStatus.Value),
 		TwelveVoltBatteryHealth:    ps(vs.TwelveVoltBatteryHealth.Value),
 		WiperFluidState:            ps(vs.WiperFluidState.Value),

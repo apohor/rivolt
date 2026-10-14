@@ -1948,6 +1948,10 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 						next := *base
 						next.At = time.Now()
 						next.PowerState = ps
+						next.PowerStateAt = time.Time{}
+						if f.TimestampMs > 0 {
+							next.PowerStateAt = time.UnixMilli(f.TimestampMs).UTC()
+						}
 						m.cache[vehicleID] = &next
 					}
 					m.mu.Unlock()
@@ -2381,6 +2385,9 @@ func mergeState(prev, next *State) *State {
 	mergeString(&out.RemoteChargingAvailable, next.RemoteChargingAvailable)
 	mergeString(&out.CabinPreconditioningStatus, next.CabinPreconditioningStatus)
 	mergeString(&out.PowerState, next.PowerState)
+	if next.PowerState != "" {
+		out.PowerStateAt = next.PowerStateAt
+	}
 	mergeString(&out.AlarmSoundStatus, next.AlarmSoundStatus)
 	mergeString(&out.TwelveVoltBatteryHealth, next.TwelveVoltBatteryHealth)
 	mergeString(&out.WiperFluidState, next.WiperFluidState)
