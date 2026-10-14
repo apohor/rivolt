@@ -53,6 +53,11 @@ export type RuntimeConfig = {
     // related endpoints, so the surface is fully gone, not just
     // hidden. Admin toggles it from the Admin page.
     tripPlannerEnabled: boolean;
+    // landingEnabled: install-wide switch (env RIVOLT_LANDING) for the
+    // public landing page shown to signed-out visitors at /.
+    landingEnabled: boolean;
+    // demoEnabled: whether /demo exists; gates the landing's demo CTA.
+    demoEnabled: boolean;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -87,7 +92,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -106,7 +111,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -119,7 +124,11 @@ async function loadConfig(): Promise<RuntimeConfig> {
         chargersUrl: j?.tiles?.chargers_url ?? "",
       },
       ai: { enabled: !!j?.ai?.enabled },
-      features: { tripPlannerEnabled: !!j?.features?.trip_planner_enabled },
+      features: {
+        tripPlannerEnabled: !!j?.features?.trip_planner_enabled,
+        landingEnabled: !!j?.features?.landing_enabled,
+        demoEnabled: !!j?.features?.demo_enabled,
+      },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
       gps: {
