@@ -136,7 +136,7 @@ SELECT (SELECT at FROM cur),
            AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
          ORDER BY vs.at DESC LIMIT 1)`, "vs")
 
-// nowRunSQL finds where the current run ($5 = its state) began: an
+// nowRunSQL finds where the current run ($4 = its state) began: an
 // early-stopping descending scan on the (vehicle_id, at) key that stops
 // at the first row whose state differs. This is the part worth
 // caching; with no differing row inside the lookback the state is older
@@ -148,7 +148,7 @@ WITH v AS (
 	SELECT vs.at
 	FROM vehicle_state vs
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
-	  AND `+nowStateCase+` <> $5::text
+	  AND `+nowStateCase+` <> $4::text
 	ORDER BY vs.at DESC LIMIT 1
 ), first AS (
 	SELECT vs.at, vs.battery_level_pct
@@ -271,7 +271,7 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		if !ok {
 			var since sql.NullTime
 			var soc, peak sql.NullFloat64
-			if err := pool.QueryRowContext(ctx, nowRunSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom, out.State).
+			if err := pool.QueryRowContext(ctx, nowRunSQL, uid, rivianID, now.Add(-nowLookback).UTC(), out.State).
 				Scan(&since, &soc, &peak); err != nil {
 				return out, err
 			}
