@@ -263,6 +263,29 @@ func TestBuild_SpendBySourceAndQuality(t *testing.T) {
 	if !m.IsCurrentMonth {
 		t.Error("is_current_month = false")
 	}
+	// UX relies on receipts reconciling with spend: receipt cost sums only
+	// sessions that count in spend.total; a misapplied session keeps its
+	// stamped cost on the session row but stays out of the receipt cost.
+	var receiptSum float64
+	for _, r := range m.Receipts {
+		if r.Cost != nil {
+			receiptSum += *r.Cost
+		}
+		for _, sess := range r.Sessions {
+			if sess.CostSource == SourceHomeRateMisapplied && (sess.Cost == nil || *sess.Cost != round4(70*0.11)) {
+				t.Errorf("misapplied session must keep its stamped cost: %+v", sess)
+			}
+		}
+		// "dcfc" (misapplied), "ran" (billed) and "l1" (unpriced) are one plug-in:
+		// same place, no drive between. Only the billed session counts.
+		if r.ReceiptID == "rcpt_dcfc" && (r.Cost == nil || *r.Cost != round4(50*0.48) ||
+			r.SessionCount != 3 || r.CostSource != SourceMixed) {
+			t.Errorf("mixed receipt = cost %v sessions %d source %s", r.Cost, r.SessionCount, r.CostSource)
+		}
+	}
+	if round4(receiptSum) != m.Spend.Total {
+		t.Errorf("Σ receipt cost %v != spend.total %v", round4(receiptSum), m.Spend.Total)
+	}
 	if m.FirstActivityAt == nil || !m.FirstActivityAt.Equal(homeL2.StartedAt) {
 		t.Errorf("first_activity_at = %v", m.FirstActivityAt)
 	}
