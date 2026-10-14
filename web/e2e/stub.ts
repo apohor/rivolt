@@ -108,6 +108,8 @@ export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-do
 
 export type StubOptions = {
   rivian?: RivianState;
+  // Serve GET /api/vehicles/{id}/now (replay connection).
+  nowEndpoint?: boolean;
   scenario?: NowScenario;
   signedIn?: boolean;
   landing?: boolean;
@@ -115,7 +117,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -152,6 +154,15 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/vehicles") {
       return json(route, [{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135 }]);
+    }
+    if (p === `/api/vehicles/${VEHICLE_ID}/now`) {
+      if (!nowEndpoint) return json(route, { error: "not stubbed" }, 404);
+      const st = scenario === "charging" ? "charging" : scenario === "driving" ? "driving" : scenario === "asleep" ? "asleep" : "parked";
+      return json(route, {
+        version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
+        state_since: iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
+        charge: scenario === "charging" ? { started_at: iso(3_600_000), soc_start: 40, peak_kw: 11 } : null,
+      });
     }
     if (p === `/api/state/${VEHICLE_ID}`) return json(route, vehicleState(scenario));
     if (p === `/api/live-drive/${VEHICLE_ID}`) {

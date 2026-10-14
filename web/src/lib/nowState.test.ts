@@ -131,3 +131,37 @@ describe("advanceTripDistance", () => {
     expect(t.max).toBe(102.5);
   });
 });
+
+describe("computeNow with a /now snapshot", () => {
+  const snap = (o: Partial<NonNullable<NowInput["server"]>> = {}) =>
+    ({
+      version: 1, at: null, location_fix_at: null, connection: "live", state: "plugged", state_since: null,
+      soc_at_state_start: null, tire_pressure_min_bar: null, failed_sleeps_6h: 0, charge: null, ...o,
+    }) as NonNullable<NowInput["server"]>;
+
+  it("takes the state from the server", () => {
+    const v = computeNow(inp({ power_state: "sleep" }, { server: snap({ state: "plugged" }), asleepSinceMs: NOW - 600_000 }));
+    expect(v.kind).toBe("plugged");
+  });
+  it("falls back to client rules when the server state is unknown", () => {
+    const v = computeNow(inp({ gear: "D" }, { server: snap({ state: "unknown" }) }));
+    expect(v.kind).toBe("driving");
+  });
+  it("derives replay, fix time, since and SoC change", () => {
+    const v = computeNow(
+      inp({ battery_level_pct: 64 }, {
+        server: snap({ state: "parked", connection: "replay", location_fix_at: "2026-10-10T08:00:00Z", state_since: "2026-10-10T09:00:00Z", soc_at_state_start: 68 }),
+      }),
+    );
+    expect(v.replay).toBe(true);
+    expect(v.locationFixMs).toBe(Date.parse("2026-10-10T08:00:00Z"));
+    expect(v.socChange).toBe(-4);
+  });
+  it("prefers server tire min and 6h failed sleeps in alerts", () => {
+    const state = st({ tire_pressure_fl_bar: 2.9 });
+    const view = computeNow({ ...inp(), state });
+    const a = nowAlerts({ view, state, vehicleName: "Tank", failedSleepsToday: 0, failedSleeps6h: 5, tireMinBar: 2.0 });
+    expect(a.map((x) => x.id)).toEqual(["waking", "tire"]);
+    expect(a[0].text).toBe("Tank woke up 5 times in the last 6 hours.");
+  });
+});

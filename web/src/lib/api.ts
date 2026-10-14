@@ -457,6 +457,23 @@ export type ChargingNetwork = {
 // /api/live-drive/:vehicleID while the car is in gear. Mirrors
 // internal/rivian.LiveDrive — fields are flat and already in mph /
 // miles / kWh so the UI renders without unit conversion.
+// NowSnapshot is GET /api/vehicles/{id}/now (now-contract v1): the
+// server's view of state, freshness inputs and a few derived fields the
+// raw VehicleState doesn't carry. Null means unknown, never 0.
+export type NowSnapshot = {
+  version: number;
+  at: string | null;
+  location_fix_at: string | null;
+  // Not a freshness verdict: the client applies per-state cadence to `at`.
+  connection: "live" | "replay" | "reauth" | "paused";
+  state: "driving" | "charging" | "plugged" | "parked" | "asleep" | "unknown";
+  state_since: string | null;
+  soc_at_state_start: number | null;
+  tire_pressure_min_bar: number | null;
+  failed_sleeps_6h: number;
+  charge: { started_at: string; soc_start: number; peak_kw: number } | null;
+};
+
 export type LiveDrive = {
   vehicle_id: string;
   number: number;
@@ -838,6 +855,16 @@ export const backend = {
     api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned"),
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
+  // vehicleNow returns null when the endpoint is absent (404: flag off
+  // or an older server), so callers fall back to /api/state alone.
+  vehicleNow: async (vehicleID: string): Promise<NowSnapshot | null> => {
+    try {
+      return await api.get<NowSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/now`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   // liveDrive returns null when the server replies 204 — no drive
