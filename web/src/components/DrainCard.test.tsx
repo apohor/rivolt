@@ -33,11 +33,13 @@ describe("DrainCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("headlines %/day, explains with awake hours, and claims no cause", async () => {
+  it("headlines %/day, counts sleeps, and claims no cause", async () => {
     stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win()) } });
     const { container } = renderCard();
     expect(await screen.findByText("0.9")).toBeInTheDocument();
-    expect(screen.getByText(/Awake 1\.3 h a day while parked \(last 7 days\)/)).toBeInTheDocument();
+    // Awake time lives in the Sleep card only (one source, no contradiction).
+    expect(container.textContent).not.toMatch(/Awake \d/);
+    expect(screen.getByText(/in the Sleep card below/)).toBeInTheDocument();
     expect(screen.getByText(/3 under a minute/)).toBeInTheDocument();
     expect(screen.getByText(/shows what happened, not why/)).toBeInTheDocument();
     const text = container.textContent ?? "";

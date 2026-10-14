@@ -53,12 +53,10 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
             {v.kwhPerDay != null && <span className="text-sm tabular-nums text-neutral-400">≈ {v.kwhPerDay.toFixed(1)} kWh / day</span>}
           </div>
           <p className="mt-2 text-sm text-neutral-300">
-            {v.idleAwakeHours != null
-              ? `Awake ${formatHours(v.idleAwakeHours)} a day while parked (last ${win === "7d" ? "7" : "30"} days). `
-              : ""}
-            {v.sleeps} {v.sleeps === 1 ? "sleep" : "sleeps"}
+            Over {win === "7d" ? "7" : "30"} days: {v.sleeps} {v.sleeps === 1 ? "sleep" : "sleeps"}
             {v.quickRewakes > 0 ? `, ${v.quickRewakes} under a minute` : ""}
-            {v.medianSleepSeconds != null ? `, median ${formatHours(v.medianSleepSeconds / 3600)}` : ""}.
+            {v.medianSleepSeconds != null ? `, median ${formatHours(v.medianSleepSeconds / 3600)}` : ""}. Time spent awake
+            while parked is in the Sleep card below.
           </p>
           <p className="mt-1 text-xs text-neutral-500">
             Based on {v.daysUsed} {v.daysUsed === 1 ? "day" : "days"}
