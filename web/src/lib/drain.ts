@@ -47,7 +47,7 @@ export function view(w: DrainWindow, key: "7d" | "30d"): DrainView {
     quickRewakes: w.quick_rewakes,
     medianSleepSeconds: w.median_sleep_seconds,
     daysUsed: w.days_with_data,
-    daysExcluded: ex.charging + ex.driving + ex.insufficient,
+    daysExcluded: (ex.insufficient ?? 0) + (ex.charging ?? 0) + (ex.driving ?? 0),
   };
 }
 

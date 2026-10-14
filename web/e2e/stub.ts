@@ -183,10 +183,10 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         idle_awake_hours_per_day: ok ? 1.4 : null, sleeps: ok ? days * 3 : 1, quick_rewakes: ok ? Math.round(days / 2) : 0,
         median_sleep_seconds: ok ? 16_000 : null, parked_hours: ok ? days * 20 : 9,
         power_state_observed_hours: ok ? days * 22 : 9, days_in_window: days, days_with_data: ok ? days - 1 : 1,
-        days_excluded: { charging: ok ? 1 : 0, driving: 0, insufficient: ok ? 0 : days - 1 }, sufficient: ok,
+        days_excluded: { insufficient: ok ? 1 : days - 1 }, sufficient: ok,
       });
       const daily = Array.from({ length: 30 }, (_, i) => {
-        const excluded = !ok ? (i < 28 ? "insufficient" : null) : i % 9 === 4 ? "charging" : i % 13 === 7 ? "driving" : null;
+        const excluded = !ok ? (i < 28 ? "insufficient" : null) : i % 9 === 4 ? "insufficient" : null;
         return {
           day: new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10),
           drain_pct: excluded || !ok ? null : 0.6 + ((i * 7) % 10) / 10,

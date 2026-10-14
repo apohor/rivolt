@@ -7,7 +7,7 @@ import { stubFetchRoutes } from "../test/fetchRoutes";
 const win = (o: object = {}) => ({
   drain_pct_per_day: 0.9, drain_kwh_per_day: 1.2, idle_awake_hours_per_day: 1.3, sleeps: 22, quick_rewakes: 3,
   median_sleep_seconds: 18000, parked_hours: 120, power_state_observed_hours: 150, days_in_window: 7,
-  days_with_data: 6, days_excluded: { charging: 1, driving: 0, insufficient: 0 }, sufficient: true, ...o,
+  days_with_data: 6, days_excluded: { insufficient: 1 }, sufficient: true, ...o,
 });
 const snap = (w7: object, w30: object = win({ drain_pct_per_day: 1.1 })) => ({
   version: 1, generated_at: "2026-10-14T00:00:00Z", tz: "UTC", pack_kwh: 135,

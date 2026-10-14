@@ -60,7 +60,7 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
           </p>
           <p className="mt-1 text-xs text-neutral-500">
             Based on {v.daysUsed} {v.daysUsed === 1 ? "day" : "days"}
-            {v.daysExcluded > 0 ? ` (${v.daysExcluded} left out: charging, driving or too little data)` : ""}.
+            {v.daysExcluded > 0 ? ` (${v.daysExcluded} left out: too little parked data)` : ""}.
             {ov.kind === "ok" ? ` ${other === "7d" ? "7 days" : "30 days"}: ${formatPct(ov.pctPerDay)}% / day.` : ""}
           </p>
         </>

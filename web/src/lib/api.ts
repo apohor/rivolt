@@ -503,7 +503,8 @@ export type DrainWindow = {
   power_state_observed_hours: number;
   days_in_window: number;
   days_with_data: number;
-  days_excluded: { charging: number; driving: number; insufficient: number };
+  // Only "insufficient" is reported (v1.1); older shapes may add more.
+  days_excluded: { insufficient: number; charging?: number; driving?: number };
   sufficient: boolean;
 };
 
@@ -515,6 +516,9 @@ export type DrainDay = {
   sleeps: number;
   quick_rewakes: number;
   excluded: "charging" | "driving" | "insufficient" | null;
+  // Informational (v1.1).
+  charging_hours?: number;
+  driving_hours?: number;
 };
 
 export type DrainSnapshot = {
