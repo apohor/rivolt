@@ -180,7 +180,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const ok = drain === "ok";
       const w = (days: number, rate: number) => ({
         drain_pct_per_day: ok ? rate : null, drain_kwh_per_day: ok ? +(rate * 1.35).toFixed(1) : null,
-        idle_awake_hours_per_day: ok ? 1.4 : null, sleeps: ok ? days * 3 : 1, quick_rewakes: ok ? Math.round(days / 2) : 0,
+        idle_awake_hours_per_day: ok ? 0.9 : null, sleeps: ok ? days * 3 : 1, quick_rewakes: ok ? Math.round(days / 2) : 0,
         median_sleep_seconds: ok ? 16_000 : null, parked_hours: ok ? days * 20 : 9,
         power_state_observed_hours: ok ? days * 22 : 9, days_in_window: days, days_with_data: ok ? days - 1 : 1,
         days_excluded: { insufficient: ok ? 1 : days - 1 }, sufficient: ok,
@@ -190,7 +190,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         return {
           day: new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10),
           drain_pct: excluded || !ok ? null : 0.6 + ((i * 7) % 10) / 10,
-          idle_awake_hours: ok ? 1.2 : null, parked_hours: ok ? 20 : 0.3, sleeps: 3, quick_rewakes: 0, excluded,
+          idle_awake_hours: ok ? 0.9 : null, parked_hours: ok ? 20 : 0.3, sleeps: 3, quick_rewakes: 0, excluded,
         };
       });
       return json(route, { version: 1, generated_at: iso(0), tz: "UTC", pack_kwh: 135, windows: { "7d": w(7, 0.9), "30d": w(30, 1.1) }, daily });

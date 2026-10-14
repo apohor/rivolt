@@ -53,7 +53,9 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
             {v.kwhPerDay != null && <span className="text-sm tabular-nums text-neutral-400">≈ {v.kwhPerDay.toFixed(1)} kWh / day</span>}
           </div>
           <p className="mt-2 text-sm text-neutral-300">
-            {v.idleAwakeHours != null ? `Awake ${formatHours(v.idleAwakeHours)} a day while parked. ` : ""}
+            {v.idleAwakeHours != null
+              ? `Awake ${formatHours(v.idleAwakeHours)} a day while parked (last ${win === "7d" ? "7" : "30"} days). `
+              : ""}
             {v.sleeps} {v.sleeps === 1 ? "sleep" : "sleeps"}
             {v.quickRewakes > 0 ? `, ${v.quickRewakes} under a minute` : ""}
             {v.medianSleepSeconds != null ? `, median ${formatHours(v.medianSleepSeconds / 3600)}` : ""}.
@@ -83,6 +85,7 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
             className="h-16 w-full text-emerald-500"
             preserveAspectRatio="none"
           >
+            <line x1={0} x2={bs.length * 10} y1={1} y2={1} stroke="currentColor" strokeOpacity={0.25} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
             {bs.map((b, i) =>
               b.value == null ? (
                 <rect key={b.day} x={i * 10 + 1} y={30} width={8} height={9} rx={1} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={1} vectorEffect="non-scaling-stroke">
@@ -100,7 +103,7 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
             )}
           </svg>
           <figcaption className="mt-1 text-[11px] text-neutral-500">
-            Daily drain, % per day (top of chart ≈ {formatPct(max)}%). Outlined days are left out.
+            Daily drain, % per day. Dashed line = {formatPct(max)}%. Outlined days are left out.
           </figcaption>
         </figure>
       )}

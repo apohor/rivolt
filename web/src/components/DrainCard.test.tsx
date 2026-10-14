@@ -37,7 +37,7 @@ describe("DrainCard", () => {
     stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win()) } });
     const { container } = renderCard();
     expect(await screen.findByText("0.9")).toBeInTheDocument();
-    expect(screen.getByText(/Awake 1\.3 h a day while parked/)).toBeInTheDocument();
+    expect(screen.getByText(/Awake 1\.3 h a day while parked \(last 7 days\)/)).toBeInTheDocument();
     expect(screen.getByText(/3 under a minute/)).toBeInTheDocument();
     expect(screen.getByText(/shows what happened, not why/)).toBeInTheDocument();
     const text = container.textContent ?? "";
