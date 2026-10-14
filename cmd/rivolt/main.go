@@ -98,6 +98,9 @@ Usage:
 Environment:
   ADDR, DATA_DIR, VAPID_SUBJECT, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
   RIVIAN_CLIENT=stub|live|mock|replay   (default: stub)
+  RIVOLT_REPLAY_SOURCE=sample    replay: use the generated sample truck
+                                 (cmd/sampletruck) instead of a recorded
+                                 vehicle. Off unless set.
   RIVOLT_REPLAY_SOURCE_VEHICLE   replay: Rivian id of the vehicle whose
                                  recorded history demo vehicles replay.
   RIVOLT_REPLAY_FROM/_TO         replay: optional corpus bounds (RFC 3339
@@ -367,32 +370,41 @@ func runServer() {
 		// (any credentials) gets one vehicle that replays a recorded
 		// vehicle's history, time-shifted to now, through the real
 		// recorder. No LiveClient is ever built in this mode.
-		src := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE_VEHICLE"))
-		if pgPool == nil || src == "" {
-			logger.Error("RIVIAN_CLIENT=replay needs DATABASE_URL and RIVOLT_REPLAY_SOURCE_VEHICLE")
-			os.Exit(1)
-		}
-		from, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_FROM"))
-		if err != nil {
-			logger.Error("bad RIVOLT_REPLAY_FROM", "err", err.Error())
-			os.Exit(1)
-		}
-		to, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_TO"))
-		if err != nil {
-			logger.Error("bad RIVOLT_REPLAY_TO", "err", err.Error())
-			os.Exit(1)
-		}
 		backfill := 30 * 24 * time.Hour
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_BACKFILL")); v != "" {
+			var err error
 			if backfill, err = time.ParseDuration(v); err != nil {
 				logger.Error("bad RIVOLT_REPLAY_BACKFILL", "err", err.Error())
 				os.Exit(1)
 			}
 		}
-		feed, err := rivian.NewDBReplayFeed(ctx, pgPool, src, from, to, backfill, logger)
-		if err != nil {
-			logger.Error("replay feed", "err", err.Error())
-			os.Exit(1)
+		var feed *rivian.ReplayFeed
+		src := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE_VEHICLE"))
+		if strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_SOURCE")) == "sample" {
+			// The generated sample truck (cmd/sampletruck): no recorded
+			// vehicle and no real person's data behind it.
+			feed = rivian.NewSampleReplayFeed(pgPool, backfill, logger)
+			src = "sample"
+		} else {
+			if pgPool == nil || src == "" {
+				logger.Error("RIVIAN_CLIENT=replay needs DATABASE_URL and RIVOLT_REPLAY_SOURCE_VEHICLE (or RIVOLT_REPLAY_SOURCE=sample)")
+				os.Exit(1)
+			}
+			from, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_FROM"))
+			if err != nil {
+				logger.Error("bad RIVOLT_REPLAY_FROM", "err", err.Error())
+				os.Exit(1)
+			}
+			to, err := parseReplayBound(os.Getenv("RIVOLT_REPLAY_TO"))
+			if err != nil {
+				logger.Error("bad RIVOLT_REPLAY_TO", "err", err.Error())
+				os.Exit(1)
+			}
+			feed, err = rivian.NewDBReplayFeed(ctx, pgPool, src, from, to, backfill, logger)
+			if err != nil {
+				logger.Error("replay feed", "err", err.Error())
+				os.Exit(1)
+			}
 		}
 		// The corpus is a real vehicle's history, and preview shares
 		// sign-in with prod: demo vehicles go only to listed usernames.
