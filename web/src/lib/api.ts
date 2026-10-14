@@ -1020,6 +1020,11 @@ export const backend = {
     api.post<{ resolved: boolean }>(
       `/api/admin/idp-delete-failures/${encodeURIComponent(id)}/retry`,
     ),
+  // Re-stamps every charge's recorded place against the currently saved
+  // home (contract A15). dryRun counts without writing. Prices are never
+  // touched. 409 when no home is saved.
+  restampPlace: (dryRun: boolean) =>
+    api.post<RestampResult>(`/api/charges/restamp-place${dryRun ? "?dry_run=1" : ""}`, null),
   // Pre-account waitlist. Public requestSignup is used by /signup
   // when the visitor has no invite code. Admin endpoints sit under
   // the same role gate as the rest of /api/admin.
@@ -1428,6 +1433,15 @@ export type AdminFlagsState = {
 export type AdminSignupCapState = {
   signup_cap: { limit: number; actor?: string };
   used: number;
+};
+
+export type RestampResult = {
+  dry_run: boolean;
+  changed: number;
+  to_home: number;
+  to_away: number;
+  unchanged: number;
+  skipped_user_priced: number;
 };
 
 // IdpDeleteFailure is one pending identity-provider delete failure

@@ -11,6 +11,7 @@ import {
   type DriveWeatherBackfillResult,
   type GeocodeResult,
   type HomeLocation,
+  type RestampResult,
   type PlannerPrefs,
   type ImportResult,
   type ImportProgress,
@@ -2090,20 +2091,52 @@ function DeleteAccountBlock() {
   );
 }
 
+// homeMoved: the new pin is more than ~100 m from the previous one
+// (the same pin re-saved isn't a change worth asking about).
+export function homeMoved(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): boolean {
+  const R = 6371000;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.latitude - a.latitude);
+  const dLon = rad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h)) > 100;
+}
+
 // HomeLocationPanel lets the operator save a "Home" location used by
 // the trip planner as a one-click Origin/Destination preset. Same
 // geocoding backend as the planner's search box.
-function HomeLocationPanel() {
+export function HomeLocationPanel() {
   const qc = useQueryClient();
   const homeQ = useQuery({
     queryKey: ["settings", "homeLocation"],
     queryFn: backend.homeLocationGet,
     staleTime: 60 * 1000,
   });
+  // "Wrong pin or moved?": asked only when an existing home is replaced
+  // and re-checking would change past charges (dry run first).
+  const [ask, setAsk] = useState<RestampResult | null>(null);
+  const restampDry = useMutation({
+    mutationFn: () => backend.restampPlace(true),
+    onSuccess: (r) => setAsk(r.changed > 0 ? r : null),
+  });
+  const restamp = useMutation({
+    mutationFn: () => backend.restampPlace(false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+      qc.invalidateQueries({ queryKey: ["charges"] });
+    },
+  });
   const save = useMutation({
     mutationFn: (h: HomeLocation) => backend.homeLocationPut(h),
-    onSuccess: (data) => {
+    onSuccess: (data, vars) => {
+      const prev = qc.getQueryData<HomeLocation>(["settings", "homeLocation"]);
       qc.setQueryData(["settings", "homeLocation"], data);
+      setAsk(null);
+      restamp.reset();
+      if (prev?.set && vars.set && homeMoved(prev, vars)) restampDry.mutate();
     },
   });
 
@@ -2198,6 +2231,40 @@ function HomeLocationPanel() {
 
       {save.isError && (
         <p className="text-xs text-rose-400">Save failed: {String(save.error)}</p>
+      )}
+      {ask && !restamp.isSuccess && (
+        <div role="group" aria-label="Wrong pin or moved" className="rounded-md border border-amber-500/30 bg-amber-950/20 p-3">
+          <p className="text-neutral-100">Was the old location wrong, or did you move?</p>
+          <p className="mt-1 text-xs text-neutral-400">
+            If it was wrong, we&apos;ll re-check {ask.changed} past {ask.changed === 1 ? "charge" : "charges"} against
+            the new home ({ask.to_home} will count as home charging). If you moved, history stays as recorded.
+            Prices are never changed.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={restamp.isPending}
+              onClick={() => restamp.mutate()}
+              className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
+            >
+              {restamp.isPending ? "Updating…" : "It was wrong, re-check"}
+            </button>
+            <button
+              type="button"
+              disabled={restamp.isPending}
+              onClick={() => setAsk(null)}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800"
+            >
+              I moved, keep history
+            </button>
+          </div>
+          {restamp.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(restamp.error)}</p>}
+        </div>
+      )}
+      {restamp.isSuccess && (
+        <p role="status" className="text-xs text-emerald-300">
+          Updated {restamp.data.changed} {restamp.data.changed === 1 ? "charge" : "charges"}.
+        </p>
       )}
       <p className="text-xs text-neutral-500">
         Street-level geocoding via self-hosted Photon, falling back to Open-Meteo (city-level) when unset.
