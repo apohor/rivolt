@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -30,9 +31,12 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
 		home, _ := settings.GetHomeLocation(r.Context(), settingsStore)
 		homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
+		lcfg, _ := ledgerConfig(r.Context(), settingsStore)
 		decorated := make([]chargeResponse, 0, len(out))
 		for _, c := range out {
-			decorated = append(decorated, decorateCharge(c, cfg, homeLookup))
+			resp := decorateCharge(c, cfg, homeLookup)
+			resp.Classification = ledger.Classify(ledger.FromCharge(c), lcfg)
+			decorated = append(decorated, resp)
 		}
 		writeJSON(w, http.StatusOK, decorated)
 	}
@@ -153,6 +157,10 @@ func patchChargePricing(store chargePricer) http.HandlerFunc {
 // both the rate and the observed energy are non-zero.
 type chargeResponse struct {
 	charges.Charge
+	// The ledger's classification (cost_source_effective, kind, place,
+	// ledger_flags, ...): the same rules as the Money tab, so the
+	// Charges list and charge page don't re-derive them.
+	ledger.Classification
 	EstimatedCost     float64 `json:"estimated_cost,omitempty"`
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 }

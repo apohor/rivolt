@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 func f(v float64) *float64 { return &v }
@@ -696,4 +698,31 @@ func ids(cs []Charge) []string {
 		out = append(out, c.ID)
 	}
 	return out
+}
+
+// A10: other surfaces get the Money tab's classification for one charge
+// from the store's zero-for-NULL shape.
+func TestClassifyFromCharge(t *testing.T) {
+	start := ts("2026-10-09T02:00:00Z")
+	awayL1 := charges.Charge{ID: "l1", VehicleID: "veh-1", StartedAt: start, EndedAt: start.Add(10 * time.Hour),
+		EnergyAddedKWh: 20, MaxPowerKW: 1.4, Cost: 2.2, PricePerKWh: 0.11, Lat: awayLat, Lon: awayLon, Source: "live"}
+	c := Classify(FromCharge(awayL1), cfg())
+	if c.CostSource != SourceUnknown || c.Kind != "ac" || c.Place != "away" || c.CountsInSpend ||
+		!hasFlag(c.Flags, FlagUnpriced) || !hasFlag(c.Flags, FlagHomeRateAway) {
+		t.Errorf("legacy away L1 = %+v", c)
+	}
+	glitch := charges.Charge{ID: "g", VehicleID: "veh-1", StartedAt: start, EndedAt: start.Add(15 * time.Hour),
+		EnergyAddedKWh: 66, MaxPowerKW: 145, Cost: 7.26, PricePerKWh: 0.11, Lat: homeLat, Lon: homeLon, Source: "live"}
+	if c := Classify(FromCharge(glitch), cfg()); c.Kind != "ac" || c.CostSource != SourceHomeRate || !c.CountsInSpend {
+		t.Errorf("glitched-peak home session = %+v", c)
+	}
+	free := charges.Charge{ID: "f", VehicleID: "veh-1", StartedAt: start, EndedAt: start.Add(time.Hour),
+		EnergyAddedKWh: 10, MaxPowerKW: 7, CostSource: "user", Lat: awayLat, Lon: awayLon, Source: "live"}
+	if c := Classify(FromCharge(free), cfg()); c.CostSource != SourceUser || !hasFlag(c.Flags, FlagFree) || !c.CountsInSpend {
+		t.Errorf("Free session = %+v", c)
+	}
+	unpricedCrumb := charges.Charge{ID: "x", VehicleID: "veh-1", StartedAt: start, EndedAt: start.Add(time.Minute), Source: "live"}
+	if c := Classify(FromCharge(unpricedCrumb), cfg()); hasFlag(c.Flags, FlagUnpriced) || !hasFlag(c.Flags, FlagNullEnergy) {
+		t.Errorf("crumb = %+v", c)
+	}
 }
