@@ -168,7 +168,9 @@ func runReprice(args []string) int {
 	for _, c := range changes {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE charges SET
-			       legacy_cost = cost, legacy_price_per_kwh = price_per_kwh,
+			       -- 0, not NULL, for a row that had no price: the undo
+			       -- selects on legacy_cost IS NOT NULL.
+			       legacy_cost = COALESCE(cost, 0), legacy_price_per_kwh = COALESCE(price_per_kwh, 0),
 			       cost = $2, price_per_kwh = $3, currency = 'USD',
 			       cost_source = $4, network = NULLIF($5, ''), updated_at = NOW()
 			WHERE id = $1 AND cost_source IS NULL`,

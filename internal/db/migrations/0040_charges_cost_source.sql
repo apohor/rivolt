@@ -23,9 +23,12 @@ ALTER TABLE charges
     ADD COLUMN IF NOT EXISTS cost_source TEXT,
     ADD COLUMN IF NOT EXISTS network     TEXT;
 
--- reprice --apply keeps what it overwrote, so a re-price can be undone:
---   UPDATE charges SET cost = legacy_cost, price_per_kwh = legacy_price_per_kwh,
---          cost_source = NULL, network = NULL
+-- reprice --apply keeps what it overwrote (0 for "no price"), so a
+-- re-price can be undone without touching rows the recorder priced:
+--   UPDATE charges SET cost = NULLIF(legacy_cost, 0),
+--          price_per_kwh = NULLIF(legacy_price_per_kwh, 0),
+--          cost_source = NULL, network = NULL,
+--          legacy_cost = NULL, legacy_price_per_kwh = NULL
 --   WHERE legacy_cost IS NOT NULL;
 ALTER TABLE charges
     ADD COLUMN IF NOT EXISTS legacy_cost          NUMERIC(12,4),
