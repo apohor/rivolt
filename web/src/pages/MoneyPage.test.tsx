@@ -47,17 +47,22 @@ describe("MoneyPage", () => {
       new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(m.spend.total),
     );
     expect(statement).toHaveTextContent("Month to date");
-    expect(statement).toHaveTextContent(/Likely too low:\s*4 sessions/);
-    expect(statement).toHaveTextContent(/Not included: 3 unpriced sessions/);
+    expect(statement).toHaveTextContent(/Estimate pending:\s*2 fast-charging sessions/);
+    expect(statement).toHaveTextContent(/Likely wrong:\s*1 session away from home/);
+    expect(statement).toHaveTextContent(/Not included: 2 unpriced sessions/);
+    expect(statement).toHaveTextContent(/% estimated/);
     // Not sample data: the API answered.
     expect(screen.queryByText(/Sample data/)).toBeNull();
 
-    // Unknown price → Add price; home rate on DCFC → Fix price.
+    // Unknown + pending → Add price; home rate away (in total) → Fix price.
     expect(screen.getAllByText("Add price →").length).toBe(3);
-    expect(screen.getAllByText("Fix price →").length).toBe(3);
-    // Home / Public / DCFC split (receipts reconcile with by_kind.ac).
-    const split = screen.getByRole("img", { name: /Home .* Public .* DCFC/ });
-    expect(split).toBeInTheDocument();
+    expect(screen.getAllByText("Fix price →").length).toBe(1);
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
+    expect(screen.getByText("Free")).toBeInTheDocument();
+    expect(screen.getByText(/Estimate · Electrify America/)).toBeInTheDocument();
+    // Two server-owned splits: where (by_place) and how (by_kind).
+    expect(screen.getByRole("img", { name: /^Where: Home .*, Away / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^How: AC .*, DCFC / })).toBeInTheDocument();
   });
 
   it("filters receipts and expands folded top-ups", async () => {

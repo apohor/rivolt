@@ -4,29 +4,40 @@ import {
   formatMoney,
   grammarFor,
   sourceLabel,
+  type ChargeKind,
   type KindTotals,
-  type PlaceSplit,
+  type Place,
   type Receipt,
   type ReceiptFlag,
 } from "../lib/ledger";
 import { formatDateTime } from "../lib/format";
 
 // Presentational pieces for the Money tab. The rule they share: every
-// figure says where its price came from (spec §4.2).
-//   recorded → solid figure
-//   suspect  → solid figure + amber "likely under-priced"
-//   unknown  → "—" + "Add price"
+// figure says where its price came from (spec §4.2, contract §10):
+//   recorded  → solid figure (billed, home rate, entered)
+//   free      → "Free"
+//   estimated → dotted underline + "est."
+//   suspect   → solid + amber "!" (home rate stamped away from home)
+//   pending   → "Pending" (old home-rate DCFC stamp; not in the total)
+//   unknown   → "—"
 
 export function MoneyValue({
   r,
   currency,
   className = "",
 }: {
-  r: Pick<Receipt, "cost" | "cost_source" | "flags">;
+  r: Pick<Receipt, "cost" | "cost_source" | "flags"> & { sessions?: Receipt["sessions"] };
   currency: string;
   className?: string;
 }) {
   const g = grammarFor(r);
+  if (g === "pending") {
+    return (
+      <span className={`text-neutral-500 ${className}`} title="Estimate pending; not in the total">
+        Pending
+      </span>
+    );
+  }
   if (g === "unknown" || r.cost == null) {
     return (
       <span className={`text-neutral-500 ${className}`} title="Price unknown">
@@ -34,73 +45,87 @@ export function MoneyValue({
       </span>
     );
   }
+  if (g === "free") return <span className={className}>Free</span>;
+  if (g === "estimated") {
+    return (
+      <span
+        className={`underline decoration-dotted decoration-neutral-500 underline-offset-4 ${className}`}
+        title="Estimated from the charging network's rate"
+      >
+        {formatMoney(r.cost, currency)}
+        <span className="ml-1 text-[10px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
+      </span>
+    );
+  }
   if (g === "suspect") {
     return (
-      <span className={className} title="Priced at your home rate; likely under-priced">
+      <span className={className} title="Priced at your home rate away from home; likely wrong">
         {formatMoney(r.cost, currency)}
         <span aria-hidden className="ml-1 text-amber-400">
           !
         </span>
-        <span className="sr-only"> (likely under-priced)</span>
+        <span className="sr-only"> (likely wrong)</span>
       </span>
     );
   }
   return <span className={className}>{formatMoney(r.cost, currency)}</span>;
 }
 
-// Colours follow the app's semantics: emerald = Home, sky = Public,
-// amber = DCFC.
-type SplitKey = "home" | "public" | "ac" | "dcfc";
+// Colours follow the app's semantics: emerald = Home / AC, sky = Away,
+// amber = DCFC, neutral = unknown.
+type SplitKey = Place | ChargeKind;
 const SPLIT_META: Record<SplitKey, { label: string; bar: string; dot: string }> = {
   home: { label: "Home", bar: "bg-emerald-500", dot: "bg-emerald-400" },
-  public: { label: "Public", bar: "bg-sky-500", dot: "bg-sky-400" },
+  away: { label: "Away", bar: "bg-sky-500", dot: "bg-sky-400" },
+  unknown: { label: "Unknown place", bar: "bg-neutral-500", dot: "bg-neutral-400" },
   ac: { label: "AC", bar: "bg-emerald-500", dot: "bg-emerald-400" },
   dcfc: { label: "DCFC", bar: "bg-amber-500", dot: "bg-amber-400" },
 };
 
 export type SplitSegments = { key: SplitKey; totals: KindTotals }[];
 
-// splitSegments prefers Home / Public / DCFC (when receipts reconcile
-// with the server's AC total) and otherwise falls back to the
-// server's AC / DCFC split.
-export function splitSegments(
-  place: PlaceSplit | null,
-  byKind: { ac: KindTotals; dcfc: KindTotals },
-): SplitSegments {
-  if (place) {
-    return [
-      { key: "home", totals: place.home },
-      { key: "public", totals: place.public },
-      { key: "dcfc", totals: place.dcfc },
-    ];
-  }
+// Server-owned splits only (contract §10.2): by_place answers "where",
+// by_kind answers "how fast". The two don't cross-tabulate, so they're
+// shown as two bars rather than a client-computed Home/Public/DCFC.
+export function placeSegments(byPlace: Record<Place, KindTotals>): SplitSegments {
+  const segs: SplitSegments = [
+    { key: "home", totals: byPlace.home },
+    { key: "away", totals: byPlace.away },
+  ];
+  if (byPlace.unknown.sessions > 0) segs.push({ key: "unknown", totals: byPlace.unknown });
+  return segs;
+}
+
+export function kindSegments(byKind: Record<ChargeKind, KindTotals>): SplitSegments {
   return [
     { key: "ac", totals: byKind.ac },
     { key: "dcfc", totals: byKind.dcfc },
   ];
 }
 
-// SplitBar: one stacked bar, switchable between $ and kWh because the
-// two tell different stories (home is most of the energy but little
-// of the money).
+// SplitBar: one stacked bar, $ or kWh, because the two tell different
+// stories (home is most of the energy but little of the money).
 export function SplitBar({
+  label,
   segments,
   currency,
   metric,
 }: {
+  label: string;
   segments: SplitSegments;
   currency: string;
   metric: "cost" | "kwh";
 }) {
   const total = segments.reduce((a, s) => a + s.totals[metric], 0);
-  const fmt = (t: KindTotals) =>
-    metric === "cost" ? formatMoney(t.cost, currency) : `${t.kwh.toFixed(0)} kWh`;
+  const fmt = (t: KindTotals) => (metric === "cost" ? formatMoney(t.cost, currency) : `${t.kwh.toFixed(0)} kWh`);
+  const cols = segments.length === 3 ? "grid-cols-3" : "grid-cols-2";
   return (
     <div>
+      <div className="mb-1.5 text-[11px] uppercase tracking-wide text-neutral-500">{label}</div>
       <div
         className="flex h-3 w-full overflow-hidden rounded-full bg-neutral-800"
         role="img"
-        aria-label={segments.map((s) => `${SPLIT_META[s.key].label} ${fmt(s.totals)}`).join(", ")}
+        aria-label={`${label}: ${segments.map((s) => `${SPLIT_META[s.key].label} ${fmt(s.totals)}`).join(", ")}`}
       >
         {total > 0 &&
           segments.map((s) =>
@@ -113,7 +138,7 @@ export function SplitBar({
             ) : null,
           )}
       </div>
-      <dl className={`mt-3 grid gap-2 text-xs ${segments.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+      <dl className={`mt-2 grid gap-2 text-xs ${cols}`}>
         {segments.map((s) => (
           <div key={s.key}>
             <dt className="flex items-center gap-1.5 text-neutral-400">
@@ -143,7 +168,8 @@ const FLAG_TEXT: Partial<Record<ReceiptFlag, string>> = {
 function kindChip(r: Receipt): { label: string; dot: string; chip: string } {
   if (r.kind === "dcfc") return { label: "DCFC", dot: "bg-amber-400", chip: "border-amber-500/40 text-amber-300" };
   if (r.place === "home") return { label: "Home", dot: "bg-emerald-400", chip: "border-emerald-500/40 text-emerald-300" };
-  return { label: "Public", dot: "bg-sky-400", chip: "border-sky-500/40 text-sky-300" };
+  if (r.place === "away") return { label: "Away", dot: "bg-sky-400", chip: "border-sky-500/40 text-sky-300" };
+  return { label: "AC", dot: "bg-neutral-400", chip: "border-neutral-600 text-neutral-300" };
 }
 
 function km(v: number): string {
@@ -152,16 +178,22 @@ function km(v: number): string {
 }
 
 // ReceiptRow is one plug-in session. Fragments and top-ups fold into
-// it (expandable). The row links to the first charge's detail page,
-// which carries the existing price editor ("Add price").
+// it (expandable). Price actions link to the existing charge detail
+// page, which carries the pricing editor (PATCH /api/charges/{id}/pricing).
 export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   const [open, setOpen] = useState(false);
   const chip = kindChip(r);
   const g = grammarFor(r);
   const parentID = r.sessions[0]?.charge_id ?? r.receipt_id.replace(/^rcpt_/, "");
+  // The session to price: the first one without a usable price.
+  const fixID =
+    r.sessions.find((x) => x.cost_source === "home_rate_misapplied" || x.cost == null || x.flags.includes("home_rate_away"))
+      ?.charge_id ?? parentID;
   const notes = r.flags.map((f) => FLAG_TEXT[f]).filter(Boolean) as string[];
   if (r.spans_days > 1) notes.unshift(`${r.spans_days} days`);
   const extra = r.session_count - 1;
+  const action =
+    g === "unknown" || g === "pending" ? "Add price →" : g === "suspect" ? "Fix price →" : null;
   return (
     <li className="py-1">
       <div className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-900/70">
@@ -197,16 +229,12 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             ))}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px]">
-            {g === "unknown" ? (
-              <Link to={`/charges/${encodeURIComponent(parentID)}`} className="font-medium text-amber-300 hover:text-amber-200">
-                Add price →
-              </Link>
-            ) : (
-              <span className={g === "suspect" ? "text-amber-300/90" : "text-neutral-500"}>{sourceLabel(r, currency)}</span>
-            )}
-            {g === "suspect" && (
-              <Link to={`/charges/${encodeURIComponent(parentID)}`} className="font-medium text-amber-300 hover:text-amber-200">
-                Fix price →
+            <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
+              {sourceLabel(r, currency)}
+            </span>
+            {action && (
+              <Link to={`/charges/${encodeURIComponent(fixID)}`} className="font-medium text-amber-300 hover:text-amber-200">
+                {action}
               </Link>
             )}
             {extra > 0 && (
@@ -226,8 +254,9 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
                 <li key={x.charge_id} className="flex justify-between gap-3 tabular-nums">
                   <Link to={`/charges/${encodeURIComponent(x.charge_id)}`} className="hover:text-neutral-200">
                     {formatDateTime(x.started_at)} · {x.kwh != null ? `${x.kwh.toFixed(1)} kWh` : "— kWh"}
+                    {x.kind === "dcfc" ? " · DCFC" : ""}
                   </Link>
-                  <span>{x.cost != null ? formatMoney(x.cost, currency) : "—"}</span>
+                  <MoneyValue r={x} currency={currency} />
                 </li>
               ))}
             </ul>

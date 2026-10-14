@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetMoneyTabFlagForTests,
   dataQualityNotes,
+  estimatedShare,
   fetchLedgerMonth,
   grammarFor,
-  homePublicSplit,
   isValidMonth,
   ledgerMonthFixture,
   ledgerSummaryFixture,
   loadMoneyTabEnabled,
   shiftMonth,
+  sourceLabel,
   suspectSessionCount,
 } from "./ledger";
 
@@ -37,32 +38,59 @@ describe("month helpers", () => {
   });
 });
 
-describe("grammarFor", () => {
-  it("maps provenance to recorded / suspect / unknown", () => {
-    expect(grammarFor({ cost: 5, cost_source: "home_rate", flags: [] })).toBe("recorded");
-    expect(grammarFor({ cost: 5, cost_source: "rivian", flags: [] })).toBe("recorded");
-    expect(grammarFor({ cost: 5, cost_source: "home_rate", flags: ["home_rate_on_dcfc"] })).toBe("suspect");
-    expect(grammarFor({ cost: 5, cost_source: "home_rate", flags: ["home_rate_away"] })).toBe("suspect");
-    expect(grammarFor({ cost: null, cost_source: "unknown", flags: ["unpriced"] })).toBe("unknown");
+describe("grammarFor (contract §10.1)", () => {
+  it.each([
+    [{ cost: 5, cost_source: "home_rate", flags: [] }, "recorded"],
+    [{ cost: 5, cost_source: "rivian", flags: [] }, "recorded"],
+    [{ cost: 5, cost_source: "user", flags: [] }, "recorded"],
+    [{ cost: 0, cost_source: "user", flags: [] }, "free"],
+    [{ cost: 23, cost_source: "network_estimate", flags: [] }, "estimated"],
+    [{ cost: 9, cost_source: "home_rate_misapplied", flags: ["estimate_pending"] }, "pending"],
+    [{ cost: null, cost_source: "unknown", flags: ["estimate_pending"] }, "pending"],
+    [{ cost: 1, cost_source: "home_rate", flags: ["home_rate_away"] }, "suspect"],
+    [{ cost: null, cost_source: "unknown", flags: ["unpriced"] }, "unknown"],
+  ] as const)("%o → %s", (r, g) => {
+    expect(grammarFor({ ...r, flags: [...r.flags] })).toBe(g);
+  });
+
+  it("labels Billed, Free and network estimates", () => {
+    expect(sourceLabel({ cost: 3, cost_source: "rivian", rate: 0.6, flags: [] }, "USD")).toMatch(/^Billed · \$0\.60\/kWh/);
+    expect(sourceLabel({ cost: 0, cost_source: "user", rate: 0, flags: [] }, "USD")).toBe("Free · entered by you");
+    expect(
+      sourceLabel({ cost: 23, cost_source: "network_estimate", rate: 0.36, network: "Electrify America", flags: [] }, "USD"),
+    ).toBe("Estimate · Electrify America · $0.36/kWh");
   });
 });
 
 describe("fixture", () => {
   const m = ledgerMonthFixture("2026-09");
 
-  it("matches its own totals (server-shaped, additive)", () => {
+  it("is internally consistent, server-shaped", () => {
+    const b = m.spend.by_source;
+    expect((b.rivian ?? 0) + (b.home_rate ?? 0) + (b.network_estimate ?? 0) + (b.user ?? 0)).toBeCloseTo(m.spend.total, 6);
     const receiptCost = m.receipts.reduce((a, r) => a + (r.cost ?? 0), 0);
     expect(receiptCost).toBeCloseTo(m.spend.total, 6);
-    expect(m.energy.by_kind.ac.kwh + m.energy.by_kind.dcfc.kwh).toBeCloseTo(m.energy.kwh_added, 6);
-    expect(m.spend.priced_sessions + m.spend.unpriced_sessions).toBe(m.energy.sessions);
+    for (const split of [m.energy.by_kind, m.energy.by_place!]) {
+      const lines = Object.values(split);
+      expect(lines.reduce((a, l) => a + l.sessions, 0)).toBe(m.energy.sessions);
+      expect(lines.reduce((a, l) => a + l.kwh, 0)).toBeCloseTo(m.energy.kwh_added, 6);
+      expect(lines.reduce((a, l) => a + l.cost, 0)).toBeCloseTo(m.spend.total, 6);
+    }
+    expect(
+      m.spend.priced_sessions + m.spend.unpriced_sessions + (m.spend.estimate_pending_sessions ?? 0),
+    ).toBe(m.energy.sessions);
   });
 
-  it("covers the data-quality states the page must render", () => {
+  it("covers every price and quality state the page renders", () => {
+    const sources = new Set(m.receipts.flatMap((r) => r.sessions.map((x) => x.cost_source)));
+    for (const s of ["rivian", "home_rate", "network_estimate", "user", "home_rate_misapplied", "unknown"]) {
+      expect(sources.has(s as never)).toBe(true);
+    }
     const flags = new Set(m.receipts.flatMap((r) => r.flags));
-    for (const f of ["fragments_folded", "home_rate_on_dcfc", "unpriced", "null_energy", "continues_next_month"]) {
+    for (const f of ["fragments_folded", "estimate_pending", "home_rate_away", "unpriced", "null_energy", "continues_next_month"]) {
       expect(flags.has(f as never)).toBe(true);
     }
-    expect(m.receipts.some((r) => r.cost_source === "rivian")).toBe(true);
+    expect(m.receipts.some((r) => r.cost_source === "mixed")).toBe(true);
   });
 
   it("contains no coordinates or addresses (privacy, C5)", () => {
@@ -71,51 +99,43 @@ describe("fixture", () => {
   });
 });
 
-describe("homePublicSplit", () => {
-  it("splits AC into home and public when receipts reconcile", () => {
+describe("counts and notes", () => {
+  it("counts only in-total home-rate-away sessions as suspect (pending DCFC excluded)", () => {
     const m = ledgerMonthFixture("2026-09");
-    const s = homePublicSplit(m)!;
-    expect(s).not.toBeNull();
-    expect(s.home.kwh + s.public.kwh).toBeCloseTo(m.energy.by_kind.ac.kwh, 6);
-    // 2 away L1 sessions + the sub-50 kW tail fragment of a DCFC stop.
-    expect(s.public.sessions).toBe(3);
+    expect(m.data_quality.home_rate_away).toBe(3); // 2 pending DCFC + 1 taper fragment
+    expect(suspectSessionCount(m)).toBe(1);
   });
 
-  it("reconciles a DCFC receipt with an AC-classified tail fragment (server buckets per session)", () => {
+  it("uses the server's estimated_share, else by_source", () => {
     const m = ledgerMonthFixture("2026-09");
-    const mixed = m.receipts.find((r) => r.kind === "dcfc" && r.sessions.some((x) => (x.peak_kw ?? 0) < 50));
-    expect(mixed).toBeDefined();
-    expect(homePublicSplit(m)).not.toBeNull();
+    expect(estimatedShare(m)).toBeCloseTo(m.spend.by_source.network_estimate! / m.spend.total, 6);
+    const old = { ...m, spend: { ...m.spend, estimated_share: undefined } };
+    expect(estimatedShare(old)).toBeCloseTo(m.spend.by_source.network_estimate! / m.spend.total, 6);
   });
 
-  it("tolerates a missing data_quality.superseded (omitted when empty)", () => {
-    const m = ledgerMonthFixture("2026-09");
-    const { superseded: _omit, ...dq } = m.data_quality;
-    expect(() => dataQualityNotes({ ...m, data_quality: dq })).not.toThrow();
+  it("explains pending, suspect and unpriced sessions in plain words", () => {
+    const notes = dataQualityNotes(ledgerMonthFixture("2026-09")).join(" ");
+    expect(notes).toMatch(/^2 fast-charging sessions were priced at your home rate by an older version/);
+    expect(notes).toMatch(/1 session away from home was priced at your home rate/);
+    expect(notes).toMatch(/2 sessions have no price/);
+    expect(notes).toMatch(/older sessions' price source was worked out/);
   });
 
-  it("falls back (null) when receipts don't match the server's AC total", () => {
+  it("tolerates pre-§10 payloads (missing by_place, superseded, new spend keys)", () => {
     const m = ledgerMonthFixture("2026-09");
-    const broken = { ...m, energy: { ...m.energy, by_kind: { ...m.energy.by_kind, ac: { ...m.energy.by_kind.ac, kwh: 1 } } } };
-    expect(homePublicSplit(broken)).toBeNull();
-  });
-});
-
-describe("quality notes", () => {
-  it("counts under-priced sessions once even when both flags are set", () => {
-    const m = ledgerMonthFixture("2026-09");
-    expect(m.data_quality.home_rate_on_dcfc + m.data_quality.home_rate_away).toBe(7);
-    expect(suspectSessionCount(m)).toBe(4);
-    expect(dataQualityNotes(m).join(" ")).toMatch(/^4 sessions were priced at your home rate/);
-  });
-
-  it("never reports fewer than the server's counters when session flags are missing", () => {
-    const m = ledgerMonthFixture("2026-09");
-    const bare = { ...m, receipts: m.receipts.map((r) => ({ ...r, sessions: r.sessions.map((x) => ({ ...x, flags: [] })) })) };
-    expect(suspectSessionCount(bare)).toBe(4);
+    const { superseded: _s, ...dq } = m.data_quality;
+    const { by_place: _p, ...energy } = m.energy;
+    const old = {
+      ...m,
+      energy,
+      data_quality: dq,
+      spend: { ...m.spend, by_source: { rivian: 1, home_rate: 2 }, estimated_share: undefined, estimate_pending_sessions: undefined },
+    };
+    expect(() => dataQualityNotes(old)).not.toThrow();
+    expect(estimatedShare(old)).toBe(0);
   });
 
-  it("says nothing about coverage when it's high", () => {
+  it("mentions coverage only when it's low", () => {
     const m = ledgerMonthFixture("2026-09");
     expect(dataQualityNotes(m).join(" ")).not.toMatch(/of miles driven/);
     const low = { ...m, driving: { ...m.driving, coverage: 0.06 } };

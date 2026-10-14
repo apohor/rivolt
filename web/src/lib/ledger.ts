@@ -1,22 +1,34 @@
 // Ledger client + types for the Money tab, per ledger contract v1
-// (frozen; additive changes only).
+// (incl. the additive §9/§10 changes: persisted pricing, by_place,
+// per-session kind/place).
 //
 // The server owns every money and energy total. The page renders the
-// numbers it gets; it doesn't re-sum receipts into totals. Money is
-// the *charging* ledger (what was paid for energy). Driving cost is
-// shown only as the server's spend ÷ miles, never as a second sum.
+// numbers it gets; it never re-sums receipts into totals or splits.
+// Money is the *charging* ledger (what was paid for energy). Driving
+// cost is shown only as the server's spend ÷ miles.
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 
 export const LEDGER_CONTRACT_VERSION = 1;
 
-// ---- types (contract §3–§4) -----------------------------------------
+// ---- types (contract §3, §4, §10) -----------------------------------
 
-// v1 cost sources. `rivian` really means "a recorded price that isn't
-// the current home rate" (Rivian-billed, a manual edit, or an older
-// home rate), so the UI labels it "Billed", not "Rivian".
-export type CostSource = "rivian" | "home_rate" | "unknown";
+// Session cost sources (contract §10.1).
+//   rivian               Rivian-billed, or a legacy non-home-rate price. Label "Billed".
+//   home_rate            Home session at the user's home rate.
+//   network_estimate     DCFC priced from the nearest station's network. An estimate.
+//   user                 Entered by the user; cost 0 means "Free".
+//   home_rate_misapplied Legacy: home rate stamped on a ≥ 50 kW session.
+//                        Not in spend.total; shown as "estimate pending".
+//   unknown              No cost.
+export type CostSource =
+  | "rivian"
+  | "home_rate"
+  | "network_estimate"
+  | "user"
+  | "home_rate_misapplied"
+  | "unknown";
 export type ReceiptCostSource = CostSource | "mixed";
 
 export type ChargeKind = "ac" | "dcfc";
@@ -26,6 +38,7 @@ export type ReceiptFlag =
   | "fragments_folded"
   | "home_rate_on_dcfc"
   | "home_rate_away"
+  | "estimate_pending"
   | "unpriced"
   | "null_energy"
   | "open_session"
@@ -45,6 +58,11 @@ export type ReceiptSession = {
   cost: number | null;
   price_per_kwh: number | null;
   cost_source: CostSource;
+  // §10 additions; optional so an older server build still parses.
+  cost_source_derived?: boolean;
+  kind?: ChargeKind;
+  place?: Place;
+  network?: string | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -67,6 +85,7 @@ export type Receipt = {
   cost: number | null;
   cost_source: ReceiptCostSource;
   rate: number | null;
+  network?: string | null;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -78,6 +97,13 @@ export type KindTotals = {
   kwh: number;
   cost: number;
   peak_kw: number | null;
+};
+
+export type SpendBySource = {
+  rivian: number;
+  home_rate: number;
+  network_estimate: number;
+  user: number;
 };
 
 export type MonthSummary = {
@@ -93,17 +119,23 @@ export type MonthSummary = {
   last_activity_at: string | null;
   spend: {
     total: number;
-    by_source: { rivian: number; home_rate: number };
+    // Older builds send only rivian/home_rate; read missing keys as 0.
+    by_source: Partial<SpendBySource>;
+    estimated_share?: number | null;
     priced_sessions: number;
     unpriced_sessions: number;
     unpriced_kwh: number;
     unpriced_home_rate_estimate: number | null;
+    estimate_pending_sessions?: number;
+    estimate_pending_kwh?: number;
   };
   energy: {
     sessions: number;
     kwh_added: number;
     null_energy_sessions: number;
     by_kind: Record<ChargeKind, KindTotals>;
+    // §10: per-session place split; reconciles with the totals.
+    by_place?: Record<Place, KindTotals>;
   };
   driving: {
     drives: number;
@@ -116,6 +148,7 @@ export type MonthSummary = {
   };
   data_quality: {
     cost_source_inferred: boolean;
+    cost_source_derived_sessions?: number;
     superseded_excluded: number;
     drives_superseded_excluded: number;
     open_sessions: number;
@@ -265,6 +298,7 @@ export function isValidMonth(s: string | null | undefined): s is string {
   return !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
 }
 
+
 // ---- presentation helpers -------------------------------------------
 
 export function formatMoney(v: number, currency: string, digits = 2): string {
@@ -280,114 +314,119 @@ export function formatMoney(v: number, currency: string, digits = 2): string {
   }
 }
 
-// The three visual treatments (spec §4.2), mapped onto v1's sources:
-//   recorded  - solid figure (home rate or a recorded/billed price)
-//   suspect   - solid figure + amber "likely under-priced" (home rate
-//               stamped on DCFC or away charging; contract §5)
-//   unknown   - "—" + "Add price"
-export type CostGrammar = "recorded" | "suspect" | "unknown";
+// Visual treatments (ux-slice-spec §4.2 mapped onto contract §10):
+//   recorded  - solid figure (billed, home rate, entered)
+//   free      - "Free" (user-entered $0)
+//   estimated - dotted underline + "est." (network_estimate)
+//   suspect   - solid + amber "likely wrong" (home rate stamped away from home)
+//   pending   - "Pending" + Add price (home_rate_misapplied; not in total)
+//   unknown   - "—" + Add price
+export type CostGrammar = "recorded" | "free" | "estimated" | "suspect" | "pending" | "unknown";
 
-const SUSPECT_FLAGS: ReceiptFlag[] = ["home_rate_on_dcfc", "home_rate_away"];
+type Priceable = {
+  cost: number | null;
+  cost_source: ReceiptCostSource;
+  flags: ReceiptFlag[];
+  sessions?: Pick<ReceiptSession, "cost_source">[];
+};
 
-export function grammarFor(r: { cost: number | null; cost_source: ReceiptCostSource; flags: ReceiptFlag[] }): CostGrammar {
-  if (r.cost == null || r.cost_source === "unknown") return "unknown";
-  if (r.flags.some((f) => SUSPECT_FLAGS.includes(f))) return "suspect";
+export function grammarFor(r: Priceable): CostGrammar {
+  if (r.cost_source === "home_rate_misapplied") return "pending";
+  if (r.cost == null || r.cost_source === "unknown") {
+    return r.flags.includes("estimate_pending") ? "pending" : "unknown";
+  }
+  if (r.cost_source === "user" && r.cost === 0) return "free";
+  if (r.cost_source === "network_estimate") return "estimated";
+  if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate")) {
+    return "estimated";
+  }
+  if (r.flags.includes("home_rate_away") && (r.cost_source === "home_rate" || r.cost_source === "mixed")) {
+    return "suspect";
+  }
   return "recorded";
 }
 
 export function sourceLabel(
-  r: { cost_source: ReceiptCostSource; rate: number | null; flags: ReceiptFlag[] },
+  r: { cost: number | null; cost_source: ReceiptCostSource; rate: number | null; network?: string | null; flags: ReceiptFlag[] },
   currency: string,
 ): string {
-  const rate = r.rate != null ? ` · ${formatMoney(r.rate, currency, 2)}/kWh` : "";
-  if (r.flags.includes("home_rate_on_dcfc")) return `Home rate on a fast charge${rate} · likely under-priced`;
-  if (r.flags.includes("home_rate_away")) return `Home rate away from home${rate} · likely under-priced`;
+  const rate = r.rate != null && r.rate > 0 ? ` · ${formatMoney(r.rate, currency, 2)}/kWh` : "";
   switch (r.cost_source) {
-    case "home_rate":
-      return `Home rate${rate}`;
     case "rivian":
       return `Billed${rate}`;
+    case "home_rate":
+      return r.flags.includes("home_rate_away")
+        ? `Home rate, but away from home${rate} · likely wrong`
+        : `Home rate${rate}`;
+    case "network_estimate":
+      return `Estimate${r.network ? ` · ${r.network}` : ""}${rate}`;
+    case "user":
+      return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
+    case "home_rate_misapplied":
+      return "Estimate pending · fast charge was priced at your home rate";
     case "mixed":
-      return "Mixed prices";
+      return r.flags.includes("estimate_pending") ? "Mixed prices · part pending" : "Mixed prices";
     case "unknown":
       return "Price unknown";
   }
 }
 
-// homePublicSplit splits the server's AC total into home and public
-// (away/unknown) using receipt places, but only when the receipts
-// reconcile with energy.by_kind.ac. Otherwise it returns null and the
-// page falls back to the server's own AC/DCFC split, so the bar can
-// never disagree with the server's totals.
-export type PlaceSplit = { home: KindTotals; public: KindTotals; dcfc: KindTotals };
-
-export const DCFC_MIN_KW = 50;
-
-// Session kind exactly as the server's by_kind buckets it (contract
-// §3.1): peak ≥ 50 kW is DCFC, everything else (incl. unknown peak)
-// is AC. Per *session*, not per receipt: a DCFC receipt can carry a
-// sub-50 kW tail fragment that the server counts as AC.
-export function sessionKind(x: Pick<ReceiptSession, "peak_kw">): ChargeKind {
-  return x.peak_kw != null && x.peak_kw >= DCFC_MIN_KW ? "dcfc" : "ac";
+export function bySource(m: MonthSummary): SpendBySource {
+  const s = m.spend.by_source;
+  return {
+    rivian: s.rivian ?? 0,
+    home_rate: s.home_rate ?? 0,
+    network_estimate: s.network_estimate ?? 0,
+    user: s.user ?? 0,
+  };
 }
 
-export function homePublicSplit(m: LedgerMonth, tolerance = 0.05): PlaceSplit | null {
-  const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
-  const home = empty();
-  const pub = empty();
-  for (const r of m.receipts) {
-    for (const x of r.sessions) {
-      if (sessionKind(x) !== "ac") continue;
-      const b = r.place === "home" ? home : pub;
-      b.sessions += 1;
-      b.kwh += x.kwh ?? 0;
-      // by_kind cost sums only priced, same-currency sessions (§9).
-      if (x.cost != null && !x.flags.includes("currency_mismatch")) b.cost += x.cost;
-      if (x.peak_kw != null) b.peak_kw = Math.max(b.peak_kw ?? 0, x.peak_kw);
-    }
-  }
-  const ac = m.energy.by_kind.ac;
-  const ok =
-    Math.abs(home.kwh + pub.kwh - ac.kwh) <= tolerance &&
-    Math.abs(home.cost + pub.cost - ac.cost) <= tolerance &&
-    home.sessions + pub.sessions === ac.sessions;
-  return ok ? { home, public: pub, dcfc: m.energy.by_kind.dcfc } : null;
+// estimatedShare: server value when present, else derived from the
+// server's own by_source (no receipt summing).
+export function estimatedShare(m: MonthSummary): number {
+  if (m.spend.estimated_share != null) return m.spend.estimated_share;
+  return m.spend.total > 0 ? bySource(m).network_estimate / m.spend.total : 0;
 }
 
-// suspectSessionCount counts sessions priced at the home rate while
-// fast charging or away (contract §5). The two data_quality counters
-// can overlap on the same session, so count from receipts and fall
-// back to the larger counter when receipts aren't available.
+// suspectSessionCount: sessions counted in the total at the home rate
+// while away from home (contract §10.3 #2: session flags carry it).
+// Misapplied DCFC sessions aren't counted here; they're "pending" and
+// already out of the total.
 export function suspectSessionCount(m: LedgerMonth): number {
-  const floor = Math.max(m.data_quality.home_rate_on_dcfc, m.data_quality.home_rate_away);
   let n = 0;
   for (const r of m.receipts) {
     for (const x of r.sessions) {
-      if (x.flags.some((f) => SUSPECT_FLAGS.includes(f))) n += 1;
+      if (x.cost_source === "home_rate" && x.cost != null && x.flags.includes("home_rate_away")) n += 1;
     }
   }
-  // If session-level flags aren't populated, never report fewer than
-  // the server's own counters say exist.
-  return Math.max(n, floor);
+  return n;
 }
 
-// Plain-English quality notes from data_quality + coverage (spec MQ*).
+// Plain-English quality notes from the server's counters (spec MQ*).
 export function dataQualityNotes(m: LedgerMonth): string[] {
   const n: string[] = [];
   const dq = m.data_quality;
   const s = (k: number, one: string, many: string) => (k === 1 ? one : many);
-  // A fast charge away from home can carry both flags, so count
-  // sessions, not flag totals.
+  const pending = m.spend.estimate_pending_sessions ?? 0;
+  if (pending > 0) {
+    n.push(
+      `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until ${s(pending, "it's", "they're")} re-priced, or you add the price.`,
+    );
+  }
   const suspect = suspectSessionCount(m);
   if (suspect > 0) {
     n.push(
-      `${suspect} ${s(suspect, "session was", "sessions were")} priced at your home rate while fast charging or away from home, so the total is likely too low. Add the real price to fix it.`,
+      `${suspect} ${s(suspect, "session", "sessions")} away from home ${s(suspect, "was", "were")} priced at your home rate and ${s(suspect, "is", "are")} in the total; the real price was probably different.`,
     );
   }
   if (m.spend.unpriced_sessions > 0) {
     n.push(
       `${m.spend.unpriced_sessions} ${s(m.spend.unpriced_sessions, "session has", "sessions have")} no price and ${s(m.spend.unpriced_sessions, "isn't", "aren't")} in the total.`,
     );
+  }
+  const share = estimatedShare(m);
+  if (share > 0) {
+    n.push(`${Math.round(share * 100)}% of the total is estimated from charging-network rates.`);
   }
   if (dq.superseded_excluded > 0) {
     n.push(`${dq.superseded_excluded} duplicate charging ${s(dq.superseded_excluded, "session was", "sessions were")} excluded.`);
@@ -410,18 +449,26 @@ export function dataQualityNotes(m: LedgerMonth): string[] {
     n.push(`Energy is known for ${Math.round(m.driving.coverage * 100)}% of miles driven.`);
   }
   if (dq.cost_source_inferred) {
-    n.push("Price sources are inferred from your current home rate.");
+    const k = dq.cost_source_derived_sessions;
+    n.push(
+      k != null && k > 0
+        ? `${k} older ${s(k, "session's", "sessions'")} price source was worked out from your home rate rather than recorded.`
+        : "Some price sources were worked out from your home rate rather than recorded.",
+    );
   }
   return n;
 }
 
 // ---- fixtures -------------------------------------------------------
 
-// A typed month shaped like the replay corpus: home L2 charges with
-// folded top-ups, a DCFC road trip stamped at the home rate (the v1
-// known limitation), two unpriced away sessions, a null-energy row
-// and one dedupe. NO coordinates, addresses or place names: places
-// are home/away and distances are rounded.
+export const DCFC_MIN_KW = 50;
+
+// A typed month shaped like the replay corpus, covering every price
+// state: home rate, folded top-ups, a legacy DCFC stamped at the home
+// rate ("pending") with a sub-50 kW taper fragment, a network
+// estimate, a Rivian-billed stop, a user "Free" session, an unpriced
+// one, null energy and a dedupe. NO coordinates, addresses or place
+// names: places are home/away and distances are rounded.
 export function ledgerMonthFixture(month: string): LedgerMonth {
   const [y, mo] = month.split("-").map(Number);
   const tz = "America/Chicago";
@@ -431,133 +478,185 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
   const homeRate = 0.11;
   const vid = "01-000000000";
   let seq = 0;
-  const sess = (
-    start: string,
-    end: string,
-    o: Partial<ReceiptSession> & Pick<ReceiptSession, "kwh" | "peak_kw" | "soc_start" | "soc_end">,
-  ): ReceiptSession => {
+
+  type SessIn = Partial<ReceiptSession> & Pick<ReceiptSession, "kwh" | "peak_kw" | "soc_start" | "soc_end">;
+  const sess = (place: Place, start: string, end: string, o: SessIn): ReceiptSession => {
     seq += 1;
-    const cost = o.cost !== undefined ? o.cost : o.kwh != null ? +(o.kwh * homeRate).toFixed(4) : null;
+    const source: CostSource = o.cost_source ?? "home_rate";
+    const cost =
+      o.cost !== undefined ? o.cost : source === "unknown" || o.kwh == null ? null : +(o.kwh * homeRate).toFixed(4);
+    const price = o.price_per_kwh !== undefined ? o.price_per_kwh : cost != null && o.kwh ? cost / o.kwh : null;
     return {
       charge_id: `live_${vid}_c_fx${String(seq).padStart(3, "0")}`,
       started_at: start,
       ended_at: end,
-      price_per_kwh: cost != null ? (o.price_per_kwh ?? homeRate) : null,
-      cost_source: cost == null ? "unknown" : (o.cost_source ?? "home_rate"),
       final_state: "charging_complete",
       source: "live",
       flags: [],
+      cost_source_derived: true,
+      network: null,
       ...o,
       cost,
+      price_per_kwh: price,
+      cost_source: cost == null ? "unknown" : source,
+      kind: o.peak_kw != null && o.peak_kw >= DCFC_MIN_KW ? "dcfc" : "ac",
+      place,
     };
   };
-  const receipt = (
-    place: Place,
-    km: number | null,
-    sessions: ReceiptSession[],
-    extraFlags: ReceiptFlag[] = [],
-  ): Receipt => {
+  // Counts in spend.total (contract §10.1).
+  const inTotal = (x: ReceiptSession) =>
+    x.cost != null && x.cost_source !== "unknown" && x.cost_source !== "home_rate_misapplied";
+
+  const receipt = (km: number | null, sessions: ReceiptSession[], extra: ReceiptFlag[] = []): Receipt => {
     const first = sessions[0];
     const last = sessions[sessions.length - 1];
-    const priced = sessions.filter((x) => x.cost != null);
-    const cost = priced.length ? priced.reduce((a, x) => a + (x.cost ?? 0), 0) : null;
-    const pricedKwh = priced.reduce((a, x) => a + (x.kwh ?? 0), 0);
+    const counted = sessions.filter(inTotal);
+    const cost = counted.length ? counted.reduce((a, x) => a + (x.cost ?? 0), 0) : null;
+    const countedKwh = counted.reduce((a, x) => a + (x.kwh ?? 0), 0);
     const sources = new Set(sessions.map((x) => x.cost_source));
     const peak = Math.max(...sessions.map((x) => x.peak_kw ?? 0));
-    const flags = new Set<ReceiptFlag>(extraFlags);
+    const flags = new Set<ReceiptFlag>(extra);
     if (sessions.length > 1) flags.add("fragments_folded");
     for (const x of sessions) x.flags.forEach((f) => flags.add(f));
-    if (!priced.length) flags.add("unpriced");
-    const startDay = new Date(first.started_at);
-    const endDay = new Date(last.ended_at);
-    const days = Math.max(1, Math.round((Date.UTC(endDay.getUTCFullYear(), endDay.getUTCMonth(), endDay.getUTCDate()) - Date.UTC(startDay.getUTCFullYear(), startDay.getUTCMonth(), startDay.getUTCDate())) / 86_400_000) + 1);
+    if (sessions.some((x) => x.cost == null)) flags.add("unpriced");
+    const d0 = new Date(first.started_at);
+    const d1 = new Date(last.ended_at);
+    const days =
+      Math.round(
+        (Date.UTC(d1.getUTCFullYear(), d1.getUTCMonth(), d1.getUTCDate()) -
+          Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate())) /
+          86_400_000,
+      ) + 1;
     return {
       receipt_id: `rcpt_${first.charge_id}`,
       vehicle_id: vid,
-      kind: peak >= 50 ? "dcfc" : "ac",
-      place,
+      kind: peak >= DCFC_MIN_KW ? "dcfc" : "ac",
+      place: first.place ?? "unknown",
       km_from_home: km,
       started_at: first.started_at,
       ended_at: last.ended_at,
-      local_date: `${month}-${String(new Date(new Date(first.started_at).getTime() - 5 * 3_600_000).getUTCDate()).padStart(2, "0")}`,
-      spans_days: days,
+      local_date: new Date(d0.getTime() - 5 * 3_600_000).toISOString().slice(0, 10),
+      spans_days: Math.max(1, days),
       soc_start: first.soc_start,
       soc_end: last.soc_end,
       kwh: sessions.reduce((a, x) => a + (x.kwh ?? 0), 0),
       peak_kw: peak || null,
       cost,
       cost_source: sources.size === 1 ? [...sources][0] : "mixed",
-      rate: cost != null && pricedKwh > 0 ? cost / pricedKwh : null,
+      rate: cost != null && countedKwh > 0 ? cost / countedKwh : null,
+      network: sessions.find((x) => x.network)?.network ?? null,
       session_count: sessions.length,
-      unpriced_sessions: sessions.length - priced.length,
+      unpriced_sessions: sessions.filter((x) => x.cost == null).length,
       flags: [...flags],
       sessions,
     };
   };
 
-  const onDcfc: ReceiptFlag[] = ["home_rate_on_dcfc", "home_rate_away"];
+  const misapplied = (): SessIn["flags"] => ["home_rate_on_dcfc", "home_rate_away", "estimate_pending"];
   const receipts: Receipt[] = [
-    receipt("home", 0, [
-      sess(at(2, 22), at(3, 4, 34), { kwh: 44.3, peak_kw: 7.6, soc_start: 27.4, soc_end: 62.8 }),
-      sess(at(3, 4, 45), at(3, 6, 5), { kwh: 8.6, peak_kw: 7.6, soc_start: 62.8, soc_end: 70 }),
+    receipt(0, [
+      sess("home", at(2, 22), at(3, 4, 34), { kwh: 44.3, peak_kw: 7.6, soc_start: 27.4, soc_end: 62.8 }),
+      sess("home", at(3, 4, 45), at(3, 6, 5), { kwh: 8.6, peak_kw: 7.6, soc_start: 62.8, soc_end: 70 }),
     ]),
-    receipt("home", 0, [sess(at(8, 19, 13), at(9, 3, 15), { kwh: 51.8, peak_kw: 7.6, soc_start: 28.1, soc_end: 70 })]),
-    receipt("home", 0, [
-      sess(at(12, 7, 10), at(12, 7, 40), { kwh: null, peak_kw: 7.5, soc_start: 64, soc_end: 66, flags: ["null_energy"] }),
+    receipt(0, [sess("home", at(8, 19, 13), at(9, 3, 15), { kwh: 51.8, peak_kw: 7.6, soc_start: 28.1, soc_end: 70 })]),
+    receipt(0, [
+      sess("home", at(12, 7, 10), at(12, 7, 40), {
+        kwh: null, peak_kw: 7.5, soc_start: 64, soc_end: 66, cost_source: "unknown", flags: ["null_energy"],
+      }),
     ]),
-    receipt("home", 0, [
-      sess(at(17, 17, 34), at(17, 21, 42), { kwh: 26.0, peak_kw: 7.6, soc_start: 20.6, soc_end: 42.2 }),
-      sess(at(17, 21, 54), at(18, 3, 11), { kwh: 34.1, peak_kw: 7.6, soc_start: 42.2, soc_end: 69.9 }),
-      ...[18, 19, 19, 19, 20, 20, 20, 20].map((d, i) =>
-        sess(at(d, [23, 5, 13, 19, 0, 4, 10, 15][i], 10), at(d, [23, 5, 13, 19, 0, 4, 10, 15][i], 20), {
-          kwh: 0.6, peak_kw: 7.5, soc_start: 69.4, soc_end: 70,
-        }),
-      ),
+    receipt(0, [
+      sess("home", at(17, 17, 34), at(17, 21, 42), { kwh: 26.0, peak_kw: 7.6, soc_start: 20.6, soc_end: 42.2 }),
+      sess("home", at(17, 21, 54), at(18, 3, 11), { kwh: 34.1, peak_kw: 7.6, soc_start: 42.2, soc_end: 69.9 }),
+      ...[18, 19, 19, 19, 20, 20, 20, 20].map((d, i) => {
+        const h = [23, 5, 13, 19, 0, 4, 10, 15][i];
+        return sess("home", at(d, h, 10), at(d, h, 20), { kwh: 0.6, peak_kw: 7.5, soc_start: 69.4, soc_end: 70 });
+      }),
     ]),
-    receipt("home", 0, [sess(at(26, 20, 5), at(27, 7, 0), { kwh: 72.8, peak_kw: 7.6, soc_start: 38.4, soc_end: 96.8 })]),
-    receipt("away", 300, [
-      sess(at(27, 10, 28), at(27, 11, 4), { kwh: 81.5, peak_kw: 211.4, soc_start: 17.2, soc_end: 83, flags: [...onDcfc] }),
-      // Taper tail recorded as its own fragment, under the DCFC
-      // threshold: counted as AC by by_kind, folded into this receipt.
-      sess(at(27, 11, 5), at(27, 11, 11), { kwh: 2.4, peak_kw: 38, soc_start: 83, soc_end: 85, flags: ["home_rate_away"] }),
+    receipt(0, [sess("home", at(26, 20, 5), at(27, 7, 0), { kwh: 72.8, peak_kw: 7.6, soc_start: 38.4, soc_end: 96.8 })]),
+    // Legacy DCFC stamped at the home rate → pending, plus a sub-50 kW
+    // taper fragment that stays home_rate (away) and counts as AC.
+    receipt(300, [
+      sess("away", at(27, 10, 28), at(27, 11, 4), {
+        kwh: 81.5, peak_kw: 211.4, soc_start: 17.2, soc_end: 83, cost_source: "home_rate_misapplied", flags: misapplied(),
+      }),
+      sess("away", at(27, 11, 5), at(27, 11, 11), {
+        kwh: 2.4, peak_kw: 38, soc_start: 83, soc_end: 85, flags: ["home_rate_away"],
+      }),
     ]),
-    receipt("away", 530, [sess(at(27, 13, 35), at(27, 14, 15), { kwh: 64.2, peak_kw: 128.5, soc_start: 19.6, soc_end: 71.9, flags: [...onDcfc] })]),
-    receipt("away", 640, [sess(at(27, 21, 41), at(28, 11, 0), { kwh: 15.5, peak_kw: 1.4, soc_start: 37.8, soc_end: 50.4, cost: null })]),
-    receipt("away", 640, [sess(at(28, 18, 31), at(30, 8, 2), { kwh: 38.2, peak_kw: 1.4, soc_start: 27.2, soc_end: 58.3, cost: null })]),
-    receipt("away", 530, [sess(at(30, 11, 46), at(30, 12, 16), { kwh: 62.9, peak_kw: 179.6, soc_start: 22.3, soc_end: 73, cost: 37.74, price_per_kwh: 0.6, cost_source: "rivian" })]),
-    receipt("away", 300, [sess(at(30, 14, 50), at(30, 15, 29), { kwh: 86.4, peak_kw: 215.2, soc_start: 2.6, soc_end: 72.8, flags: [...onDcfc] })]),
-    receipt("home", 0, [sess(at(30, 19, 50), at(30, 23, 59), { kwh: 45.6, peak_kw: 7.6, soc_start: 11.7, soc_end: 49.4 })], ["continues_next_month"]),
+    receipt(530, [
+      sess("away", at(27, 13, 35), at(27, 14, 15), {
+        kwh: 64.2, peak_kw: 128.5, soc_start: 19.6, soc_end: 71.9, cost: 23.11, price_per_kwh: 0.36,
+        cost_source: "network_estimate", network: "Electrify America", cost_source_derived: false,
+      }),
+    ]),
+    receipt(640, [
+      sess("away", at(27, 21, 41), at(28, 11, 0), {
+        kwh: 15.5, peak_kw: 1.4, soc_start: 37.8, soc_end: 50.4, cost: 0, price_per_kwh: 0,
+        cost_source: "user", cost_source_derived: false,
+      }),
+    ]),
+    receipt(640, [
+      sess("away", at(28, 18, 31), at(30, 8, 2), {
+        kwh: 38.2, peak_kw: 1.4, soc_start: 27.2, soc_end: 58.3, cost_source: "unknown",
+      }),
+    ]),
+    receipt(530, [
+      sess("away", at(30, 11, 46), at(30, 12, 16), {
+        kwh: 62.9, peak_kw: 179.6, soc_start: 22.3, soc_end: 73, cost: 37.74, price_per_kwh: 0.6,
+        cost_source: "rivian", network: "Rivian Adventure Network", cost_source_derived: false,
+      }),
+    ]),
+    receipt(300, [
+      sess("away", at(30, 14, 50), at(30, 15, 29), {
+        kwh: 86.4, peak_kw: 215.2, soc_start: 2.6, soc_end: 72.8, cost_source: "home_rate_misapplied", flags: misapplied(),
+      }),
+    ]),
+    receipt(0, [sess("home", at(30, 19, 50), at(30, 23, 59), { kwh: 45.6, peak_kw: 7.6, soc_start: 11.7, soc_end: 49.4 })], [
+      "continues_next_month",
+    ]),
   ];
   receipts.sort((a, b) => b.started_at.localeCompare(a.started_at));
 
-  // Totals computed once here, the way the server would.
-  const all = receipts.flatMap((r) => r.sessions.map((x) => ({ ...x, kind: sessionKind(x) })));
-  const by_kind: Record<ChargeKind, KindTotals> = {
-    ac: { sessions: 0, kwh: 0, cost: 0, peak_kw: null },
-    dcfc: { sessions: 0, kwh: 0, cost: 0, peak_kw: null },
-  };
-  const by_source = { rivian: 0, home_rate: 0 };
+  // Totals computed once here, per session, the way the server does.
+  const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
+  const by_kind: Record<ChargeKind, KindTotals> = { ac: empty(), dcfc: empty() };
+  const by_place: Record<Place, KindTotals> = { home: empty(), away: empty(), unknown: empty() };
+  const by_source: SpendBySource = { rivian: 0, home_rate: 0, network_estimate: 0, user: 0 };
   let priced = 0;
+  let unpriced = 0;
   let unpricedKwh = 0;
+  let pending = 0;
+  let pendingKwh = 0;
   let nullEnergy = 0;
-  for (const x of all) {
-    const k = by_kind[x.kind];
-    k.sessions += 1;
-    k.kwh += x.kwh ?? 0;
-    k.cost += x.cost ?? 0;
-    k.peak_kw = Math.max(k.peak_kw ?? 0, x.peak_kw ?? 0);
-    if (x.kwh == null) nullEnergy += 1;
-    if (x.cost == null) {
-      unpricedKwh += x.kwh ?? 0;
-      continue;
+  let derived = 0;
+  let onDcfc = 0;
+  let away = 0;
+  const sessions = receipts.flatMap((r) => r.sessions);
+  for (const x of sessions) {
+    const kwh = x.kwh ?? 0;
+    for (const line of [by_kind[x.kind!], by_place[x.place!]]) {
+      line.sessions += 1;
+      line.kwh += kwh;
+      if (x.peak_kw != null) line.peak_kw = Math.max(line.peak_kw ?? 0, x.peak_kw);
+      if (inTotal(x)) line.cost += x.cost ?? 0;
     }
-    priced += 1;
-    if (x.cost_source === "rivian") by_source.rivian += x.cost;
-    else by_source.home_rate += x.cost;
+    if (x.kwh == null) nullEnergy += 1;
+    if (x.cost_source_derived) derived += 1;
+    if (x.flags.includes("home_rate_on_dcfc")) onDcfc += 1;
+    if (x.flags.includes("home_rate_away")) away += 1;
+    if (x.cost_source === "home_rate_misapplied") {
+      pending += 1;
+      pendingKwh += kwh;
+    } else if (inTotal(x)) {
+      priced += 1;
+      by_source[x.cost_source as keyof SpendBySource] += x.cost ?? 0;
+    } else {
+      unpriced += 1;
+      unpricedKwh += kwh;
+    }
   }
-  const total = by_source.rivian + by_source.home_rate;
+  const total = by_source.rivian + by_source.home_rate + by_source.network_estimate + by_source.user;
   const miles = 1284.3;
-  const now = new Date();
   return {
     version: LEDGER_CONTRACT_VERSION,
     period: month,
@@ -566,18 +665,27 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     range: { start: new Date(Date.UTC(y, mo - 1, 1, 5)).toISOString(), end: new Date(Date.UTC(y, mo, 1, 5)).toISOString() },
     currency: "USD",
     vehicle_id: null,
-    is_current_month: month === currentMonth(now),
+    is_current_month: month === currentMonth(),
     first_activity_at: at(2, 7, 31),
     last_activity_at: at(30, 19, 50),
     spend: {
       total,
       by_source,
+      estimated_share: total > 0 ? by_source.network_estimate / total : null,
       priced_sessions: priced,
-      unpriced_sessions: all.length - priced,
+      unpriced_sessions: unpriced,
       unpriced_kwh: unpricedKwh,
       unpriced_home_rate_estimate: +(unpricedKwh * homeRate).toFixed(4),
+      estimate_pending_sessions: pending,
+      estimate_pending_kwh: pendingKwh,
     },
-    energy: { sessions: all.length, kwh_added: by_kind.ac.kwh + by_kind.dcfc.kwh, null_energy_sessions: nullEnergy, by_kind },
+    energy: {
+      sessions: sessions.length,
+      kwh_added: by_kind.ac.kwh + by_kind.dcfc.kwh,
+      null_energy_sessions: nullEnergy,
+      by_kind,
+      by_place,
+    },
     driving: {
       drives: 61,
       miles,
@@ -589,13 +697,14 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     },
     receipts,
     data_quality: {
-      cost_source_inferred: true,
+      cost_source_inferred: derived > 0,
+      cost_source_derived_sessions: derived,
       superseded_excluded: 1,
       superseded: [{ charge_id: `live_${vid}_c_fx900`, superseded_by: `live_${vid}_c_fx002` }],
       drives_superseded_excluded: 0,
       open_sessions: 0,
-      home_rate_on_dcfc: 3,
-      home_rate_away: 4,
+      home_rate_on_dcfc: onDcfc,
+      home_rate_away: away,
       currency_mismatch_excluded: 0,
     },
   };
@@ -605,12 +714,15 @@ export function ledgerSummaryFixture(months: number, now = new Date()): LedgerSu
   const cur = currentMonth(now);
   const list: MonthSummary[] = [];
   for (let i = months - 1; i >= 0; i--) {
-    const m = shiftMonth(cur, -i);
     // Only the last two months have "data" in the fixture.
     if (i > 1) continue;
-    const full = ledgerMonthFixture(m);
+    const full = ledgerMonthFixture(shiftMonth(cur, -i));
     const { receipts: _r, data_quality: { superseded: _s, ...dq }, ...rest } = full;
-    list.push({ ...rest, data_quality: dq, spend: i === 1 ? { ...rest.spend, total: rest.spend.total * 0.62 } : rest.spend });
+    list.push({
+      ...rest,
+      data_quality: dq,
+      spend: i === 1 ? { ...rest.spend, total: rest.spend.total * 0.62 } : rest.spend,
+    });
   }
   return { version: LEDGER_CONTRACT_VERSION, tz: "America/Chicago", currency: "USD", months: list };
 }

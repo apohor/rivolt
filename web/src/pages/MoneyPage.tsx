@@ -3,16 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { backend } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
-import { ReceiptRow, SplitBar, splitSegments } from "../components/money";
+import { kindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import {
   currentMonth,
   dataQualityNotes,
+  estimatedShare,
   fetchLedgerMonth,
   fetchLedgerSummary,
   formatMoney,
-  homePublicSplit,
   isValidMonth,
   monthLabel,
   shiftMonth,
@@ -26,13 +26,13 @@ import {
 // contract v1). Every total comes from the server; the page only
 // formats and explains. Gated by money_tab_enabled (see App.tsx).
 
-type ReceiptFilter = "all" | "home" | "public" | "dcfc";
+type ReceiptFilter = "all" | "home" | "away" | "dcfc";
 
 function receiptMatches(r: Receipt, f: ReceiptFilter): boolean {
   if (f === "all") return true;
   if (f === "dcfc") return r.kind === "dcfc";
   if (f === "home") return r.kind === "ac" && r.place === "home";
-  return r.kind === "ac" && r.place !== "home";
+  return r.kind === "ac" && r.place === "away";
 }
 
 export default function MoneyPage() {
@@ -155,7 +155,11 @@ function Statement({
   onFilter: (f: ReceiptFilter) => void;
 }) {
   const cur = m.currency;
-  const segments = useMemo(() => splitSegments(homePublicSplit(m), m.energy.by_kind), [m]);
+  // Server-owned splits only; by_place is absent on pre-§10 builds.
+  const where = m.energy.by_place ? placeSegments(m.energy.by_place) : null;
+  const how = kindSegments(m.energy.by_kind);
+  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const estShare = estimatedShare(m);
   const notes = useMemo(() => dataQualityNotes(m), [m]);
   const suspect = useMemo(() => suspectSessionCount(m), [m]);
   const shown = m.receipts.filter((r) => receiptMatches(r, filter));
@@ -204,13 +208,30 @@ function Statement({
           {m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
 
-        {(suspect > 0 || m.spend.unpriced_sessions > 0) && (
+        {estShare > 0 && (
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Includes{" "}
+            <span className="underline decoration-dotted underline-offset-4">{Math.round(estShare * 100)}% estimated</span>{" "}
+            from charging-network rates.
+          </p>
+        )}
+
+        {(pending > 0 || suspect > 0 || m.spend.unpriced_sessions > 0) && (
           <ul className="mt-3 space-y-1.5 text-xs">
+            {pending > 0 && (
+              <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
+                <span className="font-medium text-amber-200">Estimate pending:</span> {pending} fast-charging{" "}
+                {pending === 1 ? "session" : "sessions"} ({(m.spend.estimate_pending_kwh ?? 0).toFixed(1)} kWh){" "}
+                {pending === 1 ? "isn't" : "aren't"} in the total yet. An older version priced{" "}
+                {pending === 1 ? "it" : "them"} at your home rate. Add the price, or wait for the re-price.
+              </li>
+            )}
             {suspect > 0 && (
               <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
-                <span className="font-medium text-amber-200">Likely too low:</span> {suspect}{" "}
-                {suspect === 1 ? "session was" : "sessions were"} priced at your home rate while fast charging or
-                away from home. Add the real price on {suspect === 1 ? "that receipt" : "those receipts"}.
+                <span className="font-medium text-amber-200">Likely wrong:</span> {suspect}{" "}
+                {suspect === 1 ? "session" : "sessions"} away from home{" "}
+                {suspect === 1 ? "was" : "were"} priced at your home rate and {suspect === 1 ? "is" : "are"} in the
+                total.
               </li>
             )}
             {m.spend.unpriced_sessions > 0 && (
@@ -259,14 +280,17 @@ function Statement({
               </div>
             }
           >
-            <SplitBar segments={segments} currency={cur} metric={metric} />
+            <div className="space-y-4">
+              {where && <SplitBar label="Where" segments={where} currency={cur} metric={metric} />}
+              <SplitBar label="How" segments={how} currency={cur} metric={metric} />
+            </div>
           </Card>
 
           <Card
             title="Receipts"
             actions={
               <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
-                {(["all", "home", "public", "dcfc"] as const).map((f) => (
+                {(["all", "home", "away", "dcfc"] as const).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -278,7 +302,7 @@ function Statement({
                         : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
                     }`}
                   >
-                    {f === "all" ? "All" : f === "home" ? "Home" : f === "public" ? "Public" : "DCFC"}
+                    {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : "DCFC"}
                   </button>
                 ))}
               </div>
@@ -295,7 +319,9 @@ function Statement({
             )}
             <p className="mt-3 text-[11px] text-neutral-500">
               One receipt per plug-in; top-ups and fragments are folded in.{" "}
-              <span className="text-amber-300/90">!</span> = priced at the home rate where it probably shouldn't be.
+              <span className="underline decoration-dotted underline-offset-4">Dotted</span> = estimate ·{" "}
+              <span className="text-amber-300/90">!</span> = home rate used away from home · Pending = not in the
+              total yet.
             </p>
           </Card>
         </>
