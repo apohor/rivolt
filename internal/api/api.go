@@ -371,6 +371,14 @@ func New(d Deps) http.Handler {
 			r.Get("/signup/token/{token}", handleSignupTokenLookup(d.SignupRequests))
 		}
 
+		// First-party product events (instrumentation.md). Public with
+		// an optional session; per-IP limited, 2 KB cap. Off unless
+		// RIVOLT_EVENTS=true.
+		if d.DB != nil && eventsEnabled() {
+			evLimiter := newIPLimiter(eventsRatePerMin, time.Minute, time.Hour)
+			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", handleEvents(newPGEventsSink(d.DB)))
+		}
+
 		// Everything else sits behind requireUser when auth is
 		// enforced. Unenforced mode (no issuer wired) keeps the
 		// API open — legacy single-tenant docker-compose UX.
