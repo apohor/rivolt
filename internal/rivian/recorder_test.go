@@ -1007,3 +1007,45 @@ func TestLiveChargeRow_AwayACUnpriced(t *testing.T) {
 		t.Errorf("no saved home: source=%q, want home_rate", row.CostSource)
 	}
 }
+
+func TestPlaceOf(t *testing.T) {
+	home := func() (float64, float64, bool) { return 30.27, -97.74, true }
+	noHome := func() (float64, float64, bool) { return 0, 0, false }
+	cases := []struct {
+		name     string
+		lat, lon float64
+		home     HomeLookup
+		want     string
+	}{
+		{"at home", 30.2702, -97.7401, home, PlaceHome},
+		{"away", 35.47, -97.52, home, PlaceAway},
+		{"no position", 0, 0, home, ""},
+		{"no saved home", 35.47, -97.52, noHome, ""},
+		{"nil lookup", 35.47, -97.52, nil, ""},
+	}
+	for _, c := range cases {
+		if got := PlaceOf(c.lat, c.lon, c.home); got != c.want {
+			t.Errorf("%s: PlaceOf = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The recorder stamps place on every charge row (migration 0044).
+func TestLiveChargeRow_RecordsPlace(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetHomeLookup(func() (float64, float64, bool) { return 30.27, -97.74, true })
+	start := time.Date(2026, 10, 14, 2, 0, 0, 0, time.UTC)
+	c := func(lat, lon float64) *liveCharge {
+		return &liveCharge{id: "c", startedAt: start, endAt: start.Add(time.Hour), startSoC: 30, endSoC: 40,
+			maxPower: 7.6, energyIntKWh: 7, lat: lat, lon: lon, finalState: "charging_complete"}
+	}
+	if p := m.liveChargeRow("veh-1", c(30.2702, -97.7401)).Place; p != PlaceHome {
+		t.Errorf("home charge place = %q", p)
+	}
+	if p := m.liveChargeRow("veh-1", c(35.47, -97.52)).Place; p != PlaceAway {
+		t.Errorf("away charge place = %q", p)
+	}
+	if p := m.liveChargeRow("veh-1", c(0, 0)).Place; p != "" {
+		t.Errorf("no-position charge place = %q, want empty", p)
+	}
+}

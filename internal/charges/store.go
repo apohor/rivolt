@@ -89,6 +89,10 @@ type Charge struct {
 	// Network is the matched DCFC network's display name for
 	// network_estimate rows; empty otherwise.
 	Network string
+	// Place is where the session happened relative to the user's home
+	// when it was recorded: "home", "away", or "" (unknown: no saved
+	// home or no position). Migration 0044.
+	Place string
 }
 
 // Store wraps the charges table.
@@ -206,8 +210,8 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			cost, currency, price_per_kwh,
 			thermal_kwh,
 			active_seconds,
-			cost_source, network
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+			cost_source, network, place
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -234,6 +238,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			active_seconds   = COALESCE(EXCLUDED.active_seconds, charges.active_seconds),
 			cost_source      = CASE WHEN charges.cost_source = 'user' THEN charges.cost_source ELSE EXCLUDED.cost_source END,
 			network          = CASE WHEN charges.cost_source = 'user' THEN charges.network ELSE EXCLUDED.network END,
+			place            = COALESCE(EXCLUDED.place, charges.place),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -246,7 +251,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullIfZero(c.Cost), nullIfEmpty(c.Currency), nullIfZero(c.PricePerKWh),
 		nullableFloatPtr(c.ThermalKWh),
 		nullIfZero(c.ActiveSeconds),
-		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network))
+		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place))
 	return err
 }
 

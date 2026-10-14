@@ -589,6 +589,54 @@ func TestBuild_ZeroEnergyCrumbsAreNotUnpriced(t *testing.T) {
 	}
 }
 
+// A9: the place recorded with a charge wins over the current home, so
+// moving house doesn't turn past home charges into "needs a price".
+func TestBuild_PlaceSnapshotWins(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	// The user has since moved: the old home is ~645 km from the saved one.
+	oldHome := at(priced(charge("old-home", "2026-10-02T03:00:00Z", 8*time.Hour, 60, 7.5), 0.11), awayLat, awayLon)
+	oldHome.CostSource, oldHome.Place = SourceHomeRate, "home"
+	legacy := at(priced(charge("legacy", "2026-10-03T03:00:00Z", 8*time.Hour, 40, 7.5), 0.11), awayLat, awayLon)
+	legacy.CostSource = SourceHomeRate // no snapshot: derived from the current home
+	pinnedAway := priced(charge("pinned-away", "2026-10-04T03:00:00Z", 2*time.Hour, 10, 7.5), 0.11)
+	pinnedAway.Place = "away" // recorded away, though it's at today's home
+
+	m := Build(Input{Charges: []Charge{oldHome, legacy, pinnedAway}, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, month, true)
+	if m.Spend.BySource[SourceHomeRate] != round4(60*0.11) || m.Spend.UnpricedSessions != 2 {
+		t.Errorf("spend %+v: want only the snapshot-home session priced", m.Spend)
+	}
+	for _, r := range m.Receipts {
+		for _, sess := range r.Sessions {
+			switch sess.ChargeID {
+			case "old-home":
+				if sess.Place != "home" || sess.CostSource != SourceHomeRate || r.KMFromHome != nil {
+					t.Errorf("old-home = place %s source %s km %v", sess.Place, sess.CostSource, r.KMFromHome)
+				}
+			case "legacy":
+				if sess.Place != "away" || sess.CostSource != SourceUnknown {
+					t.Errorf("legacy = place %s source %s", sess.Place, sess.CostSource)
+				}
+			case "pinned-away":
+				if sess.Place != "away" || sess.CostSource != SourceUnknown || r.KMFromHome != nil {
+					t.Errorf("pinned-away = place %s source %s km %v", sess.Place, sess.CostSource, r.KMFromHome)
+				}
+			}
+		}
+	}
+}
+
+// A9 / DA: sessions under CrumbKWh are crumbs, not "needs a price".
+func TestBuild_CrumbFloor(t *testing.T) {
+	month, _ := ParsePeriod("2026-10", time.UTC)
+	tiny := charge("tiny", "2026-10-01T00:43:00Z", 30*time.Second, 4.7e-7, 7)
+	small := charge("small", "2026-10-02T00:00:00Z", time.Minute, 0.04, 7)
+	enough := charge("real", "2026-10-03T00:00:00Z", 5*time.Minute, 0.06, 7)
+	m := Build(Input{Charges: []Charge{tiny, small, enough}, Config: cfg(), Now: ts("2026-10-20T00:00:00Z")}, month, false)
+	if m.Spend.UnpricedSessions != 1 || m.Energy.NullEnergySessions != 2 {
+		t.Errorf("unpriced %d null_energy %d, want 1 / 2", m.Spend.UnpricedSessions, m.Energy.NullEnergySessions)
+	}
+}
+
 // assertPlaceKindReconciles checks the by_place_kind invariants from
 // contract §11: rows sum to by_kind, columns to by_place, and cell costs
 // to the cost already attributed by_place.

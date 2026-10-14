@@ -469,3 +469,36 @@ func TestLiveOverlapGuard(t *testing.T) {
 		t.Errorf("overlapping live drive: err = %v, want 23P01", err)
 	}
 }
+
+// TestPlaceRoundTrip pins migration 0044's column: the recorder's place
+// is stored, and a later write that doesn't know it keeps it.
+func TestPlaceRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "place-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	c := sampleCharge("p-1", "rv-A", time.Now().UTC().Add(-2*time.Hour).Truncate(time.Second), "charging_active")
+	c.Place = "home"
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	c.Place = "" // e.g. home lookup failed on a later frame
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("re-Upsert: %v", err)
+	}
+	var place string
+	if err := pool.QueryRowContext(ctx, `SELECT COALESCE(place, '') FROM charges WHERE external_id = 'p-1'`).Scan(&place); err != nil || place != "home" {
+		t.Errorf("place = %q (%v), want home kept", place, err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET place = 'garage' WHERE external_id = 'p-1'`); err == nil {
+		t.Error("place accepted a value other than home/away")
+	}
+}
