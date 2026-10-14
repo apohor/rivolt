@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -99,5 +101,25 @@ func TestDecorateCharge_FreeGetsNoEstimate(t *testing.T) {
 	atHome := charges.Charge{EnergyAddedKWh: 20, MaxPowerKW: 7.6, Lat: 30.2702, Lon: -97.7401}
 	if got := decorateCharge(atHome, cfg, home); got.EstimatedCost != 20*0.11 {
 		t.Errorf("home AC estimate = %v, want %v", got.EstimatedCost, 20*0.11)
+	}
+}
+
+// A10: /api/charges rows carry the ledger's classification next to the
+// stored row (cost_source_effective, kind, place, ledger_flags, ...).
+func TestChargeResponse_CarriesClassification(t *testing.T) {
+	resp := chargeResponse{
+		Charge:         charges.Charge{ID: "c1", CostSource: "home_rate", Place: "home"},
+		Classification: ledger.Classification{CostSource: "unknown", Kind: "ac", Place: "away", Flags: []string{"unpriced"}},
+	}
+	raw, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{`"CostSource":"home_rate"`, `"Place":"home"`, `"cost_source_effective":"unknown"`,
+		`"kind":"ac"`, `"place":"away"`, `"ledger_flags":["unpriced"]`, `"counts_in_spend":false`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("JSON missing %s: %s", want, s)
+		}
 	}
 }

@@ -659,6 +659,64 @@ func viewOf(c Charge, cfg Config) sessionView {
 	return v
 }
 
+// Classification is the ledger's view of one charge: the same cost
+// source, kind, place and flags the Money tab uses, for other surfaces
+// (the Charges list, the charge page, the Activity feed) so they don't
+// re-derive them with their own rules.
+type Classification struct {
+	CostSource        string   `json:"cost_source_effective"`
+	CostSourceDerived bool     `json:"cost_source_derived"`
+	Kind              string   `json:"kind"`
+	Place             string   `json:"place"`
+	KMFromHome        *float64 `json:"km_from_home"`
+	// CountsInSpend is true when the session's cost is part of
+	// spend.total (priced, same currency).
+	CountsInSpend bool     `json:"counts_in_spend"`
+	Flags         []string `json:"ledger_flags"`
+}
+
+// Classify returns the ledger's classification of c under cfg.
+func Classify(c Charge, cfg Config) Classification {
+	v := viewOf(c, cfg)
+	return Classification{
+		CostSource:        v.source,
+		CostSourceDerived: v.derived,
+		Kind:              v.kind,
+		Place:             v.place,
+		KMFromHome:        v.kmHome,
+		CountsInSpend:     v.spendOK,
+		Flags:             nonNil(v.flags),
+	}
+}
+
+// FromCharge converts a charges.Charge as the store lists it (zeros for
+// NULL columns) into the ledger's nullable shape. A zero cost stays 0
+// only on user-priced rows, where it means Free.
+func FromCharge(c charges.Charge) Charge {
+	opt := func(v float64) *float64 {
+		if v == 0 {
+			return nil
+		}
+		return &v
+	}
+	out := Charge{
+		ID: c.ID, VehicleID: c.VehicleID,
+		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+		StartSoC: opt(c.StartSoCPct), EndSoC: opt(c.EndSoCPct),
+		EnergyKWh: opt(c.EnergyAddedKWh), PeakKW: opt(c.MaxPowerKW),
+		Cost: opt(c.Cost), Currency: c.Currency, PricePerKWh: opt(c.PricePerKWh),
+		FinalState: c.FinalState, Source: c.Source,
+		Lat: opt(c.Lat), Lon: opt(c.Lon),
+		ActiveSeconds: opt(c.ActiveSeconds),
+		Place:         c.Place, CostSource: c.CostSource, Network: c.Network,
+	}
+	if strings.EqualFold(c.CostSource, SourceUser) {
+		cost := c.Cost
+		out.Cost = &cost
+	}
+	return out
+}
+
 // ---- build ----------------------------------------------------------
 
 // Input is everything Build needs for one or more months: rows loaded
