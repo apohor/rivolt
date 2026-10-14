@@ -14,7 +14,7 @@
     "from": "now-14d",
     "to": "now"
   },
-  "description": "D1 drain experiment instrument. Gauges come from vehicle_state (internal/drain), recomputed every 15 min.",
+  "description": "D1 drain experiment instrument. Gauges come from vehicle_state (internal/drain), recomputed every 15 min. Every pod exports the same series: always aggregate with max by (vehicle, window), never sum. Admin only: the vehicle label is the Rivian vehicle id.",
   "templating": {
     "list": [
       {

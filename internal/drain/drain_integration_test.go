@@ -134,6 +134,21 @@ func TestCompute(t *testing.T) {
 	b = append(b, parked("rv-b", now.Add(-8*24*time.Hour), 99, 1900, "sleep"))
 	insert("drain-b", b)
 
+	// rv-d: 8 h parked and awake with no recorded gear or charging
+	// state (NULL): still parked and not charging, so 24 awake h/day.
+	var d []samples.Sample
+	for i := 0; i <= 48; i++ {
+		d = append(d, parked("rv-d", at(-9+float64(i)/6), 60, 500, "standby"))
+	}
+	insert("drain-d", d)
+	// The samples store writes "" as ''; older and imported rows carry
+	// NULL, which is the case the COALESCE covers.
+	if _, err := pool.ExecContext(ctx, `
+		UPDATE vehicle_state SET shift_state = NULL, charging_state = NULL
+		 WHERE vehicle_id = (SELECT id FROM vehicles WHERE rivian_vehicle_id = 'rv-d')`); err != nil {
+		t.Fatal(err)
+	}
+
 	// rv-c: nothing in the last 7 days → no stats at all.
 	insert("drain-c", []samples.Sample{parked("rv-c", now.Add(-9*24*time.Hour), 50, 10, "sleep")})
 
@@ -145,8 +160,8 @@ func TestCompute(t *testing.T) {
 	for _, s := range stats {
 		got[s.VehicleID+"/"+s.Window] = s
 	}
-	if len(stats) != 4 {
-		t.Fatalf("stats = %d (%v), want 4 (rv-a and rv-b, two windows)", len(stats), got)
+	if len(stats) != 6 {
+		t.Fatalf("stats = %d (%v), want 6 (rv-a, rv-b, rv-d; two windows)", len(stats), got)
 	}
 	near := func(name string, got *float64, want, tol float64) {
 		t.Helper()
@@ -194,4 +209,9 @@ func TestCompute(t *testing.T) {
 	b1 := got["rv-b/24h"]
 	near("rv-b 24h parked h", f(b1.ParkedHours), 22, 1e-6)
 	near("rv-b 24h drain", b1.DrainPctPerDay, 1.2, 1e-6)
+
+	d1 := got["rv-d/24h"]
+	near("rv-d 24h observed h", f(d1.ObservedHours), 8, 1e-6)
+	near("rv-d 24h awake (NULL gear/charging state)", d1.IdleAwakeHPerDay, 24, 1e-6)
+	near("rv-d 24h drain", d1.DrainPctPerDay, 0, 1e-9)
 }
