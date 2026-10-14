@@ -246,3 +246,84 @@ input[type="number"] {
   background: rgba(56, 189, 248, 0.14) !important;
   border: 1px solid rgba(56, 189, 248, 0.55) !important;
 }
+
+/*
+  Light theme (money_tab_enabled shell only; see lib/theme.ts). The app
+  is authored dark. Neutrals are mirrored (100<->900, ...) so surfaces
+  flip. Accent hues: 50/100/200 and 900/950 swap so tinted panels turn
+  pale and their text turns dark; 300/400 text becomes the 700 shade
+  (>= 4.5:1 on the light surfaces); 600-800 stay as they are so solid
+  buttons keep white text; 500 (bar fills, dots) is deepened so bars
+  keep >= 3:1 against the track. Maps keep their dark tiles. Generated
+  from tailwindcss/theme.css; with the flag off data-theme is never
+  set, so none of this applies.
+*/
+html[data-theme='light'] {
+  color-scheme: light;
+  --color-neutral-100: oklch(20.5% 0 0);
+  --color-neutral-200: oklch(26.9% 0 0);
+  --color-neutral-300: oklch(37.1% 0 0);
+  --color-neutral-400: oklch(43.9% 0 0);
+  --color-neutral-500: oklch(50% 0 0);
+  --color-neutral-600: oklch(70.8% 0 0);
+  --color-neutral-700: oklch(87% 0 0);
+  --color-neutral-800: oklch(92.2% 0 0);
+  --color-neutral-900: oklch(97% 0 0);
+  --color-neutral-950: oklch(98.5% 0 0);
+  --color-emerald-50: oklch(26.2% 0.051 172.552);
+  --color-emerald-100: oklch(37.8% 0.077 168.94);
+  --color-emerald-200: oklch(43.2% 0.095 166.913);
+  --color-emerald-300: oklch(50.8% 0.118 165.612);
+  --color-emerald-400: oklch(50.8% 0.118 165.612);
+  --color-emerald-500: oklch(50.8% 0.118 165.612);
+  --color-emerald-900: oklch(95% 0.052 163.051);
+  --color-emerald-950: oklch(97.9% 0.021 166.113);
+  --color-amber-50: oklch(27.9% 0.077 45.635);
+  --color-amber-100: oklch(41.4% 0.112 45.904);
+  --color-amber-200: oklch(47.3% 0.137 46.201);
+  --color-amber-300: oklch(55.5% 0.163 48.998);
+  --color-amber-400: oklch(55.5% 0.163 48.998);
+  --color-amber-500: oklch(55.5% 0.163 48.998);
+  --color-amber-900: oklch(96.2% 0.059 95.617);
+  --color-amber-950: oklch(98.7% 0.022 95.277);
+  --color-rose-50: oklch(27.1% 0.105 12.094);
+  --color-rose-100: oklch(41% 0.159 10.272);
+  --color-rose-200: oklch(45.5% 0.188 13.697);
+  --color-rose-300: oklch(51.4% 0.222 16.935);
+  --color-rose-400: oklch(51.4% 0.222 16.935);
+  --color-rose-500: oklch(58.6% 0.253 17.585);
+  --color-rose-900: oklch(94.1% 0.03 12.58);
+  --color-rose-950: oklch(96.9% 0.015 12.422);
+  --color-sky-50: oklch(29.3% 0.066 243.157);
+  --color-sky-100: oklch(39.1% 0.09 240.876);
+  --color-sky-200: oklch(44.3% 0.11 240.79);
+  --color-sky-300: oklch(50% 0.134 242.749);
+  --color-sky-400: oklch(50% 0.134 242.749);
+  --color-sky-500: oklch(58.8% 0.158 241.966);
+  --color-sky-900: oklch(95.1% 0.026 236.824);
+  --color-sky-950: oklch(97.7% 0.013 236.62);
+  --color-red-50: oklch(25.8% 0.092 26.042);
+  --color-red-100: oklch(39.6% 0.141 25.723);
+  --color-red-200: oklch(44.4% 0.177 26.899);
+  --color-red-300: oklch(50.5% 0.213 27.518);
+  --color-red-400: oklch(50.5% 0.213 27.518);
+  --color-red-500: oklch(57.7% 0.245 27.325);
+  --color-red-900: oklch(93.6% 0.032 17.717);
+  --color-red-950: oklch(97.1% 0.013 17.38);
+  --color-blue-50: oklch(28.2% 0.091 267.935);
+  --color-blue-100: oklch(37.9% 0.146 265.522);
+  --color-blue-200: oklch(42.4% 0.199 265.638);
+  --color-blue-300: oklch(48.8% 0.243 264.376);
+  --color-blue-400: oklch(48.8% 0.243 264.376);
+  --color-blue-500: oklch(54.6% 0.245 262.881);
+  --color-blue-900: oklch(93.2% 0.032 255.585);
+  --color-blue-950: oklch(97% 0.014 254.604);
+  --color-indigo-50: oklch(25.7% 0.09 281.288);
+  --color-indigo-100: oklch(35.9% 0.144 278.697);
+  --color-indigo-200: oklch(39.8% 0.195 277.366);
+  --color-indigo-300: oklch(45.7% 0.24 277.023);
+  --color-indigo-400: oklch(45.7% 0.24 277.023);
+  --color-indigo-500: oklch(51.1% 0.262 276.966);
+  --color-indigo-900: oklch(93% 0.034 272.788);
+  --color-indigo-950: oklch(96.2% 0.018 272.314);
+}

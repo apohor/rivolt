@@ -1,3 +1,4 @@
+import { useSystemTheme } from "../lib/theme";
 import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -203,6 +204,7 @@ export default function AppLayout() {
   // off (the default, and the fallback until /api/config resolves)
   // renders exactly the layout below, unchanged.
   const moneyTabEnabled = useMoneyTabEnabled();
+  useSystemTheme(moneyTabEnabled);
   if (moneyTabEnabled) {
     const tabs = buildTabs({
       tripPlannerEnabled,
