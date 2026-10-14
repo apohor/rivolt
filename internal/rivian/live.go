@@ -569,7 +569,7 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 			return zero, err
 		}
 	}
-	c.noteAction(vehicleOf(req.Variables), "request", req.OperationName, "")
+	c.noteAction(vehicleOf(req.Variables), "request", req.OperationName, actionReason(ctx))
 
 	// Wrap the call in a span named after the GraphQL operation so
 	// Tempo shows "rivian.<Op>" in the trace tree instead of just

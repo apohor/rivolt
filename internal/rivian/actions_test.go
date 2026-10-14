@@ -87,12 +87,15 @@ func TestLiveClientNotesRequests(t *testing.T) {
 	if q, _ := g.capturedReqs[len(g.capturedReqs)-1].Body["query"].(string); !strings.Contains(q, "powerState { timeStamp value }") {
 		t.Errorf("switch on: the query must ask for powerState's timeStamp:\n%s", q)
 	}
+	if _, err := c.State(withActionReason(ctx, "periodic_refresh"), "veh-a"); err != nil {
+		t.Fatalf("State: %v", err)
+	}
 	var ops []string
 	for _, a := range c.RecentActions("veh-a", start, time.Now()) {
 		ops = append(ops, a.String())
 	}
 	got := strings.Join(ops, "; ")
-	if !strings.Contains(got, "request Login") || !strings.HasSuffix(got, "request GetVehicleState") {
+	if !strings.Contains(got, "request Login") || !strings.HasSuffix(got, "request GetVehicleState; request GetVehicleState(periodic_refresh)") {
 		t.Errorf("actions = %s", got)
 	}
 	for _, a := range c.RecentActions("veh-b", start, time.Now()) {

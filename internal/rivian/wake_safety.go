@@ -239,6 +239,10 @@ func (m *StateMonitor) restQuietAsleep(vehicleID, reason string) bool {
 	m.mu.Unlock()
 	m.logger.Info("wake-safety: REST skipped while asleep",
 		"vehicle", vehicleID, "reason", reason, "skipped_this_sleep", n)
+	if m.client != nil {
+		// In the wake-attribution stream next to the requests made.
+		m.client.noteAction(vehicleID, "skip", "GetVehicleState", reason)
+	}
 	return true
 }
 
@@ -256,6 +260,9 @@ func (m *StateMonitor) restState(ctx context.Context, vehicleID, reason string) 
 		attrs = append(attrs, "skipped_before", skipped)
 	}
 	m.logger.Info("rivian rest state", attrs...)
+	// The client notes the request for wake attribution; the reason
+	// rides along as its detail.
+	ctx = withActionReason(ctx, reason)
 	if m.restFn != nil {
 		return m.restFn(ctx, vehicleID)
 	}

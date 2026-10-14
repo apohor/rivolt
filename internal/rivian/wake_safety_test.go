@@ -377,10 +377,12 @@ func TestCaptureTopics(t *testing.T) {
 // on the treated vehicle only; every call and skip logged.
 func TestRestQuietAsleep(t *testing.T) {
 	logs := &syncBuffer{}
-	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(logs, nil)))
+	m := NewStateMonitor(NewLive(), slog.New(slog.NewTextHandler(logs, nil)))
 	calls := map[string]int{}
-	m.restFn = func(_ context.Context, vid string) (*State, error) {
+	reasons := map[string]string{}
+	m.restFn = func(ctx context.Context, vid string) (*State, error) {
 		calls[vid]++
+		reasons[vid] = actionReason(ctx)
 		return &State{VehicleID: vid, PowerState: "sleep", OdometerKm: 1000}, nil
 	}
 	quiet := true
@@ -406,6 +408,16 @@ func TestRestQuietAsleep(t *testing.T) {
 	}
 	if !strings.Contains(l, `"rivian rest state" vehicle=control reason=periodic_refresh power_state=sleep`) {
 		t.Errorf("every REST call logged with its reason:\n%s", l)
+	}
+	if reasons["control"] != "periodic_refresh" {
+		t.Errorf("the call's context carries its reason for the action log, got %q", reasons["control"])
+	}
+	var acts []string
+	for _, a := range m.client.RecentActions("treated", time.Now().Add(-time.Minute), time.Now()) {
+		acts = append(acts, a.String())
+	}
+	if got := strings.Join(acts, "; "); got != "skip GetVehicleState(periodic_refresh); skip GetVehicleState(periodic_refresh)" {
+		t.Errorf("skips in the wake-attribution stream = %q", got)
 	}
 	set("treated", "standby")
 	m.refreshOnce(ctx, "treated")
