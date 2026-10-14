@@ -91,8 +91,11 @@ export default function TruckPage() {
               formatX={(label) => String(label).slice(5)}
             />
             <p className="mt-2 text-[11px] text-neutral-500">
-              Minutes per day awake while parked and not charging, averaging {Math.round(sleep.avgIdleMinutes)} min over{" "}
-              {sleep.daysWithData} days. Driving and charging are excluded.
+              Minutes per day awake while parked and not charging
+              {sleep.avgDays > 0 && (
+                <>, averaging {Math.round(sleep.avgIdleMinutes)} min over the last {sleep.avgDays} full days</>
+              )}
+              . Today is still in progress. Driving and charging are excluded.
             </p>
           </>
         ) : (
