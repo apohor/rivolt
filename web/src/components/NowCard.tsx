@@ -10,6 +10,7 @@ import {
   isChargingActive,
   isDrivingGear,
   nowAlerts,
+  SLEEP_HYSTERESIS_SEC,
   type NowView,
   type OdoTrack,
 } from "../lib/nowState";
@@ -45,7 +46,10 @@ function advance(t: Tracker, s: VehicleState, nowMs: number): Tracker {
   // The frame itself says the truck was asleep at s.at, so a client
   // joining an asleep truck doesn't restart the 2-minute debounce.
   const frameMs = new Date(s.at).getTime();
-  next.asleepSinceMs = asleep ? (t.asleepSinceMs ?? (Number.isFinite(frameMs) ? frameMs : nowMs)) : null;
+  // First sight of an already-asleep truck shows Asleep at once; the
+  // 2-minute debounce only guards transitions watched happening.
+  const seed = (Number.isFinite(frameMs) ? frameMs : nowMs) - SLEEP_HYSTERESIS_SEC * 1000;
+  next.asleepSinceMs = asleep ? (t.asleepSinceMs ?? (t.lastAt === "" ? seed : (Number.isFinite(frameMs) ? frameMs : nowMs))) : null;
   if (isChargingActive(s)) {
     next.peakKw = Math.max(t.peakKw, s.charger_power_kw || 0);
   } else if (!s.charger_status?.toLowerCase().startsWith("chrgr_sts_connected")) {
@@ -124,7 +128,15 @@ export default function NowCard({
     const row = (chargesQ.data ?? []).find((c) => c.VehicleID === vehicleID);
     if (!row) return null;
     const end = new Date(row.EndedAt).getTime();
-    const open = row.FinalState === "charging_active" || (Number.isFinite(end) && at - end < 10 * 60_000);
+    // Always contiguous with now: prod has closed rows still marked
+    // charging_active (MQ5), so FinalState alone isn't enough.
+    const start = new Date(row.StartedAt).getTime();
+    const contiguous = Number.isFinite(end) && end > 0 && at - end < 10 * 60_000 && at >= end - 60_000;
+    const stillOpen =
+      row.FinalState === "charging_active" &&
+      (!Number.isFinite(end) || end <= 0 || row.EndedAt.startsWith("0001")) &&
+      Number.isFinite(start) && at - start >= 0 && at - start < 72 * 3_600_000;
+    const open = contiguous || stillOpen;
     return open ? row : null;
   }, [chargesQ.data, state, vehicleID]);
 
