@@ -225,14 +225,17 @@ export default function HomePage() {
           viewport). Hero is now the single anchor — its CTAs still
           route to /live and /drives, and a divider + right-aligned
           picker communicate "this scope affects everything below". */}
-      <HeroBanner
+      {!shellEnabled && (
+        <HeroBanner
         win={win}
         onWinChange={setWin}
         vehicles={vehicles.data ?? []}
         selectedVehicleID={activeVehicleID}
         onSelectVehicle={selectVehicle}
       />
+      )}
 
+      {shellEnabled && <h1 className="sr-only">Now</h1>}
       {shellEnabled && activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
@@ -240,6 +243,16 @@ export default function HomePage() {
             vehicles.data?.find((v) => v.id === activeVehicleID)?.name || "Your truck"
           }
           packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
+        />
+      )}
+
+      {shellEnabled && (
+        <ScopeBar
+          win={win}
+          onWinChange={setWin}
+          vehicles={vehicles.data ?? []}
+          selectedVehicleID={activeVehicleID}
+          onSelectVehicle={selectVehicle}
         />
       )}
 
@@ -552,6 +565,29 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ScopeBar is the shell's replacement for the marketing hero: just the
+// vehicle and window pickers, so the Now card leads the page.
+function ScopeBar({
+  win,
+  onWinChange,
+  vehicles,
+  selectedVehicleID,
+  onSelectVehicle,
+}: {
+  win: WindowKey;
+  onWinChange: (w: WindowKey) => void;
+  vehicles: import("../lib/api").Vehicle[];
+  selectedVehicleID: string | undefined;
+  onSelectVehicle: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
+      <WindowPicker value={win} onChange={onWinChange} />
     </div>
   );
 }

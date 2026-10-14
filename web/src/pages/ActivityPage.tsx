@@ -74,7 +74,22 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Activity" subtitle="Drives and charges, newest first" />
+      <PageHeader
+        title="Activity"
+        subtitle="Drives and charges, newest first"
+        actions={
+          <span className="text-xs text-neutral-500">
+            Tables:{" "}
+            <Link to="/drives" className="text-neutral-300 hover:text-emerald-300">
+              Drives
+            </Link>
+            {" · "}
+            <Link to="/charges" className="text-neutral-300 hover:text-emerald-300">
+              Charges
+            </Link>
+          </span>
+        }
+      />
       <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
         {FILTERS.map((f) => (
           <button

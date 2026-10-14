@@ -42,6 +42,7 @@ const views: View[] = [
   ...nowViews,
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
+  { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
   { name: "truck", path: "/truck", heading: "Truck", text: ["Pack capacity", "Lowest tire"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
   { name: "admin-idp", path: "/admin#users", heading: /Sign-in removal failures/, text: ["Delete that account instead"] },
@@ -80,6 +81,31 @@ for (const view of views) {
         }
         for (const t of view.text ?? []) {
           await expect(page.getByText(t).first()).toBeVisible();
+        }
+
+        // Shell cleanup (U14): no marketing hero, no connection pill and
+        // no Sign out in the header, no Overview/Live sub-tabs, and the
+        // Now card leads the page.
+        if (view.name !== "landing" && view.name !== "admin-idp") {
+          await expect(page.getByText("There's a story")).toHaveCount(0);
+          await expect(page.getByText("checking…")).toHaveCount(0);
+          await expect(page.locator("header").getByRole("button", { name: "Sign out" })).toHaveCount(0);
+        }
+        if (view.name.startsWith("now-")) {
+          await expect(page.getByRole("link", { name: "Overview" })).toHaveCount(0);
+          await expect(page.getByRole("link", { name: "Full telemetry →" })).toBeVisible();
+          const top = await page.getByRole("region", { name: "Now" }).evaluate((el) => el.getBoundingClientRect().top);
+          expect(top).toBeLessThan(200);
+        }
+        if (view.name === "settings") {
+          // Sign out lives in Settings now.
+          const card = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Rivolt account" }) }).last();
+          await expect(card.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(1);
+        }
+        if (view.name === "activity") {
+          // One nav row: the filter tabs; no Feed/Drives/Charges sub-nav.
+          await expect(page.getByRole("navigation", { name: "Activity sections" })).toHaveCount(0);
+          await expect(page.getByRole("tab")).toHaveCount(3);
         }
 
         // Light theme only applies inside the shell, signed in.

@@ -21,6 +21,8 @@ import {
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
+import { SignOutButton } from "../components/SignOutButton";
+import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
   setTimeZone,
@@ -58,6 +60,8 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function SettingsPage() {
   const location = useLocation();
+  // In the tab-bar shell the header no longer carries Sign out.
+  const shell = useMoneyTabEnabled();
 
   // Tab state. Priority: ?tab=… query param > hash → owning tab >
   // default "account". Query param wins so a bookmark like
@@ -122,9 +126,16 @@ export default function SettingsPage() {
       </div>
 
       {tab === "account" && (
-        <Card title="Rivian account" id="rivian">
-          <RivianAccountPanel />
-        </Card>
+        <>
+          <Card title="Rivian account" id="rivian">
+            <RivianAccountPanel />
+          </Card>
+          {shell && (
+            <Card title="Rivolt account">
+              <SignOutButton />
+            </Card>
+          )}
+        </>
       )}
 
       {tab === "vehicle" && (
