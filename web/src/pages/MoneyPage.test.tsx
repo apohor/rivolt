@@ -62,7 +62,7 @@ describe("MoneyPage", () => {
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getByText(/Estimate · Electrify America/)).toBeInTheDocument();
     // Two server-owned splits: where (by_place) and how (by_kind).
-    expect(screen.getByRole("img", { name: /^Charging: Home .*, Public .*, DCFC / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^Charging: Home .*, Away .*, DCFC / })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /^Where:/ })).toBeNull();
   });
 
