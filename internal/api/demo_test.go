@@ -25,6 +25,15 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/trips", true},
 		{"GET", "/api/state/" + demoVeh, true},
 		{"GET", "/api/vehicles/" + demoVeh + "/now", true},
+		{"GET", "/api/charges/clusters", true},
+		{"GET", "/api/settings/charging", true},
+		{"GET", "/api/settings/home-location", true},
+		{"GET", "/api/vehicles/" + demoVeh + "/pack-health", true},
+		{"PUT", "/api/settings/charging", false},
+		{"PUT", "/api/settings/home-location", false},
+		{"GET", "/api/settings/charging/networks", false},
+		{"POST", "/api/settings/charging/networks/reset", false},
+		{"GET", "/api/vehicles/other/pack-health", false},
 		// other vehicles
 		{"GET", "/api/state/other", false},
 		{"GET", "/api/vehicles/other/now", false},
@@ -35,8 +44,6 @@ func TestDemoAllowed(t *testing.T) {
 		{"PATCH", "/api/charges/x/pricing", false},
 		{"DELETE", "/api/charges/x", false},
 		{"PUT", "/api/settings/charging", false},
-		{"GET", "/api/settings/charging", false},
-		{"GET", "/api/charges/clusters", false},
 		{"GET", "/api/admin/users", false},
 		{"GET", "/api/auth/me", false},
 		{"GET", "/api/vehicles/owned", false},
@@ -88,7 +95,7 @@ func TestDemoAccessMW_AnonymousAllowlistedBecomesDemoUser(t *testing.T) {
 		{"POST", "/api/charges"},
 		{"GET", "/api/admin/users"},
 		{"GET", "/api/state/other"},
-		{"GET", "/api/settings/charging"},
+		{"GET", "/api/settings/charging/networks"},
 	} {
 		rec := demoReq(h, c[0], c[1])
 		if rec.Header().Get("X-Test-User") != "" || rec.Header().Get(demoHeader) != "" {

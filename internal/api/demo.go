@@ -28,14 +28,17 @@ const demoHeader = "X-Rivolt-Demo"
 // They are exact matches: sub-paths such as /api/charges/clusters or
 // /api/ledger/export are NOT included.
 var demoExactPaths = map[string]bool{
-	"/api/vehicles":       true,
-	"/api/ledger/enabled": true,
-	"/api/ledger/monthly": true,
-	"/api/ledger/summary": true,
-	"/api/charges":        true,
-	"/api/drives":         true,
-	"/api/trips":          true,
-	"/api/sleep-activity": true,
+	"/api/vehicles":               true,
+	"/api/ledger/enabled":         true,
+	"/api/ledger/monthly":         true,
+	"/api/ledger/summary":         true,
+	"/api/charges":                true,
+	"/api/drives":                 true,
+	"/api/trips":                  true,
+	"/api/sleep-activity":         true,
+	"/api/charges/clusters":       true,
+	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
+	"/api/settings/home-location": true,
 }
 
 // demoAllowed reports whether method+path may be served to an
@@ -49,7 +52,9 @@ func demoAllowed(method, path, vehicleID string) bool {
 	if demoExactPaths[p] {
 		return true
 	}
-	return p == "/api/state/"+vehicleID || p == "/api/vehicles/"+vehicleID+"/now"
+	return p == "/api/state/"+vehicleID ||
+		p == "/api/vehicles/"+vehicleID+"/now" ||
+		p == "/api/vehicles/"+vehicleID+"/pack-health"
 }
 
 // demoAccessMW serves allowlisted anonymous requests as the demo user.
