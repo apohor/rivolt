@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/samples"
 )
@@ -236,6 +237,12 @@ type liveCharge struct {
 	dcfcRate    float64
 	dcfcCur     string
 	dcfcNetwork string
+	// dcfcVerdict is network detection's verdict once made (auto-detect
+	// on for the user), with the peak it was made at: a co-located site
+	// is looked at again when the peak has grown, since a peak only one
+	// network could deliver can settle it.
+	dcfcVerdict *DCFCVerdict
+	dcfcPeakKW  float64
 
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
@@ -1660,10 +1667,32 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup, dcfc, home := m.priceLookup, m.dcfcPrice, m.homeLookup
+		lookup, dcfc, home, detect := m.priceLookup, m.dcfcPrice, m.homeLookup, m.dcfcDetect
 		m.mu.RUnlock()
-		fast := dcfc != nil && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
-		if fast {
+		fast := (dcfc != nil || detect != nil) && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
+		// Network detection with a verify state, where it's on for the
+		// user. Rivian's isRivianCharger joins it with #194.
+		if fast && detect != nil && (c.dcfcVerdict == nil ||
+			(c.dcfcVerdict.Confidence < dcfcrates.ConfidentAt && row.MaxPowerKW > c.dcfcPeakKW*1.1)) {
+			if v, on := detect(c.lat, c.lon, false, row.MaxPowerKW); on {
+				c.dcfcVerdict, c.dcfcPeakKW = &v, row.MaxPowerKW
+			}
+		}
+		if fast && c.dcfcVerdict != nil {
+			v := c.dcfcVerdict
+			row.NetworkState, row.NetworkEvidence = v.State, v.Evidence
+			conf := v.Confidence
+			row.NetworkConfidence = &conf
+			if v.Priced && v.Rate > 0 {
+				row.PricePerKWh = v.Rate
+				row.Currency = v.Currency
+				row.Cost = v.Rate * energy
+				row.CostSource = CostSourceNetworkEstimate
+				row.Network = v.Network
+			}
+			// Unpriced (nothing matched): the row waits for the user,
+			// network_state says so.
+		} else if fast && dcfc != nil {
 			if !c.dcfcPriced {
 				if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
 					c.dcfcPriced, c.dcfcRate, c.dcfcCur, c.dcfcNetwork = true, rate, cur, network

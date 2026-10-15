@@ -52,6 +52,7 @@ type MonitorRegistry struct {
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
+	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	sleepSafe          func(vehicleID string) bool
 	sleepObserver      SleepObserver
@@ -156,6 +157,16 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
 	r.driveCloseHook = factory
+	r.mu.Unlock()
+}
+
+// SetDCFCDetectorFactory wires per-user fast-charge network detection
+// (on only where the dcfc_auto_network flag covers the user; the
+// detector itself says when it's off). Safe to call at boot before any
+// Start.
+func (r *MonitorRegistry) SetDCFCDetectorFactory(factory func(uid uuid.UUID) DCFCDetector) {
+	r.mu.Lock()
+	r.dcfcDetectFor = factory
 	r.mu.Unlock()
 }
 
@@ -297,6 +308,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.dcfcPriceFor != nil {
 		if fn := r.dcfcPriceFor(uid); fn != nil {
 			mon.SetDCFCPriceLookup(fn)
+		}
+	}
+	if r.dcfcDetectFor != nil {
+		if fn := r.dcfcDetectFor(uid); fn != nil {
+			mon.SetDCFCDetector(fn)
 		}
 	}
 	mon.SetSleepSafe(r.sleepSafe)
