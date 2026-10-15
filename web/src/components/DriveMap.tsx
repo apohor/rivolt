@@ -952,10 +952,16 @@ export function DriveMap({
         Math.abs(lo - latlngs[0][1]) > SPREAD_EPS,
     );
     let line: L.LayerGroup | null = null;
+    // What the map should be fitted to: the raw trace first, the
+    // road-snapped route once it arrives. Every resize refits to it, so a
+    // map that mounted 0x0 (safeFitBounds only centres then) still ends up
+    // framed on the route.
+    let fitBox: L.LatLngBounds | null = null;
     if (latlngs.length > 1 && hasSpread) {
       line = drawRoute(map, latlngs, speeds);
       line.addTo(map);
-      safeFitBounds(map, L.latLngBounds(latlngs), fitOptions(map));
+      fitBox = L.latLngBounds(latlngs);
+      safeFitBounds(map, fitBox, fitOptions(map));
     } else if (latlngs.length > 0) {
       map.setView(latlngs[0], 16);
     }
@@ -1053,7 +1059,8 @@ export function DriveMap({
         }
         layers.addTo(map);
         if (allCoords.length > 0) {
-          safeFitBounds(map, L.latLngBounds(allCoords), fitOptions(map));
+          fitBox = L.latLngBounds(allCoords);
+          safeFitBounds(map, fitBox, fitOptions(map));
         }
         line = layers;
       });
@@ -1122,9 +1129,7 @@ export function DriveMap({
     const invalidate = () => {
       if (!alive || mapRef.current !== map || !map.getContainer().isConnected) return;
       map.invalidateSize();
-      if (latlngs.length > 1 && hasSpread) {
-        safeFitBounds(map, L.latLngBounds(latlngs), fitOptions(map));
-      }
+      if (fitBox) safeFitBounds(map, fitBox, fitOptions(map));
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const rAF = requestAnimationFrame(() => {
