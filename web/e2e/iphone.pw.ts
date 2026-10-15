@@ -84,3 +84,62 @@ test("sample requests always carry an explicit until", async ({ browser }) => {
   }
   await ctx.close();
 });
+
+test("drive map: the speed legend and attribution never cover the route's end markers", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  // A route that ends at the bottom-left corner of its bounds, exactly
+  // where the legend sits: top-right start, bottom-left end.
+  await page.route("**/api/samples**", async (route) => {
+    const url = new URL(route.request().url());
+    const since = Date.parse(url.searchParams.get("since") || "") || Date.now() - 3_600_000;
+    const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
+    const out = [];
+    for (let t = since, i = 0; t <= until && i < 60; t += 30_000, i++) {
+      out.push({
+        VehicleID: "veh-sample-1", At: new Date(t).toISOString(), BatteryLevelPct: 70, RangeMi: 200, OdometerMi: 1000 + i,
+        Lat: 40 - i * 0.002, Lon: -100 - i * 0.002, SpeedMph: 40 + (i % 5), ShiftState: "D", ChargingState: "",
+        ChargerPowerKW: 0, ChargeLimitPct: 80, InsideTempC: 20, OutsideTempC: 12, DriveNumber: 1, ChargeNumber: 0, Source: "live",
+      });
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(out) });
+  });
+  await page.route("**/api/drives**", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/drives") return route.fallback();
+    const t0 = Date.now() - 3_600_000;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{
+        ID: "drive-1", VehicleID: "veh-sample-1", StartedAt: new Date(t0).toISOString(), EndedAt: new Date(t0 + 1_800_000).toISOString(),
+        StartSoCPct: 70, EndSoCPct: 66, StartOdometerMi: 1000, EndOdometerMi: 1012, DistanceMi: 12, StartLat: 40, StartLon: -100,
+        EndLat: 39.88, EndLon: -100.12, MaxSpeedMph: 60, AvgSpeedMph: 35, EnergyUsedKWh: 4.8, Source: "live",
+      }]),
+    });
+  });
+  await page.goto("/drives/drive-1");
+  await expect(page.locator(".rivolt-speed-legend")).toBeVisible();
+  await page.waitForTimeout(1500);
+  const boxes = await page.evaluate(() => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+    };
+    const covers = [...document.querySelectorAll(".rivolt-speed-legend, .leaflet-control-attribution")].map(r);
+    const markers = [...document.querySelectorAll(".leaflet-marker-icon")].map(r);
+    return { covers, markers };
+  });
+  expect(boxes.markers.length).toBeGreaterThan(0);
+  // Overlap, with a 12 px safety margin so a marker isn't left kissing
+  // the legend (the zoom snap can leave less room than the fit padding).
+  const M = 12;
+  const hit = (a: { l: number; t: number; r: number; b: number }, c: { l: number; t: number; r: number; b: number }) =>
+    a.l < c.r + M && a.r > c.l - M && a.t < c.b + M && a.b > c.t - M;
+  for (const m of boxes.markers) {
+    for (const c of boxes.covers) expect(hit(m, c), JSON.stringify({ m, c })).toBe(false);
+  }
+  await page.locator(".leaflet-container").first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(SHOTS, "iphone-drive-map.png"), fullPage: true });
+  await ctx.close();
+});

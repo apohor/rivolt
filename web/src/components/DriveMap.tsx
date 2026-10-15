@@ -740,6 +740,15 @@ function drawRoute(
   return group;
 }
 
+// fitOptions pads the route's fit-bounds so the end markers clear the
+// bottom controls: the speed legend (bottom-left) and the attribution
+// (bottom-right) sit about 40 px up from the edge, and on a phone the
+// 20 px default left the route's end dot half hidden under them.
+function fitOptions(map: L.Map): L.FitBoundsOptions {
+  const bottom = map.getSize().x < 520 ? 56 : 36;
+  return { paddingTopLeft: [20, 20], paddingBottomRight: [20, bottom] };
+}
+
 // addSpeedLegend adds a compact bottom-left swatch row showing what
 // each color band means. Pure DOM control, no Leaflet pane reflow.
 function addSpeedLegend(map: L.Map): L.Control {
@@ -941,7 +950,7 @@ export function DriveMap({
     if (latlngs.length > 1 && hasSpread) {
       line = drawRoute(map, latlngs, speeds);
       line.addTo(map);
-      map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
+      map.fitBounds(L.latLngBounds(latlngs), fitOptions(map));
     } else if (latlngs.length > 0) {
       map.setView(latlngs[0], 16);
     }
@@ -1039,7 +1048,7 @@ export function DriveMap({
         }
         layers.addTo(map);
         if (allCoords.length > 0) {
-          map.fitBounds(L.latLngBounds(allCoords), { padding: [20, 20] });
+          map.fitBounds(L.latLngBounds(allCoords), fitOptions(map));
         }
         line = layers;
       });
@@ -1109,7 +1118,7 @@ export function DriveMap({
       if (!alive || mapRef.current !== map || !map.getContainer().isConnected) return;
       map.invalidateSize();
       if (latlngs.length > 1 && hasSpread) {
-        map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
+        map.fitBounds(L.latLngBounds(latlngs), fitOptions(map));
       }
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
