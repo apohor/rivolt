@@ -203,6 +203,7 @@ type liveCharge struct {
 	startedAt  time.Time
 	number     int64
 	startSoC   float64
+	startOdoMi float64 // odometer when the charge opened; 0 if unknown
 	lat        float64
 	lon        float64
 	maxPower   float64 // kW
@@ -426,12 +427,19 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// Force-close it BEFORE the lifecycle handlers so the new
 		// gear/charge state opens a clean session instead of
 		// extending the wrong one.
-		sess.applyMutualExclusion(curr, m, wctx)
+		//
+		// The lifecycle sees lifecycleView(curr): a frame that says
+		// both driving and charging is resolved by motion to one of
+		// them, so a stale gear or stuck charger fields can't close and
+		// reopen both sessions on every frame. The sample row keeps the
+		// raw frame.
+		lc := sess.lifecycleView(curr, m)
+		sess.applyMutualExclusion(lc, m, wctx)
 
 		// Handle session lifecycle so the sample row carries the
 		// right drive_number / charge_number for this frame.
-		driveNum = sess.handleDriveLifecycle(curr, prev, m, wctx)
-		chargeNum = sess.handleChargeLifecycle(curr, prev, m, wctx)
+		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
+		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock
@@ -606,6 +614,44 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 		s.drive = nil
 	}
+}
+
+// switchMovedMi: the odometer moving this far since the open charge
+// began means the car is driving, whatever the charger fields say.
+const switchMovedMi = 0.05
+
+// lifecycleView is the frame the session lifecycle acts on. A frame that
+// says both driving (gear D/R/N) and charging (plugged, charging_active)
+// is a contradiction: Rivian's charger fields stick after an unplug, and
+// a replayed gear can read D while the car charges (the 2026-10-10 flap,
+// where the recorder then closed and reopened both sessions on every
+// frame). Motion settles it: speed over driveCloseSpeedMph, the odometer
+// moving switchMovedMi since the open charge began, or a fresh Parallax
+// driving gear mean driving, and the lifecycle sees the charger fields
+// as unknown; otherwise the car is charging and it sees gear P. Frames
+// that don't contradict themselves pass through unchanged (an unplug
+// followed by D still closes the charge and opens the drive at once).
+//
+// Must be called with m.sessMu held.
+func (s *liveSessions) lifecycleView(curr *State, m *StateMonitor) *State {
+	if !isDrivingGear(curr.Gear) || !(isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)) {
+		return curr
+	}
+	moving := curr.SpeedKph*kphToMi > driveCloseSpeedMph
+	if c := s.charge; c != nil && c.startOdoMi > 0 && curr.OdometerKm > 0 &&
+		curr.OdometerKm*kmToMi-c.startOdoMi >= switchMovedMi {
+		moving = true
+	}
+	if g, at := m.lastParallaxGear(curr.VehicleID); isDrivingGear(g) && !at.IsZero() && time.Since(at) < 30*time.Second {
+		moving = true
+	}
+	view := *curr
+	if moving {
+		view.ChargerState, view.ChargerStatus, view.ChargerPowerKW = "", "", 0
+	} else {
+		view.Gear = "P"
+	}
+	return &view
 }
 
 // handleDriveLifecycle manages the drive accumulator across a single
@@ -981,6 +1027,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			startedAt:        curr.At,
 			number:           s.chargeCounter,
 			startSoC:         curr.BatteryLevelPct,
+			startOdoMi:       curr.OdometerKm * kmToMi,
 			lat:              curr.Latitude,
 			lon:              curr.Longitude,
 			endAt:            curr.At,
