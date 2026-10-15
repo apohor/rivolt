@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanVsActual, PvaMetric } from "./api";
-import { costHeader, rows, stateOf, topCandidate } from "./planVsActual";
+import { costHeader, rows, stateOf, stopLabel, topCandidate } from "./planVsActual";
 
 const m = (metric: PvaMetric["metric"], planned: number | null, actual: number | null, o: Partial<PvaMetric> = {}): PvaMetric => ({
   metric, unit: "", planned, actual, delta: planned != null && actual != null ? actual - planned : null, reasons: [], ...o,
@@ -99,5 +99,13 @@ describe("costHeader", () => {
   });
   it("says estimated when any part is a network estimate", () => {
     expect(h(m("cost", 50, 70, { actual_complete: true, actual_sources: { network_estimate: 10 } }))).toMatch(/\(estimated\)/);
+  });
+});
+
+describe("stopLabel", () => {
+  it("labels nearby and AC extras honestly", () => {
+    expect(stopLabel({ match: "nearby" })).toBe("Nearby, network not known");
+    expect(stopLabel({ match: "extra", actual: { kind: "ac" } })).toBe("Extra AC charge (not in the cost)");
+    expect(stopLabel({ match: "extra", actual: { kind: "dcfc" } })).toBe("Extra stop");
   });
 });

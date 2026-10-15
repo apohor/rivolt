@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type PlanVsActual as Pva, type SavedTrip } from "../lib/api";
-import { costHeader, drivenText, rows, STOP_LABEL, stateOf, topCandidate, type Row } from "../lib/planVsActual";
+import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Row } from "../lib/planVsActual";
 import { Card } from "./ui";
 
 // Plan vs Actual: for a saved trip, how the drive went against the plan
@@ -154,8 +154,8 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
               {c.stops.map((s, i) => (
                 <li key={i} className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-neutral-800 px-2 py-1.5">
                   <span className="text-neutral-200">{s.planned?.name ?? s.actual?.network ?? "Stop"}</span>
-                  <span className={s.match === "skipped" || s.match === "extra" ? "text-amber-300" : "text-neutral-400"}>
-                    {STOP_LABEL[s.match]}
+                  <span className={s.match === "skipped" || (s.match === "extra" && s.actual?.kind !== "ac") ? "text-amber-300" : "text-neutral-400"}>
+                    {stopLabel(s)}
                   </span>
                 </li>
               ))}

@@ -2068,9 +2068,9 @@ export type PvaMetric = {
 };
 
 export type PvaStop = {
-  match: "same_station" | "same_network" | "other_network" | "skipped" | "extra";
+  match: "same_station" | "same_network" | "other_network" | "nearby" | "skipped" | "extra";
   planned?: { name?: string; network?: string | null; arrival_soc?: number | null; charge_min?: number | null; est_kwh?: number | null; est_cost?: number | null } | null;
-  actual?: { network?: string | null; kwh?: number | null; cost?: number | null; cost_source?: string; started_at?: string; minutes?: number | null } | null;
+  actual?: { kind?: "dcfc" | "ac"; network?: string | null; kwh?: number | null; cost?: number | null; cost_source?: string; started_at?: string; minutes?: number | null } | null;
 };
 
 export type PvaComparison = {

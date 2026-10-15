@@ -173,10 +173,18 @@ export function rows(c: NonNullable<PlanVsActual["comparison"]>): Row[] {
   });
 }
 
+// An away AC charge listed as an extra isn't a fast-charge stop and
+// isn't in the cost: say so instead of calling it a detour.
+export function stopLabel(s: PvaStop): string {
+  if (s.match === "extra" && s.actual?.kind === "ac") return "Extra AC charge (not in the cost)";
+  return STOP_LABEL[s.match];
+}
+
 export const STOP_LABEL: Record<PvaStop["match"], string> = {
   same_station: "Same station",
   same_network: "Same network, different station",
   other_network: "Different network",
+  nearby: "Nearby, network not known",
   skipped: "Skipped",
   extra: "Extra stop",
 };
