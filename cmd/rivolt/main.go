@@ -822,6 +822,9 @@ func runServer() {
 		} else {
 			logger.Info("demo account seeded", "vehicle", demo.VehicleID())
 		}
+		// The replay backfill records sessions after boot, so the
+		// hand-priced hotel L2 gets its user price on a timer.
+		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every

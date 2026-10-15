@@ -114,6 +114,14 @@ func Seed(ctx context.Context, d Deps) error {
 		return fmt.Errorf("demo: session: %w", err)
 	}
 	cs := d.Charges.For(uid)
+	// Earlier versions seeded a hand-written billed and user-priced
+	// session; the corpus now provides both (the user price lands on the
+	// Vegas hotel L2), so the stale rows go.
+	for _, id := range []string{"demo_seed_billed", "demo_seed_user"} {
+		if _, err := cs.DeleteByExternalID(ctx, id); err != nil {
+			return fmt.Errorf("demo: remove stale seed %s: %w", id, err)
+		}
+	}
 	for _, c := range SeedCharges(uid, now()) {
 		if err := cs.Upsert(ctx, c); err != nil {
 			return fmt.Errorf("demo: seed charge %s: %w", c.ID, err)
@@ -123,9 +131,10 @@ func Seed(ctx context.Context, d Deps) error {
 }
 
 // SeedCharges are the hand-written older sessions that complete the
-// cost-source set (the replay stream supplies home_rate and
-// network_estimate): Rivian-billed DC fast, user-entered AC, a pending
-// (unpriced) AC session and a home-rate home session. They sit 50-60
+// cost-source set (the replay stream supplies home_rate,
+// network_estimate, the Rivian-billed DC fast and, via
+// ApplySampleUserPrices, the user-priced hotel L2): a pending (unpriced)
+// AC session and a home-rate home session. They sit 50-60
 // days back, before the 45-day replay corpus, so they never overlap a
 // replayed session. Times are day-aligned, so reseeding is stable.
 func SeedCharges(uid uuid.UUID, now time.Time) []charges.Charge {
@@ -143,14 +152,101 @@ func SeedCharges(uid uuid.UUID, now time.Time) []charges.Charge {
 			Currency: "USD", ActiveSeconds: dur.Seconds(), Place: place,
 		}
 	}
-	billed := mk("demo_seed_billed", at(52, 17), 35*time.Minute, 48, 160, 34.0562, -118.2365, "away")
-	billed.Cost, billed.PricePerKWh, billed.CostSource = 27.36, 0.57, "rivian"
-	user := mk("demo_seed_user", at(55, 20), 3*time.Hour, 22, 7.6, 34.1478, -118.1445, "away")
-	user.Cost, user.PricePerKWh, user.CostSource = 6.60, 0.30, "user"
 	pending := mk("demo_seed_pending", at(58, 19), 2*time.Hour+30*time.Minute, 18, 7.2, 34.1394, -118.0447, "away")
 	home := mk("demo_seed_home", at(50, 22), 4*time.Hour, 26, 7.6, HomeLat, HomeLon, "home")
 	home.Cost, home.PricePerKWh, home.CostSource = round2(26*HomeRate), HomeRate, "home_rate"
-	return []charges.Charge{billed, user, pending, home}
+	return []charges.Charge{pending, home}
 }
 
 func round2(v float64) float64 { return float64(int64(v*100+0.5)) / 100 }
+
+// pricer is the slice of charges.Store the price pass writes through.
+type pricer interface {
+	UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error)
+}
+
+// ApplySampleUserPrices gives the demo truck's hand-priced session (the
+// Las Vegas hotel L2, a flat $15 in the sample corpus) its user price
+// after replay has recorded it. The recorder cannot invent a price only
+// a person enters, so this is the demo's stand-in for that person. It
+// uses the same store path as PATCH /charges/{id}/pricing, which stamps
+// cost_source = user.
+//
+// Only CLOSED charges with no cost source are touched: an open charge is
+// still being upserted by the recorder, which would overwrite the price.
+// Idempotent; returns how many rows it priced. The corpus loops, so the
+// caller runs it again periodically.
+func ApplySampleUserPrices(ctx context.Context, d *sql.DB, store pricer) (int, error) {
+	if !Enabled() {
+		return 0, nil
+	}
+	rows, err := d.QueryContext(ctx, `
+		SELECT external_id, started_at FROM charges
+		 WHERE user_id = $1 AND cost_source IS NULL
+		   AND NOT (final_state LIKE 'charging\_%' AND final_state NOT IN ('charging_complete', 'charging_station_err'))`,
+		UserID())
+	if err != nil {
+		return 0, err
+	}
+	var cands []PriceCandidate
+	for rows.Next() {
+		var c PriceCandidate
+		if err := rows.Scan(&c.ID, &c.StartedAt); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		cands = append(cands, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	return PriceCandidates(ctx, cands, store)
+}
+
+// PriceCandidate is a closed, unpriced demo charge.
+type PriceCandidate struct {
+	ID        string
+	StartedAt time.Time
+}
+
+// PriceCandidates prices the candidates the sample corpus says a person
+// priced by hand, and returns how many it priced.
+func PriceCandidates(ctx context.Context, cands []PriceCandidate, store pricer) (int, error) {
+	n := 0
+	for _, c := range cands {
+		cost, cur, ok := rivian.SampleUserPrice(c.StartedAt)
+		if !ok {
+			continue
+		}
+		if _, err := store.UpdatePricing(ctx, c.ID, cost, cur, 0); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// RunPricing applies the sample user prices now and then every interval
+// until ctx ends (replay backfill and corpus loops bring new sessions).
+func RunPricing(ctx context.Context, d *sql.DB, store pricer, every time.Duration, log func(msg string, args ...any)) {
+	tick := func() {
+		if n, err := ApplySampleUserPrices(ctx, d, store); err != nil {
+			log("demo: sample user price pass failed", "err", err.Error())
+		} else if n > 0 {
+			log("demo: sample user prices applied", "rows", n)
+		}
+	}
+	tick()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			tick()
+		}
+	}
+}
