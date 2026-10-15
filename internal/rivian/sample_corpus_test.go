@@ -135,3 +135,24 @@ func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
 		}
 	}
 }
+
+// The sample feed wraps with a short gap, so the public demo never
+// sits on the corpus's last frame for hours; the recorded-vehicle
+// replay keeps its overnight gap.
+func TestSampleReplayFeed_ShortLoopGap(t *testing.T) {
+	f := NewSampleReplayFeed(nil, 0, nil)
+	if f.timeline.gap != sampleLoopGap {
+		t.Fatalf("sample gap = %v, want %v", f.timeline.gap, sampleLoopGap)
+	}
+	if sampleLoopGap > 15*time.Minute {
+		t.Fatalf("sampleLoopGap %v too long for the public demo", sampleLoopGap)
+	}
+	if replayLoopGap != 6*time.Hour {
+		t.Fatalf("recorded replay gap changed: %v", replayLoopGap)
+	}
+	// Just after a loop ends, the next loop starts within the gap.
+	end := f.timeline.loopStart(1).Add(-sampleLoopGap)
+	if got := f.timeline.loopAt(end.Add(sampleLoopGap + time.Second)); got != 1 {
+		t.Fatalf("loopAt after gap = %d, want 1", got)
+	}
+}

@@ -506,6 +506,13 @@ func (c *SampleCorpus) Summary() SampleSummary {
 	return sum
 }
 
+// sampleLoopGap is the pause between loops of the sample corpus. The
+// recorded-vehicle replay uses replayLoopGap (6 h) so its wrap reads as
+// an overnight park; the sample corpus starts and ends parked at home,
+// so a short gap is enough, and the public demo doesn't sit on the
+// corpus's last frame for hours each loop.
+const sampleLoopGap = 10 * time.Minute
+
 // NewSampleReplayFeed is the replay feed over the sample corpus
 // (RIVIAN_CLIENT=replay with RIVOLT_REPLAY_SOURCE=sample). pool, when
 // set, provides the resume point (the demo vehicle's latest sample).
@@ -518,7 +525,7 @@ func NewSampleReplayFeed(pool *sql.DB, backfill time.Duration, logger *slog.Logg
 	f := &ReplayFeed{
 		corpus: c,
 		timeline: replayTimeline{
-			start: start, end: end, epoch: replayEpoch, gap: replayLoopGap,
+			start: start, end: end, epoch: replayEpoch, gap: sampleLoopGap,
 			odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi,
 		},
 		source:   Vehicle{ID: "sample", Name: "Sample R1S", Model: "R1S", ModelYear: 2025, PackKWh: samplePackKWh},
