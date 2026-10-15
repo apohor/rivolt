@@ -258,20 +258,37 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     const pva = p.match(/^\/api\/trips\/saved\/st-(none|suggested|full|partial)\/actual$/);
     if (pva) {
       const k = pva[1];
-      const planned = { currency: "USD", cost: 52.1, kwh: 150, stops: 3, network: "Sample network", arrival_soc: 22, duration_min: 640 };
-      const base = { saved_trip_id: `st-${k}`, planned };
-      if (k === "none") return json(route, { ...base, status: "none" });
-      if (k === "suggested") {
-        return json(route, { ...base, status: "suggested", candidate: { trip_id: "trip-1", started_at: iso(3 * 86_400_000), miles: 612 } });
-      }
-      const actual = {
-        cost: k === "full" ? 48.22 : null, cost_source: k === "full" ? "network_estimate" : "unknown",
-        kwh: 146, stops: 4, networks: ["Sample network"], arrival_soc: 18, duration_min: 700,
-        unpriced_sessions: k === "full" ? 0 : 2, started_at: iso(3 * 86_400_000),
+      const base = { version: 1, saved_trip_id: `st-${k}` };
+      if (k === "none") return json(route, { ...base, status: "none", link: null, candidates: [], comparison: null });
+      const metric = (metric: string, unit: string, planned: number, actual: number | null, extra: object = {}) => ({
+        metric, unit, planned, actual, delta: actual == null ? null : actual - planned, reasons: [], ...extra,
+      });
+      const comparison = {
+        currency: "USD", plan_from: k === "suggested" ? "current" : "snapshot",
+        leg: { started_at: iso(3 * 86_400_000), arrived_at: iso(3 * 86_400_000 - 40_000_000) },
+        metrics: [
+          k === "partial"
+            ? metric("cost", "USD", 52.1, null, { actual_complete: false, actual_known: 21.12, unpriced_sessions: 2 })
+            : metric("cost", "USD", 52.1, 48.22, {
+                actual_complete: true, actual_known: 48.22, unpriced_sessions: 0,
+                actual_sources: { rivian: 30.1, network_estimate: 18.12 },
+                reasons: [{ code: "rate_differed", amount: -3.88, detail: "Sample network billed $0.48/kWh vs $0.56 planned" }],
+              }),
+          metric("energy_kwh", "kWh", 150, 146),
+          metric("dcfc_stops", "count", 3, 4, { reasons: [{ code: "extra_stop", amount: 9.5, detail: "One extra stop after a detour" }] }),
+          metric("arrival_soc", "pct", 22, 18),
+          metric("duration", "min", 640, 700, { reasons: [{ code: "extra_stop", amount: null, detail: "The extra stop added about an hour" }] }),
+        ],
+        stops: [
+          { match: "same_station", planned: { name: "Sample stop A" }, actual: { network: "Sample network" } },
+          { match: "extra", planned: null, actual: { network: "Sample network" } },
+        ],
       };
+      const cand = { trip_id: "trip_1", started_at: iso(3 * 86_400_000), ended_at: iso(3 * 86_400_000 - 40_000_000), confidence: 0.91, band: "high", signals: {} };
+      if (k === "suggested") return json(route, { ...base, status: "suggested", link: null, candidates: [cand], comparison });
       return json(route, {
-        ...base, status: "matched", actual,
-        reasons: { stops: "One extra stop after a detour", duration: "The extra stop added about an hour" },
+        ...base, status: "linked", candidates: [cand], comparison,
+        link: { trip_id: "trip_1", confidence: 0.91, band: "high", linked_at: iso(86_400_000) },
       });
     }
     if (p === `/api/vehicles/${VEHICLE_ID}/pack-health`) {

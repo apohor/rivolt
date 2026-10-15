@@ -1363,8 +1363,8 @@ export const backend = {
   // trip can render the result instantly while still letting the
   // user re-plan against current station / weather state.
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
-  // Provisional path (see PlanVsActual). Null when the endpoint is
-  // absent (404), so the section simply doesn't render.
+  // Null on 404 (flag off or not the user's trip), so the section
+  // simply doesn't render.
   planVsActual: async (savedTripID: string): Promise<PlanVsActual | null> => {
     try {
       return await api.get<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/actual`);
@@ -1373,11 +1373,10 @@ export const backend = {
       throw e;
     }
   },
-  planVsActualLink: (savedTripID: string, tripID: string | null) =>
-    api.post<PlanVsActual>(
-      `/api/trips/saved/${encodeURIComponent(savedTripID)}/actual/${tripID ? "confirm" : "unlink"}`,
-      tripID ? { trip_id: tripID } : null,
-    ),
+  planVsActualLink: (savedTripID: string, tripID: string) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/link`, { trip_id: tripID }),
+  planVsActualUnlink: (savedTripID: string) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, null),
   savedTripCreate: (body: SavedTripBody) =>
     api.post<SavedTrip>("/api/trips/saved", body),
   savedTripUpdate: (id: string, body: SavedTripBody) =>
@@ -2038,44 +2037,57 @@ export type SavedTripInputs = {
   overnight_departure_local?: string;
 };
 
-// PlanVsActual is a saved trip compared with what was driven
-// (plan-vs-actual-contract; provisional shape until the architect's v1
-// lands, kept in one place so adapting is local). Nulls mean unknown,
-// never 0.
-export type PvaCostSource = "rivian" | "home_rate" | "network_estimate" | "user" | "mixed" | "unknown";
+// PlanVsActual is GET /api/trips/saved/{id}/actual
+// (plan-vs-actual-contract v1): a saved trip compared with the outing
+// that was actually driven. Nulls mean unknown, never 0; an incomplete
+// actual cost is null with actual_known/unpriced_sessions instead.
+export type PvaBand = "high" | "medium" | "low";
 
-export type PvaPlanned = {
-  currency: string;
-  cost: number | null;
-  kwh: number | null;
-  stops: number;
-  network: string | null;
-  arrival_soc: number | null;
-  duration_min: number | null;
+export type PvaCandidate = {
+  trip_id: string;
+  started_at: string;
+  ended_at: string;
+  confidence: number;
+  band: PvaBand;
+  signals: Record<string, number>;
 };
 
-export type PvaActual = {
-  cost: number | null;
-  cost_source: PvaCostSource;
-  kwh: number | null;
-  stops: number;
-  networks: string[];
-  arrival_soc: number | null;
-  duration_min: number | null;
-  unpriced_sessions: number;
-  started_at: string;
+export type PvaReason = { code: string; amount?: number | null; detail?: string };
+
+export type PvaMetric = {
+  metric: "cost" | "energy_kwh" | "dcfc_stops" | "arrival_soc" | "duration";
+  unit: string;
+  planned: number | null;
+  actual: number | null;
+  delta: number | null;
+  actual_complete?: boolean;
+  actual_known?: number | null;
+  unpriced_sessions?: number;
+  actual_sources?: Partial<Record<"rivian" | "network_estimate" | "home_rate" | "user", number>>;
+  reasons: PvaReason[];
+};
+
+export type PvaStop = {
+  match: "same_station" | "same_network" | "other_network" | "skipped" | "extra";
+  planned?: { name?: string; network?: string | null; arrival_soc?: number | null; charge_min?: number | null; est_kwh?: number | null; est_cost?: number | null } | null;
+  actual?: { network?: string | null; kwh?: number | null; cost?: number | null; cost_source?: string; started_at?: string; minutes?: number | null } | null;
+};
+
+export type PvaComparison = {
+  currency: string;
+  plan_from: "snapshot" | "current";
+  leg: { started_at: string; arrived_at: string };
+  metrics: PvaMetric[];
+  stops: PvaStop[];
 };
 
 export type PlanVsActual = {
+  version: number;
   saved_trip_id: string;
-  status: "none" | "suggested" | "matched";
-  // The candidate drive for a suggested match.
-  candidate?: { trip_id: string; started_at: string; miles: number } | null;
-  planned: PvaPlanned;
-  actual?: PvaActual | null;
-  // Server-authored one-line reasons per metric, e.g. "cost": "Used
-  // Electrify America ($0.48) instead of the planned $0.36 member rate".
-  reasons?: Partial<Record<"cost" | "kwh" | "stops" | "arrival_soc" | "duration", string>>;
+  status: "linked" | "suggested" | "none";
+  link: { trip_id: string; confidence: number; band: PvaBand; linked_at: string; link_stale?: boolean } | null;
+  candidates: PvaCandidate[];
+  comparison: PvaComparison | null;
 };
 
 export type SavedTrip = {

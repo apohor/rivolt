@@ -53,9 +53,10 @@ const views: View[] = [
     text: [
       "We'll compare once you've driven it.",
       "Confirm",
-      "Charging stops",
-      "price unavailable",
-      "One extra stop after a detour",
+      "Not this trip",
+      "Fast-charging stops",
+      /so far .*2 not priced yet/,
+      "Sample network billed $0.48/kWh vs $0.56 planned",
     ],
   },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
