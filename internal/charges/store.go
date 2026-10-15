@@ -727,7 +727,7 @@ func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, curren
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE charges
 		SET price_per_kwh = $3,
-		    cost = round(($3::numeric * energy_added_kwh), 4),
+		    cost = round($3::numeric * energy_added_kwh::numeric, 4),
 		    currency = COALESCE(NULLIF($5, ''), currency),
 		    network = NULLIF($4, ''),
 		    cost_source = 'user',

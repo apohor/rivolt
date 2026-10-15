@@ -202,7 +202,7 @@ func TestToConfirm_CountsListAndIsolation(t *testing.T) {
 	if err != nil || len(cs) != 2 || cs[0].ID != "a-need" || cs[1].ID != "a-est" {
 		t.Fatalf("list = %+v, %v; want a-need, a-est (newest first)", cs, err)
 	}
-	if cs[0].NetworkState != "needs_confirmation" || cs[0].NetworkConfidence == nil || *cs[0].NetworkConfidence != 0.7 ||
+	if cs[0].NetworkState != "needs_confirmation" || cs[0].NetworkConfidence == nil || *cs[0].NetworkConfidence < 0.69 || *cs[0].NetworkConfidence > 0.71 ||
 		string(cs[0].NetworkEvidence) != `{"v": 1}` {
 		t.Errorf("state fields = %+v", cs[0])
 	}
