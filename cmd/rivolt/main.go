@@ -1265,7 +1265,7 @@ func runServer() {
 		}
 		if pgPool != nil {
 			if _, err := db.EnsureUser(ctx, pgPool, bypassUser); err != nil {
-				logger.Error("bypass user ensure", "username", bypassUser, "err", err.Error())
+				logger.Error("bypass user ensure", "user_hash", logging.IDHash(bypassUser), "err", logging.ScrubErr(err))
 				os.Exit(1)
 			}
 		}
