@@ -9,6 +9,7 @@
 import { displayTimeZone } from "../lib/format";
 import { useEffect, useRef } from "react";
 import L from "leaflet";
+import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import "leaflet/dist/leaflet.css";
 import {
   valhallaBase,
@@ -304,33 +305,6 @@ async function snapToRoads(
   return out.segments.length > 0 ? out : null;
 }
 
-// Tile config shared by both maps. CARTO's dark basemap split into a
-// no-labels layer (z-index below the route polyline) and a labels-only
-// layer (z-index above the route), so place names stay legible without
-// being cut by the line.
-const CARTO_ATTRIB =
-  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>';
-function addCartoDark(map: L.Map) {
-  L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-    {
-      maxZoom: 20,
-      subdomains: "abcd",
-      attribution: CARTO_ATTRIB,
-      className: "rivolt-tiles-base",
-    },
-  ).addTo(map);
-  L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
-    {
-      maxZoom: 20,
-      subdomains: "abcd",
-      pane: "markerPane",
-      attribution: "",
-    },
-  ).addTo(map);
-}
-
 // Vector attribution for the self-hosted Protomaps basemap. OSM is
 // the data source; Protomaps builds and hosts the daily planet
 // extracts we slice from at build time.
@@ -616,10 +590,11 @@ function boostContrast(name: Flavor, base: PMFlavor): PMFlavor {
   }
 }
 
-// addBasemap picks between the self-hosted PMTiles vector layer
-// (when the tile server is wired via /api/config) and the legacy
-// CARTO raster split-label setup. The vector path renders labels
-// inline with the basemap; the route polyline draws on top.
+// addBasemap draws the self-hosted PMTiles vector layer when the tile
+// server is wired via /api/config; otherwise it shows a "tiles
+// unavailable" notice on a plain background (no third-party raster
+// host). The vector path renders labels inline with the basemap; the
+// route polyline draws on top.
 //
 // When the vector path is active, the layer is swapped on
 // FLAVOR_EVENT so every map on the page stays in sync with the
@@ -627,7 +602,7 @@ function boostContrast(name: Flavor, base: PMFlavor): PMFlavor {
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
   if (!url) {
-    addCartoDark(map);
+    addTilesUnavailableNotice(map);
     return;
   }
   // protomaps-leaflet's leafletLayer returns its own LeafletLayer

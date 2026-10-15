@@ -112,6 +112,8 @@ export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-do
 export type DrainMode = "absent" | "ok" | "insufficient";
 
 export type StubOptions = {
+  // No basemap archive configured (tiles.url empty).
+  noTiles?: boolean;
   // features.signup_enabled=false (RIVOLT_SIGNUP_DISABLED).
   signupDisabled?: boolean;
   // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
@@ -128,7 +130,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -144,7 +146,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/config") {
       return json(route, {
         features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
-        tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
+        tiles: { url: noTiles ? "" : "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
       });

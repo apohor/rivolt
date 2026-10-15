@@ -202,3 +202,14 @@ test("the demo map uses the self-hosted basemap, never CARTO's keyed raster", as
   // The self-hosted basemap archive is what the map reads.
   expect(reqs.some((u) => u.includes("/api/maps/tiles/us.pmtiles"))).toBe(true);
 });
+
+test("without a basemap archive the map says so, and calls no third-party tile host", async ({ page }) => {
+  const reqs: string[] = [];
+  page.on("request", (r) => reqs.push(r.url()));
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, noTiles: true });
+  await page.goto("/demo?tab=activity");
+  await page.locator('a[href^="/demo/charges/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
+  await expect(page.getByText("Map tiles unavailable on this server").first()).toBeVisible();
+  expect(reqs.filter((u) => /cartocdn\.com|openstreetmap\.org\/\d/.test(u))).toEqual([]);
+});
