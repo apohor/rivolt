@@ -490,6 +490,46 @@ export type NowSnapshot = {
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
+// DrainSnapshot is GET /api/vehicles/{id}/drain (drain-contract v1).
+// Nulls mean unknown, never 0. Reports what happened, not why.
+export type DrainWindow = {
+  drain_pct_per_day: number | null;
+  drain_kwh_per_day: number | null;
+  idle_awake_hours_per_day: number | null;
+  sleeps: number;
+  quick_rewakes: number;
+  median_sleep_seconds: number | null;
+  parked_hours: number;
+  power_state_observed_hours: number;
+  days_in_window: number;
+  days_with_data: number;
+  // Only "insufficient" is reported (v1.1); older shapes may add more.
+  days_excluded: { insufficient: number; charging?: number; driving?: number };
+  sufficient: boolean;
+};
+
+export type DrainDay = {
+  day: string;
+  drain_pct: number | null;
+  idle_awake_hours: number | null;
+  parked_hours: number;
+  sleeps: number;
+  quick_rewakes: number;
+  excluded: "charging" | "driving" | "insufficient" | null;
+  // Informational (v1.1).
+  charging_hours?: number;
+  driving_hours?: number;
+};
+
+export type DrainSnapshot = {
+  version: number;
+  generated_at: string;
+  tz: string;
+  pack_kwh: number | null;
+  windows: { "7d": DrainWindow; "30d": DrainWindow };
+  daily: DrainDay[];
+};
+
 export type LiveDrive = {
   vehicle_id: string;
   number: number;
@@ -888,6 +928,16 @@ export const backend = {
       return r?.enabled ? r : null;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 401)) return null;
+      throw e;
+    }
+  },
+  // vehicleDrain returns null when the endpoint is absent (404: flag
+  // off or an older server); the Truck tab then hides the drain card.
+  vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
+    try {
+      return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
     }
   },

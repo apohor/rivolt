@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { BarChart } from "../components/charts";
 import { PackHealthCard } from "../components/PackHealthCard";
+import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -70,6 +71,8 @@ export default function TruckPage() {
         subtitle={name}
         actions={<VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />}
       />
+
+      <DrainCard vehicleID={selectedID} />
 
       <Card title="Pack capacity">
         <PackHealthCard vehicleID={selectedID} />

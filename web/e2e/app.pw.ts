@@ -51,6 +51,8 @@ const views: View[] = [
   { name: "banner-disconnected", path: "/money", heading: "Money", opts: { rivian: "disconnected" }, text: ["Rivian isn't connected."] },
   { name: "banner-backend-down", path: "/money", heading: "Money", opts: { rivian: "backend-down" }, text: ["Rivolt can't reach its server."] },
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
+  { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /in the Sleep card below/] },
+  { name: "truck-drain-thin", path: "/truck", heading: "Truck", opts: { drain: "insufficient" }, text: ["Not enough parked time yet to measure drain."] },
   { name: "truck", path: "/truck", heading: "Truck", text: ["Pack capacity", "Lowest tire"] },
   { name: "landing", path: "/", heading: /What your Rivian actually costs/, opts: { signedIn: false, landing: true } },
   { name: "admin-idp", path: "/admin#users", heading: /Sign-in removal failures/, text: ["Delete that account instead"] },
@@ -108,6 +110,10 @@ for (const view of views) {
         if (!view.name.startsWith("banner-") && view.name !== "landing" && view.name !== "admin-idp") {
           // Healthy: no degraded banner.
           await expect(page.getByRole("status").filter({ hasText: /Rivian|reach its server/ })).toHaveCount(0);
+        }
+        if (view.name === "truck") {
+          // Endpoint absent (404): no drain card at all.
+          await expect(page.getByText("Parked drain")).toHaveCount(0);
         }
         if (view.name === "settings") {
           // Sign out lives in Settings now.
