@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -172,6 +173,9 @@ func TestMatchPlanOnTheReplayCorpus(t *testing.T) {
 	if day != "2026-01-23" || c.Band != "high" || c.Confidence < 0.95 || !strings.HasPrefix(c.TripID, "trip_") {
 		t.Errorf("Vegas candidate = %+v", c)
 	}
+	if c.InProgress || c.Miles < 500 || c.Miles > 700 { // there and back
+		t.Errorf("Vegas candidate miles %.1f, in progress %v", c.Miles, c.InProgress)
+	}
 	if c.Signals.Destination != 1 || c.Signals.Origin != 1 || c.Signals.RouteOverlap == nil || *c.Signals.RouteOverlap != 1 ||
 		c.Signals.StartOffsetMin == nil || *c.Signals.StartOffsetMin != 10 {
 		t.Errorf("signals = %+v", c.Signals)
@@ -270,8 +274,9 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 
 	// Leg: home → Barstow → Vegas, the fast charge between; arrives at
 	// 12:05 with 27%.
-	if len(cmp.Leg.DriveIDs) != 2 || len(cmp.Leg.ChargeIDs) != 1 || cmp.Leg.ArrivedAt.Format("15:04") != "12:05" {
-		t.Errorf("leg = %+v", cmp.Leg)
+	if len(cmp.Leg.DriveIDs) != 2 || len(cmp.Leg.ChargeIDs) != 1 || cmp.Leg.ArrivedAt.Format("15:04") != "12:05" ||
+		cmp.Leg.Miles < 250 || cmp.Leg.Miles > 300 || cmp.Status != "complete" {
+		t.Errorf("leg = %+v, status %q", cmp.Leg, cmp.Status)
 	}
 	if soc := metric(t, cmp, "arrival_soc"); !eq(soc.Actual, 27) || !eq(soc.Delta, 2) {
 		t.Errorf("arrival soc = %+v", soc)
@@ -301,7 +306,9 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 		t.Errorf("priced cost = %+v (kWh %.1f)", cost, kwh)
 	}
 	r := hasReason(cost, "rate_differed")
-	if r == nil || !eq(r.Amount, -0.05*kwh) || !strings.Contains(r.Detail, "estimated at 0.40/kWh vs 0.45 planned") {
+	if r == nil || !eq(r.Amount, -0.05*kwh) || !eq(r.Rate, 0.40) || !eq(r.PlanRate, 0.45) || !r.Estimated ||
+		r.Network != "Rivian Adventure Network" ||
+		r.Detail != "Rivian Adventure Network's price is estimated at $0.40/kWh; the plan assumed $0.45." {
 		t.Errorf("rate reason = %+v", r)
 	}
 	if hasReason(cost, "estimated") == nil || hasReason(cost, "unpriced") != nil {
@@ -320,7 +327,8 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 	if len(cmp.Stops) != 2 || cmp.Stops[1].Match != "skipped" {
 		t.Errorf("stops = %+v", cmp.Stops)
 	}
-	if r := hasReason(metric(t, cmp, "cost"), "skipped_stop"); r == nil || !eq(r.Amount, -5) {
+	if r := hasReason(metric(t, cmp, "cost"), "skipped_stop"); r == nil || !eq(r.Amount, -5) ||
+		r.Detail != "You skipped a planned stop, saving about $5.00." || r.Stop != "EVgo" {
 		t.Errorf("skipped reason = %+v", r)
 	}
 	if s := metric(t, cmp, "dcfc_stops"); !eq(s.Delta, -1) || hasReason(s, "skipped_stop") == nil {
@@ -334,7 +342,7 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 		t.Errorf("stops = %+v", cmp.Stops)
 	}
 	if r := hasReason(metric(t, cmp, "cost"), "extra_stop"); r == nil || !eq(r.Amount, 0.40*kwh) ||
-		!strings.Contains(r.Detail, "Rivian Adventure Network") {
+		r.Network != "Rivian Adventure Network" || r.Detail != fmt.Sprintf("You made an extra fast-charge stop, which cost $%.2f.", 0.40*kwh) {
 		t.Errorf("extra reason = %+v", r)
 	}
 
@@ -372,7 +380,50 @@ func TestPlanJSONShape(t *testing.T) {
 			t.Errorf("missing %s in\n%s", k, s)
 		}
 	}
+	for _, k := range []string{`"status":"complete"`, `"miles":`, `"in_progress":false`, `"plan_rate":0.45`, `"estimated":true`} {
+		if !strings.Contains(s, k) {
+			t.Errorf("missing %s", k)
+		}
+	}
 	if strings.Contains(s, `"actual_complete":null`) || strings.Contains(s, `"reasons":null`) {
 		t.Errorf("null where the contract has a value:\n%s", s)
+	}
+}
+
+// A trip still on the way: the ledger as it stood at Barstow, before
+// reaching Vegas. It's a candidate (medium at most, in progress) and
+// the comparison says so, with no arrival figures yet.
+func TestPlanInProgress(t *testing.T) {
+	full := sampleLedger(t)
+	cut := time.Date(2026, 1, 23, 9, 40, 0, 0, time.UTC) // charged at Barstow, back on the road
+	in := Input{Config: full.Config, Now: cut}
+	for _, d := range full.Drives {
+		if d.StartedAt.Before(cut) && d.EndedAt.Before(cut) {
+			in.Drives = append(in.Drives, d)
+		}
+	}
+	for _, c := range full.Charges {
+		if c.EndedAt.Before(cut) {
+			in.Charges = append(in.Charges, c)
+		}
+	}
+	p := vegasPlan(t, "2026-01-23T07:30:00Z")
+	cands := MatchPlan(p, in)
+	if len(cands) == 0 || !cands[0].InProgress || cands[0].Band != "medium" || cands[0].StartedAt.Format("2006-01-02") != "2026-01-23" {
+		t.Fatalf("in-progress candidates = %+v", cands)
+	}
+	cmp := mustCompare(t, p, in, cands[0].TripID)
+	if cmp.Status != "in_progress" || metric(t, cmp, "arrival_soc").Actual != nil || metric(t, cmp, "duration").Actual != nil {
+		t.Errorf("in-progress comparison: status %q, metrics %+v", cmp.Status, cmp.Metrics)
+	}
+	if s := metric(t, cmp, "dcfc_stops"); !eq(s.Actual, 1) {
+		t.Errorf("stops so far = %+v", s)
+	}
+
+	// Days later with nothing more recorded it isn't live any more, and
+	// a destination never reached isn't a match.
+	in.Now = cut.Add(48 * time.Hour)
+	if cands := MatchPlan(p, in); len(cands) != 0 {
+		t.Errorf("a stale, unfinished outing matched: %+v", cands)
 	}
 }

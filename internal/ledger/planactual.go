@@ -229,11 +229,16 @@ func PlanWindow(p Plan) (time.Time, time.Time) {
 
 // PlanCandidate is one outing that may have carried out the plan (§4).
 type PlanCandidate struct {
-	TripID     string      `json:"trip_id"`
-	StartedAt  time.Time   `json:"started_at"`
-	EndedAt    time.Time   `json:"ended_at"`
-	Confidence float64     `json:"confidence"`
-	Band       string      `json:"band"`
+	TripID     string    `json:"trip_id"`
+	StartedAt  time.Time `json:"started_at"`
+	EndedAt    time.Time `json:"ended_at"`
+	Miles      float64   `json:"miles"`
+	Confidence float64   `json:"confidence"`
+	Band       string    `json:"band"`
+	// InProgress: the outing is still under way (not back home, last
+	// activity within TripMaxParked) and hasn't reached the plan's
+	// destination yet. Its band is at most medium.
+	InProgress bool        `json:"in_progress"`
 	Signals    PlanSignals `json:"signals"`
 }
 
@@ -268,12 +273,19 @@ func MatchPlan(p Plan, in Input) []PlanCandidate {
 				destKM = km
 			}
 		}
-		if destKM > planFarKM {
-			continue // the destination gate
+		live := outingLive(o, in)
+		inProgress := live && destKM > planNearKM
+		if destKM > planFarKM && !inProgress {
+			continue // the destination gate (waived while still under way)
 		}
 		var sig PlanSignals
-		sig.DestinationKM = round2(destKM)
+		if !math.IsInf(destKM, 1) {
+			sig.DestinationKM = round2(destKM)
+		}
 		sig.Destination = proximity(destKM)
+		if inProgress {
+			sig.Destination = 0.5 // not there yet: neither for nor against
+		}
 		if km, ok := kmTo(ds[0].StartLat, ds[0].StartLon, p.Origin); ok {
 			k := round2(km)
 			sig.OriginKM, sig.Origin = &k, proximity(km)
@@ -299,11 +311,11 @@ func MatchPlan(p Plan, in Input) []PlanCandidate {
 			continue
 		}
 		band := "medium"
-		if conf >= planHighBand {
+		if conf >= planHighBand && !inProgress {
 			band = "high"
 		}
 		out = append(out, PlanCandidate{TripID: outingID(o), StartedAt: start, EndedAt: outingEnd(o),
-			Confidence: conf, Band: band, Signals: sig})
+			Miles: drivenMiles(ds), Confidence: conf, Band: band, InProgress: inProgress, Signals: sig})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Confidence != out[j].Confidence {
@@ -376,6 +388,32 @@ func kmTo(lat, lon *float64, at LatLon) (float64, bool) {
 	return haversineKM(at.Lat, at.Lon, *lat, *lon), true
 }
 
+// outingLive reports whether the outing is still under way as of
+// in.Now: a charge on it still open, or its last activity within
+// TripMaxParked and its last known position away from home.
+func outingLive(o []tripEvent, in Input) bool {
+	if in.Now.IsZero() {
+		return false
+	}
+	for _, e := range o {
+		if e.charge != nil && isOpen(e.charge.FinalState) {
+			return true
+		}
+	}
+	if in.Now.Sub(outingEnd(o)) >= TripMaxParked {
+		return false
+	}
+	return lastAway(o, in.Config.Home)
+}
+
+func drivenMiles(ds []*Drive) float64 {
+	mi := 0.0
+	for _, d := range ds {
+		mi += val(d.DistanceMi)
+	}
+	return round1(mi)
+}
+
 func outingDrives(o []tripEvent) []*Drive {
 	var ds []*Drive
 	for _, e := range o {
@@ -410,6 +448,10 @@ func outingEnd(o []tripEvent) time.Time {
 // suggested) outing (contract §5). PlanFrom is set by the caller
 // ("snapshot" for a link, "current" for a suggestion).
 type PlanComparison struct {
+	// Status is "in_progress" while the outing hasn't reached the
+	// plan's destination or is still under way (not home yet), else
+	// "complete". Metrics are what's known so far either way.
+	Status   string         `json:"status"`
 	Currency string         `json:"currency"`
 	PlanFrom string         `json:"plan_from"`
 	Leg      PlanLeg        `json:"leg"`
@@ -421,7 +463,10 @@ type PlanComparison struct {
 // first arrival at the plan's destination.
 type PlanLeg struct {
 	StartedAt time.Time `json:"started_at"`
+	// ArrivedAt is when the leg reached the destination; the time of
+	// the latest drive's end while still on the way.
 	ArrivedAt time.Time `json:"arrived_at"`
+	Miles     float64   `json:"miles"`
 	DriveIDs  []string  `json:"drive_ids"`
 	ChargeIDs []string  `json:"charge_ids"`
 }
@@ -444,10 +489,56 @@ type PlanMetric struct {
 
 // PlanReason explains part of a difference. Amount (cost metric only)
 // is that part of the cost delta, in the comparison currency.
+//
+// Detail is ready-to-show copy (plan-vs-actual-copy.md); the structured
+// fields, set where they apply, let a client word it itself. Stop and
+// network names are public chargers only, never a home.
 type PlanReason struct {
-	Code   string   `json:"code"`
-	Amount *float64 `json:"amount"`
-	Detail string   `json:"detail"`
+	Code         string   `json:"code"`
+	Amount       *float64 `json:"amount"`
+	Detail       string   `json:"detail"`
+	Network      string   `json:"network,omitempty"`      // the actual session's network
+	PlanNetwork  string   `json:"plan_network,omitempty"` // the planned stop's network
+	Stop         string   `json:"stop,omitempty"`         // planned stop label
+	Rate         *float64 `json:"rate,omitempty"`         // actual price per kWh
+	PlanRate     *float64 `json:"plan_rate,omitempty"`
+	Estimated    bool     `json:"estimated,omitempty"` // Rate is a network estimate, not a bill
+	KWh          *float64 `json:"kwh,omitempty"`
+	PlanKWh      *float64 `json:"plan_kwh,omitempty"`
+	Count        *int     `json:"count,omitempty"`   // unpriced sessions, extra or skipped stops
+	Percent      *float64 `json:"percent,omitempty"` // drove_further, less_efficient
+	Miles        *float64 `json:"miles,omitempty"`
+	PlanMiles    *float64 `json:"plan_miles,omitempty"`
+	MiPerKWh     *float64 `json:"mi_per_kwh,omitempty"`
+	PlanMiPerKWh *float64 `json:"plan_mi_per_kwh,omitempty"`
+}
+
+// money formats an amount as the copy does: whole units above 20,
+// cents below.
+func money(v float64, cur string) string {
+	sym, suffix := currencySymbol(cur)
+	if math.Abs(v) > 20 {
+		return fmt.Sprintf("%s%.0f%s", sym, math.Abs(v), suffix)
+	}
+	return fmt.Sprintf("%s%.2f%s", sym, math.Abs(v), suffix)
+}
+
+// rate formats a price per kWh (always cents).
+func rate(v float64, cur string) string {
+	sym, suffix := currencySymbol(cur)
+	return fmt.Sprintf("%s%.2f%s", sym, v, suffix)
+}
+
+func currencySymbol(cur string) (string, string) {
+	switch strings.ToUpper(cur) {
+	case "", "USD", "CAD", "AUD":
+		return "$", ""
+	case "EUR":
+		return "€", ""
+	case "GBP":
+		return "£", ""
+	}
+	return "", " " + strings.ToUpper(cur)
 }
 
 // PlanStopPair pairs a planned stop with the actual session there.
@@ -496,9 +587,13 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 	if o == nil {
 		return PlanComparison{}, false
 	}
-	leg, arrive := planLeg(p, o)
+	leg, arrive, arrived := planLeg(p, o)
 	cfg := in.Config
-	cmp := PlanComparison{Currency: cfg.Currency, Metrics: []PlanMetric{}, Stops: []PlanStopPair{},
+	status := "complete"
+	if !arrived || outingLive(o, in) {
+		status = "in_progress"
+	}
+	cmp := PlanComparison{Status: status, Currency: cfg.Currency, Metrics: []PlanMetric{}, Stops: []PlanStopPair{},
 		Leg: PlanLeg{StartedAt: leg[0].start.UTC(), ArrivedAt: arrive.EndedAt.UTC(), DriveIDs: []string{}, ChargeIDs: []string{}}}
 	if cmp.Currency == "" {
 		cmp.Currency = p.Currency
@@ -522,7 +617,8 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 		}
 	}
 
-	pairs, costReasons := pairStops(p, fast)
+	cmp.Leg.Miles = drivenMiles(legDrives)
+	pairs, costReasons := pairStops(p, fast, cfg.Currency)
 	for _, v := range slowAway {
 		pairs = append(pairs, PlanStopPair{Match: "extra", Actual: actualStop(v)})
 	}
@@ -531,20 +627,25 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 		costMetric(p, cfg, fast, costReasons),
 		energyMetric(p, legDrives),
 		stopsMetric(p, pairs),
-		socMetric(p, arrive),
-		durationMetric(p, cmp.Leg))
+		socMetric(p, arrive, arrived),
+		durationMetric(p, cmp.Leg, arrived))
 	return cmp, true
 }
 
 // planLeg is the outing up to and including the first drive that ends
-// near the destination (else the drive that ends nearest it), with the
-// charges in between, and that arriving drive.
-func planLeg(p Plan, o []tripEvent) ([]tripEvent, *Drive) {
-	arriveAt, best := -1, math.Inf(1)
+// near the destination, with the charges in between, and that arriving
+// drive. When no drive gets there (still on the way, or the plan's
+// destination was missed by a few km) the leg is the outing up to the
+// drive that ends nearest it, and arrived is false only when none is
+// within planFarKM (so the comparison is reported in progress).
+func planLeg(p Plan, o []tripEvent) ([]tripEvent, *Drive, bool) {
+	arriveAt, nearest, lastDrive := -1, -1, -1
+	nearestKM := math.Inf(1)
 	for i, e := range o {
 		if e.drive == nil {
 			continue
 		}
+		lastDrive = i
 		km, ok := kmTo(e.drive.EndLat, e.drive.EndLon, p.Destination)
 		if !ok {
 			continue
@@ -553,23 +654,24 @@ func planLeg(p Plan, o []tripEvent) ([]tripEvent, *Drive) {
 			arriveAt = i
 			break
 		}
-		if km < best {
-			best, arriveAt = km, i
+		if km < nearestKM {
+			nearestKM, nearest = km, i
 		}
 	}
-	if arriveAt < 0 { // no positions at all: the last drive
-		for i, e := range o {
-			if e.drive != nil {
-				arriveAt = i
-			}
-		}
+	switch {
+	case arriveAt >= 0:
+		return o[:arriveAt+1], o[arriveAt].drive, true
+	case nearest >= 0 && nearestKM <= planFarKM: // ended a few km off the planned point
+		return o[:nearest+1], o[nearest].drive, true
+	case nearest < 0: // no positions recorded: take the outing as the trip
+		return o, o[lastDrive].drive, true
 	}
-	return o[:arriveAt+1], o[arriveAt].drive
+	return o, o[lastDrive].drive, false // not there (yet)
 }
 
 // pairStops pairs planned stops (route order) with the leg's fast
 // sessions, and returns the cost reasons the pairing explains.
-func pairStops(p Plan, fast []sessionView) ([]PlanStopPair, []PlanReason) {
+func pairStops(p Plan, fast []sessionView, currency string) ([]PlanStopPair, []PlanReason) {
 	used := make([]bool, len(fast))
 	var pairs []PlanStopPair
 	var reasons []PlanReason
@@ -588,9 +690,12 @@ func pairStops(p Plan, fast []sessionView) ([]PlanStopPair, []PlanReason) {
 		pl := plannedStop(s)
 		if bestJ < 0 {
 			pairs = append(pairs, PlanStopPair{Match: "skipped", Planned: pl})
-			r := PlanReason{Code: "skipped_stop", Detail: "skipped the planned stop at " + stopLabel(s)}
+			r := PlanReason{Code: "skipped_stop", Stop: stopLabel(s), PlanNetwork: s.Network}
 			if s.EstCost != nil {
 				r.Amount = ptrRound2(-*s.EstCost)
+				r.Detail = fmt.Sprintf("You skipped a planned stop, saving about %s.", money(*s.EstCost, currency))
+			} else {
+				r.Detail = "You skipped a planned stop."
 			}
 			reasons = append(reasons, r)
 			continue
@@ -599,26 +704,39 @@ func pairStops(p Plan, fast []sessionView) ([]PlanStopPair, []PlanReason) {
 		v := fast[bestJ]
 		match := matchKind(s, v, bestKM)
 		pairs = append(pairs, PlanStopPair{Match: match, Planned: pl, Actual: actualStop(v)})
+		actualNet := strings.TrimSpace(v.c.Network)
 		if match == "other_network" {
-			reasons = append(reasons, PlanReason{Code: "other_network",
-				Detail: fmt.Sprintf("charged on %s instead of %s", v.c.Network, s.Network)})
+			reasons = append(reasons, PlanReason{Code: "other_network", Network: actualNet, PlanNetwork: s.Network,
+				Stop: stopLabel(s), Detail: fmt.Sprintf("You used %s instead of the planned %s.", actualNet, s.Network)})
 		}
 		akwh := val(v.c.EnergyKWh)
 		if !v.spendOK || akwh <= 0 || s.EstRate == nil {
 			continue
 		}
 		ar, pr := *v.c.Cost/akwh, *s.EstRate
+		net := actualNet
+		if net == "" {
+			net = stopLabel(s)
+		}
 		if pr > 0 && math.Abs(ar-pr)/pr > 0.05 {
-			verb := "billed"
-			if v.source == SourceNetworkEstimate {
-				verb = "estimated at"
+			est := v.source == SourceNetworkEstimate
+			r := PlanReason{Code: "rate_differed", Amount: ptrRound2((ar - pr) * akwh), Network: net, PlanNetwork: s.Network,
+				Stop: stopLabel(s), Rate: ptrRound2(ar), PlanRate: ptrRound2(pr), Estimated: est}
+			if est {
+				r.Detail = fmt.Sprintf("%s's price is estimated at %s/kWh; the plan assumed %s.", net, rate(ar, currency), rate(pr, currency))
+			} else {
+				r.Detail = fmt.Sprintf("%s charged %s/kWh; the plan assumed %s.", net, rate(ar, currency), rate(pr, currency))
 			}
-			reasons = append(reasons, PlanReason{Code: "rate_differed", Amount: ptrRound2((ar - pr) * akwh),
-				Detail: fmt.Sprintf("%s %s %.2f/kWh vs %.2f planned", stopLabel(s), verb, ar, pr)})
+			reasons = append(reasons, r)
 		}
 		if s.EstKWh != nil && *s.EstKWh > 0 && math.Abs(akwh-*s.EstKWh) / *s.EstKWh > 0.10 {
+			more := "more"
+			if akwh < *s.EstKWh {
+				more = "less"
+			}
 			reasons = append(reasons, PlanReason{Code: "energy_differed", Amount: ptrRound2((akwh - *s.EstKWh) * pr),
-				Detail: fmt.Sprintf("took %.0f kWh at %s vs %.0f planned", akwh, stopLabel(s), *s.EstKWh)})
+				Network: net, Stop: stopLabel(s), KWh: ptrRound1(akwh), PlanKWh: ptrRound1(*s.EstKWh),
+				Detail: fmt.Sprintf("You took %.0f kWh %s than planned at %s.", math.Abs(akwh-*s.EstKWh), more, stopLabel(s))})
 		}
 	}
 	for j, v := range fast {
@@ -626,12 +744,10 @@ func pairStops(p Plan, fast []sessionView) ([]PlanStopPair, []PlanReason) {
 			continue
 		}
 		pairs = append(pairs, PlanStopPair{Match: "extra", Actual: actualStop(v)})
-		r := PlanReason{Code: "extra_stop", Detail: "an unplanned fast charge"}
-		if n := strings.TrimSpace(v.c.Network); n != "" {
-			r.Detail += " (" + n + ")"
-		}
+		r := PlanReason{Code: "extra_stop", Network: strings.TrimSpace(v.c.Network), Detail: "You made an extra fast-charge stop."}
 		if v.spendOK {
 			r.Amount = ptrRound2(*v.c.Cost)
+			r.Detail = fmt.Sprintf("You made an extra fast-charge stop, which cost %s.", money(*v.c.Cost, currency))
 		}
 		reasons = append(reasons, r)
 	}
@@ -639,6 +755,7 @@ func pairStops(p Plan, fast []sessionView) ([]PlanStopPair, []PlanReason) {
 }
 
 func stopLabel(s PlannedStop) string {
+	// Planned stops are public chargers from the planner, never a home.
 	if s.Network != "" {
 		return s.Network
 	}
@@ -697,7 +814,7 @@ func costMetric(p Plan, cfg Config, fast []sessionView, reasons []PlanReason) Pl
 	}
 	if p.Currency != "" && cfg.Currency != "" && !strings.EqualFold(p.Currency, cfg.Currency) {
 		m.Reasons = append(m.Reasons, PlanReason{Code: "currency_mismatch",
-			Detail: fmt.Sprintf("planned in %s, the ledger is in %s", p.Currency, cfg.Currency)})
+			Detail: "The plan and your charges use different currencies."})
 		return m
 	}
 	m.Planned = roundPtr(p.Cost, 2)
@@ -724,12 +841,13 @@ func costMetric(p Plan, cfg Config, fast []sessionView, reasons []PlanReason) Pl
 	}
 	m.Reasons = append(m.Reasons, reasons...)
 	if est := sources[SourceNetworkEstimate]; est > 0 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "estimated",
-			Detail: fmt.Sprintf("%.2f of the actual is a network estimate, not a bill", est)})
+		m.Reasons = append(m.Reasons, PlanReason{Code: "estimated", Estimated: true,
+			Detail: "Part of this total is estimated from the network's price, not billed."})
 	}
 	if unpriced > 0 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "unpriced",
-			Detail: fmt.Sprintf("%d fast charge(s) not priced yet", unpriced)})
+		n := unpriced
+		m.Reasons = append(m.Reasons, PlanReason{Code: "unpriced", Count: &n,
+			Detail: fmt.Sprintf("%d charge(s) aren't priced yet, so the total is incomplete.", unpriced)})
 	}
 	sortReasons(m.Reasons)
 	return m
@@ -747,20 +865,26 @@ func energyMetric(p Plan, drives []*Drive) PlanMetric {
 		}
 	}
 	if partial || len(drives) == 0 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "energy_partial", Detail: "a drive on the leg has no recorded energy"})
+		m.Reasons = append(m.Reasons, PlanReason{Code: "energy_partial",
+			Detail: "One drive wasn't fully recorded, so energy may be off."})
 	} else {
 		m.Actual = ptrRound1(kwh)
 		m.Delta = diff(m.Actual, m.Planned)
 	}
 	if p.DistanceMi != nil && mi > *p.DistanceMi*1.05 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "drove_further",
-			Detail: fmt.Sprintf("drove %.0f mi vs %.0f planned", mi, *p.DistanceMi)})
+		pct := math.Round((mi / *p.DistanceMi - 1) * 100)
+		m.Reasons = append(m.Reasons, PlanReason{Code: "drove_further", Percent: &pct,
+			Miles: ptrRound1(mi), PlanMiles: ptrRound1(*p.DistanceMi),
+			Detail: fmt.Sprintf("You drove %.0f%% further than planned.", pct)})
 	}
 	if !partial && kwh > 0 && mi > 0 && p.DistanceMi != nil && p.EnergyKWh != nil {
 		planned, actual := *p.DistanceMi / *p.EnergyKWh, mi/kwh
 		if actual < planned*0.95 {
-			m.Reasons = append(m.Reasons, PlanReason{Code: "less_efficient",
-				Detail: fmt.Sprintf("%.2f mi/kWh vs %.2f planned", actual, planned)})
+			// Energy per mile, relative: (1/actual)/(1/planned) − 1.
+			pct := math.Round((planned/actual - 1) * 100)
+			m.Reasons = append(m.Reasons, PlanReason{Code: "less_efficient", Percent: &pct,
+				MiPerKWh: ptrRound2(actual), PlanMiPerKWh: ptrRound2(planned),
+				Detail: fmt.Sprintf("The drive used %.0f%% more energy per mile than planned.", pct)})
 		}
 	}
 	return m
@@ -784,26 +908,30 @@ func stopsMetric(p Plan, pairs []PlanStopPair) PlanMetric {
 	m := PlanMetric{Metric: "dcfc_stops", Unit: "count", Planned: &planned, Actual: &a, Reasons: []PlanReason{}}
 	m.Delta = diff(m.Actual, m.Planned)
 	if extra > 0 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "extra_stop", Detail: fmt.Sprintf("%d unplanned fast charge(s)", extra)})
+		n := extra
+		m.Reasons = append(m.Reasons, PlanReason{Code: "extra_stop", Count: &n,
+			Detail: fmt.Sprintf("%d more stop(s) than planned.", extra)})
 	}
 	if skipped > 0 {
-		m.Reasons = append(m.Reasons, PlanReason{Code: "skipped_stop", Detail: fmt.Sprintf("%d planned stop(s) skipped", skipped)})
+		n := skipped
+		m.Reasons = append(m.Reasons, PlanReason{Code: "skipped_stop", Count: &n,
+			Detail: fmt.Sprintf("%d planned stop(s) skipped.", skipped)})
 	}
 	return m
 }
 
-func socMetric(p Plan, arrive *Drive) PlanMetric {
+func socMetric(p Plan, arrive *Drive, arrived bool) PlanMetric {
 	m := PlanMetric{Metric: "arrival_soc", Unit: "pct", Planned: roundPtr(p.ArrivalSoC, 0), Reasons: []PlanReason{}}
-	if arrive != nil && arrive.EndSoC != nil {
+	if arrived && arrive != nil && arrive.EndSoC != nil {
 		m.Actual = roundPtr(arrive.EndSoC, 0)
 	}
 	m.Delta = diff(m.Actual, m.Planned)
 	return m
 }
 
-func durationMetric(p Plan, leg PlanLeg) PlanMetric {
+func durationMetric(p Plan, leg PlanLeg, arrived bool) PlanMetric {
 	m := PlanMetric{Metric: "duration", Unit: "min", Planned: roundPtr(p.DurationMin, 0), Reasons: []PlanReason{}}
-	if d := leg.ArrivedAt.Sub(leg.StartedAt); d > 0 {
+	if d := leg.ArrivedAt.Sub(leg.StartedAt); arrived && d > 0 {
 		v := math.Round(d.Minutes())
 		m.Actual = &v
 	}
