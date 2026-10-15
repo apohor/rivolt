@@ -25,7 +25,7 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export function DemoBanner() {
-  // Sign-ups closed: "Connect my Rivian" goes to sign in instead of a
+  // Sign-ups closed: "Connect with a driver account" goes to sign in instead of a
   // signup page that would only say it's closed. null (loading) behaves
   // as open.
   const signupEnabled = useSignupEnabled();
@@ -38,7 +38,7 @@ export function DemoBanner() {
             yours.
           </span>
           <Link to={to} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
-            Connect my Rivian
+            Connect with a driver account
           </Link>
         </div>
       </div>

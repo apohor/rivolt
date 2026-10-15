@@ -61,11 +61,11 @@ test("a fresh open of a demo detail URL works signed out", async ({ page }) => {
 
 test("the demo banner CTA goes to signup, or to login when sign-ups are closed", async ({ page }) => {
   await openDemo(page, "/demo");
-  await expect(page.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/signup");
+  await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/signup");
 });
 
 test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, signupDisabled: true });
   await page.goto("/demo");
-  await expect(page.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/login");
+  await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
