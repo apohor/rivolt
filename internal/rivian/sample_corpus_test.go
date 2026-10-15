@@ -176,3 +176,33 @@ func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
 		}
 	}
 }
+
+// SampleUserPrice finds the one hand-priced session (the Vegas hotel L2)
+// wherever a loop of the replay puts it on the wall clock, and nothing
+// else.
+func TestSampleUserPrice(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	start, end := c.span()
+	frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
+	r := NewReplayer("sample")
+	r.FeedAll(frames)
+	tl := sampleTimeline(c)
+	for _, loop := range []int64{0, 3, 17} {
+		shift := tl.loopStart(loop).Sub(tl.start)
+		var hits []string
+		for _, ch := range r.Charges() {
+			cost, cur, ok := SampleUserPrice(ch.StartedAt.Add(shift))
+			if !ok {
+				continue
+			}
+			hits = append(hits, ch.ID)
+			if cost != 15 || cur != "USD" || haversineMeters(ch.Lat, ch.Lon, 36.1699, -115.1398) > 500 ||
+				IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+				t.Errorf("loop %d: %s priced %.2f %s at %.4f,%.4f: want the Vegas hotel AC at $15", loop, ch.ID, cost, cur, ch.Lat, ch.Lon)
+			}
+		}
+		if len(hits) != 1 {
+			t.Errorf("loop %d: hand-priced sessions %v, want exactly one", loop, hits)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -126,8 +127,9 @@ func (s sampleSeg) frames() int {
 
 // SampleCorpus is the generated corpus.
 type SampleCorpus struct {
-	segs  []sampleSeg
-	stats SampleSummary // plan counts; frames and span filled by Summary
+	segs       []sampleSeg
+	userPriced int           // segment the owner priced by hand; -1 when none
+	stats      SampleSummary // plan counts; frames and span filled by Summary
 }
 
 // SampleSummary describes what a corpus contains, for tests and the CLI.
@@ -155,8 +157,9 @@ type SampleSummary struct {
 func NewSampleCorpus(seed int64) *SampleCorpus {
 	b := &sampleBuilder{rng: rand.New(rand.NewSource(seed)), t: sampleStart.Add(7*time.Hour + 30*time.Minute),
 		soc: sampleWrapSoC, odo: 12480, at: SampleHome, limit: 80, plugged: true}
+	b.userPriced = -1
 	b.plan()
-	return &SampleCorpus{segs: b.segs, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
+	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
 		AwayAC: b.awayAC, FailedSleeps: b.flickers, RoadTripMiles: b.tripMiles}}
 }
 
@@ -180,6 +183,9 @@ type sampleBuilder struct {
 	dcfc      int
 	awayAC    int
 	flickers  int
+	// userPriced is the segment index of the session the sample owner
+	// priced by hand (SampleUserPrice); -1 when none.
+	userPriced int
 }
 
 func (b *sampleBuilder) add(s sampleSeg) {
@@ -356,6 +362,7 @@ func (b *sampleBuilder) plan() {
 			b.park(b.t.Add(90*time.Minute), false)
 			b.charge(90, sampleHotelKW, false) // hotel L2: away AC
 			b.awayAC++
+			b.userPriced = len(b.segs) - 1 // the owner enters the hotel's price
 			b.park(b.clock(day+1, 10, 0), false)
 			b.drive(48, sampleHoover, sampleVegas)
 			b.park(b.clock(day+1, 19, 0), false)
@@ -565,6 +572,52 @@ func (c *SampleCorpus) Summary() SampleSummary {
 // starts, so it needs no overnight park to hide the wrap.
 const sampleLoopGap = 5 * time.Minute
 
+// sampleTimeline is how the sample feed loops c over the wall clock.
+// SampleUserPrice maps times back through the same timeline.
+func sampleTimeline(c *SampleCorpus) replayTimeline {
+	start, end := c.span()
+	return replayTimeline{start: start, end: end, epoch: replayEpoch, gap: sampleLoopGap,
+		odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi}
+}
+
+// The price the sample owner entered for the Las Vegas hotel's L2: the
+// hotel charged a flat fee for the night's charging.
+const (
+	sampleUserPriceCost     = 15.00
+	sampleUserPriceCurrency = "USD"
+)
+
+var (
+	sampleTimelineOnce sync.Once
+	sampleCorpusShared *SampleCorpus
+	sampleTimelineMemo replayTimeline
+)
+
+// SampleUserPrice reports whether the sample truck's charge that started
+// at startedAt (wall clock, as the replay feed recorded it) is the one
+// its owner priced by hand (the Las Vegas hotel's L2, a flat $15), so the
+// demo seeder can apply that price through the normal user-pricing path
+// after the backfill: a price only a person can enter, which the
+// recorder must not invent. Deterministic: startedAt is mapped back onto
+// the looping corpus like the replay feed maps it forward.
+func SampleUserPrice(startedAt time.Time) (cost float64, currency string, ok bool) {
+	sampleTimelineOnce.Do(func() {
+		sampleCorpusShared = NewSampleCorpus(SampleSeed)
+		sampleTimelineMemo = sampleTimeline(sampleCorpusShared)
+	})
+	c, tl := sampleCorpusShared, sampleTimelineMemo
+	if c.userPriced < 0 {
+		return 0, "", false
+	}
+	k := tl.loopAt(startedAt)
+	corpusT := tl.start.Add(startedAt.Sub(tl.loopStart(k)))
+	d := corpusT.Sub(c.segs[c.userPriced].start)
+	if d < -2*time.Minute || d > 2*time.Minute {
+		return 0, "", false
+	}
+	return sampleUserPriceCost, sampleUserPriceCurrency, true
+}
+
 // NewSampleReplayFeed is the replay feed over the sample corpus
 // (RIVIAN_CLIENT=replay with RIVOLT_REPLAY_SOURCE=sample). pool, when
 // set, provides the resume point (the demo vehicle's latest sample).
@@ -573,13 +626,9 @@ func NewSampleReplayFeed(pool *sql.DB, backfill time.Duration, logger *slog.Logg
 		logger = slog.Default()
 	}
 	c := NewSampleCorpus(SampleSeed)
-	start, end := c.span()
 	f := &ReplayFeed{
-		corpus: c,
-		timeline: replayTimeline{
-			start: start, end: end, epoch: replayEpoch, gap: sampleLoopGap,
-			odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi,
-		},
+		corpus:   c,
+		timeline: sampleTimeline(c),
 		source:   Vehicle{ID: "sample", Name: "Sample R1S", Model: "R1S", ModelYear: 2025, PackKWh: samplePackKWh},
 		backfill: backfill,
 		logger:   logger,
