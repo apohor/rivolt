@@ -50,6 +50,11 @@ type StateMonitor struct {
 	// process. Guarded by mu.
 	wsSeen map[string]bool
 	active map[string]context.CancelFunc
+	// activeCtx[vehicleID] is the context of the run goroutine that
+	// active[vehicleID] cancels, so a goroutine exiting after a quick
+	// release → re-acquire removes only its own entry, not its
+	// successor's (see releaseActive).
+	activeCtx map[string]context.Context
 	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
 	// to non-owning goroutines (notably periodicRefresh) so a REST
 	// observation that the car just woke up can poke the WS to
@@ -358,6 +363,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastSampleAt:          make(map[string]time.Time),
 		wsSeen:          make(map[string]bool),
 		active:          make(map[string]context.CancelFunc),
+		activeCtx:       make(map[string]context.Context),
 		subCancel:       make(map[string]context.CancelCauseFunc),
 		shortSubEnds:    make(map[string][]time.Time),
 		lastFlapWarnAt:  make(map[string]time.Time),
@@ -397,11 +403,7 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 // snapshots, so each one becomes the cached state as-is (no delta
 // merge) and drives the recorder exactly as a live push would.
 func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
-	defer func() {
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
-	}()
+	defer m.releaseActive(ctx, vehicleID)
 	pubCtx, cancelPub := context.WithCancel(ctx)
 	defer cancelPub()
 	go m.liveStatePublisher(pubCtx, vehicleID)
@@ -861,6 +863,9 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	}
 	ctx, cancel := context.WithCancel(m.parent)
 	m.active[vehicleID] = cancel
+	if m.activeCtx != nil {
+		m.activeCtx[vehicleID] = ctx
+	}
 	m.mu.Unlock()
 
 	go m.run(ctx, vehicleID)
@@ -885,6 +890,7 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		// re-acquired lease (acquired → released → reacquired in
 		// quick succession) doesn't see a stale cancel func.
 		delete(m.active, vehicleID)
+		delete(m.activeCtx, vehicleID)
 		// Reset cold-start tracking: a re-acquired lease starts
 		// fresh and should poll fast until its first WS frame.
 		delete(m.wsSeen, vehicleID)
@@ -906,6 +912,30 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 	}
 }
 
+// releaseActive is how a run goroutine gives up its active entry when
+// it exits: only if the entry is still its own. Lease reconcile can
+// release a vehicle and re-acquire it in the same tick (a Renew error
+// reports every lease lost; Acquire then succeeds because the row is
+// still ours), so the successor's EnsureSubscribed may run before this
+// goroutine has exited. Deleting unconditionally removed the
+// successor's entry: it kept streaming, but Unsubscribe could no longer
+// cancel it, and the next EnsureSubscribed started a second run.
+func (m *StateMonitor) releaseActive(ctx context.Context, vehicleID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, tracked := m.activeCtx[vehicleID]
+	switch {
+	case tracked && cur == ctx:
+		delete(m.active, vehicleID)
+		delete(m.activeCtx, vehicleID)
+	case !tracked:
+		// No tracked successor: Unsubscribe already removed the entry
+		// (delete is then a no-op), or the monitor was built without
+		// activeCtx. Same as before.
+		delete(m.active, vehicleID)
+	}
+}
+
 // run is the per-vehicle subscription goroutine. It blocks inside
 // SubscribeVehicleState, which internally reconnects with backoff on
 // transient errors, and only returns when ctx is cancelled or the
@@ -918,9 +948,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// Unsubscribe still returns promptly during a rebalance.
 	m.waitStaggerSlot(ctx)
 	if ctx.Err() != nil {
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
+		m.releaseActive(ctx, vehicleID)
 		return
 	}
 	if m.source != nil {
@@ -1249,9 +1277,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			}
 		}
 	}
-	m.mu.Lock()
-	delete(m.active, vehicleID)
-	m.mu.Unlock()
+	m.releaseActive(ctx, vehicleID)
 }
 
 // wsStaleThreshold is how long we tolerate no WS pushes before
@@ -2876,9 +2902,7 @@ func (m *StateMonitor) waitAuthReady(ctx context.Context, vehicleID string) bool
 	m.logger.Info("rivian ws subscribe blocked: awaiting auth", "vehicle", vehicleID)
 	select {
 	case <-ctx.Done():
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
+		m.releaseActive(ctx, vehicleID)
 		return false
 	case <-ready:
 		return true
@@ -2913,9 +2937,7 @@ func (m *StateMonitor) waitReauthClear(ctx context.Context, vehicleID string) bo
 	for {
 		select {
 		case <-ctx.Done():
-			m.mu.Lock()
-			delete(m.active, vehicleID)
-			m.mu.Unlock()
+			m.releaseActive(ctx, vehicleID)
 			return false
 		case <-t.C:
 			if needs, _ := m.client.NeedsReauth(); !needs {
