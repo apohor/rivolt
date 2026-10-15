@@ -9,6 +9,7 @@
 import { displayTimeZone } from "../lib/format";
 import { useEffect, useRef } from "react";
 import L from "leaflet";
+import { safeFitBounds } from "../lib/mapFit";
 import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import { choosePin } from "../lib/chargerNetwork";
 import "leaflet/dist/leaflet.css";
@@ -744,10 +745,13 @@ function drawRoute(
 // fitOptions pads the route's fit-bounds so the end markers clear the
 // bottom controls: the speed legend (bottom-left) and the attribution
 // (bottom-right) sit about 40 px up from the edge, and on a phone the
-// 20 px default left the route's end dot half hidden under them.
+// 20 px default left the route's end dot half hidden under them. The
+// top/right padding does the same for the basemap toggle.
 function fitOptions(map: L.Map): L.FitBoundsOptions {
   const bottom = map.getSize().x < 520 ? 56 : 36;
-  return { paddingTopLeft: [20, 20], paddingBottomRight: [20, bottom] };
+  // The D/L basemap toggle sits top-right (about 66 x 36 px with its
+  // margin); keep the route's end pin clear of it.
+  return { paddingTopLeft: [20, 44], paddingBottomRight: [72, bottom] };
 }
 
 // addSpeedLegend adds a compact bottom-left swatch row showing what
@@ -948,10 +952,16 @@ export function DriveMap({
         Math.abs(lo - latlngs[0][1]) > SPREAD_EPS,
     );
     let line: L.LayerGroup | null = null;
+    // What the map should be fitted to: the raw trace first, the
+    // road-snapped route once it arrives. Every resize refits to it, so a
+    // map that mounted 0x0 (safeFitBounds only centres then) still ends up
+    // framed on the route.
+    let fitBox: L.LatLngBounds | null = null;
     if (latlngs.length > 1 && hasSpread) {
       line = drawRoute(map, latlngs, speeds);
       line.addTo(map);
-      map.fitBounds(L.latLngBounds(latlngs), fitOptions(map));
+      fitBox = L.latLngBounds(latlngs);
+      safeFitBounds(map, fitBox, fitOptions(map));
     } else if (latlngs.length > 0) {
       map.setView(latlngs[0], 16);
     }
@@ -1049,7 +1059,8 @@ export function DriveMap({
         }
         layers.addTo(map);
         if (allCoords.length > 0) {
-          map.fitBounds(L.latLngBounds(allCoords), fitOptions(map));
+          fitBox = L.latLngBounds(allCoords);
+          safeFitBounds(map, fitBox, fitOptions(map));
         }
         line = layers;
       });
@@ -1118,9 +1129,7 @@ export function DriveMap({
     const invalidate = () => {
       if (!alive || mapRef.current !== map || !map.getContainer().isConnected) return;
       map.invalidateSize();
-      if (latlngs.length > 1 && hasSpread) {
-        map.fitBounds(L.latLngBounds(latlngs), fitOptions(map));
-      }
+      if (fitBox) safeFitBounds(map, fitBox, fitOptions(map));
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const rAF = requestAnimationFrame(() => {

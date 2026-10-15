@@ -366,7 +366,7 @@ export default function ChargeDetailPage() {
           value={chargeCostLabel(charge)}
           hint={
             [
-              chargeCostHint(charge),
+              chargeCostHint(charge, demo),
               groupReceipt && groupReceipt.cost != null
                 ? `Part of a ${formatMoney(groupReceipt.cost, charge.Currency || "USD")} receipt with ${groupReceipt.sessions.length} sessions (Money shows the whole plug-in)`
                 : undefined,
@@ -711,11 +711,12 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
 // it implies, plus a flag noting whether this is a real billed
 // number or a home-rate estimate. Falls back to undefined so the
 // tile collapses cleanly when we have nothing useful to say.
-function chargeCostHint(c: import("../lib/api").Charge): string | undefined {
+function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): string | undefined {
   if (c.classification_unavailable) return "price classification unavailable right now";
   if (isFreeCharge(c)) return "marked free by you";
   if (c.cost_source_effective === "home_rate_misapplied") return "estimate pending · was priced at your home rate";
-  if (c.cost_source_effective === "unknown") return "price unknown · add it below";
+  // The price editor is not shown in the read-only demo.
+  if (c.cost_source_effective === "unknown") return readOnly ? "price unknown" : "price unknown · add it below";
   if (c.cost_source_effective === "network_estimate") return "estimated from a charging-network rate";
   if (c.Cost > 0) {
     const ppk =
