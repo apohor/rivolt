@@ -106,7 +106,7 @@ Usage:
                   carry a running energy total into one row. Dry run
                   unless --apply; --apply needs --user/--since/--until
                   and writes a CSV backup first.
-  rivolt reprice [--user NAME] [--ids FILE] [--apply --backup FILE]
+  rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
