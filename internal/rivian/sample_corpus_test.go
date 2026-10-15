@@ -256,3 +256,29 @@ func TestSampleRoutesFollowRoads(t *testing.T) {
 		}
 	}
 }
+
+// Plugged in, the sample truck never sits past its own charge limit: a
+// top-up restores what the park drained, so a car "holding 90%" reads
+// 90%, not 91%. (Unplugged it may: the limit drops back to 80 for the
+// next night after a 90% trip charge.)
+func TestSampleCorpusSoCWithinLimit(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	start, end := c.span()
+	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	over := 0
+	for _, f := range frames {
+		plugged := f.ChargerState == "charging_complete" || f.ChargerState == "charging_active"
+		if plugged && f.ChargeTargetPct > 0 && f.BatteryLevelPct > f.ChargeTargetPct+0.05 {
+			if over < 5 {
+				t.Errorf("%s: SoC %.1f%% over the %.0f%% limit (%s)", f.At.Format(time.RFC3339), f.BatteryLevelPct, f.ChargeTargetPct, f.ChargerState)
+			}
+			over++
+		}
+	}
+	if over > 0 {
+		t.Errorf("%d frames over the charge limit", over)
+	}
+}

@@ -274,6 +274,9 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 	if target <= b.soc {
 		return
 	}
+	// A charge stops at the car's limit, so charging to target means
+	// the driver set the limit there.
+	b.limit = math.Max(b.limit, target)
 	kwh := (target - b.soc) / 100 * samplePackKWh
 	avg := kw
 	step := sampleAwakeStep
@@ -295,9 +298,13 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 }
 
 // topUp adds a short AC top-up (the car resuming a completed charge).
+// A car holding at its limit resumes only after drifting below it, so
+// the park since the last charge drains what the top-up then restores:
+// SoC never passes the limit (the Now card reads "holding 90%").
 func (b *sampleBuilder) topUp() {
 	mins := 3 + b.rng.Intn(4)
 	add := float64(mins) / 60 * sampleL2KW / samplePackKWh * 100
+	b.drainPark(add)
 	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(time.Duration(mins) * time.Minute), step: sampleAwakeStep,
 		socA: b.soc, socB: b.soc + add, odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: sampleL2KW, power: "ready"})
 	b.soc += add
@@ -311,6 +318,25 @@ func (b *sampleBuilder) clock(day int, h, m int) time.Time {
 
 func (b *sampleBuilder) jitter(maxMin int) time.Duration {
 	return time.Duration(b.rng.Intn(2*maxMin+1)-maxMin) * time.Minute
+}
+
+// drainPark spreads a drop of pts over the parked segments since the
+// last charge or drive, linearly in time, and lowers b.soc to match.
+func (b *sampleBuilder) drainPark(pts float64) {
+	first := len(b.segs)
+	for first > 0 && b.segs[first-1].kind == segParked {
+		first--
+	}
+	if first == len(b.segs) {
+		return
+	}
+	t0, top := b.segs[first].start, b.soc
+	span := float64(b.t.Sub(t0))
+	at := func(t time.Time) float64 { return top - pts*float64(t.Sub(t0))/span }
+	for i := first; i < len(b.segs); i++ {
+		b.segs[i].socA, b.segs[i].socB = at(b.segs[i].start), at(b.segs[i].end)
+	}
+	b.soc = top - pts
 }
 
 // evening at home: plug in when low, charge, top up through the night.
