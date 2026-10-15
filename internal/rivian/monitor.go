@@ -2399,6 +2399,9 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		if prev.IsRivianCharger {
 			sess.IsRivianCharger = true
 		}
+		if prev.RivianChargerKnown {
+			sess.RivianChargerKnown = true
+		}
 		// Preserve Active once any source has set it true. The REST
 		// one-shot reports Active=false for home-AC sessions; without
 		// this guard it would briefly flip the WS-observed state to

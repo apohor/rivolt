@@ -926,6 +926,37 @@ func TestLiveChargeRow_CostSource(t *testing.T) {
 		t.Errorf("Rivian-billed, named: source=%q cost=%.2f network=%q, want rivian/27.00/Rivian Adventure Network",
 			ran.CostSource, ran.Cost, ran.Network)
 	}
+
+	// Rivian's isRivianCharger names the network only for a Rivian-billed
+	// DC fast charge on Rivian's own charger; it is stored either way.
+	tru, fal := true, false
+	for _, tc := range []struct {
+		name         string
+		known, rivch bool
+		maxKW, kwh   float64
+		dur          time.Duration
+		wantNet      string
+		wantFlag     *bool
+	}{
+		{"RAN fast charge", true, true, 200, 60, 30 * time.Minute, NetworkRivianAdventure, &tru},
+		{"Rivian charger at AC (Waypoints / Wall Charger)", true, true, 11, 10, 2 * time.Hour, "", &tru},
+		{"another network billed by Rivian", true, false, 200, 60, 30 * time.Minute, "", &fal},
+		{"not reported (WS only)", false, false, 200, 60, 30 * time.Minute, "", nil},
+	} {
+		c := charge("rc-"+tc.name, tc.maxKW, tc.kwh, tc.dur)
+		m.mu.Lock()
+		m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD",
+			RivianChargerKnown: tc.known, IsRivianCharger: tc.rivch}
+		m.lastSessionFor["veh-1"] = c.id
+		m.mu.Unlock()
+		row := m.liveChargeRow("veh-1", c)
+		if row.CostSource != CostSourceRivian || row.Cost != 27 || row.Network != tc.wantNet ||
+			(row.RivianCharger == nil) != (tc.wantFlag == nil) ||
+			(row.RivianCharger != nil && *row.RivianCharger != *tc.wantFlag) {
+			t.Errorf("%s: source=%q cost=%.2f network=%q flag=%v, want rivian/27.00 network %q flag %v",
+				tc.name, row.CostSource, row.Cost, row.Network, row.RivianCharger, tc.wantNet, tc.wantFlag)
+		}
+	}
 }
 
 // A home L2 session with one glitched high-kW sample stays on the home

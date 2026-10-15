@@ -505,6 +505,49 @@ func TestPlaceRoundTrip(t *testing.T) {
 	}
 }
 
+// rivian_charger round-trips, and a later upsert that doesn't carry it
+// (a frame before the REST fetch, a restart) keeps the stored value.
+func TestRivianChargerRoundTrip(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, pgDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "rivian-charger-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	read := func(id string) sql.NullBool {
+		var v sql.NullBool
+		if err := pool.QueryRowContext(ctx, `SELECT rivian_charger FROM charges WHERE user_id = $1::uuid AND external_id = $2::text`, uid, id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	c := sampleCharge("rc-1", "rv-A", time.Now().UTC().Add(-2*time.Hour).Truncate(time.Second), "charging_active")
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if v := read("rc-1"); v.Valid {
+		t.Errorf("rivian_charger = %v, want NULL when not reported", v)
+	}
+	f := false
+	c.RivianCharger = &f
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	c.RivianCharger = nil
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatalf("re-Upsert: %v", err)
+	}
+	if v := read("rc-1"); !v.Valid || v.Bool {
+		t.Errorf("rivian_charger = %v, want false kept", v)
+	}
+}
+
 // User prices end the reprice undo window (0040's undo selects on
 // legacy_cost IS NOT NULL), and a Free row written through Upsert, as a
 // backup restore does, keeps cost 0 instead of becoming "no price".

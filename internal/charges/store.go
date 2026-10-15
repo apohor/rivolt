@@ -106,6 +106,11 @@ type Charge struct {
 	// NetworkEvidence is what the detection saw (JSON, contract v1);
 	// nil when there was no detection.
 	NetworkEvidence json.RawMessage
+	// RivianCharger is Rivian's isRivianCharger for the session: nil
+	// when not reported. Written by the live recorder; a later upsert
+	// without it keeps the stored value. Not read back yet. Migration
+	// 0050.
+	RivianCharger *bool
 }
 
 // Store wraps the charges table.
@@ -235,8 +240,9 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			thermal_kwh,
 			active_seconds,
 			cost_source, network, place,
-			network_state, network_confidence, network_evidence
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+			network_state, network_confidence, network_evidence,
+			rivian_charger
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -269,6 +275,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			network_confidence = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_confidence ELSE EXCLUDED.network_confidence END,
 			network_evidence   = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_evidence ELSE EXCLUDED.network_evidence END,
 			place            = COALESCE(EXCLUDED.place, charges.place),
+			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -282,8 +289,17 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		nullableFloatPtr(c.ThermalKWh),
 		nullIfZero(c.ActiveSeconds),
 		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
-		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence))
+		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
+		nullableBool(c.RivianCharger))
 	return err
+}
+
+// nullableBool maps nil to SQL NULL.
+func nullableBool(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
 }
 
 // Count returns the total number of charges for this user.
