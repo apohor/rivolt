@@ -376,7 +376,7 @@ function vehicleLabel(v: OwnedVehicle): string {
 }
 
 const DRIVER_GUIDE =
-  "https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#recommended";
+  "https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#recommended-connect-a-dedicated-authorized-driver-account";
 
 // WhyDriverAccount: the honest case for a driver account, trade-offs
 // included (PM copy, ad-onboarding-copy.md). "Driver account" in the UI;
