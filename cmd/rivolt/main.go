@@ -901,7 +901,7 @@ func runServer() {
 				}
 				restored++
 				logger.Info("rivian session restored",
-					"user_id", uid.String(), "email", sess.Email)
+					"user_id", uid.String())
 			}
 			logger.Info("rivian sessions hydrated", "mode", os.Getenv("RIVIAN_CLIENT"), "users_hydrated", restored)
 		}
@@ -1967,10 +1967,16 @@ func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logg
 		Subject: subject,
 		Text:    body,
 	}); err != nil {
-		logger.Warn("setup email: send", "attempt", attempt, "err", err.Error())
+		// The provider's error text can echo the recipient; keep emails
+		// out of logs (the caller logs the user id).
+		msg := err.Error()
+		if to != "" {
+			msg = strings.ReplaceAll(msg, to, "<recipient>")
+		}
+		logger.Warn("setup email: send", "attempt", attempt, "err", msg)
 		return
 	}
-	logger.Info("setup email sent", "to", to, "attempt", attempt)
+	logger.Info("setup email sent", "attempt", attempt)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus
