@@ -1,4 +1,4 @@
-import { detailPath } from "../lib/demo";
+import { detailPath, inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -78,7 +78,9 @@ export default function ActivityPage() {
       <PageHeader
         title="Activity"
         subtitle="Drives and charges, newest first"
+        // The table pages are signed-in only: no links to them in the demo.
         actions={
+          inDemo() ? undefined : (
           <span className="text-xs text-neutral-500">
             Tables:{" "}
             <Link to="/drives" className="text-neutral-300 hover:text-emerald-300">
@@ -89,6 +91,7 @@ export default function ActivityPage() {
               Charges
             </Link>
           </span>
+          )
         }
       />
       <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">

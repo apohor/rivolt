@@ -85,3 +85,19 @@ test("the demo never requests the chargers pmtiles layer", async ({ page }) => {
   await page.waitForTimeout(1500);
   expect(tileReqs).toEqual([]);
 });
+
+test("the demo's Activity has no sign-in-only table links", async ({ page }) => {
+  await openDemo(page, "/demo?tab=activity");
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await expect(page.locator('a[href="/drives"], a[href="/charges"]')).toHaveCount(0);
+});
+
+test("Share statement gives visible feedback in the demo", async ({ page }) => {
+  await openDemo(page, "/demo?tab=money");
+  const share = page.getByRole("button", { name: "Share statement" });
+  await expect(share).toBeEnabled();
+  const download = page.waitForEvent("download");
+  await share.click();
+  await download;
+  await expect(page.getByRole("status").filter({ hasText: /Saved rivolt-.*\.png/ })).toBeVisible();
+});

@@ -33,4 +33,9 @@ describe("buildStatementCardModel", () => {
     x.spend.estimate_pending_sessions = 0;
     expect(buildStatementCardModel(x).notIncluded).toBeNull();
   });
+
+  it("marks a sample-truck card so it can't pass for real data", () => {
+    expect(buildStatementCardModel(m, { sample: true }).footnote).toBe("Sample truck · generated data");
+    expect(buildStatementCardModel(m).footnote).toBe("Charging cost, tracked with Rivolt");
+  });
 });
