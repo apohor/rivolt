@@ -120,7 +120,16 @@ type rivianStatusDTO struct {
 	// drives to tip them off.
 	NeedsReauth       bool   `json:"needs_reauth"`
 	NeedsReauthReason string `json:"needs_reauth_reason,omitempty"`
+	// Paused is true while the operator's Rivian upstream kill switch
+	// is on (flags.rivian_upstream_paused): Rivolt makes no calls to
+	// Rivian, so data stops updating. PausedReason is a fixed,
+	// user-safe code, never the operator's free-text reason or actor.
+	Paused       bool   `json:"paused"`
+	PausedReason string `json:"paused_reason,omitempty"`
 }
+
+// pausedReasonOperator is the only value PausedReason takes.
+const pausedReasonOperator = "operator_pause"
 
 // primeAttempts debounces lazy-prime kicks from handleRivianStatus.
 // The SPA polls /api/settings/rivian every few seconds, and without
@@ -145,10 +154,18 @@ func shouldAttemptPrime(uid uuid.UUID) bool {
 	return true
 }
 
-func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB *sql.DB, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
+func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB *sql.DB, m *metrics.Metrics, logger *slog.Logger, paused func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Every response carries the kill-switch state so the banner
+		// can show a pause that no per-user field would reveal.
+		withPause := func(d rivianStatusDTO) rivianStatusDTO {
+			if paused != nil && paused() {
+				d.Paused, d.PausedReason = true, pausedReasonOperator
+			}
+			return d
+		}
 		if reg == nil {
-			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
+			writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{Enabled: false}))
 			return
 		}
 		// Status is allowed without an authenticated context (e.g.
@@ -157,12 +174,12 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 		// shape rather than 401 so the UI render path stays simple.
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
-			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: true})
+			writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{Enabled: true}))
 			return
 		}
 		lc := reg.For(uid)
 		if lc == nil {
-			writeJSON(w, http.StatusOK, rivianStatusDTO{Enabled: false})
+			writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{Enabled: false}))
 			return
 		}
 		// The per-user client is cached per pod and only restores its
@@ -187,14 +204,14 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 		}
 		needs, reason := lc.NeedsReauth()
 		authd := lc.Authenticated()
-		writeJSON(w, http.StatusOK, rivianStatusDTO{
+		writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{
 			Enabled:           true,
 			Authenticated:     authd,
 			MFAPending:        lc.MFAPending(),
 			Email:             lc.Email(),
 			NeedsReauth:       needs,
 			NeedsReauthReason: reason,
-		})
+		}))
 		// Self-heal accounts that connected Rivian before the eager
 		// prime shipped: when the user is authenticated but has no
 		// vehicles row, kick off a one-shot prime in the background.
