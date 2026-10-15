@@ -579,7 +579,9 @@ func New(d Deps) http.Handler {
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
-				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
+				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger, func() bool {
+					return d.Flags != nil && d.Flags.KillSwitch().Paused
+				}))
 				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
 				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
 				r.Post("/refresh-vehicles", handleRivianRefreshVehicles(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
