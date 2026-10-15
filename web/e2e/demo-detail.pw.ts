@@ -211,5 +211,6 @@ test("without a basemap archive the map says so, and calls no third-party tile h
   await page.locator('a[href^="/demo/charges/"]').first().click();
   await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
   await expect(page.getByText("Map tiles unavailable on this server").first()).toBeVisible();
+  await expect(page.getByText("© OpenStreetMap contributors").first()).toBeVisible();
   expect(reqs.filter((u) => /cartocdn\.com|openstreetmap\.org\/\d/.test(u))).toEqual([]);
 });
