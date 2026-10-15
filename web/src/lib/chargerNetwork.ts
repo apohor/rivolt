@@ -51,15 +51,20 @@ export type PinChoice =
 const UNKNOWN_NETWORKS = new Set(["", "unknown", "other", "n/a"]);
 
 // choosePin decides what the charge pin says. Never a wrong brand:
-// - the ledger's network is unknown: keep today's snap and OSM name;
+// - the ledger's network is unknown: keep today's snap and OSM name, or
+//   say "DC fast charger" only when the charge is DC, else "Charging station";
 // - the snapped charger agrees: keep the snap;
 // - it disagrees, or can't be verified (no network info on the node):
 //   label the charge's own location with the known network.
-export function choosePin(poi: PoiLike | null, knownNetwork: string | null | undefined): PinChoice {
+export function choosePin(
+  poi: PoiLike | null,
+  knownNetwork: string | null | undefined,
+  isDC = false,
+): PinChoice {
   const known = (knownNetwork ?? "").trim();
   const snappedLabel = poi?.name ?? "Charging station";
   if (UNKNOWN_NETWORKS.has(known.toLowerCase())) {
-    return poi ? { snap: true, label: snappedLabel } : { snap: false, label: "DC fast charger" };
+    return poi ? { snap: true, label: snappedLabel } : { snap: false, label: isDC ? "DC fast charger" : "Charging station" };
   }
   if (!poi) return { snap: false, label: displayNetwork(known) };
   const want = networkKey(known);

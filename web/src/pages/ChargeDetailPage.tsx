@@ -586,6 +586,7 @@ export default function ChargeDetailPage() {
             lon={charge.Lon}
             height={260}
             network={knownNetwork}
+            dc={charge.MaxPowerKW >= 30}
           />
         </Card>
       ) : null}
