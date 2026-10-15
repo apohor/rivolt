@@ -2,74 +2,98 @@ package rivian
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 // ServeState: the streaming pod serves its own cache; any other pod
-// serves the owner's published snapshot, falling back to a local entry
-// only while it's young, never to a stale one forever.
+// serves the owner's published snapshot, and without one serves what it
+// has, fetching from Rivian at most once per stateRefetchEvery and never
+// while that state says asleep.
 func TestServeState(t *testing.T) {
 	ctx := context.Background()
 	const vid = "veh-1"
-	at := func(s string) time.Time {
-		v, err := time.Parse(time.RFC3339, s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return v
-	}
-	local := &State{VehicleID: vid, At: at("2026-10-15T19:35:01Z")}
-	remote := &State{VehicleID: vid, At: at("2026-10-15T19:47:01Z")}
+	t0 := time.Date(2026, 10, 15, 19, 35, 1, 0, time.UTC)
+	local := &State{VehicleID: vid, At: t0, PowerState: "ready"}
+	asleep := &State{VehicleID: vid, At: t0, PowerState: "sleep"}
+	remote := &State{VehicleID: vid, At: t0.Add(12 * time.Minute), PowerState: "ready"}
 
-	setup := func(store bool, publish bool, streaming bool, age time.Duration) *StateMonitor {
+	type setup struct {
+		store, publish, streaming bool
+		cached                    *State
+		lastFetch                 time.Duration // 0: never fetched
+	}
+	mk := func(s setup) *StateMonitor {
 		m := NewStateMonitor(nil, nil)
-		if store {
-			s := newMemLiveStateStore()
-			if publish {
-				_ = s.PutState(ctx, vid, remote, 0)
+		if s.store {
+			st := newMemLiveStateStore()
+			if s.publish {
+				_ = st.PutState(ctx, vid, remote, 0)
 			}
-			m.SetLiveStateStore(s)
+			m.SetLiveStateStore(st)
 		}
-		m.Prime(vid, local)
+		if s.cached != nil {
+			m.Prime(vid, s.cached)
+		}
 		m.mu.Lock()
-		m.stamp[vid] = time.Now().Add(-age)
-		if streaming {
+		if s.streaming {
 			m.active[vid] = func() {}
 		}
 		m.mu.Unlock()
+		if s.lastFetch > 0 {
+			m.fallbackAt = map[string]time.Time{vid: time.Now().Add(-s.lastFetch)}
+		}
 		return m
 	}
 	for _, tc := range []struct {
-		name                      string
-		store, publish, streaming bool
-		age                       time.Duration
-		want                      *State
+		name      string
+		s         setup
+		want      *State
+		wantFetch bool
 	}{
-		{"owner serves its own cache, not the snapshot", true, true, true, 2 * time.Minute, local},
-		{"non-owner with a primed-then-stale cache serves the snapshot", true, true, false, 12 * time.Minute, remote},
-		{"non-owner prefers the snapshot even over a fresh primed entry", true, true, false, time.Second, remote},
-		{"non-owner, no snapshot: a primed entry under the cutoff is served", true, false, false, primedStateMaxAge - 5*time.Second, local},
-		{"non-owner, no snapshot: a primed entry past the cutoff is not", true, false, false, primedStateMaxAge + time.Second, nil},
-		{"no shared store (replay mode): past the cutoff refetches", false, false, false, primedStateMaxAge + time.Second, nil},
+		{"owner serves its own cache, not the snapshot", setup{true, true, true, local, 0}, local, false},
+		{"non-owner with a primed-then-stale cache serves the snapshot", setup{true, true, false, local, 0}, remote, false},
+		{"no snapshot, never fetched: fetch (serve the entry if that fails)", setup{true, false, false, local, 0}, local, true},
+		{"no snapshot, fetched 1 min ago: serve the entry, no fetch", setup{true, false, false, local, time.Minute}, local, false},
+		{"no snapshot, fetched past the limit: fetch again", setup{true, false, false, local, stateRefetchEvery + time.Second}, local, true},
+		{"no snapshot, entry asleep: never fetch, however old", setup{true, false, false, asleep, 12 * time.Hour}, asleep, false},
+		{"no shared store (replay mode), nothing cached: fetch", setup{false, false, false, nil, 0}, nil, true},
+		{"nothing cached, a fetch tried 1 min ago: neither", setup{false, false, false, nil, time.Minute}, nil, false},
 	} {
-		got := setup(tc.store, tc.publish, tc.streaming, tc.age).ServeState(ctx, vid)
-		if got != tc.want && (got == nil || tc.want == nil || !got.At.Equal(tc.want.At)) {
-			t.Errorf("%s: served %v, want %v", tc.name, stateAt(got), stateAt(tc.want))
+		got, fetch := mk(tc.s).ServeState(ctx, vid)
+		if fetch != tc.wantFetch || (got == nil) != (tc.want == nil) || (got != nil && !got.At.Equal(tc.want.At)) {
+			t.Errorf("%s: served %v fetch=%v, want %v fetch=%v", tc.name, stateAt(got), fetch, stateAt(tc.want), tc.wantFetch)
 		}
 	}
 
-	// A pod that loses the lease stops serving its last frame as live
-	// once the owner's snapshot is there.
-	m := setup(true, true, true, 0)
+	// A pod that loses the lease serves the owner's snapshot, not its
+	// own last frame.
+	m := mk(setup{true, true, true, local, 0})
 	m.Unsubscribe(vid)
-	if got := m.ServeState(ctx, vid); got == nil || !got.At.Equal(remote.At) {
-		t.Errorf("after Unsubscribe: served %v, want the snapshot %v", stateAt(got), remote.At)
+	if got, fetch := m.ServeState(ctx, vid); fetch || got == nil || !got.At.Equal(remote.At) {
+		t.Errorf("after Unsubscribe: served %v fetch=%v, want the snapshot %v", stateAt(got), fetch, remote.At)
 	}
 
-	var nilMon *StateMonitor
-	if nilMon.ServeState(ctx, vid) != nil {
-		t.Error("nil monitor must serve nothing")
+	// Concurrent polls with no snapshot: one fetch between them.
+	m = mk(setup{false, false, false, local, 0})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	fetches := 0
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, f := m.ServeState(ctx, vid); f {
+				mu.Lock()
+				fetches++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if fetches != 1 {
+		t.Errorf("20 concurrent polls fetched %d times, want 1", fetches)
 	}
 }
 

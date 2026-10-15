@@ -368,17 +368,30 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
+		// The owner's own cache, else the owner's published snapshot
+		// (subscription-only fields the REST fallback lacks), else the
+		// local entry, fetched from Rivian at most every few minutes and
+		// never while asleep. See StateMonitor.ServeState.
+		var have *rivian.State
 		if mon != nil {
-			// The owner's own cache, else the owner's published snapshot
-			// (subscription-only fields the REST fallback below lacks),
-			// else a recent local fetch. See StateMonitor.ServeState.
-			if st := mon.ServeState(r.Context(), id); st != nil {
-				writeJSON(w, http.StatusOK, st)
+			cached, fetch := mon.ServeState(r.Context(), id)
+			if !fetch {
+				if cached == nil {
+					w.Header().Set("Retry-After", "60")
+					http.Error(w, "vehicle state not available yet", http.StatusServiceUnavailable)
+					return
+				}
+				writeJSON(w, http.StatusOK, cached)
 				return
 			}
+			have = cached
 		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
+			if have != nil {
+				writeJSON(w, http.StatusOK, have)
+				return
+			}
 			if errors.Is(err, rivian.ErrNotImplemented) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return

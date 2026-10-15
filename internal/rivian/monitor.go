@@ -40,6 +40,11 @@ type StateMonitor struct {
 	// must not re-take a lock the hot path just dropped.
 	sampleMu     sync.Mutex
 	lastSampleAt map[string]time.Time
+	// fallbackAt is when /api/state on this pod last fetched a vehicle
+	// it doesn't stream straight from Rivian (ServeState), so that path
+	// calls Rivian at most once per stateRefetchEvery.
+	fallbackMu sync.Mutex
+	fallbackAt map[string]time.Time
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -2543,41 +2548,56 @@ func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *Stat
 	return st
 }
 
-// primedStateMaxAge bounds how long a pod that doesn't stream a vehicle
-// serves a local entry (a recent direct fetch, or the last frame before
-// it lost the lease) when the owner's published snapshot is missing.
-// Nothing refreshes such an entry, so past this age the caller fetches
-// again rather than serving it forever.
-const primedStateMaxAge = 30 * time.Second
+// stateRefetchEvery bounds how often /api/state on a pod that doesn't
+// stream a vehicle may fetch it directly from Rivian when the owner's
+// published snapshot is missing (no shared store, Redis down, a handover
+// gap). Between fetches it serves the entry it has, however old.
+const stateRefetchEvery = 5 * time.Minute
 
-// ServeState is the State /api/state serves for vehicleID, or nil when
-// the caller should fetch it directly (and Prime the result):
+// ServeState decides what /api/state serves for vehicleID. It returns
+// the state to serve and whether the caller should first fetch it
+// directly (then Prime the result, or on failure serve st if non-nil):
 //
 //  1. this pod streams the vehicle: its own cache, the freshest there is;
 //  2. otherwise the owner's published snapshot (RemoteLatest);
-//  3. otherwise a local entry younger than primedStateMaxAge.
+//  3. otherwise the local entry (a past fetch, or the last frame before
+//     this pod lost the lease), with fetch=true at most once per
+//     stateRefetchEvery per vehicle on this pod, and never while that
+//     entry says the vehicle is asleep: this path has no sleep gate of
+//     its own, and a Redis outage must not fan out into Rivian calls;
+//  4. no entry: fetch=true under the same limit, else (nil, false).
 //
-// A non-owner's local entry is never refreshed, so preferring it
-// unconditionally (as Latest-first did) froze /api/state on that pod
-// from the first fallback fetch until the pod restarted.
-func (m *StateMonitor) ServeState(ctx context.Context, vehicleID string) *State {
+// Serving the local entry first, as Latest-first did, froze /api/state
+// on a non-owner pod from its first fallback fetch until it restarted.
+func (m *StateMonitor) ServeState(ctx context.Context, vehicleID string) (st *State, fetch bool) {
 	if m == nil {
-		return nil
+		return nil, true
 	}
 	m.mu.RLock()
-	local, stamp := m.cache[vehicleID], m.stamp[vehicleID]
+	local := m.cache[vehicleID]
 	_, streaming := m.active[vehicleID]
 	m.mu.RUnlock()
 	if streaming && local != nil {
-		return local
+		return local, false
 	}
 	if remote := m.RemoteLatest(ctx, vehicleID); remote != nil {
-		return remote
+		return remote, false
 	}
-	if local != nil && time.Since(stamp) < primedStateMaxAge {
-		return local
+	if local != nil && strings.EqualFold(strings.TrimSpace(local.PowerState), "sleep") {
+		return local, false
 	}
-	return nil
+	m.fallbackMu.Lock()
+	defer m.fallbackMu.Unlock()
+	if m.fallbackAt == nil {
+		m.fallbackAt = make(map[string]time.Time)
+	}
+	if last, ok := m.fallbackAt[vehicleID]; ok && time.Since(last) < stateRefetchEvery {
+		return local, false
+	}
+	// Claimed before the fetch, so concurrent polls serve local (or wait
+	// out the window) instead of fetching too.
+	m.fallbackAt[vehicleID] = time.Now()
+	return local, true
 }
 
 // liveStatePublisher periodically writes this vehicle's cached State to
