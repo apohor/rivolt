@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
 import { useSignupEnabled } from "../lib/config";
+import { track } from "../lib/track";
 
 // Providers we surface on the signup page. Hydra is rivolt's own
 // federation backend (used by downstream apps) — it doesn't make
@@ -36,6 +37,13 @@ export default function SignupPage() {
   // null while /api/config loads; false when the operator closed
   // sign-ups (RIVOLT_SIGNUP_DISABLED).
   const signupEnabled = useSignupEnabled();
+  // signup_start: the form is open (not when sign-ups are closed).
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (signupEnabled !== true || startedRef.current) return;
+    startedRef.current = true;
+    track("signup_start", { method: fullProvider ? "oidc" : "email" });
+  }, [signupEnabled, fullProvider]);
 
   // Social-sign-in providers (Google / GitHub), fetched once on mount.
   // null = still loading; [] = no eligible providers configured.

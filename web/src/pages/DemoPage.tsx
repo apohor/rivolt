@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import ActivityPage from "./ActivityPage";
@@ -7,6 +7,8 @@ import NowCard from "../components/NowCard";
 import Logo from "../components/Logo";
 import { Spinner } from "../components/ui";
 import { backend } from "../lib/api";
+import { useSignupEnabled } from "../lib/config";
+import { track } from "../lib/track";
 
 // Public sample-truck demo (docs/product/sample-truck.md, contract
 // demo-contract.md): the real Now, Money and Activity screens against a
@@ -23,6 +25,11 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export function DemoBanner() {
+  // Sign-ups closed: "Connect my Rivian" goes to sign in instead of a
+  // signup page that would only say it's closed. null (loading) behaves
+  // as open.
+  const signupEnabled = useSignupEnabled();
+  const to = signupEnabled === false ? "/login" : "/signup";
   return (
       <div role="note" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
@@ -30,7 +37,7 @@ export function DemoBanner() {
             <span className="font-medium">Sample truck.</span> Generated data, read-only. Connect your Rivian to see
             yours.
           </span>
-          <Link to="/login" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
+          <Link to={to} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
             Connect my Rivian
           </Link>
         </div>
@@ -60,7 +67,17 @@ export default function DemoPage() {
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
   const tab: Tab = raw === "money" || raw === "activity" ? raw : "now";
-  const setTab = (t: Tab) => setParams(t === "now" ? {} : { tab: t }, { replace: true });
+  const setTab = (t: Tab) => {
+    track("demo_tab", { tab: t });
+    setParams(t === "now" ? {} : { tab: t }, { replace: true });
+  };
+  // demo_view: the first screen, once per page load.
+  const viewed = useRef(false);
+  useEffect(() => {
+    if (viewed.current) return;
+    viewed.current = true;
+    track("demo_view", { tab });
+  }, [tab]);
   const demo = useQuery({ queryKey: ["demo", "info"], queryFn: () => backend.demoInfo(), retry: 0 });
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],

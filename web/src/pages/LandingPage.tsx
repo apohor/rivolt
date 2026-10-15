@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import Logo from "../components/Logo";
+import { useEffect } from "react";
 import { getConfig } from "../lib/config";
+import { track } from "../lib/track";
 
 // Public landing page for signed-out visitors (docs/product/landing.md),
 // rendered at "/" only when the install enables it. Copy follows
@@ -13,6 +15,21 @@ const REPO = "https://github.com/apohor/rivolt";
 
 export default function LandingPage() {
   const demo = getConfig().features.demoEnabled;
+  useEffect(() => {
+    // Referrer host and utm_source only (tokens, never a full URL).
+    const tok = (v: string | null) => (v && /^[a-z0-9_.-]{1,40}$/.test(v.toLowerCase()) ? v.toLowerCase() : undefined);
+    let host: string | undefined;
+    try {
+      host = document.referrer ? tok(new URL(document.referrer).hostname) : undefined;
+    } catch {
+      host = undefined;
+    }
+    const props: Record<string, string> = {};
+    if (host) props.referrer_host = host;
+    const utm = tok(new URLSearchParams(window.location.search).get("utm_source"));
+    if (utm) props.utm_source = utm;
+    track("landing_view", props);
+  }, []);
   return (
     <div className="min-h-full bg-neutral-950 text-neutral-100">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
