@@ -778,6 +778,12 @@ function addSpeedLegend(map: L.Map): L.Control {
     return div;
   };
   ctl.addTo(map);
+  // On a phone the one-line attribution (bottom-right) would run under the
+  // legend's right end ("65+"): lift the legend above it.
+  if (map.getSize().x < 520) {
+    const el = ctl.getContainer();
+    if (el) el.style.marginBottom = "22px";
+  }
   return ctl;
 }
 
