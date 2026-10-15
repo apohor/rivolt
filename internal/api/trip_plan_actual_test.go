@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -116,7 +115,7 @@ func TestPlanActual_NoneSuggestedAndMedium(t *testing.T) {
 	}
 	a, _, _ = newFakePA([]ledger.PlanCandidate{cand("trip_a", 0.91, "high"), cand("trip_b", 0.6, "medium")})
 	_, out = paServe(a, "GET", pathFor(paSaved.ID, "actual"), "")
-	if out.Status != "suggested" || out.Comparison == nil || len(out.Candidates) != 2 || out.Link != nil {
+	if out.Status != "suggested" || out.Comparison == nil || out.Comparison.PlanFrom != "current" || len(out.Candidates) != 2 || out.Link != nil {
 		t.Fatalf("suggested: %+v", out)
 	}
 	a, _, _ = newFakePA([]ledger.PlanCandidate{cand("trip_b", 0.6, "medium")})
@@ -157,7 +156,7 @@ func TestPlanActual_LinkSnapshotsAndComparesTheSnapshot(t *testing.T) {
 			foundSnapshot = true
 		}
 	}
-	if out.Status != "linked" || !foundSnapshot {
+	if out.Status != "linked" || !foundSnapshot || out.Comparison == nil || out.Comparison.PlanFrom != "snapshot" {
 		t.Fatalf("linked comparison must parse the snapshot plan: %v %+v", parsed, out)
 	}
 }
@@ -223,10 +222,10 @@ func TestPlanActual_NotFoundAndUnparsablePlan(t *testing.T) {
 		t.Fatalf("bad id = %d, want 404", code)
 	}
 	a.parse = func(json.RawMessage, json.RawMessage, time.Time) (ledger.Plan, error) {
-		return ledger.Plan{}, errors.New("no plan")
+		return ledger.Plan{}, ledger.ErrPlanUnusable
 	}
 	code, out := paServe(a, "GET", pathFor(paSaved.ID, "actual"), "")
-	if code != 200 || out.Status != "none" {
+	if code != 200 || out.Status != "none" || out.Candidates == nil {
 		t.Fatalf("unparsable plan: %d %+v", code, out)
 	}
 }

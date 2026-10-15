@@ -164,8 +164,9 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 	// Current plan: candidates and suggestions come from it.
 	cur, err := a.parse(st.Inputs, st.Plan, st.CreatedAt)
 	if err != nil {
-		// A saved trip with no usable plan (never planned, or an
-		// older shape) has nothing to compare: status none, not a 500.
+		// A saved trip with no usable plan (ledger.ErrPlanUnusable:
+		// no origin or destination, never planned, or an older
+		// shape) has nothing to compare: status none, not a 500.
 		return out, nil
 	}
 	// Load one window covering the current plan (and the snapshot's,
@@ -214,6 +215,7 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 		}
 		out.Status, out.Link = "linked", l
 		if ok {
+			cmp.PlanFrom = "snapshot" // compared against the plan as linked
 			out.Comparison = &cmp
 		}
 		return out, nil
@@ -221,6 +223,7 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 	// No link: preview the top candidate when it is high confidence.
 	if len(out.Candidates) > 0 && out.Candidates[0].Band == "high" {
 		if cmp, ok := a.compare(cur, in, out.Candidates[0].TripID); ok {
+			cmp.PlanFrom = "current" // a suggestion uses the plan as saved now
 			out.Status, out.Comparison = "suggested", &cmp
 		}
 	}
