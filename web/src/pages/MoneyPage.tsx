@@ -1,3 +1,4 @@
+import { inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -384,15 +385,18 @@ function ShareStatementButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const onClick = async () => {
     setBusy(true);
     setErr(null);
+    setDone(null);
     try {
-      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom }));
+      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom, sample: inDemo() }));
       if (!blob) throw new Error("Image export isn't available in this browser.");
       const file = new File([blob], `rivolt-${m.period}.png`, { type: "image/png" });
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: `Rivolt ${m.period}` });
+        setDone("Shared.");
       } else {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -401,6 +405,7 @@ function ShareStatementButton({
         a.click();
         // Revoking immediately can cancel the download in Safari/Firefox.
         window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        setDone(`Saved ${file.name} to your downloads.`);
       }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
@@ -427,6 +432,7 @@ function ShareStatementButton({
         </span>
       )}
       {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
+      {done && <span role="status" className="text-xs text-emerald-300">{done}</span>}
     </div>
   );
 }
