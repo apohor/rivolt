@@ -762,15 +762,16 @@ function addSpeedLegend(map: L.Map): L.Control {
     const div = L.DomUtil.create("div", "rivolt-speed-legend");
     div.style.cssText =
       "background:rgba(10,10,10,0.78);border:1px solid #262626;" +
-      "border-radius:6px;padding:4px 6px;display:flex;gap:6px;" +
-      "align-items:center;font:10px/1.1 ui-sans-serif,system-ui;" +
-      "color:#d4d4d4;backdrop-filter:blur(2px);";
+      "border-radius:6px;padding:2px 5px;display:flex;gap:5px;" +
+      "align-items:center;font:9px/1.1 ui-sans-serif,system-ui;" +
+      "color:#d4d4d4;backdrop-filter:blur(2px);opacity:0.8;" +
+      "pointer-events:none;";
     div.innerHTML =
       '<span style="color:#737373;margin-right:2px">mph</span>' +
       SPEED_BUCKETS.map(
         (b) =>
           `<span style="display:inline-flex;align-items:center;gap:3px">` +
-          `<span style="display:inline-block;width:10px;height:3px;background:${b.color};border-radius:2px"></span>` +
+          `<span style="display:inline-block;width:8px;height:3px;background:${b.color};border-radius:2px"></span>` +
           `${b.label}</span>`,
       ).join("");
     L.DomEvent.disableClickPropagation(div);
@@ -1213,16 +1214,29 @@ export function ChargeMap({
   lon,
   height = 240,
   network,
+  dc = false,
 }: {
   // The network the ledger recorded for this charge (RAN, Electrify
   // America, ...). When the snapped charger node is a different
   // network's, the pin says this one instead of a wrong brand.
   network?: string | null;
+  // The session was DC fast charging (peak power); only then may an
+  // unlabelled pin say "DC fast charger".
+  dc?: boolean;
   lat: number;
   lon: number;
   height?: number;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  // The map is built once per location. A late `network` (the ledger
+  // arrives after the page) only re-runs the pin choice through this ref,
+  // so the map isn't torn down and rebuilt (that flashed).
+  const pinInputs = useRef({ network, dc });
+  pinInputs.current = { network, dc };
+  const rePin = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    rePin.current?.();
+  }, [network, dc]);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -1272,17 +1286,36 @@ export function ChargeMap({
     // parking-lot entrance, OSM marker is in the middle of the lot"
     // geometry; 250m was too tight for big-box and travel-plaza
     // stations.
-    void findNearestCharger(lat, lon, 750).then((poi) => {
-      if (cancelled) return;
-      const known = (network ?? "").trim();
-      if (!poi && !known) return;
+    let snapped: POI | null | undefined; // undefined until the lookup settles
+    const choose = () => {
+      if (cancelled || snapped === undefined) return;
+      const known = (pinInputs.current.network ?? "").trim();
+      // Reset to the plain recorded-location pin, then apply the choice.
+      if (chargerMarker) {
+        chargerMarker.remove();
+        chargerMarker = null;
+      }
+      if (connector) {
+        connector.remove();
+        connector = null;
+      }
+      recordedMarker.setIcon(circleIcon("#f59e0b"));
+      recordedMarker.setZIndexOffset(1000);
+      recordedMarker.unbindTooltip();
+      recordedMarker.bindTooltip("Charge location", { direction: "top" });
+      if (!snapped && !known) return;
       // Never a wrong brand: the snap is kept only when the snapped
       // node agrees with the ledger's network (or the network is
       // unknown); otherwise the charge's own location is labelled with
       // the known network.
-      const choice = choosePin(poi, known);
-      if (choice.snap && poi) applyChargerSnap(poi, choice.label);
+      const choice = choosePin(snapped, known, pinInputs.current.dc);
+      if (choice.snap && snapped) applyChargerSnap(snapped, choice.label);
       else labelOwnLocation(choice.label);
+    };
+    rePin.current = choose;
+    void findNearestCharger(lat, lon, 750).then((poi) => {
+      snapped = poi ?? null;
+      choose();
     });
 
     function chargerPinIcon(): L.DivIcon {
@@ -1397,13 +1430,14 @@ export function ChargeMap({
     ro.observe(ref.current);
     return () => {
       cancelled = true;
+      rePin.current = null;
       cancelAnimationFrame(rAF);
       ro.disconnect();
       if (chargerMarker) chargerMarker.remove();
       if (connector) connector.remove();
       map.remove();
     };
-  }, [lat, lon, network]);
+  }, [lat, lon]);
 
   return (
     <div

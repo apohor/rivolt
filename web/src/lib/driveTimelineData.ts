@@ -469,7 +469,13 @@ export function detectMoments(
     for (let i = 1; i < socPts.length; i++) {
       if (socPts[i].y < socPts[bestIdx].y) bestIdx = i;
     }
-    if (bestIdx < socPts.length - 1) {
+    // SoC is almost always lowest at the very end, which says nothing:
+    // skip it within the last 60 s or when it equals the end SoC.
+    const endPt = socPts[socPts.length - 1];
+    const atEnd =
+      socPts[bestIdx].x >= endPt.x - 60_000 ||
+      Math.abs(socPts[bestIdx].y - endPt.y) < 0.05;
+    if (bestIdx < socPts.length - 1 && !atEnd) {
       out.push({
         ms: socPts[bestIdx].x,
         label: "Lowest SoC",

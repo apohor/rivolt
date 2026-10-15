@@ -851,7 +851,7 @@ function MomentChips({
   onCursorChange: (ms: number | null) => void;
 }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+    <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 pr-6 [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">
       <span className="shrink-0 text-[10px] uppercase tracking-wide text-neutral-500">Moments</span>
       {moments.map((m) => {
         const active = cursorMs != null && Math.abs(cursorMs - m.ms) < 2000;
