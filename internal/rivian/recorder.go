@@ -596,23 +596,42 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx context.Context) {
 	driving := isDrivingGear(curr.Gear)
 	chargingNow := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	// These closes finish a session like the normal close paths do: a
+	// last upsert that retries a rejected row once, then the close hook
+	// (charge notifications, drive weather) unless the row is a phantom
+	// or another recorder's. They used to upsert and drop the session
+	// without the hook.
 	if driving && s.charge != nil {
 		m.logger.Info("closing live charge: gear is driving",
 			"vehicle", curr.VehicleID, "id", s.charge.id, "gear", curr.Gear)
 		s.charge.finalState = "abandoned"
+		s.charge.final = true
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
+		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		rejected := s.charge.rejected
 		s.charge = nil
 		m.mu.Lock()
 		delete(m.lastSession, curr.VehicleID)
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
+		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
+			go m.runChargeCloseHook(closedRow)
+		}
 	}
 	if chargingNow && s.drive != nil {
 		m.logger.Info("closing live drive: car is charging",
 			"vehicle", curr.VehicleID, "id", s.drive.id, "charger_state", curr.ChargerState)
+		s.drive.final = true
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
+		rejected := s.drive.rejected
 		s.drive = nil
+		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
+			go m.runDriveCloseHook(closedRow)
+		}
 	}
 }
 
