@@ -71,4 +71,22 @@ describe("choosePin", () => {
     });
     expect(choosePin({ name: "Hotel" }, null, false)).toEqual({ snap: true, label: "Hotel" });
   });
+  it("Tesla Destination is AC: an AC session snaps to it and it keeps its own name", () => {
+    const dest = { name: "Tesla Destination", operator: "Tesla, Inc.", brand: "Tesla" };
+    expect(choosePin(dest, null, false)).toEqual({ snap: true, label: "Tesla Destination" });
+    expect(choosePin(dest, "Tesla Destination", false)).toEqual({ snap: true, label: "Tesla Destination" });
+  });
+  it("Rivian Waypoints is never shown as the Adventure Network", () => {
+    expect(displayNetwork("Rivian Waypoints")).toBe("Rivian Waypoints");
+    expect(networkKey("Rivian Waypoints")).toBe("rivian_waypoints");
+    expect(choosePin({ name: "Rivian Waypoints" }, null, false)).toEqual({ snap: true, label: "Rivian Waypoints" });
+    // A DC session next to a Waypoints node disagrees with RAN: label RAN.
+    expect(choosePin({ name: "Rivian Waypoints" }, "Rivian Adventure Network", true)).toEqual({
+      snap: false,
+      label: "Rivian Adventure Network",
+    });
+  });
+  it("a Supercharger is still DC-only for AC sessions", () => {
+    expect(choosePin({ name: "Tesla Supercharger" }, null, false)).toEqual({ snap: false, label: "Charging station" });
+  });
 });

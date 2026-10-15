@@ -4,11 +4,13 @@
 // network's, and labelling the pin with it is wrong. The ledger already
 // knows the real network, so it wins when the two disagree.
 
-export type NetworkKey = "tesla" | "rivian" | "electrify_america" | "evgo" | "chargepoint" | "ionna" | "shell_recharge" | null;
+export type NetworkKey = "tesla" | "tesla_destination" | "rivian" | "rivian_waypoints" | "electrify_america" | "evgo" | "chargepoint" | "ionna" | "shell_recharge" | null;
 
 const DISPLAY: Record<Exclude<NetworkKey, null>, string> = {
   tesla: "Tesla Supercharger",
+  tesla_destination: "Tesla Destination",
   rivian: "Rivian Adventure Network",
+  rivian_waypoints: "Rivian Waypoints",
   electrify_america: "Electrify America",
   evgo: "EVgo",
   chargepoint: "ChargePoint",
@@ -23,6 +25,9 @@ export function networkKey(...parts: (string | null | undefined)[]): NetworkKey 
     .join(" ")
     .toLowerCase();
   if (!s.trim()) return null;
+  // AC sub-brands first: they share the parent brand's name but are L2.
+  if (/\btesla\b.*\bdestination\b|\bdestination\b.*\btesla\b/.test(s)) return "tesla_destination";
+  if (/\brivian\b.*\bwaypoints?\b|\bwaypoints?\b/.test(s)) return "rivian_waypoints";
   if (/\btesla\b|supercharger/.test(s)) return "tesla";
   if (/\brivian\b|adventure network|\bran\b/.test(s)) return "rivian";
   if (/electrify\s*america|\bea\b/.test(s)) return "electrify_america";
