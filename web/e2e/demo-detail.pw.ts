@@ -70,11 +70,13 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
 
-test("the demo never requests tile archives or routing", async ({ page }) => {
+test("the demo never requests the chargers archive or routing", async ({ page }) => {
   const tileReqs: string[] = [];
   page.on("request", (r) => {
     // No tile archives and no anonymous routing/map-matching calls.
-    if (r.url().includes(".pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
+    // The basemap archive (us.pmtiles) is allowed for the demo; the
+    // chargers archive and anonymous routing are not.
+    if (r.url().includes("chargers.pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
   });
   await openDemo(page, "/demo?tab=activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
@@ -187,4 +189,16 @@ test("Activity filters in the demo keep the Activity tab and the filter sticks",
   await page.getByRole("tab", { name: "All" }).click();
   await expect(page).toHaveURL(/tab=activity/);
   await expect(page).not.toHaveURL(/f=/);
+});
+
+test("the demo map uses the self-hosted basemap, never CARTO's keyed raster", async ({ page }) => {
+  const reqs: string[] = [];
+  page.on("request", (r) => reqs.push(r.url()));
+  await openDemo(page, "/demo?tab=activity");
+  await page.locator('a[href^="/demo/charges/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(reqs.filter((u) => u.includes("basemaps.cartocdn.com"))).toEqual([]);
+  // The self-hosted basemap archive is what the map reads.
+  expect(reqs.some((u) => u.includes("/api/maps/tiles/us.pmtiles"))).toBe(true);
 });
