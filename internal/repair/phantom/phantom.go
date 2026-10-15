@@ -224,16 +224,24 @@ func Apply(ctx context.Context, d *sql.DB, batchID, userID, vehicleID uuid.UUID,
 	if err != nil {
 		return 0, err
 	}
-	if len(fresh) != len(ids) {
-		return 0, fmt.Errorf("%w (found %d of %d)", ErrDrift, len(fresh), len(ids))
-	}
+	// Collect every id that changed so a re-run is easy.
+	var changed []string
+	have := map[uuid.UUID]bool{}
 	for _, r := range fresh {
+		have[r.ID] = true
 		if r.VehicleID != vehicleID {
-			return 0, fmt.Errorf("row %s belongs to another vehicle", r.ExternalID)
+			changed = append(changed, r.ID.String()+" (other vehicle)")
+		} else if v := Classify(r); !v.Delete {
+			changed = append(changed, r.ID.String()+" ("+v.Reason+")")
 		}
-		if v := Classify(r); !v.Delete {
-			return 0, fmt.Errorf("%w: %s: %s", ErrDrift, r.ExternalID, v.Reason)
+	}
+	for _, id := range ids {
+		if !have[id] {
+			changed = append(changed, id.String()+" (missing)")
 		}
+	}
+	if len(changed) > 0 {
+		return 0, fmt.Errorf("%w: %s", ErrDrift, strings.Join(changed, "; "))
 	}
 	arr := make([]string, len(ids))
 	for i, id := range ids {
