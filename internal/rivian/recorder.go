@@ -415,6 +415,15 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		m.sessions[vehicleID] = sess
 	}
 
+	// charging_ready while moving: this vehicle's charging_ready says
+	// nothing about a plug (readyUnreliable).
+	if curr.SpeedKph*kphToMi > driveCloseSpeedMph && strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") {
+		if m.readyMoving == nil {
+			m.readyMoving = map[string]bool{}
+		}
+		m.readyMoving[vehicleID] = true
+	}
+
 	var driveNum, chargeNum int64
 	var snap LiveStateSnapshot
 	saveSnapshot := false
@@ -1047,6 +1056,13 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
 	// See v0.3.48 for the matching frontend gate.
 	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	// Some vehicles report charging_ready while driving and parked
+	// unplugged (R2). Where that's so, charging_ready doesn't open a
+	// charge; charging_active does. An open charge isn't affected.
+	if charging && s.charge == nil && curr.ChargerPowerKW <= 0 &&
+		strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") && m.readyUnreliable(curr.VehicleID) {
+		charging = false
+	}
 
 	// Stale-session guard. Force-close if too long has passed since
 	// anything meaningful happened (SoC went up, power was above the
@@ -1884,4 +1900,17 @@ func minNonZero4(a, b, c, d float64) float64 {
 		}
 	}
 	return min
+}
+
+// readyUnreliable reports a vehicle whose charging_ready doesn't mean
+// plugged in: an R2, or one seen reporting it while moving. Must be
+// called with m.sessMu held (readyMoving).
+func (m *StateMonitor) readyUnreliable(vehicleID string) bool {
+	if m.readyMoving[vehicleID] {
+		return true
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v := m.vehicleInfo[vehicleID]
+	return v != nil && strings.EqualFold(strings.TrimSpace(v.Model), "R2")
 }
