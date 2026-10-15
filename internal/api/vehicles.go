@@ -368,26 +368,30 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
+		// The owner's own cache, else the owner's published snapshot
+		// (subscription-only fields the REST fallback lacks), else the
+		// local entry, fetched from Rivian at most every few minutes and
+		// never while asleep. See StateMonitor.ServeState.
+		var have *rivian.State
 		if mon != nil {
-			// Local cache: populated on the pod that owns this vehicle's
-			// WS lease (and therefore runs the subscriptions).
-			if st, _ := mon.Latest(id); st != nil {
-				writeJSON(w, http.StatusOK, st)
+			cached, fetch := mon.ServeState(r.Context(), id)
+			if !fetch {
+				if cached == nil {
+					w.Header().Set("Retry-After", "60")
+					http.Error(w, "vehicle state not available yet", http.StatusServiceUnavailable)
+					return
+				}
+				writeJSON(w, http.StatusOK, cached)
 				return
 			}
-			// Peer snapshot: a replica that doesn't own the lease reads
-			// the live State the owner published to the shared store, so
-			// the response carries subscription-only / Parallax-only
-			// fields (pack temp, tire pressures, charging context, driver
-			// chips, windows) instead of the REST fallback below, which
-			// omits every field vehicleState doesn't expose over REST.
-			if st := mon.RemoteLatest(r.Context(), id); st != nil {
-				writeJSON(w, http.StatusOK, st)
-				return
-			}
+			have = cached
 		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
+			if have != nil {
+				writeJSON(w, http.StatusOK, have)
+				return
+			}
 			if errors.Is(err, rivian.ErrNotImplemented) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
