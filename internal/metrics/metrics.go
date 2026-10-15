@@ -87,6 +87,12 @@ type Metrics struct {
 	// failed share is a car that can't stay asleep (vampire drain);
 	// the per-vehicle detail is in the "vehicle sleep ended" log line.
 	VehicleSleepsTotal *prometheus.CounterVec
+
+	// Parallax drive-dynamics values ignored instead of applied, by topic:
+	// cloud replays of a topic's last snapshot (every resubscribe re-sends
+	// it with its original timestamp) and frames older than a minute. A
+	// replayed gear D once flapped a charging truck's sessions.
+	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -179,6 +185,13 @@ func New() *Metrics {
 			},
 			[]string{"event"},
 		),
+		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_parallax_replays_ignored_total",
+				Help: "Parallax drive-dynamics values ignored as replays or stale, by topic.",
+			},
+			[]string{"topic"},
+		),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_vehicle_sleeps_total",
@@ -200,6 +213,7 @@ func New() *Metrics {
 		m.EmailSendTotal,
 		m.FunnelEventsTotal,
 		m.VehicleSleepsTotal,
+		m.ParallaxReplaysIgnoredTotal,
 	)
 	return m
 }

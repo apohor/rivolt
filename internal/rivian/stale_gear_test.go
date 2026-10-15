@@ -153,3 +153,55 @@ func TestParallaxGear_SameTimestampReplayIsNotReapplied(t *testing.T) {
 		t.Fatal("replay renewed lastPxGearAt")
 	}
 }
+
+type replayCounter struct{ byTopic map[string]int }
+
+func (c *replayCounter) OnSleepEnded(string, time.Duration, bool) {}
+func (c *replayCounter) OnParallaxReplayIgnored(topic string)     { c.byTopic[topic]++ }
+
+// Power state and drive mode follow the same rule as the gear: a
+// replayed "ready" must not read as a wake of a sleeping car (sleep
+// gate, rest_quiet), nor a replayed drive mode overwrite the current
+// one. Ignored replays are counted by topic.
+func TestParallaxPowerAndDriveModeReplaysIgnored(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.parallaxDriveDynamics = true
+	obs := &replayCounter{byTopic: map[string]int{}}
+	m.SetSleepObserver(obs)
+	m.cache["vid-1"] = &State{VehicleID: "vid-1", At: time.Now(), Gear: "P", PowerState: "sleep", DriveMode: "everyday",
+		BatteryLevelPct: 60, OdometerKm: 1000}
+	ctx := context.Background()
+	old := time.Now().Add(-20 * time.Minute).UnixMilli()
+	frame := func(rvm string, v uint64, ts int64) DriveDynamicsFrame {
+		return DriveDynamicsFrame{RVM: rvm, Value: v, ValueOK: true, TimestampMs: ts}
+	}
+	cached := func() State {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return *m.cache["vid-1"]
+	}
+
+	// A resubscribe replays the last snapshots: "ready" and sport, both
+	// from 20 minutes ago (first seen after a restart, so no baseline).
+	m.onDriveDynamicsFrame(ctx, "vid-1", frame(rvmPowerState, 3, old))
+	m.onDriveDynamicsFrame(ctx, "vid-1", frame(rvmDriveMode, 4, old))
+	if st := cached(); st.PowerState != "sleep" || st.DriveMode != "everyday" {
+		t.Errorf("replays applied: power %q, mode %q", st.PowerState, st.DriveMode)
+	}
+	// A real wake, now, applies; its replay (same ts) is ignored.
+	now := time.Now().UnixMilli()
+	m.onDriveDynamicsFrame(ctx, "vid-1", frame(rvmPowerState, 3, now))
+	if st := cached(); st.PowerState != "ready" {
+		t.Errorf("a fresh power state wasn't applied: %q", st.PowerState)
+	}
+	m.mu.Lock()
+	m.cache["vid-1"].PowerState = "sleep" // back asleep (vehicleState)
+	m.mu.Unlock()
+	m.onDriveDynamicsFrame(ctx, "vid-1", frame(rvmPowerState, 3, now))
+	if st := cached(); st.PowerState != "sleep" {
+		t.Errorf("a replayed ready woke the car again: %q", st.PowerState)
+	}
+	if obs.byTopic[rvmPowerState] != 2 || obs.byTopic[rvmDriveMode] != 1 {
+		t.Errorf("replays counted %v, want power 2, mode 1", obs.byTopic)
+	}
+}

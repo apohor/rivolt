@@ -1939,6 +1939,15 @@ func (s *sleepMetrics) OnSleepEnded(_ string, _ time.Duration, failed bool) {
 	s.m.VehicleSleepsTotal.WithLabelValues(outcome).Inc()
 }
 
+// OnParallaxReplayIgnored implements rivian.ParallaxReplayObserver.
+// topic is one of a few fixed Parallax RVM names (bounded cardinality).
+func (s *sleepMetrics) OnParallaxReplayIgnored(topic string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.ParallaxReplaysIgnoredTotal.WithLabelValues(topic).Inc()
+}
+
 type breakerMetrics struct{ m *metrics.Metrics }
 
 func (b *breakerMetrics) OnStateChange(_, to rivian.BreakerState) {
