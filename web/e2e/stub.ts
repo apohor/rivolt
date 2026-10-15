@@ -144,7 +144,8 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/config") {
       return json(route, {
         features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
-        tiles: { url: "", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
+        tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
+        valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
       });
     }

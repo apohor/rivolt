@@ -70,10 +70,11 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
 
-test("the demo never requests the chargers pmtiles layer", async ({ page }) => {
+test("the demo never requests tile archives or routing", async ({ page }) => {
   const tileReqs: string[] = [];
   page.on("request", (r) => {
-    if (r.url().includes(".pmtiles")) tileReqs.push(r.url());
+    // No tile archives and no anonymous routing/map-matching calls.
+    if (r.url().includes(".pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
   });
   await openDemo(page, "/demo?tab=activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
@@ -100,4 +101,17 @@ test("Share statement gives visible feedback in the demo", async ({ page }) => {
   await share.click();
   await download;
   await expect(page.getByRole("status").filter({ hasText: /Saved rivolt-.*\.png/ })).toBeVisible();
+});
+
+test("browser back from a demo drive detail throws no page error", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await openDemo(page, "/demo?tab=activity");
+  await page.locator('a[href^="/demo/drives/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
+  // Back immediately, while the map's deferred layout callbacks are pending.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/demo\?tab=activity/);
+  await page.waitForTimeout(800);
+  expect(errors.filter((m) => /LatLng/.test(m))).toEqual([]);
 });
