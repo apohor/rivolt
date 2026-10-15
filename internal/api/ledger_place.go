@@ -89,6 +89,10 @@ func handleUndoRestamp(store placeRestamper) http.HandlerFunc {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "nothing to undo"})
 			return
 		}
+		if errors.Is(err, charges.ErrRestampNotLatest) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "only the latest correction can be undone"})
+			return
+		}
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
