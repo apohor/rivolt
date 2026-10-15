@@ -236,12 +236,14 @@ func (p Plan) candidateWindow() (time.Time, time.Time) {
 }
 
 // PlanWindow is the [from, to) to Load the ledger Input over for p:
-// the candidate window padded so outings are seen whole (2 days before,
-// so one already under way isn't mistaken for a fresh start, and up to
-// a long stay away after).
+// the candidate window padded by the longest an outing can stay away on
+// both sides, so every outing whose leg starts in the window is loaded
+// whole. A partly loaded outing would be named after its first loaded
+// drive, a trip_id that doesn't match /api/ledger/trips and moves with
+// the window (a return-leg plan's outing can have left days earlier).
 func PlanWindow(p Plan) (time.Time, time.Time) {
 	from, to := p.candidateWindow()
-	return from.Add(-48 * time.Hour), to.Add(TripMaxParkedAway)
+	return from.Add(-TripMaxParkedAway), to.Add(TripMaxParkedAway)
 }
 
 // PlanCandidate is one outing that may have carried out the plan (§4).
@@ -678,9 +680,10 @@ type legSpan struct {
 // nearest it, within planFarKM); with neither (still on the way) it
 // runs to the end of the outing, not arrived, and with no positions at
 // all it's the whole outing. It starts at the last drive at or before
-// that arrival that starts within planFarKM of the plan's origin, so a
-// plan that doesn't start at home (the drive back from a hotel) is
-// compared with that leg, not the round trip; else at the first drive.
+// that arrival that starts at the plan's origin (within planNearKM; else
+// the last within planFarKM), so a plan that doesn't start at home (the
+// drive back from a hotel) is compared with that leg, not the round
+// trip; with neither, at the first drive.
 // The outing must have a drive.
 func planSpan(p Plan, o []tripEvent) legSpan {
 	arriveAt, nearest, firstDrive, lastDrive := -1, -1, -1, -1
@@ -715,9 +718,18 @@ func planSpan(p Plan, o []tripEvent) legSpan {
 	case nearest < 0: // no positions recorded: take the outing as the trip
 		sp.arrived = true
 	}
-	for i := sp.arrive; i >= 0; i-- {
-		if d := o[i].drive; d != nil && within(d.StartLat, d.StartLon, p.Origin, planFarKM) {
-			sp.from = i
+	// Prefer the last drive that starts at the origin (≤ planNearKM), so
+	// a coffee stop or pickup near home doesn't cut the leg short; fall
+	// back to the last within planFarKM.
+	for _, radius := range []float64{planNearKM, planFarKM} {
+		found := false
+		for i := sp.arrive; i >= 0; i-- {
+			if d := o[i].drive; d != nil && within(d.StartLat, d.StartLon, p.Origin, radius) {
+				sp.from, found = i, true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}

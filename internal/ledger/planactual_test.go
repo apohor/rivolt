@@ -501,3 +501,83 @@ func TestPlanReturnLeg(t *testing.T) {
 		t.Errorf("duration = %+v, want the drive back, not days", d)
 	}
 }
+
+// windowed is `in` cut to what Load would return for PlanWindow(p).
+func windowed(in Input, p Plan) Input {
+	from, to := PlanWindow(p)
+	out := Input{Config: in.Config, Now: in.Now}
+	for _, d := range in.Drives {
+		if d.StartedAt.Before(to) && !d.EndedAt.Before(from) {
+			out.Drives = append(out.Drives, d)
+		}
+	}
+	for _, c := range in.Charges {
+		if c.StartedAt.Before(to) && !c.EndedAt.Before(from) {
+			out.Charges = append(out.Charges, c)
+		}
+	}
+	return out
+}
+
+// The ledger loaded over PlanWindow holds the whole outing even when a
+// return-leg plan starts days after the outing left home, so the trip
+// id is the outing's own (as /api/ledger/trips names it), not one named
+// after the first drive that happened to be loaded.
+func TestPlanWindowHoldsTheWholeOuting(t *testing.T) {
+	full := sampleLedger(t)
+	ib, pb := planJSONFor(t, pvaSF, pvaHome, "2026-02-16T13:00:00Z",
+		[]pvaStop{{pvaKettleman, "Bravo Farms - Tesla Supercharger", "Tesla Supercharger", 60, 0.50, 20}}, 30, "USD")
+	p, err := ParsePlan(ib, pb, time.Date(2026, 2, 15, 20, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := MatchPlan(p, full)
+	if len(all) == 0 {
+		t.Fatal("no candidate on the full ledger")
+	}
+	got := MatchPlan(p, windowed(full, p))
+	if len(got) == 0 || got[0].TripID != all[0].TripID {
+		t.Errorf("windowed candidate %+v, want trip id %s (the outing left %s)", got, all[0].TripID, all[0].TripID)
+	}
+	if got[0].StartedAt.Format("2006-01-02") != "2026-02-16" {
+		t.Errorf("the leg starts %s, want the drive back on Feb 16", got[0].StartedAt)
+	}
+}
+
+// A coffee stop a few km from home doesn't cut the leg: it starts at the
+// last drive that leaves from the plan's origin itself, falling back to
+// one within 25 km only when none does.
+func TestPlanLegStartsAtTheOrigin(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	t0 := time.Date(2026, 3, 2, 7, 0, 0, 0, time.UTC)
+	cafe := LatLon{34.1950, -118.1380} // ~4.6 km from home
+	drive := func(id string, from, to LatLon, startMin, endMin int, mi float64) Drive {
+		return Drive{ID: id, VehicleID: "rv", StartedAt: t0.Add(time.Duration(startMin) * time.Minute),
+			EndedAt: t0.Add(time.Duration(endMin) * time.Minute), DistanceMi: f(mi), EnergyKWh: f(mi / 2.5),
+			StartLat: f(from.Lat), StartLon: f(from.Lon), EndLat: f(to.Lat), EndLon: f(to.Lon), StartSoC: f(80), EndSoC: f(40)}
+	}
+	in := Input{Config: Config{Currency: "USD", Home: &pvaHome}, Now: t0.Add(48 * time.Hour),
+		Drives: []Drive{
+			drive("d-cafe", pvaHome, cafe, 0, 10, 3),
+			drive("d-barstow", cafe, pvaBarstow, 30, 130, 90),
+			drive("d-vegas", pvaBarstow, pvaVegas, 160, 300, 160),
+		}}
+	ib, pb := planJSONFor(t, pvaHome, pvaVegas, "2026-03-02T07:00:00Z", nil, 0, "USD")
+	p, _ := ParsePlan(ib, pb, t0.Add(-24*time.Hour))
+	cands := MatchPlan(p, in)
+	if len(cands) == 0 || !cands[0].StartedAt.Equal(t0) {
+		t.Fatalf("candidates = %+v, want the leg from home at 07:00", cands)
+	}
+	cmp := mustCompare(t, p, in, cands[0].TripID)
+	if len(cmp.Leg.DriveIDs) != 3 || cmp.Leg.DriveIDs[0] != "d-cafe" {
+		t.Errorf("leg drives = %v, want all three from home", cmp.Leg.DriveIDs)
+	}
+
+	// Planned from the café itself: the leg starts there.
+	ib, pb = planJSONFor(t, cafe, pvaVegas, "2026-03-02T07:30:00Z", nil, 0, "USD")
+	p, _ = ParsePlan(ib, pb, t0.Add(-24*time.Hour))
+	cmp = mustCompare(t, p, in, MatchPlan(p, in)[0].TripID)
+	if len(cmp.Leg.DriveIDs) != 2 || cmp.Leg.DriveIDs[0] != "d-barstow" {
+		t.Errorf("leg from the café = %v, want d-barstow, d-vegas", cmp.Leg.DriveIDs)
+	}
+}
