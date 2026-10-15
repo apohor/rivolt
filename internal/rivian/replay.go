@@ -106,7 +106,7 @@ func (f replayFrame) toState() State {
 	// mergeState, which replay bypasses, so clear it here too.
 	dropIdleChargerPower(&s)
 	if f.SessionPrice > 0 {
-		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true,
+		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true, RivianChargerKnown: true,
 			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency,
 			Network: f.SessionNetwork}
 	}

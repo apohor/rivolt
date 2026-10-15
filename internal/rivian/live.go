@@ -1373,6 +1373,7 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 	}
 	if d.IsRivianCharger != nil {
 		out.IsRivianCharger = *d.IsRivianCharger
+		out.RivianChargerKnown = true
 	}
 	return out, nil
 }

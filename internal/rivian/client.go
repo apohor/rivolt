@@ -220,6 +220,10 @@ type LiveSession struct {
 	CurrentCurrency string  `json:"current_currency"`
 	IsFreeSession   bool    `json:"is_free_session"`
 	IsRivianCharger bool    `json:"is_rivian_charger"`
+	// RivianChargerKnown is true when a source reported isRivianCharger
+	// (only the REST getLiveSessionHistory fetch does), so a false
+	// IsRivianCharger means "another network", not "not reported".
+	RivianChargerKnown bool `json:"rivian_charger_known,omitempty"`
 	// Network is the display name of the charging network billing the
 	// session (e.g. "Rivian Adventure Network") when a source knows it.
 	// Rivian's live-session APIs carry no network name, so today only

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -1181,6 +1182,9 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// phantom rows that upsertLiveCharge already filtered out.
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
 		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		if !phantom {
+			logDCFCClose(m.logger, curr.VehicleID, closedRow)
+		}
 		// Still rejected after the close retry: no duplicate push.
 		rejected := s.charge.rejected
 		n := s.charge.number
@@ -1204,6 +1208,44 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		return n
 	}
 	return 0
+}
+
+// sessionPredatesCharge reports evidence that a bonded session began well
+// before the charge it's bonded to: it has run longer than the charge
+// by more than 15 min and a quarter of the charge's age, or its start
+// time is over 15 min before the charge's. Rivian's REST and replayed
+// snapshots can describe the previous session; its price and charger
+// flag must not land on this one. No evidence (no elapsed time, no
+// parsable start) is not staleness.
+func sessionPredatesCharge(sess *LiveSession, c *liveCharge) bool {
+	if sess == nil || c == nil {
+		return false
+	}
+	age := c.endAt.Sub(c.startedAt)
+	if sess.TimeElapsedSeconds > 0 && time.Duration(sess.TimeElapsedSeconds)*time.Second > age+15*time.Minute+age/4 {
+		return true
+	}
+	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime)); err == nil &&
+		t.Before(c.startedAt.Add(-15*time.Minute)) {
+		return true
+	}
+	return false
+}
+
+// NetworkRivianAdventure is the display name the ledger and the charge
+// map use for the Rivian Adventure Network.
+const NetworkRivianAdventure = "Rivian Adventure Network"
+
+// logDCFCClose logs one line per closed DC fast charge saying whether
+// Rivian reported isRivianCharger for it, so the coverage of the
+// network rule can be measured (rivian_charger_seen over all DC closes).
+func logDCFCClose(logger *slog.Logger, vehicleID string, row charges.Charge) {
+	if logger == nil || !IsDCFCSession(row.MaxPowerKW, row.EnergyAddedKWh, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+		return
+	}
+	seen, rivian := row.RivianCharger != nil, row.RivianCharger != nil && *row.RivianCharger
+	logger.Info("dcfc session closed", "vehicle", vehicleID, "rivian_charger_seen", seen, "rivian_charger", rivian,
+		"cost_source", row.CostSource, "network", row.Network)
 }
 
 // maybeRehydrate is the lazy-init path for sessions[vehicleID]. The
@@ -1580,13 +1622,21 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		v := liveSess.ThermalKWh
 		row.ThermalKWh = &v
 	}
+	// What Rivian says about the session (its own charger, its price)
+	// belongs to this charge only if the session is this charge's:
+	// getLiveSessionHistory can still return the previous session.
+	stale := sessionPredatesCharge(liveSess, c)
+	if liveSess != nil && !stale && liveSess.RivianChargerKnown {
+		v := liveSess.IsRivianCharger
+		row.RivianCharger = &v
+	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
 	// (they're the real billed amount). A DC fast charge Rivian didn't
 	// bill (Tesla, Electrify America, ...) is priced at the network
 	// rate of the station it happened at; anything slower uses the
 	// user's home $/kWh rate. Persisting means future rate changes
 	// don't retroactively rewrite history; CostSource records which.
-	if liveSess != nil && liveSess.CurrentPrice != "" {
+	if liveSess != nil && !stale && liveSess.CurrentPrice != "" {
 		if cost, err := strconv.ParseFloat(liveSess.CurrentPrice, 64); err == nil && cost > 0 {
 			row.Cost = cost
 			row.Currency = liveSess.CurrentCurrency
@@ -1594,8 +1644,15 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			// The billing network when the session names it, so the
 			// charge map labels a Rivian-billed stop by its network
 			// instead of the nearest charger's brand. Never guessed from
-			// "Rivian-billed": Rivian can bill other networks too.
+			// "Rivian-billed" alone: Rivian can bill other networks too.
+			// Rivian's own charger at DC fast speed is the Rivian
+			// Adventure Network; at AC it could be a Waypoints or Wall
+			// Charger, so that stays unnamed.
 			row.Network = strings.TrimSpace(liveSess.Network)
+			if row.Network == "" && liveSess.RivianChargerKnown && liveSess.IsRivianCharger &&
+				IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+				row.Network = NetworkRivianAdventure
+			}
 			if energy > 0 {
 				row.PricePerKWh = cost / energy
 			}
