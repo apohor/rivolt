@@ -167,7 +167,7 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 	}
 }
 
-func TestToConfirm_CountsListAndIsolation(t *testing.T) {
+func TestToConfirm_CountsAndIsolation(t *testing.T) {
 	pool := openPG(t)
 	ctx := context.Background()
 	alice, err := db.EnsureUser(ctx, pool, "confirm-alice")
@@ -198,14 +198,6 @@ func TestToConfirm_CountsListAndIsolation(t *testing.T) {
 	if err != nil || open != 2 || attention != 1 {
 		t.Errorf("counts = %d/%d, %v; want 2/1", open, attention, err)
 	}
-	cs, err := ledger.LoadToConfirm(ctx, pool, alice)
-	if err != nil || len(cs) != 2 || cs[0].ID != "a-need" || cs[1].ID != "a-est" {
-		t.Fatalf("list = %+v, %v; want a-need, a-est (newest first)", cs, err)
-	}
-	if cs[0].NetworkState != "needs_confirmation" || cs[0].NetworkConfidence == nil || *cs[0].NetworkConfidence < 0.69 || *cs[0].NetworkConfidence > 0.71 ||
-		string(cs[0].NetworkEvidence) != `{"v": 1}` {
-		t.Errorf("state fields = %+v", cs[0])
-	}
 	// The window loader carries the same fields.
 	p, _ := ledger.ParsePeriod("2026-03", time.UTC)
 	from, to := ledger.LoadWindow(p)
@@ -213,8 +205,7 @@ func TestToConfirm_CountsListAndIsolation(t *testing.T) {
 	if err != nil || len(win) != 1 || win[0].NetworkState != "estimated" {
 		t.Errorf("window = %+v, %v", win, err)
 	}
-	bobs, err := ledger.LoadToConfirm(ctx, pool, bob)
-	if err != nil || len(bobs) != 1 || bobs[0].ID != "b-need" {
-		t.Errorf("bob = %+v, %v", bobs, err)
+	if n, _, err := ledger.CountToConfirm(ctx, pool, bob); err != nil || n != 1 {
+		t.Errorf("bob = %d, %v", n, err)
 	}
 }

@@ -720,8 +720,8 @@ func (s *Store) ConfirmNetwork(ctx context.Context, externalID string) (int64, e
 
 // SetNetworkPrice records the user's own choice of DC fast charge
 // network: cost = pricePerKWh × the session's energy, cost_source
-// 'user', network_state cleared (confidence and evidence stay for
-// audit). Returns rows affected (0: not found for this user, or the
+// 'user', network_state 'confirmed' (the user picked it; confidence and
+// evidence stay for audit). Returns rows affected (0: not found for this user, or the
 // session has no energy to price).
 func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
@@ -731,7 +731,7 @@ func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, curren
 		    currency = COALESCE(NULLIF($5, ''), currency),
 		    network = NULLIF($4, ''),
 		    cost_source = 'user',
-		    network_state = NULL,
+		    network_state = 'confirmed',
 		    legacy_cost = NULL,
 		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()

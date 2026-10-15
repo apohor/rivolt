@@ -1106,7 +1106,7 @@ func TestNetworkStateSurvivesResaves(t *testing.T) {
 		t.Fatalf("confirmed then billed: source %q cost %.2f state %q", c.CostSource, c.Cost, c.NetworkState)
 
 // TestSetNetworkPriceAndGet: the user's own network choice prices the
-// session (rate × energy), ends the verify state, keeps the evidence, and
+// session (rate × energy), marks it confirmed, keeps the evidence, and
 // is scoped to the user; GetByExternalID sees the state fields.
 func TestSetNetworkPriceAndGet(t *testing.T) {
 	factory, uidA, uidB := setupEnv(t)
@@ -1135,7 +1135,7 @@ func TestSetNetworkPriceAndGet(t *testing.T) {
 		t.Fatalf("set = %d (%v)", n, err)
 	}
 	got, _ = store.GetByExternalID(ctx, "p-1")
-	if got.CostSource != "user" || got.Network != "Electrify America" || got.NetworkState != "" ||
+	if got.CostSource != "user" || got.Network != "Electrify America" || got.NetworkState != "confirmed" ||
 		got.PricePerKWh != 0.48 || got.Cost < 19.19 || got.Cost > 19.21 || len(got.NetworkEvidence) == 0 {
 		t.Fatalf("after set: %+v", got)
 	}

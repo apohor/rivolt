@@ -28,7 +28,6 @@ func ledgerRouter(enabled map[string]bool, la ledgerAPI) http.Handler {
 		r.Get("/enabled", handleLedgerEnabled)
 		r.Get("/monthly", withUser(la.monthly))
 		r.Get("/summary", withUser(la.summary))
-		r.Get("/to-confirm", withUser(la.toConfirmList))
 		r.Get("/trips", withUser(la.trips))
 	})
 	return r

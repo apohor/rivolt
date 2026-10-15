@@ -103,9 +103,12 @@ func TestConfirmChargeNetwork(t *testing.T) {
 	if got["network_state"] != "confirmed" || got["network_confidence"] != 0.7 || got["network_evidence"] == nil {
 		t.Errorf("body = %v", got)
 	}
-	// Idempotent: already confirmed is a 200 no-op.
-	if rec := confirmCall(&fakeConfirmer{row: row("confirmed", "network_estimate")}); rec.Code != 200 {
-		t.Errorf("repeat = %d, want 200", rec.Code)
+	// Idempotent: already confirmed is a 200 no-op (also after the
+	// user picked the network themselves).
+	for _, src := range []string{"network_estimate", "user"} {
+		if rec := confirmCall(&fakeConfirmer{row: row("confirmed", src)}); rec.Code != 200 {
+			t.Errorf("repeat (%s) = %d, want 200", src, rec.Code)
+		}
 	}
 	// User-priced / nothing to confirm: 409. Unknown charge: 404.
 	if rec := confirmCall(&fakeConfirmer{row: row("", "user")}); rec.Code != http.StatusConflict {
@@ -127,24 +130,11 @@ func TestDecorateChargeNetworkFieldsNull(t *testing.T) {
 	}
 }
 
-func TestLedger_ToConfirm(t *testing.T) {
+func TestLedger_SummaryToConfirmCounts(t *testing.T) {
 	uid := uuid.New()
-	conf := 0.5
-	started := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	kwh, peak := 40.0, 150.0
-	data := &fakeLedgerData{}
-	la := data.api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC))
-	la.toConfirm = func(context.Context, uuid.UUID) ([]ledger.Charge, error) {
-		return []ledger.Charge{{
-			ID: "c-1", VehicleID: "v", StartedAt: started, EndedAt: started.Add(30 * time.Minute),
-			EnergyKWh: &kwh, PeakKW: &peak, CostSource: "network_estimate", Network: "Tesla Supercharger",
-			NetworkState: "needs_confirmation", NetworkConfidence: &conf,
-			NetworkEvidence: json.RawMessage(`{"v":1,"source":"archive"}`),
-		}}, nil
-	}
+	la := (&fakeLedgerData{}).api(time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC))
 	la.toConfirmCount = func(context.Context, uuid.UUID) (int, int, error) { return 5, 2, nil }
 	h := ledgerRouter(map[string]bool{uid.String(): true}, la)
-
 	rec := ledgerGET(t, h, uid, "/api/ledger/summary?months=1")
 	var sum ledgerSummaryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &sum); err != nil {
@@ -153,33 +143,27 @@ func TestLedger_ToConfirm(t *testing.T) {
 	if sum.ToConfirmCount != 5 || sum.NeedsAttentionCount != 2 {
 		t.Errorf("counts = %d/%d, want 5/2", sum.ToConfirmCount, sum.NeedsAttentionCount)
 	}
-
-	rec = ledgerGET(t, h, uid, "/api/ledger/to-confirm")
-	if rec.Code != 200 {
-		t.Fatalf("to-confirm = %d: %s", rec.Code, rec.Body)
-	}
-	var out struct {
-		Count int              `json:"count"`
-		Rows  []ledger.Receipt `json:"rows"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.Count != 1 || len(out.Rows) != 1 {
-		t.Fatalf("rows = %+v", out)
-	}
-	r := out.Rows[0]
-	if r.NetworkState == nil || *r.NetworkState != "needs_confirmation" || r.NetworkConfidence == nil ||
-		!strings.Contains(string(r.NetworkEvidence), "archive") || len(r.Sessions) != 1 ||
-		r.Sessions[0].NetworkState == nil || r.Sessions[0].ChargeID != "c-1" {
-		t.Errorf("receipt = %+v", r)
-	}
 }
 
-func TestLedger_ToConfirmGatedByMoneyTab(t *testing.T) {
-	uid := uuid.New()
-	h := ledgerRouter(map[string]bool{}, (&fakeLedgerData{}).api(time.Now()))
-	if rec := ledgerGET(t, h, uid, "/api/ledger/to-confirm"); rec.Code != http.StatusNotFound {
-		t.Errorf("flag off = %d, want 404", rec.Code)
+func TestLedgerReceiptCarriesNetworkState(t *testing.T) {
+	conf := 0.5
+	started := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	kwh, peak := 40.0, 150.0
+	cs := []ledger.Charge{{
+		ID: "c-1", VehicleID: "v", StartedAt: started, EndedAt: started.Add(30 * time.Minute),
+		EnergyKWh: &kwh, PeakKW: &peak, CostSource: "network_estimate", Network: "Tesla Supercharger",
+		NetworkState: "needs_confirmation", NetworkConfidence: &conf,
+		NetworkEvidence: json.RawMessage(`{"v":1,"source":"archive"}`),
+	}}
+	p, _ := ledger.ParsePeriod("2026-09", time.UTC)
+	m := ledger.Build(ledger.Input{Charges: cs, Config: ledger.Config{Currency: "USD"}, Now: started}, p, true)
+	if len(m.Receipts) != 1 {
+		t.Fatalf("receipts = %d", len(m.Receipts))
+	}
+	r := m.Receipts[0]
+	if r.NetworkState == nil || *r.NetworkState != "needs_confirmation" || r.NetworkConfidence == nil ||
+		!strings.Contains(string(r.NetworkEvidence), "archive") || len(r.Sessions) != 1 ||
+		r.Sessions[0].NetworkState == nil {
+		t.Errorf("receipt = %+v", r)
 	}
 }

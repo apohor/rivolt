@@ -847,7 +847,6 @@ func New(d Deps) http.Handler {
 				r.Get("/enabled", handleLedgerEnabled)
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))
-				r.Get("/to-confirm", withUser(la.toConfirmList))
 				r.Get("/trips", withUser(la.trips))
 			})
 			r.Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

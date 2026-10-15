@@ -251,7 +251,7 @@ func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if n == 0 && !(c.NetworkState == "confirmed" && c.CostSource == "network_estimate") {
+		if n == 0 && c.NetworkState != "confirmed" {
 			http.Error(w, "no auto-detected network estimate to confirm", http.StatusConflict)
 			return
 		}

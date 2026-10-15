@@ -1039,23 +1039,6 @@ func samePlugIn(prev, next Charge, drives []Drive) bool {
 	return true
 }
 
-// SingleReceipts builds one single-session receipt per charge, in the
-// order given, for views that list charges across months (the "to
-// confirm" list) rather than a month's plug-ins.
-func SingleReceipts(cs []Charge, cfg Config, loc *time.Location) []Receipt {
-	if loc == nil {
-		loc = time.UTC
-	}
-	out := make([]Receipt, 0, len(cs))
-	for _, c := range cs {
-		p := Period{Loc: loc, Start: c.StartedAt, End: c.StartedAt.Add(time.Nanosecond)}
-		if r, ok := receiptFor([]Charge{c}, cfg, p); ok {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 	var in []Charge
 	before, after := false, false
