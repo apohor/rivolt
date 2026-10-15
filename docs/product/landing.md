@@ -46,3 +46,18 @@ MIT licensed. Download all your data as a JSON backup (CSV statement export is p
 
 ## Metrics
 Visitor to demo view, demo view to connect click, connect click to connected vehicle. See instrumentation.md.
+
+## CTA copy (for when the landing page is switched on)
+Landing is off in production today. These strings are ready for it; the demo they point to is live on preview (https://preview.rivolt.dev/demo, generated sample truck, read-only). Don't point the prod landing page at the preview URL: use a prod `/demo` once the owner enables it.
+
+| Where | Copy |
+|---|---|
+| Hero primary | **Try the demo truck** |
+| Hero secondary | Connect my Rivian |
+| Under buttons | No sign-in needed for the demo. It's a generated truck, not real data. |
+| Demo banner (exists) | Sample truck. Generated data, read-only. Connect your Rivian to see yours. |
+| Claim blocks (link text) | See it on the demo → |
+| Footer | Open source (MIT) · Self-host guide · Try the demo |
+| Beta state (signups closed) | Rivolt is invite-only for now. The demo is open to everyone. |
+| After demo, closed signups | Want your own truck here? Ask for an invite. |
+Use "Ask for an invite" while B9 (signups disabled) is on; switch to "Connect my Rivian" only when signups open.

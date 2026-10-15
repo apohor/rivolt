@@ -15,6 +15,24 @@ will cost.
 
 ---
 
+## Try the live demo
+
+**[preview.rivolt.dev/demo](https://preview.rivolt.dev/demo)** is a read-only
+demo on a *generated* sample truck: no sign-in, no Rivian account, and
+no real vehicle data. Browse the Now card, the Money statement and the
+Activity feed the way you would on your own truck.
+
+![Money statement in the demo, phone](docs/images/demo-money-phone.png)
+
+- It runs on the **preview** environment, so it can reset or be briefly
+  unavailable.
+- The numbers are made up (a home-charging month at $0.16/kWh);
+  yours will differ.
+- Connecting a real Rivian requires an invite while Rivolt is in beta;
+  see [`docs/SIGNUP.md`](docs/SIGNUP.md).
+
+---
+
 ## Overview — see your truck at a glance
 
 The home view stitches together what you actually care about right
