@@ -84,6 +84,8 @@ func main() {
 			return
 		case "reprice":
 			os.Exit(runReprice(os.Args[2:]))
+		case "repair-charge-fragments":
+			os.Exit(runRepairChargeFragments(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -95,6 +97,11 @@ func printUsage() {
 Usage:
   rivolt          Start the HTTP server (default)
   rivolt --help   Show this help
+  rivolt repair-charge-fragments [--apply] [--user NAME] [--since T] [--until T]
+                  [--max-gap 15s] [--backup FILE]
+                  Merge back-to-back pieces of one charging session that
+                  carry a running energy total into one row. Dry run
+                  unless --apply; --apply writes a CSV backup first.
   rivolt reprice [--apply] [--user NAME]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
