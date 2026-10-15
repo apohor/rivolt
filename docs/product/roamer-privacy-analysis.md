@@ -55,7 +55,7 @@
 
 ## Things Roamer promises that we should not copy
 1. **Specific retention numbers** ("up to one year" logs, "30 days" post-deletion, 6 months history). We have no automatic history deletion and unconfirmed log/backup retention. Promise only what the code or ops config enforces.
-2. **"Immediately" deleted / durably deleted.** Our deletion cascades in the database, but encrypted backups persist until rotation and the phantom-repair undo table (`charges_deleted_backup`, 0049, no foreign key) is kept at least 90 days; we say so.
+2. **"Immediately" deleted / durably deleted.** Our deletion cascades in the database, but encrypted backups persist until rotation and the phantom-repair undo table (`charges_deleted_backup`, 0049, no foreign key) is kept at least 90 days and is not cleared by account deletion today; we say so and list it as a fix.
 3. **"We encrypt your data ... wherever we can" as a blanket claim.** We state exactly what is sealed (Rivian session blobs) and what is not (vehicle history is protected by access control and disk/backup encryption as configured, not by per-user encryption).
 4. **Acquisition clause** ("your information would go to the new owner"). Not a default we should adopt without an owner decision.
 5. **Social features and AI assistant sharing.** Not applicable to us; do not add sharing language we do not have. Our LLM feature sends trip data to a provider only on use (details marked VERIFY).
