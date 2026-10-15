@@ -134,3 +134,38 @@ test("the demo's ledger calls use the fixed Pacific zone, whatever the viewer's"
   expect(new Set(ledger)).toEqual(new Set(["America/Los_Angeles"]));
   await ctx.close();
 });
+
+test("the demo follows the OS theme, set before the app bundle loads", async ({ browser }) => {
+  for (const [os, expectLight] of [["light", true], ["dark", false]] as const) {
+    const ctx = await browser.newContext({ colorScheme: os, viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    // Block the app bundle: only theme-init.js can have set the attribute.
+    await page.route("**/assets/*.js", (r) => r.abort());
+    await page.goto("/demo", { waitUntil: "domcontentloaded" });
+    if (expectLight) await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");
+    await ctx.close();
+  }
+});
+
+test("the demo's money grammar stays readable in light mode", async ({ browser }) => {
+  const ctx = await browser.newContext({ colorScheme: "light", viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  await openDemo(page, "/demo?tab=money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  // Hero total, split-bar legend and a receipt's source label all
+  // contrast with the page (luminance gap, same check as the Money view).
+  const lum = (c: string) => {
+    const [r, g, b] = (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  for (const sel of ["div.text-4xl", "dl dt", "text=/Billed|Estimate|Home rate/"]) {
+    const el = page.locator(sel).first();
+    if ((await el.count()) === 0) continue;
+    const fg = await el.evaluate((n) => getComputedStyle(n).color);
+    expect(Math.abs(lum(fg) - lum(bg)), sel).toBeGreaterThan(60);
+  }
+  await ctx.close();
+});
