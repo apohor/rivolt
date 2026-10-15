@@ -419,12 +419,15 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.quietHooks.Store(catchingUp)
 		cur := st
 		cur.VehicleID = vehicleID
+		sess := cur.ReplaySession
+		cur.ReplaySession = nil
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.cache[vehicleID] = &cur
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
+		m.applyReplaySession(ctx, vehicleID, &cur, sess)
 		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples && m.catchup.flushDue(vehicleID) {
 			m.flushCatchup(vehicleID)
 		}
@@ -437,6 +440,22 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 	case err != nil && ctx.Err() == nil:
 		m.logger.Warn("frame source ended", "vehicle", vehicleID, "err", err.Error())
 	}
+}
+
+// applyReplaySession applies a replayed frame's live-session snapshot
+// (State.ReplaySession) after the frame is recorded, as the live
+// charging-session feed would alongside it, so the open charge is
+// bonded to it and closes with its billed price.
+func (m *StateMonitor) applyReplaySession(ctx context.Context, vehicleID string, cur *State, sess *LiveSession) {
+	if sess == nil {
+		return
+	}
+	s := *sess
+	s.VehicleID, s.At = vehicleID, cur.At
+	if s.SoCPct == 0 {
+		s.SoCPct = cur.BatteryLevelPct
+	}
+	m.applyLiveSession(ctx, vehicleID, &s)
 }
 
 // parseBoolEnv treats "1", "true", "yes", "on" (any case) as true; all
