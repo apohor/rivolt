@@ -66,6 +66,19 @@ func TestPlanLinks_PG(t *testing.T) {
 	if string(rows[0].Snapshot.Plan) != `{"b": 2}` && string(rows[0].Snapshot.Plan) != `{"b":2}` {
 		t.Fatalf("snapshot = %s", rows[0].Snapshot.Plan)
 	}
+	// Re-linking the already-linked outing after a re-plan must keep
+	// the original snapshot.
+	replanned := mk("trip_b")
+	replanned.Snapshot = planSnapshot{Inputs: json.RawMessage(`{"a":9}`), Plan: json.RawMessage(`{"b":9}`)}
+	if err := store.Link(ctx, alice, st.ID, replanned); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = store.List(ctx, alice, st.ID)
+	for _, r := range rows {
+		if r.TripID == "trip_b" && (string(r.Snapshot.Plan) == `{"b": 9}` || string(r.Snapshot.Plan) == `{"b":9}`) {
+			t.Fatalf("snapshot of an already-linked outing was rewritten: %s", r.Snapshot.Plan)
+		}
+	}
 	// The same outing can be re-linked later.
 	if err := store.Link(ctx, alice, st.ID, mk("trip_a")); err != nil {
 		t.Fatal(err)

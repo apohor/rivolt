@@ -189,15 +189,67 @@ func TestPlanActual_UnlinkExcludesAndNeverResuggests(t *testing.T) {
 	}
 }
 
-func TestPlanActual_DismissingASuggestion(t *testing.T) {
+// No body with nothing linked is a no-op: a double-click on Unlink
+// must not dismiss the next candidate.
+func TestPlanActual_UnlinkWithNothingLinkedIsANoOp(t *testing.T) {
 	a, links, _ := newFakePA([]ledger.PlanCandidate{cand("trip_a", 0.91, "high")})
+	code, out := paServe(a, "POST", pathFor(paSaved.ID, "unlink"), "")
+	if code != 200 || out.Status != "suggested" || len(links.rows) != 0 {
+		t.Fatalf("no-op unlink wrote or changed state: %d %+v rows=%+v", code, out, links.rows)
+	}
+	// Link, then unlink twice: the second is a no-op, the suggestion
+	// (trip_a) stays unlinked and nothing else is dismissed.
+	a2, links2, _ := newFakePA([]ledger.PlanCandidate{cand("trip_a", 0.91, "high"), cand("trip_b", 0.9, "high")})
+	paServe(a2, "POST", pathFor(paSaved.ID, "link"), `{"trip_id":"trip_a"}`)
+	paServe(a2, "POST", pathFor(paSaved.ID, "unlink"), "")
+	before := len(links2.rows)
+	_, out = paServe(a2, "POST", pathFor(paSaved.ID, "unlink"), "")
+	if len(links2.rows) != before {
+		t.Fatalf("second unlink wrote rows: %+v", links2.rows)
+	}
+	if out.Status != "suggested" || out.Comparison == nil {
+		t.Fatalf("next best high candidate should be the suggestion: %+v", out)
+	}
+}
+
+func TestPlanActual_RejectACandidateByTripID(t *testing.T) {
+	a, links, _ := newFakePA([]ledger.PlanCandidate{cand("trip_a", 0.91, "high"), cand("trip_b", 0.85, "high"), cand("trip_m", 0.6, "medium")})
 	_, out := paServe(a, "GET", pathFor(paSaved.ID, "actual"), "")
-	if out.Status != "suggested" {
+	if out.Status != "suggested" || out.Candidates[0].TripID != "trip_a" {
 		t.Fatalf("setup: %+v", out)
 	}
-	_, out = paServe(a, "POST", pathFor(paSaved.ID, "unlink"), "")
-	if out.Status != "none" || len(links.rows) != 1 || links.rows[0].Status != "unlinked" || links.rows[0].TripID != "trip_a" {
-		t.Fatalf("dismissed suggestion must be recorded as unlinked: %+v %+v", out, links.rows)
+	// Reject the suggested trip.
+	code, out := paServe(a, "POST", pathFor(paSaved.ID, "unlink"), `{"trip_id":"trip_a"}`)
+	if code != 200 || len(links.rows) != 1 || links.rows[0].Status != "unlinked" || links.rows[0].TripID != "trip_a" {
+		t.Fatalf("reject must record an unlinked row: %d %+v", code, links.rows)
+	}
+	if string(links.rows[0].Snapshot.Plan) != `{"v":"plan-now"}` {
+		t.Fatalf("rejected row needs a snapshot: %+v", links.rows[0])
+	}
+	for _, c := range out.Candidates {
+		if c.TripID == "trip_a" {
+			t.Fatal("rejected candidate still listed")
+		}
+	}
+	if out.Status != "suggested" || out.Comparison == nil {
+		t.Fatalf("the next high candidate becomes the suggestion: %+v", out)
+	}
+	// A listed medium candidate can be rejected too.
+	if code, _ := paServe(a, "POST", pathFor(paSaved.ID, "unlink"), `{"trip_id":"trip_m"}`); code != 200 {
+		t.Fatalf("reject medium = %d", code)
+	}
+	// Not a candidate: 409, nothing written.
+	n := len(links.rows)
+	if code, _ := paServe(a, "POST", pathFor(paSaved.ID, "unlink"), `{"trip_id":"trip_zzz"}`); code != http.StatusConflict || len(links.rows) != n {
+		t.Fatalf("non-candidate reject = %d rows %d->%d", code, n, len(links.rows))
+	}
+	// A rejected outing can be linked again (changed mind): flips back.
+	a.match = func(ledger.Plan, ledger.Input) []ledger.PlanCandidate {
+		return []ledger.PlanCandidate{cand("trip_a", 0.91, "high")}
+	}
+	code, out = paServe(a, "POST", pathFor(paSaved.ID, "link"), `{"trip_id":"trip_a"}`)
+	if code != 200 || out.Status != "linked" {
+		t.Fatalf("re-link of a rejected outing: %d %+v", code, out)
 	}
 }
 
@@ -210,6 +262,20 @@ func TestPlanActual_StaleLinkRefoundByTimeOverlap(t *testing.T) {
 	_, out := paServe(a, "GET", pathFor(paSaved.ID, "actual"), "")
 	if out.Status != "linked" || out.Link == nil || !out.Link.LinkStale || out.Link.TripID != "trip_new" || out.Comparison == nil {
 		t.Fatalf("stale link: %+v", out)
+	}
+}
+
+// A linked outing that can't be rebuilt and can't be re-found is
+// reported as stale with no comparison.
+func TestPlanActual_UnrecoverableLinkIsStaleWithoutComparison(t *testing.T) {
+	a, links, _ := newFakePA(nil) // nothing to re-find
+	st := time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC)
+	conf := 0.9
+	links.rows = []planLink{{TripID: "trip_gone", Status: "linked", Confidence: &conf, StartedAt: st, EndedAt: st.Add(time.Hour),
+		Snapshot: planSnapshot{Inputs: paSaved.Inputs, Plan: paSaved.Plan}}}
+	_, out := paServe(a, "GET", pathFor(paSaved.ID, "actual"), "")
+	if out.Status != "linked" || out.Link == nil || !out.Link.LinkStale || out.Comparison != nil {
+		t.Fatalf("unrecoverable: %+v", out)
 	}
 }
 

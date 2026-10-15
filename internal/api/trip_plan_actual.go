@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -209,6 +212,11 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 				}
 			}
 		}
+		if !ok {
+			// Neither the linked id nor an overlapping outing can be
+			// rebuilt: say so, so the UI can explain.
+			stale = true
+		}
 		l := &planActualLink{TripID: tripID, Confidence: linked.Confidence, LinkedAt: linked.LinkedAt, LinkStale: stale}
 		if linked.Confidence != nil {
 			l.Band = bandFor(*linked.Confidence)
@@ -240,7 +248,7 @@ func (a *planActualAPI) actual(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	}
 	out, err := a.build(r.Context(), uid, st)
 	if err != nil {
-		http.Error(w, "plan vs actual: "+err.Error(), http.StatusInternalServerError)
+		a.fail(w, r, "plan vs actual", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -268,7 +276,7 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 	from, to := a.window(cur)
 	in, err := a.input(r.Context(), uid, from, to)
 	if err != nil {
-		http.Error(w, "plan vs actual: "+err.Error(), http.StatusInternalServerError)
+		a.fail(w, r, "plan vs actual", err)
 		return
 	}
 	var picked *ledger.PlanCandidate
@@ -290,74 +298,104 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 		Snapshot: planSnapshot{Inputs: st.Inputs, Plan: st.Plan},
 	})
 	if err != nil {
-		http.Error(w, "link failed", http.StatusInternalServerError)
+		a.fail(w, r, "link", err)
 		return
 	}
 	out, err := a.build(r.Context(), uid, st)
 	if err != nil {
-		http.Error(w, "plan vs actual: "+err.Error(), http.StatusInternalServerError)
+		a.fail(w, r, "plan vs actual", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// POST /api/trips/saved/{id}/unlink
+// POST /api/trips/saved/{id}/unlink [{"trip_id": "..."}]
 //
-// Unlinks the linked outing. With no link it dismisses the current
-// suggestion (the top high-confidence candidate), so it isn't
-// suggested again.
+//   - No body: unlinks the current link; with nothing linked it is a
+//     no-op that returns 200 (so a double-click can't dismiss
+//     anything else).
+//   - {"trip_id"}: rejects that outing ("Not this trip"). An unlinked
+//     row with a snapshot is written so it is never suggested again
+//     for this plan. 409 when it isn't one of the plan's candidates
+//     (and isn't the linked outing).
 func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	st, ok := a.loadTrip(w, r, uid)
 	if !ok {
 		return
 	}
-	rows, err := a.links.List(r.Context(), uid, st.ID)
-	if err != nil {
-		http.Error(w, "unlink failed", http.StatusInternalServerError)
-		return
+	var body struct {
+		TripID string `json:"trip_id"`
 	}
-	var target *planLink
-	for i := range rows {
-		if rows[i].Status == "linked" {
-			target = &rows[i]
+	raw, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if len(bytes.TrimSpace(raw)) > 0 {
+		if err := json.Unmarshal(raw, &body); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
 		}
 	}
-	if target == nil {
+	rows, err := a.links.List(r.Context(), uid, st.ID)
+	if err != nil {
+		a.fail(w, r, "unlink", err)
+		return
+	}
+	var linked *planLink
+	for i := range rows {
+		if rows[i].Status == "linked" {
+			linked = &rows[i]
+		}
+	}
+	tripID := strings.TrimSpace(body.TripID)
+	var target *planLink
+	switch {
+	case tripID == "":
+		target = linked // nil: a no-op
+	case linked != nil && linked.TripID == tripID:
+		target = linked
+	default:
 		cur, perr := a.parse(st.Inputs, st.Plan, st.CreatedAt)
-		if perr == nil {
-			from, to := a.window(cur)
-			if in, ierr := a.input(r.Context(), uid, from, to); ierr == nil {
-				unl := map[string]bool{}
-				for _, l := range rows {
-					unl[l.TripID] = true
-				}
-				for _, c := range a.match(cur, in) {
-					if unl[c.TripID] {
-						continue
-					}
-					if c.Band == "high" {
-						conf := c.Confidence
-						target = &planLink{TripID: c.TripID, Confidence: &conf, StartedAt: c.StartedAt, EndedAt: c.EndedAt,
-							Snapshot: planSnapshot{Inputs: st.Inputs, Plan: st.Plan}}
-					}
-					break // only the top candidate is ever suggested
-				}
+		if perr != nil {
+			http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
+			return
+		}
+		from, to := a.window(cur)
+		in, ierr := a.input(r.Context(), uid, from, to)
+		if ierr != nil {
+			a.fail(w, r, "unlink", ierr)
+			return
+		}
+		for _, c := range a.match(cur, in) {
+			if c.TripID == tripID {
+				conf := c.Confidence
+				target = &planLink{TripID: c.TripID, Confidence: &conf, StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+					Snapshot: planSnapshot{Inputs: st.Inputs, Plan: st.Plan}}
+				break
 			}
+		}
+		if target == nil {
+			http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
+			return
 		}
 	}
 	if target != nil {
 		target.Status = "unlinked"
 		if err := a.links.Unlink(r.Context(), uid, st.ID, *target); err != nil {
-			http.Error(w, "unlink failed", http.StatusInternalServerError)
+			a.fail(w, r, "unlink", err)
 			return
 		}
 	}
 	out, err := a.build(r.Context(), uid, st)
 	if err != nil {
-		http.Error(w, "plan vs actual: "+err.Error(), http.StatusInternalServerError)
+		a.fail(w, r, "plan vs actual", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// fail logs the error and answers a generic 500 (store and SQL errors
+// stay out of response bodies).
+func (a *planActualAPI) fail(w http.ResponseWriter, r *http.Request, what string, err error) {
+	slog.ErrorContext(r.Context(), "plan vs actual", "op", what, "err", err.Error(), "path", r.URL.Path)
+	http.Error(w, "plan vs actual unavailable", http.StatusInternalServerError)
 }
 
 // ---- Postgres store -----------------------------------------------------
@@ -417,9 +455,15 @@ func (p pgPlanLinks) Link(ctx context.Context, uid, savedTripID uuid.UUID, l pla
 		SELECT s.id, s.user_id, $3, 'linked', $4, $5::timestamptz, $6::timestamptz, $7::jsonb
 		  FROM saved_trips s WHERE s.id = $2 AND s.user_id = $1
 		ON CONFLICT (saved_trip_id, trip_id) DO UPDATE SET
-		       status = 'linked', confidence = EXCLUDED.confidence,
-		       started_at = EXCLUDED.started_at, ended_at = EXCLUDED.ended_at,
-		       plan_snapshot = EXCLUDED.plan_snapshot, updated_at = NOW()`,
+		       -- Re-linking the outing that is already linked (a retry,
+		       -- a double submit, or Link after re-planning) must not
+		       -- rewrite the snapshot: contract §3.
+		       confidence    = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.confidence    ELSE EXCLUDED.confidence    END,
+		       started_at    = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.started_at    ELSE EXCLUDED.started_at    END,
+		       ended_at      = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.ended_at      ELSE EXCLUDED.ended_at      END,
+		       plan_snapshot = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.plan_snapshot ELSE EXCLUDED.plan_snapshot END,
+		       status        = 'linked',
+		       updated_at    = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.updated_at ELSE NOW() END`,
 		uid, savedTripID, l.TripID, nullFloat(l.Confidence), l.StartedAt.UTC(), l.EndedAt.UTC(), string(snap))
 	if err != nil {
 		return err
