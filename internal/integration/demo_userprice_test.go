@@ -65,10 +65,17 @@ func TestDemoSampleUserPrice(t *testing.T) {
 		}
 	}
 	ins(uid, "hotel", hotel, "charging_complete")
-	// The same session one corpus loop later, still open.
-	next := hotel.Add(1080 * time.Hour)
-	if _, _, ok := rivian.SampleUserPrice(next); !ok {
-		t.Fatalf("corpus loop is not 1080h: no hotel session at %v", next)
+	// The same session one corpus loop later (found by scanning, not
+	// by hard-coding the loop period): the first hand-priced minute
+	// after a day away from the first.
+	var next time.Time
+	for m := 24 * 60; m < 1200*60 && next.IsZero(); m++ {
+		if at := hotel.Add(time.Duration(m) * time.Minute); func() bool { _, _, ok := rivian.SampleUserPrice(at); return ok }() {
+			next = at
+		}
+	}
+	if next.IsZero() {
+		t.Fatal("no second hotel session in the following loop")
 	}
 	ins(uid, "open-hotel", next, "charging_active")
 	ins(uid, "plain", hotel.Add(-9*time.Hour), "charging_complete")
