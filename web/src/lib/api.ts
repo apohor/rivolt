@@ -851,7 +851,11 @@ export const backend = {
     // load is console noise and nothing there needs the answer).
     if (inDemo()) return null;
     try {
-      return await api.get<AuthUser>("/api/auth/me");
+      const me = await api.get<AuthUser & { authenticated?: boolean }>("/api/auth/me");
+      // A signed-out visitor gets 200 {"authenticated": false}
+      // (no 401 console noise); callers still see "no user" as null.
+      if (me.authenticated === false || !("user_id" in me)) return null;
+      return me;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 401 || e.status === 404)) {
         return null;

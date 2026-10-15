@@ -86,3 +86,25 @@ describe("signups_disabled auth header", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("whoami", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const reply = (status: number, body: unknown) =>
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status })));
+
+  it("is null for 200 {authenticated:false}", async () => {
+    reply(200, { authenticated: false });
+    const { backend } = await import("./api");
+    expect(await backend.whoami()).toBeNull();
+  });
+  it("is null for a 401 (expired session)", async () => {
+    reply(401, { error: "unauthorized" });
+    const { backend } = await import("./api");
+    expect(await backend.whoami()).toBeNull();
+  });
+  it("returns the user when signed in", async () => {
+    reply(200, { authenticated: true, user_id: "u1", username: "a@b.c", role: "user", onboarding_completed: true });
+    const { backend } = await import("./api");
+    expect((await backend.whoami())?.user_id).toBe("u1");
+  });
+});
