@@ -74,7 +74,7 @@ describe("mixed receipt (contract §10)", () => {
     expect(add).toHaveAttribute("href", "/charges/s1");
     expect(screen.queryByText("Fix price →")).toBeNull();
     // Rounded distance, no precise location.
-    expect(screen.getByText("410 km from home")).toBeInTheDocument();
+    expect(screen.getByText("255 mi from home")).toBeInTheDocument();
   });
 
   it("offers Fix price for a home-rate session away from home that's in the total", () => {

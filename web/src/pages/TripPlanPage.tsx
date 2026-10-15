@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { formatDistance, usePreferences } from "../lib/preferences";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
@@ -2223,6 +2224,7 @@ function RouteCard({
   // route stays expanded.
   defaultCollapsed?: boolean;
 }) {
+  const { distanceUnit } = usePreferences();
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -2597,7 +2599,7 @@ function RouteCard({
       )}
       {!route.DestinationReached && route.BatteryEmptyToDestMeters > 0 && (
         <p className="mt-3 text-sm text-amber-400">
-          Battery empty {(route.BatteryEmptyToDestMeters / 1000).toFixed(1)} km short of destination
+          Battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short of destination
           {route.BatteryEmptyLat !== 0 && (
             <>
               {" "}at ({route.BatteryEmptyLat.toFixed(3)}, {route.BatteryEmptyLon.toFixed(3)})

@@ -13,6 +13,7 @@ import {
   type ReceiptFlag,
 } from "../lib/ledger";
 import { formatDateTime } from "../lib/format";
+import { formatDistance, usePreferences } from "../lib/preferences";
 
 // Presentational pieces for the Money tab. The rule they share: every
 // figure says where its price came from (spec §4.2, contract §10):
@@ -192,15 +193,11 @@ function kindChip(r: Receipt): { label: string; dot: string; chip: string } {
   return { label: "AC", dot: "bg-neutral-400", chip: "border-neutral-600 text-neutral-300" };
 }
 
-function km(v: number): string {
-  // Rounded so a receipt never reveals a precise distance from home.
-  return v >= 100 ? `${Math.round(v / 10) * 10} km` : `${Math.round(v)} km`;
-}
-
 // ReceiptRow is one plug-in session. Fragments and top-ups fold into
 // it (expandable). Price actions link to the existing charge detail
 // page, which carries the pricing editor (PATCH /api/charges/{id}/pricing).
 export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
+  const { distanceUnit } = usePreferences();
   const [open, setOpen] = useState(false);
   const chip = kindChip(r);
   const g = grammarFor(r);
@@ -229,7 +226,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
               {formatDateTime(r.started_at)}
               <span className={`ml-2 rounded-full border px-1.5 py-px text-[10px] ${chip.chip}`}>{chip.label}</span>
               {r.place === "away" && r.km_from_home != null && (
-                <span className="ml-1.5 text-[11px] text-neutral-500">{km(r.km_from_home)} from home</span>
+                <span className="ml-1.5 text-[11px] text-neutral-500">{formatDistance(r.km_from_home, distanceUnit)} from home</span>
               )}
             </Link>
             <MoneyValue r={r} currency={currency} className="shrink-0 text-sm font-medium tabular-nums text-neutral-100" />

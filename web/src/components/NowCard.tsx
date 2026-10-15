@@ -17,6 +17,7 @@ import {
   type OdoTrack,
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
+import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
 // selected vehicle. Composed from /api/state plus a few cached
@@ -81,6 +82,7 @@ export default function NowCard({
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
+  const { distanceUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
@@ -229,7 +231,7 @@ export default function NowCard({
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-neutral-500">{vehicleName}</p>
             <p className="mt-0.5 text-sm text-neutral-300" data-testid="now-headline">
-              {headline(view)}
+              {headline(view, distanceUnit)}
             </p>
           </div>
           <span
@@ -311,7 +313,7 @@ export default function NowCard({
   );
 }
 
-function headline(v: NowView): string {
+function headline(v: NowView, unit: DistanceUnit): string {
   switch (v.kind) {
     case "offline":
       return "Not heard from recently";
@@ -327,15 +329,14 @@ function headline(v: NowView): string {
     case "asleep":
       return "Asleep";
     default:
-      return placeLine(v) ?? "Parked";
+      return placeLine(v, unit) ?? "Parked";
   }
 }
 
-function placeLine(v: NowView): string | null {
+export function placeLine(v: NowView, unit: DistanceUnit): string | null {
   if (v.place === "home") return "Parked at home";
   if (v.place === "away" && v.kmFromHome != null) {
-    const km = v.kmFromHome;
-    return `Parked · ${km < 10 ? km.toFixed(1) : Math.round(km)} km from home`;
+    return `Parked · ${formatDistance(v.kmFromHome, unit, { fine: true })} from home`;
   }
   return null;
 }
