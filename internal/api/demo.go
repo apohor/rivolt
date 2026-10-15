@@ -62,6 +62,20 @@ const (
 	demoSamplesMaxLimit     = 5000
 )
 
+// demoTilesPath is the one anonymous tile resource: the public basemap
+// archive (read-only, byte-range GETs). chargers.pmtiles and anything
+// else under /api/maps/tiles stay behind sign-in, and so does the
+// Valhalla proxy (the demo draws stored polylines instead).
+const demoTilesPath = "/api/maps/tiles/us.pmtiles"
+
+// A map view issues dozens of range reads, so tiles get their own
+// per-client and install-wide budgets and do NOT draw on the general
+// demo limits (a map must not starve the data calls, or the reverse).
+const (
+	demoTilesPerClientPerMin = 1200
+	demoTilesGlobalPerMin    = 12000
+)
+
 // demoPerDriveSuffixes are the per-drive GET sub-resources the demo's
 // drive detail view reads. {id} is a single, plain path segment; the
 // handlers scope by the demo user's id, so another user's drive id is
@@ -120,7 +134,7 @@ func demoAllowed(method, path, vehicleID string) bool {
 		return false
 	}
 	p := strings.TrimSuffix(path, "/")
-	if demoExactPaths[p] {
+	if demoExactPaths[p] || path == demoTilesPath {
 		return true
 	}
 	return demoPerDrivePath(p) ||
@@ -138,6 +152,10 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 	samples.key = demoClientKey
 	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
 	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
+	tiles := newIPLimiter(demoTilesPerClientPerMin, time.Minute, time.Hour)
+	tiles.key = demoClientKey
+	tilesGlobal := newIPLimiter(demoTilesGlobalPerMin, time.Minute, time.Hour)
+	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, signedIn := auth.UserFromContext(r.Context()); signedIn || !demoAllowed(r.Method, r.URL.Path, vehicleID) {
@@ -151,6 +169,11 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			}))
+			if r.URL.Path == demoTilesPath {
+				// Per-client before global (see below), own budgets.
+				tiles.Middleware(tilesGlobal.Middleware(serve)).ServeHTTP(w, r)
+				return
+			}
 			// Order matters: a token bucket is charged when it is
 			// checked, so every per-client limiter runs BEFORE any
 			// install-wide one. Otherwise one noisy client (rejected by
