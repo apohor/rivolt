@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -236,5 +237,48 @@ func TestDemoSamplesLimitIsClamped(t *testing.T) {
 		if seen != c.want {
 			t.Errorf("%q: limit = %q, want %q", c.q, seen, c.want)
 		}
+	}
+}
+
+// /api/samples has its own anonymous budget, separate from the general
+// demo limits and from other demo endpoints.
+func TestDemoSamplesHasItsOwnTighterLimits(t *testing.T) {
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	do := func(path, ip string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("CF-Connecting-IP", ip)
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Per client: 20 pass, the 21st is 429; other endpoints are unaffected.
+	for i := 0; i < demoSamplesPerClientPerMin; i++ {
+		if c := do("/api/samples", "198.51.100.1"); c != 200 {
+			t.Fatalf("request %d = %d", i+1, c)
+		}
+	}
+	if c := do("/api/samples", "198.51.100.1"); c != http.StatusTooManyRequests {
+		t.Fatalf("21st samples request = %d, want 429", c)
+	}
+	if c := do("/api/charges", "198.51.100.1"); c != 200 {
+		t.Fatalf("other endpoint throttled by the samples budget: %d", c)
+	}
+	// Another client has its own per-client budget.
+	if c := do("/api/samples", "198.51.100.2"); c != 200 {
+		t.Fatalf("different client = %d", c)
+	}
+	// Install-wide: 200 per minute across clients (already used 21).
+	got429 := false
+	for i := 0; i < demoSamplesGlobalPerMin; i++ {
+		ip := "203.0.113." + strconv.Itoa(i%250+1) + "." + strconv.Itoa(i)
+		if do("/api/samples", ip) == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatal("global samples cap never bound")
 	}
 }
