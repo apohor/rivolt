@@ -46,6 +46,15 @@ var demoExactPaths = map[string]bool{
 	"/api/samples": true,
 }
 
+// Anonymous /api/samples is the one heavy read (a full reply is 1-2 MB),
+// so it gets its own, much tighter budget on top of the general demo
+// limits: per client and install-wide, per minute. This bounds egress
+// rather than the time window.
+const (
+	demoSamplesPerClientPerMin = 20
+	demoSamplesGlobalPerMin    = 200
+)
+
 // demoSamplesDefaultLimit / demoSamplesMaxLimit bound an anonymous
 // /api/samples request (the store treats limit<=0 as "no cap").
 const (
@@ -125,20 +134,37 @@ func demoAllowed(method, path, vehicleID string) bool {
 // impersonation, so a real session always wins and impersonation sees
 // only the (non-admin) demo user.
 func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
+	samples := newIPLimiter(demoSamplesPerClientPerMin, time.Minute, time.Hour)
+	samples.key = demoClientKey
+	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
+	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, signedIn := auth.UserFromContext(r.Context()); signedIn || !demoAllowed(r.Method, r.URL.Path, vehicleID) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			serve := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(demoHeader, "1")
 				if strings.TrimSuffix(r.URL.Path, "/") == "/api/samples" {
 					clampDemoSamplesLimit(r)
 				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
-			})
-			global.Middleware(limiter.Middleware(serve)).ServeHTTP(w, r)
+			}))
+			// Order matters: a token bucket is charged when it is
+			// checked, so every per-client limiter runs BEFORE any
+			// install-wide one. Otherwise one noisy client (rejected by
+			// its own limit) would still drain the global budget and
+			// starve everyone else.
+			isSamples := strings.TrimSuffix(r.URL.Path, "/") == "/api/samples"
+			if isSamples {
+				serve = samplesGlobal.Middleware(serve)
+			}
+			serve = global.Middleware(serve)
+			if isSamples {
+				serve = samples.Middleware(serve)
+			}
+			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
 	}
 }
