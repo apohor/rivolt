@@ -7,6 +7,7 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { DEMO_TZ, inDemo } from "./demo";
 import { cacheShellFlag } from "./theme";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
@@ -226,6 +227,8 @@ export function _resetMoneyTabFlagForTests() {
 // ---- fetchers -------------------------------------------------------
 
 export function browserTimeZone(): string {
+  // The public demo is fixed to the sample truck's zone (stable totals).
+  if (inDemo()) return DEMO_TZ;
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {

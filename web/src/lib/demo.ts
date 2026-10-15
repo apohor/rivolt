@@ -7,6 +7,10 @@ export function inDemo(): boolean {
   return typeof window !== "undefined" && window.location.pathname.startsWith("/demo");
 }
 
+// The demo is fixed to the sample truck's home zone so its month totals,
+// day groups and screenshots are the same for every viewer.
+export const DEMO_TZ = "America/Los_Angeles";
+
 export type DetailKind = "charges" | "drives";
 
 // detailPath is where a charge or drive detail lives right now: under

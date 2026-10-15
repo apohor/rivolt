@@ -115,3 +115,22 @@ test("browser back from a demo drive detail throws no page error", async ({ page
   await page.waitForTimeout(800);
   expect(errors.filter((m) => /LatLng/.test(m))).toEqual([]);
 });
+
+test("the demo's ledger calls use the fixed Pacific zone, whatever the viewer's", async ({ browser }) => {
+  // A viewer in Tokyo still gets the demo's month in the sample truck's zone.
+  const ctx = await browser.newContext({ timezoneId: "Asia/Tokyo", viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const tzs: string[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith("/api/ledger/")) tzs.push(u.searchParams.get("tz") ?? "");
+  });
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
+  await page.goto("/demo?tab=money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.getByText("Times shown in Pacific time.")).toBeVisible();
+  const ledger = tzs.filter((t) => t !== "");
+  expect(ledger.length).toBeGreaterThan(0);
+  expect(new Set(ledger)).toEqual(new Set(["America/Los_Angeles"]));
+  await ctx.close();
+});

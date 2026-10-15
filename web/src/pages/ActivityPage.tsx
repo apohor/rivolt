@@ -1,3 +1,4 @@
+import { displayTimeZone } from "../lib/format";
 import { detailPath, inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -165,7 +166,8 @@ function dayLabel(key: string): string {
 }
 
 function timeRange(a: string, b: string): string {
-  const f = (s: string) => new Date(s).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const f = (s: string) =>
+    new Date(s).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() });
   return `${f(a)}–${f(b)}`;
 }
 
