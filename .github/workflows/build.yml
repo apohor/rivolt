@@ -29,7 +29,7 @@ on:
       - "LICENSE"
       - ".editorconfig"
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -279,8 +279,8 @@ jobs:
 
   tag-validate:
     name: tag-validate
-    # Refuses tags pointing at a SHA that never had a successful main-
-    # branch build. Without this, a tag at e.g. a docs-only commit
+    # Refuses tags pointing at a SHA that never had a successful main or
+    # release/** push build. Without this, a tag at e.g. a docs-only commit
     # (CI skipped due to paths-filter) makes retag fail late with a
     # cryptic ImageManifestUnknown error. Fail fast with a clear
     # message instead.
