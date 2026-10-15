@@ -134,13 +134,20 @@ export default function ChargeDetailPage() {
     enabled: moneyOn && !!charge && !!receiptMonth,
     staleTime: 60_000,
     retry: 0,
-    queryFn: async (): Promise<Receipt | null> => {
+    queryFn: async (): Promise<{ receipt: Receipt; network: string | null } | null> => {
       const r = await fetchLedgerMonth(receiptMonth as string);
       if (r.source !== "api") return null;
-      return r.data.receipts.find((x) => x.sessions.some((y) => y.charge_id === charge!.ID)) ?? null;
+      const receipt = r.data.receipts.find((x) => x.sessions.some((y) => y.charge_id === charge!.ID));
+      if (!receipt) return null;
+      const session = receipt.sessions.find((y) => y.charge_id === charge!.ID);
+      return { receipt, network: session?.network ?? receipt.network ?? null };
     },
   });
-  const groupReceipt = receiptQ.data && receiptQ.data.sessions.length > 1 ? receiptQ.data : null;
+  const groupReceipt =
+    receiptQ.data && receiptQ.data.receipt.sessions.length > 1 ? receiptQ.data.receipt : null;
+  // The ledger's network for this charge (RAN, Electrify America, ...):
+  // the map labels its pin with it when the snapped node disagrees.
+  const knownNetwork = receiptQ.data?.network ?? null;
 
   const deleteCharge = useMutation({
     mutationFn: () => backend.deleteCharge(id!),
@@ -578,6 +585,7 @@ export default function ChargeDetailPage() {
             lat={charge.Lat}
             lon={charge.Lon}
             height={260}
+            network={knownNetwork}
           />
         </Card>
       ) : null}

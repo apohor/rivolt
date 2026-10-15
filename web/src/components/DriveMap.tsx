@@ -10,6 +10,7 @@ import { displayTimeZone } from "../lib/format";
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import { addTilesUnavailableNotice } from "../lib/mapNotice";
+import { choosePin } from "../lib/chargerNetwork";
 import "leaflet/dist/leaflet.css";
 import {
   valhallaBase,
@@ -1193,7 +1194,12 @@ export function ChargeMap({
   lat,
   lon,
   height = 240,
+  network,
 }: {
+  // The network the ledger recorded for this charge (RAN, Electrify
+  // America, ...). When the snapped charger node is a different
+  // network's, the pin says this one instead of a wrong brand.
+  network?: string | null;
   lat: number;
   lon: number;
   height?: number;
@@ -1249,11 +1255,45 @@ export function ChargeMap({
     // geometry; 250m was too tight for big-box and travel-plaza
     // stations.
     void findNearestCharger(lat, lon, 750).then((poi) => {
-      if (cancelled || !poi) return;
-      applyChargerSnap(poi);
+      if (cancelled) return;
+      const known = (network ?? "").trim();
+      if (!poi && !known) return;
+      // Never a wrong brand: the snap is kept only when the snapped
+      // node agrees with the ledger's network (or the network is
+      // unknown); otherwise the charge's own location is labelled with
+      // the known network.
+      const choice = choosePin(poi, known);
+      if (choice.snap && poi) applyChargerSnap(poi, choice.label);
+      else labelOwnLocation(choice.label);
     });
 
-    function applyChargerSnap(poi: POI) {
+    function chargerPinIcon(): L.DivIcon {
+      return L.divIcon({
+        className: "rivolt-charger-pin",
+        html:
+          '<span style="display:inline-flex;align-items:center;justify-content:center;' +
+          "width:22px;height:22px;border-radius:6px;background:#f59e0b;" +
+          'border:2px solid #0a0a0a;box-shadow:0 0 0 2px #f59e0b33;' +
+          'color:#0a0a0a;font:700 13px/1 ui-sans-serif,system-ui;">⚡</span>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+    }
+
+    // labelOwnLocation: no trustworthy snap, so the recorded location
+    // itself becomes the labelled charger pin.
+    function labelOwnLocation(label: string) {
+      recordedMarker.setIcon(chargerPinIcon());
+      recordedMarker.unbindTooltip();
+      recordedMarker.bindTooltip(escapeHTML(label), {
+        direction: "top",
+        permanent: true,
+        offset: [0, -10],
+        className: "rivolt-charger-label",
+      });
+    }
+
+    function applyChargerSnap(poi: POI, label?: string) {
       // Demote recorded-GPS to a muted dot with a clarifying
       // tooltip. Keeping it visible (rather than removing it)
       // surfaces the snap distance for the user.
@@ -1294,7 +1334,7 @@ export function ChargeMap({
       // The snapped charger pin: amber bolt-styled square with the
       // OSM name as a permanent label so the charger identifies
       // itself without requiring a click.
-      const labelText = poi.name ?? "Charging station";
+      const labelText = label ?? poi.name ?? "Charging station";
       chargerMarker = L.marker([poi.lat, poi.lon], {
         icon: L.divIcon({
           className: "rivolt-charger-pin",
@@ -1345,7 +1385,7 @@ export function ChargeMap({
       if (connector) connector.remove();
       map.remove();
     };
-  }, [lat, lon]);
+  }, [lat, lon, network]);
 
   return (
     <div
