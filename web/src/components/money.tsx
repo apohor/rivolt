@@ -1,4 +1,5 @@
 import { detailPath } from "../lib/demo";
+import { hasOpenNetworkState } from "../lib/autoNetwork";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -208,11 +209,12 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   // One action per row. A missing or pending price outranks a likely
   // wrong one; the link opens the first session with that problem.
   const addPrice = g === "unknown" || g === "pending" || needsPrice(r);
-  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : null;
+  const confirmPending = hasOpenNetworkState(r);
+  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : confirmPending ? "Confirm →" : null;
   const target = addPrice
     ? r.sessions.find((x) => x.cost == null || x.cost_source === "unknown" || x.cost_source === "home_rate_misapplied")
     : r.sessions.find((x) => x.cost_source === "home_rate" && x.flags.includes("home_rate_away"));
-  const fixID = target?.charge_id ?? parentID;
+  const fixID = target?.charge_id ?? (confirmPending ? r.sessions.find((x) => hasOpenNetworkState(x))?.charge_id : undefined) ?? parentID;
   return (
     <li className="py-1">
       <div className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-900/70">
@@ -254,7 +256,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
               {sourceLabel(r, currency)}
             </span>
             {action && (
-              <Link to={detailPath("charges", fixID)} className="font-medium text-amber-300 hover:text-amber-200">
+              <Link to={`${detailPath("charges", fixID)}${!addPrice && g !== "suspect" ? "#pricing" : ""}`} className="font-medium text-amber-300 hover:text-amber-200">
                 {action}
               </Link>
             )}

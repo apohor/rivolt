@@ -7,6 +7,7 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { hasOpenNetworkState, type NetworkState } from "./autoNetwork";
 import { DEMO_TZ, inDemo } from "./demo";
 import { cacheShellFlag } from "./theme";
 import { useEffect, useState } from "react";
@@ -65,6 +66,7 @@ export type ReceiptSession = {
   kind?: ChargeKind;
   place?: Place;
   network?: string | null;
+  network_state?: NetworkState | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -88,6 +90,8 @@ export type Receipt = {
   cost_source: ReceiptCostSource;
   rate: number | null;
   network?: string | null;
+  // Set while the auto-detected network still needs the owner's eye.
+  network_state?: NetworkState | null;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -175,6 +179,10 @@ export type LedgerSummary = {
   tz: string;
   currency: string;
   months: MonthSummary[];
+  // DCFC auto-network: charges awaiting confirm / needing attention.
+  // Null or absent until the dcfc_auto_network flag is on.
+  to_confirm_count?: number | null;
+  needs_attention_count?: number | null;
 };
 
 export type Sourced<T> = { data: T; source: "api" | "fixture" };
@@ -374,7 +382,15 @@ export function grammarFor(r: Priceable): CostGrammar {
 }
 
 export function sourceLabel(
-  r: { cost: number | null; cost_source: ReceiptCostSource; rate: number | null; network?: string | null; flags: ReceiptFlag[] },
+  r: {
+    cost: number | null;
+    cost_source: ReceiptCostSource;
+    rate: number | null;
+    network?: string | null;
+    flags: ReceiptFlag[];
+    network_state?: NetworkState | null;
+    sessions?: { network_state?: NetworkState | null }[];
+  },
   currency: string,
 ): string {
   const rate = r.rate != null && r.rate > 0 ? ` · ${formatMoney(r.rate, currency, 2)}/kWh` : "";
@@ -386,7 +402,7 @@ export function sourceLabel(
         ? `Home rate, but away from home${rate} · likely wrong`
         : `Home rate${rate}`;
     case "network_estimate":
-      return `Estimate${r.network ? ` · ${r.network}` : ""}${rate}`;
+      return `${hasOpenNetworkState(r) ? "Estimated, confirm" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":

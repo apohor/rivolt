@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { forVehicle } from "../lib/vehicleSamples";
 import { backend, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { rateBasisLabel, whyLine, type NetworkState } from "../lib/autoNetwork";
 import { LineChart } from "../components/charts";
 import { ChargeMap } from "../components/DriveMap";
 import {
@@ -159,12 +160,8 @@ export default function ChargeDetailPage() {
   });
 
   const updatePricing = useMutation({
-    mutationFn: (body: {
-      cost?: number;
-      currency?: string;
-      price_per_kwh?: number;
-      free?: boolean;
-    }) => backend.updateChargePricing(id!, body),
+    mutationFn: (body: Parameters<typeof backend.updateChargePricing>[1]) =>
+      backend.updateChargePricing(id!, body),
     onSuccess: () => {
       // Charges are the input to the per-drive cost calculation, so
       // invalidate drives too — the next read will repaint with the
@@ -172,6 +169,14 @@ export default function ChargeDetailPage() {
       qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["drives"] });
       // Money's statement is a server aggregate over these charges.
+      qc.invalidateQueries({ queryKey: ["ledger"] });
+    },
+  });
+
+  const confirmPricing = useMutation({
+    mutationFn: () => backend.confirmChargePricing(id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["charges"] });
       qc.invalidateQueries({ queryKey: ["ledger"] });
     },
   });
@@ -593,7 +598,14 @@ export default function ChargeDetailPage() {
       ) : null}
 
       {/* The public demo is read-only: no pricing edits, no delete. */}
-      {!demo && <PricingCard charge={charge} mutation={updatePricing} />}
+      {!demo && (
+        <PricingCard
+          charge={charge}
+          mutation={updatePricing}
+          confirm={confirmPricing}
+          networkName={knownNetwork ?? charge.network_evidence?.candidates?.[0]?.network ?? null}
+        />
+      )}
 
       {!demo && (
       <Card title="Danger zone">
@@ -1138,16 +1150,15 @@ function NoSamples() {
 function PricingCard({
   charge,
   mutation,
+  confirm,
+  networkName,
 }: {
   charge: import("../lib/api").Charge;
+  confirm?: { mutate: () => void; isPending: boolean; isError: boolean; error: unknown };
+  networkName?: string | null;
   // Loose typing so we don't pull react-query types just for this prop.
   mutation: {
-    mutate: (body: {
-      cost?: number;
-      currency?: string;
-      price_per_kwh?: number;
-      free?: boolean;
-    }) => void;
+    mutate: (body: Parameters<typeof backend.updateChargePricing>[1]) => void;
     isPending: boolean;
     isError: boolean;
     error: unknown;
@@ -1180,8 +1191,24 @@ function PricingCard({
   const ppkNum = Number(ppk);
   const previewCost = ppkNum > 0 && energy > 0 ? ppkNum * energy : 0;
 
+  const auto = charge.network_state ?? null;
+  // Nothing matched: cost null (unpriced) with needs_confirmation.
+  const unmatched = auto === "needs_confirmation" && !(charge.PricePerKWh > 0) && !(charge.Cost > 0);
+
   return (
+    <div id="pricing" className="scroll-mt-20">
     <Card title="Pricing">
+      {auto && (
+        <AutoNetworkPanel
+          charge={charge}
+          state={auto}
+          unmatched={unmatched}
+          networkName={networkName ?? null}
+          networks={networks.data ?? []}
+          confirm={confirm}
+          mutation={mutation}
+        />
+      )}
       <p className="text-xs text-neutral-500 mb-3">
         Override the per-kWh rate for this charge — handy when you
         paid for fast-charging outside the Rivian app and we don't
@@ -1318,5 +1345,159 @@ function PricingCard({
         ) : null}
       </form>
     </Card>
+    </div>
+  );
+}
+
+// AutoNetworkPanel: the DCFC auto-network estimate with Confirm / Change
+// and the "why" from the detection evidence. needs_confirmation is
+// visually stronger; confirmed is a quiet tick; unmatched falls back to
+// the network picker in the form below.
+function AutoNetworkPanel({
+  charge,
+  state,
+  unmatched,
+  networkName,
+  networks,
+  confirm,
+  mutation,
+}: {
+  charge: import("../lib/api").Charge;
+  state: NetworkState;
+  unmatched: boolean;
+  networkName: string | null;
+  networks: import("../lib/api").ChargingNetwork[];
+  confirm?: { mutate: () => void; isPending: boolean; isError: boolean; error: unknown };
+  mutation: { mutate: (body: Parameters<typeof backend.updateChargePricing>[1]) => void; isPending: boolean };
+}) {
+  const [changing, setChanging] = useState(false);
+  const [picked, setPick] = useState("");
+  // Prefilled with the detected network until the owner picks another.
+  const want = (networkName ?? "").toLowerCase();
+  const pick =
+    picked || (networks.find((n) => want !== "" && n.name.toLowerCase() === want)?.name ?? "");
+  const why = whyLine(charge.network_evidence);
+  const basis = rateBasisLabel(charge.network_evidence?.rate_basis);
+  const cur = charge.Currency || "USD";
+  const strong = state === "needs_confirmation";
+
+  if (state === "confirmed") {
+    return (
+      <p className="mb-3 flex items-center gap-1.5 text-xs text-emerald-300" data-testid="network-confirmed">
+        <span aria-hidden>✓</span>
+        Confirmed: {networkName ?? "network"}
+        {charge.PricePerKWh > 0 && ` · ${formatMoney(charge.PricePerKWh, cur, 3)}/kWh`}
+      </p>
+    );
+  }
+
+  const apply = () => {
+    const n = networks.find((x) => x.name === pick);
+    if (!n) return;
+    if (n.slug) {
+      mutation.mutate({ network_slug: n.slug });
+    } else {
+      const rate = n.member_active && (n.member_price_per_kwh ?? 0) > 0 ? n.member_price_per_kwh! : n.price_per_kwh;
+      mutation.mutate({ price_per_kwh: rate, currency: n.currency || cur, network: n.name });
+    }
+    setChanging(false);
+  };
+
+  return (
+    <div
+      data-testid="network-estimate"
+      className={`mb-4 rounded-lg border px-3 py-3 ${
+        strong ? "border-amber-500/50 bg-amber-500/10" : "border-neutral-700 bg-neutral-900/60"
+      }`}
+    >
+      {unmatched ? (
+        <>
+          <p className="text-sm font-medium text-amber-200">We couldn't match a network</p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Pick the one you charged at below and Rivolt will price this session.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className={`text-xs font-medium ${strong ? "text-amber-200" : "text-neutral-400"}`}>
+            {strong ? "Please confirm · estimated" : "Estimated"}
+          </p>
+          <p className="mt-0.5 text-sm text-neutral-100">
+            Priced as {networkName ?? "this network"} ·{" "}
+            <span className="tabular-nums">{formatMoney(charge.PricePerKWh, cur, 3)}/kWh</span>
+            {basis && ` (${basis})`} · from location
+          </p>
+          <p className="mt-0.5 text-sm tabular-nums text-neutral-300">
+            ≈ {formatMoney(charge.Cost, cur)} over {charge.EnergyAddedKWh.toFixed(1)} kWh
+          </p>
+          {why && <p className="mt-1 text-xs text-neutral-500">{why}</p>}
+          {typeof charge.network_confidence === "number" && (
+            <p className="mt-0.5 text-[11px] text-neutral-500">
+              Confidence {Math.round(charge.network_confidence * 100)}%
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!confirm || confirm.isPending}
+              onClick={() => confirm?.mutate()}
+              className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
+            >
+              {confirm?.isPending ? "Confirming…" : "Confirm"}
+            </button>
+            <button
+              type="button"
+              aria-expanded={changing}
+              onClick={() => setChanging((v) => !v)}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+            >
+              Change
+            </button>
+          </div>
+          {confirm?.isError && <p className="mt-2 text-xs text-rose-400">{String(confirm.error)}</p>}
+          {changing && (
+            <div className="mt-3 space-y-2 border-t border-neutral-800 pt-3">
+              <label className="block text-xs text-neutral-400">
+                Network
+                <select
+                  value={pick}
+                  onChange={(e) => setPick(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 focus:border-emerald-500/60 focus:outline-hidden"
+                >
+                  <option value="" disabled>
+                    Pick a network…
+                  </option>
+                  {networks.map((n) => (
+                    <option key={n.name} value={n.name}>
+                      {n.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-neutral-500">
+                Rivolt will remember this for this location, so the next charge here is priced right automatically.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!pick || mutation.isPending}
+                  onClick={apply}
+                  className="rounded-md border border-emerald-700/50 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300 hover:bg-emerald-900/50 disabled:opacity-50"
+                >
+                  {mutation.isPending ? "Saving…" : "Use this network"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChanging(false)}
+                  className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }

@@ -24,16 +24,18 @@ import {
   type MonthSummary,
   type Receipt,
 } from "../lib/ledger";
+import { hasOpenNetworkState } from "../lib/autoNetwork";
 
 // Money: the monthly charging statement (ux-slice-spec §4, ledger
 // contract v1). Every total comes from the server; the page only
 // formats and explains. Gated by money_tab_enabled (see App.tsx).
 
-type ReceiptFilter = "all" | "home" | "away" | "dcfc";
+type ReceiptFilter = "all" | "home" | "away" | "dcfc" | "confirm";
 
 function receiptMatches(r: Receipt, f: ReceiptFilter): boolean {
   if (f === "all") return true;
   if (f === "dcfc") return r.kind === "dcfc";
+  if (f === "confirm") return hasOpenNetworkState(r);
   if (f === "home") return r.kind === "ac" && r.place === "home";
   return r.kind === "ac" && r.place === "away";
 }
@@ -123,7 +125,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement toConfirm={summaryQ.data?.data.to_confirm_count ?? 0} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -163,6 +165,7 @@ function Statement({
   onMetric,
   filter,
   onFilter,
+  toConfirm,
 }: {
   askShare: boolean;
   sample: boolean;
@@ -172,6 +175,8 @@ function Statement({
   onMetric: (v: "cost" | "kwh") => void;
   filter: ReceiptFilter;
   onFilter: (f: ReceiptFilter) => void;
+  // charges awaiting confirmation of their auto-detected network (all months)
+  toConfirm: number;
 }) {
   const cur = m.currency;
   // Server-owned splits only; by_place is absent on pre-§10 builds.
@@ -234,6 +239,16 @@ function Statement({
           {m.driving.miles > 0 && <> · {m.driving.miles.toFixed(0)} mi</>}
           {m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
+
+        {toConfirm > 0 && (
+          <button
+            type="button"
+            onClick={() => onFilter("confirm")}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+          >
+            {toConfirm} {toConfirm === 1 ? "charge" : "charges"} to confirm →
+          </button>
+        )}
 
         {estShare > 0 && (
           <p className="mt-0.5 text-xs text-neutral-500">
@@ -318,7 +333,7 @@ function Statement({
             title="Receipts"
             actions={
               <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
-                {(["all", "home", "away", "dcfc"] as const).map((f) => (
+                {(["all", "home", "away", "dcfc", ...(filter === "confirm" || m.receipts.some((r) => hasOpenNetworkState(r)) ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -330,7 +345,7 @@ function Statement({
                         : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
                     }`}
                   >
-                    {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : "DCFC"}
+                    {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "DCFC" : "To confirm"}
                   </button>
                 ))}
               </div>
