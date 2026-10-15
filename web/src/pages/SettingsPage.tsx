@@ -31,6 +31,8 @@ import { useImpersonationTarget } from "../lib/impersonation";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
+  setDistanceUnit,
+  type DistanceUnit,
   setTimeZone,
   setRoundTripsEnabled,
   setRoundTripRadiusMeters,
@@ -364,6 +366,7 @@ export function ExportCard() {
 function DisplayPreferences() {
   const {
     temperatureUnit,
+    distanceUnit,
     timeZone,
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -372,6 +375,10 @@ function DisplayPreferences() {
   const options: { value: TemperatureUnit; label: string }[] = [
     { value: "c", label: "Celsius (°C)" },
     { value: "f", label: "Fahrenheit (°F)" },
+  ];
+  const distanceOptions: { value: DistanceUnit; label: string }[] = [
+    { value: "mi", label: "Miles (mi)" },
+    { value: "km", label: "Kilometers (km)" },
   ];
   // Populate the time-zone select from the platform's IANA list when
   // available; fall back to a curated short list on older browsers
@@ -422,6 +429,33 @@ function DisplayPreferences() {
         <p className="mt-1 text-xs text-neutral-500">
           Backend always stores Celsius; this only affects how temperatures are
           displayed.
+        </p>
+      </div>
+
+      <div>
+        <div className="text-neutral-400 mb-1">Distance</div>
+        <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden">
+          {distanceOptions.map((opt) => {
+            const active = opt.value === distanceUnit;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setDistanceUnit(opt.value)}
+                className={
+                  "px-3 py-1.5 text-xs transition-colors " +
+                  (active
+                    ? "bg-emerald-600/20 text-emerald-300"
+                    : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800")
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Miles by default. Saved on this device only.
         </p>
       </div>
 
