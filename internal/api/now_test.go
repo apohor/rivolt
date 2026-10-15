@@ -20,7 +20,9 @@ func TestConnectionState(t *testing.T) {
 		{false, false, false, "live"},
 		{false, false, true, "reauth"},
 		{false, true, true, "paused"},
-		{true, true, true, "replay"},
+		{true, true, true, "paused"}, // the kill switch beats replay
+		{true, false, true, "replay"},
+		{true, false, false, "replay"},
 	}
 	for _, c := range cases {
 		if got := connectionState(c.replay, c.paused, c.reauth); got != c.want {

@@ -361,6 +361,23 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
+	// The kill switch used to flip with no visible effect anywhere:
+	// log every change (actor, never in metrics) and keep a 0/1 gauge.
+	if flagsStore != nil {
+		flagsStore.SetKillSwitchObserver(func(old *flags.KillSwitchState, cur flags.KillSwitchState) {
+			g := 0.0
+			if cur.Paused {
+				g = 1
+			}
+			appMetrics.UpstreamPaused.Set(g)
+			logger.Info("rivian upstream kill switch changed",
+				"paused", cur.Paused, "was_paused", old != nil && old.Paused,
+				"actor", cur.Actor, "reason", cur.Reason)
+		})
+		if ks := flagsStore.KillSwitch(); ks.Paused {
+			appMetrics.UpstreamPaused.Set(1)
+		}
+	}
 	// Resend email client. Both vars must be set for the client to
 	// actually send; otherwise the approve handler still returns the
 	// magic-link in the response so the admin can forward it manually.
