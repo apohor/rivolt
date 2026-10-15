@@ -369,19 +369,10 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			return
 		}
 		if mon != nil {
-			// Local cache: populated on the pod that owns this vehicle's
-			// WS lease (and therefore runs the subscriptions).
-			if st, _ := mon.Latest(id); st != nil {
-				writeJSON(w, http.StatusOK, st)
-				return
-			}
-			// Peer snapshot: a replica that doesn't own the lease reads
-			// the live State the owner published to the shared store, so
-			// the response carries subscription-only / Parallax-only
-			// fields (pack temp, tire pressures, charging context, driver
-			// chips, windows) instead of the REST fallback below, which
-			// omits every field vehicleState doesn't expose over REST.
-			if st := mon.RemoteLatest(r.Context(), id); st != nil {
+			// The owner's own cache, else the owner's published snapshot
+			// (subscription-only fields the REST fallback below lacks),
+			// else a recent local fetch. See StateMonitor.ServeState.
+			if st := mon.ServeState(r.Context(), id); st != nil {
 				writeJSON(w, http.StatusOK, st)
 				return
 			}

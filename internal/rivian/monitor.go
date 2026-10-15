@@ -2543,6 +2543,43 @@ func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *Stat
 	return st
 }
 
+// primedStateMaxAge bounds how long a pod that doesn't stream a vehicle
+// serves a local entry (a recent direct fetch, or the last frame before
+// it lost the lease) when the owner's published snapshot is missing.
+// Nothing refreshes such an entry, so past this age the caller fetches
+// again rather than serving it forever.
+const primedStateMaxAge = 30 * time.Second
+
+// ServeState is the State /api/state serves for vehicleID, or nil when
+// the caller should fetch it directly (and Prime the result):
+//
+//  1. this pod streams the vehicle: its own cache, the freshest there is;
+//  2. otherwise the owner's published snapshot (RemoteLatest);
+//  3. otherwise a local entry younger than primedStateMaxAge.
+//
+// A non-owner's local entry is never refreshed, so preferring it
+// unconditionally (as Latest-first did) froze /api/state on that pod
+// from the first fallback fetch until the pod restarted.
+func (m *StateMonitor) ServeState(ctx context.Context, vehicleID string) *State {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	local, stamp := m.cache[vehicleID], m.stamp[vehicleID]
+	_, streaming := m.active[vehicleID]
+	m.mu.RUnlock()
+	if streaming && local != nil {
+		return local
+	}
+	if remote := m.RemoteLatest(ctx, vehicleID); remote != nil {
+		return remote
+	}
+	if local != nil && time.Since(stamp) < primedStateMaxAge {
+		return local
+	}
+	return nil
+}
+
 // liveStatePublisher periodically writes this vehicle's cached State to
 // the shared store so a replica that doesn't own the lease can serve it
 // via RemoteLatest. Runs only on the owning pod — it's started from
