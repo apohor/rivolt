@@ -99,8 +99,17 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pl.State != "plugged" {
-		t.Fatalf("plugged+asleep = %q, want plugged", pl.State)
+	if pl.State != "plugged" || !pl.Asleep {
+		t.Fatalf("plugged+asleep = %q asleep=%v, want plugged/true", pl.State, pl.Asleep)
+	}
+	// Plugged and awake: same state, asleep false.
+	row(alice.String(), vold, 10*time.Minute, "ready", "P", "charging_complete", 79, 0)
+	pa, err := newNowSnapshotter(pool)(ctx, alice, "rv-old", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pa.State != "plugged" || pa.Asleep {
+		t.Fatalf("plugged+awake = %q asleep=%v, want plugged/false", pa.State, pa.Asleep)
 	}
 	// Not Alice's vehicle: no data, state empty.
 	other, err := newNowSnapshotter(pool)(ctx, alice, "rv-bob", now)

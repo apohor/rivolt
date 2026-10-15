@@ -81,6 +81,34 @@ describe("computeNow", () => {
     expect(asleep(1500).kind).toBe("asleep");
     expect(computeNow(inp(old(2000))).kind).toBe("offline");
   });
+  it("a plugged-in asleep truck uses the asleep limits, an awake one the 2-min limit", () => {
+    const plugged = (power_state: string, ageSec: number, server?: object) =>
+      computeNow(
+        inp(
+          { charger_status: PLUG, charger_state: "charging_complete", power_state, at: new Date(NOW - ageSec * 1000).toISOString() },
+          server ? { server: server as NonNullable<NowInput["server"]> } : {},
+        ),
+      );
+    const srv = (asleep: boolean) => ({
+      version: 1, at: null, location_fix_at: null, connection: "live", state: "plugged", state_since: null,
+      soc_at_state_start: null, tire_pressure_min_bar: null, failed_sleeps_6h: 0, charge: null, asleep,
+    });
+    // 4 min old, asleep: no pill (server flag, and client fallback).
+    for (const v of [plugged("sleep", 240, srv(true)), plugged("sleep", 240)]) {
+      expect(v.kind).toBe("plugged");
+      expect(v.stale).toBe(false);
+    }
+    // 4 min old, awake: stale pill.
+    for (const v of [plugged("ready", 240, srv(false)), plugged("ready", 240)]) {
+      expect(v.kind).toBe("plugged");
+      expect(v.stale).toBe(true);
+    }
+    // The asleep limits: stale after 30 min, offline after 45.
+    expect(plugged("sleep", 1900, srv(true)).stale).toBe(true);
+    expect(plugged("sleep", 2800, srv(true)).kind).toBe("offline");
+    // The server flag wins over a client power_state that disagrees.
+    expect(plugged("ready", 240, srv(true)).stale).toBe(false);
+  });
   it("derives ETA, energy and home cost from vehicle state alone", () => {
     const v = computeNow(
       inp(

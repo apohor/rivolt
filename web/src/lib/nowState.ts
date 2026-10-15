@@ -17,7 +17,10 @@ export type Place = "home" | "away" | "unknown";
 // truck stays lenient (30 min): the sleep gate and hold_asleep park
 // subscriptions, and stale-Parallax-replay filtering (#159) will drop the
 // replays that keep its timestamp fresh, so a quiet sleeping truck is
-// healthy, not stale. Offline limits are unchanged.
+// healthy, not stale. Offline limits are unchanged. The same asleep
+// limits apply to a PLUGGED-IN truck that is asleep (the server's
+// `asleep` flag, or power_state=sleep): it reads "plugged" but its
+// frames arrive every ~3 min like any sleeping truck's.
 const FRESHNESS: Record<"driving" | "charging" | "parked" | "asleep", { stale: number; offline: number }> = {
   driving: { stale: 30, offline: 180 },
   charging: { stale: 120, offline: 600 },
@@ -140,7 +143,10 @@ export function computeNow(i: NowInput): NowView {
     if (sleptSec < SLEEP_HYSTERESIS_SEC) kind = "parked";
   }
 
-  const fKey = kind === "plugged" ? "parked" : kind;
+  // A plugged-in truck that is asleep follows the asleep cadence, not
+  // the awake 2-minute limit (its frames come every ~3 min).
+  const sleepingNow = i.server?.asleep ?? (s.power_state || "").toLowerCase() === "sleep";
+  const fKey = kind === "plugged" ? (sleepingNow ? "asleep" : "parked") : kind;
   const lim = FRESHNESS[fKey];
   const offline = ageSec > lim.offline;
   const stale = !offline && ageSec > lim.stale;
