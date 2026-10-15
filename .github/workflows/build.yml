@@ -3,6 +3,9 @@
 # Triggers / outputs:
 #   - Push to main        → tests + build 'sha-<short>' & 'main',
 #                          auto-bump rivolt-infra preview values
+#   - Push to release/**  → tests + build 'sha-<short>' only (hotfix line
+#                          cut from a release tag; no preview bump). Tag
+#                          the release-branch commit to ship it to prod.
 #   - Push of vX.Y.Z tag  → retag-only: attach 'vX.Y.Z' / 'X.Y' / 'latest'
 #                          to the existing 'sha-<short>' manifest at the
 #                          tagged commit. No tests, no rebuild — the same
@@ -16,7 +19,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     tags: ["v*.*.*"]
     paths-ignore:
       - "**.md"
@@ -26,7 +29,7 @@ on:
       - "LICENSE"
       - ".editorconfig"
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -160,6 +163,7 @@ jobs:
     # the code already shipped to preview).
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -213,7 +217,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build & push
@@ -275,8 +279,8 @@ jobs:
 
   tag-validate:
     name: tag-validate
-    # Refuses tags pointing at a SHA that never had a successful main-
-    # branch build. Without this, a tag at e.g. a docs-only commit
+    # Refuses tags pointing at a SHA that never had a successful main or
+    # release/** push build. Without this, a tag at e.g. a docs-only commit
     # (CI skipped due to paths-filter) makes retag fail late with a
     # cryptic ImageManifestUnknown error. Fail fast with a clear
     # message instead.
@@ -295,17 +299,19 @@ jobs:
           # The tagged commit must have at least one successful build
           # workflow run targeting it. Tagging a docs-only commit (or
           # a commit before its main build finished) returns no rows.
+          # A successful push build on main or on a release/** hotfix
+          # branch both publish 'sha-<short>', so either qualifies.
           count=$(gh run list \
             --repo "${{ github.repository }}" \
             --workflow build.yml \
-            --branch main \
+            --event push \
             --commit "$SHA" \
             --status success \
-            --limit 1 \
-            --json databaseId \
-            --jq 'length')
+            --limit 20 \
+            --json headBranch \
+            --jq '[.[] | select(.headBranch == "main" or (.headBranch | startswith("release/")))] | length')
           if [ "${count:-0}" -lt 1 ]; then
-            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main-branch build."
+            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main or release/** build."
             echo "::error::Tag a commit that's already been built (and ideally soaked on preview)."
             exit 1
           fi
