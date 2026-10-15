@@ -1,3 +1,4 @@
+import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -450,7 +451,7 @@ export default function DriveDetailPage() {
           label="Cost"
           value={
             drive.estimated_cost && drive.estimated_cost > 0
-              ? `~${drive.estimated_cost.toFixed(2)}${drive.estimated_currency ? ` ${drive.estimated_currency}` : ""}`
+              ? `~${formatMoney(drive.estimated_cost, drive.estimated_currency || "USD")}`
               : "—"
           }
           hint={

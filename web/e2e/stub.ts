@@ -256,6 +256,25 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       ]);
     }
     if (p === "/api/charges/clusters") return json(route, []);
+    if (p === "/api/samples") {
+      // A believable window of samples (every 30 s) so the drive and
+      // charge charts render with real axes.
+      const since = Date.parse(url.searchParams.get("since") || "") || Date.now() - 3_600_000;
+      const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
+      const out: Record<string, unknown>[] = [];
+      for (let t = since, i = 0; t <= until && i < 400; t += 30_000, i++) {
+        const k = i / 60;
+        out.push({
+          VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: 70 - i * 0.08,
+          RangeMi: 220 - i * 0.2, OdometerMi: 1000 + i * 0.4, Lat: 40 + k * 0.01, Lon: -100 + k * 0.01,
+          SpeedMph: i > 5 && i < 50 ? 45 + 15 * Math.sin(i / 4) : 0, ShiftState: i > 5 && i < 50 ? "D" : "P",
+          ChargingState: i >= 50 ? "charging_active" : "", ChargerPowerKW: i >= 50 ? 11 : 0, ChargeLimitPct: 80,
+          InsideTempC: 20, OutsideTempC: 12, DriveNumber: 1, ChargeNumber: 1, Source: "live",
+          altitude_m: 200 + 30 * Math.sin(i / 9), pack_temp_avg_c: 25 + i * 0.02,
+        });
+      }
+      return json(route, out);
+    }
     if (p === "/api/trips/saved") {
       const inputs = {
         origin: { lat: 40.0, lon: -100.0, label: "Home" },

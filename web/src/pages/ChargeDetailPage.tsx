@@ -1,3 +1,4 @@
+import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
@@ -8,6 +9,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
 import { ChargeMap } from "../components/DriveMap";
 import {
+  displayTimeZone,
   durationSeconds,
   formatChargeState,
   formatDateTime,
@@ -119,6 +121,26 @@ export default function ChargeDetailPage() {
     () => charges.data?.find((c) => c.ID === id),
     [charges.data, id],
   );
+
+  // The Money tab prices a plug-in as one receipt (a session plus the
+  // top-ups folded into it), so its figure can legitimately differ from
+  // this one session's. Say so instead of leaving two numbers to explain.
+  const moneyOn = useMoneyTabEnabled();
+  const receiptMonth = charge
+    ? new Date(charge.StartedAt).toLocaleDateString("en-CA", { timeZone: displayTimeZone() }).slice(0, 7)
+    : null;
+  const receiptQ = useQuery({
+    queryKey: ["ledger", "receipt-of", receiptMonth, charge?.ID],
+    enabled: moneyOn && !!charge && !!receiptMonth,
+    staleTime: 60_000,
+    retry: 0,
+    queryFn: async (): Promise<Receipt | null> => {
+      const r = await fetchLedgerMonth(receiptMonth as string);
+      if (r.source !== "api") return null;
+      return r.data.receipts.find((x) => x.sessions.some((y) => y.charge_id === charge!.ID)) ?? null;
+    },
+  });
+  const groupReceipt = receiptQ.data && receiptQ.data.sessions.length > 1 ? receiptQ.data : null;
 
   const deleteCharge = useMutation({
     mutationFn: () => backend.deleteCharge(id!),
@@ -328,7 +350,16 @@ export default function ChargeDetailPage() {
         <Stat
           label="Cost"
           value={chargeCostLabel(charge)}
-          hint={chargeCostHint(charge)}
+          hint={
+            [
+              chargeCostHint(charge),
+              groupReceipt && groupReceipt.cost != null
+                ? `Part of a ${formatMoney(groupReceipt.cost, charge.Currency || "USD")} receipt with ${groupReceipt.sessions.length} sessions (Money shows the whole plug-in)`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
         />
       </div>
 
@@ -345,6 +376,7 @@ export default function ChargeDetailPage() {
                 {new Date(cursorMs).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
+                  timeZone: displayTimeZone(),
                 })}
               </span>
               {/* Readouts mirror the plotted series — a hidden chip drops
@@ -591,6 +623,7 @@ function xTimeFmt(x: number): string {
   return new Date(x).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: displayTimeZone(),
   });
 }
 
@@ -651,10 +684,10 @@ function chargeCostLabel(c: import("../lib/api").Charge): string {
   if (c.cost_source_effective === "home_rate_misapplied") return "Pending";
   if (c.cost_source_effective === "unknown") return "—";
   if (c.Cost > 0) {
-    return `${c.Cost.toFixed(2)}${c.Currency ? ` ${c.Currency}` : ""}`;
+    return formatMoney(c.Cost, c.Currency || "USD");
   }
   if (c.estimated_cost && c.estimated_cost > 0) {
-    return `~${c.estimated_cost.toFixed(2)}${c.estimated_currency ? ` ${c.estimated_currency}` : ""}`;
+    return `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`;
   }
   return "—";
 }
@@ -1233,7 +1266,7 @@ function PricingCard({
         <div className="sm:col-span-2 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-xs text-neutral-500 tabular-nums">
             {previewCost > 0
-              ? `≈ ${previewCost.toFixed(2)} ${currency} over ${energy.toFixed(1)} kWh`
+              ? `≈ ${formatMoney(previewCost, currency || "USD")} over ${energy.toFixed(1)} kWh`
               : `Energy: ${energy.toFixed(1)} kWh`}
           </p>
           {freeEnabled && (

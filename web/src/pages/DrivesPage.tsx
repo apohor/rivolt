@@ -1,3 +1,4 @@
+import { formatMoney } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -175,7 +176,7 @@ function DriveTable({ drives }: { drives: Drive[] }) {
                 }
               >
                 {d.estimated_cost && d.estimated_cost > 0
-                  ? `~${d.estimated_cost.toFixed(2)}${d.estimated_currency ? ` ${d.estimated_currency}` : ""}`
+                  ? `~${formatMoney(d.estimated_cost, d.estimated_currency || "USD")}`
                   : "—"}
               </td>
             </tr>
@@ -247,7 +248,7 @@ function SummaryStrip({ totals }: { totals: DriveTotals }) {
         label="Cost"
         value={
           totals.cost > 0
-            ? `~${totals.cost.toFixed(2)}${totals.currency ? ` ${totals.currency}` : ""}`
+            ? `~${formatMoney(totals.cost, totals.currency || "USD")}`
             : "—"
         }
         hint={

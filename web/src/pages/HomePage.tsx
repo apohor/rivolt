@@ -1,3 +1,4 @@
+import { formatMoney } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -305,9 +306,9 @@ export default function HomePage() {
               label="Cost"
               value={
                 ds.cost > 0
-                  ? `~${ds.cost.toFixed(2)}${ds.currency ? ` ${ds.currency}` : ""}`
+                  ? `~${formatMoney(ds.cost, ds.currency || "USD")}`
                   : cs.cost > 0
-                    ? `~${cs.cost.toFixed(2)}${cs.currency ? ` ${cs.currency}` : ""}`
+                    ? `~${formatMoney(cs.cost, cs.currency || "USD")}`
                     : "—"
               }
               hint={
