@@ -707,6 +707,10 @@ export type RivianStatus = {
   email?: string;
   needs_reauth?: boolean;
   needs_reauth_reason?: string;
+  // The operator paused Rivolt's connection to Rivian (kill switch).
+  // paused_reason is a fixed code only ("operator_pause").
+  paused?: boolean;
+  paused_reason?: string;
 };
 
 // AIProvider enumerates the LLM backends Rivolt supports. Image/speech
