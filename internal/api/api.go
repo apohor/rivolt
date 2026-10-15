@@ -904,6 +904,11 @@ func New(d Deps) http.Handler {
 			// pairs backup+reset for the re-import-after-tz-change
 			// flow and backup+restore for disaster recovery.
 			r.Get("/data/backup", handleDataBackup(d))
+			// Human-friendly "take your data with you": zip of CSVs
+			// (charges incl. the ledger's effective cost source,
+			// drives, trips) + settings/profiles JSON. Never behind the
+			// Money tab; no secrets, no raw samples.
+			r.Get("/export", handleExport(d))
 			r.Post("/data/restore", handleDataRestore(d))
 			r.Delete("/data/sessions", handleDataReset(d))
 			r.Delete("/data/account", handleDataAccountDelete(d))
