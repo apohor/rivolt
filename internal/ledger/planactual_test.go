@@ -90,7 +90,7 @@ func planJSONFor(t *testing.T, from, to LatLon, depart string, stops []pvaStop, 
 	var breakdown []map[string]any
 	for _, s := range stops {
 		wps = append(wps, map[string]any{"WaypointType": "charger", "Name": s.name, "Latitude": s.at.Lat, "Longitude": s.at.Lon,
-			"ArrivalSoC": s.soc, "ChargeDurationSec": 1500})
+			"ArrivalSoC": s.soc, "DepartureSoC": s.soc + 30, "ChargeDurationSec": 1500})
 		breakdown = append(breakdown, map[string]any{"network_name": s.network, "charger_name": s.name,
 			"energy_kwh": s.kwh, "user_rate": s.rate})
 	}
@@ -141,7 +141,7 @@ func TestParsePlan(t *testing.T) {
 	plan := `{"Routes":[{"Waypoints":[
 		{"WaypointType":"origin","Latitude":1,"Longitude":2,"DepartureTimeUTC":"2026-02-01T08:00:00Z"},
 		{"WaypointType":"waypoint","Latitude":1.5,"Longitude":2.5},
-		{"WaypointType":"charger","Name":"Electrify America - Somewhere","Latitude":1.6,"Longitude":2.6,"ChargeDurationSec":900},
+		{"WaypointType":"charger","Name":"Electrify America - Somewhere","Latitude":1.6,"Longitude":2.6,"ArrivalSoC":20,"DepartureSoC":70,"ChargeDurationSec":900},
 		{"WaypointType":"destination","Latitude":3,"Longitude":4}]}]}`
 	p, err := ParsePlan(nil, json.RawMessage(plan), time.Now())
 	if err != nil {
@@ -173,7 +173,7 @@ func TestMatchPlanOnTheReplayCorpus(t *testing.T) {
 	if day != "2026-01-23" || c.Band != "high" || c.Confidence < 0.95 || !strings.HasPrefix(c.TripID, "trip_") {
 		t.Errorf("Vegas candidate = %+v", c)
 	}
-	if c.InProgress || c.Miles < 500 || c.Miles > 700 { // there and back
+	if c.InProgress || c.Miles < 250 || c.Miles > 300 { // the leg there, not the round trip
 		t.Errorf("Vegas candidate miles %.1f, in progress %v", c.Miles, c.InProgress)
 	}
 	if c.Signals.Destination != 1 || c.Signals.Origin != 1 || c.Signals.RouteOverlap == nil || *c.Signals.RouteOverlap != 1 ||
@@ -425,5 +425,79 @@ func TestPlanInProgress(t *testing.T) {
 	in.Now = cut.Add(48 * time.Hour)
 	if cands := MatchPlan(p, in); len(cands) != 0 {
 		t.Errorf("a stale, unfinished outing matched: %+v", cands)
+	}
+}
+
+// Breakdown entries are matched to stops by charger name, and stops
+// are exactly the waypoints tripadvice prices: an OTHER point, a via
+// WAYPOINT (even one with a charge duration) and a charger the car
+// leaves no fuller are skipped, so they can't shift a neighbour's rate.
+func TestParsePlanStopsMatchTheBreakdown(t *testing.T) {
+	plan := `{"Routes":[{"Waypoints":[
+		{"WaypointType":"origin","Latitude":34.16,"Longitude":-118.17},
+		{"WaypointType":"OTHER","Name":"Scenic overlook","Latitude":34.5,"Longitude":-117.5,"ArrivalSoC":60,"DepartureSoC":70},
+		{"WaypointType":"charger","Name":"Barstow, CA","Latitude":34.85,"Longitude":-117.08,"ArrivalSoC":55,"DepartureSoC":85,"ChargeDurationSec":1500},
+		{"WaypointType":"waypoint","Name":"Friend's place","Latitude":35.0,"Longitude":-116.5,"ArrivalSoC":70,"DepartureSoC":75,"ChargeDurationSec":600},
+		{"WaypointType":"charger","Name":"Baker EVgo","Latitude":35.27,"Longitude":-116.07,"ArrivalSoC":60,"DepartureSoC":60,"ChargeDurationSec":0},
+		{"WaypointType":"charger","Name":"Prizm Outlets (Primm, NV)","Latitude":35.61,"Longitude":-115.39,"ArrivalSoC":40,"DepartureSoC":70,"ChargeDurationSec":1200},
+		{"WaypointType":"destination","Latitude":36.17,"Longitude":-115.14}]}],
+	 "costs":[{"currency":"USD","dcfc_spend_user_member":30,"breakdown":[
+		{"network_name":"Rivian Adventure Network","charger_name":"Barstow, CA","energy_kwh":40,"user_rate":0.45},
+		{"network_name":"Electrify America","charger_name":"Prizm Outlets (Primm, NV)","energy_kwh":38,"user_rate":0.56}]}]}`
+	p, err := ParsePlan(nil, json.RawMessage(plan), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Stops) != 2 || p.Stops[0].Name != "Barstow, CA" || p.Stops[1].Name != "Prizm Outlets (Primm, NV)" {
+		t.Fatalf("stops = %+v", p.Stops)
+	}
+	if p.Stops[0].Network != "Rivian Adventure Network" || *p.Stops[0].EstRate != 0.45 || *p.Stops[0].EstKWh != 40 ||
+		p.Stops[1].Network != "Electrify America" || *p.Stops[1].EstRate != 0.56 || *p.Stops[1].EstKWh != 38 {
+		t.Errorf("breakdown on the wrong stops: %+v / %+v", p.Stops[0], p.Stops[1])
+	}
+
+	// A breakdown that names a charger the stops don't have leaves that
+	// stop without a rate rather than borrowing another's.
+	plan = strings.Replace(plan, `"charger_name":"Barstow, CA"`, `"charger_name":"Somewhere else"`, 1)
+	p, _ = ParsePlan(nil, json.RawMessage(plan), time.Now())
+	if p.Stops[0].EstRate != nil || p.Stops[1].EstRate == nil || *p.Stops[1].EstRate != 0.56 {
+		t.Errorf("unmatched breakdown entry: %+v / %+v", p.Stops[0], p.Stops[1])
+	}
+}
+
+// A plan that doesn't start at home, the drive back from Las Vegas, is
+// matched and compared on that leg only, not the round trip that began
+// two days earlier.
+func TestPlanReturnLeg(t *testing.T) {
+	in := pricedBarstow(sampleLedger(t), 0.40)
+	ib, pb := planJSONFor(t, pvaVegas, pvaHome, "2026-01-25T09:00:00Z",
+		[]pvaStop{{LatLon{35.606006, -115.389080}, "Prizm Outlets (Primm, NV)", "Electrify America", 40, 0.56, 30}}, 22.4, "USD")
+	p, err := ParsePlan(ib, pb, time.Date(2026, 1, 24, 20, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cands := MatchPlan(p, in)
+	if len(cands) == 0 {
+		t.Fatal("no candidates for the return leg")
+	}
+	c := cands[0]
+	if c.StartedAt.Format("2006-01-02 15") != "2026-01-25 09" || c.Band != "high" || c.Signals.Origin != 1 ||
+		c.Signals.StartOffsetMin == nil || math.Abs(*c.Signals.StartOffsetMin) > 5 || c.Miles > 300 {
+		t.Errorf("return-leg candidate = %+v", c)
+	}
+	cmp := mustCompare(t, p, in, c.TripID)
+	if len(cmp.Leg.DriveIDs) != 2 || len(cmp.Leg.ChargeIDs) != 1 || cmp.Status != "complete" {
+		t.Errorf("leg = %+v (status %s), want Vegas → Primm → home only", cmp.Leg, cmp.Status)
+	}
+	for _, s := range cmp.Stops {
+		if s.Actual != nil && strings.Contains(s.Actual.Network, "Rivian") {
+			t.Errorf("the outbound Barstow charge is on the return leg: %+v", s)
+		}
+	}
+	if s := metric(t, cmp, "dcfc_stops"); !eq(s.Actual, 1) || !eq(s.Delta, 0) {
+		t.Errorf("stops = %+v", s)
+	}
+	if d := metric(t, cmp, "duration"); d.Actual == nil || *d.Actual > 6*60 {
+		t.Errorf("duration = %+v, want the drive back, not days", d)
 	}
 }

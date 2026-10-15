@@ -77,6 +77,7 @@ type planJSON struct {
 			Latitude          float64
 			Longitude         float64
 			ArrivalSoC        float64
+			DepartureSoC      float64
 			ChargeDurationSec float64
 			DepartureTimeUTC  string
 		}
@@ -153,10 +154,14 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 					p.Destination, haveD = LatLon{w.Latitude, w.Longitude}, true
 				}
 				continue
-			case "waypoint":
-				if w.ChargeDurationSec <= 0 {
-					continue // a user via-stop, not a charger
-				}
+			case "waypoint", "other":
+				continue // a user via-stop or a non-charger point
+			}
+			// Exactly tripadvice.EstimateRoute's filter, so the stops are
+			// the ones its cost breakdown priced: a charger the car
+			// leaves fuller than it arrived.
+			if w.DepartureSoC-w.ArrivalSoC <= 0 {
+				continue
 			}
 			s := PlannedStop{Name: w.Name, Lat: w.Latitude, Lon: w.Longitude,
 				ChargeMin: posPtr(w.ChargeDurationSec / 60)}
@@ -174,11 +179,23 @@ func ParsePlan(inputs, plan json.RawMessage, createdAt time.Time) (Plan, error) 
 			v := *c.DCFCSpendUserMember
 			p.Cost = &v
 		}
+		// Pair breakdown entries with stops by charger name, in route
+		// order (each entry used once); a stop without one has no
+		// planned rate rather than a neighbour's.
+		used := make([]bool, len(c.Breakdown))
 		for i := range p.Stops {
-			if i >= len(c.Breakdown) {
-				break
+			k := -1
+			for j, b := range c.Breakdown {
+				if !used[j] && strings.EqualFold(strings.TrimSpace(b.ChargerName), strings.TrimSpace(p.Stops[i].Name)) {
+					k = j
+					break
+				}
 			}
-			b := c.Breakdown[i]
+			if k < 0 {
+				continue
+			}
+			used[k] = true
+			b := c.Breakdown[k]
 			p.Stops[i].Network = strings.TrimSpace(b.NetworkName)
 			if b.EnergyKWh > 0 {
 				kwh := b.EnergyKWh
@@ -259,11 +276,13 @@ func MatchPlan(p Plan, in Input) []PlanCandidate {
 	wFrom, wTo := p.candidateWindow()
 	out := []PlanCandidate{}
 	for _, o := range outingsOf(in) {
-		ds := outingDrives(o)
-		if len(ds) == 0 {
-			continue
+		if outingID(o) == "" {
+			continue // no drive: charging at home between outings
 		}
-		start := o[0].start.UTC()
+		sp := planSpan(p, o)
+		leg := o[sp.from : sp.to+1]
+		ds := outingDrives(leg)
+		start := o[sp.from].start.UTC()
 		if start.Before(wFrom) || !start.Before(wTo) {
 			continue
 		}
@@ -300,7 +319,7 @@ func MatchPlan(p Plan, in Input) []PlanCandidate {
 		weights := 0.35*sig.Destination + 0.20*sig.Origin + 0.25*sig.Time
 		total := 0.80
 		if len(p.Stops) > 0 {
-			ov := routeOverlap(p.Stops, o)
+			ov := routeOverlap(p.Stops, leg)
 			sig.RouteOverlap = &ov
 			weights += 0.20 * ov
 			total = 1.0
@@ -314,7 +333,11 @@ func MatchPlan(p Plan, in Input) []PlanCandidate {
 		if conf >= planHighBand && !inProgress {
 			band = "high"
 		}
-		out = append(out, PlanCandidate{TripID: outingID(o), StartedAt: start, EndedAt: outingEnd(o),
+		end := o[sp.arrive].end.UTC()
+		if inProgress {
+			end = outingEnd(o)
+		}
+		out = append(out, PlanCandidate{TripID: outingID(o), StartedAt: start, EndedAt: end,
 			Miles: drivenMiles(ds), Confidence: conf, Band: band, InProgress: inProgress, Signals: sig})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -639,34 +662,66 @@ func ComparePlan(p Plan, in Input, tripID string) (PlanComparison, bool) {
 // drive that ends nearest it, and arrived is false only when none is
 // within planFarKM (so the comparison is reported in progress).
 func planLeg(p Plan, o []tripEvent) ([]tripEvent, *Drive, bool) {
-	arriveAt, nearest, lastDrive := -1, -1, -1
+	sp := planSpan(p, o)
+	return o[sp.from : sp.to+1], o[sp.arrive].drive, sp.arrived
+}
+
+// legSpan is the part of an outing a plan covers: events from..to
+// (inclusive), arrive the arriving drive's index.
+type legSpan struct {
+	from, to, arrive int
+	arrived          bool
+}
+
+// planSpan finds the leg of outing o that carries out p. It ends at the
+// first drive that ends near the destination (else the one that ends
+// nearest it, within planFarKM); with neither (still on the way) it
+// runs to the end of the outing, not arrived, and with no positions at
+// all it's the whole outing. It starts at the last drive at or before
+// that arrival that starts within planFarKM of the plan's origin, so a
+// plan that doesn't start at home (the drive back from a hotel) is
+// compared with that leg, not the round trip; else at the first drive.
+// The outing must have a drive.
+func planSpan(p Plan, o []tripEvent) legSpan {
+	arriveAt, nearest, firstDrive, lastDrive := -1, -1, -1, -1
 	nearestKM := math.Inf(1)
 	for i, e := range o {
 		if e.drive == nil {
 			continue
 		}
+		if firstDrive < 0 {
+			firstDrive = i
+		}
 		lastDrive = i
+		if arriveAt >= 0 {
+			continue
+		}
 		km, ok := kmTo(e.drive.EndLat, e.drive.EndLon, p.Destination)
 		if !ok {
 			continue
 		}
 		if km <= planNearKM {
 			arriveAt = i
-			break
-		}
-		if km < nearestKM {
+		} else if km < nearestKM {
 			nearestKM, nearest = km, i
 		}
 	}
+	sp := legSpan{from: firstDrive, to: len(o) - 1, arrive: lastDrive}
 	switch {
 	case arriveAt >= 0:
-		return o[:arriveAt+1], o[arriveAt].drive, true
+		sp.to, sp.arrive, sp.arrived = arriveAt, arriveAt, true
 	case nearest >= 0 && nearestKM <= planFarKM: // ended a few km off the planned point
-		return o[:nearest+1], o[nearest].drive, true
+		sp.to, sp.arrive, sp.arrived = nearest, nearest, true
 	case nearest < 0: // no positions recorded: take the outing as the trip
-		return o, o[lastDrive].drive, true
+		sp.arrived = true
 	}
-	return o, o[lastDrive].drive, false // not there (yet)
+	for i := sp.arrive; i >= 0; i-- {
+		if d := o[i].drive; d != nil && within(d.StartLat, d.StartLon, p.Origin, planFarKM) {
+			sp.from = i
+			break
+		}
+	}
+	return sp
 }
 
 // pairStops pairs planned stops (route order) with the leg's fast
