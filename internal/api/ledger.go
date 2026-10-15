@@ -54,6 +54,10 @@ type ledgerAPI struct {
 	owns   func(ctx context.Context, uid uuid.UUID, vehicleID string) (bool, error)
 	config func(ctx context.Context, uid uuid.UUID) (ledger.Config, error)
 	now    func() time.Time
+	// toConfirm lists the user's open verify-state charges, and counts
+	// them; nil leaves the counts at zero and the list empty.
+	toConfirm      func(ctx context.Context, uid uuid.UUID) ([]ledger.Charge, error)
+	toConfirmCount func(ctx context.Context, uid uuid.UUID) (open, attention int, err error)
 }
 
 // newLedgerAPI wires the production seams: read-only queries on the
@@ -75,6 +79,12 @@ func newLedgerAPI(pool *sql.DB, settingsF *settings.Factory) ledgerAPI {
 			return ledgerConfig(ctx, store)
 		},
 		now: time.Now,
+		toConfirm: func(ctx context.Context, uid uuid.UUID) ([]ledger.Charge, error) {
+			return ledger.LoadToConfirm(ctx, pool, uid)
+		},
+		toConfirmCount: func(ctx context.Context, uid uuid.UUID) (int, int, error) {
+			return ledger.CountToConfirm(ctx, pool, uid)
+		},
 	}
 }
 
@@ -186,6 +196,11 @@ type ledgerSummaryResponse struct {
 	TZ       string                `json:"tz"`
 	Currency string                `json:"currency"`
 	Months   []ledger.MonthSummary `json:"months"`
+	// ToConfirmCount / NeedsAttentionCount are all-time and user-wide
+	// (not windowed by months or vehicle): charges whose auto-detected
+	// DC fast charge network is still open for verification.
+	ToConfirmCount      int `json:"to_confirm_count"`
+	NeedsAttentionCount int `json:"needs_attention_count"`
 }
 
 // summary serves GET /api/ledger/summary?months=N[&tz][&vehicle_id]:
@@ -216,7 +231,51 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		stamp(&m, p)
 		out.Months = append(out.Months, ledger.MonthSummary{Monthly: m})
 	}
+	if a.toConfirmCount != nil {
+		open, attention, err := a.toConfirmCount(r.Context(), uid)
+		if err != nil {
+			http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out.ToConfirmCount, out.NeedsAttentionCount = open, attention
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// toConfirmResponse is the GET /api/ledger/to-confirm body.
+type toConfirmResponse struct {
+	Version  int              `json:"version"`
+	TZ       string           `json:"tz"`
+	Currency string           `json:"currency"`
+	Count    int              `json:"count"`
+	Rows     []ledger.Receipt `json:"rows"`
+}
+
+// toConfirmList serves GET /api/ledger/to-confirm[?tz]: every charge
+// still open for network verification, all time, newest first, one
+// single-session receipt each, capped at ledger.ToConfirmLimit.
+func (a ledgerAPI) toConfirmList(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+	p, ok := a.params(w, r, uid)
+	if !ok {
+		return
+	}
+	cfg, err := a.config(r.Context(), uid)
+	if err != nil {
+		http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var cs []ledger.Charge
+	if a.toConfirm != nil {
+		if cs, err = a.toConfirm(r.Context(), uid); err != nil {
+			http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	rows := ledger.SingleReceipts(cs, cfg, p.loc)
+	writeJSON(w, http.StatusOK, toConfirmResponse{
+		Version: ledger.Version, TZ: p.loc.String(), Currency: cfg.Currency,
+		Count: len(rows), Rows: rows,
+	})
 }
 
 // flagsMoneyTabRequest is the PUT body for /api/admin/flags/money-tab.

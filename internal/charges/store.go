@@ -718,6 +718,81 @@ func (s *Store) ConfirmNetwork(ctx context.Context, externalID string) (int64, e
 	return n, nil
 }
 
+// SetNetworkPrice records the user's own choice of DC fast charge
+// network: cost = pricePerKWh × the session's energy, cost_source
+// 'user', network_state cleared (confidence and evidence stay for
+// audit). Returns rows affected (0: not found for this user, or the
+// session has no energy to price).
+func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET price_per_kwh = $3,
+		    cost = round(($3::numeric * energy_added_kwh), 4),
+		    currency = COALESCE(NULLIF($5, ''), currency),
+		    network = NULLIF($4, ''),
+		    cost_source = 'user',
+		    network_state = NULL,
+		    legacy_cost = NULL,
+		    legacy_price_per_kwh = NULL,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND external_id = $2
+		  AND COALESCE(energy_added_kwh, 0) > 0
+	`, s.userID, externalID, pricePerKWh, network, currency)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// GetByExternalID returns one of this user's charges, or (nil, nil).
+func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.external_id, v.rivian_vehicle_id,
+		       c.started_at, c.ended_at,
+		       COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0),
+		       COALESCE(c.energy_added_kwh,0), COALESCE(c.miles_added,0),
+		       COALESCE(c.max_power_kw,0), COALESCE(c.avg_power_kw,0),
+		       COALESCE(c.final_state,''),
+		       COALESCE(c.lat,0), COALESCE(c.lon,0),
+		       c.source,
+		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
+		       COALESCE(c.price_per_kwh,0)::float8,
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var c Charge
+	var thermal, netConf sql.NullFloat64
+	var netEv []byte
+	if err := rows.Scan(&c.ID, &c.VehicleID,
+		&c.StartedAt, &c.EndedAt,
+		&c.StartSoCPct, &c.EndSoCPct,
+		&c.EnergyAddedKWh, &c.MilesAdded,
+		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
+		&c.Lat, &c.Lon, &c.Source,
+		&c.Cost, &c.Currency, &c.PricePerKWh,
+		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+		&c.NetworkState, &netConf, &netEv,
+	); err != nil {
+		return nil, err
+	}
+	c.ThermalKWh = floatFromNull(thermal)
+	c.NetworkConfidence = floatFromNull(netConf)
+	c.NetworkEvidence = netEv
+	c.StartedAt, c.EndedAt = c.StartedAt.UTC(), c.EndedAt.UTC()
+	return &c, rows.Err()
+}
+
 // NetworkToConfirm counts this user's auto-detected charges still open
 // for verification: toConfirm covers both open states, needsAttention
 // only 'needs_confirmation'.
