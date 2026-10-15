@@ -173,3 +173,61 @@ func firstSQLLine(body string) string {
 	}
 	return ""
 }
+
+// LatestEmbedded is the id of the newest migration this binary ships.
+func LatestEmbedded() (string, error) {
+	steps, err := loadMigrations()
+	if err != nil || len(steps) == 0 {
+		return "", fmt.Errorf("load embedded migrations: %v", err)
+	}
+	return steps[len(steps)-1].id, nil
+}
+
+// LatestApplied is the newest migration id recorded in the database
+// ("" when the migrations table does not exist). Read-only.
+func LatestApplied(ctx context.Context, d *sql.DB) (string, error) {
+	var id sql.NullString
+	var reg sql.NullString
+	if err := d.QueryRowContext(ctx, `SELECT to_regclass('public.migrations')::text`).Scan(&reg); err != nil {
+		return "", err
+	}
+	if !reg.Valid {
+		return "", nil
+	}
+	if err := d.QueryRowContext(ctx, `SELECT max(id) FROM migrations`).Scan(&id); err != nil {
+		return "", err
+	}
+	return id.String, nil
+}
+
+// RequireTables verifies, read-only, that every named table exists, and
+// returns an error that prints the database's and the binary's latest
+// migration when one does not. Repair commands call it instead of
+// migrating.
+func RequireTables(ctx context.Context, d *sql.DB, tables ...string) error {
+	var missing []string
+	for _, t := range tables {
+		var reg sql.NullString
+		if err := d.QueryRowContext(ctx, `SELECT to_regclass('public.' || $1)::text`, t).Scan(&reg); err != nil {
+			return err
+		}
+		if !reg.Valid {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	have, _ := LatestApplied(ctx, d)
+	want, _ := LatestEmbedded()
+	return fmt.Errorf("database schema lacks %s (database at migration %q, binary at %q); not migrating", strings.Join(missing, ", "), have, want)
+}
+
+// TableExists reports whether a table exists in the public schema.
+func TableExists(ctx context.Context, d *sql.DB, name string) (bool, error) {
+	var reg sql.NullString
+	if err := d.QueryRowContext(ctx, `SELECT to_regclass('public.' || $1)::text`, name).Scan(&reg); err != nil {
+		return false, err
+	}
+	return reg.Valid, nil
+}

@@ -52,12 +52,18 @@ func runRepairChargeFragments(args []string) int {
 	}
 
 	ctx := context.Background()
-	pool, err := db.Open(ctx, postgresDSN())
+	// Never migrate: a binary newer than the database must not change
+	// the production schema as a side effect of a repair.
+	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-fragments: postgres:", err)
 		return 1
 	}
 	defer pool.Close()
+	if err := db.RequireTables(ctx, pool, "charges", "vehicles", "vehicle_state", "charge_restamps"); err != nil {
+		fmt.Fprintln(os.Stderr, "repair-charge-fragments:", err)
+		return 1
+	}
 
 	pieces, err := repair.Load(ctx, pool, *user, since, until, *maxGap)
 	if err != nil {

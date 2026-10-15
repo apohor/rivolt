@@ -66,6 +66,21 @@ func UserIDFor(username string) uuid.UUID {
 // dsn accepts any DSN pgx understands — most commonly
 // `postgres://user:pass@host:5432/dbname?sslmode=disable`.
 func Open(ctx context.Context, dsn string) (*sql.DB, error) {
+	d, err := OpenNoMigrate(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := Migrate(ctx, d); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return d, nil
+}
+
+// OpenNoMigrate connects and pings but never changes the schema. Repair
+// and maintenance commands use it: a binary newer than the database must
+// not apply pending migrations as a side effect.
+func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, fmt.Errorf("DATABASE_URL is empty")
 	}
@@ -82,10 +97,6 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	if err := Migrate(ctx, d); err != nil {
-		_ = d.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return d, nil
 }
@@ -131,14 +142,25 @@ func EnsureUserVerified(ctx context.Context, d *sql.DB, username, email, display
 	// non-empty value when the new sign-in supplies "". The empty-
 	// string-as-null normalisation is in the application layer
 	// because the column itself allows NULL.
+	// email_verified follows the address: a sign-in that carries the
+	// same address keeps/raises the flag; a different address replaces
+	// the email and takes the new sign-in's verification state, so a
+	// verified flag can never outlive the address it vouched for.
+	// Mail (the monthly statement) is sent only to a verified address.
+	trimmed := strings.TrimSpace(email)
 	_, err := d.ExecContext(ctx, `
-		INSERT INTO users (id, username, email, display_name)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''))
+		INSERT INTO users (id, username, email, display_name, email_verified)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5 AND $3 <> '')
 		ON CONFLICT (id) DO UPDATE SET
 			username     = EXCLUDED.username,
 			email        = COALESCE(NULLIF(EXCLUDED.email, ''),        users.email),
-			display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name)
-	`, id, u, strings.TrimSpace(email), strings.TrimSpace(displayName))
+			display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name),
+			email_verified = CASE
+				WHEN NULLIF(EXCLUDED.email, '') IS NULL THEN users.email_verified
+				WHEN lower(EXCLUDED.email) = lower(COALESCE(users.email, '')) THEN users.email_verified OR EXCLUDED.email_verified
+				ELSE EXCLUDED.email_verified
+			END
+	`, id, u, trimmed, strings.TrimSpace(displayName), emailVerified)
 	if err != nil {
 		return uuid.Nil, err
 	}
