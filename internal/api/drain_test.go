@@ -18,9 +18,10 @@ func TestBuildDrain_WindowsSufficiencyAndDaily(t *testing.T) {
 	raw := drainRaw{
 		PackKWh: &pack,
 		Days: map[string]drainAgg{
-			"2026-10-14": {ParkH: 5, DropPct: 0.2, ObsH: 6, AwakeH: 0.5, ChargingH: 1, Sleeps: 2, Quick: 1},
+			"2026-10-14": {ParkH: 13, DropPct: 0.5, ObsH: 14, AwakeH: 0.5, ChargingH: 1, Sleeps: 2, Quick: 1},
 			"2026-10-13": {ParkH: 20, DropPct: 0.9, ObsH: 22, AwakeH: 1.0, Sleeps: 3},
-			"2026-10-12": {ParkH: 1, DropPct: 0.05}, // under 3 h: excluded
+			"2026-10-12": {ParkH: 1, DropPct: 0.05}, // under 12 h: excluded
+			"2026-10-11": {ParkH: 8, DropPct: 2.0},   // 3-12 h: still excluded from the bar
 		},
 		W7:  drainAgg{ParkH: 26, DropPct: 1.15, ObsH: 28, AwakeH: 1.5, Sleeps: 5, Quick: 1},
 		W30: drainAgg{ParkH: 26, DropPct: 1.15, ObsH: 28, AwakeH: 1.5, Sleeps: 5, Quick: 1}, // under 72 h
@@ -39,12 +40,18 @@ func TestBuildDrain_WindowsSufficiencyAndDaily(t *testing.T) {
 	if w30.Sufficient || w30.DrainPctPerDay != nil || w30.DrainKWhPerDay != nil {
 		t.Fatalf("30d must be insufficient with null rate: %+v", w30)
 	}
-	if w7.DaysInWindow != 7 || w7.DaysWithData != 3 || w7.DaysExcluded["insufficient"] != 5 {
+	if w7.DaysInWindow != 7 || w7.DaysWithData != 4 || w7.DaysExcluded["insufficient"] != 5 {
 		t.Fatalf("7d days: %+v", w7)
 	}
 	today, d12, quiet := got.Daily[29], got.Daily[27], got.Daily[10]
-	if today.DrainPct == nil || *today.DrainPct != 0.96 || today.Excluded != nil || today.ChargingHours != 1 {
+	if today.AwakeHours != 0.5 || today.ObservedHours != 14 {
+		t.Fatalf("raw awake/observed hours missing: %+v", today)
+	}
+	if today.DrainPct == nil || *today.DrainPct != 0.92 || today.Excluded != nil || today.ChargingHours != 1 {
 		t.Fatalf("today = %+v", today)
+	}
+	if d11 := got.Daily[26]; d11.DrainPct != nil || d11.Excluded == nil {
+		t.Fatalf("8 h parked day must be insufficient (12 h floor): %+v", d11)
 	}
 	if d12.DrainPct != nil || d12.Excluded == nil || *d12.Excluded != "insufficient" {
 		t.Fatalf("10-12 should be insufficient: %+v", d12)

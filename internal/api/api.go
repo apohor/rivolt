@@ -531,7 +531,7 @@ func New(d Deps) http.Handler {
 			// money_tab_enabled covers the user.
 			if d.DB != nil {
 				dr := newDrainAPI(newDrainStore(d.DB))
-				r.With(requireMoneyTabMW(moneyTabEnabled(d.Flags)), vehicleScoped).
+				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).
 					Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
 			}
 			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/pack-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
