@@ -108,6 +108,12 @@ type State struct {
 	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
 	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
 	PowerState string `json:"power_state"`
+	// ReplaySession is what Rivian's live charging session would report
+	// alongside this frame (the running billed price at a Rivian
+	// Adventure Network stop), carried only by replayed frames (the
+	// sample corpus). The replay source applies it as a live session
+	// after recording the frame; it never reaches the cache or JSON.
+	ReplaySession *LiveSession `json:"-"`
 	// PowerStateAt is when the car reported PowerState (Rivian's
 	// powerState.timeStamp, or the Parallax power.state frame time);
 	// zero when unknown. Anchors wake attribution (actions.go).

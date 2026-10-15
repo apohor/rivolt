@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"math"
 	"testing"
 	"time"
 
@@ -118,6 +119,28 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 	}
 	if fast != c.Summary().DCFC {
 		t.Errorf("recorded fast charges = %d, planned %d", fast, c.Summary().DCFC)
+	}
+	// The Rivian-billed stop (RAN Barstow) records Rivian's price; the
+	// others are left to the network-estimate pricer (none in a replay).
+	billed := 0
+	for _, ch := range r.Charges() {
+		if !IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+			continue
+		}
+		atRAN := haversineMeters(ch.Lat, ch.Lon, sampleDCFCStations[0].at.Lat, sampleDCFCStations[0].at.Lon) <= 250
+		switch {
+		case atRAN && (ch.CostSource != CostSourceRivian || ch.Currency != "USD" || ch.Cost <= 0 ||
+			math.Abs(ch.Cost/ch.EnergyAddedKWh-0.48) > 0.05):
+			t.Errorf("RAN charge %s: %s %.2f %s over %.1f kWh, want Rivian-billed at ~$0.48/kWh",
+				ch.ID, ch.CostSource, ch.Cost, ch.Currency, ch.EnergyAddedKWh)
+		case atRAN:
+			billed++
+		case ch.CostSource == CostSourceRivian:
+			t.Errorf("non-RAN charge %s billed by Rivian", ch.ID)
+		}
+	}
+	if billed != 1 {
+		t.Errorf("Rivian-billed fast charges = %d, want 1 (Barstow)", billed)
 	}
 }
 

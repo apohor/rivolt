@@ -77,13 +77,21 @@ var (
 )
 
 // sampleDCFCStations are the stations the sample truck fast-charges at.
+//
+// billed is the $/kWh Rivian bills for a session there (the Rivian
+// Adventure Network bills through the Rivian app, so its sessions carry a
+// live-session price and record as cost_source rivian); 0 elsewhere,
+// where the recorder prices them as a network estimate (preview has the
+// charger archive). With home L2 at the home rate and the away AC
+// sessions left to price, the demo shows every cost source honestly.
 var sampleDCFCStations = []struct {
 	at            samplePoint
 	network, name string // as in the archive (EVNetwork, Name)
+	billed        float64
 }{
-	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA"},
-	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)"},
-	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger"},
+	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48},
+	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0},
+	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0},
 }
 
 type sampleSegKind int
@@ -109,6 +117,7 @@ type sampleSeg struct {
 	plugged    bool   // parked with the cable in
 	power      string // parked: ready | sleep
 	limit      float64
+	billedRate float64 // charge: $/kWh Rivian bills (0: not Rivian-billed)
 }
 
 func (s sampleSeg) frames() int {
@@ -248,8 +257,14 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 		step = 10 * time.Second
 	}
 	dur := time.Duration(kwh / avg * float64(time.Hour))
+	billed := 0.0
+	for _, st := range sampleDCFCStations {
+		if dcfc && st.at == b.at {
+			billed = st.billed
+		}
+	}
 	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(dur), step: step, socA: b.soc, socB: target,
-		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready"})
+		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready", billedRate: billed})
 	b.soc = target
 	b.plugged = !dcfc // AC stays plugged in until the car leaves
 }
@@ -458,6 +473,11 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 			kw = s.peakKW * (1 - (f-0.9)*5)
 		}
 		fr.ChargerKW = round1(kw)
+		if s.billedRate > 0 {
+			// The running total Rivian's live session reports.
+			kwh := math.Max(0, soc-s.socA) / 100 * samplePackKWh
+			fr.SessionPrice, fr.SessionCurrency = round2(kwh*s.billedRate), "USD"
+		}
 	case segParked:
 		if s.plugged {
 			fr.ChargingState = "charging_complete"

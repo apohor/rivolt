@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,12 @@ type replayFrame struct {
 	PackTempAvgC    float64 `json:"pack_temp_avg_c"`
 	PackTempMaxC    float64 `json:"pack_temp_max_c"`
 	PackTempMinC    float64 `json:"pack_temp_min_c"`
+
+	// SessionPrice is the running price Rivian's live charging session
+	// reports for a session it bills (a Rivian Adventure Network stop);
+	// 0 when it doesn't. Only the sample corpus sets it.
+	SessionPrice    float64 `json:"session_price,omitempty"`
+	SessionCurrency string  `json:"session_currency,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -96,6 +103,10 @@ func (f replayFrame) toState() State {
 	// session's kW through idle states; the live path clears it in
 	// mergeState, which replay bypasses, so clear it here too.
 	dropIdleChargerPower(&s)
+	if f.SessionPrice > 0 {
+		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true,
+			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency}
+	}
 	return s
 }
 
@@ -171,10 +182,13 @@ func NewReplayer(vehicleID string) *Replayer {
 func (r *Replayer) Feed(f State) {
 	cur := f
 	cur.VehicleID = r.vehicle
+	sess := cur.ReplaySession
+	cur.ReplaySession = nil
 	r.m.mu.Lock()
 	r.m.cache[r.vehicle] = &cur
 	r.m.mu.Unlock()
 	r.m.record(context.Background(), r.vehicle, r.prev, &cur)
+	r.m.applyReplaySession(context.Background(), r.vehicle, &cur, sess)
 	r.prev = &cur
 }
 
