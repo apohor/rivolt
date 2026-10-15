@@ -201,13 +201,22 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 			}
 		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		out, err := store.ListBetween(r.Context(), since, until, limit)
+		// A window over the cap is bucketed across its whole span (peaks
+		// kept) rather than truncated to the oldest rows. The body stays
+		// a plain array; the flag is in headers so existing clients keep
+		// working.
+		res, err := store.ListBetweenDownsampled(r.Context(), since, until, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		out := res.Samples
 		if out == nil {
 			out = []samples.Sample{}
+		}
+		if res.Reduced {
+			w.Header().Set("X-Rivolt-Downsampled", "true")
+			w.Header().Set("X-Rivolt-Samples-Total", strconv.Itoa(res.Total))
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

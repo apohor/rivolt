@@ -372,6 +372,12 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSamples(rows)
+}
+
+// scanSamples reads rows in the column order shared by ListBetween and
+// ListBetweenDownsampled.
+func scanSamples(rows *sql.Rows) ([]Sample, error) {
 	var out []Sample
 	for rows.Next() {
 		var v Sample
@@ -627,4 +633,101 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// Downsampling: a window with more rows than the cap used to return the
+// OLDEST cap rows, silently cutting the end of long charge curves. It
+// now returns an evenly bucketed series spanning the whole window, and
+// keeps the extremes of each bucket so peaks survive.
+//
+// Per time bucket the kept rows are: first, last, max and min
+// charger_power_kw, max and min battery_level_pct, max speed_mph (at most
+// 7 distinct rows; the bucket count is limit/7, so the result never
+// exceeds limit).
+const downsampleKeepPerBucket = 7
+
+// Downsampled describes the result of ListBetweenDownsampled.
+type Downsampled struct {
+	Samples []Sample
+	// Reduced is true when the window held more than limit rows and the
+	// series is a bucketed reduction of it.
+	Reduced bool
+	// Total is how many rows the window holds.
+	Total int
+}
+
+// ListBetweenDownsampled is ListBetween with the cap handled by
+// bucketing instead of truncation. At or under the cap it returns every
+// row exactly as ListBetween does.
+func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Time, limit int) (Downsampled, error) {
+	const maxLimit = 50000
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	upper := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !until.IsZero() {
+		upper = until.UTC()
+	}
+	var total int
+	var first, last sql.NullTime
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*), min(at), max(at) FROM vehicle_state
+		 WHERE user_id = $1 AND at > $2 AND at <= $3`,
+		s.userID, since.UTC(), upper).Scan(&total, &first, &last); err != nil {
+		return Downsampled{}, err
+	}
+	if total <= limit || !first.Valid {
+		out, err := s.ListBetween(ctx, since, until, limit)
+		return Downsampled{Samples: out, Total: total}, err
+	}
+	buckets := limit / downsampleKeepPerBucket
+	if buckets < 1 {
+		buckets = 1
+	}
+	spanSec := last.Time.Sub(first.Time).Seconds()
+	width := spanSec / float64(buckets)
+	if width < 0.001 {
+		width = 0.001
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		WITH w AS (
+		    SELECT vs.*, v.rivian_vehicle_id AS rvid,
+		           LEAST(floor(EXTRACT(EPOCH FROM (vs.at - $4::timestamptz)) / $5::float8)::int, $6::int - 1) AS bk
+		      FROM vehicle_state vs
+		      JOIN vehicles v ON v.id = vs.vehicle_id
+		     WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
+		), r AS (
+		    SELECT w.*,
+		           row_number() OVER (PARTITION BY bk ORDER BY at ASC)  AS r_first,
+		           row_number() OVER (PARTITION BY bk ORDER BY at DESC) AS r_last,
+		           row_number() OVER (PARTITION BY bk ORDER BY charger_power_kw DESC NULLS LAST, at) AS r_pmax,
+		           row_number() OVER (PARTITION BY bk ORDER BY charger_power_kw ASC NULLS LAST, at)  AS r_pmin,
+		           row_number() OVER (PARTITION BY bk ORDER BY battery_level_pct DESC NULLS LAST, at) AS r_bmax,
+		           row_number() OVER (PARTITION BY bk ORDER BY battery_level_pct ASC NULLS LAST, at)  AS r_bmin,
+		           row_number() OVER (PARTITION BY bk ORDER BY speed_mph DESC NULLS LAST, at) AS r_smax
+		      FROM w
+		)
+		SELECT rvid, at,
+		       COALESCE(battery_level_pct,0), COALESCE(range_mi,0), COALESCE(odometer_mi,0),
+		       COALESCE(lat,0), COALESCE(lon,0), location_fix_at,
+		       COALESCE(speed_mph,0),
+		       COALESCE(shift_state,''), COALESCE(drive_mode,''), COALESCE(charging_state,''),
+		       COALESCE(charger_power_kw,0), COALESCE(charge_limit_pct,0),
+		       COALESCE(inside_temp_c,0), COALESCE(outside_temp_c,0),
+		       COALESCE(drive_number,0), COALESCE(charge_number,0), source,
+		       altitude_m, tire_pressure_min_bar, pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c
+		  FROM r
+		 WHERE r_first = 1 OR r_last = 1 OR r_pmax = 1 OR r_pmin = 1 OR r_bmax = 1 OR r_bmin = 1 OR r_smax = 1
+		 ORDER BY at ASC
+		 LIMIT $7`,
+		s.userID, since.UTC(), upper, first.Time.UTC(), width, buckets, limit)
+	if err != nil {
+		return Downsampled{}, err
+	}
+	defer rows.Close()
+	out, err := scanSamples(rows)
+	return Downsampled{Samples: out, Reduced: true, Total: total}, err
 }
