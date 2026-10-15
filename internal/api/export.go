@@ -35,10 +35,40 @@ import (
 // tokens: settings keys that look like credentials are dropped.
 // Samples (the raw telemetry) stay out; use /api/data/backup for those.
 
-// exportSecretFragments marks settings keys that must never leave the
-// server. The per-user store holds preferences, but the filter is a
-// backstop so a future key can't leak by accident.
-var exportSecretFragments = []string{"api_key", "apikey", "secret", "token", "password", "passwd", "credential", "session", "cookie", "private"}
+// exportedSettingKeys is the allowlist of per-user settings that go in
+// settings.json. Anything not listed is NOT exported, so a new key (a
+// token, an API key, a webhook URL) can't leak by being named
+// unexpectedly. TestExportSettingKeysAreClassified fails when a key
+// appears in internal/settings without being classified here or in
+// notExportedSettingKeys.
+var exportedSettingKeys = map[string]bool{
+	"home_location.latitude":        true,
+	"home_location.longitude":       true,
+	"home_location.label":           true,
+	"home_location.address":         true,
+	"charging.home_price_per_kwh":   true,
+	"charging.home_currency":        true,
+	"charging.gas_price_per_gallon": true,
+	"charging.comparison_mpg":       true,
+	"charging.networks":             true,
+	"planner.default_drive_mode":    true,
+	"planner.has_adapter":           true,
+	"planner.favorites":             true,
+	"recap.weather_enabled":         true,
+}
+
+// notExportedSettingKeys are keys known to exist that are deliberately
+// left out: install-wide AI provider configuration (including API
+// keys) and GPS thresholds, which are operator settings, not the
+// user's data.
+var notExportedSettingKeys = map[string]bool{
+	"ai.provider": true, "ai.openai.model": true, "ai.openai.api_key": true,
+	"ai.anthropic.model": true, "ai.anthropic.api_key": true,
+	"ai.gemini.model": true, "ai.gemini.api_key": true,
+	"ai.image.provider": true, "ai.image.openai.model": true, "ai.image.gemini.model": true,
+	"ai.speech.provider": true, "ai.speech.openai.model": true, "ai.speech.gemini.model": true,
+	"gps.threshold_missing_pct": true, "gps.threshold_stale_sec": true, "gps.threshold_jump_count": true,
+}
 
 type exportProfile struct {
 	RivianVehicleID string            `json:"rivian_vehicle_id"`
@@ -60,18 +90,13 @@ type exportData struct {
 	Profiles  []exportProfile
 }
 
-// exportSettings drops credential-looking keys.
+// exportSettings keeps only allowlisted keys.
 func exportSettings(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
-outer:
 	for k, v := range in {
-		lk := strings.ToLower(k)
-		for _, f := range exportSecretFragments {
-			if strings.Contains(lk, f) {
-				continue outer
-			}
+		if exportedSettingKeys[k] {
+			out[k] = v
 		}
-		out[k] = v
 	}
 	return out
 }
@@ -135,12 +160,12 @@ func writeChargesCSV(w io.Writer, e exportData) error {
 			cl = e.Classes[i]
 		}
 		row := []string{
-			c.ID, c.VehicleID, tstr(c.StartedAt), tstr(c.EndedAt), fnum(c.StartSoCPct), fnum(c.EndSoCPct),
+			csvText(c.ID), csvText(c.VehicleID), tstr(c.StartedAt), tstr(c.EndedAt), fnum(c.StartSoCPct), fnum(c.EndSoCPct),
 			fnum(c.EnergyAddedKWh), fnum(c.MilesAdded), fnum(c.MaxPowerKW), fnum(c.AvgPowerKW), fnum(c.ActiveSeconds), fptr(c.ThermalKWh),
 			csvText(c.FinalState), csvText(c.Source), fnum(c.Lat), fnum(c.Lon),
-			fnum(c.Cost), c.Currency, fnum(c.PricePerKWh), c.CostSource, csvText(c.Network), c.Place,
-			cl.CostSource, strconv.FormatBool(cl.CostSourceDerived), cl.Kind, cl.Place, fptr(cl.KMFromHome),
-			strconv.FormatBool(cl.CountsInSpend), strings.Join(cl.Flags, ";"),
+			fnum(c.Cost), csvText(c.Currency), fnum(c.PricePerKWh), csvText(c.CostSource), csvText(c.Network), csvText(c.Place),
+			csvText(cl.CostSource), strconv.FormatBool(cl.CostSourceDerived), csvText(cl.Kind), csvText(cl.Place), fptr(cl.KMFromHome),
+			strconv.FormatBool(cl.CountsInSpend), csvText(strings.Join(cl.Flags, ";")),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -157,10 +182,10 @@ func writeDrivesCSV(w io.Writer, e exportData) error {
 	}
 	for _, d := range e.Drives {
 		row := []string{
-			d.ID, d.VehicleID, tstr(d.StartedAt), tstr(d.EndedAt), fnum(d.StartSoCPct), fnum(d.EndSoCPct),
+			csvText(d.ID), csvText(d.VehicleID), tstr(d.StartedAt), tstr(d.EndedAt), fnum(d.StartSoCPct), fnum(d.EndSoCPct),
 			fnum(d.StartOdometerMi), fnum(d.EndOdometerMi), fnum(d.DistanceMi), fnum(d.EnergyUsedKWh),
 			fnum(d.MaxSpeedMph), fnum(d.AvgSpeedMph), fnum(d.StartLat), fnum(d.StartLon), fnum(d.EndLat), fnum(d.EndLon),
-			csvText(d.Source), d.RoutePolyline,
+			csvText(d.Source), csvText(d.RoutePolyline),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -182,9 +207,9 @@ func writeTripsCSV(w io.Writer, e exportData) error {
 		}
 		sort.Strings(mix)
 		row := []string{
-			t.TripID, t.VehicleID, tstr(t.StartedAt), tstr(t.EndedAt), fnum(t.Miles), strconv.Itoa(t.FastSessions), fptr(t.MaxKMFromHome),
+			csvText(t.TripID), csvText(t.VehicleID), tstr(t.StartedAt), tstr(t.EndedAt), fnum(t.Miles), strconv.Itoa(t.FastSessions), fptr(t.MaxKMFromHome),
 			fnum(t.KWhUsed), fnum(t.KWhAdded), fnum(t.Cost), fptr(t.EstimatedShare), strconv.Itoa(t.UnpricedSessions), fptr(t.EfficiencyMiKWh),
-			strings.Join(t.DriveIDs, ";"), strings.Join(t.ChargeIDs, ";"), strings.Join(mix, ";"),
+			csvText(strings.Join(t.DriveIDs, ";")), csvText(strings.Join(t.ChargeIDs, ";")), csvText(strings.Join(mix, ";")),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -346,6 +371,12 @@ func handleExport(d Deps) http.HandlerFunc {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+		// "View as user" must not become a one-click download of the
+		// user's full location history.
+		if auth.IsImpersonating(r.Context()) {
+			http.Error(w, "export is not available while viewing as another user", http.StatusForbidden)
 			return
 		}
 		format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))

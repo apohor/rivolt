@@ -5,10 +5,22 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/auth"
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
@@ -92,17 +104,117 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 	}
 }
 
-func TestExportSettings_DropsCredentials(t *testing.T) {
+func TestExportSettings_AllowlistOnly(t *testing.T) {
 	got := exportSettings(map[string]string{
 		"charging.home_price_per_kwh": "0.16",
+		"home_location.latitude":      "34.1",
 		"ai.openai.api_key":           "sk-secret",
 		"rivian.session_token":        "t",
-		"push.Secret":                 "s",
-		"integration.password":        "p",
-		"display.units":               "mi",
+		"webhook.url":                 "https://hooks.example.com/x",
+		"some.future.key":             "v",
 	})
-	if len(got) != 2 || got["display.units"] != "mi" || got["charging.home_price_per_kwh"] != "0.16" {
+	if len(got) != 2 || got["charging.home_price_per_kwh"] != "0.16" || got["home_location.latitude"] != "34.1" {
 		t.Fatalf("settings = %v", got)
+	}
+}
+
+// Every key literal in internal/settings must be classified: exported
+// or deliberately not. A new key fails here until someone decides.
+func TestExportSettingKeysAreClassified(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, "../settings", func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyRe := regexp.MustCompile(`^[a-z_]+(\.[a-z_0-9]+)+$`)
+	seen := 0
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				v, err := strconv.Unquote(lit.Value)
+				if err != nil || !keyRe.MatchString(v) {
+					return true
+				}
+				seen++
+				if !exportedSettingKeys[v] && !notExportedSettingKeys[v] {
+					t.Errorf("settings key %q is not classified in export.go (exportedSettingKeys / notExportedSettingKeys)", v)
+				}
+				return true
+			})
+		}
+	}
+	if seen < 20 {
+		t.Fatalf("only found %d key literals; the scan is broken", seen)
+	}
+	for k := range exportedSettingKeys {
+		if notExportedSettingKeys[k] {
+			t.Errorf("%q is in both lists", k)
+		}
+	}
+}
+
+func TestExport_CSVQuotesEveryStringCell(t *testing.T) {
+	e := sampleExport()
+	e.Charges[0].Currency = "@usd"
+	e.Charges[0].Place = "=home"
+	e.Drives[0].RoutePolyline = "@abc"
+	e.Drives[0].ID = "+d1"
+	e.Trips[0].TripID = "-trip"
+	var buf bytes.Buffer
+	if err := writeExportZip(&buf, e); err != nil {
+		t.Fatal(err)
+	}
+	files := readZip(t, buf.Bytes())
+	cell := func(file, col string) string {
+		rows, err := csv.NewReader(strings.NewReader(files[file])).ReadAll()
+		if err != nil || len(rows) < 2 {
+			t.Fatalf("%s: %v", file, err)
+		}
+		for i, h := range rows[0] {
+			if h == col {
+				return rows[1][i]
+			}
+		}
+		t.Fatalf("%s has no column %s", file, col)
+		return ""
+	}
+	for _, c := range []struct{ file, col, want string }{
+		{"charges.csv", "currency", "'@usd"},
+		{"charges.csv", "place", "'=home"},
+		{"drives.csv", "route_polyline", "'@abc"},
+		{"drives.csv", "id", "'+d1"},
+		{"trips.csv", "trip_id", "'-trip"},
+	} {
+		if got := cell(c.file, c.col); got != c.want {
+			t.Errorf("%s %s = %q, want %q", c.file, c.col, got, c.want)
+		}
+	}
+	// Numbers are not text: a negative coordinate stays a number.
+	e.Drives[0].StartLon = -118.1
+	buf.Reset()
+	if err := writeExportZip(&buf, e); err != nil {
+		t.Fatal(err)
+	}
+	files = readZip(t, buf.Bytes())
+	if got := cell("drives.csv", "start_lon"); got != "-118.1" {
+		t.Errorf("start_lon = %q, want an unquoted number", got)
+	}
+}
+
+func TestExportHandler_ForbiddenWhileImpersonating(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/export", nil)
+	ctx := auth.WithImpersonation(req.Context(), uuid.New(), uuid.New())
+	ctx = auth.WithUser(ctx, uuid.New())
+	rec := httptest.NewRecorder()
+	handleExport(Deps{})(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("impersonated export = %d, want 403", rec.Code)
 	}
 }
 
