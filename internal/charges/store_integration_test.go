@@ -972,3 +972,54 @@ func TestNetworkState(t *testing.T) {
 		t.Fatalf("to confirm at the end = %d", n)
 	}
 }
+
+// TestNearestVerifiedNetwork: site memory only counts this user's
+// settled DC fast charges (confirmed, or a user price naming a network)
+// within the radius, nearest first.
+func TestNearestVerifiedNetwork(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	put := func(s *charges.Store, id string, lat, lon float64, mut func(*charges.Charge)) {
+		t.Helper()
+		c := sampleCharge(id, "rv-A", start, "charging_complete")
+		c.Lat, c.Lon = lat, lon
+		mut(&c)
+		if err := s.Upsert(ctx, c); err != nil {
+			t.Fatalf("Upsert %s: %v", id, err)
+		}
+	}
+	const lat, lon = 30.2700, -97.7400
+	// ~60 m north: confirmed Electrify America.
+	put(store, "v-conf", lat+0.00054, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "network_estimate", "Electrify America", "estimated"
+	})
+	if n, err := store.ConfirmNetwork(ctx, "v-conf"); err != nil || n != 1 {
+		t.Fatalf("confirm: %d %v", n, err)
+	}
+	// ~30 m: an unconfirmed estimate (not settled), and an AC session.
+	put(store, "v-est", lat+0.00027, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "network_estimate", "Tesla Supercharger", "estimated"
+	})
+	put(store, "v-ac", lat, lon+0.0001, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.MaxPowerKW = "user", "ChargePoint", 7
+	})
+	// ~400 m: a user price naming a network, outside the radius.
+	put(store, "v-far", lat+0.0036, lon, func(c *charges.Charge) { c.CostSource, c.Network = "user", "EVgo" })
+	// Another user's confirmed charge right on the spot.
+	put(factory.For(uidB), "v-other", lat, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "user", "IONNA", ""
+	})
+
+	got, ok, err := store.NearestVerifiedNetwork(ctx, lat, lon, 100)
+	if err != nil || !ok || got.Network != "Electrify America" || got.DistM < 50 || got.DistM > 70 {
+		t.Fatalf("got %+v ok=%v err=%v, want Electrify America at ~60 m", got, ok, err)
+	}
+	if _, ok, _ := store.NearestVerifiedNetwork(ctx, lat+0.01, lon, 100); ok {
+		t.Fatal("found a verified network 1 km away")
+	}
+	if _, ok, _ := store.NearestVerifiedNetwork(ctx, 0, 0, 100); ok {
+		t.Fatal("no position must find nothing")
+	}
+}

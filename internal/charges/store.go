@@ -726,6 +726,54 @@ func (s *Store) NetworkToConfirm(ctx context.Context) (toConfirm, needsAttention
 	return toConfirm, needsAttention, err
 }
 
+// VerifiedNetwork is a DC fast charge of the user's own whose network
+// they confirmed or set themselves, and how far it is from a point.
+type VerifiedNetwork struct {
+	Network string
+	DistM   float64
+}
+
+// NearestVerifiedNetwork returns the user's nearest DC fast charge within
+// radiusM of (lat, lon) whose network is settled: confirmed, or a user
+// price that names a network. It is auto-detection's site memory, so a
+// co-located site the user already resolved isn't asked about again.
+// ok=false when there is none (or no position).
+func (s *Store) NearestVerifiedNetwork(ctx context.Context, lat, lon, radiusM float64) (VerifiedNetwork, bool, error) {
+	if (lat == 0 && lon == 0) || radiusM <= 0 {
+		return VerifiedNetwork{}, false, nil
+	}
+	// A bounding box on the index-friendly columns, then exact distance.
+	dLat := radiusM / 111_320.0
+	dLon := dLat / math.Max(math.Cos(lat*math.Pi/180), 0.01)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT network, lat, lon
+		FROM charges
+		WHERE user_id = $1
+		  AND COALESCE(network, '') <> ''
+		  AND (network_state = 'confirmed' OR cost_source = 'user')
+		  AND COALESCE(max_power_kw, 0) >= 50
+		  AND lat BETWEEN $2::float8 AND $3::float8
+		  AND lon BETWEEN $4::float8 AND $5::float8
+		ORDER BY ended_at DESC
+		LIMIT 50`, s.userID, lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	if err != nil {
+		return VerifiedNetwork{}, false, err
+	}
+	defer rows.Close()
+	best, found := VerifiedNetwork{}, false
+	for rows.Next() {
+		var n string
+		var la, lo float64
+		if err := rows.Scan(&n, &la, &lo); err != nil {
+			return VerifiedNetwork{}, false, err
+		}
+		if d := haversineM(lat, lon, la, lo); d <= radiusM && (!found || d < best.DistM) {
+			best, found = VerifiedNetwork{Network: n, DistM: d}, true
+		}
+	}
+	return best, found, rows.Err()
+}
+
 // LiveOverlap describes the live session another recorder wrote over
 // the same time range: where it ends and what it already covers.
 type LiveOverlap struct {
