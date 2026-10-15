@@ -102,9 +102,10 @@ Usage:
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
-  rivolt repair-phantom-charges --restore BATCH [--apply]
+  rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
                   Delete audited phantom live charges (dry run unless
-                  --apply; backs up first; --restore undoes a batch)
+                  --apply; --user required; CSV backup first; never
+                  migrates the database; --restore/--restore-csv undo)
 
 Environment:
   RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true

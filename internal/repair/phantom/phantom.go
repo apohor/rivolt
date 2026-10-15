@@ -12,6 +12,7 @@ package phantom
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -194,23 +195,38 @@ func Summarise(rows []Row, verdicts map[uuid.UUID]Verdict) []MonthTotals {
 	return out
 }
 
-// Result of applying one vehicle's deletions.
-type Result struct {
-	VehicleID uuid.UUID
-	Deleted   int
-	Err       error
+// BackupRow is one row copied out before deletion. Row is the full
+// to_jsonb of the deleted row; restoring re-inserts it exactly.
+type BackupRow struct {
+	Kind     string          `json:"kind"` // charge | pack_health_sample | charge_restamp
+	ChargeID uuid.UUID       `json:"charge_id"`
+	UserID   uuid.UUID       `json:"user_id"`
+	Row      json.RawMessage `json:"row"`
 }
 
-// ErrDrift is returned when a row no longer classifies as a phantom at
-// apply time (it changed since the dry run).
-var ErrDrift = errors.New("phantom: a row changed since the dry run; nothing deleted for this vehicle")
+// ErrDrift is returned when rows no longer classify as phantoms at
+// apply time (they changed since the dry run).
+var ErrDrift = errors.New("phantom: rows changed since the dry run; nothing deleted for this vehicle")
+
+// BackupTableExists reports whether charges_deleted_backup is present
+// (migration 0049). Production may not have it yet; the CSV sink is
+// then the only backup.
+func BackupTableExists(ctx context.Context, d *sql.DB) (bool, error) {
+	var reg sql.NullString
+	if err := d.QueryRowContext(ctx, `SELECT to_regclass('public.charges_deleted_backup')::text`).Scan(&reg); err != nil {
+		return false, err
+	}
+	return reg.Valid, nil
+}
 
 // Apply deletes the given rows of ONE vehicle in a single transaction:
 // it re-loads and re-classifies them inside the transaction (any row
-// that no longer qualifies aborts the vehicle), copies every row and
-// every cascading dependent into charges_deleted_backup under batchID,
-// deletes, and aborts unless the counts match.
-func Apply(ctx context.Context, d *sql.DB, batchID, userID, vehicleID uuid.UUID, ids []uuid.UUID, reason string) (int, error) {
+// that no longer qualifies aborts the vehicle and every changed id is
+// listed), collects every row and cascading dependent, hands them to
+// sink (the durable CSV; an error aborts before anything is deleted),
+// copies them to charges_deleted_backup when that table exists, deletes,
+// and aborts unless the counts match.
+func Apply(ctx context.Context, d *sql.DB, batchID, userID, vehicleID uuid.UUID, ids []uuid.UUID, reason string, sink func([]BackupRow) error) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -224,7 +240,6 @@ func Apply(ctx context.Context, d *sql.DB, batchID, userID, vehicleID uuid.UUID,
 	if err != nil {
 		return 0, err
 	}
-	// Collect every id that changed so a re-run is easy.
 	var changed []string
 	have := map[uuid.UUID]bool{}
 	for _, r := range fresh {
@@ -249,27 +264,48 @@ func Apply(ctx context.Context, d *sql.DB, batchID, userID, vehicleID uuid.UUID,
 	}
 	idArr := "{" + strings.Join(arr, ",") + "}"
 
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO charges_deleted_backup (batch_id, kind, charge_id, user_id, row, reason)
-		SELECT $1, 'charge', c.id, c.user_id, to_jsonb(c.*), $4
-		  FROM charges c WHERE c.user_id = $2 AND c.id = ANY($3::uuid[])`,
-		batchID, userID, idArr, reason); err != nil {
+	var rows []BackupRow
+	collect := func(kind, q string, args ...any) error {
+		rs, err := tx.QueryContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		defer rs.Close()
+		for rs.Next() {
+			b := BackupRow{Kind: kind}
+			var raw []byte
+			if err := rs.Scan(&b.ChargeID, &b.UserID, &raw); err != nil {
+				return err
+			}
+			b.Row = json.RawMessage(raw)
+			rows = append(rows, b)
+		}
+		return rs.Err()
+	}
+	if err := collect("charge", `SELECT c.id, c.user_id, to_jsonb(c.*) FROM charges c WHERE c.user_id=$1 AND c.id = ANY($2::uuid[])`, userID, idArr); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO charges_deleted_backup (batch_id, kind, charge_id, user_id, row, reason)
-		SELECT $1, 'pack_health_sample', s.charge_id, $2, to_jsonb(s.*), $4
-		  FROM vehicle_pack_health_samples s
-		 WHERE s.vehicle_id = $5 AND s.charge_id = ANY($3::uuid[])`,
-		batchID, userID, idArr, reason, vehicleID); err != nil {
+	if err := collect("pack_health_sample", `SELECT s.charge_id, $1::uuid, to_jsonb(s.*) FROM vehicle_pack_health_samples s WHERE s.vehicle_id=$2 AND s.charge_id = ANY($3::uuid[])`, userID, vehicleID, idArr); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO charges_deleted_backup (batch_id, kind, charge_id, user_id, row, reason)
-		SELECT $1, 'charge_restamp', r.charge_id, r.user_id, to_jsonb(r.*), $4
-		  FROM charge_restamps r WHERE r.user_id = $2 AND r.charge_id = ANY($3::uuid[])`,
-		batchID, userID, idArr, reason); err != nil {
+	if err := collect("charge_restamp", `SELECT r.charge_id, r.user_id, to_jsonb(r.*) FROM charge_restamps r WHERE r.user_id=$1 AND r.charge_id = ANY($2::uuid[])`, userID, idArr); err != nil {
 		return 0, err
+	}
+	if sink != nil {
+		if err := sink(rows); err != nil {
+			return 0, fmt.Errorf("backup sink: %w", err)
+		}
+	}
+	if ok, err := BackupTableExists(ctx, d); err != nil {
+		return 0, err
+	} else if ok {
+		for _, b := range rows {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO charges_deleted_backup (batch_id, kind, charge_id, user_id, row, reason)
+				VALUES ($1,$2,$3,$4,$5::jsonb,$6)`, batchID, b.Kind, b.ChargeID, b.UserID, string(b.Row), reason); err != nil {
+				return 0, err
+			}
+		}
 	}
 	res, err := tx.ExecContext(ctx, `
 		DELETE FROM charges WHERE user_id = $1 AND source = 'live' AND id = ANY($2::uuid[])`, userID, idArr)
@@ -291,69 +327,95 @@ type RestoreResult struct {
 	Charges, PackHealth, Restamps int
 }
 
-// Restore re-inserts a batch from charges_deleted_backup in one
-// transaction. It refuses a batch that was already restored and any
-// charge id that exists again (nothing is partially restored).
+// Restore re-inserts a batch from charges_deleted_backup, then marks it
+// restored.
 func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (RestoreResult, error) {
+	var rows []BackupRow
+	var restored int
+	rs, err := d.QueryContext(ctx, `SELECT kind, charge_id, user_id, row, (restored_at IS NOT NULL) FROM charges_deleted_backup WHERE batch_id=$1 ORDER BY kind`, batchID)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	for rs.Next() {
+		var b BackupRow
+		var raw []byte
+		var done bool
+		if err := rs.Scan(&b.Kind, &b.ChargeID, &b.UserID, &raw, &done); err != nil {
+			rs.Close()
+			return RestoreResult{}, err
+		}
+		b.Row = json.RawMessage(raw)
+		if done {
+			restored++
+		}
+		rows = append(rows, b)
+	}
+	rs.Close()
+	if len(rows) == 0 {
+		return RestoreResult{}, fmt.Errorf("batch %s not found", batchID)
+	}
+	if restored > 0 {
+		return RestoreResult{}, fmt.Errorf("batch %s was already restored", batchID)
+	}
+	return restoreRows(ctx, d, rows, &batchID)
+}
+
+// RestoreRows re-inserts rows read from a CSV backup (no backup table
+// needed). Same refusals as Restore.
+func RestoreRows(ctx context.Context, d *sql.DB, rows []BackupRow) (RestoreResult, error) {
+	if len(rows) == 0 {
+		return RestoreResult{}, errors.New("no rows to restore")
+	}
+	return restoreRows(ctx, d, rows, nil)
+}
+
+func restoreRows(ctx context.Context, d *sql.DB, rows []BackupRow, batch *uuid.UUID) (RestoreResult, error) {
 	var out RestoreResult
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return out, err
 	}
 	defer func() { _ = tx.Rollback() }()
-
-	var total, restored int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT count(*), count(restored_at) FROM charges_deleted_backup WHERE batch_id = $1`, batchID).Scan(&total, &restored); err != nil {
-		return out, err
+	// charges first (the others reference them).
+	order := []struct{ kind, table string }{
+		{"charge", "charges"}, {"pack_health_sample", "vehicle_pack_health_samples"}, {"charge_restamp", "charge_restamps"},
 	}
-	if total == 0 {
-		return out, fmt.Errorf("batch %s not found", batchID)
+	for _, o := range order {
+		for _, b := range rows {
+			if b.Kind != o.kind {
+				continue
+			}
+			if o.kind == "charge" {
+				var exists bool
+				if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM charges WHERE id=$1)`, b.ChargeID).Scan(&exists); err != nil {
+					return out, err
+				}
+				if exists {
+					return out, fmt.Errorf("charge %s exists again; refusing a partial restore", b.ChargeID)
+				}
+			}
+			// table names are from the fixed list above.
+			q := fmt.Sprintf(`INSERT INTO %[1]s SELECT (jsonb_populate_record(NULL::%[1]s, $1::jsonb)).*`, o.table)
+			if o.kind != "charge" {
+				q += ` ON CONFLICT DO NOTHING`
+			}
+			if _, err := tx.ExecContext(ctx, q, string(b.Row)); err != nil {
+				return out, err
+			}
+			switch o.kind {
+			case "charge":
+				out.Charges++
+			case "pack_health_sample":
+				out.PackHealth++
+			default:
+				out.Restamps++
+			}
+		}
 	}
-	if restored > 0 {
-		return out, fmt.Errorf("batch %s was already restored", batchID)
-	}
-	var exists int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT count(*) FROM charges c
-		  JOIN charges_deleted_backup b ON b.charge_id = c.id AND b.kind = 'charge'
-		 WHERE b.batch_id = $1`, batchID).Scan(&exists); err != nil {
-		return out, err
-	}
-	if exists > 0 {
-		return out, fmt.Errorf("%d charge id(s) of batch %s exist again; refusing a partial restore", exists, batchID)
-	}
-	res, err := tx.ExecContext(ctx, `
-		INSERT INTO charges
-		SELECT (jsonb_populate_record(NULL::charges, b.row)).*
-		  FROM charges_deleted_backup b WHERE b.batch_id = $1 AND b.kind = 'charge'`, batchID)
-	if err != nil {
-		return out, err
-	}
-	n, _ := res.RowsAffected()
-	out.Charges = int(n)
-	res, err = tx.ExecContext(ctx, `
-		INSERT INTO vehicle_pack_health_samples
-		SELECT (jsonb_populate_record(NULL::vehicle_pack_health_samples, b.row)).*
-		  FROM charges_deleted_backup b WHERE b.batch_id = $1 AND b.kind = 'pack_health_sample'
-		ON CONFLICT DO NOTHING`, batchID)
-	if err != nil {
-		return out, err
-	}
-	n, _ = res.RowsAffected()
-	out.PackHealth = int(n)
-	res, err = tx.ExecContext(ctx, `
-		INSERT INTO charge_restamps
-		SELECT (jsonb_populate_record(NULL::charge_restamps, b.row)).*
-		  FROM charges_deleted_backup b WHERE b.batch_id = $1 AND b.kind = 'charge_restamp'
-		ON CONFLICT DO NOTHING`, batchID)
-	if err != nil {
-		return out, err
-	}
-	n, _ = res.RowsAffected()
-	out.Restamps = int(n)
-	if _, err := tx.ExecContext(ctx, `UPDATE charges_deleted_backup SET restored_at = NOW() WHERE batch_id = $1`, batchID); err != nil {
-		return out, err
+	if batch != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE charges_deleted_backup SET restored_at = NOW() WHERE batch_id=$1`, *batch); err != nil {
+			return out, err
+		}
 	}
 	return out, tx.Commit()
 }

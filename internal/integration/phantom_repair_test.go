@@ -84,7 +84,7 @@ func TestPhantomRepair(t *testing.T) {
 
 	// Applying a non-phantom is refused and deletes nothing.
 	batch := uuid.New()
-	if _, err := phantom.Apply(ctx, pool, batch, uid, vid, []uuid.UUID{phantomID, realID}, "t"); err == nil {
+	if _, err := phantom.Apply(ctx, pool, batch, uid, vid, []uuid.UUID{phantomID, realID}, "t", nil); err == nil {
 		t.Fatal("real charge in the list must abort the vehicle")
 	}
 	var n int
@@ -93,7 +93,7 @@ func TestPhantomRepair(t *testing.T) {
 		t.Fatalf("rows after refused apply: %d", n)
 	}
 
-	got, err := phantom.Apply(ctx, pool, batch, uid, vid, []uuid.UUID{phantomID}, "t")
+	got, err := phantom.Apply(ctx, pool, batch, uid, vid, []uuid.UUID{phantomID}, "t", nil)
 	if err != nil || got != 1 {
 		t.Fatalf("apply: %d %v", got, err)
 	}
@@ -118,5 +118,32 @@ func TestPhantomRepair(t *testing.T) {
 	}
 	if _, err := phantom.Restore(ctx, pool, batch); err == nil {
 		t.Fatal("second restore must be refused")
+	}
+}
+
+// TestOpenNoMigrate: repair commands connect without applying any
+// migration, and RequireTables names what a stale schema lacks.
+func TestOpenNoMigrate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	dsn := startPostgres(ctx, t)
+	d, err := db.OpenNoMigrate(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.RequireTables(ctx, d, "charges"); err == nil {
+		t.Fatal("fresh database must be refused, not migrated")
+	}
+	if latest, _ := db.LatestApplied(ctx, d); latest != "" {
+		t.Fatalf("OpenNoMigrate applied %q", latest)
+	}
+	m, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	if err := db.RequireTables(ctx, d, "charges", "charge_restamps"); err != nil {
+		t.Fatal(err)
 	}
 }

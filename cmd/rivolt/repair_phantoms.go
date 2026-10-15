@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -52,39 +50,66 @@ func parseIDFile(path string) ([]uuid.UUID, error) {
 	return out, sc.Err()
 }
 
-// writePhantomBackup writes the full rows about to be deleted (0600,
-// exclusive create, fsynced) so the deletion is recoverable even
-// without the database table.
-func writePhantomBackup(path string, batch uuid.UUID, rows []phantom.Row) error {
+// phantomCSV is the durable backup: one line per backed-up row with
+// the full row as JSON, so --restore-csv can undo without the backup
+// table (production may not have migration 0049). 0600, exclusive
+// create, fsynced after each vehicle's batch.
+type phantomCSV struct {
+	f *os.File
+	w *csv.Writer
+}
+
+func newPhantomCSV(path string) (*phantomCSV, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	w := csv.NewWriter(f)
-	_ = w.Write([]string{"batch_id", "charge_id", "external_id", "user_id", "vehicle_id", "rivian_vehicle_id",
-		"started_at", "ended_at", "energy_kwh", "start_soc", "end_soc", "cost", "currency", "final_state", "power_kwh"})
-	fp := func(p *float64) string {
-		if p == nil {
-			return ""
+	c := &phantomCSV{f: f, w: csv.NewWriter(f)}
+	_ = c.w.Write([]string{"batch_id", "kind", "charge_id", "user_id", "row_json"})
+	c.w.Flush()
+	return c, c.w.Error()
+}
+
+func (c *phantomCSV) sink(batch uuid.UUID) func([]phantom.BackupRow) error {
+	return func(rows []phantom.BackupRow) error {
+		for _, r := range rows {
+			if err := c.w.Write([]string{batch.String(), r.Kind, r.ChargeID.String(), r.UserID.String(), string(r.Row)}); err != nil {
+				return err
+			}
 		}
-		return strconv.FormatFloat(*p, 'f', -1, 64)
+		c.w.Flush()
+		if err := c.w.Error(); err != nil {
+			return err
+		}
+		return c.f.Sync()
 	}
-	for _, r := range rows {
-		_ = w.Write([]string{batch.String(), r.ID.String(), r.ExternalID, r.UserID.String(), r.VehicleID.String(), r.RivianID,
-			r.StartedAt.Format(time.RFC3339), r.EndedAt.Format(time.RFC3339),
-			strconv.FormatFloat(r.EnergyKWh, 'f', 3, 64), fp(r.StartSoC), fp(r.EndSoC), fp(r.Cost), r.Currency, r.FinalState,
-			strconv.FormatFloat(r.PowerKWh, 'f', 3, 64)})
+}
+
+func (c *phantomCSV) Close() error { return c.f.Close() }
+
+func readPhantomCSV(path string) ([]phantom.BackupRow, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	w.Flush()
-	if err := w.Error(); err != nil {
-		f.Close()
-		return err
+	defer f.Close()
+	recs, err := csv.NewReader(f).ReadAll()
+	if err != nil {
+		return nil, err
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
+	var out []phantom.BackupRow
+	for i, r := range recs {
+		if i == 0 || len(r) < 5 {
+			continue
+		}
+		cid, err1 := uuid.Parse(r[2])
+		uid, err2 := uuid.Parse(r[3])
+		if err1 != nil || err2 != nil {
+			return nil, fmt.Errorf("%s:%d: bad ids", path, i+1)
+		}
+		out = append(out, phantom.BackupRow{Kind: r[1], ChargeID: cid, UserID: uid, Row: []byte(r[4])})
 	}
-	return f.Close()
+	return out, nil
 }
 
 // runRepairPhantoms deletes phantom live charges from an audited id
@@ -98,18 +123,58 @@ func runRepairPhantoms(args []string) int {
 	backup := fs.String("backup", "", "CSV backup path (required with --apply; must not exist)")
 	user := fs.String("user", "", "username; ids owned by other users are skipped (required with --apply: approval is per user)")
 	restore := fs.String("restore", "", "undo a batch id from charges_deleted_backup (dry run unless --apply)")
+	restoreCSV := fs.String("restore-csv", "", "undo from a --backup CSV (works without the backup table; dry run unless --apply)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := db.Open(ctx, postgresDSN())
+	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: postgres:", err)
 		return 1
 	}
 	defer pool.Close()
+	// Never migrate: a newer binary must not change prod's schema.
+	if err := db.RequireTables(ctx, pool, "charges", "vehicles", "vehicle_state", "vehicle_pack_health_samples", "charge_restamps"); err != nil {
+		fmt.Fprintln(os.Stderr, "repair-phantom-charges:", err)
+		return 1
+	}
+	hasBackupTable, err := phantom.BackupTableExists(ctx, pool)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "repair-phantom-charges:", err)
+		return 1
+	}
+	if hasBackupTable {
+		fmt.Println("backup table charges_deleted_backup present: backing up to it and the CSV")
+	} else {
+		fmt.Println("backup table charges_deleted_backup absent (migration 0049 not applied): CSV is the only backup; undo with --restore-csv")
+	}
+
+	if *restoreCSV != "" {
+		rows, err := readPhantomCSV(*restoreCSV)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "repair-phantom-charges:", err)
+			return 1
+		}
+		fmt.Printf("%s: %d row(s) to restore\n", *restoreCSV, len(rows))
+		if !*apply {
+			fmt.Println("dry run; pass --apply to restore")
+			return 0
+		}
+		res, err := phantom.RestoreRows(ctx, pool, rows)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "repair-phantom-charges: restore:", err)
+			return 1
+		}
+		fmt.Printf("restored %d charge(s), %d pack-health sample(s), %d restamp(s)\n", res.Charges, res.PackHealth, res.Restamps)
+		return 0
+	}
 
 	if *restore != "" {
+		if !hasBackupTable {
+			fmt.Fprintln(os.Stderr, "repair-phantom-charges: --restore needs the backup table; use --restore-csv")
+			return 2
+		}
 		bid, err := uuid.Parse(*restore)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "repair-phantom-charges: --restore needs a batch uuid")
@@ -236,11 +301,13 @@ func runRepairPhantoms(args []string) int {
 	}
 
 	batch := uuid.New()
-	if err := writePhantomBackup(*backup, batch, del); err != nil {
+	bk, err := newPhantomCSV(*backup)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: backup:", err)
 		return 1
 	}
-	fmt.Printf("backup written: %s (batch %s)\n", *backup, batch)
+	defer bk.Close()
+	fmt.Printf("backup file: %s (batch %s)\n", *backup, batch)
 
 	byVehicle := map[uuid.UUID][]phantom.Row{}
 	var vorder []uuid.UUID
@@ -257,7 +324,7 @@ func runRepairPhantoms(args []string) int {
 		for i, r := range rs {
 			cids[i] = r.ID
 		}
-		n, err := phantom.Apply(ctx, pool, batch, rs[0].UserID, vid, cids, "phantom stale-copy charge (audited id list)")
+		n, err := phantom.Apply(ctx, pool, batch, rs[0].UserID, vid, cids, "phantom stale-copy charge (audited id list)", bk.sink(batch))
 		if err != nil {
 			failed++
 			fmt.Printf("vehicle %s: NOT applied: %v\n", rs[0].RivianID, err)
@@ -265,7 +332,7 @@ func runRepairPhantoms(args []string) int {
 		}
 		fmt.Printf("vehicle %s: deleted %d row(s)\n", rs[0].RivianID, n)
 	}
-	fmt.Printf("undo: rivolt repair-phantom-charges --restore %s --apply\n", batch)
+	fmt.Printf("undo: rivolt repair-phantom-charges --restore-csv %s --apply\n", *backup)
 	if failed > 0 {
 		return 1
 	}

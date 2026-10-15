@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/repair/phantom"
 )
 
 func TestParseIDFile(t *testing.T) {
@@ -20,12 +24,24 @@ func TestParseIDFile(t *testing.T) {
 	}
 }
 
-func TestWritePhantomBackupExclusive(t *testing.T) {
+func TestPhantomCSVRoundTripAndExclusive(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "b.csv")
-	if err := writePhantomBackup(p, [16]byte{1}, nil); err != nil {
+	c, err := newPhantomCSV(p)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writePhantomBackup(p, [16]byte{1}, nil); err == nil {
+	batch := uuid.New()
+	cid, uid := uuid.New(), uuid.New()
+	in := []phantom.BackupRow{{Kind: "charge", ChargeID: cid, UserID: uid, Row: []byte(`{"id":"x","note":"a,\"b\""}`)}}
+	if err := c.sink(batch)(in); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	out, err := readPhantomCSV(p)
+	if err != nil || len(out) != 1 || out[0].ChargeID != cid || string(out[0].Row) != string(in[0].Row) {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if _, err := newPhantomCSV(p); err == nil {
 		t.Fatal("existing backup must not be overwritten")
 	}
 }
