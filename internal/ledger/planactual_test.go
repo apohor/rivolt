@@ -252,8 +252,34 @@ func pricedBarstow(in Input, rate float64) Input {
 	return out
 }
 
+// unpricedBarstow clears whatever price the replay recorded on the
+// Barstow fast charge (the sample corpus bills it as Rivian since #144),
+// so the comparison cases below control the price themselves.
+func unpricedBarstow(in Input) Input {
+	out := in
+	out.Charges = append([]Charge(nil), in.Charges...)
+	for i, c := range out.Charges {
+		if c.Lat != nil && haversineKM(*c.Lat, *c.Lon, pvaBarstow.Lat, pvaBarstow.Lon) < 0.25 {
+			out.Charges[i].Cost, out.Charges[i].Currency = nil, ""
+			out.Charges[i].CostSource, out.Charges[i].Network = "", ""
+		}
+	}
+	return out
+}
+
+// barstowKWh is the Barstow fast charge's stored energy, unrounded (the
+// comparison's stop view rounds kWh to 0.1, the cost uses the raw value).
+func barstowKWh(in Input) float64 {
+	for _, c := range in.Charges {
+		if c.Lat != nil && haversineKM(*c.Lat, *c.Lon, pvaBarstow.Lat, pvaBarstow.Lon) < 0.25 {
+			return val(c.EnergyKWh)
+		}
+	}
+	return 0
+}
+
 func TestComparePlanOnTheReplayCorpus(t *testing.T) {
-	base := sampleLedger(t)
+	base := unpricedBarstow(sampleLedger(t))
 	p := vegasPlan(t, "2026-01-23T07:30:00Z")
 	trip := MatchPlan(p, base)[0].TripID
 
@@ -300,7 +326,7 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 	in := pricedBarstow(base, 0.40)
 	cmp, _ = ComparePlan(p, in, trip)
 	cost = metric(t, cmp, "cost")
-	kwh := cmp.Stops[0].Actual.KWh
+	kwh := barstowKWh(in)
 	if !*cost.ActualComplete || !eq(cost.Actual, 0.40*kwh) || !eq(cost.Delta, 0.40*kwh-14.85) ||
 		!eq(ptrRound2(cost.ActualSources[SourceNetworkEstimate]), 0.40*kwh) {
 		t.Errorf("priced cost = %+v (kWh %.1f)", cost, kwh)
