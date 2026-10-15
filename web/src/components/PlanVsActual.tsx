@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type PlanVsActual as Pva, type SavedTrip } from "../lib/api";
-import { drivenText, rows, STOP_LABEL, stateOf, topCandidate, type Row } from "../lib/planVsActual";
+import { costHeader, drivenText, rows, STOP_LABEL, stateOf, topCandidate, type Row } from "../lib/planVsActual";
 import { Card } from "./ui";
 
 // Plan vs Actual: for a saved trip, how the drive went against the plan
@@ -124,6 +124,7 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
         {c.plan_from === "snapshot" ? " · compared with the plan as saved" : ""}
         {cand && preview ? ` · ${cand.band} match` : ""}
       </p>
+      {costHeader(c) && <p className="mt-2 text-sm font-medium text-neutral-100">{costHeader(c)}</p>}
       <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-2 text-sm">
         <div />
         <div className="text-right text-[11px] uppercase tracking-wide text-neutral-500">Planned</div>
@@ -190,7 +191,17 @@ function RowView({ r, currencyHint }: { r: Row; currencyHint: string }) {
           (r.actual ?? "—")
         )}
       </div>
-      {r.reasons.length > 0 && <div className="col-span-3 -mt-1 text-xs text-neutral-500">{r.reasons[0]}</div>}
+      {r.reasons.length > 0 && (
+        <div className="col-span-3 -mt-1 text-xs text-neutral-500">
+          {r.reasons.length > 1 ? "Mostly because " : ""}
+          {r.reasons.map((x, i) => (
+            <span key={i}>
+              {i > 0 ? " Also: " : ""}
+              {x}
+            </span>
+          ))}
+        </div>
+      )}
     </>
   );
 }

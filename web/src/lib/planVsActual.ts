@@ -105,15 +105,49 @@ function toneOf(m: PvaMetric): Row["tone"] {
   return "neutral";
 }
 
-// Informational reasons carry no amount; amount reasons are ordered by
-// size ("mostly because …").
+// Copy for reason codes that need no placeholder, used only when the
+// server sent no `detail` (PM copy, plan-vs-actual-copy.md). Codes that
+// need a network, rate or stop name render only from the server's detail.
+const CODE_COPY: Record<string, string> = {
+  extra_stop: "You made an extra fast-charge stop.",
+  skipped_stop: "You skipped a planned stop.",
+  estimated: "Part of this total is estimated from the network's price, not billed.",
+  unpriced: "Some charges aren't priced yet, so the total is incomplete.",
+  energy_partial: "One drive wasn't fully recorded, so energy may be off.",
+};
+
+// "Mostly because …": at most two reasons, largest amount first,
+// informational (no amount) after. A line is dropped when there's
+// neither a server detail nor placeholder-free copy.
 function reasonsOf(m: PvaMetric): string[] {
-  const withText = m.reasons.filter((r) => r.detail);
-  const amount = withText
-    .filter((r) => r.amount != null)
-    .sort((a, b) => Math.abs(b.amount ?? 0) - Math.abs(a.amount ?? 0));
-  const info = withText.filter((r) => r.amount == null);
-  return [...amount, ...info].map((r) => r.detail as string);
+  const text = (r: PvaMetric["reasons"][number]) => r.detail || CODE_COPY[r.code] || null;
+  const have = m.reasons.map((r) => ({ r, t: text(r) })).filter((x) => x.t);
+  const amount = have
+    .filter((x) => x.r.amount != null)
+    .sort((a, b) => Math.abs(b.r.amount ?? 0) - Math.abs(a.r.amount ?? 0));
+  const info = have.filter((x) => x.r.amount == null);
+  return [...amount, ...info].slice(0, 2).map((x) => x.t as string);
+}
+
+// costHeader is the one-line verdict above the table (PM copy). Null
+// when there is nothing honest to say yet.
+export function costHeader(c: NonNullable<PlanVsActual["comparison"]>): string | null {
+  const m = c.metrics.find((x) => x.metric === "cost");
+  if (!m) return null;
+  if (m.reasons.some((r) => r.code === "currency_mismatch")) {
+    return "Can't compare. The plan and your charges use different currencies.";
+  }
+  if (m.actual_complete === false) {
+    const known = m.actual_known != null ? `${money(m.actual_known, c.currency)} so far; ` : "";
+    return `Not final yet. ${known}${m.unpriced_sessions ?? 0} charges aren't priced yet.`;
+  }
+  if (m.actual == null) return null;
+  const paid = `${money(m.actual, c.currency)}${(m.actual_sources?.network_estimate ?? 0) > 0 ? " (estimated)" : ""}`;
+  if (m.planned == null) return `No cost in the plan. You paid ${paid}.`;
+  const within = m.planned > 0 && Math.abs(m.actual - m.planned) / m.planned <= 0.1;
+  if (within) return `On plan. Planned ${money(m.planned, c.currency)}, paid ${paid}.`;
+  const d = money(Math.abs(m.actual - m.planned), c.currency);
+  return `${d} ${m.actual > m.planned ? "over" : "under"} plan. Planned ${money(m.planned, c.currency)}, paid ${paid}.`;
 }
 
 export function rows(c: NonNullable<PlanVsActual["comparison"]>): Row[] {
