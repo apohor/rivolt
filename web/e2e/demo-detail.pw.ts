@@ -179,6 +179,11 @@ test("Activity filters in the demo keep the Activity tab and the filter sticks",
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await expect(page.locator('a[href^="/demo/charges/"]')).toHaveCount(0);
   await expect(page.locator('a[href^="/demo/drives/"]').first()).toBeVisible();
+  await page.getByRole("tab", { name: "Charges" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).toHaveURL(/f=charges/);
+  await expect(page.locator('a[href^="/demo/drives/"]')).toHaveCount(0);
+  await expect(page.locator('a[href^="/demo/charges/"]').first()).toBeVisible();
   await page.getByRole("tab", { name: "All" }).click();
   await expect(page).toHaveURL(/tab=activity/);
   await expect(page).not.toHaveURL(/f=/);
