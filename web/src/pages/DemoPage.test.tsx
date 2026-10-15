@@ -31,6 +31,8 @@ describe("DemoPage", () => {
     expect(await screen.findByText(/Sample truck\./)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/login");
     expect(await screen.findByRole("region", { name: "Now" })).toBeInTheDocument();
+    // /live needs a session: no dead link in the demo.
+    expect(screen.queryByRole("link", { name: /Full telemetry/ })).toBeNull();
   });
 
   it("says so when the demo is off", async () => {

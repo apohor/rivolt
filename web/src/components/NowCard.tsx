@@ -70,10 +70,13 @@ export default function NowCard({
   vehicleID,
   vehicleName,
   packKwh,
+  showTelemetryLink = true,
 }: {
   vehicleID: string;
   vehicleName: string;
   packKwh: number | null;
+  // /live needs a signed-in session, so the public demo turns it off.
+  showTelemetryLink?: boolean;
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
@@ -277,7 +280,7 @@ export default function NowCard({
 
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
           <p data-testid="now-freshness">{freshness(view)}</p>
-          {!impersonating && (
+          {!impersonating && showTelemetryLink && (
             <Link to="/live" className="text-neutral-300 hover:text-emerald-300">
               Full telemetry →
             </Link>

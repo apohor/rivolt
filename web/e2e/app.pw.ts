@@ -114,6 +114,11 @@ for (const view of views) {
           const card = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Rivolt account" }) }).last();
           await expect(card.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(1);
         }
+        if (view.name === "demo") {
+          // No sign-in-only links in the public demo.
+          await expect(page.getByRole("link", { name: "Full telemetry →" })).toHaveCount(0);
+          await expect(page.locator('a[href="/live"]')).toHaveCount(0);
+        }
         if (view.name === "activity") {
           // One nav row: the filter tabs; no Feed/Drives/Charges sub-nav.
           await expect(page.getByRole("navigation", { name: "Activity sections" })).toHaveCount(0);
