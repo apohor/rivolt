@@ -231,3 +231,28 @@ func TestSampleCorpusCadence(t *testing.T) {
 		t.Errorf("largest gaps: asleep %v (want ≤ %v), awake %v (want ≤ %v)", worstAsleep, sampleAsleepStep, worstAwake, sampleAwakeStep)
 	}
 }
+
+// Every leg the sample truck drives follows a road: it has a generated
+// shape (no straight-line fallback; the real guarantee), and as a
+// backstop no drive has a straight stretch over 50 km. I-5 through the
+// Central Valley runs straight for ~30 km, kept whole by the 20-m
+// simplification; the old waypoint diagonals ran 130-230 km.
+func TestSampleRoutesFollowRoads(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	for _, l := range c.legs {
+		if _, ok := sampleRouteShapes[routeKey(l[0], l[1])]; !ok {
+			t.Errorf("leg %s has no road shape; regenerate sample_routes_gen.go", routeKey(l[0], l[1]))
+		}
+	}
+	for _, s := range c.segs {
+		if s.kind != segDrive {
+			continue
+		}
+		for i := 1; i < len(s.path); i++ {
+			if d := haversineMeters(s.path[i-1].Lat, s.path[i-1].Lon, s.path[i].Lat, s.path[i].Lon); d > 50000 {
+				t.Errorf("drive at %s: a %.1f km straight stretch", s.start.Format(time.RFC3339), d/1000)
+				break
+			}
+		}
+	}
+}

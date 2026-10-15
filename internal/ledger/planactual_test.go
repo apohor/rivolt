@@ -237,6 +237,18 @@ func hasReason(m PlanMetric, code string) *PlanReason {
 
 func eq(p *float64, want float64) bool { return p != nil && math.Abs(*p-want) < 0.006 }
 
+// driveByID is the replayed drive with that id.
+func driveByID(t *testing.T, in Input, id string) Drive {
+	t.Helper()
+	for _, d := range in.Drives {
+		if d.ID == id {
+			return d
+		}
+	}
+	t.Fatalf("no drive %s", id)
+	return Drive{}
+}
+
 // The Barstow fast charge, priced as the recorder would with a network
 // estimate (the replay has no price lookup, so it's unpriced as is).
 func pricedBarstow(in Input, rate float64) Input {
@@ -298,17 +310,24 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 		t.Errorf("unpriced cost = %+v", cost)
 	}
 
-	// Leg: home → Barstow → Vegas, the fast charge between; arrives at
-	// 12:05 with 27%.
-	if len(cmp.Leg.DriveIDs) != 2 || len(cmp.Leg.ChargeIDs) != 1 || cmp.Leg.ArrivedAt.Format("15:04") != "12:05" ||
+	// Leg: home → Barstow → Vegas, the fast charge between. The arrival,
+	// its SoC and the duration come from the replayed drive into Vegas
+	// (the corpus decides them, not this test), against the plan's 25%
+	// and 250 min.
+	if len(cmp.Leg.DriveIDs) != 2 || len(cmp.Leg.ChargeIDs) != 1 ||
 		cmp.Leg.Miles < 250 || cmp.Leg.Miles > 300 || cmp.Status != "complete" {
 		t.Errorf("leg = %+v, status %q", cmp.Leg, cmp.Status)
 	}
-	if soc := metric(t, cmp, "arrival_soc"); !eq(soc.Actual, 27) || !eq(soc.Delta, 2) {
-		t.Errorf("arrival soc = %+v", soc)
+	arrive := driveByID(t, base, cmp.Leg.DriveIDs[1])
+	if !cmp.Leg.ArrivedAt.Equal(arrive.EndedAt) || cmp.Leg.ArrivedAt.Hour() != 12 {
+		t.Errorf("arrived %v, want the Vegas drive's end %v (around noon)", cmp.Leg.ArrivedAt, arrive.EndedAt)
 	}
-	if d := metric(t, cmp, "duration"); !eq(d.Actual, 265) || !eq(d.Delta, 15) {
-		t.Errorf("duration = %+v", d)
+	if soc := metric(t, cmp, "arrival_soc"); !eq(soc.Actual, math.Round(*arrive.EndSoC)) || !eq(soc.Delta, math.Round(*arrive.EndSoC)-25) {
+		t.Errorf("arrival soc = %+v, want %.0f", soc, *arrive.EndSoC)
+	}
+	wantMin := math.Round(arrive.EndedAt.Sub(cmp.Leg.StartedAt).Minutes())
+	if d := metric(t, cmp, "duration"); !eq(d.Actual, wantMin) || !eq(d.Delta, wantMin-250) {
+		t.Errorf("duration = %+v, want %.0f min", d, wantMin)
 	}
 	if e := metric(t, cmp, "energy_kwh"); e.Actual == nil || *e.Actual <= 0 || !eq(e.Planned, 160) {
 		t.Errorf("energy = %+v", e)
