@@ -432,6 +432,28 @@ func IsImpersonating(ctx context.Context) bool {
 	return ok
 }
 
+// HasCredentials reports whether the request presented a session
+// credential (the Rivolt session cookie or the Kratos session cookie),
+// whether or not it resolved to a user. A request with none is simply
+// signed out; one with a credential that did not resolve carries an
+// expired or invalid session.
+func (s *Service) HasCredentials(r *http.Request) bool {
+	if s == nil {
+		return false
+	}
+	if s.cookieName != "" {
+		if _, err := r.Cookie(s.cookieName); err == nil {
+			return true
+		}
+	}
+	if s.kratosCookieName != "" {
+		if _, err := r.Cookie(s.kratosCookieName); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // ErrSignupClosed is what a Kratos resolver returns for a valid
 // session whose identity has no Rivolt account while sign-ups are
 // disabled. The middleware leaves the request unauthenticated and
