@@ -107,7 +107,7 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
   ...o,
 });
 
-export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down";
+export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down" | "paused";
 
 export type DrainMode = "absent" | "ok" | "insufficient";
 
@@ -163,9 +163,11 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/settings/rivian/") {
       return json(route, {
         enabled: true,
-        authenticated: rivian === "ok" || rivian === "reauth" || rivian === "mfa",
+        authenticated: rivian === "ok" || rivian === "reauth" || rivian === "mfa" || rivian === "paused",
         mfa_pending: rivian === "mfa",
         needs_reauth: rivian === "reauth",
+        paused: rivian === "paused",
+        paused_reason: rivian === "paused" ? "operator_pause" : undefined,
       });
     }
     if (p === "/api/vehicles") {
