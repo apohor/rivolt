@@ -68,6 +68,7 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, signupDisabled: true });
   await page.goto("/demo");
   await expect(page.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/login");
+});
 
 test("the demo's Activity has no sign-in-only table links", async ({ page }) => {
   await openDemo(page, "/demo?tab=activity");
