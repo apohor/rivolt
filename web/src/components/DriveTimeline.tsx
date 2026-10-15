@@ -1,69 +1,44 @@
-// DriveTimeline — Tier 2 telemetry view.
+// DriveTimeline: stacked small multiples that share one time axis and one
+// synced scrub cursor.
 //
-// Two stacked panels that share an x-axis and a synced cursor:
+//   Speed (mph)      the tallest panel, gradient fill, moment flags
+//   Power (kW)       signed area around 0: draw above, regen below
+//   Battery (%)      SoC line with elevation (ft) as a faint backdrop
+//   Pack temp        optional, off by default
 //
-//   1. Speed (with a divergent power ribbon along the top — red = draw,
-//      green = regen — and the drive-mode tint as a faint background
-//      wash). Auto-detected moments (hard brake, max regen, top speed,
-//      etc.) drop in as vertical markers.
-//   2. Battery (SoC line) with an elevation area as a faint backdrop so
-//      climbs visibly explain SoC drops.
+// One readout row above the panels replaces the floating tooltip: with a
+// cursor it shows the values at that moment, without one a drive summary.
+// The mode band appears only when the drive-mode changes, and the
+// precipitation row only when there is precipitation. Time ticks sit on
+// round clock times in the display zone.
 //
-// Below the panels: thin strip rows for precipitation and drive mode,
-// then a shared time axis. A single floating tooltip anchored at the
-// cursor X carries every signal — the tooltip is the legend.
-//
-// Power is derived from smoothed SoC and the drive's own pack capacity
-// (EnergyUsedKWh / SoC delta), so it works on every drive that has
-// telemetry without needing a per-vehicle pack-size config.
+// Interaction: hover (mouse) or touch-drag scrubs. A mouse drag selects a
+// zoom window; double-click resets it. A plain vertical swipe on touch
+// still scrolls the page (touch-action: pan-y).
 
-import { displayTimeZone } from "../lib/format";
-import {
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Drive, DriveWeatherSamplePoint, Sample } from "../lib/api";
-import { buildElevPts, derivePower, type PowerPt } from "../lib/power";
+import {
+  buildHeadwindPts,
+  buildModeSegments,
+  buildParkBands,
+  buildPrecipBands,
+  buildSpeedPts,
+  buildTimeScale,
+  detectMoments,
+  fmtTemp,
+  MODE_BAND,
+  MODE_LABEL,
+  momentColor,
+  monotonePath,
+  nearestY,
+  niceTimeTicks,
+  snapToSample,
+  type Moment,
+} from "../lib/driveTimelineData";
+import { displayTimeZone } from "../lib/format";
+import { buildElevPts, derivePower } from "../lib/power";
 import { smoothGaussianTime } from "../lib/smooth";
-
-type Mode = "Conserve" | "AllPurpose" | "Sport" | "Other";
-
-const SERIES = {
-  speed: "#38bdf8",
-  battery: "#10b981",
-  elevation: "#a78bfa",
-  draw: "#ef4444",
-  regen: "#22c55e",
-  rain: "#3b82f6",
-  drizzle: "#93c5fd",
-  snow: "#e0f2fe",
-  freezingRain: "#a855f7",
-  thunderstorm: "#ef4444",
-} as const;
-
-const MODE_TINT: Record<Mode, string> = {
-  Conserve: "#22c55e1f",
-  AllPurpose: "#f973161f",
-  Sport: "#ef44441f",
-  Other: "transparent",
-};
-
-const MODE_BAND: Record<Mode, string> = {
-  Conserve: "#22c55e",
-  AllPurpose: "#f97316",
-  Sport: "#ef4444",
-  Other: "#a3a3a3",
-};
-
-const MODE_LABEL: Record<Mode, string> = {
-  Conserve: "Conserve",
-  AllPurpose: "All-Purpose",
-  Sport: "Sport",
-  Other: "Other",
-};
 
 export type DriveTimelineProps = {
   drive: Drive;
@@ -71,14 +46,46 @@ export type DriveTimelineProps = {
   weatherPts: DriveWeatherSamplePoint[];
   cursorMs: number | null;
   onCursorChange: (ms: number | null) => void;
-  // Controlled zoom window in epoch ms. `null` means "show the full
-  // drive". Lifted to the page so the route map can crop to the same
-  // window. Set by drag-to-select on the chart, cleared by the reset
-  // button or double-click.
+  // Controlled zoom window in epoch ms. `null` means the full drive.
+  // Lifted to the page so the route map can crop to the same window.
   viewWindow: [number, number] | null;
   onViewWindowChange: (window: [number, number] | null) => void;
   tempUnit: "f" | "c";
 };
+
+type Pt = { x: number; y: number };
+
+// Theme tokens: classes flip with the light theme (the palette variables
+// are remapped under html[data-theme=light]); no hard-coded greys.
+const C = {
+  speed: "var(--color-sky-500)",
+  draw: "var(--color-amber-500)",
+  regen: "var(--color-emerald-500)",
+  soc: "var(--color-emerald-500)",
+  temp: "var(--color-rose-500)",
+  elev: "var(--color-neutral-500)",
+};
+
+const PAD_L = 46;
+const PAD_T = 18;
+const PANEL_GAP = 22;
+const AXIS_H = 22;
+const DEAD_PX = 26;
+
+function clockLabel(ms: number, withSeconds = false): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: withSeconds ? "2-digit" : undefined,
+    timeZone: displayTimeZone(),
+  });
+}
+
+// niceCeil rounds v up to a "round" value (10, 20, 50, 100 ...).
+function niceCeil(v: number, steps = [10, 20, 25, 50, 100, 200]): number {
+  for (const s of steps) if (v <= s) return s;
+  return Math.ceil(v / 100) * 100;
+}
 
 export function DriveTimeline({
   drive,
@@ -90,37 +97,25 @@ export function DriveTimeline({
   onViewWindowChange,
   tempUnit,
 }: DriveTimelineProps) {
-  // Track whether the user last interacted via touch so we can keep
-  // the cursor alive after the finger lifts (touch has no "hover").
-  const [isTouch, setIsTouch] = useState(false);
-  // Tap-to-add legend: Speed / Battery / Power / Elevation are the
-  // established layers and stay on by default; Pack temp and Headwind
-  // are opt-in overlays that otherwise only surface in the tooltip, so
-  // the chart stays useful without being overloaded. Every layer is
-  // toggleable — mirrors the charge page's chip legend.
-  const [showSpeed, setShowSpeed] = useState(true);
-  const [showBattery, setShowBattery] = useState(true);
-  const [showPower, setShowPower] = useState(true);
-  const [showElevation, setShowElevation] = useState(true);
   const [showPackTemp, setShowPackTemp] = useState(false);
-  const [showHeadwind, setShowHeadwind] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
   const driveStartMs = new Date(drive.StartedAt).getTime();
   const driveEndMs = new Date(drive.EndedAt).getTime();
 
   const speedPts = useMemo(() => buildSpeedPts(samples), [samples]);
-  const socPts = useMemo(() => {
-    const raw = samples.map((p) => ({
-      x: new Date(p.At).getTime(),
-      y: p.BatteryLevelPct || 0,
-    }));
-    return smoothGaussianTime(raw, 30_000);
-  }, [samples]);
+  const socPts = useMemo(
+    () =>
+      smoothGaussianTime(
+        samples.map((p) => ({ x: new Date(p.At).getTime(), y: p.BatteryLevelPct || 0 })),
+        30_000,
+      ),
+    [samples],
+  );
   const elevPts = useMemo(() => buildElevPts(samples), [samples]);
   const powerPts = useMemo(
     () => derivePower(samples, elevPts, drive.EnergyUsedKWh),
     [samples, elevPts, drive.EnergyUsedKWh],
   );
-
   const modeSegments = useMemo(
     () => buildModeSegments(samples, driveStartMs, driveEndMs),
     [samples, driveStartMs, driveEndMs],
@@ -137,27 +132,18 @@ export function DriveTimeline({
     () => buildHeadwindPts(weatherPts, driveStartMs, driveEndMs),
     [weatherPts, driveStartMs, driveEndMs],
   );
-  // Battery pack avg cell temperature — an opt-in overlay on the
-  // battery panel. Smoothed lightly since the sensor is coarse.
   const packTempPts = useMemo(() => {
     const raw = samples
       .filter((p) => p.pack_temp_avg_c != null && p.pack_temp_avg_c !== 0)
       .map((p) => ({ x: new Date(p.At).getTime(), y: p.pack_temp_avg_c as number }));
     return raw.length > 1 ? smoothGaussianTime(raw, 60_000) : raw;
   }, [samples]);
-  const hasPackTemp = packTempPts.length > 0;
-  const hasHeadwind = headwindPts.length > 0;
   const moments = useMemo(
     () => detectMoments(speedPts, socPts, powerPts, headwindPts),
     [speedPts, socPts, powerPts, headwindPts],
   );
+  const distinctModes = useMemo(() => new Set(modeSegments.map((s) => s.mode)), [modeSegments]);
 
-  // cursorSample lives BEFORE the empty-samples early return so all
-  // hooks fire in the same order on every render — Rules-of-Hooks.
-  // Even though the parent guards driveSamples > 0 so this branch
-  // never fires in practice today, the linter (correctly) sees the
-  // structural violation and flags it, and a future caller passing
-  // empty samples would trigger it at runtime.
   const cursorSample = useMemo(() => {
     if (cursorMs == null || samples.length === 0) return null;
     let best = samples[0];
@@ -172,100 +158,69 @@ export function DriveTimeline({
     return best;
   }, [cursorMs, samples]);
 
-  if (speedPts.length === 0 && socPts.length === 0) {
-    return <NoSamples />;
-  }
+  if (speedPts.length === 0 && socPts.length === 0) return <NoSamples />;
 
-  // Full-drive x-domain: anchored to the drive's own coverage so
-  // weather padding doesn't compress the actual driving into a narrow
-  // middle strip.
-  const allX = [
-    ...speedPts.map((p) => p.x),
-    ...socPts.map((p) => p.x),
-    ...elevPts.map((p) => p.x),
-  ];
-  const fullXMin = allX.length > 0 ? Math.min(...allX) : driveStartMs;
-  const fullXMax = allX.length > 0 ? Math.max(...allX) : driveEndMs;
-
-  // Visible x-domain: clamp the lifted viewWindow to the drive's own
-  // coverage and fall back to the full drive when no zoom is active.
-  // Clamping defends against navigating in from a stale URL or a
-  // moments-detection bug that produces an out-of-range window.
-  const xMin = viewWindow
-    ? Math.max(fullXMin, Math.min(viewWindow[0], viewWindow[1]))
-    : fullXMin;
-  const xMax = viewWindow
-    ? Math.min(fullXMax, Math.max(viewWindow[0], viewWindow[1]))
-    : fullXMax;
+  const allX = [...speedPts.map((p) => p.x), ...socPts.map((p) => p.x)];
+  const fullMin = allX.length > 0 ? Math.min(...allX) : driveStartMs;
+  const fullMax = allX.length > 0 ? Math.max(...allX) : driveEndMs;
+  const xMin = viewWindow ? Math.max(fullMin, Math.min(viewWindow[0], viewWindow[1])) : fullMin;
+  const xMax = viewWindow ? Math.min(fullMax, Math.max(viewWindow[0], viewWindow[1])) : fullMax;
   const isZoomed = viewWindow != null;
 
-  const cursorPower = nearestY(powerPts, cursorMs);
-  const cursorSoc = nearestY(socPts, cursorMs);
-  const cursorElev = nearestY(elevPts, cursorMs);
-  const cursorHeadwind = nearestY(headwindPts, cursorMs);
+  const hasPower = powerPts.length > 1;
+  const hasElev = elevPts.length > 1;
+  const hasTemp = packTempPts.length > 1;
 
   return (
-    <div className="space-y-3">
-      {/* Tap-to-add legend: toggle any layer. Speed / Battery / Power /
-          Elevation default on; Pack temp + Headwind are opt-in and only
-          appear as chips when the drive actually carries that data. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <TimelineChip label="Speed" color={SERIES.speed} on={showSpeed} onClick={() => setShowSpeed((v) => !v)} />
-        <TimelineChip label="Battery" color={SERIES.battery} on={showBattery} onClick={() => setShowBattery((v) => !v)} />
-        <TimelineChip label="Power" color="#f59e0b" on={showPower} onClick={() => setShowPower((v) => !v)} />
-        {elevPts.length > 1 ? (
-          <TimelineChip label="Elevation" color={SERIES.elevation} on={showElevation} onClick={() => setShowElevation((v) => !v)} />
-        ) : null}
-        {hasPackTemp ? (
-          <TimelineChip label="Pack temp" color="#f472b6" on={showPackTemp} onClick={() => setShowPackTemp((v) => !v)} />
-        ) : null}
-        {hasHeadwind ? (
-          <TimelineChip label="Headwind" color="#0891b2" on={showHeadwind} onClick={() => setShowHeadwind((v) => !v)} />
-        ) : null}
-      </div>
-      <TimelineSVG
+    <div className="space-y-2">
+      <Readout
+        cursorSample={cursorSample}
+        cursorMs={cursorMs}
+        power={nearestY(powerPts, cursorMs)}
+        soc={nearestY(socPts, cursorMs)}
+        elev={nearestY(elevPts, cursorMs)}
+        wind={nearestY(headwindPts, cursorMs)}
+        showTemp={showPackTemp}
+        tempUnit={tempUnit}
+        drive={drive}
+        onDismiss={isTouch ? () => onCursorChange(null) : undefined}
+      />
+
+      <Panels
         xMin={xMin}
         xMax={xMax}
         speedPts={speedPts}
+        powerPts={hasPower ? powerPts : []}
         socPts={socPts}
-        elevPts={elevPts}
-        powerPts={powerPts}
-        packTempPts={packTempPts}
-        headwindPts={headwindPts}
-        modeSegments={modeSegments}
+        elevPts={hasElev ? elevPts : []}
+        packTempPts={showPackTemp && hasTemp ? packTempPts : []}
+        tempUnit={tempUnit}
         parkBands={parkBands}
+        modeSegments={distinctModes.size > 1 ? modeSegments : []}
         precipBands={precipBands}
         moments={moments}
         cursorMs={cursorMs}
         onCursorChange={onCursorChange}
         onViewWindowChange={onViewWindowChange}
         onPointerTypeChange={setIsTouch}
-        cursorSample={cursorSample}
-        cursorSoc={cursorSoc}
-        maxSpeedMph={drive.MaxSpeedMph}
-        startSoC={drive.StartSoCPct}
-        endSoC={drive.EndSoCPct}
-        showSpeed={showSpeed}
-        showBattery={showBattery}
-        showPower={showPower}
-        showElevation={showElevation}
-        showPackTemp={showPackTemp}
-        showHeadwind={showHeadwind}
+        isZoomed={isZoomed}
+        sampleXs={speedPts}
       />
 
-      {/* HTML cursor readout — the single moment inspector for both
-          mouse and touch, always crisp regardless of SVG scale. Hidden
-          when no cursor is active. */}
-      {cursorSample ? (
-        <CursorReadout
-          cursorSample={cursorSample}
-          cursorPower={cursorPower}
-          cursorSoc={cursorSoc}
-          cursorElev={cursorElev}
-          cursorHeadwind={cursorHeadwind}
-          tempUnit={tempUnit}
-          onDismiss={isTouch ? () => onCursorChange(null) : undefined}
-        />
+      {distinctModes.size > 1 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+          <span>Drive mode</span>
+          {[...distinctModes].map((m) => (
+            <span key={m} className="inline-flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-xs" style={{ background: MODE_BAND[m] }} />
+              {MODE_LABEL[m]}
+            </span>
+          ))}
+        </div>
+      ) : distinctModes.size === 1 ? (
+        <div className="text-[11px] text-neutral-500">
+          Drive mode: {MODE_LABEL[[...distinctModes][0]]}
+        </div>
       ) : null}
 
       <div className="flex items-center justify-between gap-3">
@@ -275,1188 +230,553 @@ export function DriveTimeline({
             cursorMs={cursorMs}
             onCursorChange={(ms) => {
               onCursorChange(ms);
-              // If a chip click jumps the cursor out of the visible
-              // window, reset zoom so the marker isn't off-screen.
-              if (ms != null && (ms < xMin || ms > xMax)) {
-                onViewWindowChange(null);
-              }
+              if (ms != null && (ms < xMin || ms > xMax)) onViewWindowChange(null);
             }}
           />
         ) : (
           <span />
         )}
-        {isZoomed ? (
-          <button
-            type="button"
-            onClick={() => onViewWindowChange(null)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-300 hover:bg-neutral-800"
-            title="Reset chart zoom — also re-fits the route map"
-          >
-            <span aria-hidden>⤢</span>
-            Reset zoom
-          </button>
-        ) : (
-          <span className="hidden text-[10px] text-neutral-600 sm:inline">
-            Drag to zoom · double-click to reset
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {hasTemp ? (
+            <button
+              type="button"
+              aria-pressed={showPackTemp}
+              onClick={() => setShowPackTemp((v) => !v)}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                showPackTemp
+                  ? "border-neutral-600 bg-neutral-800 text-neutral-100"
+                  : "border-neutral-800 text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              Pack temp
+            </button>
+          ) : null}
+          {isZoomed ? (
+            <button
+              type="button"
+              onClick={() => onViewWindowChange(null)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-0.5 text-[11px] font-medium text-neutral-300 hover:bg-neutral-800"
+              title="Reset chart zoom (also re-fits the route map)"
+            >
+              <span aria-hidden>⤢</span>
+              Reset zoom
+            </button>
+          ) : (
+            <span className="hidden text-[10px] text-neutral-600 sm:inline">
+              Hover to scrub · drag to zoom · double-click to reset
+            </span>
+          )}
+        </div>
       </div>
+      {isTouch && !isZoomed ? <p className="text-[10px] text-neutral-600 sm:hidden">Drag to scrub</p> : null}
     </div>
   );
 }
 
-// ---- Layout ---------------------------------------------------------------
+// ---- Panels ---------------------------------------------------------------
 
-const VIEW_W = 1000;
-// Both gutters carry a y-axis: Speed on the left (left-anchored ticks),
-// SoC on the right. 70/44 px fit a 3-digit tick label plus breathing
-// room at fontSize=10.
-const PAD_L = 70;
-const PAD_R = 44;
-const PLOT_W = VIEW_W - PAD_L - PAD_R;
-
-// Dead-zone compression: a parked stretch or telemetry gap is drawn at a
-// fixed narrow width instead of consuming its real duration on the axis,
-// so a 39-minute stop can't crush the actual driving into the margins.
-// In viewBox units (of PLOT_W ≈ 950) — ~3% each, enough to show the
-// dashed marker + label without dominating.
-const COMPRESSED_BAND_PX = 34;
-
-// One shared plot panel. Speed and SoC overlay in the same box on
-// independent axes (left = mph, right = %); the two-panel stack was
-// consolidated into a single graph to match the charge detail view.
-const RIBBON_TOP = 8;
-const RIBBON_H = 10;
-const PLOT_TOP = RIBBON_TOP + RIBBON_H + 4;
-const PLOT_H = 190;
-// Speed maps to the left axis, SoC to the right — both over the full
-// panel. Kept as named aliases so every data layer reads clearly.
-const SPEED_TOP = PLOT_TOP;
-const SPEED_H = PLOT_H;
-const BATT_TOP = PLOT_TOP;
-const BATT_H = PLOT_H;
-const PRECIP_TOP = PLOT_TOP + PLOT_H + 8;
-const PRECIP_H = 12;
-const MODE_STRIP_TOP = PRECIP_TOP + PRECIP_H + 3;
-const MODE_STRIP_H = 12;
-const AXIS_TOP = MODE_STRIP_TOP + MODE_STRIP_H + 6;
-const AXIS_H = 16;
-const TOTAL_H = AXIS_TOP + AXIS_H + 4;
-
-type ModeSegment = { x0: number; x1: number; mode: Mode };
-type ParkBand = { x0: number; x1: number; kind: "parked" | "gap" };
-
-// A piecewise segment of the warped time axis: data-ms [m0,m1] maps to
-// pixel [p0,p1]. Dead segments (parked / gap) get a fixed narrow width.
-type TimeSeg = { m0: number; m1: number; p0: number; p1: number; dead: boolean };
-
-// buildTimeScale warps the linear time axis so parked stretches and
-// telemetry gaps take a fixed narrow width (bandPx) instead of their real
-// duration, and the active driving time fills the rest proportionally.
-// Returns sx (ms→px) and its inverse; both are continuous and monotonic so
-// the cursor, brush and every data layer stay consistent. With no dead
-// zones it degrades to the original linear mapping.
-function buildTimeScale(
-  xMin: number,
-  xMax: number,
-  bands: ParkBand[],
-  plotLeft: number,
-  plotW: number,
-  bandPx: number,
-): { sx: (ms: number) => number; invert: (px: number) => number } {
-  const dead = bands
-    .map((b) => ({ x0: Math.max(xMin, b.x0), x1: Math.min(xMax, b.x1) }))
-    .filter((b) => b.x1 - b.x0 > 1)
-    .sort((a, b) => a.x0 - b.x0);
-  const merged: { x0: number; x1: number }[] = [];
-  for (const b of dead) {
-    const last = merged[merged.length - 1];
-    if (last && b.x0 <= last.x1) last.x1 = Math.max(last.x1, b.x1);
-    else merged.push({ ...b });
-  }
-  const span = Math.max(1, xMax - xMin);
-  const deadDur = merged.reduce((s, b) => s + (b.x1 - b.x0), 0);
-  const activeDur = Math.max(1, span - deadDur);
-  const activePx = Math.max(1, plotW - merged.length * bandPx);
-  const pxPerActive = activePx / activeDur;
-
-  const segs: TimeSeg[] = [];
-  let cm = xMin;
-  let cp = plotLeft;
-  for (const b of merged) {
-    if (b.x0 > cm) {
-      const w = (b.x0 - cm) * pxPerActive;
-      segs.push({ m0: cm, m1: b.x0, p0: cp, p1: cp + w, dead: false });
-      cp += w;
-    }
-    segs.push({ m0: b.x0, m1: b.x1, p0: cp, p1: cp + bandPx, dead: true });
-    cp += bandPx;
-    cm = b.x1;
-  }
-  if (cm < xMax || segs.length === 0) {
-    segs.push({ m0: cm, m1: xMax, p0: cp, p1: plotLeft + plotW, dead: false });
-  }
-
-  const sx = (ms: number): number => {
-    if (ms <= xMin) return plotLeft;
-    if (ms >= xMax) return plotLeft + plotW;
-    for (const s of segs) {
-      if (ms <= s.m1) {
-        const t = (ms - s.m0) / Math.max(1, s.m1 - s.m0);
-        return s.p0 + t * (s.p1 - s.p0);
-      }
-    }
-    return plotLeft + plotW;
-  };
-  const invert = (px: number): number => {
-    if (px <= plotLeft) return xMin;
-    if (px >= plotLeft + plotW) return xMax;
-    for (const s of segs) {
-      if (px <= s.p1) {
-        const t = (px - s.p0) / Math.max(1e-6, s.p1 - s.p0);
-        return s.m0 + t * (s.m1 - s.m0);
-      }
-    }
-    return xMax;
-  };
-  return { sx, invert };
-}
-type PrecipBand = {
-  x0: number;
-  x1: number;
-  color: string;
-  label: string;
-};
-type Moment = {
-  ms: number;
-  label: string;
-  detail: string;
-  tone: "info" | "warning" | "success" | "neutral";
-};
-
-function TimelineSVG(props: {
+function Panels(props: {
   xMin: number;
   xMax: number;
-  speedPts: { x: number; y: number }[];
-  socPts: { x: number; y: number }[];
-  elevPts: { x: number; y: number }[];
-  powerPts: PowerPt[];
-  packTempPts: { x: number; y: number }[];
-  headwindPts: { x: number; y: number }[];
-  modeSegments: ModeSegment[];
-  parkBands: ParkBand[];
-  precipBands: PrecipBand[];
+  speedPts: Pt[];
+  powerPts: Pt[];
+  socPts: Pt[];
+  elevPts: Pt[];
+  packTempPts: Pt[];
+  tempUnit: "f" | "c";
+  parkBands: ReturnType<typeof buildParkBands>;
+  modeSegments: ReturnType<typeof buildModeSegments>;
+  precipBands: ReturnType<typeof buildPrecipBands>;
   moments: Moment[];
   cursorMs: number | null;
   onCursorChange: (ms: number | null) => void;
-  onViewWindowChange: (window: [number, number] | null) => void;
-  // Called with true when a touch pointer is first detected, false
-  // when the user switches back to mouse. DriveTimeline uses this to
-  // decide whether to show the HTML readout dismiss button.
-  onPointerTypeChange: (isTouch: boolean) => void;
-  cursorSample: Sample | null;
-  cursorSoc: number | null;
-  maxSpeedMph: number;
-  startSoC: number;
-  endSoC: number;
-  // Layer visibility from the tap-to-add legend.
-  showSpeed: boolean;
-  showBattery: boolean;
-  showPower: boolean;
-  showElevation: boolean;
-  showPackTemp: boolean;
-  showHeadwind: boolean;
+  onViewWindowChange: (w: [number, number] | null) => void;
+  onPointerTypeChange: (touch: boolean) => void;
+  isZoomed: boolean;
+  sampleXs: Pt[];
 }) {
   const {
     xMin,
     xMax,
     speedPts,
+    powerPts,
     socPts,
     elevPts,
-    powerPts,
     packTempPts,
-    headwindPts,
-    modeSegments,
+    tempUnit,
     parkBands,
+    modeSegments,
     precipBands,
     moments,
     cursorMs,
     onCursorChange,
     onViewWindowChange,
     onPointerTypeChange,
-    cursorSample,
-    cursorSoc,
-    maxSpeedMph,
-    startSoC,
-    endSoC,
-    showSpeed,
-    showBattery,
-    showPower,
-    showElevation,
-    showPackTemp,
-    showHeadwind,
+    sampleXs,
   } = props;
 
-  // The SVG uses preserveAspectRatio="none" so the fixed viewBox stretches
-  // to fill the container — great for the data paths, but it distorts
-  // *text* (squished-narrow on a phone, wide on a desktop). Measure the
-  // rendered box and counter-scale every text element by the inverse
-  // stretch so labels stay upright at any width. fx/fy default to 1 (no
-  // distortion) until the first measurement lands.
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [aspect, setAspect] = useState({ fx: 1, fy: 1 });
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(640);
   useLayoutEffect(() => {
-    const el = svgRef.current;
+    const el = wrapRef.current;
     if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        setAspect({ fx: r.width / VIEW_W, fy: r.height / TOTAL_H });
-      }
-    };
+    const measure = () => setWidth(Math.max(260, Math.round(el.getBoundingClientRect().width)));
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // Counter-scale factor for text: undo the SVG stretch around each label's
-  // anchor point. Applied via <g transform> so textAnchor still works.
-  const textTF = (x: number, y: number) =>
-    `translate(${x} ${y}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
 
-  // Rendered width in px (counter-scaled text is real pixels): below ~480
-  // px the 70/44-unit gutters are only ~25 px wide, so axis titles would
-  // sit on top of the first tick labels. The series chips above the
-  // chart already name (and colour) every series, so the titles drop out
-  // and the axis uses fewer ticks.
-  const narrow = aspect.fx * VIEW_W < 480;
-  const xSpan = Math.max(1, xMax - xMin);
-  // Warped time axis: parked/gap dead zones compressed to a fixed width so
-  // real driving data owns the plot. sx + invert stay continuous, so every
-  // layer (data, bands, ticks, cursor, brush) follows automatically.
-  const scale = buildTimeScale(
-    xMin,
-    xMax,
-    parkBands,
-    PAD_L,
-    PLOT_W,
-    COMPRESSED_BAND_PX,
+  const narrow = width < 480;
+  const padR = elevPts.length > 1 ? 40 : 10;
+  const plotW = Math.max(120, width - PAD_L - padR);
+  const scale = useMemo(
+    () => buildTimeScale(xMin, xMax, parkBands, PAD_L, plotW, DEAD_PX),
+    [xMin, xMax, parkBands, plotW],
   );
   const sx = scale.sx;
 
-  // Brush state — local to the chart. dragStart/dragEnd are in
-  // data-space ms, captured during a pointerdown→move→up gesture.
-  // We treat <5 px of pointer movement as a click (no drag), so
-  // single-clicks still fall through to the existing cursor-set
-  // behavior; only an actual drag commits a zoom.
-  const [drag, setDrag] = useState<{
-    startMs: number;
-    endMs: number;
-    startScreenX: number;
-    moved: boolean;
-  } | null>(null);
+  // Panel stack. Heights are in px; the speed panel is the tallest.
+  const speedH = narrow ? 120 : 150;
+  const powerH = narrow ? 64 : 76;
+  const battH = narrow ? 80 : 96;
+  const tempH = 56;
+  let y = PAD_T;
+  const speedTop = y;
+  y += speedH + PANEL_GAP;
+  const powerTop = y;
+  if (powerPts.length > 1) y += powerH + PANEL_GAP;
+  const battTop = y;
+  y += battH + PANEL_GAP;
+  const tempTop = y;
+  if (packTempPts.length > 1) y += tempH + PANEL_GAP;
+  const stripsTop = y - PANEL_GAP + 8;
+  let sy = stripsTop;
+  const modeTop = sy;
+  if (modeSegments.length > 0) sy += 6 + 4;
+  const precipTop = sy;
+  if (precipBands.length > 0) sy += 8 + 4;
+  const axisTop = sy + 2;
+  const totalH = axisTop + AXIS_H;
+  const plotBottom = stripsTop - 8;
 
-  // After a drag-to-zoom commits, the browser still fires a trailing
-  // `click`. This ref lets the click handler swallow that one event so a
-  // zoom gesture doesn't also drop the cursor at the release point.
-  const suppressClickRef = useRef(false);
+  // y domains and ticks
+  const speedMax = niceCeil(Math.max(30, ...speedPts.map((p) => p.y)));
+  const speedTicks = [0, speedMax / 2, speedMax];
+  const pMax = Math.max(10, ...powerPts.map((p) => p.y));
+  const pMin = Math.min(-10, ...powerPts.map((p) => p.y));
+  const pStep = pMax - pMin > 150 ? 50 : 25;
+  const pHi = Math.ceil(pMax / pStep) * pStep;
+  const pLo = Math.floor(pMin / pStep) * pStep;
+  const powerTicks = Array.from(new Set([pLo, 0, pHi]));
+  const sMinRaw = Math.min(...socPts.map((p) => p.y));
+  const sMaxRaw = Math.max(...socPts.map((p) => p.y));
+  const sLo = Math.max(0, Math.floor((sMinRaw - 2) / 10) * 10);
+  const sHi = Math.min(100, Math.max(sLo + 20, Math.ceil((sMaxRaw + 2) / 10) * 10));
+  const socTicks = [sLo, Math.round((sLo + sHi) / 2), sHi];
+  const eMin = elevPts.length > 1 ? Math.min(...elevPts.map((p) => p.y)) : 0;
+  const eMax = elevPts.length > 1 ? Math.max(...elevPts.map((p) => p.y)) : 1;
+  const toTemp = (c: number) => (tempUnit === "f" ? c * 1.8 + 32 : c);
+  const tempPts = packTempPts.map((p) => ({ x: p.x, y: toTemp(p.y) }));
+  const tMinRaw = tempPts.length ? Math.min(...tempPts.map((p) => p.y)) : 0;
+  const tMaxRaw = tempPts.length ? Math.max(...tempPts.map((p) => p.y)) : 1;
+  const tLo = Math.floor(tMinRaw - 1);
+  const tHi = Math.max(tLo + 4, Math.ceil(tMaxRaw + 1));
 
-  const clientXToDataMs = (
-    clientX: number,
-    svg: SVGSVGElement | null,
-  ): number | null => {
-    if (!svg) return null;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0) return null;
-    const vbX = ((clientX - rect.left) / rect.width) * VIEW_W;
-    if (vbX < PAD_L || vbX > VIEW_W - PAD_R) return null;
-    return scale.invert(vbX);
+  const ticks = niceTimeTicks(xMin, xMax, narrow ? 4 : 7, displayTimeZone());
+
+  const yIn = (v: number, lo: number, hi: number, top: number, h: number) =>
+    hi === lo ? top + h / 2 : top + h - ((v - lo) / (hi - lo)) * h;
+  const toPath = (pts: Pt[], lo: number, hi: number, top: number, h: number) =>
+    monotonePath(pts.filter((p) => p.x >= xMin && p.x <= xMax).map((p) => ({ x: sx(p.x), y: yIn(p.y, lo, hi, top, h) })));
+  const areaPath = (pts: Pt[], lo: number, hi: number, top: number, h: number, baseV: number, clamp?: "pos" | "neg") => {
+    const vis = pts.filter((p) => p.x >= xMin && p.x <= xMax);
+    if (vis.length < 2) return "";
+    const base = yIn(baseV, lo, hi, top, h);
+    const pp = vis.map((p) => {
+      const v = clamp === "pos" ? Math.max(p.y, baseV) : clamp === "neg" ? Math.min(p.y, baseV) : p.y;
+      return { x: sx(p.x), y: yIn(v, lo, hi, top, h) };
+    });
+    return `M${pp[0].x},${base} L${pp.map((p) => `${p.x},${p.y}`).join(" L")} L${pp[pp.length - 1].x},${base} Z`;
   };
-  const eventToDataMs = (
-    e: ReactPointerEvent<SVGElement>,
-  ): number | null =>
-    clientXToDataMs(e.clientX, e.currentTarget.ownerSVGElement);
 
-  // Speed Y-domain: 0 → max speed + headroom, with a 50 mph minimum so
-  // city-only drives still get a reasonable scale.
-  const speedMax = Math.max(50, Math.ceil((maxSpeedMph + 5) / 10) * 10);
-  const speedTicks = [0, Math.round(speedMax / 2), speedMax];
+  // Pointer handling
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [brush, setBrush] = useState<{ x0: number; x1: number } | null>(null);
+  const dragRef = useRef<{ startX: number; moved: boolean; mouse: boolean } | null>(null);
+  const localX = (e: ReactPointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect();
+    return e.clientX - r.left;
+  };
+  const msAt = (px: number) => scale.invert(Math.min(PAD_L + plotW, Math.max(PAD_L, px)));
+  const scrubTo = (px: number) => onCursorChange(snapToSample(msAt(px), sampleXs));
 
-  // Battery Y-domain: tight band around the actual SoC range so the
-  // line uses the panel's full height. ±5% pads against regen bumps and
-  // the smoothing edges.
-  const socLo = Math.max(0, Math.floor(endSoC - 5));
-  const socHi = Math.min(100, Math.ceil(startSoC + 5));
-  const socTicks = [socLo, Math.round((socLo + socHi) / 2), socHi];
+  const onDown = (e: ReactPointerEvent<SVGRectElement>) => {
+    const touch = e.pointerType !== "mouse";
+    onPointerTypeChange(touch);
+    dragRef.current = { startX: localX(e), moved: false, mouse: !touch };
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    if (touch) scrubTo(localX(e));
+  };
+  const onMove = (e: ReactPointerEvent<SVGRectElement>) => {
+    const px = localX(e);
+    const d = dragRef.current;
+    if (d && d.mouse) {
+      if (Math.abs(px - d.startX) > 5) d.moved = true;
+      if (d.moved) setBrush({ x0: d.startX, x1: px });
+      return;
+    }
+    // touch drag, or mouse hover
+    if (d || e.pointerType === "mouse") scrubTo(px);
+  };
+  const onUp = (e: ReactPointerEvent<SVGRectElement>) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    if (d && d.mouse && d.moved && brush) {
+      const a = msAt(Math.min(brush.x0, brush.x1));
+      const b = msAt(Math.max(brush.x0, brush.x1));
+      setBrush(null);
+      if (b - a > 20_000) onViewWindowChange([a, b]);
+      return;
+    }
+    setBrush(null);
+    if (d && d.mouse && !d.moved) scrubTo(localX(e));
+  };
 
-  // Power ribbon scale: dynamic cap so quiet drives still show contrast
-  // and aggressive drives don't all saturate into the same red.
-  const powerCap = Math.max(60, ...powerPts.map((p) => Math.abs(p.y))) * 1.05;
+  const cx = cursorMs != null && cursorMs >= xMin && cursorMs <= xMax ? sx(cursorMs) : null;
+  const dot = (pts: Pt[], lo: number, hi: number, top: number, h: number, color: string) => {
+    if (cx == null || cursorMs == null || pts.length === 0) return null;
+    const v = nearestY(pts, cursorMs);
+    if (v == null) return null;
+    return <circle cx={cx} cy={yIn(v, lo, hi, top, h)} r={3.5} style={{ fill: color }} className="stroke-neutral-950" strokeWidth={1.5} />;
+  };
 
-  // Cursor visibility: when zoomed, hide crosshair / dots / floating
-  // tooltip if the cursor is parked outside the visible window. The
-  // persistent readout above the chart still shows it. This avoids
-  // ghost dots floating in the y-axis gutter or out past the right
-  // edge after a zoom-in.
-  const cursorVisible =
-    cursorMs != null && cursorMs >= xMin && cursorMs <= xMax;
+  const flags = moments.filter((m) => m.ms >= xMin && m.ms <= xMax);
 
-  return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${VIEW_W} ${TOTAL_H}`}
-      // Comfortable floor on phones so the single plot panel + strips
-      // stay legible; desktop uses the viewBox aspect.
-      className="w-full min-h-[320px] sm:min-h-[260px]"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Drive timeline"
-    >
-      <defs>
-        {/* Single clip-path that all data layers inherit. Bounds the
-            plot area horizontally so zoomed-in series can't bleed
-            into the y-axis gutter or the right margin; vertically it
-            covers the full SVG so individual panels don't need their
-            own clip. Y-axis tick labels and panel labels live OUTSIDE
-            this clip's X range and so render unaffected. */}
-        <clipPath id="dt-plot-clip">
-          <rect x={PAD_L} y={0} width={PLOT_W} height={TOTAL_H} />
-        </clipPath>
-      </defs>
-
-      {/* ---- Mode tint background on speed panel ------------------ */}
-      <g clipPath="url(#dt-plot-clip)">
-        {modeSegments.map((seg, i) => (
-          <rect
-            key={`tint-${i}`}
-            x={sx(seg.x0)}
-            y={SPEED_TOP}
-            width={Math.max(0, sx(seg.x1) - sx(seg.x0))}
-            height={SPEED_H}
-            fill={MODE_TINT[seg.mode]}
-          />
-        ))}
-      </g>
-
-      {/* ---- Park / gap bands across speed + battery panels -------- */}
-      <g clipPath="url(#dt-plot-clip)">
-        {parkBands.map((b, i) => {
-          const x = sx(b.x0);
-          const w = Math.max(2, sx(b.x1) - sx(b.x0));
-          const mid = x + w / 2;
-          const mins = Math.round((b.x1 - b.x0) / 60000);
-          const fmtDur = (m: number) =>
-            m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
-          const isGap = b.kind === "gap";
-          const label = isGap ? `No telemetry ${fmtDur(mins)}` : `Parked ${fmtDur(mins)}`;
-          return (
-            <g key={`park-${i}`}>
-              <rect
-                x={x}
-                y={SPEED_TOP}
-                width={w}
-                height={BATT_TOP + BATT_H - SPEED_TOP}
-                className="fill-neutral-900"
-                fillOpacity={isGap ? 0.35 : 0.55}
-              />
-              {/* Always label the (now-compressed) band; counter-scaled
-                  and allowed to overflow the narrow rect, since the dead
-                  zone it labels has no data to collide with. */}
-              <g transform={textTF(mid, SPEED_TOP + 12)}>
-                <text
-                  textAnchor="middle"
-                  className={isGap ? "fill-neutral-400" : "fill-neutral-300"}
-                  fontSize="10"
-                  fontWeight="600"
-                >
-                  {label}
-                </text>
-              </g>
-            </g>
-          );
-        })}
-      </g>
-
-      {/* ---- Power ribbon ----------------------------------------- */}
-      {/* PowerRibbon manages its own label; data inside is clipped. */}
-      {showPower ? (
-        <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} hideLabel={narrow} />
-      ) : null}
-
-      {/* ---- Speed panel: frame + grid + ticks -------------------- */}
-      <rect
-        x={PAD_L}
-        y={SPEED_TOP}
-        width={PLOT_W}
-        height={SPEED_H}
-        fill="transparent"
-        className="stroke-neutral-800"
-        strokeWidth={0.7}
-      />
-      {speedTicks.map((tv, i) => {
-        const y = ySolve(tv, 0, speedMax, SPEED_TOP, SPEED_H);
-        return (
-          <g key={`st-${i}`}>
-            <line
-              x1={PAD_L}
-              x2={VIEW_W - PAD_R}
-              y1={y}
-              y2={y}
-              className="stroke-neutral-800"
-              strokeWidth={0.5}
-              strokeDasharray={
-                i === 0 || i === speedTicks.length - 1 ? undefined : "2 3"
-              }
-            />
-            <g transform={textTF(PAD_L - 6, y + 3.5)}>
-              <text
-                textAnchor="end"
-                className="fill-neutral-500"
-                fontSize={10}
-              >
-                {tv}
-              </text>
-            </g>
-          </g>
-        );
-      })}
-      {narrow ? null : (
-        <g transform={textTF(4, SPEED_TOP + 12)}>
-          <text
-            fontSize={10}
-            fill={SERIES.speed}
-            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-          >
-            Speed
-          </text>
-        </g>
-      )}
-
-      {/* ---- Speed area + line ------------------------------------ */}
-      {showSpeed && speedPts.length > 1
-        ? (() => {
-            const path = monotonePath(
-              speedPts.map((p) => ({
-                x: sx(p.x),
-                y: ySolve(p.y, 0, speedMax, SPEED_TOP, SPEED_H),
-              })),
-            );
-            const last = speedPts[speedPts.length - 1];
-            const first = speedPts[0];
-            const baseY = ySolve(0, 0, speedMax, SPEED_TOP, SPEED_H);
-            return (
-              <g clipPath="url(#dt-plot-clip)">
-                <path
-                  d={`${path} L ${sx(last.x).toFixed(2)},${baseY.toFixed(2)} L ${sx(first.x).toFixed(2)},${baseY.toFixed(2)} Z`}
-                  fill={SERIES.speed}
-                  opacity={0.12}
-                />
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={SERIES.speed}
-                  strokeWidth={1.4}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </g>
-            );
-          })()
-        : null}
-
-      {/* ---- Headwind overlay (opt-in) ---------------------------- */}
-      {/* Dashed line scaled to its own +head / −tail range across the
-          speed panel; exact values come from the tooltip/readout. */}
-      {showHeadwind && headwindPts.length > 1
-        ? (() => {
-            const ys = headwindPts.map((p) => p.y);
-            const lo = Math.min(0, ...ys);
-            const hi = Math.max(1, ...ys);
-            const path = monotonePath(
-              headwindPts.map((p) => ({
-                x: sx(p.x),
-                // Confine to the lower 60% of the panel so it stays clear
-                // of the speed trace's usual working range up top.
-                y: ySolve(p.y, lo, hi, SPEED_TOP + SPEED_H * 0.4, SPEED_H * 0.6),
-              })),
-            );
-            return (
-              <g clipPath="url(#dt-plot-clip)">
-                <path
-                  d={path}
-                  fill="none"
-                  stroke="#0891b2"
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                  opacity={0.85}
-                />
-              </g>
-            );
-          })()
-        : null}
-
-      {/* ---- Moment markers --------------------------------------- */}
-      <g clipPath="url(#dt-plot-clip)">
-        {moments.map((m, i) => {
-          const x = sx(m.ms);
-          return (
-            <g key={`mom-${i}`}>
-              <line
-                x1={x}
-                x2={x}
-                y1={SPEED_TOP + 4}
-                y2={SPEED_TOP + SPEED_H - 2}
-                stroke={momentColor(m.tone)}
-                strokeWidth={0.7}
-                strokeDasharray="2 4"
-                opacity={0.8}
-              />
-              <circle
-                cx={x}
-                cy={SPEED_TOP + 4}
-                r={2.6}
-                fill={momentColor(m.tone)}
-              >
-                <title>{`${m.label} — ${m.detail}`}</title>
-              </circle>
-            </g>
-          );
-        })}
-      </g>
-
-      {/* ---- SoC right axis (shares the single plot panel) -------- */}
-      {/* No full-width gridlines here — the left (speed) axis already
-          draws them; the right axis contributes only edge ticks +
-          labels so the two scales stay visually separable. */}
-      {socTicks.map((tv, i) => {
-        const y = ySolve(tv, socLo, socHi, BATT_TOP, BATT_H);
-        return (
-          <g key={`bt-${i}`}>
-            <line
-              x1={VIEW_W - PAD_R}
-              x2={VIEW_W - PAD_R + 3}
-              y1={y}
-              y2={y}
-              stroke={SERIES.battery}
-              strokeWidth={0.6}
-              opacity={0.7}
-            />
-            <g transform={textTF(VIEW_W - PAD_R + 6, y + 3.5)}>
-              <text
-                textAnchor="start"
-                fontSize={10}
-                fill={SERIES.battery}
-                fillOpacity={0.85}
-              >
-                {tv}
-              </text>
-            </g>
-          </g>
-        );
-      })}
-      {narrow ? null : (
-        <g transform={textTF(VIEW_W - PAD_R - 2, BATT_TOP + 12)}>
-          <text
-            textAnchor="end"
-            fontSize={10}
-            fill={SERIES.battery}
-            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-          >
-            SoC
-          </text>
-        </g>
-      )}
-
-      {showElevation ? (
-        <ElevationBackdrop
-          elevPts={elevPts}
-          sx={sx}
-          top={BATT_TOP}
-          height={BATT_H}
-        />
-      ) : null}
-
-      {/* ---- Pack temp overlay (opt-in) --------------------------- */}
-      {/* Dashed pink line scaled to its own range within the battery
-          panel; exact °C/°F read out in the tooltip/readout. */}
-      {showPackTemp && packTempPts.length > 1
-        ? (() => {
-            const ys = packTempPts.map((p) => p.y);
-            const tLo = Math.min(...ys);
-            const tHi = Math.max(tLo + 1, Math.max(...ys));
-            // Confine to the middle band of the panel so it doesn't ride
-            // the SoC line or hug the frame edges.
-            const path = monotonePath(
-              packTempPts.map((p) => ({
-                x: sx(p.x),
-                y: ySolve(p.y, tLo, tHi, BATT_TOP + BATT_H * 0.15, BATT_H * 0.7),
-              })),
-            );
-            return (
-              <g clipPath="url(#dt-plot-clip)">
-                <path
-                  d={path}
-                  fill="none"
-                  stroke="#f472b6"
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                  opacity={0.85}
-                />
-              </g>
-            );
-          })()
-        : null}
-
-      {/* ---- SoC line --------------------------------------------- */}
-      {showBattery && socPts.length > 1
-        ? (() => {
-            const path = monotonePath(
-              socPts.map((p) => ({
-                x: sx(p.x),
-                y: ySolve(p.y, socLo, socHi, BATT_TOP, BATT_H),
-              })),
-            );
-            return (
-              <g clipPath="url(#dt-plot-clip)">
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={SERIES.battery}
-                  strokeWidth={1.4}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-              </g>
-            );
-          })()
-        : null}
-
-      {/* ---- Precipitation strip ---------------------------------- */}
-      <CategoricalStrip
-        title="Precip"
-        shortTitle={narrow ? "Rain" : undefined}
-        top={PRECIP_TOP}
-        height={PRECIP_H}
-        bands={precipBands.map((b) => ({
-          x0: sx(b.x0),
-          x1: sx(b.x1),
-          color: b.color,
-          label: b.label,
-        }))}
-        showLabels={false}
-        textTF={textTF}
-      />
-
-      {/* ---- Mode strip ------------------------------------------- */}
-      <CategoricalStrip
-        title="Mode"
-        top={MODE_STRIP_TOP}
-        height={MODE_STRIP_H}
-        bands={modeSegments.map((seg) => ({
-          x0: sx(seg.x0),
-          x1: sx(seg.x1),
-          color: MODE_BAND[seg.mode],
-          label: MODE_LABEL[seg.mode],
-        }))}
-        showLabels
-        textTF={textTF}
-      />
-
-      {/* ---- Time axis -------------------------------------------- */}
-      <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} textTF={textTF} maxTicks={narrow ? 3 : 5} />
-
-      {/* ---- Crosshair -------------------------------------------- */}
-      {cursorVisible
-        ? (() => {
-            const cx = sx(cursorMs!);
-            return (
-              <g clipPath="url(#dt-plot-clip)">
-                <line
-                  x1={cx}
-                  x2={cx}
-                  y1={SPEED_TOP}
-                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
-                  className="stroke-neutral-400"
-                  strokeWidth={1}
-                  vectorEffect="non-scaling-stroke"
-                />
-              </g>
-            );
-          })()
-        : null}
-
-      {/* ---- Cursor dots on each panel ---------------------------- */}
-      {cursorVisible && cursorSample ? (
-        <g pointerEvents="none" clipPath="url(#dt-plot-clip)">
-          {showSpeed ? (
-            <circle
-              cx={sx(cursorMs!)}
-              cy={ySolve(
-                cursorSample.SpeedMph || 0,
-                0,
-                speedMax,
-                SPEED_TOP,
-                SPEED_H,
-              )}
-              r={3}
-              fill={SERIES.speed}
-              className="stroke-neutral-950"
-              strokeWidth={1.5}
-            />
-          ) : null}
-          {showBattery && cursorSoc != null ? (
-            <circle
-              cx={sx(cursorMs!)}
-              cy={ySolve(cursorSoc, socLo, socHi, BATT_TOP, BATT_H)}
-              r={3}
-              fill={SERIES.battery}
-              className="stroke-neutral-950"
-              strokeWidth={1.5}
-            />
-          ) : null}
-        </g>
-      ) : null}
-
-      {/* The moment's readout lives in the HTML CursorReadout below the
-          chart (see DriveTimeline), which stays crisp at any scale —
-          matching the charge page. No in-SVG tooltip, so nothing here
-          fights preserveAspectRatio="none" and stretches. */}
-
-      {/* ---- Brush-selection overlay (drawn during a drag) -------- */}
-      {drag && drag.moved ? (
-        <g pointerEvents="none" clipPath="url(#dt-plot-clip)">
-          {(() => {
-            const a = sx(Math.min(drag.startMs, drag.endMs));
-            const b = sx(Math.max(drag.startMs, drag.endMs));
-            return (
-              <>
-                <rect
-                  x={a}
-                  y={SPEED_TOP}
-                  width={Math.max(0, b - a)}
-                  height={MODE_STRIP_TOP + MODE_STRIP_H - SPEED_TOP}
-                  fill="#10b981"
-                  opacity={0.12}
-                />
-                <line
-                  x1={a}
-                  x2={a}
-                  y1={SPEED_TOP}
-                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
-                  stroke="#10b981"
-                  strokeWidth={1}
-                />
-                <line
-                  x1={b}
-                  x2={b}
-                  y1={SPEED_TOP}
-                  y2={MODE_STRIP_TOP + MODE_STRIP_H}
-                  stroke="#10b981"
-                  strokeWidth={1}
-                />
-              </>
-            );
-          })()}
-        </g>
-      ) : null}
-
-      {/* ---- Pointer-capture overlay ------------------------------ */}
-      <rect
-        x={PAD_L}
-        y={SPEED_TOP}
-        width={PLOT_W}
-        height={MODE_STRIP_TOP + MODE_STRIP_H - SPEED_TOP}
-        fill="transparent"
-        // pan-y: vertical drag scrolls the page; horizontal drag selects a
-        // time window and a tap sets the cursor. Without it the timeline
-        // traps every touch gesture and the page can't scroll past it.
-        style={{
-          cursor: drag?.moved ? "ew-resize" : "crosshair",
-          touchAction: "pan-y",
-        }}
-        onPointerDown={(e) => {
-          // Only respond to the primary button. Ignore right-clicks
-          // and middle-clicks so context menus / autoscroll still work.
-          if (e.button !== 0) return;
-          const touch = e.pointerType === "touch" || e.pointerType === "pen";
-          onPointerTypeChange(touch);
-          const t = eventToDataMs(e);
-          if (t == null) return;
-          (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-          setDrag({
-            startMs: t,
-            endMs: t,
-            startScreenX: e.clientX,
-            moved: false,
-          });
-        }}
-        onPointerMove={(e) => {
-          if (drag) {
-            const t = eventToDataMs(e);
-            if (t == null) return;
-            // Promote a click to a drag once the pointer has actually
-            // moved a few px on screen — below that threshold we treat
-            // pointerup as a tap and fall through to setting the cursor.
-            // Use a larger threshold for touch (8 px) to absorb finger
-            // jitter on press.
-            const touchDrag =
-              e.pointerType === "touch" || e.pointerType === "pen";
-            const threshold = touchDrag ? 8 : 4;
-            const moved =
-              drag.moved || Math.abs(e.clientX - drag.startScreenX) > threshold;
-            setDrag({ ...drag, endMs: t, moved });
-          } else {
-            // Mouse-only: update cursor continuously while hovering.
-            if (e.pointerType !== "mouse") return;
-            const t = eventToDataMs(e);
-            if (t == null) return;
-            onCursorChange(snapToSample(t, speedPts));
-          }
-        }}
-        onPointerUp={(e) => {
-          if (!drag) return;
-          (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
-          if (drag.moved) {
-            // A drag emits a trailing click — swallow it so the zoom
-            // gesture doesn't also drop the cursor at the release point.
-            suppressClickRef.current = true;
-            const lo = Math.min(drag.startMs, drag.endMs);
-            const hi = Math.max(drag.startMs, drag.endMs);
-            // Reject windows that are smaller than 1 % of the visible
-            // span — likely an accidental drag, and zooming that far in
-            // would just leave the chart empty.
-            if (hi - lo > xSpan * 0.01) {
-              onViewWindowChange([lo, hi]);
-            }
-          } else {
-            // No movement → treat as a tap that sets the cursor at the
-            // press location. The onClick handler below is the primary
-            // tap path (it survives the pointercancel that touch-action
-            // pan-y fires on a jittery tap); this is a fast-path for
-            // mouse and clean taps.
-            onCursorChange(snapToSample(drag.startMs, speedPts));
-          }
-          setDrag(null);
-        }}
-        onPointerCancel={() => setDrag(null)}
-        // Primary tap-to-inspect path. On touch, `touch-action: pan-y`
-        // makes the browser cancel the pointer stream the instant it
-        // suspects a vertical scroll, so onPointerUp is unreliable for
-        // taps — but a genuine tap (no scroll) still synthesizes a
-        // click, which lands here.
-        onClick={(e) => {
-          if (suppressClickRef.current) {
-            suppressClickRef.current = false;
-            return;
-          }
-          const t = clientXToDataMs(
-            e.clientX,
-            (e.currentTarget as SVGElement).ownerSVGElement,
-          );
-          if (t == null) return;
-          onCursorChange(snapToSample(t, speedPts));
-        }}
-        onPointerLeave={(e) => {
-          // For mouse: clear the cursor so the readout disappears when
-          // the pointer exits the chart. For touch/pen: keep the cursor
-          // alive so the HTML readout stays visible after the finger
-          // lifts — the user can dismiss it explicitly.
-          if (!drag && e.pointerType === "mouse") onCursorChange(null);
-        }}
-        onDoubleClick={() => {
-          // Reset zoom on a double-click anywhere over the chart.
-          onViewWindowChange(null);
-        }}
-      />
-    </svg>
-  );
-}
-
-// ---- Subcomponents --------------------------------------------------------
-
-// TimelineChip is one entry in the tap-to-add legend above the chart —
-// filled when its layer is on, outlined when off. Mirrors the charge
-// page's SeriesChip so the two detail views feel consistent.
-function TimelineChip({
-  label,
-  color,
-  on,
-  onClick,
-}: {
-  label: string;
-  color: string;
-  on: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-        on
-          ? "border-neutral-600 bg-neutral-800 text-neutral-100"
-          : "border-neutral-800 bg-neutral-950 text-neutral-500 hover:text-neutral-300"
-      }`}
-      aria-pressed={on}
-    >
-      <span
-        className="inline-block h-2 w-2 rounded-full"
-        style={{ backgroundColor: on ? color : "transparent", border: `1px solid ${color}` }}
-      />
-      {label}
-    </button>
-  );
-}
-
-function PowerRibbon({
-  powerPts,
-  sx,
-  cap,
-  textTF,
-  hideLabel = false,
-}: {
-  powerPts: PowerPt[];
-  sx: (x: number) => number;
-  cap: number;
-  textTF: (x: number, y: number) => string;
-  hideLabel?: boolean;
-}) {
-  if (powerPts.length < 2) return null;
-  return (
+  const PanelFrame = ({ top, h, title, unit, tks, lo, hi, fmt }: { top: number; h: number; title: string; unit: string; tks: number[]; lo: number; hi: number; fmt?: (v: number) => string }) => (
     <g>
-      {hideLabel ? null : (
-        <g transform={textTF(4, RIBBON_TOP + RIBBON_H - 1)}>
+      {tks.map((tv) => (
+        <g key={`${title}-${tv}`}>
+          <line
+            x1={PAD_L}
+            x2={PAD_L + plotW}
+            y1={yIn(tv, lo, hi, top, h)}
+            y2={yIn(tv, lo, hi, top, h)}
+            className="stroke-neutral-800"
+            strokeWidth={0.8}
+            strokeDasharray={tv === 0 && title === "Power" ? undefined : "2 4"}
+          />
           <text
+            x={PAD_L - 6}
+            y={yIn(tv, lo, hi, top, h) + 3.5}
+            textAnchor="end"
             className="fill-neutral-500"
-            fontSize={9}
-            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+            fontSize={10}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           >
-            Power
+            {fmt ? fmt(tv) : tv}
           </text>
         </g>
-      )}
-      {/* Per-interval color cells live inside the plot clip so they
-          can't bleed past the y-axis gutter when the chart is zoomed
-          in. The frame rect and right-side legend stay outside the
-          clip so they always render at the panel edges. */}
-      <g clipPath="url(#dt-plot-clip)">
-        {powerPts.slice(0, -1).map((p, i) => {
-          const next = powerPts[i + 1];
-          // No power was modelled across a gap, so don't paint one —
-          // a filled cell here would render a telemetry hole as
-          // minutes of steady draw or regen.
-          if (next.gap) return null;
-          const x0 = sx(p.x);
-          const x1 = sx(next.x);
-          if (x1 <= x0) return null;
-          const ratio = Math.max(-1, Math.min(1, p.y / cap));
-          const fill =
-            ratio > 0
-              ? interpHex("#1f2937", SERIES.draw, ratio)
-              : interpHex("#1f2937", SERIES.regen, -ratio);
+      ))}
+      <text x={PAD_L} y={top - 6} fontSize={10} className="fill-neutral-400" style={{ letterSpacing: 0.4 }}>
+        {title} <tspan className="fill-neutral-500">· {unit}</tspan>
+      </text>
+    </g>
+  );
+
+  return (
+    <div ref={wrapRef} className="w-full">
+      <svg
+        ref={svgRef}
+        width={width}
+        height={totalH}
+        viewBox={`0 0 ${width} ${totalH}`}
+        role="img"
+        aria-label="Drive timeline: speed, power and battery over time"
+        style={{ display: "block", touchAction: "pan-y" }}
+      >
+        <defs>
+          <linearGradient id="dt-speed-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: C.speed, stopOpacity: 0.38 }} />
+            <stop offset="1" style={{ stopColor: C.speed, stopOpacity: 0.03 }} />
+          </linearGradient>
+          <linearGradient id="dt-soc-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: C.soc, stopOpacity: 0.22 }} />
+            <stop offset="1" style={{ stopColor: C.soc, stopOpacity: 0.02 }} />
+          </linearGradient>
+          <clipPath id="dt-plot-clip">
+            <rect x={PAD_L} y={0} width={plotW} height={totalH} />
+          </clipPath>
+        </defs>
+
+        {/* Parked / gap dead zones: a quiet full-height band, no tint war. */}
+        {parkBands.map((b, i) => {
+          const x0 = sx(Math.max(b.x0, xMin));
+          const x1 = sx(Math.min(b.x1, xMax));
+          if (x1 - x0 < 2) return null;
           return (
             <rect
-              key={`pr-${i}`}
+              key={`pk-${i}`}
               x={x0}
-              y={RIBBON_TOP}
+              y={speedTop}
               width={x1 - x0}
-              height={RIBBON_H}
-              fill={fill}
-              opacity={0.95}
-            />
+              height={plotBottom - speedTop}
+              className="fill-neutral-500/10"
+            >
+              <title>{b.kind === "parked" ? "Parked" : "No telemetry"}</title>
+            </rect>
           );
         })}
-      </g>
-      <rect
-        x={PAD_L}
-        y={RIBBON_TOP}
-        width={PLOT_W}
-        height={RIBBON_H}
-        fill="transparent"
-        className="stroke-neutral-800"
-        strokeWidth={0.5}
-      />
-      <g transform={textTF(VIEW_W - PAD_R - 4, RIBBON_TOP + RIBBON_H - 1)}>
-        <text
-          textAnchor="end"
-          className="fill-neutral-600"
-          fontSize={8.5}
-        >
-          regen ◀ • ▶ draw
-        </text>
-      </g>
-    </g>
-  );
-}
 
-function ElevationBackdrop({
-  elevPts,
-  sx,
-  top,
-  height,
-}: {
-  elevPts: { x: number; y: number }[];
-  sx: (x: number) => number;
-  top: number;
-  height: number;
-}) {
-  if (elevPts.length < 2) return null;
-  const ys = elevPts.map((p) => p.y);
-  const lo = Math.min(...ys);
-  const hi = Math.max(...ys);
-  const span = Math.max(1e-9, hi - lo);
-  // Confine to the bottom 75% of the panel so the SoC line up top
-  // doesn't crash into the elevation ridge on hilly drives.
-  const bandH = height * 0.75;
-  const baseY = top + height;
-  const proj = elevPts.map((p) => ({
-    x: sx(p.x),
-    y: baseY - ((p.y - lo) / span) * bandH,
-  }));
-  const path = monotonePath(proj);
-  const last = proj[proj.length - 1];
-  const first = proj[0];
-  return (
-    <g clipPath="url(#dt-plot-clip)">
-      <path
-        d={`${path} L ${last.x.toFixed(2)},${baseY.toFixed(2)} L ${first.x.toFixed(2)},${baseY.toFixed(2)} Z`}
-        fill={SERIES.elevation}
-        opacity={0.10}
-      />
-      <path
-        d={path}
-        fill="none"
-        stroke={SERIES.elevation}
-        strokeWidth={0.9}
-        opacity={0.4}
-        vectorEffect="non-scaling-stroke"
-      />
-    </g>
-  );
-}
+        {/* Speed */}
+        <PanelFrame top={speedTop} h={speedH} title="Speed" unit="mph" tks={speedTicks} lo={0} hi={speedMax} />
+        <g clipPath="url(#dt-plot-clip)">
+          <path d={areaPath(speedPts, 0, speedMax, speedTop, speedH, 0)} fill="url(#dt-speed-fill)" />
+          <path d={toPath(speedPts, 0, speedMax, speedTop, speedH)} fill="none" style={{ stroke: C.speed }} strokeWidth={1.8} strokeLinejoin="round" />
+        </g>
+        {/* moment flags */}
+        {flags.map((m) => (
+          <g key={`mf-${m.ms}-${m.label}`}>
+            <line x1={sx(m.ms)} x2={sx(m.ms)} y1={speedTop + 16} y2={speedTop + speedH} stroke={momentColor(m.tone)} strokeWidth={1} strokeDasharray="2 3" opacity={0.7} />
+            <path d={`M${sx(m.ms) - 4},${speedTop + 2} h8 l-4,8 z`} fill={momentColor(m.tone)}>
+              <title>{`${m.label}: ${m.detail}`}</title>
+            </path>
+          </g>
+        ))}
 
-function CategoricalStrip({
-  title,
-  shortTitle,
-  top,
-  height,
-  bands,
-  showLabels,
-  textTF,
-}: {
-  title: string;
-  // Used when the gutter is only ~25 px (phones).
-  shortTitle?: string;
-  top: number;
-  height: number;
-  bands: { x0: number; x1: number; color: string; label: string }[];
-  showLabels: boolean;
-  textTF: (x: number, y: number) => string;
-}) {
-  return (
-    <g>
-      <rect
-        x={PAD_L}
-        y={top}
-        width={PLOT_W}
-        height={height}
-        className="fill-neutral-900"
-        rx={2}
-      />
-      {/* Drawn after the strip so it can never be covered by it. */}
-      <g transform={textTF(2, top + height - 2)}>
-        <text className="fill-neutral-500" fontSize={9}>
-          {shortTitle ?? title}
-        </text>
-      </g>
-      <g clipPath="url(#dt-plot-clip)">
-        {bands.map((b, i) => {
-          const w = Math.max(0, b.x1 - b.x0);
-          return (
-            <g key={`bn-${i}`}>
-              <rect
-                x={b.x0}
-                y={top}
-                width={w}
-                height={height}
-                fill={b.color}
-                opacity={0.55}
-              />
-              {showLabels && w > 70 ? (
-                <g transform={textTF(b.x0 + 6, top + height - 3)}>
-                  <text className="fill-neutral-100" fontSize={9}>
-                    {b.label}
-                  </text>
-                </g>
-              ) : null}
-              <title>{b.label}</title>
-            </g>
-          );
-        })}
-      </g>
-    </g>
-  );
-}
-
-function TimeAxis({
-  xMin,
-  xMax,
-  sx,
-  top,
-  textTF,
-  maxTicks = 5,
-}: {
-  xMin: number;
-  xMax: number;
-  sx: (x: number) => number;
-  top: number;
-  textTF: (x: number, y: number) => string;
-  maxTicks?: number;
-}) {
-  const ticks = niceTimeTicks(xMin, xMax, maxTicks);
-  return (
-    <g>
-      {ticks.map((t, i) => {
-        // Anchor the first and last tick labels to start/end of the
-        // tick line so the label can't extend past the SVG bounds and
-        // get clipped (e.g. "06:27 PM" turning into "06:27 P" at the
-        // right edge). Interior ticks stay centered on the tick.
-        const anchor: "start" | "middle" | "end" =
-          i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle";
-        return (
-          <g key={`tt-${i}`}>
-            <line
-              x1={sx(t)}
-              x2={sx(t)}
-              y1={top - 4}
-              y2={top - 1}
-              className="stroke-neutral-700"
-              strokeWidth={0.6}
-            />
-            <g transform={textTF(sx(t), top + 10)}>
-              <text
-                textAnchor={anchor}
-                className="fill-neutral-500"
-                fontSize={10}
-                style={{ fontVariantNumeric: "tabular-nums" }}
-              >
-                {fmtClock(t)}
-              </text>
+        {/* Power */}
+        {powerPts.length > 1 ? (
+          <g>
+            <PanelFrame top={powerTop} h={powerH} title="Power" unit="kW" tks={powerTicks} lo={pLo} hi={pHi} fmt={(v) => (v > 0 ? `+${v}` : `${v}`)} />
+            <g clipPath="url(#dt-plot-clip)">
+              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "pos")} style={{ fill: C.draw }} opacity={0.45} />
+              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "neg")} style={{ fill: C.regen }} opacity={0.55} />
+              <path d={toPath(powerPts, pLo, pHi, powerTop, powerH)} fill="none" className="stroke-neutral-400" strokeWidth={1} />
             </g>
           </g>
-        );
-      })}
-    </g>
+        ) : null}
+
+        {/* Battery + elevation */}
+        <PanelFrame top={battTop} h={battH} title="Battery" unit="%" tks={socTicks} lo={sLo} hi={sHi} />
+        <g clipPath="url(#dt-plot-clip)">
+          {elevPts.length > 1 ? (
+            <path d={areaPath(elevPts, eMin - (eMax - eMin) * 0.1, eMax + (eMax - eMin) * 0.3, battTop, battH, eMin - (eMax - eMin) * 0.1)} style={{ fill: C.elev }} opacity={0.14} />
+          ) : null}
+          <path d={areaPath(socPts, sLo, sHi, battTop, battH, sLo)} fill="url(#dt-soc-fill)" />
+          <path d={toPath(socPts, sLo, sHi, battTop, battH)} fill="none" style={{ stroke: C.soc }} strokeWidth={1.8} strokeLinejoin="round" />
+        </g>
+        {elevPts.length > 1 ? (
+          <g className="fill-neutral-500" fontSize={10} style={{ fontVariantNumeric: "tabular-nums" }}>
+            <text x={PAD_L + plotW + 5} y={battTop + 10}>
+              {Math.round(eMax)}
+            </text>
+            <text x={PAD_L + plotW + 5} y={battTop + battH}>
+              {Math.round(eMin)}
+            </text>
+            <text x={PAD_L + plotW + 5} y={battTop + battH / 2 + 3} className="fill-neutral-600">
+              ft
+            </text>
+          </g>
+        ) : null}
+
+        {/* Pack temp (optional) */}
+        {tempPts.length > 1 ? (
+          <g>
+            <PanelFrame top={tempTop} h={tempH} title="Pack temp" unit={tempUnit === "f" ? "°F" : "°C"} tks={[tLo, tHi]} lo={tLo} hi={tHi} />
+            <g clipPath="url(#dt-plot-clip)">
+              <path d={toPath(tempPts, tLo, tHi, tempTop, tempH)} fill="none" style={{ stroke: C.temp }} strokeWidth={1.6} />
+            </g>
+          </g>
+        ) : null}
+
+        {/* Drive-mode band: only when the mode changes */}
+        {modeSegments.length > 0 ? (
+          <g clipPath="url(#dt-plot-clip)">
+            {modeSegments.map((s, i) => {
+              const x0 = sx(Math.max(s.x0, xMin));
+              const x1 = sx(Math.min(s.x1, xMax));
+              if (x1 <= x0) return null;
+              return <rect key={`m-${i}`} x={x0} y={modeTop} width={x1 - x0} height={6} rx={2} fill={MODE_BAND[s.mode]} opacity={0.85} />;
+            })}
+          </g>
+        ) : null}
+
+        {/* Precipitation: only when there is some */}
+        {precipBands.length > 0 ? (
+          <g clipPath="url(#dt-plot-clip)">
+            {precipBands.map((b, i) => (
+              <rect key={`pc-${i}`} x={sx(b.x0)} y={precipTop} width={Math.max(1, sx(b.x1) - sx(b.x0))} height={8} rx={2} fill={b.color} opacity={0.8}>
+                <title>{b.label}</title>
+              </rect>
+            ))}
+          </g>
+        ) : null}
+
+        {/* Time axis: round clock times */}
+        <g>
+          {ticks.map((t, i) => {
+            const x = sx(t);
+            const anchor = i === 0 && ticks.length > 1 && x - PAD_L < 24 ? "start" : i === ticks.length - 1 && PAD_L + plotW - x < 24 ? "end" : "middle";
+            return (
+              <g key={`xt-${t}`}>
+                <line x1={x} x2={x} y1={axisTop - 3} y2={axisTop} className="stroke-neutral-700" strokeWidth={1} />
+                <text x={x} y={axisTop + 14} textAnchor={anchor} className="fill-neutral-500" fontSize={10} style={{ fontVariantNumeric: "tabular-nums" }}>
+                  {clockLabel(t)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+
+        {/* Cursor */}
+        {cx != null ? (
+          <g pointerEvents="none">
+            <line x1={cx} x2={cx} y1={speedTop} y2={plotBottom} className="stroke-neutral-300" strokeWidth={1} opacity={0.7} />
+            {dot(speedPts, 0, speedMax, speedTop, speedH, C.speed)}
+            {powerPts.length > 1 ? dot(powerPts, pLo, pHi, powerTop, powerH, C.draw) : null}
+            {dot(socPts, sLo, sHi, battTop, battH, C.soc)}
+          </g>
+        ) : null}
+
+        {/* Brush */}
+        {brush ? (
+          <rect
+            x={Math.min(brush.x0, brush.x1)}
+            y={speedTop}
+            width={Math.abs(brush.x1 - brush.x0)}
+            height={plotBottom - speedTop}
+            className="fill-neutral-400/15 stroke-neutral-400"
+            strokeWidth={0.8}
+            pointerEvents="none"
+          />
+        ) : null}
+
+        {/* Interaction layer */}
+        <rect
+          data-testid="timeline-scrub"
+          x={PAD_L}
+          y={speedTop}
+          width={plotW}
+          height={plotBottom - speedTop}
+          fill="transparent"
+          style={{ touchAction: "pan-y", cursor: "crosshair" }}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerLeave={(e) => {
+            if (e.pointerType === "mouse" && !dragRef.current) onCursorChange(null);
+          }}
+          onDoubleClick={() => onViewWindowChange(null)}
+        />
+      </svg>
+    </div>
   );
 }
+
+// ---- Readout row ----------------------------------------------------------
+
+function Readout({
+  cursorSample,
+  cursorMs,
+  power,
+  soc,
+  elev,
+  wind,
+  showTemp,
+  tempUnit,
+  drive,
+  onDismiss,
+}: {
+  cursorSample: Sample | null;
+  cursorMs: number | null;
+  power: number | null;
+  soc: number | null;
+  elev: number | null;
+  wind: number | null;
+  showTemp: boolean;
+  tempUnit: "f" | "c";
+  drive: Drive;
+  onDismiss?: () => void;
+}) {
+  const items: { color: string; label: string; value: string }[] = [];
+  if (cursorSample && cursorMs != null) {
+    items.push({ color: C.speed, label: "Speed", value: `${(cursorSample.SpeedMph || 0).toFixed(0)} mph` });
+    if (power != null) {
+      items.push({
+        color: power >= 0 ? C.draw : C.regen,
+        label: power >= 0 ? "Draw" : "Regen",
+        value: `${power >= 0 ? "+" : "−"}${Math.abs(power).toFixed(0)} kW`,
+      });
+    }
+    if (soc != null) items.push({ color: C.soc, label: "Battery", value: `${soc.toFixed(1)} %` });
+    if (elev != null) items.push({ color: C.elev, label: "Elev", value: `${elev.toFixed(0)} ft` });
+    if (showTemp && cursorSample.pack_temp_avg_c) {
+      items.push({ color: C.temp, label: "Pack", value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit) });
+    }
+    if (wind != null && Math.abs(wind) >= 1) {
+      items.push({
+        color: C.elev,
+        label: "Wind",
+        value: wind >= 0 ? `+${wind.toFixed(0)} mph head` : `${Math.abs(wind).toFixed(0)} mph tail`,
+      });
+    }
+  }
+  return (
+    <div
+      data-testid="timeline-readout"
+      className="flex min-h-[34px] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-[12px]"
+    >
+      {cursorSample && cursorMs != null ? (
+        <>
+          <span className="font-mono text-[11px] tabular-nums text-neutral-400">
+            {clockLabel(new Date(cursorSample.At).getTime(), true)}
+          </span>
+          {items.map((it) => (
+            <span key={it.label} className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-xs" style={{ background: it.color }} />
+              <span className="text-neutral-500">{it.label}</span>
+              <span className="font-medium tabular-nums text-neutral-100">{it.value}</span>
+            </span>
+          ))}
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="ml-auto rounded-full border border-neutral-800 px-2 py-0.5 text-[11px] text-neutral-500 hover:text-neutral-300"
+              aria-label="Clear cursor"
+            >
+              ✕
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <span className="text-neutral-500">Whole drive</span>
+          <span className="tabular-nums text-neutral-300">
+            max <b className="font-medium text-neutral-100">{drive.MaxSpeedMph.toFixed(0)} mph</b>
+          </span>
+          <span className="tabular-nums text-neutral-300">
+            avg <b className="font-medium text-neutral-100">{drive.AvgSpeedMph.toFixed(0)} mph</b>
+          </span>
+          {drive.EnergyUsedKWh > 0 ? (
+            <span className="tabular-nums text-neutral-300">
+              used <b className="font-medium text-neutral-100">{drive.EnergyUsedKWh.toFixed(1)} kWh</b>
+            </span>
+          ) : null}
+          <span className="tabular-nums text-neutral-300">
+            battery{" "}
+            <b className="font-medium text-neutral-100">
+              {drive.StartSoCPct.toFixed(0)}→{drive.EndSoCPct.toFixed(0)} %
+            </b>
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- Moments --------------------------------------------------------------
 
 function MomentChips({
   moments,
@@ -1468,25 +788,22 @@ function MomentChips({
   onCursorChange: (ms: number | null) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[10px] uppercase tracking-wide text-neutral-500 mr-1">
-        Moments
-      </span>
-      {moments.map((m, i) => {
-        const active =
-          cursorMs != null && Math.abs(cursorMs - m.ms) < 5_000;
-        const tone = chipToneClasses(m.tone, active);
+    <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+      <span className="shrink-0 text-[10px] uppercase tracking-wide text-neutral-500">Moments</span>
+      {moments.map((m) => {
+        const active = cursorMs != null && Math.abs(cursorMs - m.ms) < 2000;
         return (
           <button
-            key={i}
+            key={`${m.ms}-${m.label}`}
             type="button"
-            onClick={() => onCursorChange(m.ms)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${tone}`}
+            onClick={() => onCursorChange(active ? null : m.ms)}
             title={m.detail}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${
+              active ? "border-neutral-500 bg-neutral-800 text-neutral-100" : "border-neutral-800 text-neutral-300 hover:bg-neutral-900"
+            }`}
           >
-            <span className="font-mono text-[10px] text-neutral-500">
-              {fmtClock(m.ms)}
-            </span>
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: momentColor(m.tone) }} />
+            <span className="font-mono tabular-nums text-neutral-500">{clockLabel(m.ms)}</span>
             {m.label}
           </button>
         );
@@ -1495,689 +812,10 @@ function MomentChips({
   );
 }
 
-// CursorReadout — HTML alternative to the SVG floating tooltip.
-// Renders as a compact pill-grid below the chart so it's readable at
-// any SVG zoom level. On touch devices the SVG tooltip is hidden and
-// this becomes the primary way to inspect a data point.
-// `onDismiss` is only provided on touch (no dismiss button for mouse —
-// the cursor clears automatically when the pointer leaves the chart).
-function CursorReadout({
-  cursorSample,
-  cursorPower,
-  cursorSoc,
-  cursorElev,
-  cursorHeadwind,
-  tempUnit,
-  onDismiss,
-}: {
-  cursorSample: Sample;
-  cursorPower: number | null;
-  cursorSoc: number | null;
-  cursorElev: number | null;
-  cursorHeadwind: number | null;
-  tempUnit: "f" | "c";
-  onDismiss?: () => void;
-}) {
-  const items: { color: string; label: string; value: string }[] = [
-    {
-      color: SERIES.speed,
-      label: "Speed",
-      value: `${(cursorSample.SpeedMph || 0).toFixed(0)} mph`,
-    },
-  ];
-  if (cursorPower != null) {
-    items.push({
-      color: cursorPower >= 0 ? SERIES.draw : SERIES.regen,
-      label: "Power",
-      value:
-        cursorPower >= 0
-          ? `+${cursorPower.toFixed(0)} kW`
-          : `${cursorPower.toFixed(0)} kW`,
-    });
-  }
-  if (cursorSoc != null) {
-    items.push({
-      color: SERIES.battery,
-      label: "SoC",
-      value: `${cursorSoc.toFixed(1)} %`,
-    });
-  }
-  if (cursorElev != null) {
-    items.push({
-      color: SERIES.elevation,
-      label: "Elev",
-      value: `${cursorElev.toFixed(0)} ft`,
-    });
-  }
-  if (cursorSample.OutsideTempC && cursorSample.OutsideTempC !== 0) {
-    items.push({
-      color: "#fb923c",
-      label: "Outside",
-      value: fmtTemp(cursorSample.OutsideTempC, tempUnit),
-    });
-  }
-  if (cursorSample.pack_temp_avg_c && cursorSample.pack_temp_avg_c !== 0) {
-    items.push({
-      color: "#f472b6",
-      label: "Battery",
-      value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit),
-    });
-  }
-  if (cursorHeadwind != null) {
-    items.push({
-      color: "#0891b2",
-      label: "Wind",
-      value:
-        cursorHeadwind >= 0
-          ? `+${cursorHeadwind.toFixed(0)} mph head`
-          : `${Math.abs(cursorHeadwind).toFixed(0)} mph tail`,
-    });
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2">
-      <span className="mr-1 font-mono text-[11px] tabular-nums text-neutral-400">
-        {fmtClockSec(new Date(cursorSample.At).getTime())}
-      </span>
-      {items.map((item) => (
-        <span
-          key={item.label}
-          className="inline-flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-[11px]"
-        >
-          <span
-            className="inline-block h-2 w-2 shrink-0 rounded-xs"
-            style={{ background: item.color }}
-          />
-          <span className="text-neutral-500">{item.label}</span>
-          <span className="font-medium tabular-nums text-neutral-200">
-            {item.value}
-          </span>
-        </span>
-      ))}
-      {onDismiss ? (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="ml-auto rounded-full border border-neutral-800 px-2 py-0.5 text-[11px] text-neutral-500 hover:border-neutral-700 hover:text-neutral-300"
-          aria-label="Clear cursor"
-        >
-          ✕
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function NoSamples() {
   return (
     <p className="text-sm text-neutral-500">
-      No telemetry was recorded for this drive.
+      No telemetry samples recorded for this drive, so there's no timeline to draw.
     </p>
   );
-}
-
-// ---- Helpers --------------------------------------------------------------
-
-// Speed series: keep the existing synthetic-zero anchor so the line
-// visibly returns to 0 at drives that end with the car still moving.
-function buildSpeedPts(samples: Sample[]): { x: number; y: number }[] {
-  const raw = samples.map((p) => ({
-    x: new Date(p.At).getTime(),
-    y: p.SpeedMph || 0,
-  }));
-  if (raw.length === 0) return raw;
-  const last = raw[raw.length - 1];
-  if ((last.y ?? 0) <= 0.5) return raw;
-  return [...raw, { x: last.x + 1000, y: 0 }];
-}
-
-function buildModeSegments(
-  samples: Sample[],
-  startMs: number,
-  endMs: number,
-): ModeSegment[] {
-  if (samples.length === 0) return [];
-  const out: ModeSegment[] = [];
-  for (let i = 0; i < samples.length; i++) {
-    const cur = samples[i];
-    const curMs = new Date(cur.At).getTime();
-    const nextMs =
-      i + 1 < samples.length
-        ? new Date(samples[i + 1].At).getTime()
-        : endMs;
-    if (
-      !Number.isFinite(curMs) ||
-      !Number.isFinite(nextMs) ||
-      nextMs <= curMs
-    ) {
-      continue;
-    }
-    const mode = classifyMode(cur);
-    const seg: ModeSegment = {
-      x0: Math.max(curMs, startMs),
-      x1: Math.min(nextMs, endMs),
-      mode,
-    };
-    if (seg.x1 <= seg.x0) continue;
-    const prev = out[out.length - 1];
-    if (prev && prev.mode === mode && Math.abs(prev.x1 - seg.x0) <= 1500) {
-      prev.x1 = seg.x1;
-    } else {
-      out.push(seg);
-    }
-  }
-  return out;
-}
-
-// buildParkBands shades the windows where the vehicle wasn't driving
-// (shift_state D/R) for ≥ 5 min. Rivian stops sending telemetry when
-// the car is asleep, so absence of D/R samples is the real signal —
-// raw speed reads ~4 mph at idle and never crosses zero, and only a
-// handful of P samples land per trip.
-//
-// A band is classified as a true "parked" stretch only if both
-// bounding samples are stationary (≤ 5 mph) AND their GPS coords
-// barely moved (< 150 m). Otherwise the band is a telemetry "gap" —
-// the car was driving but the recorder lost samples (cell dead zone,
-// subscription churn, gateway throttling).
-function buildParkBands(
-  samples: Sample[],
-  startMs: number,
-  endMs: number,
-): ParkBand[] {
-  // Two thresholds: a long pause to read as Parked, a shorter one
-  // to flag a telemetry gap mid-drive. Anything below GAP_MIN_MS is
-  // ignored — the normal D-to-D cadence has occasional 30-60s holes
-  // that aren't worth shading.
-  const PARK_MIN_MS = 5 * 60_000;
-  const GAP_MIN_MS = 90_000; // 90s gap mid-drive becomes a band
-  const SPEED_PARK_MAX = 5; // mph
-  const DIST_PARK_MAX_M = 150;
-  const out: ParkBand[] = [];
-  type Marker = { ms: number; s: Sample };
-  const driving: Marker[] = [];
-  for (const s of samples) {
-    const g = (s.ShiftState ?? "").trim().toUpperCase();
-    if (g !== "D" && g !== "R" && g !== "DRIVE" && g !== "REVERSE") continue;
-    const ms = new Date(s.At).getTime();
-    if (Number.isFinite(ms)) driving.push({ ms, s });
-  }
-  driving.sort((a, b) => a.ms - b.ms);
-  const haversineM = (a: Sample, b: Sample): number => {
-    if (
-      !Number.isFinite(a.Lat) ||
-      !Number.isFinite(a.Lon) ||
-      !Number.isFinite(b.Lat) ||
-      !Number.isFinite(b.Lon)
-    )
-      return Infinity;
-    const R = 6371000;
-    const f1 = (a.Lat * Math.PI) / 180;
-    const f2 = (b.Lat * Math.PI) / 180;
-    const df = ((b.Lat - a.Lat) * Math.PI) / 180;
-    const dl = ((b.Lon - a.Lon) * Math.PI) / 180;
-    const x =
-      Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(x));
-  };
-  // A band is "parked" only when both bounding samples are stationary
-  // and the GPS coords barely moved. Otherwise it's a telemetry hole.
-  // Missing endpoints (leading/trailing band) default to parked because
-  // we can't prove the car was moving across an open boundary.
-  const classify = (
-    a: Sample | null,
-    b: Sample | null,
-  ): "parked" | "gap" => {
-    if (!a && !b) return "parked";
-    const aMoving = a ? Math.abs(a.SpeedMph ?? 0) > SPEED_PARK_MAX : false;
-    const bMoving = b ? Math.abs(b.SpeedMph ?? 0) > SPEED_PARK_MAX : false;
-    if (aMoving || bMoving) return "gap";
-    if (a && b && haversineM(a, b) > DIST_PARK_MAX_M) return "gap";
-    return "parked";
-  };
-  const push = (x0: number, x1: number, kind: "parked" | "gap") => {
-    const minMs = kind === "parked" ? PARK_MIN_MS : GAP_MIN_MS;
-    if (x1 - x0 >= minMs) out.push({ x0, x1, kind });
-  };
-  if (driving.length === 0) {
-    push(startMs, endMs, "parked");
-    return out;
-  }
-  push(startMs, driving[0].ms, classify(null, driving[0].s));
-  for (let i = 1; i < driving.length; i++) {
-    push(
-      driving[i - 1].ms,
-      driving[i].ms,
-      classify(driving[i - 1].s, driving[i].s),
-    );
-  }
-  const tail = driving[driving.length - 1];
-  push(tail.ms, endMs, classify(tail.s, null));
-  return out;
-}
-
-function classifyMode(s: Sample): Mode {
-  const raw = (s.drive_mode || "").trim().toLowerCase();
-  if (raw) {
-    // Rivian's wire values are "everyday" / "sport" / "distance"; the
-    // formatted labels ("All-Purpose" / "Conserve") also flow through
-    // here when a sample carries a display-typed value, so accept both.
-    if (raw === "sport" || raw.includes("launch")) return "Sport";
-    if (raw === "distance" || raw.includes("conserve") || raw.includes("eco"))
-      return "Conserve";
-    if (
-      raw === "everyday" ||
-      raw.includes("all purpose") ||
-      raw.includes("all-purpose")
-    )
-      return "AllPurpose";
-    return "Other";
-  }
-  // Fall back to gear so historical drives still get *some* lane data.
-  const g = (s.ShiftState || "").trim().toUpperCase();
-  if (g === "D" || g === "DRIVE") return "AllPurpose";
-  if (g === "R" || g === "REVERSE") return "Other";
-  return "Other";
-}
-
-function buildPrecipBands(
-  weatherPts: DriveWeatherSamplePoint[],
-  startMs: number,
-  endMs: number,
-): PrecipBand[] {
-  // Stricter painting: require actual precipitation (>0) to draw a
-  // band, even when the WMO code says "thunderstorm" or similar.
-  // Open-Meteo's hourly weather_code flags convective conditions
-  // (95/96/99) for any forecast hour with atmospheric instability,
-  // including hours where no rain reaches the ground at the coarse
-  // grid cell — that produced spurious red bands on dry drives.
-  return weatherPts
-    .map((p): PrecipBand | null => {
-      const amt = p.precip_in ?? 0;
-      if (amt <= 0) return null;
-      const cond = p.conditions;
-      const color = precipColor(cond) ?? SERIES.rain;
-      const sStart = new Date(p.at).getTime();
-      const sEnd = sStart + (p.cadence_minutes || 60) * 60_000;
-      const x0 = Math.max(sStart, startMs);
-      const x1 = Math.min(sEnd, endMs);
-      if (x1 <= x0) return null;
-      const label = `${cond ?? "precipitation"} (${amt.toFixed(2)}″)`;
-      return { x0, x1, color, label };
-    })
-    .filter((b): b is PrecipBand => b != null);
-}
-
-function precipColor(cond: string | undefined): string | null {
-  switch (cond) {
-    case "rain":
-      return SERIES.rain;
-    case "drizzle":
-      return SERIES.drizzle;
-    case "snow":
-      return SERIES.snow;
-    case "freezing rain":
-      return SERIES.freezingRain;
-    case "thunderstorm":
-      return SERIES.thunderstorm;
-    default:
-      return null;
-  }
-}
-
-function buildHeadwindPts(
-  weatherPts: DriveWeatherSamplePoint[],
-  startMs: number,
-  endMs: number,
-): { x: number; y: number }[] {
-  const raw = weatherPts
-    .filter((p) => p.headwind_mph != null)
-    .map((p) => ({
-      x: new Date(p.at).getTime(),
-      y: p.headwind_mph as number,
-    }));
-  if (raw.length === 0) return [];
-  // Clamp to the drive window with step-extension at the boundaries —
-  // identical reasoning to clampToDrive in the old page-level code.
-  const inRange = raw.filter((p) => p.x >= startMs && p.x <= endMs);
-  const before = raw.filter((p) => p.x < startMs);
-  const after = raw.filter((p) => p.x > endMs);
-  const startY =
-    inRange[0]?.y ?? before[before.length - 1]?.y ?? after[0]?.y;
-  const endY =
-    inRange[inRange.length - 1]?.y ??
-    after[0]?.y ??
-    before[before.length - 1]?.y;
-  if (startY == null || endY == null) return [];
-  const out: { x: number; y: number }[] = [{ x: startMs, y: startY }];
-  for (const p of inRange) {
-    if (p.x > startMs && p.x < endMs) out.push(p);
-  }
-  out.push({ x: endMs, y: endY });
-  return out;
-}
-
-// ---- Moment detection ----------------------------------------------------
-
-function detectMoments(
-  speedPts: { x: number; y: number }[],
-  socPts: { x: number; y: number }[],
-  powerPts: PowerPt[],
-  headwindPts: { x: number; y: number }[],
-): Moment[] {
-  const out: Moment[] = [];
-
-  // 1. Highway entry: first crossing from <40 mph to ≥55 mph that
-  //    persists for ≥30 s.
-  for (let i = 1; i < speedPts.length; i++) {
-    if (speedPts[i - 1].y < 40 && speedPts[i].y >= 55) {
-      let sustained = true;
-      for (let j = i; j < speedPts.length; j++) {
-        if (speedPts[j].x - speedPts[i].x > 30_000) break;
-        if (speedPts[j].y < 50) {
-          sustained = false;
-          break;
-        }
-      }
-      if (sustained) {
-        out.push({
-          ms: speedPts[i].x,
-          label: "Highway entry",
-          detail: `Crossed 55 mph and sustained for 30 s`,
-          tone: "info",
-        });
-        break;
-      }
-    }
-  }
-
-  // 2. Hard brake: most negative dSpeed/dt in mph/s, only if ≤ −5.
-  let worstBrake: { ms: number; rate: number } | null = null;
-  for (let i = 1; i < speedPts.length; i++) {
-    const dt = (speedPts[i].x - speedPts[i - 1].x) / 1000;
-    if (dt <= 0 || dt > 10) continue;
-    const dv = speedPts[i].y - speedPts[i - 1].y;
-    const rate = dv / dt;
-    if (rate < -5 && (!worstBrake || rate < worstBrake.rate)) {
-      worstBrake = { ms: speedPts[i].x, rate };
-    }
-  }
-  if (worstBrake) {
-    out.push({
-      ms: worstBrake.ms,
-      label: "Hard brake",
-      detail: `${worstBrake.rate.toFixed(1)} mph/s deceleration`,
-      tone: "warning",
-    });
-  }
-
-  // 3. Top speed.
-  if (speedPts.length > 0) {
-    let best = speedPts[0];
-    for (const p of speedPts) {
-      if (p.y > best.y) best = p;
-    }
-    if (best.y >= 50) {
-      out.push({
-        ms: best.x,
-        label: "Top speed",
-        detail: `${best.y.toFixed(0)} mph`,
-        tone: "info",
-      });
-    }
-  }
-
-  // 4. Max regen: most negative power point. Only emit when meaningfully
-  //    negative (< -20 kW) so quiet drives don't get a false marker.
-  if (powerPts.length > 0) {
-    let best = powerPts[0];
-    for (const p of powerPts) {
-      if (p.y < best.y) best = p;
-    }
-    if (best.y < -20) {
-      out.push({
-        ms: best.x,
-        label: "Max regen",
-        detail: `${best.y.toFixed(0)} kW recovered`,
-        tone: "success",
-      });
-    }
-  }
-
-  // 5. Lowest SoC: only emit on drives long enough that the minimum
-  //    isn't simply the last sample (i.e. the user explicitly cares
-  //    that they dipped to a low point and recovered via regen later).
-  if (socPts.length > 4) {
-    let bestIdx = 0;
-    for (let i = 1; i < socPts.length; i++) {
-      if (socPts[i].y < socPts[bestIdx].y) bestIdx = i;
-    }
-    if (bestIdx < socPts.length - 1) {
-      out.push({
-        ms: socPts[bestIdx].x,
-        label: "Lowest SoC",
-        detail: `${socPts[bestIdx].y.toFixed(1)} %`,
-        tone: "neutral",
-      });
-    }
-  }
-
-  // 6. Headwind peak: most positive (most into-the-wind) sample,
-  //    when the absolute headwind exceeds 8 mph so cabin-side fans
-  //    aren't tagged.
-  if (headwindPts.length > 0) {
-    let best = headwindPts[0];
-    for (const p of headwindPts) {
-      if (Math.abs(p.y) > Math.abs(best.y)) best = p;
-    }
-    if (Math.abs(best.y) >= 8) {
-      out.push({
-        ms: best.x,
-        label: best.y >= 0 ? "Headwind peak" : "Tailwind peak",
-        detail:
-          best.y >= 0
-            ? `+${best.y.toFixed(0)} mph head`
-            : `${best.y.toFixed(0)} mph tail`,
-        tone: "neutral",
-      });
-    }
-  }
-
-  // Eat near-duplicates: if two moments land within 8 s of each other,
-  // keep the higher-tone one.
-  out.sort((a, b) => a.ms - b.ms);
-  const tonePriority: Record<Moment["tone"], number> = {
-    warning: 4,
-    success: 3,
-    info: 2,
-    neutral: 1,
-  };
-  const dedup: Moment[] = [];
-  for (const m of out) {
-    const prev = dedup[dedup.length - 1];
-    if (prev && m.ms - prev.ms < 8000) {
-      if (tonePriority[m.tone] > tonePriority[prev.tone]) {
-        dedup[dedup.length - 1] = m;
-      }
-      continue;
-    }
-    dedup.push(m);
-  }
-  return dedup;
-}
-
-// ---- Formatting / math helpers -------------------------------------------
-
-function fmtClock(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: displayTimeZone(),
-  });
-}
-
-function fmtClockSec(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: displayTimeZone(),
-  });
-}
-
-function fmtTemp(c: number, unit: "f" | "c"): string {
-  if (unit === "f") return `${(c * 1.8 + 32).toFixed(0)}°F`;
-  return `${c.toFixed(0)}°C`;
-}
-
-function ySolve(
-  v: number,
-  yMin: number,
-  yMax: number,
-  top: number,
-  height: number,
-): number {
-  if (yMax === yMin) return top + height / 2;
-  return top + height - ((v - yMin) / (yMax - yMin)) * height;
-}
-
-function nearestY(
-  pts: { x: number; y: number }[],
-  x: number | null,
-): number | null {
-  if (x == null || pts.length === 0) return null;
-  let best = pts[0];
-  let bestD = Math.abs(best.x - x);
-  for (let i = 1; i < pts.length; i++) {
-    const d = Math.abs(pts[i].x - x);
-    if (d < bestD) {
-      bestD = d;
-      best = pts[i];
-    }
-  }
-  return best.y;
-}
-
-function snapToSample(
-  x: number,
-  pts: { x: number; y: number }[],
-): number {
-  if (pts.length === 0) return x;
-  let best = pts[0].x;
-  let bestD = Math.abs(pts[0].x - x);
-  for (let i = 1; i < pts.length; i++) {
-    const d = Math.abs(pts[i].x - x);
-    if (d < bestD) {
-      bestD = d;
-      best = pts[i].x;
-    }
-  }
-  return best;
-}
-
-function niceTimeTicks(min: number, max: number, n: number): number[] {
-  if (n <= 1) return [min];
-  const span = max - min;
-  const step = span / (n - 1);
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(min + step * i);
-  return out;
-}
-
-function momentColor(tone: Moment["tone"]): string {
-  switch (tone) {
-    case "warning":
-      return "#f59e0b";
-    case "success":
-      return "#22c55e";
-    case "info":
-      return "#38bdf8";
-    default:
-      return "#a3a3a3";
-  }
-}
-
-function chipToneClasses(tone: Moment["tone"], active: boolean): string {
-  if (active) {
-    return "bg-emerald-900/40 border-emerald-700 text-emerald-200";
-  }
-  switch (tone) {
-    case "warning":
-      return "bg-amber-950/40 border-amber-900 text-amber-200 hover:bg-amber-900/40";
-    case "success":
-      return "bg-emerald-950/40 border-emerald-900 text-emerald-200 hover:bg-emerald-900/40";
-    case "info":
-      return "bg-sky-950/40 border-sky-900 text-sky-200 hover:bg-sky-900/40";
-    default:
-      return "bg-neutral-900 border-neutral-800 text-neutral-300 hover:bg-neutral-800";
-  }
-}
-
-function interpHex(a: string, b: string, t: number): string {
-  const ar = parseInt(a.slice(1, 3), 16);
-  const ag = parseInt(a.slice(3, 5), 16);
-  const ab = parseInt(a.slice(5, 7), 16);
-  const br = parseInt(b.slice(1, 3), 16);
-  const bg = parseInt(b.slice(3, 5), 16);
-  const bb = parseInt(b.slice(5, 7), 16);
-  const r = Math.round(ar + (br - ar) * t);
-  const g = Math.round(ag + (bg - ag) * t);
-  const bl = Math.round(ab + (bb - ab) * t);
-  return `#${pad2(r)}${pad2(g)}${pad2(bl)}`;
-}
-
-function pad2(n: number): string {
-  return n.toString(16).padStart(2, "0");
-}
-
-// ---- Path interpolation --------------------------------------------------
-
-function linePath(pts: { x: number; y: number }[]): string {
-  if (pts.length === 0) return "";
-  let d = `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
-  for (let i = 1; i < pts.length; i++) {
-    d += ` L ${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)}`;
-  }
-  return d;
-}
-
-// Fritsch–Carlson monotone cubic — preserves local extrema (no overshoot).
-function monotonePath(pts: { x: number; y: number }[]): string {
-  const n = pts.length;
-  if (n < 2) return linePath(pts);
-  const dx = new Array<number>(n - 1);
-  const dy = new Array<number>(n - 1);
-  const m = new Array<number>(n - 1);
-  for (let i = 0; i < n - 1; i++) {
-    dx[i] = pts[i + 1].x - pts[i].x;
-    dy[i] = pts[i + 1].y - pts[i].y;
-    m[i] = dx[i] === 0 ? 0 : dy[i] / dx[i];
-  }
-  const t = new Array<number>(n);
-  t[0] = m[0];
-  t[n - 1] = m[n - 2];
-  for (let i = 1; i < n - 1; i++) {
-    if (m[i - 1] * m[i] <= 0) {
-      t[i] = 0;
-    } else {
-      t[i] = (m[i - 1] + m[i]) / 2;
-      const a = t[i] / m[i - 1];
-      const b = t[i] / m[i];
-      const h = a * a + b * b;
-      if (h > 9) {
-        const tau = 3 / Math.sqrt(h);
-        t[i] = tau * m[i - 1] * a;
-      }
-    }
-  }
-  let d = `M ${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
-  for (let i = 0; i < n - 1; i++) {
-    const h = dx[i];
-    const c1x = pts[i].x + h / 3;
-    const c1y = pts[i].y + (t[i] * h) / 3;
-    const c2x = pts[i + 1].x - h / 3;
-    const c2y = pts[i + 1].y - (t[i + 1] * h) / 3;
-    d += ` C ${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${pts[i + 1].x.toFixed(2)},${pts[i + 1].y.toFixed(2)}`;
-  }
-  return d;
 }
