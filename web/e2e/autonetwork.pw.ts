@@ -141,6 +141,10 @@ for (const [vpName, vp] of [
       await expect(page.getByText("Likely wrong:")).toHaveCount(0);
       await page.screenshot({ path: path.join(SHOTS, `autonet-money-${vpName}-${theme}.png`), fullPage: false });
       await badge.click();
+      // The filter chips sit under the Receipts heading, never on it.
+      const head = await page.getByRole("heading", { name: "Receipts" }).boundingBox();
+      const chips = await page.getByRole("group", { name: "Filter receipts" }).boundingBox();
+      expect(chips!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1);
       const list = page.getByTestId("to-confirm-list");
       await expect(list).toBeVisible();
       // Spans months: the older estimated charge is listed beside this month's.

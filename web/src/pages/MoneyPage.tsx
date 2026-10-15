@@ -375,28 +375,24 @@ function Statement({
             </div>
           </Card>
 
-          <Card
-            title="Receipts"
-            actions={
-              <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
-                {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    aria-pressed={filter === f}
-                    onClick={() => onFilter(f)}
-                    className={`rounded-full border px-2 py-0.5 ${
-                      filter === f
-                        ? "border-emerald-600/60 bg-emerald-900/30 text-emerald-200"
-                        : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
-                    }`}
-                  >
-                    {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "DCFC" : "To confirm"}
-                  </button>
-                ))}
-              </div>
-            }
-          >
+          <Card title="Receipts">
+            <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
+              {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={filter === f}
+                  onClick={() => onFilter(f)}
+                  className={`rounded-full border px-2 py-0.5 ${
+                    filter === f
+                      ? "border-emerald-600/60 bg-emerald-900/30 text-emerald-200"
+                      : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "DCFC" : "To confirm"}
+                </button>
+              ))}
+            </div>
             {filter === "confirm" ? (
               <ToConfirmList charges={confirmCharges} />
             ) : shown.length === 0 ? (
