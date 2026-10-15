@@ -52,6 +52,11 @@ const KillSwitchName = "rivian_upstream_paused"
 // the user's own opt-in is separate). Same shape as MoneyTabState.
 const StatementEmailName = "statement_email_enabled"
 
+// DCFCAutoNetworkName gates DC fast charge network auto-detection with
+// user verification (verify states, confirm, push). Same shape as
+// MoneyTabState; off when the row is missing or malformed.
+const DCFCAutoNetworkName = "dcfc_auto_network"
+
 // TripPlannerEnabledName is the flags.name value gating the trip
 // planner UI + endpoints. Default-off: when the row is missing or
 // the JSON decodes to {enabled:false}, the planner stays hidden.
@@ -284,6 +289,7 @@ type Store struct {
 	sleepSafe      atomic.Pointer[SleepSafeState]
 	moneyTab       atomic.Pointer[MoneyTabState]
 	statementEmail atomic.Pointer[MoneyTabState]
+	dcfcAutoNet    atomic.Pointer[MoneyTabState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
 
 	startOnce sync.Once
@@ -352,7 +358,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -364,6 +370,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	sleepSafe := SleepSafeState{}
 	moneyTab := MoneyTabState{}
 	statementEmail := MoneyTabState{}
+	dcfcAutoNet := MoneyTabState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
 		var name string
@@ -402,6 +409,12 @@ func (s *Store) refresh(ctx context.Context) error {
 				s.logger.Warn("flags: statement_email_enabled malformed, treating as off", "err", err.Error())
 				statementEmail = MoneyTabState{}
 			}
+		case DCFCAutoNetworkName:
+			// A malformed row reads as off (the feature is opt-in).
+			if err := json.Unmarshal(raw, &dcfcAutoNet); err != nil {
+				s.logger.Warn("flags: dcfc_auto_network malformed, treating as off", "err", err.Error())
+				dcfcAutoNet = MoneyTabState{}
+			}
 		case WakeSafetyName:
 			// Experiment switches: a typo reads as all-off rather than
 			// freezing every other flag (kill switch included).
@@ -421,6 +434,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.sleepSafe.Store(&sleepSafe)
 	s.moneyTab.Store(&moneyTab)
 	s.statementEmail.Store(&statementEmail)
+	s.dcfcAutoNet.Store(&dcfcAutoNet)
 	s.wakeSafety.Store(&wakeSafety)
 	return nil
 }
@@ -470,6 +484,19 @@ func (s *Store) SetMoneyTab(ctx context.Context, st MoneyTabState, actor string)
 	}
 	s.moneyTab.Store(&st)
 	return nil
+}
+
+// DCFCAutoNetwork returns the cached DC fast charge auto-detection flag
+// (Enabled(userID)). Lock-free; off when the row is missing.
+func (s *Store) DCFCAutoNetwork() MoneyTabState {
+	if s == nil {
+		return MoneyTabState{}
+	}
+	p := s.dcfcAutoNet.Load()
+	if p == nil {
+		return MoneyTabState{}
+	}
+	return *p
 }
 
 // StatementEmail returns the cached operator flag for the monthly

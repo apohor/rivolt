@@ -837,3 +837,95 @@ func TestUndoRestampLatestOnly(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestNetworkState: auto-detection's verify state round-trips, a
+// confirm sticks through the recorder re-saving the row, only an
+// estimate can be confirmed, and a user's own price ends the state.
+func TestNetworkState(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+
+	est := sampleCharge("n-1", "rv-A", start, "charging_complete")
+	est.CostSource, est.Network = "network_estimate", "Tesla Supercharger"
+	est.NetworkState, est.NetworkConfidence = "estimated", f64p(0.9)
+	est.NetworkEvidence = []byte(`{"v":1,"source":"archive","candidates":[{"network":"Tesla Supercharger","slug":"tesla_sc","dist_m":38}]}`)
+	if err := store.Upsert(ctx, est); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	unmatched := sampleCharge("n-2", "rv-A", start.Add(2*time.Hour), "charging_complete")
+	unmatched.Cost, unmatched.PricePerKWh, unmatched.Currency = 0, 0, ""
+	unmatched.NetworkState, unmatched.NetworkConfidence = "needs_confirmation", f64p(0)
+	unmatched.NetworkEvidence = []byte(`{"v":1,"source":"none","candidates":[]}`)
+	if err := store.Upsert(ctx, unmatched); err != nil {
+		t.Fatalf("Upsert unmatched: %v", err)
+	}
+
+	get := func(id string) charges.Charge {
+		t.Helper()
+		all, err := store.ListRecent(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range all {
+			if c.ID == id {
+				return c
+			}
+		}
+		t.Fatalf("%s not listed", id)
+		return charges.Charge{}
+	}
+	if c := get("n-1"); c.NetworkState != "estimated" || c.NetworkConfidence == nil || *c.NetworkConfidence < 0.89 ||
+		!strings.Contains(string(c.NetworkEvidence), `"tesla_sc"`) {
+		t.Fatalf("round trip: state %q conf %v evidence %s", c.NetworkState, c.NetworkConfidence, c.NetworkEvidence)
+	}
+	if n, a, err := store.NetworkToConfirm(ctx); err != nil || n != 2 || a != 1 {
+		t.Fatalf("to confirm = %d / %d (%v), want 2 / 1", n, a, err)
+	}
+	if n, _, _ := factory.For(uidB).NetworkToConfirm(ctx); n != 0 {
+		t.Fatalf("another user sees %d to confirm", n)
+	}
+
+	// Nothing matched: no estimate to confirm.
+	if n, err := store.ConfirmNetwork(ctx, "n-2"); err != nil || n != 0 {
+		t.Fatalf("confirm unmatched = %d (%v), want 0", n, err)
+	}
+	// Another user can't confirm it.
+	if n, _ := factory.For(uidB).ConfirmNetwork(ctx, "n-1"); n != 0 {
+		t.Fatalf("cross-user confirm affected %d", n)
+	}
+	if n, err := store.ConfirmNetwork(ctx, "n-1"); err != nil || n != 1 {
+		t.Fatalf("confirm = %d (%v), want 1", n, err)
+	}
+	// The recorder re-saving the row (no detection on this pass, another
+	// network) keeps the confirmed network and state.
+	resave := est
+	resave.Network, resave.NetworkState, resave.NetworkConfidence, resave.NetworkEvidence = "Electrify America", "", nil, nil
+	if err := store.Upsert(ctx, resave); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("n-1"); c.NetworkState != "confirmed" || c.Network != "Tesla Supercharger" || c.NetworkConfidence == nil {
+		t.Fatalf("after re-save: state %q network %q conf %v", c.NetworkState, c.Network, c.NetworkConfidence)
+	}
+	if n, a, _ := store.NetworkToConfirm(ctx); n != 1 || a != 1 {
+		t.Fatalf("to confirm after confirm = %d / %d, want 1 / 1", n, a)
+	}
+
+	// The user's own price ends the state; the evidence stays.
+	if _, err := store.UpdatePricing(ctx, "n-2", 24, "USD", 0.48); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("n-2"); c.NetworkState != "" || c.CostSource != "user" || len(c.NetworkEvidence) == 0 {
+		t.Fatalf("after user price: state %q source %q evidence %s", c.NetworkState, c.CostSource, c.NetworkEvidence)
+	}
+	if _, err := store.MarkFree(ctx, "n-1", "USD"); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("n-1"); c.NetworkState != "" || c.CostSource != "user" {
+		t.Fatalf("after free: state %q source %q", c.NetworkState, c.CostSource)
+	}
+	if n, _, _ := store.NetworkToConfirm(ctx); n != 0 {
+		t.Fatalf("to confirm at the end = %d", n)
+	}
+}

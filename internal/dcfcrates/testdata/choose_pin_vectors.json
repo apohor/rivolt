@@ -1,0 +1,50 @@
+{
+  "_comment": "Shared vectors for the charger-network rule: web/src/lib/chargerNetwork.ts and internal/dcfcrates/pin.go must both pass every case. Change a vector before changing either implementation.",
+  "network_key": [
+    {"parts": ["Tesla Supercharger"], "want": "tesla"},
+    {"parts": ["Rivian Adventure Network"], "want": "rivian"},
+    {"parts": ["RAN"], "want": "rivian"},
+    {"parts": ["Electrify America"], "want": "electrify_america"},
+    {"parts": ["EA"], "want": "electrify_america"},
+    {"parts": [null, ""], "want": null},
+    {"parts": ["Some Local Charger"], "want": null},
+    {"parts": ["Rivian Waypoints"], "want": "rivian_waypoints"},
+    {"parts": ["Tesla Destination"], "want": "tesla_destination"},
+    {"parts": ["EVgo"], "want": "evgo"},
+    {"parts": ["ChargePoint"], "want": "chargepoint"},
+    {"parts": ["IONNA"], "want": "ionna"},
+    {"parts": ["Shell Recharge"], "want": "shell_recharge"},
+    {"parts": [null, "Tesla, Inc.", "Tesla", "Tesla Supercharger"], "want": "tesla"}
+  ],
+  "display_network": [
+    {"in": "  Blink  ", "want": "Blink"},
+    {"in": "Rivian Waypoints", "want": "Rivian Waypoints"},
+    {"in": "RAN", "want": "Rivian Adventure Network"},
+    {"in": "Tesla", "want": "Tesla Supercharger"}
+  ],
+  "choose_pin": [
+    {"name": "agree keeps the snap", "poi": {"name": "Electrify America", "network": "Electrify America"}, "known": "Electrify America", "isDC": true, "want": {"snap": true, "label": "Electrify America"}},
+    {"name": "RAN beside a Supercharger", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Rivian Adventure Network", "isDC": true, "want": {"snap": false, "label": "Rivian Adventure Network"}},
+    {"name": "EA beside a Supercharger", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Electrify America", "isDC": true, "want": {"snap": false, "label": "Electrify America"}},
+    {"name": "short form RAN", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "RAN", "isDC": true, "want": {"snap": false, "label": "Rivian Adventure Network"}},
+    {"name": "short form Tesla agrees", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Tesla", "isDC": true, "want": {"snap": true, "label": "Tesla Supercharger"}},
+    {"name": "unknown network snaps with OSM name", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": null, "isDC": true, "want": {"snap": true, "label": "Tesla Supercharger"}},
+    {"name": "'unknown' snaps with OSM name", "poi": {"name": "Joe's Chargers"}, "known": "unknown", "isDC": true, "want": {"snap": true, "label": "Joe's Chargers"}},
+    {"name": "no POI, unknown, DC", "poi": null, "known": null, "isDC": true, "want": {"snap": false, "label": "DC fast charger"}},
+    {"name": "no POI, unknown, AC", "poi": null, "known": null, "isDC": false, "want": {"snap": false, "label": "Charging station"}},
+    {"name": "no POI, known", "poi": null, "known": "EVgo", "isDC": true, "want": {"snap": false, "label": "EVgo"}},
+    {"name": "unverifiable node vs known", "poi": {"name": "Charging station"}, "known": "Rivian Adventure Network", "isDC": true, "want": {"snap": false, "label": "Rivian Adventure Network"}},
+    {"name": "unrecognised ledger network verbatim", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Blink", "isDC": true, "want": {"snap": false, "label": "Blink"}},
+    {"name": "AC beside a Supercharger, unknown", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": null, "isDC": false, "want": {"snap": false, "label": "Charging station"}},
+    {"name": "AC beside a Supercharger, 'unknown'", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "unknown", "isDC": false, "want": {"snap": false, "label": "Charging station"}},
+    {"name": "AC with known network keeps it", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "ChargePoint", "isDC": false, "want": {"snap": false, "label": "ChargePoint"}},
+    {"name": "AC snaps to an AC node", "poi": {"name": "Hotel EV parking", "operator": "ChargePoint", "maxPowerKW": 7}, "known": null, "isDC": false, "want": {"snap": true, "label": "Hotel EV parking"}},
+    {"name": "AC snaps to an untyped node", "poi": {"name": "Hotel"}, "known": null, "isDC": false, "want": {"snap": true, "label": "Hotel"}},
+    {"name": "Tesla Destination is AC", "poi": {"name": "Tesla Destination", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": null, "isDC": false, "want": {"snap": true, "label": "Tesla Destination"}},
+    {"name": "Tesla Destination agrees", "poi": {"name": "Tesla Destination", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Tesla Destination", "isDC": false, "want": {"snap": true, "label": "Tesla Destination"}},
+    {"name": "Waypoints node, AC", "poi": {"name": "Rivian Waypoints"}, "known": null, "isDC": false, "want": {"snap": true, "label": "Rivian Waypoints"}},
+    {"name": "Waypoints node vs RAN, DC", "poi": {"name": "Rivian Waypoints"}, "known": "Rivian Adventure Network", "isDC": true, "want": {"snap": false, "label": "Rivian Adventure Network"}},
+    {"name": "Supercharger is DC-only for AC", "poi": {"name": "Tesla Supercharger"}, "known": null, "isDC": false, "want": {"snap": false, "label": "Charging station"}},
+    {"name": "50 kW node is DC-only for AC", "poi": {"name": "Some Station", "maxPowerKW": 50}, "known": null, "isDC": false, "want": {"snap": false, "label": "Charging station"}}
+  ]
+}
