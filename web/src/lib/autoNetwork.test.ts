@@ -13,10 +13,10 @@ describe("autoNetwork", () => {
       }),
     ).toBe("Nearest: Tesla Supercharger, 38 m; also Rivian Adventure Network, 112 m");
   });
-  it("notes an OSM disagreement and long distances", () => {
+  it("notes a node-check disagreement and long distances", () => {
     expect(
-      whyLine({ source: "archive", candidates: [{ network: "EVgo", dist_m: 1500 }], osm: { network: "ChargePoint", agree: false } }),
-    ).toBe("Nearest: EVgo, 1.5 km. The map lists it as ChargePoint");
+      whyLine({ source: "archive", candidates: [{ network: "EVgo", dist_m: 1500 }], node_check: { key: "chargepoint", agree: false } }),
+    ).toBe("Nearest: EVgo, 1.5 km. The station's own listing names a different network");
   });
   it("explains site memory and Rivian chargers, and is null without evidence", () => {
     expect(whyLine({ source: "site_memory" })).toMatch(/confirmed this network/);

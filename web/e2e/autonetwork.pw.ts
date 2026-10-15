@@ -29,7 +29,7 @@ async function setup(page: Page, state: string | null, extra: Record<string, unk
         { network: "Tesla Supercharger", slug: "tesla_sc", dist_m: 38 },
         { network: "Rivian Adventure Network", slug: "ran", dist_m: 112 },
       ],
-      osm: { network: "tesla", agree: true }, pos: "open", rate_basis: "member",
+      node_check: { key: "tesla", agree: true }, pos: "open", rate_basis: "member",
     },
     ...extra,
   });

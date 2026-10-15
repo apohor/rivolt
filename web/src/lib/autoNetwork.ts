@@ -10,7 +10,8 @@ export type NetworkEvidence = {
   v?: number;
   source?: "rivian_charger" | "site_memory" | "archive" | "none";
   candidates?: { network: string; slug?: string; dist_m: number }[];
-  osm?: { network?: string; agree?: boolean } | null;
+  // The server checks the archive node's own name/operator/network.
+  node_check?: { key?: string | null; agree?: boolean } | null;
   pos?: string;
   rate_basis?: "member" | "guest" | "override";
 };
@@ -42,7 +43,7 @@ export function whyLine(ev: NetworkEvidence | null | undefined): string | null {
   const [first, ...rest] = c;
   let s = `Nearest: ${first.network}, ${metres(first.dist_m)}`;
   if (rest.length > 0) s += `; also ${rest.map((x) => `${x.network}, ${metres(x.dist_m)}`).join(", ")}`;
-  if (ev.osm && ev.osm.agree === false && ev.osm.network) s += `. The map lists it as ${ev.osm.network}`;
+  if (ev.node_check && ev.node_check.agree === false) s += ". The station's own listing names a different network";
   return s;
 }
 
