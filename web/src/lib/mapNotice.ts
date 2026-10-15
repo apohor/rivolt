@@ -5,6 +5,9 @@ import L from "leaflet";
 // free tiles now need a key and render an "API KEY REQUIRED" image). The
 // route still draws, on a plain dark background, with this notice.
 export const TILES_UNAVAILABLE_TEXT = "Map tiles unavailable on this server";
+// Route lines can still be OpenStreetMap-derived (Valhalla map-matching,
+// the demo's shapes) when there is no basemap to carry its attribution.
+export const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
 
 export function addTilesUnavailableNotice(map: L.Map): void {
   const el = map.getContainer();
@@ -22,4 +25,7 @@ export function addTilesUnavailableNotice(map: L.Map): void {
     },
   });
   new Notice({ position: "bottomleft" }).addTo(map);
+  // Static attribution, since no tile layer is adding one.
+  const attrib = map.attributionControl ?? L.control.attribution({ prefix: false }).addTo(map);
+  attrib.addAttribution(OSM_ATTRIBUTION);
 }
