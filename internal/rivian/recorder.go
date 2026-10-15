@@ -1311,14 +1311,20 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		maxPower = c.maxPower
 	}
 	if liveSess != nil && liveSess.Active {
-		if liveSess.TotalChargedEnergyKWh > energy {
-			energy = liveSess.TotalChargedEnergyKWh
-		}
-		if liveSess.RangeAddedKm > 0 {
-			milesAdded = liveSess.RangeAddedKm * kmToMi
-		}
 		if liveSess.PowerKW > maxPower && liveSess.PowerKW <= maxLivePowerKW {
 			maxPower = liveSess.PowerKW
+		}
+		// A session total is credited only with power behind it: the
+		// cloud replays a finished session's snapshot (its total, marked
+		// active) on every resubscribe, and with nothing drawing a
+		// replayed 36.8 kWh used to land on a 0 kW plugged-in charge.
+		if maxPower > 0 {
+			if liveSess.TotalChargedEnergyKWh > energy {
+				energy = liveSess.TotalChargedEnergyKWh
+			}
+			if liveSess.RangeAddedKm > 0 {
+				milesAdded = liveSess.RangeAddedKm * kmToMi
+			}
 		}
 	}
 
@@ -1361,9 +1367,18 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	// rates), then the SoC-delta, then the ceiling. Scoped to L2 because
 	// at DCFC the integral undersamples (frame cadence) and the Parallax
 	// total is authoritative and per-stop, not fragmented.
-	if maxPower > 0 && maxPower < l2PowerThresholdKW {
+	//
+	// Every session is capped, not just L2: a stale or replayed total
+	// on any charge can't exceed what the observed peak could deliver.
+	// At DC fast the frame cadence undersamples the peak, hence the
+	// wider margin there.
+	if maxPower > 0 {
 		if hours := c.endAt.Sub(c.startedAt).Hours(); hours > 0 {
-			physCap := maxPower * hours * 1.15
+			margin := 1.15
+			if maxPower >= l2PowerThresholdKW {
+				margin = 1.5
+			}
+			physCap := maxPower * hours * margin
 			if energy > physCap {
 				socDeltaKWh := 0.0
 				if dSoC := c.endSoC - c.startSoC; dSoC > 0 {
@@ -1395,7 +1410,10 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			avg = maxLivePowerKW
 		}
 	}
-	if maxPower == 0 && avg > 0 {
+	// With no power observed, the average (from the SoC delta) stands
+	// in for the peak, but only at AC rates: a short session with a
+	// jumpy SoC must not come out looking like a DC fast charge.
+	if maxPower == 0 && avg > 0 && avg < l2PowerThresholdKW {
 		maxPower = avg
 	}
 
@@ -1589,7 +1607,13 @@ func isChargingCS(s string) bool {
 	}
 	switch v {
 	case "charger_disconnected", "charging_complete", "charging_user_stopped",
-		"charging_station_err", "charging_user_stoppe":
+		"charging_station_err", "charging_user_stoppe",
+		// Plugged in, waiting for a scheduled start: no energy flows.
+		// It used to open a live charge that the charging-session feed's
+		// replay of the previous session's total then filled (eleven
+		// 36.8 kWh copies at 0 kW in one night, 01-248088167 Jul 13);
+		// the real session opens on charging_active.
+		"charging_scheduled":
 		return false
 	}
 	return strings.HasPrefix(v, "charging_") || v == "waiting_on_charger"

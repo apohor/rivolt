@@ -182,16 +182,22 @@ func TestSleepGateLogsWakeAttribution(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go m.sleepGate(ctx, "veh-1", func(context.Context) {})
-	time.Sleep(20 * time.Millisecond)
-	m.mu.Lock()
-	m.cache["veh-1"] = &State{PowerState: "standby"}
-	m.mu.Unlock()
-	deadline := time.Now().Add(2 * time.Second)
+	set := func(ps string) {
+		m.mu.Lock()
+		m.cache["veh-1"] = &State{PowerState: ps}
+		m.mu.Unlock()
+	}
+	// Sleep, then wake, until the gate (ticking every millisecond, but
+	// maybe not scheduled for a while on a loaded machine) has seen both.
+	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(logs.String(), "wake attribution") {
 		if time.Now().After(deadline) {
 			t.Fatalf("no wake attribution logged:\n%s", logs.String())
 		}
-		time.Sleep(5 * time.Millisecond)
+		set("sleep")
+		time.Sleep(20 * time.Millisecond)
+		set("standby")
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !strings.Contains(logs.String(), `last_action="subscribe VehicleState"`) {
 		t.Errorf("logs:\n%s", logs.String())
