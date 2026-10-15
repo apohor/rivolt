@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 )
 
@@ -135,8 +136,9 @@ type Replayer struct {
 	vehicle string
 	prev    *State
 
-	mu     sync.Mutex
-	closed []drives.Drive
+	mu      sync.Mutex
+	closed  []drives.Drive
+	charged []charges.Charge
 }
 
 // NewReplayer builds a persistence-free monitor for one vehicle id. All
@@ -152,6 +154,11 @@ func NewReplayer(vehicleID string) *Replayer {
 	m.driveCloseHook = func(_ context.Context, d drives.Drive) {
 		r.mu.Lock()
 		r.closed = append(r.closed, d)
+		r.mu.Unlock()
+	}
+	m.chargeCloseHook = func(_ context.Context, c charges.Charge) {
+		r.mu.Lock()
+		r.charged = append(r.charged, c)
 		r.mu.Unlock()
 	}
 	r.m = m
@@ -199,4 +206,25 @@ func (r *Replayer) Drives() []drives.Drive {
 	out := append([]drives.Drive(nil), r.closed...)
 	r.mu.Unlock()
 	return out
+}
+
+// Charges returns the charge sessions the replay closed, after the same
+// settle wait as Drives (the close hook also runs in a goroutine).
+func (r *Replayer) Charges() []charges.Charge {
+	r.Drives() // settle
+	const settle = 100 * time.Millisecond
+	last := -1
+	for {
+		r.mu.Lock()
+		n := len(r.charged)
+		r.mu.Unlock()
+		if n == last {
+			break
+		}
+		last = n
+		time.Sleep(settle)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]charges.Charge(nil), r.charged...)
 }

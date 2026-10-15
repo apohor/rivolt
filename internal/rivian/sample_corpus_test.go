@@ -101,6 +101,24 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 			t.Errorf("drive %s distance %.1f mi", d.ID, d.DistanceMi)
 		}
 	}
+	// Every planned DC fast charge is recorded, at its station.
+	fast := 0
+	for _, ch := range r.Charges() {
+		if !IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+			continue
+		}
+		fast++
+		at := false
+		for _, st := range sampleDCFCStations {
+			at = at || haversineMeters(ch.Lat, ch.Lon, st.at.Lat, st.at.Lon) <= 250
+		}
+		if !at || ch.FinalState == "abandoned" {
+			t.Errorf("fast charge %s at %.5f,%.5f final %q: want closed normally at a station", ch.ID, ch.Lat, ch.Lon, ch.FinalState)
+		}
+	}
+	if fast != c.Summary().DCFC {
+		t.Errorf("recorded fast charges = %d, planned %d", fast, c.Summary().DCFC)
+	}
 }
 
 // Every DC fast charge sits on one of the real stations, each of the

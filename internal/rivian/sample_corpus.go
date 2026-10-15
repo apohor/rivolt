@@ -290,7 +290,19 @@ func (b *sampleBuilder) endTrip() {
 	b.inTrip = false
 	b.tripMiles = append(b.tripMiles, b.odo-b.tripStart)
 }
-func (b *sampleBuilder) dcfcStop(t float64) { b.charge(t, 150, true); b.dcfc++ }
+
+// dcfcStop parks, plugs in, fast-charges to t and unplugs before driving
+// on, as a real stop does: the car is in P and unplugged for a couple of
+// minutes on each side. (Going straight from D to charging and back made
+// the recorder close the drive and the charge through its mutual-
+// exclusion paths, which don't run the close hooks, so a replay lost
+// both.)
+func (b *sampleBuilder) dcfcStop(t float64) {
+	b.park(b.t.Add(2*time.Minute), false)
+	b.charge(t, 150, true)
+	b.park(b.t.Add(3*time.Minute), false)
+	b.dcfc++
+}
 
 func (b *sampleBuilder) plan() {
 	b.park(b.clock(0, 7, 45), false)
