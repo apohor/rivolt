@@ -616,8 +616,10 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
-			go m.runChargeCloseHook(closedRow)
+		// A charge abandoned with next to nothing in it isn't worth a
+		// "charge finished" notification.
+		if !phantom && !rejected && closedRow.EnergyAddedKWh >= mutexChargeHookMinKWh {
+			m.fireChargeCloseHook(closedRow)
 		}
 	}
 	if chargingNow && s.drive != nil {
@@ -629,10 +631,77 @@ func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx co
 		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
 		rejected := s.drive.rejected
 		s.drive = nil
-		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
-			go m.runDriveCloseHook(closedRow)
+		// A drive that ran straight into charging only gets the hook
+		// (weather) if it was a real drive.
+		if !phantom && !rejected && (closedRow.EndedAt.Sub(closedRow.StartedAt) >= mutexDriveHookMinDur ||
+			closedRow.DistanceMi >= mutexDriveHookMinMi) {
+			m.fireDriveCloseHook(closedRow)
 		}
 	}
+}
+
+// Thresholds for the close hooks of sessions closed by
+// applyMutualExclusion: a forced close is often a fragment (a stale
+// gear, stuck charger fields), and its hooks notify the user or fetch
+// weather.
+const (
+	mutexChargeHookMinKWh = 1.0
+	mutexDriveHookMinDur  = 60 * time.Second
+	mutexDriveHookMinMi   = 0.1
+)
+
+// hookOnceMax bounds the fired-hook set; past it, entries older than
+// hookOnceTTL are dropped (a session closes once, and a duplicate close
+// comes seconds or minutes later, not a day).
+const (
+	hookOnceMax = 1024
+	hookOnceTTL = 24 * time.Hour
+)
+
+// hookOnce reports whether the close hook for session id (kind "d" or
+// "c") may fire, recording it: every close path fires a session's hook
+// at most once, however many times it's closed (a flap closed the same
+// charge id hundreds of times).
+func (m *StateMonitor) hookOnce(kind, id string) bool {
+	now := time.Now()
+	key := kind + "|" + id
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.hooksFired == nil {
+		m.hooksFired = map[string]time.Time{}
+	}
+	if _, done := m.hooksFired[key]; done {
+		return false
+	}
+	if len(m.hooksFired) >= hookOnceMax {
+		for k, at := range m.hooksFired {
+			if now.Sub(at) > hookOnceTTL {
+				delete(m.hooksFired, k)
+			}
+		}
+		if len(m.hooksFired) >= hookOnceMax {
+			m.hooksFired = map[string]time.Time{}
+		}
+	}
+	m.hooksFired[key] = now
+	return true
+}
+
+// fireChargeCloseHook runs the charge close hook for row, once per
+// session, unless hooks are off (none set, or replay catch-up).
+func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
+	if m.chargeCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("c", row.ID) {
+		return
+	}
+	go m.runChargeCloseHook(row)
+}
+
+// fireDriveCloseHook is fireChargeCloseHook for drives.
+func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
+	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
+		return
+	}
+	go m.runDriveCloseHook(row)
 }
 
 // switchMovedMi: the odometer moving this far since the open charge
@@ -878,8 +947,8 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.drive = nil
 		// Not for drives replayed during catch-up: a first connect
 		// backfills weeks of them, each fetching weather.
-		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
-			go m.runDriveCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireDriveCloseHook(closedRow)
 		}
 		return n
 	}
@@ -1129,8 +1198,8 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
-			go m.runChargeCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireChargeCloseHook(closedRow)
 		}
 		return n
 	}

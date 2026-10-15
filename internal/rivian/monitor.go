@@ -192,6 +192,9 @@ type StateMonitor struct {
 	// should run as the drive is recorded rather than waiting for an
 	// SPA backfill click. Set via SetDriveCloseHook; nil disables.
 	driveCloseHook DriveCloseHook
+	// hooksFired records which sessions' close hooks have fired
+	// (hookOnce). Guarded by mu.
+	hooksFired map[string]time.Time
 
 	// chargeCloseHook mirrors driveCloseHook for charge sessions:
 	// invoked asynchronously after charge close with a copy of the
