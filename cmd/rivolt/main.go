@@ -464,6 +464,23 @@ func runServer() {
 		accountRegistry = rivian.NewReplayAccountRegistry(feed)
 		rivianClient = rivian.NewStub()
 		logger.Info("rivian client: replay (no network)", "source_vehicle", src)
+		// Share live state across replicas as live mode does, so a pod
+		// that doesn't own the replay vehicle serves the owner's published
+		// /api/state rather than a one-off fetch of its own. Redis only
+		// for that (and the accumulator persistence the same store
+		// carries): replay makes no Rivian calls, so no rate limiter.
+		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
+			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+			err := rdb.Ping(pingCtx).Err()
+			pingCancel()
+			if err != nil {
+				logger.Warn("replay: live state store disabled (redis unreachable)", "addr", addr, "err", err.Error())
+				_ = rdb.Close()
+			} else {
+				sharedRedis = rdb
+			}
+		}
 	case "mock":
 		// Mock starts logged-out; the UI sign-in panel drives Login()
 		// just like the live client. Per-user instances so two test
