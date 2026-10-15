@@ -29,7 +29,8 @@ describe("DemoPage", () => {
     });
     renderDemo();
     expect(await screen.findByText(/Sample truck\./)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/login");
+    // Sign-ups open by default: the CTA goes to signup.
+    expect(await screen.findByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/signup");
     expect(await screen.findByRole("region", { name: "Now" })).toBeInTheDocument();
     // /live needs a session: no dead link in the demo.
     expect(screen.queryByRole("link", { name: /Full telemetry/ })).toBeNull();

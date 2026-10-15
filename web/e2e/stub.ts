@@ -112,6 +112,8 @@ export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-do
 export type DrainMode = "absent" | "ok" | "insufficient";
 
 export type StubOptions = {
+  // features.signup_enabled=false (RIVOLT_SIGNUP_DISABLED).
+  signupDisabled?: boolean;
   // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
   drain?: DrainMode;
   rivian?: RivianState;
@@ -126,7 +128,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -141,7 +143,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: false },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
         impersonation: { disabled: true },
       });
     }
