@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
+import { safeFitBounds } from "../lib/mapFit";
 import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
@@ -148,8 +149,18 @@ export function TripRouteMap({
     //   2. A ResizeObserver redoes it on every container resize so a
     //      later orientation change / window resize / parent expand
     //      always catches up.
+    // `fitted` stays false while the container had no size at fit time;
+    // the next resize then refits (see safeFitBounds).
+    let fitted = false;
+    let fitBox: L.LatLngBounds | null = null;
+    const refit = () => {
+      if (!fitted && fitBox && mapRef.current === map) {
+        fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
+      }
+    };
     const raf = requestAnimationFrame(() => {
       if (mapRef.current) mapRef.current.invalidateSize();
+      refit();
     });
     // Coalesce ResizeObserver callbacks into the next paint so a
     // synchronous invalidateSize() can't feed back into the same
@@ -161,18 +172,19 @@ export function TripRouteMap({
       roRaf = requestAnimationFrame(() => {
         roRaf = 0;
         if (mapRef.current) mapRef.current.invalidateSize();
+        refit();
       });
     });
     ro.observe(ref.current);
 
     const wpLatLngs = ws.map((w) => [w.Latitude, w.Longitude] as [number, number]);
-    map.fitBounds(L.latLngBounds(wpLatLngs), { padding: [24, 24], maxZoom: 12 });
+    fitBox = L.latLngBounds(wpLatLngs);
+    fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
 
     const placeholder = L.polyline(wpLatLngs, {
       color: "#34d399",
-      weight: 2,
-      opacity: 0.5,
-      dashArray: "4 6",
+      weight: 3,
+      opacity: 0.6,
     }).addTo(map);
 
     wpMarkersRef.current.clear();
@@ -220,7 +232,8 @@ export function TripRouteMap({
             weight: 3,
             opacity: 0.85,
           }).addTo(map);
-          map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 13 });
+          fitBox = line.getBounds();
+          fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
           path = snapped;
         }
       }

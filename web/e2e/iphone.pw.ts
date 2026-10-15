@@ -143,3 +143,19 @@ test("drive map: the speed legend and attribution never cover the route's end ma
   await page.screenshot({ path: path.join(SHOTS, "iphone-drive-map.png"), fullPage: true });
   await ctx.close();
 });
+
+test("drive map: basemap toggle doesn't cover the end pin at 390 px", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.goto("/drives/drive-1");
+  await page.locator(".leaflet-container").first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(1200);
+  const overlap = await page.evaluate(() => {
+    const c = document.querySelector(".rivolt-flavor-control")!.getBoundingClientRect();
+    const pins = [...document.querySelectorAll(".leaflet-marker-icon")].map((e) => e.getBoundingClientRect());
+    return pins.some((p) => p.left < c.right && p.right > c.left && p.top < c.bottom && p.bottom > c.top);
+  });
+  expect(overlap).toBe(false);
+  await ctx.close();
+});
