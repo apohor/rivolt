@@ -2,6 +2,7 @@ package repair
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,5 +215,31 @@ func TestFindGroups_RefusesToDeleteUserPricesOrRestamps(t *testing.T) {
 	}, 200*time.Second)
 	if len(gs) != 1 || len(sk) != 0 {
 		t.Fatalf("flags on the keeper must not block: groups=%d skipped=%d", len(gs), len(sk))
+	}
+}
+
+// DA's ambiguous control-truck case (Oct 1): [11.4 kWh, 39.6->47%] then
+// [12.5 kWh, 47->53%] on a 120.75 kWh pack. As a running total the whole
+// session would be ~16 kWh, more than the 12.5 kept, so neither reading
+// fits: report it for review, never delete 11.4 kWh.
+func TestFindGroups_InconsistentEnergyIsReportedNotMerged(t *testing.T) {
+	a := mk(vehB, spec{0, 600, fp(11.4), 39.6, 47, "abandoned"})
+	b := mk(vehB, spec{604, 600, fp(12.5), 47, 53, "charging_complete"})
+	a.PackKWh, b.PackKWh = fp(120.75), fp(120.75)
+	gs, sk := FindGroups([]Piece{a, b}, 200*time.Second)
+	if len(gs) != 0 || len(sk) != 1 {
+		t.Fatalf("groups=%d skipped=%d, want 0 merged and 1 reported", len(gs), len(sk))
+	}
+	if !strings.Contains(sk[0].Reason, "needs review") {
+		t.Fatalf("reason = %q", sk[0].Reason)
+	}
+}
+
+// The incident-shaped groups pass the floor (kept energy ~1.06x and
+// ~1.16x of the implied total in DA's audit).
+func TestFindGroups_RunningTotalsPassTheConsistencyFloor(t *testing.T) {
+	gs, sk := FindGroups(incident(), 200*time.Second)
+	if len(gs) != 1 || len(sk) != 0 {
+		t.Fatalf("incident: groups=%d skipped=%d", len(gs), len(sk))
 	}
 }

@@ -281,9 +281,40 @@ func runningTotal(lastE *float64, next Piece) bool {
 	return lastE != nil && e-*lastE <= 0.05 && gainPct < 0.5
 }
 
+// inconsistent reports a group whose keeper energy cannot be the
+// session's running total: the whole session gained SoC from the first
+// piece's start to the keeper's end, and a running total should be at
+// least ~80% of what that SoC change implies. If it is far below, the
+// pieces are independent sessions (or the data is ambiguous) and
+// merging would delete real energy, so the group is reported for human
+// review instead. Needs SoC on both ends; without it the group is left
+// to the other rules.
+func inconsistent(g Group) string {
+	k, first := g.Keeper(), g.Pieces[0]
+	if k.EnergyKWh == nil || k.EndSoC == nil || first.StartSoC == nil {
+		return ""
+	}
+	pack := defaultPackKWh
+	if k.PackKWh != nil && *k.PackKWh > 0 {
+		pack = *k.PackKWh
+	}
+	gain := *k.EndSoC - *first.StartSoC
+	if gain <= 0 {
+		return ""
+	}
+	implied := gain / 100 * pack
+	if *k.EnergyKWh < 0.8*implied {
+		return fmt.Sprintf("needs review: kept energy %.1f kWh is below 80%% of the %.1f kWh the session's SoC change implies (%s)", *k.EnergyKWh, implied, k.ExternalID)
+	}
+	return ""
+}
+
 // refuse says why a group must not be merged ("" = fine): deleting a
 // piece would drop a price the user entered or a place correction.
 func refuse(g Group) string {
+	if r := inconsistent(g); r != "" {
+		return r
+	}
 	for _, p := range g.Removed() {
 		if strings.EqualFold(p.CostSource, "user") {
 			return "a removed piece has a user-entered price (" + p.ExternalID + ")"
@@ -383,7 +414,24 @@ func Apply(ctx context.Context, d *sql.DB, g Group) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Delete the merged pieces FIRST: the keeper's widened time range
+	// would otherwise overlap them and trip the charges_live_no_overlap
+	// exclusion constraint.
+	ids := make([]string, 0, len(g.Removed()))
+	for _, p := range g.Removed() {
+		ids = append(ids, p.ID.String())
+	}
 	res, err := tx.ExecContext(ctx, `
+		DELETE FROM charges
+		 WHERE user_id = $1 AND source = 'live' AND id = ANY($2::uuid[])`,
+		keeper.UserID, "{"+strings.Join(ids, ",")+"}")
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); int(n) != len(ids) {
+		return fmt.Errorf("deleted %d of %d pieces; rolling back", n, len(ids))
+	}
+	res, err = tx.ExecContext(ctx, `
 		UPDATE charges SET started_at = $3::timestamptz, ended_at = $8::timestamptz,
 		       final_state = COALESCE(NULLIF($9, ''), final_state),
 		       start_soc_pct = COALESCE($4, start_soc_pct),
@@ -398,21 +446,7 @@ func Apply(ctx context.Context, d *sql.DB, g Group) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
-		return fmt.Errorf("keeper %s not found (changed since it was read)", keeper.ExternalID)
-	}
-	ids := make([]string, 0, len(g.Removed()))
-	for _, p := range g.Removed() {
-		ids = append(ids, p.ID.String())
-	}
-	res, err = tx.ExecContext(ctx, `
-		DELETE FROM charges
-		 WHERE user_id = $1 AND source = 'live' AND id = ANY($2::uuid[])`,
-		keeper.UserID, "{"+strings.Join(ids, ",")+"}")
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); int(n) != len(ids) {
-		return fmt.Errorf("deleted %d of %d pieces; rolling back", n, len(ids))
+		return fmt.Errorf("keeper %s not found (changed since it was read); rolling back", keeper.ExternalID)
 	}
 	return tx.Commit()
 }
