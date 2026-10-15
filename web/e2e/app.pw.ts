@@ -207,7 +207,7 @@ test("Settings > Notifications: statement email toggle and preview", async ({ pa
   await expect(sw).toHaveAttribute("aria-checked", "false");
   await page.getByRole("button", { name: /Preview last month/ }).click();
   await expect(page.getByText(/Your Rivian cost for September/)).toBeVisible();
-  await expect(page.getByText("Monthly statements are off for your account.")).toBeVisible();
+  await expect(page.getByText(/monthly statements are off for your account/)).toBeVisible();
 });
 
 test("statement email deep links: share=1 prompt and unpriced filter", async ({ page }) => {

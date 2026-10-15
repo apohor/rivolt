@@ -551,7 +551,7 @@ export type StatementEmailPreview = {
   text: string;
   html: string;
   will_send: boolean;
-  reason?: string;
+  reason?: "not_opted_in" | "no_email" | "silent_month" | string;
 };
 
 export type LiveDrive = {
@@ -987,8 +987,8 @@ export const backend = {
   },
   statementEmailPut: (enabled: boolean, timezone?: string) =>
     api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled, timezone }),
-  statementEmailPreview: (month: string) =>
-    api.get<StatementEmailPreview>(`/api/statement-email/preview?month=${encodeURIComponent(month)}`),
+  // No month: the server uses the previous month in the user's zone.
+  statementEmailPreview: () => api.get<StatementEmailPreview>("/api/statement-email/preview"),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   // liveDrive returns null when the server replies 204 — no drive

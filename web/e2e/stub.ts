@@ -161,7 +161,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         text: "Hi there,\n\nHere's your September statement from Rivolt.\n\nYou spent $88.00 on charging",
         html: "<p>Here's your September statement.</p>",
         will_send: false,
-        reason: "Monthly statements are off for your account.",
+        reason: "not_opted_in",
       });
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true });

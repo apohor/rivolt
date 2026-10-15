@@ -2,6 +2,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  ApiError,
   backend,
   type AIProvider,
   type AISettings,
@@ -24,7 +25,7 @@ import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
-import { currentMonth, shiftMonth } from "../lib/ledger";
+import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
 import { useImpersonationTarget } from "../lib/impersonation";
 import { useMoneyTabEnabled } from "../lib/ledger";
@@ -196,6 +197,20 @@ export default function SettingsPage() {
   );
 }
 
+// previewReason: why last month's email would not be sent, in plain words.
+function previewReason(reason?: string): string {
+  switch (reason) {
+    case "not_opted_in":
+      return "This would not be sent: monthly statements are off for your account.";
+    case "no_email":
+      return "This would not be sent: your account has no email address.";
+    case "silent_month":
+      return "This would not be sent: there was no charging or driving that month.";
+    default:
+      return "This would not be sent.";
+  }
+}
+
 function browserZone(): string | undefined {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
@@ -220,14 +235,16 @@ export function StatementEmailCard() {
     // The browser's zone is sent when the user turns it on, so the 1st
     // of the month is theirs and not the server's.
     mutationFn: (enabled: boolean) => backend.statementEmailPut(enabled, browserZone()),
-    onSuccess: (data) => qc.setQueryData(["settings", "statement-email"], data),
+    onSuccess: (data, enabled) => {
+      qc.setQueryData(["settings", "statement-email"], data);
+      track(enabled ? "statement_email_optin" : "statement_email_optout", { from: "settings" });
+    },
   });
   const [showPreview, setShowPreview] = useState(false);
   const [mode, setMode] = useState<"text" | "html">("text");
-  const month = shiftMonth(currentMonth(), -1);
   const preview = useQuery({
-    queryKey: ["statement-email", "preview", month],
-    queryFn: () => backend.statementEmailPreview(month),
+    queryKey: ["statement-email", "preview"],
+    queryFn: () => backend.statementEmailPreview(),
     enabled: showPreview,
     retry: 0,
   });
@@ -252,7 +269,13 @@ export function StatementEmailCard() {
           onChange={(v) => put.mutate(v)}
         />
       </div>
-      {put.isError && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t save: {String(put.error)}</p>}
+      {put.isError && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          {put.error instanceof ApiError && put.error.status === 409
+            ? "Add an email address to your account to receive the statement."
+            : `Couldn't save: ${String(put.error)}`}
+        </p>
+      )}
       <div className="mt-4">
         <button
           type="button"
@@ -272,9 +295,7 @@ export function StatementEmailCard() {
                   <span className="text-neutral-500">Subject:</span> {preview.data.subject}
                 </p>
                 {!preview.data.will_send && (
-                  <p className="text-xs text-amber-300">
-                    {preview.data.reason || "This would not be sent."}
-                  </p>
+                  <p className="text-xs text-amber-300">{previewReason(preview.data.reason)}</p>
                 )}
                 <div role="tablist" aria-label="Preview format" className="inline-flex rounded-lg border border-neutral-800 p-0.5 text-xs">
                   {(["text", "html"] as const).map((k) => (

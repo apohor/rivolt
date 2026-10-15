@@ -72,12 +72,32 @@ describe("StatementEmailCard", () => {
   it("previews last month's email without sending", async () => {
     mockFetch(
       { enabled: false, available: true },
-      { subject: "Your Rivian cost for September: $88.00", text: "Hi there,\nYou spent $88.00", html: "<p>x</p>", will_send: false, reason: "Turned off" },
+      { subject: "Your Rivian cost for September: $88.00", text: "Hi there,\nYou spent $88.00", html: "<p>x</p>", will_send: false, reason: "no_email" },
     );
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: /Preview last month/ }));
     expect(await screen.findByText(/Your Rivian cost for September/)).toBeInTheDocument();
     expect(screen.getByText(/You spent \$88\.00/)).toBeInTheDocument();
-    expect(screen.getByText("Turned off")).toBeInTheDocument();
+    expect(screen.getByText(/your account has no email address/)).toBeInTheDocument();
+  });
+
+  it("explains a 409 on opt-in (no email address)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const hdr = { get: () => "application/json" };
+        if (url.startsWith("/api/settings/statement-email") && init?.method === "PUT") {
+          return { ok: false, status: 409, headers: hdr, text: async () => JSON.stringify({ error: "no email address" }) } as unknown as Response;
+        }
+        if (url.startsWith("/api/settings/statement-email")) {
+          return { ok: true, status: 200, headers: hdr, text: async () => JSON.stringify({ enabled: false, available: true }) } as unknown as Response;
+        }
+        return { ok: false, status: 404, headers: hdr, text: async () => "{}" } as unknown as Response;
+      }),
+    );
+    renderCard();
+    fireEvent.click(await screen.findByRole("switch"));
+    expect(await screen.findByText(/Add an email address to your account/)).toBeInTheDocument();
   });
 });

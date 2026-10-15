@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+import { track } from "../lib/track";
 import { backend } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
@@ -42,6 +43,18 @@ export default function MoneyPage() {
   const monthParam = params.get("month");
   const month = isValidMonth(monthParam) && monthParam <= thisMonth ? monthParam : thisMonth;
   const fixture = params.get("fixture") === "1";
+  // money_view: once per page load (src=statement when it came from the
+  // monthly email). Counts and enums only.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (viewedRef.current) return;
+    viewedRef.current = true;
+    const [ty, tm] = thisMonth.split("-").map(Number);
+    const [my, mm] = month.split("-").map(Number);
+    const props: Record<string, string | number> = { month_offset: Math.max(0, (ty - my) * 12 + (tm - mm)) };
+    if (params.get("src") === "statement") props.src = "statement";
+    track("money_view", props);
+  }, [month, thisMonth, params]);
   const [metric, setMetric] = useState<"cost" | "kwh">("cost");
   const [filter, setFilter] = useState<ReceiptFilter>("all");
 
