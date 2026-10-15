@@ -542,6 +542,8 @@ export type StatementEmailSettings = {
   // False when the operator flag is off or the account has no email.
   available: boolean;
   last_sent_period?: string | null;
+  // IANA zone the monthly send uses (set when the user opts in).
+  timezone?: string | null;
 };
 
 export type StatementEmailPreview = {
@@ -983,8 +985,8 @@ export const backend = {
       throw e;
     }
   },
-  statementEmailPut: (enabled: boolean) =>
-    api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled }),
+  statementEmailPut: (enabled: boolean, timezone?: string) =>
+    api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled, timezone }),
   statementEmailPreview: (month: string) =>
     api.get<StatementEmailPreview>(`/api/statement-email/preview?month=${encodeURIComponent(month)}`),
   liveSession: (vehicleID: string) =>

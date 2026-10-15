@@ -196,6 +196,14 @@ export default function SettingsPage() {
   );
 }
 
+function browserZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // StatementEmailCard: opt in to the monthly statement email, and preview
 // what last month's would look like (never sent). Off by default; hidden
 // when the server says it isn't available (flag off, or no email on the
@@ -209,7 +217,9 @@ export function StatementEmailCard() {
     staleTime: 60_000,
   });
   const put = useMutation({
-    mutationFn: (enabled: boolean) => backend.statementEmailPut(enabled),
+    // The browser's zone is sent when the user turns it on, so the 1st
+    // of the month is theirs and not the server's.
+    mutationFn: (enabled: boolean) => backend.statementEmailPut(enabled, browserZone()),
     onSuccess: (data) => qc.setQueryData(["settings", "statement-email"], data),
   });
   const [showPreview, setShowPreview] = useState(false);

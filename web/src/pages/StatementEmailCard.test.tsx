@@ -6,6 +6,7 @@ import { StatementEmailCard } from "./SettingsPage";
 
 function mockFetch(settings: object | null, preview?: object) {
   const calls: string[] = [];
+  bodies.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -16,6 +17,7 @@ function mockFetch(settings: object | null, preview?: object) {
       const nf = { ok: false, status: 404, headers: { get: () => "application/json" }, text: async () => "{}" } as unknown as Response;
       if (url.startsWith("/api/settings/statement-email")) {
         if (settings == null) return nf;
+        if (init?.method === "PUT") bodies.push(String(init.body));
         if (init?.method === "PUT") return j({ ...settings, enabled: JSON.parse(String(init.body)).enabled });
         return j(settings);
       }
@@ -25,6 +27,8 @@ function mockFetch(settings: object | null, preview?: object) {
   );
   return calls;
 }
+
+const bodies: string[] = [];
 
 function renderCard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -60,6 +64,9 @@ describe("StatementEmailCard", () => {
     fireEvent.click(sw);
     await vi.waitFor(() => expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true"));
     expect(calls.some((c) => c.startsWith("PUT /api/settings/statement-email"))).toBe(true);
+    // The browser's timezone goes with the opt-in.
+    const sent = bodies.find((b) => b.includes("enabled"));
+    expect(JSON.parse(sent!).timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
   it("previews last month's email without sending", async () => {
