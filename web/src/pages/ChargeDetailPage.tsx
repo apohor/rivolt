@@ -1371,6 +1371,8 @@ function AutoNetworkPanel({
   mutation: { mutate: (body: Parameters<typeof backend.updateChargePricing>[1]) => void; isPending: boolean };
 }) {
   const [changing, setChanging] = useState(false);
+  // 409: the user priced it themselves or nothing matched. Offer Change.
+  const confirmConflict = !!confirm?.isError && /409|conflict/i.test(String(confirm.error));
   const [picked, setPick] = useState("");
   // Prefilled with the detected network until the owner picks another.
   const want = (networkName ?? "").toLowerCase();
@@ -1454,8 +1456,12 @@ function AutoNetworkPanel({
               Change
             </button>
           </div>
-          {confirm?.isError && <p className="mt-2 text-xs text-rose-400">{String(confirm.error)}</p>}
-          {changing && (
+          {confirm?.isError && (
+            <p className="mt-2 text-xs text-rose-400">
+              {confirmConflict ? "This one can't be confirmed as is. Pick the network with Change." : String(confirm.error)}
+            </p>
+          )}
+          {(changing || confirmConflict) && (
             <div className="mt-3 space-y-2 border-t border-neutral-800 pt-3">
               <label className="block text-xs text-neutral-400">
                 Network

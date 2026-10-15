@@ -132,6 +132,9 @@ for (const [vpName, vp] of [
         }
         return r.fulfill({ json: m });
       });
+      // The collapsed push deep-links straight to the filtered list.
+      await page.goto("/money?filter=confirm");
+      await expect(page.getByTestId("to-confirm-list")).toBeVisible();
       await page.goto("/money");
       const badge = page.getByRole("button", { name: /3 charges to confirm/ });
       await expect(badge).toBeVisible();

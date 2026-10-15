@@ -62,7 +62,7 @@ export default function MoneyPage() {
     track("money_view", props);
   }, [month, thisMonth, params]);
   const [metric, setMetric] = useState<"cost" | "kwh">("cost");
-  const [filter, setFilter] = useState<ReceiptFilter>("all");
+  const [filter, setFilter] = useState<ReceiptFilter>(() => (params.get("filter") === "confirm" ? "confirm" : "all"));
 
   const setMonth = (m: string) => {
     const next = new URLSearchParams(params);
