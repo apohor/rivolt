@@ -81,6 +81,23 @@ func BuildTrips(in Input, from, to time.Time, loc *time.Location) TripsResponse 
 	if loc == nil {
 		loc = time.UTC
 	}
+	out := TripsResponse{Version: Version, TZ: loc.String(), Currency: in.Config.Currency, Trips: []Trip{}}
+	for _, outing := range outingsOf(in) {
+		t, ok := tripFrom(outing, in.Config)
+		if !ok || t.StartedAt.Before(from) || !t.StartedAt.Before(to) {
+			continue
+		}
+		out.Trips = append(out.Trips, t)
+	}
+	sort.SliceStable(out.Trips, func(i, j int) bool { return out.Trips[i].StartedAt.After(out.Trips[j].StartedAt) })
+	return out
+}
+
+// outingsOf splits the effective (deduped) drives and charges in `in`
+// into per-vehicle outings (splitOutings), vehicles in id order, each
+// outing in time order. Trips are the outings that qualify (tripFrom);
+// plan matching considers them all.
+func outingsOf(in Input) [][]tripEvent {
 	charges, _ := EffectiveCharges(in.Charges)
 	drives, _ := EffectiveDrives(in.Drives)
 	byVehicle := map[string][]tripEvent{}
@@ -97,20 +114,12 @@ func BuildTrips(in Input, from, to time.Time, loc *time.Location) TripsResponse 
 		vehicles = append(vehicles, v)
 	}
 	sort.Strings(vehicles)
-
-	out := TripsResponse{Version: Version, TZ: loc.String(), Currency: in.Config.Currency, Trips: []Trip{}}
+	var out [][]tripEvent
 	for _, v := range vehicles {
 		evs := byVehicle[v]
 		sort.SliceStable(evs, func(i, j int) bool { return evs[i].start.Before(evs[j].start) })
-		for _, outing := range splitOutings(evs, in.Config.Home) {
-			t, ok := tripFrom(outing, in.Config)
-			if !ok || t.StartedAt.Before(from) || !t.StartedAt.Before(to) {
-				continue
-			}
-			out.Trips = append(out.Trips, t)
-		}
+		out = append(out, splitOutings(evs, in.Config.Home)...)
 	}
-	sort.SliceStable(out.Trips, func(i, j int) bool { return out.Trips[i].StartedAt.After(out.Trips[j].StartedAt) })
 	return out
 }
 

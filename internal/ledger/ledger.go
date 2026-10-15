@@ -140,6 +140,9 @@ type Drive struct {
 	// measure distance from home (trips); never returned.
 	StartLat, StartLon *float64
 	EndLat, EndLon     *float64
+	// Start and end state of charge (%); nil when not recorded. Used
+	// for plan vs actual arrival SoC; never returned.
+	StartSoC, EndSoC *float64
 }
 
 // LatLon is a WGS84 point.
