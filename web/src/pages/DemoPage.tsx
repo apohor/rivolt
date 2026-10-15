@@ -97,6 +97,7 @@ export default function DemoPage() {
             vehicleID={demo.data.vehicle_id}
             vehicleName={v?.name || "Sample truck"}
             packKwh={v?.pack_kwh || null}
+            showTelemetryLink={false}
           />
         )}
         {tab === "money" && <MoneyPage />}

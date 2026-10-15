@@ -43,6 +43,9 @@ const views: View[] = [
   // With GET /now: the Replay badge, "location as of" and "since".
   { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /location as of/, /since /] },
   { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect my Rivian"] },
+  // Stale frame: the pill must not say Live next to an old timestamp.
+  { name: "now-stale", path: "/", heading: "Now", opts: { scenario: "stale" }, text: [/Last seen [5-7] min ago/, /Updated [5-7] min ago/] },
+  { name: "demo-stale", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, scenario: "stale" }, text: [/Last seen [5-7] min ago/] },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
   // Degraded-state banner: shown only when something is wrong.
@@ -120,6 +123,14 @@ for (const view of views) {
           const card = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Rivolt account" }) }).last();
           await expect(card.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(1);
         }
+        if (view.name.endsWith("stale")) {
+          await expect(page.getByTestId("now-pill")).not.toHaveText("Live");
+        }
+        if (view.name === "demo" || view.name === "demo-stale") {
+          // No sign-in-only links in the public demo.
+          await expect(page.getByRole("link", { name: "Full telemetry →" })).toHaveCount(0);
+          await expect(page.locator('a[href="/live"]')).toHaveCount(0);
+        }
         if (view.name === "activity") {
           // One nav row: the filter tabs; no Feed/Drives/Charges sub-nav.
           await expect(page.getByRole("navigation", { name: "Activity sections" })).toHaveCount(0);
@@ -127,7 +138,7 @@ for (const view of views) {
         }
 
         // Light theme only applies inside the shell, signed in.
-        if (scheme === "light" && view.name !== "landing" && view.name !== "demo") {
+        if (scheme === "light" && view.name !== "landing" && !view.name.startsWith("demo")) {
           await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
         } else if (scheme === "dark") {
           await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");
@@ -169,3 +180,20 @@ for (const view of views) {
     }
   }
 }
+
+test("the public demo makes no session or Rivian-account calls", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const paths: string[] = [];
+  page.on("request", (r) => paths.push(new URL(r.url()).pathname));
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
+  await page.goto("/demo");
+  await expect(page.getByRole("heading", { name: /Rivolt demo/ })).toBeVisible();
+  for (const tab of ["Money", "Activity", "Now"]) {
+    await page.getByRole("button", { name: tab }).click();
+    await page.waitForTimeout(400);
+  }
+  expect(paths).not.toContain("/api/auth/me");
+  expect(paths).not.toContain("/api/settings/rivian/");
+  await ctx.close();
+});
