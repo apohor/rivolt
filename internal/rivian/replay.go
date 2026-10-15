@@ -50,6 +50,8 @@ type replayFrame struct {
 	// 0 when it doesn't. Only the sample corpus sets it.
 	SessionPrice    float64 `json:"session_price,omitempty"`
 	SessionCurrency string  `json:"session_currency,omitempty"`
+	// SessionNetwork names the network billing that session.
+	SessionNetwork string `json:"session_network,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -105,7 +107,8 @@ func (f replayFrame) toState() State {
 	dropIdleChargerPower(&s)
 	if f.SessionPrice > 0 {
 		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true,
-			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency}
+			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency,
+			Network: f.SessionNetwork}
 	}
 	return s
 }

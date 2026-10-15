@@ -1434,6 +1434,11 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			row.Cost = cost
 			row.Currency = liveSess.CurrentCurrency
 			row.CostSource = CostSourceRivian
+			// The billing network when the session names it, so the
+			// charge map labels a Rivian-billed stop by its network
+			// instead of the nearest charger's brand. Never guessed from
+			// "Rivian-billed": Rivian can bill other networks too.
+			row.Network = strings.TrimSpace(liveSess.Network)
 			if energy > 0 {
 				row.PricePerKWh = cost / energy
 			}

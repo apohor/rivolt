@@ -220,6 +220,11 @@ type LiveSession struct {
 	CurrentCurrency string  `json:"current_currency"`
 	IsFreeSession   bool    `json:"is_free_session"`
 	IsRivianCharger bool    `json:"is_rivian_charger"`
+	// Network is the display name of the charging network billing the
+	// session (e.g. "Rivian Adventure Network") when a source knows it.
+	// Rivian's live-session APIs carry no network name, so today only
+	// the sample corpus sets it; empty means unknown.
+	Network string `json:"network,omitempty"`
 }
 
 // Client is the high-level API surface Rivolt uses against Rivian.
