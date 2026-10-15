@@ -103,6 +103,15 @@ const (
 	segCharge
 )
 
+// Frame cadence, matched to real trucks (prod vehicle_state, 7 days to
+// 2026-10-15): awake, parked or plugged in, p50 5 s / p99 8 s; charging
+// p50 3 s; asleep p50 177 s / p99 181 s (the ~3-min connection TTL's
+// replay frame). Coarser frames made the demo's Now card read stale.
+const (
+	sampleAwakeStep  = 5 * time.Second
+	sampleAsleepStep = 3 * time.Minute
+)
+
 // sampleSeg is a stretch of one activity; frames are every step in
 // [start, end).
 type sampleSeg struct {
@@ -208,7 +217,7 @@ func (b *sampleBuilder) park(until time.Time, flicker bool) {
 	awakeEnd := minTime(b.t.Add(20*time.Minute), until)
 	wake := until.Add(-2 * time.Minute)
 	seg := base
-	seg.start, seg.end, seg.step, seg.power = b.t, awakeEnd, 30*time.Second, "ready"
+	seg.start, seg.end, seg.step, seg.power = b.t, awakeEnd, sampleAwakeStep, "ready"
 	b.add(seg)
 	if wake.After(b.t) {
 		if flicker {
@@ -219,17 +228,17 @@ func (b *sampleBuilder) park(until time.Time, flicker bool) {
 				seg.start, seg.end, seg.step, seg.power = b.t, b.t.Add(30*time.Second), 10*time.Second, "sleep"
 				b.add(seg)
 				seg = base
-				seg.start, seg.end, seg.step, seg.power = b.t, b.t.Add(20*time.Minute), 30*time.Second, "ready"
+				seg.start, seg.end, seg.step, seg.power = b.t, b.t.Add(20*time.Minute), sampleAwakeStep, "ready"
 				b.add(seg)
 				b.flickers++
 			}
 		}
 		seg = base
-		seg.start, seg.end, seg.step, seg.power = b.t, wake, 10*time.Minute, "sleep"
+		seg.start, seg.end, seg.step, seg.power = b.t, wake, sampleAsleepStep, "sleep"
 		b.add(seg)
 	}
 	seg = base
-	seg.start, seg.end, seg.step, seg.power = b.t, until, 30*time.Second, "ready"
+	seg.start, seg.end, seg.step, seg.power = b.t, until, sampleAwakeStep, "ready"
 	b.add(seg)
 }
 
@@ -257,10 +266,10 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 	}
 	kwh := (target - b.soc) / 100 * samplePackKWh
 	avg := kw
-	step := 30 * time.Second
+	step := sampleAwakeStep
 	if dcfc {
 		avg = kw * 0.62 // taper
-		step = 10 * time.Second
+		step = sampleAwakeStep
 	}
 	dur := time.Duration(kwh / avg * float64(time.Hour))
 	billed := 0.0
@@ -279,7 +288,7 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 func (b *sampleBuilder) topUp() {
 	mins := 3 + b.rng.Intn(4)
 	add := float64(mins) / 60 * sampleL2KW / samplePackKWh * 100
-	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(time.Duration(mins) * time.Minute), step: 30 * time.Second,
+	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(time.Duration(mins) * time.Minute), step: sampleAwakeStep,
 		socA: b.soc, socB: b.soc + add, odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: sampleL2KW, power: "ready"})
 	b.soc += add
 	b.plugged = true

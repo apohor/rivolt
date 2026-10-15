@@ -206,3 +206,28 @@ func TestSampleUserPrice(t *testing.T) {
 		}
 	}
 }
+
+// The sample truck reports as often as a real one (prod, 7 days to
+// 2026-10-15): within 3 min while asleep (the connection TTL's replay),
+// within 5 s while awake, parked, plugged in or charging, so the demo's
+// Now card never looks stale next to a live truck.
+func TestSampleCorpusCadence(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	start, end := c.span()
+	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var worstAsleep, worstAwake time.Duration
+	for i := 1; i < len(frames); i++ {
+		gap := frames[i].At.Sub(frames[i-1].At)
+		if frames[i-1].PowerState == "sleep" {
+			worstAsleep = max(worstAsleep, gap)
+		} else {
+			worstAwake = max(worstAwake, gap)
+		}
+	}
+	if worstAsleep > sampleAsleepStep || worstAwake > sampleAwakeStep {
+		t.Errorf("largest gaps: asleep %v (want ≤ %v), awake %v (want ≤ %v)", worstAsleep, sampleAsleepStep, worstAwake, sampleAwakeStep)
+	}
+}
