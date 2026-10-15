@@ -203,6 +203,7 @@ type liveCharge struct {
 	startedAt  time.Time
 	number     int64
 	startSoC   float64
+	startOdoMi float64 // odometer when the charge opened; 0 if unknown
 	lat        float64
 	lon        float64
 	maxPower   float64 // kW
@@ -426,12 +427,19 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// Force-close it BEFORE the lifecycle handlers so the new
 		// gear/charge state opens a clean session instead of
 		// extending the wrong one.
-		sess.applyMutualExclusion(curr, m, wctx)
+		//
+		// The lifecycle sees lifecycleView(curr): a frame that says
+		// both driving and charging is resolved by motion to one of
+		// them, so a stale gear or stuck charger fields can't close and
+		// reopen both sessions on every frame. The sample row keeps the
+		// raw frame.
+		lc := sess.lifecycleView(curr, m)
+		sess.applyMutualExclusion(lc, m, wctx)
 
 		// Handle session lifecycle so the sample row carries the
 		// right drive_number / charge_number for this frame.
-		driveNum = sess.handleDriveLifecycle(curr, prev, m, wctx)
-		chargeNum = sess.handleChargeLifecycle(curr, prev, m, wctx)
+		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
+		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock
@@ -588,24 +596,150 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx context.Context) {
 	driving := isDrivingGear(curr.Gear)
 	chargingNow := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	// These closes finish a session like the normal close paths do: a
+	// last upsert that retries a rejected row once, then the close hook
+	// (charge notifications, drive weather) unless the row is a phantom
+	// or another recorder's. They used to upsert and drop the session
+	// without the hook.
 	if driving && s.charge != nil {
 		m.logger.Info("closing live charge: gear is driving",
 			"vehicle", curr.VehicleID, "id", s.charge.id, "gear", curr.Gear)
 		s.charge.finalState = "abandoned"
+		s.charge.final = true
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
+		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		rejected := s.charge.rejected
 		s.charge = nil
 		m.mu.Lock()
 		delete(m.lastSession, curr.VehicleID)
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
+		// A charge abandoned with next to nothing in it isn't worth a
+		// "charge finished" notification.
+		if !phantom && !rejected && closedRow.EnergyAddedKWh >= mutexChargeHookMinKWh {
+			m.fireChargeCloseHook(closedRow)
+		}
 	}
 	if chargingNow && s.drive != nil {
 		m.logger.Info("closing live drive: car is charging",
 			"vehicle", curr.VehicleID, "id", s.drive.id, "charger_state", curr.ChargerState)
+		s.drive.final = true
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
+		rejected := s.drive.rejected
 		s.drive = nil
+		// A drive that ran straight into charging only gets the hook
+		// (weather) if it was a real drive.
+		if !phantom && !rejected && (closedRow.EndedAt.Sub(closedRow.StartedAt) >= mutexDriveHookMinDur ||
+			closedRow.DistanceMi >= mutexDriveHookMinMi) {
+			m.fireDriveCloseHook(closedRow)
+		}
 	}
+}
+
+// Thresholds for the close hooks of sessions closed by
+// applyMutualExclusion: a forced close is often a fragment (a stale
+// gear, stuck charger fields), and its hooks notify the user or fetch
+// weather.
+const (
+	mutexChargeHookMinKWh = 1.0
+	mutexDriveHookMinDur  = 60 * time.Second
+	mutexDriveHookMinMi   = 0.1
+)
+
+// hookOnceMax bounds the fired-hook set; past it, entries older than
+// hookOnceTTL are dropped (a session closes once, and a duplicate close
+// comes seconds or minutes later, not a day).
+const (
+	hookOnceMax = 1024
+	hookOnceTTL = 24 * time.Hour
+)
+
+// hookOnce reports whether the close hook for session id (kind "d" or
+// "c") may fire, recording it: every close path fires a session's hook
+// at most once, however many times it's closed (a flap closed the same
+// charge id hundreds of times).
+func (m *StateMonitor) hookOnce(kind, id string) bool {
+	now := time.Now()
+	key := kind + "|" + id
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.hooksFired == nil {
+		m.hooksFired = map[string]time.Time{}
+	}
+	if _, done := m.hooksFired[key]; done {
+		return false
+	}
+	if len(m.hooksFired) >= hookOnceMax {
+		for k, at := range m.hooksFired {
+			if now.Sub(at) > hookOnceTTL {
+				delete(m.hooksFired, k)
+			}
+		}
+		if len(m.hooksFired) >= hookOnceMax {
+			m.hooksFired = map[string]time.Time{}
+		}
+	}
+	m.hooksFired[key] = now
+	return true
+}
+
+// fireChargeCloseHook runs the charge close hook for row, once per
+// session, unless hooks are off (none set, or replay catch-up).
+func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
+	if m.chargeCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("c", row.ID) {
+		return
+	}
+	go m.runChargeCloseHook(row)
+}
+
+// fireDriveCloseHook is fireChargeCloseHook for drives.
+func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
+	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
+		return
+	}
+	go m.runDriveCloseHook(row)
+}
+
+// switchMovedMi: the odometer moving this far since the open charge
+// began means the car is driving, whatever the charger fields say.
+const switchMovedMi = 0.05
+
+// lifecycleView is the frame the session lifecycle acts on. A frame that
+// says both driving (gear D/R/N) and charging (plugged, charging_active)
+// is a contradiction: Rivian's charger fields stick after an unplug, and
+// a replayed gear can read D while the car charges (the 2026-10-10 flap,
+// where the recorder then closed and reopened both sessions on every
+// frame). Motion settles it: speed over driveCloseSpeedMph, the odometer
+// moving switchMovedMi since the open charge began, or a fresh Parallax
+// driving gear mean driving, and the lifecycle sees the charger fields
+// as unknown; otherwise the car is charging and it sees gear P. Frames
+// that don't contradict themselves pass through unchanged (an unplug
+// followed by D still closes the charge and opens the drive at once).
+//
+// Must be called with m.sessMu held.
+func (s *liveSessions) lifecycleView(curr *State, m *StateMonitor) *State {
+	if !isDrivingGear(curr.Gear) || !(isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)) {
+		return curr
+	}
+	moving := curr.SpeedKph*kphToMi > driveCloseSpeedMph
+	if c := s.charge; c != nil && c.startOdoMi > 0 && curr.OdometerKm > 0 &&
+		curr.OdometerKm*kmToMi-c.startOdoMi >= switchMovedMi {
+		moving = true
+	}
+	if g, at := m.lastParallaxGear(curr.VehicleID); isDrivingGear(g) && !at.IsZero() && time.Since(at) < 30*time.Second {
+		moving = true
+	}
+	view := *curr
+	if moving {
+		view.ChargerState, view.ChargerStatus, view.ChargerPowerKW = "", "", 0
+	} else {
+		view.Gear = "P"
+	}
+	return &view
 }
 
 // handleDriveLifecycle manages the drive accumulator across a single
@@ -813,8 +947,8 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.drive = nil
 		// Not for drives replayed during catch-up: a first connect
 		// backfills weeks of them, each fetching weather.
-		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
-			go m.runDriveCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireDriveCloseHook(closedRow)
 		}
 		return n
 	}
@@ -981,6 +1115,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			startedAt:        curr.At,
 			number:           s.chargeCounter,
 			startSoC:         curr.BatteryLevelPct,
+			startOdoMi:       curr.OdometerKm * kmToMi,
 			lat:              curr.Latitude,
 			lon:              curr.Longitude,
 			endAt:            curr.At,
@@ -1063,8 +1198,8 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
-			go m.runChargeCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireChargeCloseHook(closedRow)
 		}
 		return n
 	}
