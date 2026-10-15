@@ -484,7 +484,14 @@ func (m *StateMonitor) lastParallaxGear(vehicleID string) (string, time.Time) {
 // frame. Called from every Parallax subscriber callback so
 // parallaxLivenessWatch can distinguish a live-but-quiet feed from a dead
 // one. Cheap: a single guarded map write.
-func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
+//
+// It reports whether the frame is FRESH: its event ts_ms is positive and
+// either the first seen for this vehicle+topic or strictly newer than the
+// last one. A frame with the same ts as before is a cloud replay of the
+// last snapshot (every resubscribe re-sends it with its original ts_ms),
+// not the vehicle emitting; callers that apply the value to live state
+// must skip replays (see applyParallaxGear).
+func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) (fresh bool) {
 	m.mu.Lock()
 	m.lastParallaxAt[vehicleID] = time.Now()
 	// Sleep hygiene: count only FRESH frames (event ts advancing past the
@@ -498,6 +505,7 @@ func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
 		key := vehicleID + "|" + topic
 		last, seen := m.lastTopicTs[key]
 		if !seen || tsMs > last {
+			fresh = true
 			m.lastTopicTs[key] = tsMs
 			// Only an advance past an established baseline is a new event;
 			// the first sighting just sets the baseline.
@@ -510,7 +518,16 @@ func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
 		}
 	}
 	m.mu.Unlock()
+	return fresh
 }
+
+// parallaxGearMaxAge is how old a Parallax gear frame's event time may
+// be and still be applied. A real gear change reaches us within seconds;
+// a replay after a resubscribe carries the timestamp of the last real
+// change, which can be minutes old. This also covers the first frame
+// seen after a restart (no baseline yet), which would otherwise count as
+// fresh.
+const parallaxGearMaxAge = 60 * time.Second
 
 // parallaxLivenessWatch is the periodic Parallax observability tick. Two
 // jobs:
@@ -1871,7 +1888,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // docs/PARALLAX_MIGRATION.md Phase 2.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
-		m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
+		fresh := m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
 		m.mu.Unlock()
@@ -1884,39 +1901,7 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 		}
 		switch f.RVM {
 		case rvmDriveGear:
-			g := gearFromParallax(f.Value)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "gear",
-				"px_enum", f.Value, "px_gear", g,
-				"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
-			// Feed the drive-close debounce: fresh Parallax P corroborates
-			// a close, fresh R/N/D vetoes a vehicleState P blip.
-			if g != "" {
-				m.mu.Lock()
-				m.lastPxGear[vehicleID] = g
-				m.lastPxGearAt[vehicleID] = time.Now()
-				m.mu.Unlock()
-			}
-			// Authoritative early-open: a Parallax driving gear (R/N/D)
-			// opens/sustains the drive now. Parallax leads vehicleState by
-			// seconds (tens of seconds when vehicleState stalls), so this
-			// captures the true start — and, because the cache still holds
-			// the pre-drive parked odometer/location, the correct start
-			// odometer and start point. P is intentionally not applied.
-			if m.parallaxDriveDynamics && isDrivingGear(g) {
-				m.mu.Lock()
-				base := m.cache[vehicleID]
-				if base != nil {
-					next := *base
-					next.At = time.Now()
-					next.Gear = g
-					m.cache[vehicleID] = &next
-					m.mu.Unlock()
-					m.record(ctx, vehicleID, base, &next)
-				} else {
-					m.mu.Unlock()
-				}
-			}
+			m.applyParallaxGear(ctx, vehicleID, f, fresh, vehGear)
 		case rvmDriveMode:
 			dm := driveModeFromParallax(f.Value)
 			m.logger.Info("parallax drive-dynamics shadow",
@@ -2231,6 +2216,63 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 		m.logger.Warn("drive-dynamics shadow subscription ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// applyParallaxGear handles one dynamics.vehicle.gear frame.
+//
+// A replayed frame (same or older ts_ms than one already seen, or an
+// event time older than parallaxGearMaxAge) is IGNORED: it must not
+// refresh the "fresh Parallax gear" veto/corroboration, must not be
+// copied into the cached state and must not call record(). Without
+// this gate every Parallax resubscribe (~3 min) replayed the last real
+// gear (a D from repositioning before plugging in) into a car that was
+// fast-charging, and the recorder closed and reopened the charge and a
+// drive on every frame (2026-10-10, 01-2498255104: 462 forced closes,
+// 11 charge pieces with running energy totals).
+func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, f DriveDynamicsFrame, fresh bool, vehGear string) {
+	g := gearFromParallax(f.Value)
+	stale := !fresh
+	if !stale && f.TimestampMs > 0 {
+		stale = time.Since(time.UnixMilli(f.TimestampMs)) > parallaxGearMaxAge
+	}
+	if stale {
+		m.logger.Debug("parallax gear frame ignored (replay)",
+			"vehicle", vehicleID, "px_enum", f.Value, "px_gear", g,
+			"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+		return
+	}
+	m.logger.Info("parallax drive-dynamics shadow",
+		"vehicle", vehicleID, "topic", "gear",
+		"px_enum", f.Value, "px_gear", g,
+		"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+	// Feed the drive-close debounce: fresh Parallax P corroborates
+	// a close, fresh R/N/D vetoes a vehicleState P blip.
+	if g != "" {
+		m.mu.Lock()
+		m.lastPxGear[vehicleID] = g
+		m.lastPxGearAt[vehicleID] = time.Now()
+		m.mu.Unlock()
+	}
+	// Authoritative early-open: a Parallax driving gear (R/N/D)
+	// opens/sustains the drive now. Parallax leads vehicleState by
+	// seconds (tens of seconds when vehicleState stalls), so this
+	// captures the true start — and, because the cache still holds
+	// the pre-drive parked odometer/location, the correct start
+	// odometer and start point. P is intentionally not applied.
+	if m.parallaxDriveDynamics && isDrivingGear(g) {
+		m.mu.Lock()
+		base := m.cache[vehicleID]
+		if base != nil {
+			next := *base
+			next.At = time.Now()
+			next.Gear = g
+			m.cache[vehicleID] = &next
+			m.mu.Unlock()
+			m.record(ctx, vehicleID, base, &next)
+		} else {
+			m.mu.Unlock()
+		}
 	}
 }
 
