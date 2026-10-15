@@ -61,7 +61,6 @@ var (
 		{34.1184, -118.3004}, // Griffith Observatory
 		{34.1478, -118.1445}, // Pasadena City Hall
 	}
-	sampleBaker  = samplePoint{35.2652, -116.0731}
 	sampleVegas  = samplePoint{36.1699, -115.1398}
 	sampleHoover = samplePoint{36.0160, -114.7377}
 	sampleLebec  = samplePoint{34.9881, -118.9455}
@@ -137,8 +136,9 @@ func (s sampleSeg) frames() int {
 // SampleCorpus is the generated corpus.
 type SampleCorpus struct {
 	segs       []sampleSeg
-	userPriced int           // segment the owner priced by hand; -1 when none
-	stats      SampleSummary // plan counts; frames and span filled by Summary
+	userPriced int              // segment the owner priced by hand; -1 when none
+	legs       [][2]samplePoint // waypoint legs driven (route generator)
+	stats      SampleSummary    // plan counts; frames and span filled by Summary
 }
 
 // SampleSummary describes what a corpus contains, for tests and the CLI.
@@ -168,7 +168,7 @@ func NewSampleCorpus(seed int64) *SampleCorpus {
 		soc: sampleWrapSoC, odo: 12480, at: SampleHome, limit: 80, plugged: true}
 	b.userPriced = -1
 	b.plan()
-	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
+	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, legs: b.legs, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
 		AwayAC: b.awayAC, FailedSleeps: b.flickers, RoadTripMiles: b.tripMiles}}
 }
 
@@ -195,6 +195,9 @@ type sampleBuilder struct {
 	// userPriced is the segment index of the session the sample owner
 	// priced by hand (SampleUserPrice); -1 when none.
 	userPriced int
+	// legs are the waypoint-to-waypoint stretches driven, for the route
+	// generator (sample_routes_gen_test.go).
+	legs [][2]samplePoint
 }
 
 func (b *sampleBuilder) add(s sampleSeg) {
@@ -244,8 +247,11 @@ func (b *sampleBuilder) park(until time.Time, flicker bool) {
 
 // drive through waypoints at cruise mph.
 func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
-	path := append([]samplePoint{b.at}, to...)
-	miles := pathMiles(path) * sampleRoadRatio
+	way := append([]samplePoint{b.at}, to...)
+	for i := 1; i < len(way); i++ {
+		b.legs = append(b.legs, [2]samplePoint{way[i-1], way[i]})
+	}
+	path, miles := sampleRoad(way)
 	dur := time.Duration(miles / cruise * float64(time.Hour))
 	drop := miles / (sampleMiPerKWh * samplePackKWh) * 100
 	b.plugged = false
@@ -367,7 +373,7 @@ func (b *sampleBuilder) plan() {
 			b.startTrip()
 			b.drive(66, sampleBarstow)
 			b.dcfcStop(85)
-			b.drive(68, sampleBaker, sampleVegas)
+			b.drive(68, sampleVegas) // I-15, through Baker
 			b.park(b.t.Add(90*time.Minute), false)
 			b.charge(90, sampleHotelKW, false) // hotel L2: away AC
 			b.awayAC++
@@ -379,7 +385,7 @@ func (b *sampleBuilder) plan() {
 			b.park(b.clock(day+2, 9, 0), false)
 			b.drive(66, samplePrimm)
 			b.dcfcStop(85)
-			b.drive(68, sampleBaker, sampleBarstow, SampleHome)
+			b.drive(68, sampleBarstow, SampleHome) // I-15, through Baker
 			b.endTrip()
 			b.eveningAtHome(day+2, false, b.clock(day+3, 7, 45).Add(b.jitter(10)), 80)
 			day += 3
