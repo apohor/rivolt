@@ -17,6 +17,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -120,8 +121,8 @@ func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client
 		default:
 			if logger != nil {
 				logger.WarnContext(r.Context(), "signup request create failed",
-					slog.String("email", reqEmail),
-					slog.String("err", err.Error()),
+					slog.String("email_hash", logging.IDHash(reqEmail)),
+					slog.String("err", logging.ScrubErr(err)),
 				)
 			}
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal error"})
@@ -196,8 +197,8 @@ func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, mai
 		emailErr := sendApprovalEmail(r.Context(), mailer, row.Email, link)
 		if emailErr != nil && logger != nil {
 			logger.WarnContext(r.Context(), "signup approval email failed",
-				slog.String("email", row.Email),
-				slog.String("err", emailErr.Error()),
+				slog.String("email_hash", logging.IDHash(row.Email)),
+				slog.String("err", logging.ScrubErr(emailErr)),
 			)
 		}
 		out := toSignupRequestRow(row)
