@@ -88,10 +88,11 @@ var sampleDCFCStations = []struct {
 	at            samplePoint
 	network, name string // as in the archive (EVNetwork, Name)
 	billed        float64
+	billedBy      string // the network name Rivian's billed session carries
 }{
-	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48},
-	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0},
-	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0},
+	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48, "Rivian Adventure Network"},
+	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0, ""},
+	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0, ""},
 }
 
 type sampleSegKind int
@@ -127,6 +128,7 @@ type sampleSeg struct {
 	power      string // parked: ready | sleep
 	limit      float64
 	billedRate float64 // charge: $/kWh Rivian bills (0: not Rivian-billed)
+	billedBy   string  // charge: the billed session's network name
 }
 
 func (s sampleSeg) frames() int {
@@ -278,14 +280,14 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 		step = sampleAwakeStep
 	}
 	dur := time.Duration(kwh / avg * float64(time.Hour))
-	billed := 0.0
+	billed, billedBy := 0.0, ""
 	for _, st := range sampleDCFCStations {
 		if dcfc && st.at == b.at {
-			billed = st.billed
+			billed, billedBy = st.billed, st.billedBy
 		}
 	}
 	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(dur), step: step, socA: b.soc, socB: target,
-		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready", billedRate: billed})
+		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready", billedRate: billed, billedBy: billedBy})
 	b.soc = target
 	b.plugged = !dcfc // AC stays plugged in until the car leaves
 }
@@ -498,7 +500,7 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 		if s.billedRate > 0 {
 			// The running total Rivian's live session reports.
 			kwh := math.Max(0, soc-s.socA) / 100 * samplePackKWh
-			fr.SessionPrice, fr.SessionCurrency = round2(kwh*s.billedRate), "USD"
+			fr.SessionPrice, fr.SessionCurrency, fr.SessionNetwork = round2(kwh*s.billedRate), "USD", s.billedBy
 		}
 	case segParked:
 		if s.plugged {

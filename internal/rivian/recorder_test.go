@@ -910,8 +910,21 @@ func TestLiveChargeRow_CostSource(t *testing.T) {
 	m.lastSessionFor["veh-1"] = billed.id
 	m.mu.Unlock()
 	ran := m.liveChargeRow("veh-1", billed)
-	if ran.CostSource != CostSourceRivian || ran.Cost != 27 {
-		t.Errorf("Rivian-billed: source=%q cost=%.2f, want rivian/27.00", ran.CostSource, ran.Cost)
+	if ran.CostSource != CostSourceRivian || ran.Cost != 27 || ran.Network != "" {
+		t.Errorf("Rivian-billed: source=%q cost=%.2f network=%q, want rivian/27.00 and no network (Rivian names none)",
+			ran.CostSource, ran.Cost, ran.Network)
+	}
+
+	// A session that names its network records it, at Rivian's price.
+	named := charge("ran2", 200, 60, 30*time.Minute)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD", Network: "Rivian Adventure Network"}
+	m.lastSessionFor["veh-1"] = named.id
+	m.mu.Unlock()
+	ran = m.liveChargeRow("veh-1", named)
+	if ran.CostSource != CostSourceRivian || ran.Cost != 27 || ran.Network != "Rivian Adventure Network" {
+		t.Errorf("Rivian-billed, named: source=%q cost=%.2f network=%q, want rivian/27.00/Rivian Adventure Network",
+			ran.CostSource, ran.Cost, ran.Network)
 	}
 }
 

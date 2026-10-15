@@ -130,9 +130,9 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 		atRAN := haversineMeters(ch.Lat, ch.Lon, sampleDCFCStations[0].at.Lat, sampleDCFCStations[0].at.Lon) <= 250
 		switch {
 		case atRAN && (ch.CostSource != CostSourceRivian || ch.Currency != "USD" || ch.Cost <= 0 ||
-			math.Abs(ch.Cost/ch.EnergyAddedKWh-0.48) > 0.05):
-			t.Errorf("RAN charge %s: %s %.2f %s over %.1f kWh, want Rivian-billed at ~$0.48/kWh",
-				ch.ID, ch.CostSource, ch.Cost, ch.Currency, ch.EnergyAddedKWh)
+			math.Abs(ch.Cost/ch.EnergyAddedKWh-0.48) > 0.05 || ch.Network != "Rivian Adventure Network"):
+			t.Errorf("RAN charge %s: %s %.2f %s over %.1f kWh, network %q, want Rivian-billed at ~$0.48/kWh by Rivian Adventure Network",
+				ch.ID, ch.CostSource, ch.Cost, ch.Currency, ch.EnergyAddedKWh, ch.Network)
 		case atRAN:
 			billed++
 		case ch.CostSource == CostSourceRivian:
