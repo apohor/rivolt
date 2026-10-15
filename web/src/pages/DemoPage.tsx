@@ -9,6 +9,7 @@ import { Spinner } from "../components/ui";
 import { backend } from "../lib/api";
 import { useSignupEnabled } from "../lib/config";
 import { track } from "../lib/track";
+import { useSystemTheme } from "../lib/theme";
 
 // Public sample-truck demo (docs/product/sample-truck.md, contract
 // demo-contract.md): the real Now, Money and Activity screens against a
@@ -25,6 +26,9 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export function DemoBanner() {
+  // The demo showcases the themed app: follow the OS (or the stored
+  // choice) like the signed-in shell does.
+  useSystemTheme(true);
   // Sign-ups closed: "Connect with a driver account" goes to sign in instead of a
   // signup page that would only say it's closed. null (loading) behaves
   // as open.

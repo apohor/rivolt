@@ -154,7 +154,7 @@ for (const view of views) {
         }
 
         // Light theme only applies inside the shell, signed in.
-        if (scheme === "light" && view.name !== "landing" && !view.name.startsWith("demo")) {
+        if (scheme === "light" && view.name !== "landing") {
           await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
         } else if (scheme === "dark") {
           await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");
