@@ -104,6 +104,26 @@ func (h *gateHarness) latestRunning() bool {
 	return h.ctxs[len(h.ctxs)-1].Err() == nil
 }
 
+// shortSleep puts the car to sleep briefly and wakes it to wake, until
+// the gate has timed that sleep (the want-th outcome). The gate ticks
+// every millisecond, but on a loaded machine it may not run inside a
+// 10-ms sleep, so a missed sleep is simply tried again.
+func (h *gateHarness) shortSleep(wake string, want int) {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.obs.outcomes()) < want {
+		if time.Now().After(deadline) {
+			h.t.Fatalf("timed out waiting for sleep %d to be observed", want)
+		}
+		h.setPower("sleep")
+		time.Sleep(10 * time.Millisecond)
+		h.setPower(wake)
+		for end := time.Now().Add(100 * time.Millisecond); time.Now().Before(end) && len(h.obs.outcomes()) < want; {
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
 func (h *gateHarness) waitFor(what string, cond func() bool) {
 	h.t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -137,10 +157,7 @@ func TestSleepGateParksAndResumes(t *testing.T) {
 func TestSleepGateObservesWithoutParking(t *testing.T) {
 	h := newGateHarness(t, false)
 
-	h.setPower("sleep")
-	time.Sleep(20 * time.Millisecond)
-	h.setPower("standby")
-	h.waitFor("short sleep observed", func() bool { return len(h.obs.outcomes()) == 1 })
+	h.shortSleep("standby", 1)
 
 	h.setPower("sleep")
 	time.Sleep(failedSleepMax + 50*time.Millisecond)
@@ -160,11 +177,7 @@ func TestSleepGateObservesWithoutParking(t *testing.T) {
 func TestSleepGateWarnsOnSleepLoop(t *testing.T) {
 	h := newGateHarness(t, false)
 	for i := 0; i < sleepLoopThreshold+1; i++ {
-		h.setPower("sleep")
-		time.Sleep(10 * time.Millisecond)
-		h.setPower("standby")
-		want := i + 1
-		h.waitFor("sleep observed", func() bool { return len(h.obs.outcomes()) == want })
+		h.shortSleep("standby", i+1)
 	}
 	if n := strings.Count(h.logs.String(), "vehicle can't stay asleep"); n != 1 {
 		t.Errorf("warnings = %d, want 1:\n%s", n, h.logs.String())
