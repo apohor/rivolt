@@ -286,6 +286,14 @@ type StateMonitor struct {
 	// restSkips counts rest_quiet skips per vehicle since its last REST
 	// call. Guarded by mu.
 	restSkips map[string]int
+	// rest_quiet guardrail state (wake_safety.go), guarded by mu:
+	// lastVSFrame is when a vehicleState WS frame last arrived;
+	// restQuietSince when the current REST-quiet stretch began (reset
+	// on wake and by a safety poll); lastSafetyPoll the last safety
+	// poll.
+	lastVSFrame    map[string]time.Time
+	restQuietSince map[string]time.Time
+	lastSafetyPoll map[string]time.Time
 
 	// source, when set, replaces the live Rivian subscription: run()
 	// feeds its frames straight to the recorder (see NewSourceMonitor).
@@ -852,11 +860,12 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 	// only when the data is genuinely ambiguous.
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if m.restQuietAsleep(rivianVehicleID, "stale_charge_confirm") {
+	skip, why := m.restQuiet(rivianVehicleID, "stale_charge_confirm")
+	if skip {
 		// Asleep means not charging: the open row is stale.
 		return false, ""
 	}
-	st, err := m.restState(cctx, rivianVehicleID, "stale_charge_confirm")
+	st, err := m.restState(cctx, rivianVehicleID, why)
 	if err != nil || st == nil {
 		if err != nil && ctx.Err() == nil {
 			m.logger.Debug("stale charge REST confirm failed",
@@ -1200,6 +1209,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			// subscription is delivering, so adaptiveRefreshInterval
 			// can return to PowerState-driven cadence.
 			m.wsSeen[vehicleID] = true
+			if m.lastVSFrame == nil {
+				m.lastVSFrame = map[string]time.Time{}
+			}
+			m.lastVSFrame[vehicleID] = time.Now()
 			m.mu.Unlock()
 			m.record(ctx, vehicleID, prev, merged)
 		})
@@ -1498,10 +1511,11 @@ func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
 	// Experiment A (wake_safety rest_quiet): no REST poll while the
 	// car reports asleep. The vehicleState subscription stays up and
 	// is how a wake is noticed; the next tick after it re-polls.
-	if m.restQuietAsleep(vehicleID, "periodic_refresh") {
+	skip, why := m.restQuiet(vehicleID, "periodic_refresh")
+	if skip {
 		return
 	}
-	st, err := m.restState(ctx, vehicleID, "periodic_refresh")
+	st, err := m.restState(ctx, vehicleID, why)
 	if err != nil {
 		if ctx.Err() == nil {
 			m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
