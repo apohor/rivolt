@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -102,9 +103,7 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 		subs:    map[string]*wsSub{},
 		refs:    1,
 	}
-	conn, _, err := websocket.Dial(ctx, wsEndpoint, &websocket.DialOptions{
-		Subprotocols: []string{"graphql-transport-ws"},
-	})
+	conn, _, err := websocket.Dial(ctx, wsEndpoint, c.wsDialOptions())
 	if err != nil {
 		c.muxMu.Unlock()
 		return nil, fmt.Errorf("ws dial: %w", err)
@@ -383,5 +382,19 @@ func (m *wsMux) close(err error) {
 	}
 	if m.conn != nil {
 		_ = m.conn.Close(websocket.StatusNormalClosure, "bye")
+	}
+}
+
+// wsDialOptions are the options for the subscription WebSocket
+// handshake. The connection is shared by every subscription
+// (vehicleState, charging, parallax), so the one handshake carries the
+// same X-Rivolt-Version the REST calls send (applyBaseHeaders): Rivian
+// can attribute the traffic to a Rivolt build either way.
+func (c *LiveClient) wsDialOptions() *websocket.DialOptions {
+	h := http.Header{}
+	h.Set("X-Rivolt-Version", c.rivoltVersion)
+	return &websocket.DialOptions{
+		Subprotocols: []string{"graphql-transport-ws"},
+		HTTPHeader:   h,
 	}
 }
