@@ -116,6 +116,18 @@ func TestListBetweenDownsampled(t *testing.T) {
 		t.Errorf("soc extremes %v..%v lost", minSoC, maxSoC)
 	}
 
+	// No upper bound, or a window over the span cap: the old cheap
+	// behaviour, never flagged (and never bucketed).
+	for name, u := range map[string]time.Time{"no until": {}, "over 7d": start.Add(8 * 24 * time.Hour)} {
+		r, err := store.ListBetweenDownsampled(ctx, start.Add(-time.Second), u, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Reduced || len(r.Samples) != 1000 || !r.Samples[0].At.Equal(start) {
+			t.Errorf("%s: reduced=%v len=%d, want the oldest 1000 unflagged", name, r.Reduced, len(r.Samples))
+		}
+	}
+
 	// Under the cap: everything, unflagged.
 	small, err := store.ListBetweenDownsampled(ctx, start.Add(-time.Second), start.Add(10*time.Minute), 1000)
 	if err != nil {

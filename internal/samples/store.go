@@ -656,9 +656,17 @@ type Downsampled struct {
 	Total int
 }
 
+// MaxDownsampleSpan bounds the window that is bucketed. The count and the
+// bucketing scan every row in the window, so a caller-controlled span
+// (anonymous demo callers included) must stay bounded; wider windows,
+// and windows with no upper bound, keep the old cheap behaviour (the
+// oldest `limit` rows, LIMIT stops the scan early).
+const MaxDownsampleSpan = 7 * 24 * time.Hour
+
 // ListBetweenDownsampled is ListBetween with the cap handled by
 // bucketing instead of truncation. At or under the cap it returns every
-// row exactly as ListBetween does.
+// row exactly as ListBetween does. Without an upper bound, or over
+// MaxDownsampleSpan, it IS ListBetween (never flagged Reduced).
 func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Time, limit int) (Downsampled, error) {
 	const maxLimit = 50000
 	if limit <= 0 {
@@ -667,23 +675,29 @@ func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Ti
 	if limit > maxLimit {
 		limit = maxLimit
 	}
-	upper := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
-	if !until.IsZero() {
-		upper = until.UTC()
+	if until.IsZero() || until.Sub(since) > MaxDownsampleSpan {
+		out, err := s.ListBetween(ctx, since, until, limit)
+		return Downsampled{Samples: out, Total: len(out)}, err
 	}
-	var total int
+	upper := until.UTC()
+	var total, vehicles int
 	var first, last sql.NullTime
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*), min(at), max(at) FROM vehicle_state
+		SELECT count(*), count(DISTINCT vehicle_id), min(at), max(at) FROM vehicle_state
 		 WHERE user_id = $1 AND at > $2 AND at <= $3`,
-		s.userID, since.UTC(), upper).Scan(&total, &first, &last); err != nil {
+		s.userID, since.UTC(), upper).Scan(&total, &vehicles, &first, &last); err != nil {
 		return Downsampled{}, err
 	}
 	if total <= limit || !first.Valid {
 		out, err := s.ListBetween(ctx, since, until, limit)
 		return Downsampled{Samples: out, Total: total}, err
 	}
-	buckets := limit / downsampleKeepPerBucket
+	if vehicles < 1 {
+		vehicles = 1
+	}
+	// Buckets are per vehicle, so one truck's extremes never crowd out
+	// another's; the bucket count shrinks to keep the cap.
+	buckets := limit / (downsampleKeepPerBucket * vehicles)
 	if buckets < 1 {
 		buckets = 1
 	}
@@ -701,13 +715,13 @@ func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Ti
 		     WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
 		), r AS (
 		    SELECT w.*,
-		           row_number() OVER (PARTITION BY bk ORDER BY at ASC)  AS r_first,
-		           row_number() OVER (PARTITION BY bk ORDER BY at DESC) AS r_last,
-		           row_number() OVER (PARTITION BY bk ORDER BY charger_power_kw DESC NULLS LAST, at) AS r_pmax,
-		           row_number() OVER (PARTITION BY bk ORDER BY charger_power_kw ASC NULLS LAST, at)  AS r_pmin,
-		           row_number() OVER (PARTITION BY bk ORDER BY battery_level_pct DESC NULLS LAST, at) AS r_bmax,
-		           row_number() OVER (PARTITION BY bk ORDER BY battery_level_pct ASC NULLS LAST, at)  AS r_bmin,
-		           row_number() OVER (PARTITION BY bk ORDER BY speed_mph DESC NULLS LAST, at) AS r_smax
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY at ASC)  AS r_first,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY at DESC) AS r_last,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY charger_power_kw DESC NULLS LAST, at) AS r_pmax,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY charger_power_kw ASC NULLS LAST, at)  AS r_pmin,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY battery_level_pct DESC NULLS LAST, at) AS r_bmax,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY battery_level_pct ASC NULLS LAST, at)  AS r_bmin,
+		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY speed_mph DESC NULLS LAST, at) AS r_smax
 		      FROM w
 		)
 		SELECT rvid, at,
