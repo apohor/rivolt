@@ -87,6 +87,9 @@ func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
 		if got := fs[len(fs)-1].BatteryPct; math.Abs(got-s.socB) > 0.35 {
 			t.Errorf("drive %d: ends at SoC %.1f, plan %.1f", k, got, s.socB)
 		}
+		if math.Abs(s.prof.scale-1) > 0.15 {
+			t.Errorf("drive %d: speeds scaled by %.2f to hit the plan's distance", k, s.prof.scale)
+		}
 		var sp []float64
 		var prevOdo float64
 		mode := "everyday"
@@ -120,6 +123,9 @@ func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
 			cityLong++
 			if n := stops(fs); n < 2 {
 				t.Errorf("city drive %d (%v): %d stops, want stop-and-go", k, dur, n)
+			}
+			if mx := maxOf(sp); mx > 52 {
+				t.Errorf("city drive %d: top speed %.1f mph", k, mx)
 			}
 			if sd < 8 {
 				t.Errorf("city drive %d: speed std %.1f, want stop-and-go variance", k, sd)
@@ -192,4 +198,12 @@ func TestDriveProfileDeterministic(t *testing.T) {
 			}
 		}
 	}
+}
+
+func maxOf(xs []float64) float64 {
+	m := xs[0]
+	for _, x := range xs {
+		m = math.Max(m, x)
+	}
+	return m
 }

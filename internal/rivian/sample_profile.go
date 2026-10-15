@@ -20,6 +20,10 @@ type sampleProfile struct {
 	speed []float64 // mph at frame i
 	dist  []float64 // fraction of the drive's distance covered before frame i (len n+1)
 	soc   []float64 // fraction of the drive's SoC drop spent before frame i (len n+1)
+	// scale is the factor the raw profile was multiplied by to make its
+	// integral equal the plan's distance (1 = the generated speeds were
+	// already right); tests keep it near 1 so speeds stay plausible.
+	scale float64
 	// modeAt is the frame at which the drive mode switches to "sport";
 	// -1 for the whole drive in "everyday".
 	modeAt int
@@ -54,12 +58,6 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 	rng := rand.New(rand.NewSource(int64(h.Sum64())))
 
 	dt := step.Seconds()
-	v := make([]float64, n)
-	if cruise < 45 {
-		cityProfile(v, rng, dt)
-	} else {
-		highwayProfile(v, rng, dt, cruise)
-	}
 
 	// The last frame may cover less than a full step.
 	w := make([]float64, n)
@@ -69,21 +67,55 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 	if last := dur.Seconds() - float64(n-1)*dt; last > 0 && last < dt {
 		w[n-1] = last / dt
 	}
-	// Renormalise: sum(w*v)*dt/3600 == miles.
-	var integ float64
-	for i := range v {
-		integ += w[i] * v[i]
+	integral := func(v []float64) float64 {
+		var integ float64
+		for i := range v {
+			integ += w[i] * v[i]
+		}
+		return integ * dt / 3600
 	}
-	integ *= dt / 3600
-	if integ <= 0 {
-		return nil
+
+	v := make([]float64, n)
+	var k float64
+	if cruise < 45 {
+		// The plan fixes the AVERAGE speed, stops included. Rather than
+		// stretch the speeds to hit it (which makes 35 mph city streets
+		// 55-70 mph), thin the stops until the raw average is already
+		// within ~10% of the plan, deterministically from the same RNG.
+		best := math.Inf(1)
+		var bestV []float64
+		for _, pStop := range []float64{0.7, 0.55, 0.4, 0.3, 0.2, 0.1, 0.0} {
+			cand := make([]float64, n)
+			cityProfile(cand, rng, dt, pStop)
+			integ := integral(cand)
+			if integ <= 0 {
+				continue
+			}
+			kk := miles / integ
+			if d := math.Abs(math.Log(kk)); d < best {
+				best, bestV, k = d, cand, kk
+			}
+			if kk >= 0.9 && kk <= 1.1 {
+				break
+			}
+		}
+		if bestV == nil {
+			return nil
+		}
+		v = bestV
+	} else {
+		highwayProfile(v, rng, dt, cruise)
+		integ := integral(v)
+		if integ <= 0 {
+			return nil
+		}
+		k = miles / integ
 	}
-	k := miles / integ
 	for i := range v {
 		v[i] = round1(v[i] * k)
 	}
 	// Re-integrate the rounded series so dist ends at exactly 1.
-	p := &sampleProfile{speed: v, dist: make([]float64, n+1), soc: make([]float64, n+1), modeAt: -1}
+	p := &sampleProfile{speed: v, dist: make([]float64, n+1), soc: make([]float64, n+1), modeAt: -1, scale: k}
 	var tot float64
 	for i := range v {
 		tot += w[i] * v[i]
@@ -98,14 +130,11 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 	}
 	p.dist[n] = 1
 
-	// Energy per step from a longitudinal force balance with a smooth
-	// seeded grade; regen steps are negative.
-	phi1, phi2 := rng.Float64()*2*math.Pi, rng.Float64()*2*math.Pi
-	T1, T2 := (8+rng.Float64()*12)*60, (25+rng.Float64()*30)*60
-	amp := 0.012
-	if cruise >= 45 {
-		amp = 0.025
-	}
+	// Energy per step from a longitudinal force balance on FLAT road
+	// (the frames carry no elevation, and the app's power ribbon uses
+	// real elevation, so a synthetic grade would disagree with it). SoC
+	// therefore moves with speed and regen only; regen steps are
+	// negative.
 	e := make([]float64, n)
 	var sum float64
 	for i := range v {
@@ -115,11 +144,9 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 			u1 = v[i+1] * 0.44704
 		}
 		a := (u1 - u0) / dt
-		t := float64(i) * dt
-		grade := amp * (math.Sin(2*math.Pi*t/T1+phi1) + 0.5*math.Sin(2*math.Pi*t/T2+phi2))
 		uMid := (u0 + u1) / 2
 		pw := (profileCrr*profileMassKg*9.81*uMid + profileCdAHalfR*uMid*uMid*uMid +
-			profileMassKg*a*uMid + profileMassKg*9.81*grade*uMid) / 1000
+			profileMassKg*a*uMid) / 1000
 		var pb float64
 		if pw >= 0 {
 			pb = pw/profileEtaDrive + profileAccessKW
@@ -148,7 +175,7 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 
 // cityProfile fills v with stop-and-go: lights (0 mph for 20-60 s),
 // accelerations to 25-45 mph, holds with a little noise.
-func cityProfile(v []float64, rng *rand.Rand, dt float64) {
+func cityProfile(v []float64, rng *rand.Rand, dt float64, pStop float64) {
 	const (
 		stopped = iota
 		accel
@@ -175,7 +202,7 @@ func cityProfile(v []float64, rng *rand.Rand, dt float64) {
 			cur = target + (rng.Float64()*2-1)*1.5
 			timer -= dt
 			if timer <= 0 {
-				if rng.Float64() < 0.7 {
+				if rng.Float64() < pStop {
 					phase = decel
 				} else {
 					target = 25 + rng.Float64()*20
