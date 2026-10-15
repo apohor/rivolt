@@ -128,6 +128,7 @@ export default function DemoPage() {
           ))}
         </nav>
       </header>
+      <p className="mx-auto max-w-5xl px-4 pb-2 text-[11px] text-neutral-500">Times shown in Pacific time.</p>
       <main className="mx-auto max-w-5xl px-4 pb-16">
         {tab === "now" && (
           <NowCard
