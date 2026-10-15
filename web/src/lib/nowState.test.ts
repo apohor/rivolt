@@ -67,7 +67,18 @@ describe("computeNow", () => {
     const old = (s: number) => ({ at: new Date(NOW - s * 1000).toISOString() });
     expect(computeNow(inp({ gear: "D", ...old(60) })).stale).toBe(true);
     expect(computeNow(inp({ gear: "D", ...old(200) })).kind).toBe("offline");
-    expect(computeNow(inp(old(200))).stale).toBe(false);
+    // Awake parked: stale after 2 min (p99 gap is 8 s).
+    expect(computeNow(inp(old(90))).stale).toBe(false);
+    expect(computeNow(inp(old(130))).stale).toBe(true);
+    // Asleep stays lenient: the gate parks subscriptions, so a healthy
+    // sleeping truck may be silent for a long while. Stale only after 30 min.
+    const asleep = (age: number) =>
+      computeNow(inp({ power_state: "sleep", ...old(age) }, { asleepSinceMs: NOW - 7_200_000 }));
+    expect(asleep(200).stale).toBe(false);
+    expect(asleep(600).stale).toBe(false);
+    expect(asleep(1500).stale).toBe(false);
+    expect(asleep(1900).stale).toBe(true);
+    expect(asleep(1500).kind).toBe("asleep");
     expect(computeNow(inp(old(2000))).kind).toBe("offline");
   });
   it("derives ETA, energy and home cost from vehicle state alone", () => {
@@ -175,7 +186,7 @@ describe("statusPill", () => {
   it("never says Live next to an old timestamp", () => {
     const p = pill({ at: new Date(NOW - 4 * 60_000).toISOString() });
     expect(p.text).toBe("Last seen 4 min ago");
-    expect(p.tone).toBe("neutral"); // older than 2 min but within the parked limit
+    expect(p.tone).toBe("warn"); // an awake truck sends a frame every few seconds
     const w = pill({ at: new Date(NOW - 6 * 60_000).toISOString() });
     expect(w.text).toBe("Last seen 6 min ago");
     expect(w.tone).toBe("warn");
