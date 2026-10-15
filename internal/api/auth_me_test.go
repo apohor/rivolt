@@ -73,3 +73,13 @@ func TestAuthMe_SignedInIsUnchangedPlusAuthenticated(t *testing.T) {
 		t.Fatalf("existing fields must remain: %v", body)
 	}
 }
+
+// The signed-out 200 must not be cacheable.
+func TestAuthMe_SignedOutResponseIsNoStore(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	rec := httptest.NewRecorder()
+	handleMeEnriched(newMeAuth(t), nil)(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("code %d Cache-Control %q, want 200 no-store", rec.Code, rec.Header().Get("Cache-Control"))
+	}
+}

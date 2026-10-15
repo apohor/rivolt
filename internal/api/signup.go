@@ -216,6 +216,10 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 			// the Kratos-session-without-account signal and the
 			// landing gate still see it.
 			if !svc.HasCredentials(r) {
+				// Never cacheable: unlike the old 401 this is a 200, and
+				// a CDN or browser cache rule must not pin "signed out"
+				// for a visitor who signs in a moment later.
+				w.Header().Set("Cache-Control", "no-store")
 				writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
 				return
 			}
