@@ -153,6 +153,15 @@ Environment:
 `)
 }
 
+// replayRedisPrefixOK reports whether replay mode may use the shared
+// Redis live-state store under prefix. Replay frames must never land in
+// prod's keyspace: an unset prefix defaults to "rivolt", prod's, so
+// replay requires an explicit, different one.
+func replayRedisPrefixOK(prefix string) bool {
+	p := strings.TrimSpace(prefix)
+	return p != "" && p != "rivolt"
+}
+
 func runServer() {
 	// Build the slog handler:
 	//   RIVOLT_LOG_LEVEL = debug|info|warn|error  (default: info)
@@ -469,7 +478,10 @@ func runServer() {
 		// /api/state rather than a one-off fetch of its own. Redis only
 		// for that (and the accumulator persistence the same store
 		// carries): replay makes no Rivian calls, so no rate limiter.
-		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" {
+		if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !replayRedisPrefixOK(redisKeyPrefix) {
+			logger.Warn("replay: live state store DISABLED: RIVOLT_REDIS_KEY_PREFIX is empty or the default \"rivolt\", which is prod's keyspace; set a replay-only prefix (e.g. rivolt-preview)",
+				"addr", addr, "prefix", redisKeyPrefix)
+		} else if addr != "" {
 			rdb := redis.NewClient(&redis.Options{Addr: addr})
 			pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
 			err := rdb.Ping(pingCtx).Err()
