@@ -129,7 +129,8 @@ func TestListBetweenDownsampled(t *testing.T) {
 	}
 
 	// Under the cap: everything, unflagged.
-	small, err := store.ListBetweenDownsampled(ctx, start.Add(-time.Second), start.Add(10*time.Minute), 1000)
+	// The window is (since, until]: rows at 0..595 s are 120 rows.
+	small, err := store.ListBetweenDownsampled(ctx, start.Add(-time.Second), start.Add(10*time.Minute-time.Second), 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
