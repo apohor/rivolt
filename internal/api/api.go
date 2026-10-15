@@ -538,6 +538,9 @@ func New(d Deps) http.Handler {
 						}
 						return connectionState(envReplay(), paused, needs)
 					},
+					frameAt: func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time {
+						return monitorFor(d, uid).VehicleStateFrameAt(ctx, rivianID)
+					},
 					now: time.Now,
 				}
 				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)), vehicleScoped).

@@ -54,14 +54,23 @@ type nowResponse struct {
 	SoCAtStateStart  *float64   `json:"soc_at_state_start"`
 	TirePressureMinB *float64   `json:"tire_pressure_min_bar"`
 	FailedSleeps6h   int        `json:"failed_sleeps_6h"`
-	Charge           *nowCharge `json:"charge"`
+	// VehicleStateFrameAt is when the vehicleState feed last delivered
+	// a frame; null when there's no live feed to judge (not streaming
+	// yet, held while asleep, paused, reauth). An asleep truck's feed
+	// still delivers every few minutes, so the client can hold it to
+	// a tighter limit than the age of `at`.
+	VehicleStateFrameAt *time.Time `json:"vehicle_state_frame_at"`
+	Charge              *nowCharge `json:"charge"`
 }
 
 // nowAPI holds the /now handler's seams so tests run without Postgres.
 type nowAPI struct {
 	snapshot   func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) (nowSnapshot, error)
 	connection func(uid uuid.UUID) string
-	now        func() time.Time
+	// frameAt reads the live feed's last vehicleState frame time
+	// (rivian.StateMonitor.VehicleStateFrameAt); nil leaves it null.
+	frameAt func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time
+	now     func() time.Time
 }
 
 // connectionState is not a freshness verdict (the client derives that
@@ -99,6 +108,9 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	}
 	if out.State == "" {
 		out.State = "unknown"
+	}
+	if a.frameAt != nil && (out.Connection == "live" || out.Connection == "replay") {
+		out.VehicleStateFrameAt = a.frameAt(r.Context(), uid, id)
 	}
 	if out.State == "charging" && snap.StateSince != nil {
 		out.Charge = &nowCharge{StartedAt: *snap.StateSince, SoCStart: snap.SoCAtStateStart, PeakKW: snap.ChargePeakKW}
