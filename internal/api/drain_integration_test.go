@@ -137,7 +137,13 @@ func TestDrainStore_NullGearAndChargingStateCountAsParkedAwake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if raw.W7.ObsH < 0.99 || raw.W7.AwakeH < 0.99 || raw.W7.AwakeH > raw.W7.ObsH+1e-9 {
+	// 7 rows 10 min apart; the one at `now` is outside the half-open
+	// window, so 5 intervals = 50 min, all awake.
+	const want = 50.0 / 60
+	if math.Abs(raw.W7.ObsH-want) > 1e-6 {
+		t.Fatalf("observed hours = %v, want %v", raw.W7.ObsH, want)
+	}
+	if math.Abs(raw.W7.AwakeH-raw.W7.ObsH) > 1e-9 {
 		t.Fatalf("awake %v should equal observed %v for NULL gear/charging rows", raw.W7.AwakeH, raw.W7.ObsH)
 	}
 }
