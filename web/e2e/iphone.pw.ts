@@ -62,3 +62,25 @@ test("charge detail explains a receipt total that differs from this session's co
   await expect(page.getByText("4.40 USD")).toHaveCount(0);
   await ctx.close();
 });
+
+test("sample requests always carry an explicit until", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const urls: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname === "/api/samples") urls.push(r.url());
+  });
+  await stubApi(page);
+  for (const href of ["/charges/charge-1", "/drives/drive-1"]) {
+    await page.goto(href);
+    await page.waitForTimeout(800);
+  }
+  expect(urls.length).toBeGreaterThanOrEqual(2);
+  for (const u of urls) {
+    const q = new URL(u).searchParams;
+    expect(q.get("since")).toBeTruthy();
+    expect(q.get("until"), u).toBeTruthy();
+    expect(Date.parse(q.get("until")!)).toBeGreaterThan(Date.parse(q.get("since")!));
+  }
+  await ctx.close();
+});

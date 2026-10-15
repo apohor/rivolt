@@ -224,7 +224,11 @@ export default function TripPlanPage() {
   const samplesQuery = useQuery({
     queryKey: ["samplesLatestForPlanner"],
     queryFn: () =>
-      backend.samples(new Date(Date.now() - 6 * 60 * 60 * 1000), 5000),
+      backend.samples(
+        new Date(Date.now() - 6 * 60 * 60 * 1000),
+        5000,
+        new Date(Date.now() + 60_000),
+      ),
     enabled: stateQuery.isFetched && !stateHasFix,
     staleTime: 30 * 1000,
   });
