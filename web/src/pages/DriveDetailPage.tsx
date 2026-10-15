@@ -1,3 +1,4 @@
+import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
@@ -22,6 +23,7 @@ import { useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
 
 export default function DriveDetailPage() {
+  const demo = inDemo();
   const { id } = useParams<{ id: string }>();
   const prefs = usePreferences();
   // Admin-configurable thresholds for the "Low GPS accuracy" pill.
@@ -115,7 +117,8 @@ export default function DriveDetailPage() {
   // the 404 path.
   const driveWeatherSeries = useQuery({
     queryKey: ["drive-weather-series", drive?.ID],
-    enabled: !!drive,
+    // Weather isn't on the demo allowlist.
+    enabled: !!drive && !demo,
     queryFn: async (): Promise<DriveWeatherSeries> => {
       try {
         return await backend.driveWeatherSeries(drive!.ID);
@@ -325,7 +328,7 @@ export default function DriveDetailPage() {
         <Card>
           <p className="text-sm text-neutral-400">
             That drive ID doesn't exist in this dataset.{" "}
-            <Link to="/drives" className="text-emerald-400 hover:underline">
+            <Link to={listPath("drives")} className="text-emerald-400 hover:underline">
               Back to drives →
             </Link>
           </p>
@@ -405,7 +408,7 @@ export default function DriveDetailPage() {
         subtitle={`${formatDateTime(drive.StartedAt)} → ${formatDateTime(drive.EndedAt)}`}
         actions={
           <Link
-            to="/drives"
+            to={listPath("drives")}
             className="text-xs text-neutral-400 hover:text-neutral-200"
           >
             ← all drives
@@ -552,14 +555,14 @@ export default function DriveDetailPage() {
         )}
       </Card>
 
-      {samples.isError ? (
+      {samples.isError && !demo ? (
         <ErrorBox
           title="Sample data unavailable"
           detail={String(samples.error)}
         />
       ) : null}
 
-      {drive ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
+      {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>
   );
 }
