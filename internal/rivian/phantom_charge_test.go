@@ -18,10 +18,13 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 			ChargerStatus: "chrgr_sts_connected_charging", ChargerPowerKW: kw, BatteryLevelPct: soc,
 			OdometerKm: 30000, Latitude: 34.16, Longitude: -118.17, PowerState: "ready"}
 	}
-	replay := func(r *Replayer, sec int, total, kw float64) {
+	// push is a live-session frame as the charging subscriptions apply
+	// it; elapsed is the session's own idea of how long it has run.
+	push := func(r *Replayer, sec int, total, kw float64, elapsed int64) {
 		r.m.applyLiveSession(ctx, r.vehicle, &LiveSession{At: t0.Add(time.Duration(sec) * time.Second), Active: true,
-			TotalChargedEnergyKWh: total, PowerKW: kw, TimeElapsedSeconds: 10000})
+			TotalChargedEnergyKWh: total, PowerKW: kw, TimeElapsedSeconds: elapsed})
 	}
+	replay := func(r *Replayer, sec int, total, kw float64) { push(r, sec, total, kw, 10000) }
 	openRow := func(r *Replayer) (energy, maxKW float64, open bool) {
 		r.m.sessMu.Lock()
 		s := r.m.sessions[r.vehicle]
@@ -84,11 +87,29 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 		for s := 0; s <= 3600; s += 30 {
 			r.Feed(frame(s, "charging_active", 7.2, 60+float64(s)/3600*5.5))
 			if s%180 == 0 {
-				replay(r, s, 7.0*float64(s)/3600, 7.2)
+				push(r, s, 7.0*float64(s)/3600, 7.2, int64(s))
 			}
 		}
 		if e, kw, _ := openRow(r); math.Abs(e-7.0) > 0.01 || kw != 7.2 {
 			t.Errorf("L2: %.2f kWh at %.1f kW, want 7.0 at 7.2", e, kw)
+		}
+	})
+
+	t.Run("a plug-in's running total from days ago is not this charge's", func(t *testing.T) {
+		// Day 3 of a plug-in: a real 1.4 h session at 7 kW, but the
+		// breakdown reports the plug-in's running total (1 kWh before
+		// this session, inside the power cap's slack) and 75 h elapsed.
+		r := NewReplayer("v")
+		const pluggedFor = 75 * 3600
+		for s := 0; s <= 5100; s += 30 {
+			r.Feed(frame(s, "charging_active", 7.0, 60+float64(s)/5100*7))
+			if s%180 == 0 {
+				push(r, s, 1+7.0*float64(s)/3600, 7.0, int64(pluggedFor+s))
+			}
+		}
+		e, _, _ := openRow(r)
+		if want := 7.0 * 5100 / 3600; math.Abs(e-want) > 0.2 {
+			t.Errorf("energy %.2f kWh, want the session's own ~%.2f, not the plug-in total", e, want)
 		}
 	})
 
@@ -97,7 +118,7 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 		for s := 0; s <= 1200; s += 10 {
 			r.Feed(frame(s, "charging_active", 150, 20+float64(s)/1200*30))
 			if s%60 == 0 {
-				replay(r, s, 40*float64(s)/1200, 150)
+				push(r, s, 40*float64(s)/1200, 150, int64(s))
 			}
 		}
 		if e, _, _ := openRow(r); math.Abs(e-40) > 0.01 {

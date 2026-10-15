@@ -1318,7 +1318,11 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		// cloud replays a finished session's snapshot (its total, marked
 		// active) on every resubscribe, and with nothing drawing a
 		// replayed 36.8 kWh used to land on a 0 kW plugged-in charge.
-		if maxPower > 0 {
+		// Nor when the session says it has run far longer than this
+		// charge: Parallax's charge breakdown counts per plug-in, so a
+		// car left plugged in for days reports the whole plug-in's
+		// running total (69.9 kWh at 75 h, seeded into 2-s charges).
+		if maxPower > 0 && !sessionOutlivesCharge(liveSess, c) {
 			if liveSess.TotalChargedEnergyKWh > energy {
 				energy = liveSess.TotalChargedEnergyKWh
 			}
@@ -1593,6 +1597,19 @@ func isDrivingGear(g string) bool {
 		return true
 	}
 	return false
+}
+
+// sessionOutlivesCharge reports whether a live session claims to have
+// run well beyond the charge it's bonded to (by more than 15 min and a
+// quarter of the charge's age), so its total includes energy from
+// before the charge began.
+func sessionOutlivesCharge(sess *LiveSession, c *liveCharge) bool {
+	if sess == nil || sess.TimeElapsedSeconds <= 0 {
+		return false
+	}
+	age := c.endAt.Sub(c.startedAt)
+	slack := 15*time.Minute + age/4
+	return time.Duration(sess.TimeElapsedSeconds)*time.Second > age+slack
 }
 
 // isChargingCS reports whether a Rivian chargerState string indicates
