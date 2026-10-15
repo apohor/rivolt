@@ -115,7 +115,11 @@ export default function ChargesPage() {
                 Showing charges that still need a price.
                 <button
                   type="button"
-                  onClick={() => setParams({}, { replace: true })}
+                  onClick={() => {
+                    const next = new URLSearchParams(params);
+                    next.delete("unpriced");
+                    setParams(next, { replace: true });
+                  }}
                   className="text-neutral-300 underline hover:text-neutral-100"
                 >
                   Show all

@@ -103,7 +103,12 @@ export default function ActivityPage() {
             role="tab"
             aria-selected={filter === f.key}
             onClick={() => {
-              setParams(f.key === "all" ? {} : { f: f.key }, { replace: true });
+              // Keep every other param: in the demo, `tab=activity` is what
+              // keeps this view open.
+              const next = new URLSearchParams(params);
+              if (f.key === "all") next.delete("f");
+              else next.set("f", f.key);
+              setParams(next, { replace: true });
               setShown(PAGE);
             }}
             className={`rounded-md px-3 py-1.5 ${filter === f.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}

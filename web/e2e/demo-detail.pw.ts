@@ -169,3 +169,17 @@ test("the demo's money grammar stays readable in light mode", async ({ browser }
   }
   await ctx.close();
 });
+
+test("Activity filters in the demo keep the Activity tab and the filter sticks", async ({ page }) => {
+  await openDemo(page, "/demo?tab=activity");
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await page.getByRole("tab", { name: "Drives" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).toHaveURL(/f=drives/);
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await expect(page.locator('a[href^="/demo/charges/"]')).toHaveCount(0);
+  await expect(page.locator('a[href^="/demo/drives/"]').first()).toBeVisible();
+  await page.getByRole("tab", { name: "All" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).not.toHaveURL(/f=/);
+});
