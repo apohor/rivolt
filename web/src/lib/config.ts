@@ -179,6 +179,9 @@ export function getConfig(): RuntimeConfig {
 // "" when no proxy is wired. There's no public-demo fallback —
 // Valhalla is only available when self-hosted.
 export function valhallaBase(): string {
+  // No anonymous routing calls from the demo: the stored GPS polyline is
+  // drawn as recorded (no map-matching, no gap-filling routes).
+  if (inDemo()) return "";
   return cached.valhalla.path;
 }
 
@@ -188,6 +191,9 @@ export function valhallaBase(): string {
 // drive map to a vector basemap via protomaps-leaflet; empty keeps
 // the legacy CARTO raster path.
 export function tilesPMTilesURL(): string {
+  // The signed-out demo can't read the tile archive: use the public
+  // raster basemap (already allowed by the CSP) instead of 401ing.
+  if (inDemo()) return "";
   return cached.tiles.url;
 }
 
