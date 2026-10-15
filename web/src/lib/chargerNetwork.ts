@@ -40,7 +40,30 @@ export function displayNetwork(known: string): string {
   return k ? DISPLAY[k] : known.trim();
 }
 
-export type PoiLike = { name?: string; operator?: string; network?: string; brand?: string };
+export type PoiLike = {
+  name?: string;
+  operator?: string;
+  network?: string;
+  brand?: string;
+  maxPowerKW?: number;
+};
+
+// Networks that only run DC fast chargers. A level-2 (AC) session is never
+// at one of their nodes, so it must not snap to one even when it is the
+// nearest charging node (a hotel L2 beside a Supercharger).
+const DC_ONLY: ReadonlySet<NetworkKey> = new Set<NetworkKey>([
+  "tesla",
+  "rivian",
+  "electrify_america",
+  "evgo",
+  "ionna",
+]);
+
+export function isDcOnlyNode(poi: PoiLike | null): boolean {
+  if (!poi) return false;
+  if (typeof poi.maxPowerKW === "number" && poi.maxPowerKW >= 50) return true;
+  return DC_ONLY.has(networkKey(poi.network, poi.operator, poi.brand, poi.name));
+}
 
 export type PinChoice =
   // Use the snapped charger as-is.
@@ -51,6 +74,7 @@ export type PinChoice =
 const UNKNOWN_NETWORKS = new Set(["", "unknown", "other", "n/a"]);
 
 // choosePin decides what the charge pin says. Never a wrong brand:
+// - a non-DC session never snaps to a DC-only node (Supercharger, RAN, ...);
 // - the ledger's network is unknown: keep today's snap and OSM name, or
 //   say "DC fast charger" only when the charge is DC, else "Charging station";
 // - the snapped charger agrees: keep the snap;
@@ -62,6 +86,12 @@ export function choosePin(
   isDC = false,
 ): PinChoice {
   const known = (knownNetwork ?? "").trim();
+  // A non-DC session never snaps to a DC-only node: label the charge's own
+  // location, with the ledger's network when it has one.
+  if (!isDC && isDcOnlyNode(poi)) {
+    const unknown = UNKNOWN_NETWORKS.has(known.toLowerCase());
+    return { snap: false, label: unknown ? "Charging station" : displayNetwork(known) };
+  }
   const snappedLabel = poi?.name ?? "Charging station";
   if (UNKNOWN_NETWORKS.has(known.toLowerCase())) {
     return poi ? { snap: true, label: snappedLabel } : { snap: false, label: isDC ? "DC fast charger" : "Charging station" };
