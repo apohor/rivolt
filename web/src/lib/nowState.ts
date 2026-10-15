@@ -9,13 +9,17 @@ export type NowKind = "offline" | "driving" | "charging" | "plugged" | "asleep" 
 export type ChargeFlavor = "home_l2" | "away_ac" | "dcfc";
 export type Place = "home" | "away" | "unknown";
 
-// Spec §3.3: show "stale" / "offline" after these ages (seconds).
+// "Stale" / "offline" ages in seconds, from prod frame cadence (7 days of
+// vehicle_state): awake parked or plugged p99 8 s, charging p99 7 s,
+// asleep p50 177 s (Rivian replays a frame on each ~3-min connection
+// TTL, p99 181 s). Stale = two missed ~3-min replays plus slack for a
+// sleeping truck, and 2 min for an awake or charging one. Offline limits
+// are unchanged.
 const FRESHNESS: Record<"driving" | "charging" | "parked" | "asleep", { stale: number; offline: number }> = {
   driving: { stale: 30, offline: 180 },
   charging: { stale: 120, offline: 600 },
-  parked: { stale: 300, offline: 900 },
-  // 45 min: prod polls a sleeping truck every ~30 min.
-  asleep: { stale: 1800, offline: 2700 },
+  parked: { stale: 120, offline: 900 },
+  asleep: { stale: 420, offline: 2700 },
 };
 
 // A sleep shorter than this doesn't change the hero (spec §3.1, NQ2).
