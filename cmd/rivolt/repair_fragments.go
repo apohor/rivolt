@@ -23,7 +23,7 @@ func runRepairChargeFragments(args []string) int {
 	fs := flag.NewFlagSet("repair-charge-fragments", flag.ContinueOnError)
 	apply := fs.Bool("apply", false, "write the changes (default: dry run)")
 	user := fs.String("user", "", "only this username")
-	maxGap := fs.Duration("max-gap", 15*time.Second, "largest gap between one piece's end and the next piece's start")
+	maxGap := fs.Duration("max-gap", 200*time.Second, "largest gap between one piece's end and the next piece's start")
 	sinceS := fs.String("since", "", "only pieces starting at/after this RFC 3339 time")
 	untilS := fs.String("until", "", "only pieces starting before this RFC 3339 time")
 	backup := fs.String("backup", "", "CSV backup path (default ./charge-fragments-backup-<UTC>.csv); required to write with --apply")
@@ -64,7 +64,11 @@ func runRepairChargeFragments(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-charge-fragments: load:", err)
 		return 1
 	}
-	groups := repair.FindGroups(pieces, *maxGap)
+	groups, skipped := repair.FindGroups(pieces, *maxGap)
+	for _, sk := range skipped {
+		k := sk.Group.Pieces[0]
+		fmt.Printf("SKIPPED %s vehicle=%s %s: %s\n", k.Username, k.RivianID, k.StartedAt.Format(time.RFC3339), sk.Reason)
+	}
 	if len(groups) == 0 {
 		fmt.Println("repair-charge-fragments: no fragmented sessions found")
 		return 0
@@ -75,9 +79,9 @@ func runRepairChargeFragments(args []string) int {
 	for _, g := range groups {
 		m := g.Plan()
 		k := g.Keeper()
-		fmt.Printf("%s vehicle=%s %s .. %s  %d pieces -> 1  counted %.1f kWh / $%.2f  becomes %.1f kWh / $%.2f\n",
-			k.Username, k.RivianID, m.StartedAt.Format(time.RFC3339), k.EndedAt.Format(time.RFC3339),
-			len(g.Pieces), m.CountedKWh, m.CountedCost, valOr0(m.EnergyKWh), valOr0(m.Cost))
+		fmt.Printf("%s vehicle=%s %s .. %s  %d pieces -> 1 (keeps %s)  counted %.1f kWh / $%.2f  becomes %.1f kWh / $%.2f\n",
+			k.Username, k.RivianID, m.StartedAt.Format(time.RFC3339), m.EndedAt.Format(time.RFC3339),
+			len(g.Pieces), k.ExternalID, m.CountedKWh, m.CountedCost, valOr0(m.EnergyKWh), valOr0(m.Cost))
 		countedKWh += m.CountedKWh
 		countedCost += m.CountedCost
 		finalKWh += valOr0(m.EnergyKWh)
@@ -87,8 +91,14 @@ func runRepairChargeFragments(args []string) int {
 	fmt.Printf("%d sessions, %d rows to delete; energy %.1f -> %.1f kWh, cost %.2f -> %.2f\n",
 		len(groups), removed, countedKWh, finalKWh, countedCost, finalCost)
 	if !*apply {
-		fmt.Println("dry run: nothing written (re-run with --apply and a --backup path)")
+		fmt.Println("dry run: nothing written (re-run with --apply, --user, --since, --until and a --backup path)")
 		return 0
+	}
+	// A fleet-wide heuristic must never write: apply only to a window
+	// someone has already looked at in a dry run.
+	if *user == "" || since.IsZero() || until.IsZero() {
+		fmt.Fprintln(os.Stderr, "repair-charge-fragments: --apply needs --user, --since and --until (a verified window)")
+		return 2
 	}
 
 	path := *backup

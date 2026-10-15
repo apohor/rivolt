@@ -9,6 +9,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/repair"
 )
 
@@ -64,13 +65,13 @@ func TestRepairChargeFragments(t *testing.T) {
 		}
 		return n
 	}
-	pieces, err := repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 15*time.Second)
+	pieces, err := repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 200*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	groups := repair.FindGroups(pieces, 15*time.Second)
-	if len(groups) != 1 || len(groups[0].Pieces) != 4 {
-		t.Fatalf("groups = %d (pieces=%d), want 1 group of 4", len(groups), len(pieces))
+	groups, skipped := repair.FindGroups(pieces, 200*time.Second)
+	if len(groups) != 1 || len(groups[0].Pieces) != 4 || len(skipped) != 0 {
+		t.Fatalf("groups = %d (pieces=%d) skipped=%d, want 1 group of 4", len(groups), len(pieces), len(skipped))
 	}
 	if count("repair-alice") != 5 || count("repair-bob") != 2 {
 		t.Fatal("dry run (Load/FindGroups) must not change rows")
@@ -92,8 +93,41 @@ func TestRepairChargeFragments(t *testing.T) {
 		t.Fatalf("keeper = energy %v maxPow %v active %v started %v", energy, maxPow, active, started)
 	}
 	// Re-running is a no-op.
-	pieces, _ = repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 15*time.Second)
-	if g := repair.FindGroups(pieces, 15*time.Second); len(g) != 0 {
+	pieces, _ = repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 200*time.Second)
+	if g, _ := repair.FindGroups(pieces, 200*time.Second); len(g) != 0 {
 		t.Fatalf("second run found %d groups", len(g))
+	}
+
+	// A user-entered price on a piece that would be deleted: the group
+	// is reported as skipped, not merged.
+	cs := f.For(alice)
+	seed(alice, cs, "live_a_p_1", "rv-a", 1200, 3, 5, "abandoned")
+	seed(alice, cs, "live_a_p_2", "rv-a", 1203, 3, 18, "charging_complete")
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET cost_source = 'user' WHERE external_id = 'live_a_p_1'`); err != nil {
+		t.Fatal(err)
+	}
+	pieces, _ = repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 200*time.Second)
+	gs, sk := repair.FindGroups(pieces, 200*time.Second)
+	if len(gs) != 0 || len(sk) != 1 {
+		t.Fatalf("user-priced piece: groups=%d skipped=%d, want 0 and 1", len(gs), len(sk))
+	}
+
+	// A drive between two abandoned pieces means they are not one session.
+	ds := drives.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(alice)
+	seed(alice, cs, "live_a_d_1", "rv-a", 2400, 3, 5, "abandoned")
+	seed(alice, cs, "live_a_d_2", "rv-a", 2404, 3, 18, "charging_complete")
+	dst := t0.Add(2403 * time.Minute)
+	if err := ds.Upsert(ctx, drives.Drive{ID: "drive-between", VehicleID: "rv-a", StartedAt: dst.Add(-30 * time.Second),
+		EndedAt: dst.Add(30 * time.Second), DistanceMi: 0.5, Source: "live"}); err != nil {
+		t.Fatal(err)
+	}
+	pieces, _ = repair.Load(ctx, pool, "repair-alice", time.Time{}, time.Time{}, 200*time.Second)
+	gs, _ = repair.FindGroups(pieces, 200*time.Second)
+	for _, g := range gs {
+		for _, p := range g.Pieces {
+			if p.ExternalID == "live_a_d_2" {
+				t.Fatal("pieces separated by a drive were merged")
+			}
+		}
 	}
 }

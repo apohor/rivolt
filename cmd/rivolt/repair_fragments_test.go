@@ -20,6 +20,7 @@ func TestFragmentsBackupCSVHasEveryTouchedRowAndThePlan(t *testing.T) {
 		st := t0.Add(time.Duration(i) * 3 * time.Minute)
 		return repair.Piece{ID: uuid.New(), ExternalID: "live_c_" + string(rune('a'+i)), UserID: u, Username: "owner", VehicleID: v,
 			RivianID: "rv-1", StartedAt: st, EndedAt: st.Add(3 * time.Minute), EnergyKWh: f(kwh), MaxPowerKW: f(200),
+			StartSoC: f(30), EndSoC: f(35),
 			ActiveSeconds: f(180), Cost: f(kwh * 0.1), FinalState: state, Source: "live"}
 	}
 	g := repair.Group{Pieces: []repair.Piece{mk(0, 5, "abandoned"), mk(1, 20, "abandoned"), mk(2, 41, "charging_complete")}}
