@@ -5,6 +5,7 @@ import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
+import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { valhallaBase, tilesPMTilesURL, ensureConfig, bookingAffiliateID } from "../lib/config";
 import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
@@ -723,15 +724,17 @@ function addBasemap(map: L.Map) {
     addTilesUnavailableNotice(map);
     return;
   }
-  const flavor = namedFlavor("dark");
-  const make = () =>
-    leafletLayer({
+  const make = () => {
+    const flavor = namedFlavor(appMapFlavor());
+    map.getContainer().style.background = flavor.background;
+    return leafletLayer({
       url,
       paintRules: paintRules(flavor),
       labelRules: labelRules(flavor, "en"),
       backgroundColor: flavor.background,
       attribution: PROTOMAPS_ATTRIB,
     });
+  };
   let current = make();
   let lastRecreate = 0;
   let recreateCount = 0;
@@ -751,6 +754,14 @@ function addBasemap(map: L.Map) {
   };
   current.on("tileerror", handler);
   current.addTo(map);
+  // Follow the app theme live (Settings, or the OS under System).
+  const off = onAppMapFlavor(() => {
+    map.removeLayer(current as unknown as L.Layer);
+    current = make();
+    current.on("tileerror", handler);
+    current.addTo(map);
+  });
+  map.once("unload", off);
 }
 
 // valhallaMultiRoute POSTs every waypoint as a single trip and
