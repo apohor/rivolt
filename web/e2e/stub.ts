@@ -8,7 +8,7 @@ import { ledgerMonthFixture, ledgerSummaryFixture, currentMonth } from "../src/l
 export const VEHICLE_ID = "veh-sample-1";
 const HOME = { latitude: 40.0, longitude: -100.0 };
 
-export type NowScenario = "parked" | "charging" | "driving" | "asleep" | "offline";
+export type NowScenario = "parked" | "charging" | "driving" | "asleep" | "offline" | "stale";
 
 function iso(msAgo: number): string {
   return new Date(Date.now() - msAgo).toISOString();
@@ -52,6 +52,9 @@ export function vehicleState(s: NowScenario): Record<string, unknown> {
       return { ...base, gear: "D", speed_kph: 88, battery_level_pct: 58, latitude: 40.2, longitude: -100.3 };
     case "asleep":
       return { ...base, power_state: "sleep", at: iso(4 * 60_000), battery_level_pct: 71 };
+    case "stale":
+      // A parked truck whose last frame is 6 min old (e.g. a frozen replay).
+      return { ...base, at: iso(6 * 60_000) };
     case "offline":
       return { ...base, at: iso(3 * 3_600_000), battery_level_pct: 47, latitude: 40.4, longitude: -100.1 };
     default:

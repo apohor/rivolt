@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VehicleState } from "./api";
-import { advanceTripDistance, computeNow, nowAlerts, type NowInput } from "./nowState";
+import { advanceTripDistance, computeNow, nowAlerts, statusPill, type NowInput } from "./nowState";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const HOME = { latitude: 40, longitude: -90 };
@@ -163,5 +163,25 @@ describe("computeNow with a /now snapshot", () => {
     const a = nowAlerts({ view, state, vehicleName: "Tank", failedSleepsToday: 0, failedSleeps6h: 5, tireMinBar: 2.0 });
     expect(a.map((x) => x.id)).toEqual(["waking", "tire"]);
     expect(a[0].text).toBe("Tank woke up 5 times in the last 6 hours.");
+  });
+});
+
+describe("statusPill", () => {
+  const pill = (p: Partial<VehicleState>, o: Partial<NowInput> = {}) => statusPill(computeNow(inp(p, o)));
+  it("is Live only for a fresh frame", () => {
+    expect(pill({}).text).toBe("Live");
+    expect(pill({ at: new Date(NOW - 90_000).toISOString() }).text).toBe("Live");
+  });
+  it("never says Live next to an old timestamp", () => {
+    const p = pill({ at: new Date(NOW - 4 * 60_000).toISOString() });
+    expect(p.text).toBe("Last seen 4 min ago");
+    expect(p.tone).toBe("neutral"); // older than 2 min but within the parked limit
+    const w = pill({ at: new Date(NOW - 6 * 60_000).toISOString() });
+    expect(w.text).toBe("Last seen 6 min ago");
+    expect(w.tone).toBe("warn");
+  });
+  it("says Asleep for a sleeping truck and Offline when gone", () => {
+    expect(pill({ power_state: "sleep", at: new Date(NOW - 3 * 60_000).toISOString() }, { asleepSinceMs: NOW - 600_000 }).text).toBe("Asleep");
+    expect(pill({ at: new Date(NOW - 3_600_000).toISOString() }).text).toBe("Offline");
   });
 });

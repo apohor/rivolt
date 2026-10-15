@@ -313,3 +313,19 @@ export function formatAgo(ageSec: number): string {
   if (h < 48) return `${h} h ago`;
   return `${Math.floor(h / 24)} d ago`;
 }
+
+// How long a frame may be and still read "Live" next to an "updated N
+// min ago" line. Tighter than the per-state stale limit on purpose, so a
+// green Live never sits beside a visibly old timestamp.
+export const LIVE_PILL_MAX_SEC = 120;
+
+export type StatusPill = { text: string; tone: "live" | "neutral" | "warn" };
+
+export function statusPill(v: NowView): StatusPill {
+  if (v.kind === "offline") return { text: "Offline", tone: "neutral" };
+  // A sleeping truck's frames are legitimately minutes apart.
+  if (v.kind === "asleep" && !v.stale) return { text: "Asleep", tone: "neutral" };
+  if (!v.stale && v.ageSec <= LIVE_PILL_MAX_SEC) return { text: "Live", tone: "live" };
+  const t = `Last seen ${formatAgo(v.ageSec)}`;
+  return { text: t, tone: v.stale ? "warn" : "neutral" };
+}

@@ -132,6 +132,12 @@ async function request<T>(
   return parsed as T;
 }
 
+// inDemo is true on the public sample-truck route, where there is no
+// session and the Rivian-account endpoints are skipped entirely.
+function inDemo(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/demo");
+}
+
 export const api = {
   get: <T>(url: string, signal?: AbortSignal) => request<T>("GET", url, undefined, signal),
   post: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
@@ -801,6 +807,9 @@ export const backend = {
   // disabled / no session. We squash the 401 here so callers can
   // just await { user_id, username } | null without a try/catch.
   whoami: async (): Promise<AuthUser | null> => {
+    // The public demo is signed out by design: don't ask (a 401 each
+    // load is console noise and nothing there needs the answer).
+    if (inDemo()) return null;
     try {
       return await api.get<AuthUser>("/api/auth/me");
     } catch (e) {
@@ -904,7 +913,10 @@ export const backend = {
     );
     return r ?? null;
   },
-  rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
+  rivianStatus: async (): Promise<RivianStatus> => {
+    if (inDemo()) return { enabled: false, authenticated: false, mfa_pending: false };
+    return api.get<RivianStatus>("/api/settings/rivian/");
+  },
   // vehicle_count on a completed sign-in: how many vehicles the Rivian
   // account exposed (-1 if the lookup failed). 0 means connected but
   // nothing to record - usually an unaccepted Authorized Driver invite.

@@ -11,6 +11,7 @@ import {
   isChargingActive,
   isDrivingGear,
   nowAlerts,
+  statusPill,
   SLEEP_HYSTERESIS_SEC,
   type NowView,
   type OdoTrack,
@@ -213,6 +214,7 @@ export default function NowCard({
   });
   const currency = chargingQ.data?.home_currency || "USD";
   const offline = view.kind === "offline";
+  const pill = statusPill(view);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
 
@@ -231,15 +233,16 @@ export default function NowCard({
             </p>
           </div>
           <span
+            data-testid="now-pill"
             className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
-              offline
-                ? "border-neutral-700 text-neutral-500"
-                : view.stale
+              pill.tone === "live"
+                ? "border-emerald-500/30 text-emerald-300"
+                : pill.tone === "warn"
                   ? "border-amber-500/40 text-amber-300"
-                  : "border-emerald-500/30 text-emerald-300"
+                  : "border-neutral-700 text-neutral-400"
             }`}
           >
-            {offline ? "Offline" : view.stale ? "Stale" : "Live"}
+            {pill.text}
           </span>
         </div>
 
