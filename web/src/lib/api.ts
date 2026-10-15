@@ -536,6 +536,24 @@ export type DrainSnapshot = {
   daily: DrainDay[];
 };
 
+// Monthly statement email (statement-email-spec.md).
+export type StatementEmailSettings = {
+  enabled: boolean;
+  // False when the operator flag is off or the account has no email.
+  available: boolean;
+  last_sent_period?: string | null;
+  // IANA zone the monthly send uses (set when the user opts in).
+  timezone?: string | null;
+};
+
+export type StatementEmailPreview = {
+  subject: string;
+  text: string;
+  html: string;
+  will_send: boolean;
+  reason?: "not_opted_in" | "no_email" | "silent_month" | string;
+};
+
 export type LiveDrive = {
   vehicle_id: string;
   number: number;
@@ -958,6 +976,19 @@ export const backend = {
       throw e;
     }
   },
+  // Null on 404 (feature off / not wired): the Settings card hides.
+  statementEmailGet: async (): Promise<StatementEmailSettings | null> => {
+    try {
+      return await api.get<StatementEmailSettings>("/api/settings/statement-email");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  statementEmailPut: (enabled: boolean, timezone?: string) =>
+    api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled, timezone }),
+  // No month: the server uses the previous month in the user's zone.
+  statementEmailPreview: () => api.get<StatementEmailPreview>("/api/statement-email/preview"),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   // liveDrive returns null when the server replies 204 — no drive
