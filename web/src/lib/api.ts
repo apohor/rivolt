@@ -536,6 +536,22 @@ export type DrainSnapshot = {
   daily: DrainDay[];
 };
 
+// Monthly statement email (statement-email-spec.md).
+export type StatementEmailSettings = {
+  enabled: boolean;
+  // False when the operator flag is off or the account has no email.
+  available: boolean;
+  last_sent_period?: string | null;
+};
+
+export type StatementEmailPreview = {
+  subject: string;
+  text: string;
+  html: string;
+  will_send: boolean;
+  reason?: string;
+};
+
 export type LiveDrive = {
   vehicle_id: string;
   number: number;
@@ -958,6 +974,19 @@ export const backend = {
       throw e;
     }
   },
+  // Null on 404 (feature off / not wired): the Settings card hides.
+  statementEmailGet: async (): Promise<StatementEmailSettings | null> => {
+    try {
+      return await api.get<StatementEmailSettings>("/api/settings/statement-email");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  statementEmailPut: (enabled: boolean) =>
+    api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled }),
+  statementEmailPreview: (month: string) =>
+    api.get<StatementEmailPreview>(`/api/statement-email/preview?month=${encodeURIComponent(month)}`),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   // liveDrive returns null when the server replies 204 — no drive

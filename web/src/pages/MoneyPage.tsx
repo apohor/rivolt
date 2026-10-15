@@ -109,7 +109,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -141,6 +141,7 @@ function MonthPicker({ month, max, onChange }: { month: string; max: string; onC
 }
 
 function Statement({
+  askShare,
   sample,
   m,
   months,
@@ -149,6 +150,7 @@ function Statement({
   filter,
   onFilter,
 }: {
+  askShare: boolean;
   sample: boolean;
   m: LedgerMonth;
   months: MonthSummary[];
@@ -211,7 +213,7 @@ function Statement({
           )}
         </div>
         <div className="mt-1">
-          <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} />
+          <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
@@ -359,10 +361,13 @@ function ShareStatementButton({
   m,
   partialFrom,
   disabled,
+  prompt = false,
 }: {
   m: LedgerMonth;
   partialFrom: string | null;
   disabled: boolean;
+  // Arrived via the statement email's "Share it" link (share=1).
+  prompt?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -403,6 +408,11 @@ function ShareStatementButton({
       >
         {busy ? "Preparing…" : "Share statement"}
       </button>
+      {prompt && !disabled && (
+        <span role="status" className="text-xs text-emerald-300">
+          Your statement is ready to share. Tap Share statement.
+        </span>
+      )}
       {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
     </div>
   );

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { chargeCostLine } from "../lib/activityFeed";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -33,7 +35,11 @@ function chargingSeconds(c: Charge): number {
 }
 
 export default function ChargesPage() {
-  const [win, setWin] = useState<WindowKey>("30d");
+  // ?unpriced=1 (the statement email's "Price them" link): only charges
+  // still waiting for a price, across all time so last month's show.
+  const [params, setParams] = useSearchParams();
+  const unpricedOnly = params.get("unpriced") === "1";
+  const [win, setWin] = useState<WindowKey>(unpricedOnly ? "all" : "30d");
   const [view, setView] = useState<"table" | "map">("table");
   const navigate = useNavigate();
   // categoryFilter narrows the table + summary to a single charging
@@ -60,9 +66,11 @@ export default function ChargesPage() {
     [q.data, win],
   );
   const rows = useMemo(() => {
-    if (!categoryFilter) return windowed;
-    return windowed.filter((c) => labelByID.get(c.ID) === categoryFilter);
-  }, [windowed, categoryFilter, labelByID]);
+    let r = windowed;
+    if (categoryFilter) r = r.filter((c) => labelByID.get(c.ID) === categoryFilter);
+    if (unpricedOnly) r = r.filter((c) => chargeCostLine(c).tone === "missing");
+    return r;
+  }, [windowed, categoryFilter, labelByID, unpricedOnly]);
   const totals = useMemo(() => summarize(rows), [rows]);
   // Counts for each filter pill so the user knows what they'll get
   // before clicking. Computed off the windowed (pre-filter) set so
@@ -102,6 +110,18 @@ export default function ChargesPage() {
           <p className="text-sm text-neutral-400">No charges in this window.</p>
         ) : (
           <div className="space-y-3">
+            {unpricedOnly && (
+              <p className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
+                Showing charges that still need a price.
+                <button
+                  type="button"
+                  onClick={() => setParams({}, { replace: true })}
+                  className="text-neutral-300 underline hover:text-neutral-100"
+                >
+                  Show all
+                </button>
+              </p>
+            )}
             <CategoryFilter
               value={categoryFilter}
               onChange={setCategoryFilter}
