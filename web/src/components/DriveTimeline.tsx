@@ -67,8 +67,8 @@ const C = {
 };
 
 const PAD_L = 46;
-const PAD_T = 18;
-const PANEL_GAP = 22;
+const PAD_T = 20;
+const PANEL_GAP = 26;
 const AXIS_H = 22;
 const DEAD_PX = 26;
 
@@ -81,10 +81,14 @@ function clockLabel(ms: number, withSeconds = false): string {
   });
 }
 
-// niceCeil rounds v up to a "round" value (10, 20, 50, 100 ...).
-function niceCeil(v: number, steps = [10, 20, 25, 50, 100, 200]): number {
-  for (const s of steps) if (v <= s) return s;
-  return Math.ceil(v / 100) * 100;
+// niceAxis picks a round step so the axis has at most `maxTicks` ticks
+// and tops out just above the data (73 mph -> 0/20/40/60/80).
+function niceAxis(max: number, maxTicks = 5, steps = [5, 10, 20, 25, 50, 100]): { top: number; ticks: number[] } {
+  const step = steps.find((s) => Math.ceil(max / s) + 1 <= maxTicks) ?? steps[steps.length - 1];
+  const top = Math.max(step, Math.ceil(max / step) * step);
+  const ticks: number[] = [];
+  for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v);
+  return { top, ticks };
 }
 
 export function DriveTimeline({
@@ -98,6 +102,7 @@ export function DriveTimeline({
   tempUnit,
 }: DriveTimelineProps) {
   const [showPackTemp, setShowPackTemp] = useState(false);
+  const [showWind, setShowWind] = useState(false);
   const [isTouch, setIsTouch] = useState(false);
   const driveStartMs = new Date(drive.StartedAt).getTime();
   const driveEndMs = new Date(drive.EndedAt).getTime();
@@ -106,7 +111,11 @@ export function DriveTimeline({
   const socPts = useMemo(
     () =>
       smoothGaussianTime(
-        samples.map((p) => ({ x: new Date(p.At).getTime(), y: p.BatteryLevelPct || 0 })),
+        // A missing SoC is not 0 %: drop null / non-positive rows so they
+        // don't plot a plunge or a false "lowest SoC 0 %" moment.
+        samples
+          .filter((p) => typeof p.BatteryLevelPct === "number" && p.BatteryLevelPct > 0)
+          .map((p) => ({ x: new Date(p.At).getTime(), y: p.BatteryLevelPct })),
         30_000,
       ),
     [samples],
@@ -170,6 +179,7 @@ export function DriveTimeline({
   const hasPower = powerPts.length > 1;
   const hasElev = elevPts.length > 1;
   const hasTemp = packTempPts.length > 1;
+  const hasWind = headwindPts.length > 1;
 
   return (
     <div className="space-y-2">
@@ -194,6 +204,7 @@ export function DriveTimeline({
         socPts={socPts}
         elevPts={hasElev ? elevPts : []}
         packTempPts={showPackTemp && hasTemp ? packTempPts : []}
+        headwindPts={showWind && hasWind ? headwindPts : []}
         tempUnit={tempUnit}
         parkBands={parkBands}
         modeSegments={distinctModes.size > 1 ? modeSegments : []}
@@ -251,6 +262,20 @@ export function DriveTimeline({
               Pack temp
             </button>
           ) : null}
+          {hasWind ? (
+            <button
+              type="button"
+              aria-pressed={showWind}
+              onClick={() => setShowWind((v) => !v)}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                showWind
+                  ? "border-neutral-600 bg-neutral-800 text-neutral-100"
+                  : "border-neutral-800 text-neutral-400 hover:text-neutral-200"
+              }`}
+            >
+              Headwind
+            </button>
+          ) : null}
           {isZoomed ? (
             <button
               type="button"
@@ -283,6 +308,7 @@ function Panels(props: {
   socPts: Pt[];
   elevPts: Pt[];
   packTempPts: Pt[];
+  headwindPts: Pt[];
   tempUnit: "f" | "c";
   parkBands: ReturnType<typeof buildParkBands>;
   modeSegments: ReturnType<typeof buildModeSegments>;
@@ -303,6 +329,7 @@ function Panels(props: {
     socPts,
     elevPts,
     packTempPts,
+    headwindPts,
     tempUnit,
     parkBands,
     modeSegments,
@@ -341,6 +368,7 @@ function Panels(props: {
   const powerH = narrow ? 64 : 76;
   const battH = narrow ? 80 : 96;
   const tempH = 56;
+  const windH = 56;
   let y = PAD_T;
   const speedTop = y;
   y += speedH + PANEL_GAP;
@@ -350,6 +378,8 @@ function Panels(props: {
   y += battH + PANEL_GAP;
   const tempTop = y;
   if (packTempPts.length > 1) y += tempH + PANEL_GAP;
+  const windTop = y;
+  if (headwindPts.length > 1) y += windH + PANEL_GAP;
   const stripsTop = y - PANEL_GAP + 8;
   let sy = stripsTop;
   const modeTop = sy;
@@ -361,8 +391,7 @@ function Panels(props: {
   const plotBottom = stripsTop - 8;
 
   // y domains and ticks
-  const speedMax = niceCeil(Math.max(30, ...speedPts.map((p) => p.y)));
-  const speedTicks = [0, speedMax / 2, speedMax];
+  const { top: speedMax, ticks: speedTicks } = niceAxis(Math.max(20, ...speedPts.map((p) => p.y)));
   const pMax = Math.max(10, ...powerPts.map((p) => p.y));
   const pMin = Math.min(-10, ...powerPts.map((p) => p.y));
   const pStep = pMax - pMin > 150 ? 50 : 25;
@@ -376,6 +405,14 @@ function Panels(props: {
   const socTicks = [sLo, Math.round((sLo + sHi) / 2), sHi];
   const eMin = elevPts.length > 1 ? Math.min(...elevPts.map((p) => p.y)) : 0;
   const eMax = elevPts.length > 1 ? Math.max(...elevPts.map((p) => p.y)) : 1;
+  const eSpan = Math.max(1, eMax - eMin);
+  const eLo = eMin - eSpan * 0.1;
+  const eHi = eMax + eSpan * 0.3;
+  const eStep = [50, 100, 200, 250, 500, 1000].find((st) => Math.floor(eHi / st) - Math.ceil(eLo / st) + 1 <= 3) ?? 1000;
+  const elevTicks: number[] = [];
+  if (elevPts.length > 1) for (let v = Math.ceil(eLo / eStep) * eStep; v <= eHi; v += eStep) elevTicks.push(v);
+  const wAbs = Math.max(5, ...headwindPts.map((p) => Math.abs(p.y)));
+  const wTop = niceAxis(wAbs, 3, [5, 10, 20, 25, 50]).top;
   const toTemp = (c: number) => (tempUnit === "f" ? c * 1.8 + 32 : c);
   const tempPts = packTempPts.map((p) => ({ x: p.x, y: toTemp(p.y) }));
   const tMinRaw = tempPts.length ? Math.min(...tempPts.map((p) => p.y)) : 0;
@@ -469,7 +506,7 @@ function Panels(props: {
           />
           <text
             x={PAD_L - 6}
-            y={yIn(tv, lo, hi, top, h) + 3.5}
+            y={Math.min(top + h, Math.max(top + 8, yIn(tv, lo, hi, top, h) + 3.5))}
             textAnchor="end"
             className="fill-neutral-500"
             fontSize={10}
@@ -479,7 +516,7 @@ function Panels(props: {
           </text>
         </g>
       ))}
-      <text x={PAD_L} y={top - 6} fontSize={10} className="fill-neutral-400" style={{ letterSpacing: 0.4 }}>
+      <text x={PAD_L} y={top - 9} fontSize={10} className="fill-neutral-400" style={{ letterSpacing: 0.4 }}>
         {title} <tspan className="fill-neutral-500">· {unit}</tspan>
       </text>
     </g>
@@ -504,6 +541,14 @@ function Panels(props: {
           <linearGradient id="dt-soc-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" style={{ stopColor: C.soc, stopOpacity: 0.22 }} />
             <stop offset="1" style={{ stopColor: C.soc, stopOpacity: 0.02 }} />
+          </linearGradient>
+          <linearGradient id="dt-draw-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: C.draw, stopOpacity: 0.7 }} />
+            <stop offset="1" style={{ stopColor: C.draw, stopOpacity: 0.06 }} />
+          </linearGradient>
+          <linearGradient id="dt-regen-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: C.regen, stopOpacity: 0.06 }} />
+            <stop offset="1" style={{ stopColor: C.regen, stopOpacity: 0.7 }} />
           </linearGradient>
           <clipPath id="dt-plot-clip">
             <rect x={PAD_L} y={0} width={plotW} height={totalH} />
@@ -550,8 +595,8 @@ function Panels(props: {
           <g>
             <PanelFrame top={powerTop} h={powerH} title="Power" unit="kW" tks={powerTicks} lo={pLo} hi={pHi} fmt={(v) => (v > 0 ? `+${v}` : `${v}`)} />
             <g clipPath="url(#dt-plot-clip)">
-              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "pos")} style={{ fill: C.draw }} opacity={0.45} />
-              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "neg")} style={{ fill: C.regen }} opacity={0.55} />
+              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "pos")} fill="url(#dt-draw-fill)" />
+              <path d={areaPath(powerPts, pLo, pHi, powerTop, powerH, 0, "neg")} fill="url(#dt-regen-fill)" />
               <path d={toPath(powerPts, pLo, pHi, powerTop, powerH)} fill="none" className="stroke-neutral-400" strokeWidth={1} />
             </g>
           </g>
@@ -561,22 +606,21 @@ function Panels(props: {
         <PanelFrame top={battTop} h={battH} title="Battery" unit="%" tks={socTicks} lo={sLo} hi={sHi} />
         <g clipPath="url(#dt-plot-clip)">
           {elevPts.length > 1 ? (
-            <path d={areaPath(elevPts, eMin - (eMax - eMin) * 0.1, eMax + (eMax - eMin) * 0.3, battTop, battH, eMin - (eMax - eMin) * 0.1)} style={{ fill: C.elev }} opacity={0.14} />
+            <path d={areaPath(elevPts, eLo, eHi, battTop, battH, eLo)} style={{ fill: C.elev }} opacity={0.14} />
           ) : null}
           <path d={areaPath(socPts, sLo, sHi, battTop, battH, sLo)} fill="url(#dt-soc-fill)" />
           <path d={toPath(socPts, sLo, sHi, battTop, battH)} fill="none" style={{ stroke: C.soc }} strokeWidth={1.8} strokeLinejoin="round" />
         </g>
         {elevPts.length > 1 ? (
           <g className="fill-neutral-500" fontSize={10} style={{ fontVariantNumeric: "tabular-nums" }}>
-            <text x={PAD_L + plotW + 5} y={battTop + 10}>
-              {Math.round(eMax)}
+            <text x={PAD_L + plotW} y={battTop - 8} textAnchor="end" opacity={0.8}>
+              Elev <tspan>· ft</tspan>
             </text>
-            <text x={PAD_L + plotW + 5} y={battTop + battH}>
-              {Math.round(eMin)}
-            </text>
-            <text x={PAD_L + plotW + 5} y={battTop + battH / 2 + 3} className="fill-neutral-600">
-              ft
-            </text>
+            {elevTicks.map((v) => (
+              <text key={`et-${v}`} x={PAD_L + plotW + 5} y={Math.min(battTop + battH, Math.max(battTop + 8, yIn(v, eLo, eHi, battTop, battH) + 3.5))} opacity={0.8}>
+                {v}
+              </text>
+            ))}
           </g>
         ) : null}
 
@@ -586,6 +630,15 @@ function Panels(props: {
             <PanelFrame top={tempTop} h={tempH} title="Pack temp" unit={tempUnit === "f" ? "°F" : "°C"} tks={[tLo, tHi]} lo={tLo} hi={tHi} />
             <g clipPath="url(#dt-plot-clip)">
               <path d={toPath(tempPts, tLo, tHi, tempTop, tempH)} fill="none" style={{ stroke: C.temp }} strokeWidth={1.6} />
+            </g>
+          </g>
+        ) : null}
+
+        {headwindPts.length > 1 ? (
+          <g>
+            <PanelFrame top={windTop} h={windH} title="Headwind" unit="mph" tks={[-wTop, 0, wTop]} lo={-wTop} hi={wTop} fmt={(v) => (v > 0 ? `+${v}` : `${v}`)} />
+            <g clipPath="url(#dt-plot-clip)">
+              <path d={toPath(headwindPts, -wTop, wTop, windTop, windH)} fill="none" className="stroke-neutral-400" strokeWidth={1.4} strokeDasharray="4 3" />
             </g>
           </g>
         ) : null}
@@ -664,6 +717,12 @@ function Panels(props: {
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
+          onPointerCancel={() => {
+            // A vertical swipe the browser took over for scrolling.
+            dragRef.current = null;
+            setBrush(null);
+            onCursorChange(null);
+          }}
           onPointerLeave={(e) => {
             if (e.pointerType === "mouse" && !dragRef.current) onCursorChange(null);
           }}
@@ -711,6 +770,9 @@ function Readout({
     }
     if (soc != null) items.push({ color: C.soc, label: "Battery", value: `${soc.toFixed(1)} %` });
     if (elev != null) items.push({ color: C.elev, label: "Elev", value: `${elev.toFixed(0)} ft` });
+    if (cursorSample.OutsideTempC != null && Number.isFinite(cursorSample.OutsideTempC)) {
+      items.push({ color: C.elev, label: "Outside", value: fmtTemp(cursorSample.OutsideTempC, tempUnit) });
+    }
     if (showTemp && cursorSample.pack_temp_avg_c) {
       items.push({ color: C.temp, label: "Pack", value: fmtTemp(cursorSample.pack_temp_avg_c, tempUnit) });
     }

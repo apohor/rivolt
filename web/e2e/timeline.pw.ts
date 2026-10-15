@@ -24,10 +24,11 @@ function longSpeed(f: number): number {
   if (f < 0.13) return 0;
   if (f < 0.2) return Math.min(70, (f - 0.13) * 1000);
   if (f < 0.5) return 70 + 2 * Math.sin(f * 60);
-  if (f < 0.58) return 70 - 40 * Math.sin(((f - 0.5) / 0.08) * Math.PI); // traffic
-  if (f < 0.85) return 68 + 3 * Math.sin(f * 40);
-  if (f < 0.95) return 68 - ((f - 0.85) / 0.1) * 40;
-  return Math.max(0, 28 - ((f - 0.95) / 0.05) * 28);
+  if (f < 0.54) return 70 - 45 * Math.sin(((f - 0.5) / 0.04) * Math.PI); // traffic: braking
+  if (f < 0.88) return 68 + 3 * Math.sin(f * 40);
+  if (f < 0.92) return 68 - ((f - 0.88) / 0.04) * 40; // exit ramp
+  if (f < 0.95) return 28;
+  return Math.max(0, 28 - ((f - 0.95) / 0.03) * 28);
 }
 function shortSpeed(f: number): number {
   if (f < 0.15) return f * 200;
@@ -44,7 +45,6 @@ function samplesFor(d: typeof LONG, speed: (f: number) => number, startSoc: numb
   for (let i = 0; i <= n; i++) {
     const f = i / n;
     const v = speed(f);
-    const prev = speed(Math.max(0, f - 1 / n));
     const moving = v > 1.5;
     out.push({
       VehicleID: VEHICLE_ID,
@@ -66,7 +66,8 @@ function samplesFor(d: typeof LONG, speed: (f: number) => number, startSoc: numb
       DriveNumber: 1,
       ChargeNumber: 0,
       Source: "live",
-      altitude_m: 180 + 120 * Math.sin(f * 5) + (v < prev ? -4 : 0),
+      // Realistic relief: city +-30-80 ft, gentle on the highway.
+      altitude_m: d === LONG ? 180 + 14 * Math.sin(f * 3) : 180 + 9 * Math.sin(f * 6),
       pack_temp_avg_c: 24 + f * 6,
     });
   }
@@ -125,3 +126,26 @@ for (const [vpName, vp] of [
     }
   }
 }
+
+test("a vertical swipe starting on the chart scrolls the page and leaves no cursor", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage();
+  await setup(page);
+  await page.goto("/drives/drive-1");
+  const scrub = page.getByTestId("timeline-scrub");
+  await scrub.scrollIntoViewIfNeeded();
+  const box = (await scrub.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y0 = Math.min(box.y + box.height - 10, 700);
+  const before = await page.evaluate(() => window.scrollY);
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: y0 }] });
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y0 - i * 25 }] });
+  }
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+  await expect(page.getByTestId("timeline-readout")).toContainText("Whole drive");
+  await ctx.close();
+});
