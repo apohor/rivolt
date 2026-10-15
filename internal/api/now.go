@@ -60,13 +60,15 @@ type nowAPI struct {
 }
 
 // connectionState is not a freshness verdict (the client derives that
-// from `at` and its per-state cadence): replay > paused > reauth > live.
+// from `at` and its per-state cadence): paused > replay > reauth > live.
+// The operator kill switch wins over everything, replay included: while
+// it is on Rivolt makes no upstream calls and the client should say so.
 func connectionState(replay, paused, needsReauth bool) string {
 	switch {
-	case replay:
-		return "replay"
 	case paused:
 		return "paused"
+	case replay:
+		return "replay"
 	case needsReauth:
 		return "reauth"
 	}

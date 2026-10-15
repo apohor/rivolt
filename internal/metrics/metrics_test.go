@@ -68,3 +68,30 @@ func TestHTTPMiddlewareUnmatchedRoute(t *testing.T) {
 		t.Errorf("expected unmatched route bucket, got body:\n%s", body)
 	}
 }
+
+func TestUpstreamPausedGaugeIsExportedAndDefaultsOff(t *testing.T) {
+	m := New()
+	mfs, err := m.Registry().Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, mf := range mfs {
+		if mf.GetName() == "rivolt_upstream_paused" {
+			found = true
+			if v := mf.GetMetric()[0].GetGauge().GetValue(); v != 0 {
+				t.Fatalf("default = %v, want 0", v)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("rivolt_upstream_paused not registered")
+	}
+	m.UpstreamPaused.Set(1)
+	mfs, _ = m.Registry().Gather()
+	for _, mf := range mfs {
+		if mf.GetName() == "rivolt_upstream_paused" && mf.GetMetric()[0].GetGauge().GetValue() != 1 {
+			t.Fatal("gauge did not follow Set(1)")
+		}
+	}
+}

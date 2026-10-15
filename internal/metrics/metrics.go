@@ -81,6 +81,9 @@ type Metrics struct {
 	// cardinality stays bounded. The per-user trail lives in the
 	// matching "funnel" log line instead.
 	FunnelEventsTotal *prometheus.CounterVec
+	// UpstreamPaused is 1 while the operator's Rivian upstream kill
+	// switch (flags.rivian_upstream_paused) is on, else 0.
+	UpstreamPaused prometheus.Gauge
 
 	// Completed vehicle sleeps by outcome: "failed" when the car woke
 	// within a minute of falling asleep, "lasted" otherwise. A rising
@@ -179,6 +182,10 @@ func New() *Metrics {
 			},
 			[]string{"event"},
 		),
+		UpstreamPaused: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_upstream_paused",
+			Help: "1 while the Rivian upstream kill switch is on, else 0.",
+		}),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_vehicle_sleeps_total",
@@ -200,6 +207,7 @@ func New() *Metrics {
 		m.EmailSendTotal,
 		m.FunnelEventsTotal,
 		m.VehicleSleepsTotal,
+		m.UpstreamPaused,
 	)
 	return m
 }

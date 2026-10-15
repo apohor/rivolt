@@ -269,6 +269,12 @@ type Store struct {
 	// Rivian-facing code path. Stored as *KillSwitchState so we
 	// can atomically swap the pointer on refresh.
 	snapshot atomic.Pointer[KillSwitchState]
+	// killObserver, when set (before Start), is called whenever the
+	// kill switch's Paused value changes, from SetKillSwitch on this
+	// pod and from the refresh loop when another pod flipped it. It
+	// also fires once at the first load when the switch is already
+	// on. old is nil on that first load.
+	killObserver func(old *KillSwitchState, cur KillSwitchState)
 
 	// tripPlanner is the latest trip-planner flag state. Same
 	// shape as snapshot — separate pointer because the two flags
@@ -401,7 +407,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate flag rows: %w", err)
 	}
-	s.snapshot.Store(&kill)
+	s.storeKillSwitch(kill)
 	s.tripPlanner.Store(&planner)
 	s.signupCap.Store(&signupCap)
 	s.aiCallCap.Store(&aiCallCap)
@@ -468,6 +474,31 @@ func (s *Store) SleepSafe() SleepSafeState {
 	return *p
 }
 
+// SetKillSwitchObserver registers fn to be told when the kill switch
+// flips. Call it before Start; it is not safe to call concurrently
+// with refreshes.
+func (s *Store) SetKillSwitchObserver(fn func(old *KillSwitchState, cur KillSwitchState)) {
+	if s != nil {
+		s.killObserver = fn
+	}
+}
+
+// storeKillSwitch swaps the snapshot and notifies the observer when
+// Paused changed (or on the first load while paused).
+func (s *Store) storeKillSwitch(cur KillSwitchState) {
+	old := s.snapshot.Swap(&cur)
+	if s.killObserver == nil {
+		return
+	}
+	switch {
+	case old == nil && cur.Paused:
+		s.killObserver(nil, cur)
+	case old != nil && old.Paused != cur.Paused:
+		prev := *old
+		s.killObserver(&prev, cur)
+	}
+}
+
 // KillSwitch returns the current cached kill-switch state. Cheap
 // — one atomic load. Safe to call on every outbound request.
 // Returns the zero value (Paused: false) when the Store was
@@ -502,7 +533,7 @@ func (s *Store) SetKillSwitch(ctx context.Context, paused bool, reason, actor st
 	if err != nil {
 		return fmt.Errorf("upsert flag %q: %w", KillSwitchName, err)
 	}
-	s.snapshot.Store(&st)
+	s.storeKillSwitch(st)
 	return nil
 }
 
