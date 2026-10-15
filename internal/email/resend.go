@@ -72,6 +72,15 @@ type Message struct {
 	Subject string
 	Text    string // plain-text body; rendered as-is
 	HTML    string // optional HTML alternative; nil-coalesced to "" if absent
+	// Headers are extra message headers passed through Resend's
+	// `headers` object (List-Unsubscribe, List-Unsubscribe-Post). Names
+	// and values containing CR or LF are dropped so a value can never
+	// inject another header.
+	Headers map[string]string
+	// IdempotencyKey, when set, is sent as Resend's Idempotency-Key
+	// header so a retried send of the same message is not delivered
+	// twice.
+	IdempotencyKey string
 }
 
 // ErrNotConfigured is returned by Send when called on a nil Client so
@@ -115,6 +124,9 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 	if m.HTML != "" {
 		body["html"] = m.HTML
 	}
+	if h := safeHeaders(m.Headers); len(h) > 0 {
+		body["headers"] = h
+	}
 	buf, err := json.Marshal(body)
 	if err != nil {
 		c.observe("error")
@@ -127,6 +139,9 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if k := strings.TrimSpace(m.IdempotencyKey); k != "" && !strings.ContainsAny(k, "\r\n") {
+		req.Header.Set("Idempotency-Key", k)
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		c.observe("error")
@@ -157,4 +172,17 @@ func (c *Client) observe(status string) {
 		return
 	}
 	c.counter.IncEmailSend("resend", status)
+}
+
+// safeHeaders drops empty names and any header whose name or value has
+// a line break.
+func safeHeaders(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range in {
+		if k == "" || strings.ContainsAny(k, "\r\n:") || strings.ContainsAny(v, "\r\n") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }

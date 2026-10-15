@@ -48,6 +48,10 @@ import (
 // the same string the poller does.
 const KillSwitchName = "rivian_upstream_paused"
 
+// StatementEmailName gates the monthly statement email (operator flag;
+// the user's own opt-in is separate). Same shape as MoneyTabState.
+const StatementEmailName = "statement_email_enabled"
+
 // TripPlannerEnabledName is the flags.name value gating the trip
 // planner UI + endpoints. Default-off: when the row is missing or
 // the JSON decodes to {enabled:false}, the planner stays hidden.
@@ -274,12 +278,13 @@ type Store struct {
 	// shape as snapshot — separate pointer because the two flags
 	// are read on disjoint code paths and we want lock-free reads
 	// for both.
-	tripPlanner atomic.Pointer[TripPlannerState]
-	signupCap   atomic.Pointer[SignupCapState]
-	aiCallCap   atomic.Pointer[AICallCapState]
-	sleepSafe   atomic.Pointer[SleepSafeState]
-	moneyTab    atomic.Pointer[MoneyTabState]
-	wakeSafety  atomic.Pointer[WakeSafetyState]
+	tripPlanner    atomic.Pointer[TripPlannerState]
+	signupCap      atomic.Pointer[SignupCapState]
+	aiCallCap      atomic.Pointer[AICallCapState]
+	sleepSafe      atomic.Pointer[SleepSafeState]
+	moneyTab       atomic.Pointer[MoneyTabState]
+	statementEmail atomic.Pointer[MoneyTabState]
+	wakeSafety     atomic.Pointer[WakeSafetyState]
 
 	startOnce sync.Once
 }
@@ -308,6 +313,7 @@ func OpenStore(ctx context.Context, d *sql.DB, logger *slog.Logger) (*Store, err
 		s.aiCallCap.Store(&AICallCapState{DailyLimit: 0})
 		s.sleepSafe.Store(&SleepSafeState{})
 		s.moneyTab.Store(&MoneyTabState{})
+		s.statementEmail.Store(&MoneyTabState{})
 		s.wakeSafety.Store(&WakeSafetyState{})
 	}
 	return s, nil
@@ -346,7 +352,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -357,6 +363,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	aiCallCap := AICallCapState{DailyLimit: 0}
 	sleepSafe := SleepSafeState{}
 	moneyTab := MoneyTabState{}
+	statementEmail := MoneyTabState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
 		var name string
@@ -389,6 +396,12 @@ func (s *Store) refresh(ctx context.Context) error {
 			if err := json.Unmarshal(raw, &moneyTab); err != nil {
 				return fmt.Errorf("decode flag %q: %w", name, err)
 			}
+		case StatementEmailName:
+			// A malformed row reads as off (it only gates sends).
+			if err := json.Unmarshal(raw, &statementEmail); err != nil {
+				s.logger.Warn("flags: statement_email_enabled malformed, treating as off", "err", err.Error())
+				statementEmail = MoneyTabState{}
+			}
 		case WakeSafetyName:
 			// Experiment switches: a typo reads as all-off rather than
 			// freezing every other flag (kill switch included).
@@ -407,6 +420,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.aiCallCap.Store(&aiCallCap)
 	s.sleepSafe.Store(&sleepSafe)
 	s.moneyTab.Store(&moneyTab)
+	s.statementEmail.Store(&statementEmail)
 	s.wakeSafety.Store(&wakeSafety)
 	return nil
 }
@@ -455,6 +469,42 @@ func (s *Store) SetMoneyTab(ctx context.Context, st MoneyTabState, actor string)
 		return fmt.Errorf("upsert flag %q: %w", MoneyTabName, err)
 	}
 	s.moneyTab.Store(&st)
+	return nil
+}
+
+// StatementEmail returns the cached operator flag for the monthly
+// statement email. Lock-free; off when the row is missing.
+func (s *Store) StatementEmail() MoneyTabState {
+	if s == nil {
+		return MoneyTabState{}
+	}
+	p := s.statementEmail.Load()
+	if p == nil {
+		return MoneyTabState{}
+	}
+	return *p
+}
+
+// SetStatementEmail persists the operator flag and refreshes the local
+// snapshot.
+func (s *Store) SetStatementEmail(ctx context.Context, st MoneyTabState, actor string) error {
+	st.Actor = actor
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode state: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO flags (name, value, updated_at, updated_by)
+		VALUES ($1, $2, now(), $3)
+		ON CONFLICT (name) DO UPDATE
+			SET value = EXCLUDED.value,
+			    updated_at = EXCLUDED.updated_at,
+			    updated_by = EXCLUDED.updated_by
+	`, StatementEmailName, raw, actor)
+	if err != nil {
+		return fmt.Errorf("upsert flag %q: %w", StatementEmailName, err)
+	}
+	s.statementEmail.Store(&st)
 	return nil
 }
 

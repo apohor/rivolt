@@ -41,6 +41,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 )
@@ -177,6 +178,9 @@ type Deps struct {
 	// approval-email send; the admin still gets the code in the
 	// approval response so it can be forwarded manually.
 	Email *email.Client
+	// StatementSigner signs the one-click unsubscribe links of the
+	// monthly statement email (nil disables the unsubscribe routes).
+	StatementSigner *statement.Signer
 	// BaseURL is the install's public origin (e.g. https://rivolt.dev),
 	// sourced from $RIVOLT_BASE_URL. Used today only for composing
 	// the magic-link signup URL in approval emails; safe to leave
@@ -350,6 +354,19 @@ func New(d Deps) http.Handler {
 					})
 				}
 			})
+		}
+		if d.DB != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil {
+			startStatementJob(d, d.StatementSigner)
+		}
+		// Monthly statement email: signed one-click unsubscribe.
+		// Public (no session), per-IP limited, GET shows a page and
+		// POST performs it (RFC 8058). 404 without a signer or DB.
+		if d.DB != nil && d.StatementSigner != nil {
+			stm := newStatementAPI(d.DB, d, d.StatementSigner)
+			unsubLimiter := newIPLimiter(30, time.Minute, time.Hour)
+			unsubLimiter.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
+			r.With(unsubLimiter.Middleware).Get("/statement-email/unsubscribe", stm.unsubscribeGet)
+			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/statement-email/unsubscribe", stm.unsubscribePost)
 		}
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {
@@ -611,6 +628,15 @@ func New(d Deps) http.Handler {
 
 			// User's saved home location, used by the trip planner
 			// for one-click Origin/Destination presets.
+			// Monthly statement email: opt-in + timezone, and a preview of
+			// what would be sent. Off unless the operator flag covers
+			// the user (preview 404s, `available` is false).
+			if d.DB != nil && d.StatementSigner != nil {
+				stm := newStatementAPI(d.DB, d, d.StatementSigner)
+				r.Get("/settings/statement-email", withUser(stm.getSettings))
+				r.Put("/settings/statement-email", withUser(stm.putSettings))
+				r.Get("/statement-email/preview", withUser(stm.preview))
+			}
 			r.Route("/settings/home-location", func(r chi.Router) {
 				r.Get("/", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleHomeLocationGet(d.Settings.For(uid))(w, r)
@@ -668,6 +694,7 @@ func New(d Deps) http.Handler {
 				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
 				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
 				r.Put("/flags/money-tab", handleFlagsMoneyTabPut(d.Flags))
+				r.Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
 				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
 				r.Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
