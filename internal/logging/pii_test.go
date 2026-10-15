@@ -7,20 +7,24 @@ import (
 )
 
 func TestScrubEmails(t *testing.T) {
-	for _, in := range []string{
-		`duplicate key (email)=(a.b+c@example.com) exists`,
-		`GET /x?email=a.b%2Bc%40example.com: dial tcp`,
-		`bad A@Example.COM`,
+	for in, want := range map[string]string{
+		"send to john.smith+qa@gmail.com failed":           "send to <email> failed",
+		"duplicate key (email)=(a.b+c@example.com) exists": "duplicate key (email)=(<email>) exists",
+		"GET /x?email=a.b%2Bc%40example.com: dial tcp":     "GET /x?email=<email>: dial tcp",
+		"GET /x?email=john+qa%40gmail.com&p=1":             "GET /x?email=<email>&p=1",
+		"bad A@Example.COM":                                "bad <email>",
+		"o'brien@x.com refused":                            "<email> refused",
+		"no address here":                                  "no address here",
 	} {
-		if out := ScrubEmails(in); strings.Contains(out, "@") || strings.Contains(strings.ToLower(out), "example") {
-			t.Errorf("not scrubbed: %q -> %q", in, out)
+		if got := ScrubEmails(in); got != want {
+			t.Errorf("ScrubEmails(%q) = %q, want %q", in, got, want)
 		}
 	}
 	if got := ScrubErr(nil); got != "" {
 		t.Errorf("nil: %q", got)
 	}
-	if strings.Contains(ScrubErr(errors.New("x@y.io")), "@") {
-		t.Error("ScrubErr leaked")
+	if got := ScrubErr(errors.New("x@y.io")); got != "<email>" {
+		t.Errorf("ScrubErr = %q", got)
 	}
 }
 

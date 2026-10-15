@@ -26,13 +26,15 @@ func IDHash(s string) string {
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
-var emailRe = regexp.MustCompile(`(?i)[a-z0-9._%+\-]+(@|%40)[a-z0-9.\-]+`)
+var emailRe = regexp.MustCompile("(?i)[a-z0-9!#$%&'*+^_`{|}~.\\-]+(@|%40)[a-z0-9.\\-]+")
 
 // ScrubEmails masks anything email-shaped (plain or URL-encoded) in
 // third-party text before it's logged. Use for error strings from
 // databases, IdPs and HTTP clients, which can echo the identifier.
 func ScrubEmails(s string) string {
-	if u, err := url.QueryUnescape(s); err == nil && emailRe.MatchString(u) {
+	// PathUnescape, not QueryUnescape: the latter turns '+' into a space
+	// and would split a plus-address before the regex sees it.
+	if u, err := url.PathUnescape(s); err == nil {
 		s = u
 	}
 	return emailRe.ReplaceAllString(s, "<email>")
