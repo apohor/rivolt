@@ -1,8 +1,8 @@
 package rivian
 
 import (
-	"math"
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -956,6 +956,37 @@ func TestLiveChargeRow_CostSource(t *testing.T) {
 			t.Errorf("%s: source=%q cost=%.2f network=%q flag=%v, want rivian/27.00 network %q flag %v",
 				tc.name, row.CostSource, row.Cost, row.Network, row.RivianCharger, tc.wantNet, tc.wantFlag)
 		}
+	}
+
+	// The previous session, as getLiveSessionHistory can still return
+	// it: neither its price, nor its charger flag, nor the network land
+	// on this charge. By elapsed time, and by start time.
+	for _, st := range []*LiveSession{
+		{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true, IsRivianCharger: true,
+			TimeElapsedSeconds: int64((3 * time.Hour).Seconds())},
+		{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true, IsRivianCharger: true,
+			StartTime: start.Add(-2 * time.Hour).Format(time.RFC3339)},
+	} {
+		c := charge("stale", 200, 60, 30*time.Minute)
+		m.mu.Lock()
+		m.lastSession["veh-1"] = st
+		m.lastSessionFor["veh-1"] = c.id
+		m.mu.Unlock()
+		row := m.liveChargeRow("veh-1", c)
+		if row.Network == NetworkRivianAdventure || row.RivianCharger != nil || row.CostSource == CostSourceRivian {
+			t.Errorf("stale session (elapsed %ds, start %q): source=%q cost=%.2f network=%q flag=%v, want none of Rivian's",
+				st.TimeElapsedSeconds, st.StartTime, row.CostSource, row.Cost, row.Network, row.RivianCharger)
+		}
+	}
+	// Its own session (started with the charge, elapsed = its age) still counts.
+	c := charge("fresh", 200, 60, 30*time.Minute)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true,
+		IsRivianCharger: true, TimeElapsedSeconds: int64((30 * time.Minute).Seconds()), StartTime: start.Format(time.RFC3339)}
+	m.lastSessionFor["veh-1"] = c.id
+	m.mu.Unlock()
+	if row := m.liveChargeRow("veh-1", c); row.Network != NetworkRivianAdventure || row.CostSource != CostSourceRivian {
+		t.Errorf("own session: source=%q network=%q, want rivian / %s", row.CostSource, row.Network, NetworkRivianAdventure)
 	}
 }
 

@@ -1210,6 +1210,28 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	return 0
 }
 
+// sessionPredatesCharge reports evidence that a bonded session began well
+// before the charge it's bonded to: it has run longer than the charge
+// by more than 15 min and a quarter of the charge's age, or its start
+// time is over 15 min before the charge's. Rivian's REST and replayed
+// snapshots can describe the previous session; its price and charger
+// flag must not land on this one. No evidence (no elapsed time, no
+// parsable start) is not staleness.
+func sessionPredatesCharge(sess *LiveSession, c *liveCharge) bool {
+	if sess == nil || c == nil {
+		return false
+	}
+	age := c.endAt.Sub(c.startedAt)
+	if sess.TimeElapsedSeconds > 0 && time.Duration(sess.TimeElapsedSeconds)*time.Second > age+15*time.Minute+age/4 {
+		return true
+	}
+	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime)); err == nil &&
+		t.Before(c.startedAt.Add(-15*time.Minute)) {
+		return true
+	}
+	return false
+}
+
 // NetworkRivianAdventure is the display name the ledger and the charge
 // map use for the Rivian Adventure Network.
 const NetworkRivianAdventure = "Rivian Adventure Network"
@@ -1600,7 +1622,11 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		v := liveSess.ThermalKWh
 		row.ThermalKWh = &v
 	}
-	if liveSess != nil && liveSess.RivianChargerKnown {
+	// What Rivian says about the session (its own charger, its price)
+	// belongs to this charge only if the session is this charge's:
+	// getLiveSessionHistory can still return the previous session.
+	stale := sessionPredatesCharge(liveSess, c)
+	if liveSess != nil && !stale && liveSess.RivianChargerKnown {
 		v := liveSess.IsRivianCharger
 		row.RivianCharger = &v
 	}
@@ -1610,7 +1636,7 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	// rate of the station it happened at; anything slower uses the
 	// user's home $/kWh rate. Persisting means future rate changes
 	// don't retroactively rewrite history; CostSource records which.
-	if liveSess != nil && liveSess.CurrentPrice != "" {
+	if liveSess != nil && !stale && liveSess.CurrentPrice != "" {
 		if cost, err := strconv.ParseFloat(liveSess.CurrentPrice, 64); err == nil && cost > 0 {
 			row.Cost = cost
 			row.Currency = liveSess.CurrentCurrency
