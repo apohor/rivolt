@@ -57,8 +57,22 @@ func TestDemoSeed_IdempotentNonAdminAndScoped(t *testing.T) {
 		t.Fatalf("role = %q (%v), want user", role, err)
 	}
 	var n int
-	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1 AND source = 'seed'`, uid).Scan(&n); err != nil || n != 4 {
-		t.Fatalf("seeded charges = %d (%v), want 4 after two seeds", n, err)
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1 AND source = 'seed'`, uid).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("seeded charges = %d (%v), want 2 after two seeds", n, err)
+	}
+	// The hand-written billed and user-priced seeds are gone (the corpus
+	// supplies both); a previously seeded row is removed on reseed.
+	if _, err := pool.ExecContext(ctx, `
+		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source)
+		SELECT $1, vehicle_id, 'demo_seed_user', started_at - interval '30 days', ended_at - interval '30 days', 'seed'
+		  FROM charges WHERE user_id = $1 LIMIT 1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := demo.Seed(ctx, deps); err != nil {
+		t.Fatalf("reseed: %v", err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1 AND external_id IN ('demo_seed_user','demo_seed_billed')`, uid).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("dropped seeds present = %d (%v)", n, err)
 	}
 	home, err := settings.GetHomeLocation(ctx, deps.Settings.For(uid))
 	if err != nil || !home.Set || home.Latitude != demo.HomeLat {
