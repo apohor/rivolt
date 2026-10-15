@@ -36,7 +36,7 @@ const COLORS = { home: "#10b981", public: "#38bdf8", dcfc: "#f59e0b", unknown: "
 
 export function buildStatementCardModel(
   m: LedgerMonth,
-  opts: { partialFrom?: string | null } = {},
+  opts: { partialFrom?: string | null; sample?: boolean } = {},
 ): StatementCardModel {
   const cur = m.currency;
   const e = m.energy;
@@ -65,7 +65,7 @@ export function buildStatementCardModel(
     notIncluded: notIncluded(m),
     estimatedPct: est > 0 ? Math.round(est * 100) : null,
     buckets: raw.map((b) => ({ label: b.label, color: b.color, value: Math.round(b.cost * 100) / 100, display: formatMoney(b.cost, cur) })),
-    footnote: "Charging cost, tracked with Rivolt",
+    footnote: opts.sample ? "Sample truck · generated data" : "Charging cost, tracked with Rivolt",
   };
 }
 

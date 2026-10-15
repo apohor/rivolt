@@ -13,13 +13,23 @@ export type Degraded = { tone: "rose" | "amber"; text: string; to?: string; cta?
 export function degradedState(
   health: { ok?: boolean } | undefined,
   healthError: boolean,
-  rivian: { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean } | undefined,
+  rivian:
+    | { enabled: boolean; authenticated: boolean; mfa_pending: boolean; needs_reauth?: boolean; paused?: boolean }
+    | undefined,
 ): Degraded | null {
   if (healthError) {
     return { tone: "rose", text: "Rivolt can't reach its server. Data below may be out of date." };
   }
   if (!health?.ok || !rivian) return null; // still loading: say nothing
   if (!rivian.enabled) return null; // stub build: nothing to connect
+  // The operator's pause beats every per-user state: nothing the user
+  // does (re-auth, a code) will help until it's lifted.
+  if (rivian.paused) {
+    return {
+      tone: "amber",
+      text: "Rivolt has paused its connection to Rivian. Your history is safe; live updates will resume.",
+    };
+  }
   if (rivian.mfa_pending) {
     return { tone: "amber", text: "Rivian is waiting for your verification code.", to: "/settings?tab=account", cta: "Enter code" };
   }

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
-import { getConfig } from "../lib/config";
+import { useDemoEnabled } from "../lib/config";
 import { AuthorizedDriverNote, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
 
@@ -31,6 +31,7 @@ export default function ConnectRivianPrompt({
   context?: string;
   inline?: boolean;
 }) {
+  const demoEnabled = useDemoEnabled();
   const status = useQuery({
     queryKey: ["rivian", "status"],
     queryFn: () => backend.rivianStatus(),
@@ -75,14 +76,7 @@ export default function ConnectRivianPrompt({
           )}
           <RivianAccountPanel />
           {!noVehicles && <AuthorizedDriverNote />}
-          {!noVehicles && getConfig().features.demoEnabled && (
-            <p className="text-xs text-neutral-500">
-              Want to look around first?{" "}
-              <Link to="/demo" className="text-emerald-300 hover:underline">
-                Try the sample truck
-              </Link>
-            </p>
-          )}
+          {!noVehicles && demoEnabled && <SampleTruckCard />}
         </div>
       </Card>
     );
@@ -102,6 +96,7 @@ export default function ConnectRivianPrompt({
             )}
           </p>
         </div>
+        {!noVehicles && demoEnabled && <SampleTruckCard compact />}
         <Link
           to="/settings?tab=account#rivian"
           className="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
@@ -110,5 +105,23 @@ export default function ConnectRivianPrompt({
         </Link>
       </div>
     </Card>
+  );
+}
+
+// SampleTruckCard: a way to look around before connecting. Opens the
+// public demo (a generated truck, read-only).
+function SampleTruckCard({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`rounded-lg border border-neutral-800 bg-neutral-900/40 ${compact ? "p-2" : "p-3"}`}>
+      <div className="text-sm font-medium text-neutral-100">Try with a sample truck</div>
+      {!compact && (
+        <p className="mt-0.5 text-xs text-neutral-400">
+          Look around with generated data first. Nothing of yours is used.
+        </p>
+      )}
+      <Link to="/demo" className="mt-1 inline-block text-xs text-emerald-300 hover:underline">
+        Open the demo →
+      </Link>
+    </div>
   );
 }

@@ -17,6 +17,7 @@
 // from raw GPS first anyway and overlay snapped roads when the
 // match call returns; a one-tick delay on first render is invisible.
 import { useEffect, useState } from "react";
+import { inDemo } from "./demo";
 export type RuntimeConfig = {
   tiles: {
     // url is the same-origin URL of the served .pmtiles bundle.
@@ -63,6 +64,9 @@ export type RuntimeConfig = {
     // account" and /signup shows a closed notice. An older server
     // that doesn't send the field is treated as enabled.
     signupEnabled: boolean;
+    // eventsEnabled mirrors RIVOLT_EVENTS: track() sends nothing unless
+    // true (first-party product events, instrumentation.md).
+    eventsEnabled: boolean;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -97,7 +101,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -116,7 +120,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -134,6 +138,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         landingEnabled: !!j?.features?.landing_enabled,
         demoEnabled: !!j?.features?.demo_enabled,
         signupEnabled: j?.features?.signup_enabled !== false,
+        eventsEnabled: j?.features?.events_enabled === true,
       },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
@@ -205,6 +210,9 @@ export function grafanaBaseURL(): string {
 // chargers with full OSM tags (operator, network, max kW, socket
 // types) instead of the basemap's stripped-down POIs.
 export function chargersPMTilesURL(): string {
+  // The public demo has no tile access (signed out): never request the
+  // chargers archive there; lookups fall back to the basemap layer.
+  if (inDemo()) return "";
   return cached.tiles.chargersUrl;
 }
 
@@ -251,6 +259,22 @@ export function useAIEnabled(): boolean {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setEnabled(c.ai.enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return enabled;
+}
+
+// useDemoEnabled: whether the public sample-truck demo exists on this
+// install (features.demo_enabled). False until /api/config loads.
+export function useDemoEnabled(): boolean {
+  const [enabled, setEnabled] = useState<boolean>(cached.features.demoEnabled);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setEnabled(c.features.demoEnabled);
     });
     return () => {
       cancelled = true;

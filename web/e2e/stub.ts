@@ -8,7 +8,7 @@ import { ledgerMonthFixture, ledgerSummaryFixture, currentMonth } from "../src/l
 export const VEHICLE_ID = "veh-sample-1";
 const HOME = { latitude: 40.0, longitude: -100.0 };
 
-export type NowScenario = "parked" | "charging" | "driving" | "asleep" | "offline";
+export type NowScenario = "parked" | "charging" | "driving" | "asleep" | "offline" | "stale";
 
 function iso(msAgo: number): string {
   return new Date(Date.now() - msAgo).toISOString();
@@ -52,6 +52,9 @@ export function vehicleState(s: NowScenario): Record<string, unknown> {
       return { ...base, gear: "D", speed_kph: 88, battery_level_pct: 58, latitude: 40.2, longitude: -100.3 };
     case "asleep":
       return { ...base, power_state: "sleep", at: iso(4 * 60_000), battery_level_pct: 71 };
+    case "stale":
+      // A parked truck whose last frame is 6 min old (e.g. a frozen replay).
+      return { ...base, at: iso(6 * 60_000) };
     case "offline":
       return { ...base, at: iso(3 * 3_600_000), battery_level_pct: 47, latitude: 40.4, longitude: -100.1 };
     default:
@@ -104,11 +107,13 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
   ...o,
 });
 
-export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down";
+export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down" | "paused";
 
 export type DrainMode = "absent" | "ok" | "insufficient";
 
 export type StubOptions = {
+  // features.signup_enabled=false (RIVOLT_SIGNUP_DISABLED).
+  signupDisabled?: boolean;
   // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
   drain?: DrainMode;
   rivian?: RivianState;
@@ -123,7 +128,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -138,7 +143,8 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: false },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
+        tiles: { url: "", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
         impersonation: { disabled: true },
       });
     }
@@ -146,6 +152,18 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return demo
         ? json(route, { enabled: true, vehicle_id: VEHICLE_ID, home_label: "Sample lot" })
         : json(route, { error: "not found" }, 404);
+    }
+    if (p === "/api/settings/statement-email") {
+      return json(route, { enabled: false, available: true, last_sent_period: null });
+    }
+    if (p === "/api/statement-email/preview") {
+      return json(route, {
+        subject: "Your Rivian cost for September: $88.00",
+        text: "Hi there,\n\nHere's your September statement from Rivolt.\n\nYou spent $88.00 on charging",
+        html: "<p>Here's your September statement.</p>",
+        will_send: false,
+        reason: "not_opted_in",
+      });
     }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
@@ -158,9 +176,11 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/settings/rivian/") {
       return json(route, {
         enabled: true,
-        authenticated: rivian === "ok" || rivian === "reauth" || rivian === "mfa",
+        authenticated: rivian === "ok" || rivian === "reauth" || rivian === "mfa" || rivian === "paused",
         mfa_pending: rivian === "mfa",
         needs_reauth: rivian === "reauth",
+        paused: rivian === "paused",
+        paused_reason: rivian === "paused" ? "operator_pause" : undefined,
       });
     }
     if (p === "/api/vehicles") {
@@ -235,6 +255,59 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       ]);
     }
     if (p === "/api/charges/clusters") return json(route, []);
+    if (p === "/api/trips/saved") {
+      const inputs = {
+        origin: { lat: 40.0, lon: -100.0, label: "Home" },
+        destination: { lat: 41.0, lon: -101.0, label: "Sample destination" },
+        extra_stops: [],
+      };
+      return json(
+        route,
+        ["none", "suggested", "progress", "full", "partial"].map((k, i) => ({
+          id: `st-${k}`, name: `Sample trip ${i + 1}`, inputs, created_at: iso(86_400_000), updated_at: iso(86_400_000),
+        })),
+      );
+    }
+    const pva = p.match(/^\/api\/trips\/saved\/st-(none|suggested|progress|full|partial)\/actual$/);
+    if (pva) {
+      const k = pva[1];
+      const base = { version: 1, saved_trip_id: `st-${k}` };
+      if (k === "none") return json(route, { ...base, status: "none", link: null, candidates: [], comparison: null });
+      if (k === "progress") {
+        const cand0 = { trip_id: "trip_9", started_at: iso(2 * 3_600_000), ended_at: iso(0), confidence: 0.9, band: "high", signals: {}, in_progress: true };
+        return json(route, { ...base, status: "suggested", link: null, candidates: [cand0], comparison: null });
+      }
+      const metric = (metric: string, unit: string, planned: number, actual: number | null, extra: object = {}) => ({
+        metric, unit, planned, actual, delta: actual == null ? null : actual - planned, reasons: [], ...extra,
+      });
+      const comparison = {
+        currency: "USD", plan_from: k === "suggested" ? "current" : "snapshot",
+        leg: { started_at: iso(3 * 86_400_000), arrived_at: iso(3 * 86_400_000 - 40_000_000), miles: 612 },
+        metrics: [
+          k === "partial"
+            ? metric("cost", "USD", 52.1, null, { actual_complete: false, actual_known: 21.12, unpriced_sessions: 2 })
+            : metric("cost", "USD", 52.1, 48.22, {
+                actual_complete: true, actual_known: 48.22, unpriced_sessions: 0,
+                actual_sources: { rivian: 30.1, network_estimate: 18.12 },
+                reasons: [{ code: "rate_differed", amount: -3.88, detail: "Sample network billed $0.48/kWh vs $0.56 planned" }],
+              }),
+          metric("energy_kwh", "kWh", 150, 146),
+          metric("dcfc_stops", "count", 3, 4, { reasons: [{ code: "extra_stop", amount: 9.5, detail: "One extra stop after a detour" }] }),
+          metric("arrival_soc", "pct", 22, 18),
+          metric("duration", "min", 640, 700, { reasons: [{ code: "extra_stop", amount: null, detail: "The extra stop added about an hour" }] }),
+        ],
+        stops: [
+          { match: "same_station", planned: { name: "Sample stop A" }, actual: { network: "Sample network" } },
+          { match: "extra", planned: null, actual: { network: "Sample network" } },
+        ],
+      };
+      const cand = { trip_id: "trip_1", started_at: iso(3 * 86_400_000), ended_at: iso(3 * 86_400_000 - 40_000_000), confidence: 0.91, band: "high", signals: {} };
+      if (k === "suggested") return json(route, { ...base, status: "suggested", link: null, candidates: [cand], comparison });
+      return json(route, {
+        ...base, status: "linked", candidates: [cand], comparison,
+        link: { trip_id: "trip_1", confidence: 0.91, band: "high", linked_at: iso(86_400_000) },
+      });
+    }
     if (p === `/api/vehicles/${VEHICLE_ID}/pack-health`) {
       const samples = Array.from({ length: 8 }, (_, i) => ({
         vehicle_id: VEHICLE_ID, charge_id: `c${i}`, at: iso((8 - i) * 5 * 86_400_000),

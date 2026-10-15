@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { inDemo } from "../lib/demo";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+import { track } from "../lib/track";
 import { backend } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
@@ -42,6 +44,18 @@ export default function MoneyPage() {
   const monthParam = params.get("month");
   const month = isValidMonth(monthParam) && monthParam <= thisMonth ? monthParam : thisMonth;
   const fixture = params.get("fixture") === "1";
+  // money_view: once per page load (src=statement when it came from the
+  // monthly email). Counts and enums only.
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (viewedRef.current) return;
+    viewedRef.current = true;
+    const [ty, tm] = thisMonth.split("-").map(Number);
+    const [my, mm] = month.split("-").map(Number);
+    const props: Record<string, string | number> = { month_offset: Math.max(0, (ty - my) * 12 + (tm - mm)) };
+    if (params.get("src") === "statement") props.src = "statement";
+    track("money_view", props);
+  }, [month, thisMonth, params]);
   const [metric, setMetric] = useState<"cost" | "kwh">("cost");
   const [filter, setFilter] = useState<ReceiptFilter>("all");
 
@@ -109,7 +123,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -141,6 +155,7 @@ function MonthPicker({ month, max, onChange }: { month: string; max: string; onC
 }
 
 function Statement({
+  askShare,
   sample,
   m,
   months,
@@ -149,6 +164,7 @@ function Statement({
   filter,
   onFilter,
 }: {
+  askShare: boolean;
   sample: boolean;
   m: LedgerMonth;
   months: MonthSummary[];
@@ -211,7 +227,7 @@ function Statement({
           )}
         </div>
         <div className="mt-1">
-          <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} />
+          <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
@@ -359,22 +375,28 @@ function ShareStatementButton({
   m,
   partialFrom,
   disabled,
+  prompt = false,
 }: {
   m: LedgerMonth;
   partialFrom: string | null;
   disabled: boolean;
+  // Arrived via the statement email's "Share it" link (share=1).
+  prompt?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   const onClick = async () => {
     setBusy(true);
     setErr(null);
+    setDone(null);
     try {
-      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom }));
+      const blob = await statementCardBlob(buildStatementCardModel(m, { partialFrom, sample: inDemo() }));
       if (!blob) throw new Error("Image export isn't available in this browser.");
       const file = new File([blob], `rivolt-${m.period}.png`, { type: "image/png" });
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: `Rivolt ${m.period}` });
+        setDone("Shared.");
       } else {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -383,6 +405,7 @@ function ShareStatementButton({
         a.click();
         // Revoking immediately can cancel the download in Safari/Firefox.
         window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        setDone(`Saved ${file.name} to your downloads.`);
       }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
@@ -403,7 +426,13 @@ function ShareStatementButton({
       >
         {busy ? "Preparing…" : "Share statement"}
       </button>
+      {prompt && !disabled && (
+        <span role="status" className="text-xs text-emerald-300">
+          Your statement is ready to share. Tap Share statement.
+        </span>
+      )}
       {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
+      {done && <span role="status" className="text-xs text-emerald-300">{done}</span>}
     </div>
   );
 }

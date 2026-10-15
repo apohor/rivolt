@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"math"
 	"testing"
 	"time"
 
@@ -101,6 +102,46 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 			t.Errorf("drive %s distance %.1f mi", d.ID, d.DistanceMi)
 		}
 	}
+	// Every planned DC fast charge is recorded, at its station.
+	fast := 0
+	for _, ch := range r.Charges() {
+		if !IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+			continue
+		}
+		fast++
+		at := false
+		for _, st := range sampleDCFCStations {
+			at = at || haversineMeters(ch.Lat, ch.Lon, st.at.Lat, st.at.Lon) <= 250
+		}
+		if !at || ch.FinalState == "abandoned" {
+			t.Errorf("fast charge %s at %.5f,%.5f final %q: want closed normally at a station", ch.ID, ch.Lat, ch.Lon, ch.FinalState)
+		}
+	}
+	if fast != c.Summary().DCFC {
+		t.Errorf("recorded fast charges = %d, planned %d", fast, c.Summary().DCFC)
+	}
+	// The Rivian-billed stop (RAN Barstow) records Rivian's price; the
+	// others are left to the network-estimate pricer (none in a replay).
+	billed := 0
+	for _, ch := range r.Charges() {
+		if !IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+			continue
+		}
+		atRAN := haversineMeters(ch.Lat, ch.Lon, sampleDCFCStations[0].at.Lat, sampleDCFCStations[0].at.Lon) <= 250
+		switch {
+		case atRAN && (ch.CostSource != CostSourceRivian || ch.Currency != "USD" || ch.Cost <= 0 ||
+			math.Abs(ch.Cost/ch.EnergyAddedKWh-0.48) > 0.05):
+			t.Errorf("RAN charge %s: %s %.2f %s over %.1f kWh, want Rivian-billed at ~$0.48/kWh",
+				ch.ID, ch.CostSource, ch.Cost, ch.Currency, ch.EnergyAddedKWh)
+		case atRAN:
+			billed++
+		case ch.CostSource == CostSourceRivian:
+			t.Errorf("non-RAN charge %s billed by Rivian", ch.ID)
+		}
+	}
+	if billed != 1 {
+		t.Errorf("Rivian-billed fast charges = %d, want 1 (Barstow)", billed)
+	}
 }
 
 // Every DC fast charge sits on one of the real stations, each of the
@@ -132,6 +173,36 @@ func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
 		n := dcfcrates.MatchNetwork(dcfcrates.StationQuery(st.network, st.name))
 		if n.Slug == dcfcrates.UnmatchedNetwork.Slug {
 			t.Errorf("%s (%s) doesn't match a priced network", st.name, st.network)
+		}
+	}
+}
+
+// SampleUserPrice finds the one hand-priced session (the Vegas hotel L2)
+// wherever a loop of the replay puts it on the wall clock, and nothing
+// else.
+func TestSampleUserPrice(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	start, end := c.span()
+	frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
+	r := NewReplayer("sample")
+	r.FeedAll(frames)
+	tl := sampleTimeline(c)
+	for _, loop := range []int64{0, 3, 17} {
+		shift := tl.loopStart(loop).Sub(tl.start)
+		var hits []string
+		for _, ch := range r.Charges() {
+			cost, cur, ok := SampleUserPrice(ch.StartedAt.Add(shift))
+			if !ok {
+				continue
+			}
+			hits = append(hits, ch.ID)
+			if cost != 15 || cur != "USD" || haversineMeters(ch.Lat, ch.Lon, 36.1699, -115.1398) > 500 ||
+				IsDCFCSession(ch.MaxPowerKW, ch.EnergyAddedKWh, ch.ActiveSeconds, ch.EndedAt.Sub(ch.StartedAt)) {
+				t.Errorf("loop %d: %s priced %.2f %s at %.4f,%.4f: want the Vegas hotel AC at $15", loop, ch.ID, cost, cur, ch.Lat, ch.Lon)
+			}
+		}
+		if len(hits) != 1 {
+			t.Errorf("loop %d: hand-priced sessions %v, want exactly one", loop, hits)
 		}
 	}
 }

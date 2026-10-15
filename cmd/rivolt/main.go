@@ -60,6 +60,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -86,6 +87,8 @@ func main() {
 			os.Exit(runReprice(os.Args[2:]))
 		case "repair-charge-fragments":
 			os.Exit(runRepairChargeFragments(os.Args[2:]))
+		case "repair-phantom-charges":
+			os.Exit(runRepairPhantoms(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -106,6 +109,11 @@ Usage:
   rivolt reprice [--apply] [--user NAME]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
+  rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
+                  Delete audited phantom live charges (dry run unless
+                  --apply; --user required; CSV backup first; never
+                  migrates the database; --restore/--restore-csv undo)
 
 Environment:
   RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true
@@ -1573,7 +1581,13 @@ func runServer() {
 	// deletion (recorded in idp_delete_failures), with per-row backoff.
 	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
 
+	// Signs the monthly statement email's one-click unsubscribe links.
+	var statementSigner *statement.Signer
+	if len(cookieSecret) > 0 {
+		statementSigner = statement.NewSigner(cookieSecret)
+	}
 	handler := api.New(api.Deps{
+		StatementSigner:       statementSigner,
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
 		PushService:           pushSvc,

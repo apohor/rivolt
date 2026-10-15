@@ -2,6 +2,7 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  ApiError,
   backend,
   type AIProvider,
   type AISettings,
@@ -20,10 +21,11 @@ import {
   type GPSSettingsUpdate,
   type PushPreferences,
 } from "../lib/api";
-import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
+import { track } from "../lib/track";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
 import { useImpersonationTarget } from "../lib/impersonation";
 import { useMoneyTabEnabled } from "../lib/ledger";
@@ -172,9 +174,12 @@ export default function SettingsPage() {
       )}
 
       {tab === "notifications" && (
-        <Card title="Notifications" id="notifications">
-          <NotificationsPanel />
-        </Card>
+        <>
+          <Card title="Notifications" id="notifications">
+            <NotificationsPanel />
+          </Card>
+          <StatementEmailCard />
+        </>
       )}
 
       {tab === "data" && (
@@ -189,6 +194,143 @@ export default function SettingsPage() {
         </>
       )}
     </div>
+  );
+}
+
+// previewReason: why last month's email would not be sent, in plain words.
+function previewReason(reason?: string): string {
+  switch (reason) {
+    case "not_opted_in":
+      return "This would not be sent: monthly statements are off for your account.";
+    case "no_email":
+      return "This would not be sent: your account has no email address.";
+    case "silent_month":
+      return "This would not be sent: there was no charging or driving that month.";
+    default:
+      return "This would not be sent.";
+  }
+}
+
+function browserZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// StatementEmailCard: opt in to the monthly statement email, and preview
+// what last month's would look like (never sent). Off by default; hidden
+// when the server says it isn't available (flag off, or no email on the
+// account) or the endpoint is absent.
+export function StatementEmailCard() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["settings", "statement-email"],
+    queryFn: () => backend.statementEmailGet(),
+    retry: 0,
+    staleTime: 60_000,
+  });
+  const put = useMutation({
+    // The browser's zone is sent when the user turns it on, so the 1st
+    // of the month is theirs and not the server's.
+    mutationFn: (enabled: boolean) => backend.statementEmailPut(enabled, browserZone()),
+    onSuccess: (data, enabled) => {
+      qc.setQueryData(["settings", "statement-email"], data);
+      track(enabled ? "statement_email_optin" : "statement_email_optout", { from: "settings" });
+    },
+  });
+  const [showPreview, setShowPreview] = useState(false);
+  const [mode, setMode] = useState<"text" | "html">("text");
+  const preview = useQuery({
+    queryKey: ["statement-email", "preview"],
+    queryFn: () => backend.statementEmailPreview(),
+    enabled: showPreview,
+    retry: 0,
+  });
+  const s = settings.data;
+  if (!s || !s.available) return null;
+  return (
+    <Card title="Monthly statement" id="statement-email">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="statement-email-toggle" className="text-sm text-neutral-100">
+            Monthly statement by email
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            On the 1st of each month we&apos;ll email last month&apos;s cost, split and biggest charges. Off by
+            default; one click to stop.
+          </p>
+        </div>
+        <Toggle
+          id="statement-email-toggle"
+          checked={s.enabled}
+          disabled={put.isPending}
+          onChange={(v) => put.mutate(v)}
+        />
+      </div>
+      {put.isError && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          {put.error instanceof ApiError && put.error.status === 409
+            ? "Add an email address to your account to receive the statement."
+            : `Couldn't save: ${String(put.error)}`}
+        </p>
+      )}
+      <div className="mt-4">
+        <button
+          type="button"
+          aria-expanded={showPreview}
+          onClick={() => setShowPreview((v) => !v)}
+          className="text-xs text-emerald-300 hover:underline"
+        >
+          {showPreview ? "▾" : "▸"} Preview last month&apos;s email
+        </button>
+        {showPreview && (
+          <div className="mt-2 space-y-2">
+            {preview.isLoading && <Spinner />}
+            {preview.isError && <p className="text-xs text-neutral-500">No preview available right now.</p>}
+            {preview.data && (
+              <>
+                <p className="text-xs text-neutral-400">
+                  <span className="text-neutral-500">Subject:</span> {preview.data.subject}
+                </p>
+                {!preview.data.will_send && (
+                  <p className="text-xs text-amber-300">{previewReason(preview.data.reason)}</p>
+                )}
+                <div role="tablist" aria-label="Preview format" className="inline-flex rounded-lg border border-neutral-800 p-0.5 text-xs">
+                  {(["text", "html"] as const).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === k}
+                      onClick={() => setMode(k)}
+                      className={`rounded-md px-2.5 py-1 ${mode === k ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+                    >
+                      {k === "text" ? "Text" : "HTML"}
+                    </button>
+                  ))}
+                </div>
+                {mode === "text" ? (
+                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-300">
+                    {preview.data.text}
+                  </pre>
+                ) : (
+                  // Sandboxed with no permissions: it's our own template,
+                  // but a preview must never run anything.
+                  <iframe
+                    title="Email preview"
+                    sandbox=""
+                    srcDoc={preview.data.html}
+                    className="h-96 w-full rounded-md border border-neutral-800 bg-white"
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

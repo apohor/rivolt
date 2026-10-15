@@ -3,6 +3,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,75 @@ var demoExactPaths = map[string]bool{
 	"/api/charges/clusters":       true,
 	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
 	"/api/settings/home-location": true,
+	// Curve data for the demo's drive/charge detail views. Results are
+	// scoped to the demo user by the store; the limit is clamped below.
+	"/api/samples": true,
+}
+
+// Anonymous /api/samples is the one heavy read (a full reply is 1-2 MB),
+// so it gets its own, much tighter budget on top of the general demo
+// limits: per client and install-wide, per minute. This bounds egress
+// rather than the time window.
+const (
+	demoSamplesPerClientPerMin = 20
+	demoSamplesGlobalPerMin    = 200
+)
+
+// demoSamplesDefaultLimit / demoSamplesMaxLimit bound an anonymous
+// /api/samples request (the store treats limit<=0 as "no cap").
+const (
+	demoSamplesDefaultLimit = 2000
+	demoSamplesMaxLimit     = 5000
+)
+
+// demoPerDriveSuffixes are the per-drive GET sub-resources the demo's
+// drive detail view reads. {id} is a single, plain path segment; the
+// handlers scope by the demo user's id, so another user's drive id is
+// a 404 (weather) or an empty series, never data. Deliberately NOT
+// included: /efficiency (the AI recap) and anything that writes.
+var demoPerDriveSuffixes = []string{"/weather", "/weather/series"}
+
+// demoPerDrivePath reports whether p is /api/drives/{id}<suffix> for an
+// allowed suffix and a plain id segment.
+func demoPerDrivePath(p string) bool {
+	const prefix = "/api/drives/"
+	if !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	rest := p[len(prefix):]
+	for _, suf := range demoPerDriveSuffixes {
+		if !strings.HasSuffix(rest, suf) {
+			continue
+		}
+		id := strings.TrimSuffix(rest, suf)
+		if id == "" || len(id) > 128 {
+			return false
+		}
+		for _, r := range id {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-', r == '.', r == ':':
+			default:
+				return false
+			}
+		}
+		return id != "." && id != ".."
+	}
+	return false
+}
+
+// clampDemoSamplesLimit bounds the limit query param of an anonymous
+// /api/samples request in place.
+func clampDemoSamplesLimit(r *http.Request) {
+	q := r.URL.Query()
+	n, _ := strconv.Atoi(q.Get("limit"))
+	switch {
+	case n <= 0:
+		n = demoSamplesDefaultLimit
+	case n > demoSamplesMaxLimit:
+		n = demoSamplesMaxLimit
+	}
+	q.Set("limit", strconv.Itoa(n))
+	r.URL.RawQuery = q.Encode()
 }
 
 // demoAllowed reports whether method+path may be served to an
@@ -53,7 +123,8 @@ func demoAllowed(method, path, vehicleID string) bool {
 	if demoExactPaths[p] {
 		return true
 	}
-	return p == "/api/state/"+vehicleID ||
+	return demoPerDrivePath(p) ||
+		p == "/api/state/"+vehicleID ||
 		p == "/api/vehicles/"+vehicleID+"/now" ||
 		p == "/api/vehicles/"+vehicleID+"/pack-health"
 }
@@ -63,17 +134,37 @@ func demoAllowed(method, path, vehicleID string) bool {
 // impersonation, so a real session always wins and impersonation sees
 // only the (non-admin) demo user.
 func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
+	samples := newIPLimiter(demoSamplesPerClientPerMin, time.Minute, time.Hour)
+	samples.key = demoClientKey
+	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
+	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, signedIn := auth.UserFromContext(r.Context()); signedIn || !demoAllowed(r.Method, r.URL.Path, vehicleID) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			serve := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(demoHeader, "1")
+				if strings.TrimSuffix(r.URL.Path, "/") == "/api/samples" {
+					clampDemoSamplesLimit(r)
+				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
-			})
-			global.Middleware(limiter.Middleware(serve)).ServeHTTP(w, r)
+			}))
+			// Order matters: a token bucket is charged when it is
+			// checked, so every per-client limiter runs BEFORE any
+			// install-wide one. Otherwise one noisy client (rejected by
+			// its own limit) would still drain the global budget and
+			// starve everyone else.
+			isSamples := strings.TrimSuffix(r.URL.Path, "/") == "/api/samples"
+			if isSamples {
+				serve = samplesGlobal.Middleware(serve)
+			}
+			serve = global.Middleware(serve)
+			if isSamples {
+				serve = samples.Middleware(serve)
+			}
+			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
 	}
 }

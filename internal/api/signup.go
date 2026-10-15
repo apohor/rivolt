@@ -207,6 +207,22 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
+			// A visitor with no session at all is not an error: the
+			// landing page and the login page probe this endpoint
+			// signed out, and a 401 there is console noise. Answer 200
+			// {"authenticated": false}. A request that DID present a
+			// session credential which didn't resolve (expired or
+			// invalid) keeps the 401, so "your session expired" logic,
+			// the Kratos-session-without-account signal and the
+			// landing gate still see it.
+			if !svc.HasCredentials(r) {
+				// Never cacheable: unlike the old 401 this is a 200, and
+				// a CDN or browser cache rule must not pin "signed out"
+				// for a visitor who signs in a moment later.
+				w.Header().Set("Cache-Control", "no-store")
+				writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+				return
+			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -214,8 +230,10 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 		// Me writes directly to w we can't intercept it. Inline the same
 		// three lookups (username, role, onboarding_completed) here.
 		var username string
-		if un, err := db.LookupUsername(r.Context(), d, uid); err == nil {
-			username = un
+		if d != nil {
+			if un, err := db.LookupUsername(r.Context(), d, uid); err == nil {
+				username = un
+			}
 		}
 		role, _ := db.RoleFor(r.Context(), d, uid)
 		if role == "" {
@@ -224,6 +242,7 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 		onboardingDone, _ := db.OnboardingCompleted(r.Context(), d, uid)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authenticated":        true,
 			"user_id":              uid.String(),
 			"username":             username,
 			"role":                 role,

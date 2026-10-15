@@ -29,14 +29,22 @@ import (
 //     window / local day it ENDED in.
 //
 // Windows are the rolling 7 x 24 h and 30 x 24 h, so the rate equals the
-// D1 gauge. daily rows are local days in tz.
+// D1 gauge. daily rows are local days in tz, an interval belongs to the
+// day it STARTED in (as /api/sleep-activity attributes it), and each
+// row also carries the raw awake_hours/observed_hours, so with tz=UTC
+// awake_hours equals sleep-activity's idle_awake_h for the same day.
 
 const (
-	drainDays            = 30
-	drainMinParkedH7d    = 24.0
-	drainMinParkedH30d   = 72.0
-	drainMinDailyParkedH = 3.0
-	drainCacheTTL        = 60 * time.Second
+	drainDays          = 30
+	drainMinParkedH7d  = 24.0
+	drainMinParkedH30d = 72.0
+	// A day's bar needs 12 h of valid parked pairs: on 3 h prod days
+	// swung from -0.9 to 7.3 %/day. The window rate still uses every
+	// pair; this only gates the per-day bar.
+	drainMinDailyParkedH = 12.0
+	// A day's idle-awake figure needs this much observed power state.
+	drainMinDailyObsH = 3.0
+	drainCacheTTL     = 60 * time.Second
 )
 
 type drainWindow struct {
@@ -58,12 +66,18 @@ type drainDay struct {
 	Day            string   `json:"day"`
 	DrainPct       *float64 `json:"drain_pct"`
 	IdleAwakeHours *float64 `json:"idle_awake_hours"`
-	ParkedHours    float64  `json:"parked_hours"`
-	ChargingHours  float64  `json:"charging_hours"`
-	DrivingHours   float64  `json:"driving_hours"`
-	Sleeps         int      `json:"sleeps"`
-	QuickRewakes   int      `json:"quick_rewakes"`
-	Excluded       *string  `json:"excluded"`
+	// AwakeHours and ObservedHours are the raw (un-normalised) day sums
+	// behind IdleAwakeHours: awake-while-parked hours and hours of
+	// recorded power state. AwakeHours is the quantity
+	// /api/sleep-activity reports as idle_awake_h.
+	AwakeHours    float64 `json:"awake_hours"`
+	ObservedHours float64 `json:"observed_hours"`
+	ParkedHours   float64 `json:"parked_hours"`
+	ChargingHours float64 `json:"charging_hours"`
+	DrivingHours  float64 `json:"driving_hours"`
+	Sleeps        int     `json:"sleeps"`
+	QuickRewakes  int     `json:"quick_rewakes"`
+	Excluded      *string `json:"excluded"`
 }
 
 type drainResponse struct {
@@ -107,7 +121,7 @@ func buildDrain(raw drainRaw, now time.Time, loc *time.Location) drainResponse {
 		a := raw.Days[key]
 		row := drainDay{
 			Day: key, ParkedHours: drainRound(a.ParkH), ChargingHours: drainRound(a.ChargingH),
-			DrivingHours: drainRound(a.DrivingH), Sleeps: a.Sleeps, QuickRewakes: a.Quick,
+			DrivingHours: drainRound(a.DrivingH), AwakeHours: drainRound(a.AwakeH), ObservedHours: drainRound(a.ObsH), Sleeps: a.Sleeps, QuickRewakes: a.Quick,
 		}
 		if a.ParkH >= drainMinDailyParkedH {
 			v := drainRound(drainRate(a.DropPct, a.ParkH))
@@ -116,7 +130,7 @@ func buildDrain(raw drainRaw, now time.Time, loc *time.Location) drainResponse {
 			ex := "insufficient"
 			row.Excluded = &ex
 		}
-		if a.ObsH >= drainMinDailyParkedH {
+		if a.ObsH >= drainMinDailyObsH {
 			v := drainRound(24 * a.AwakeH / a.ObsH)
 			row.IdleAwakeHours = &v
 		}
@@ -175,12 +189,13 @@ WITH v AS (
 	        AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) AS idle,
 	       LAG(COALESCE(gear,'') IN ('P','') AND COALESCE(mph,0) < 1
 	           AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) OVER w AS pidle,
-	       LAG(gear NOT IN ('D','R','N') AND cs NOT IN ('charging_active','charging_connecting')) OVER w AS pparked,
+	       LAG(COALESCE(gear,'') NOT IN ('D','R','N')
+	           AND COALESCE(cs,'') NOT IN ('charging_active','charging_connecting')) OVER w AS pparked,
 	       LAG(cs IN ('charging_active','charging_connecting')) OVER w AS pcharging,
 	       LAG(gear IN ('D','R')) OVER w AS pdriving
 	  FROM s WINDOW w AS (ORDER BY at)
 ), iv AS (
-	SELECT at, pps, pparked, pcharging, pdriving,
+	SELECT at, pat, pps, pparked, pcharging, pdriving,
 	       EXTRACT(EPOCH FROM at - pat) / 3600.0 AS h,
 	       LEAST(EXTRACT(EPOCH FROM at - pat), 1200) / 3600.0 AS hc,
 	       COALESCE(idle AND pidle AND at - pat < interval '24 hours' AND soc > 0 AND psoc > 0
@@ -188,7 +203,7 @@ WITH v AS (
 	       psoc - soc AS d
 	  FROM p WHERE pat IS NOT NULL
 )
-SELECT 'd' AS k, to_char((at AT TIME ZONE $5::text)::date, 'YYYY-MM-DD') AS day,
+SELECT 'd' AS k, to_char((pat AT TIME ZONE $5::text)::date, 'YYYY-MM-DD') AS day,
        COALESCE(SUM(h) FILTER (WHERE pair), 0), COALESCE(SUM(d) FILTER (WHERE pair), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps IS NOT NULL), 0),
        COALESCE(SUM(hc) FILTER (WHERE pps <> 'sleep' AND pparked), 0),

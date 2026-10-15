@@ -41,7 +41,7 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 ## 4. Who we share with (processors)
 | Recipient | What | Why |
 |---|---|---|
-| Rivian | your credentials and requests, as in your own app | read your vehicle data |
+| Rivian | your credentials and requests, as in your own app; Rivolt's requests identify themselves as Rivian's iOS app (see the Terms) | read your vehicle data |
 | Cloudflare (CDN / proxy) | every request to rivolt.dev, including your IP address and request metadata, passes through it | delivery, caching, DDoS protection **[VERIFY: Cloudflare's logging/retention and whether TLS terminates there]** |
 | Cloud hosting / backup storage **[DECIDE: provider names]** | encrypted at rest as configured | run the service |
 | Weather provider (Open-Meteo) | coordinates and times of drives **[VERIFY exact payload]** | weather in trip analysis |

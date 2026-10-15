@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 )
 
@@ -42,6 +44,12 @@ type replayFrame struct {
 	PackTempAvgC    float64 `json:"pack_temp_avg_c"`
 	PackTempMaxC    float64 `json:"pack_temp_max_c"`
 	PackTempMinC    float64 `json:"pack_temp_min_c"`
+
+	// SessionPrice is the running price Rivian's live charging session
+	// reports for a session it bills (a Rivian Adventure Network stop);
+	// 0 when it doesn't. Only the sample corpus sets it.
+	SessionPrice    float64 `json:"session_price,omitempty"`
+	SessionCurrency string  `json:"session_currency,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -95,6 +103,10 @@ func (f replayFrame) toState() State {
 	// session's kW through idle states; the live path clears it in
 	// mergeState, which replay bypasses, so clear it here too.
 	dropIdleChargerPower(&s)
+	if f.SessionPrice > 0 {
+		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true,
+			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency}
+	}
 	return s
 }
 
@@ -135,8 +147,9 @@ type Replayer struct {
 	vehicle string
 	prev    *State
 
-	mu     sync.Mutex
-	closed []drives.Drive
+	mu      sync.Mutex
+	closed  []drives.Drive
+	charged []charges.Charge
 }
 
 // NewReplayer builds a persistence-free monitor for one vehicle id. All
@@ -154,6 +167,11 @@ func NewReplayer(vehicleID string) *Replayer {
 		r.closed = append(r.closed, d)
 		r.mu.Unlock()
 	}
+	m.chargeCloseHook = func(_ context.Context, c charges.Charge) {
+		r.mu.Lock()
+		r.charged = append(r.charged, c)
+		r.mu.Unlock()
+	}
 	r.m = m
 	return r
 }
@@ -164,10 +182,13 @@ func NewReplayer(vehicleID string) *Replayer {
 func (r *Replayer) Feed(f State) {
 	cur := f
 	cur.VehicleID = r.vehicle
+	sess := cur.ReplaySession
+	cur.ReplaySession = nil
 	r.m.mu.Lock()
 	r.m.cache[r.vehicle] = &cur
 	r.m.mu.Unlock()
 	r.m.record(context.Background(), r.vehicle, r.prev, &cur)
+	r.m.applyReplaySession(context.Background(), r.vehicle, &cur, sess)
 	r.prev = &cur
 }
 
@@ -199,4 +220,25 @@ func (r *Replayer) Drives() []drives.Drive {
 	out := append([]drives.Drive(nil), r.closed...)
 	r.mu.Unlock()
 	return out
+}
+
+// Charges returns the charge sessions the replay closed, after the same
+// settle wait as Drives (the close hook also runs in a goroutine).
+func (r *Replayer) Charges() []charges.Charge {
+	r.Drives() // settle
+	const settle = 100 * time.Millisecond
+	last := -1
+	for {
+		r.mu.Lock()
+		n := len(r.charged)
+		r.mu.Unlock()
+		if n == last {
+			break
+		}
+		last = n
+		time.Sleep(settle)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]charges.Charge(nil), r.charged...)
 }

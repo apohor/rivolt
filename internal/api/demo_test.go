@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,6 +38,21 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/settings/charging/networks", false},
 		{"POST", "/api/settings/charging/networks/reset", false},
 		{"GET", "/api/vehicles/other/pack-health", false},
+		// per-drive detail (weather only) and samples
+		{"GET", "/api/drives/drive-abc/weather", true},
+		{"GET", "/api/drives/live_veh_d_1760000000/weather/series", true},
+		{"GET", "/api/samples", true},
+		{"HEAD", "/api/drives/d1/weather", true},
+		{"GET", "/api/drives/d1/efficiency", false},
+		{"POST", "/api/drives/d1/weather", false},
+		{"POST", "/api/drives/weather/backfill", false},
+		{"GET", "/api/drives//weather", false},
+		{"GET", "/api/drives/a/b/weather", false},
+		{"GET", "/api/drives/../charges/weather", false},
+		{"GET", "/api/drives/d1/weather/series/extra", false},
+		{"GET", "/api/drives/d1", false},
+		{"GET", "/api/drives/d%2F1/weather", false},
+		{"DELETE", "/api/samples", false},
 		// other vehicles
 		{"GET", "/api/state/other", false},
 		{"GET", "/api/vehicles/other/now", false},
@@ -197,5 +213,136 @@ func TestDemoGlobalLimiter(t *testing.T) {
 	}
 	if codes[1] != 200 || codes[2] != http.StatusTooManyRequests {
 		t.Fatalf("global cap should bind across client IPs: %v", codes)
+	}
+}
+
+func TestDemoSamplesLimitIsClamped(t *testing.T) {
+	var seen string
+	demoUID := uuid.New()
+	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.URL.Query().Get("limit") }))
+	for _, c := range []struct{ q, want string }{
+		{"", "2000"},
+		{"?limit=0", "2000"},
+		{"?limit=-5", "2000"},
+		{"?limit=100", "100"},
+		{"?limit=999999999", "5000"},
+		{"?limit=abc&since=2026-10-01T00:00:00Z", "2000"},
+	} {
+		seen = ""
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/samples"+c.q, nil)
+		req.RemoteAddr = "203.0.113.9:1"
+		h.ServeHTTP(rec, req)
+		if seen != c.want {
+			t.Errorf("%q: limit = %q, want %q", c.q, seen, c.want)
+		}
+	}
+}
+
+// /api/samples has its own anonymous budget, separate from the general
+// demo limits and from other demo endpoints.
+func TestDemoSamplesHasItsOwnTighterLimits(t *testing.T) {
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	do := func(path, ip string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("CF-Connecting-IP", ip)
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Per client: 20 pass, the 21st is 429; other endpoints are unaffected.
+	for i := 0; i < demoSamplesPerClientPerMin; i++ {
+		if c := do("/api/samples", "198.51.100.1"); c != 200 {
+			t.Fatalf("request %d = %d", i+1, c)
+		}
+	}
+	if c := do("/api/samples", "198.51.100.1"); c != http.StatusTooManyRequests {
+		t.Fatalf("21st samples request = %d, want 429", c)
+	}
+	if c := do("/api/charges", "198.51.100.1"); c != 200 {
+		t.Fatalf("other endpoint throttled by the samples budget: %d", c)
+	}
+	// Another client has its own per-client budget.
+	if c := do("/api/samples", "198.51.100.2"); c != 200 {
+		t.Fatalf("different client = %d", c)
+	}
+	// Install-wide: 200 per minute across clients (already used 21).
+	got429 := false
+	for i := 0; i < demoSamplesGlobalPerMin; i++ {
+		ip := "203.0.113." + strconv.Itoa(i%250+1) + "." + strconv.Itoa(i)
+		if do("/api/samples", ip) == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatal("global samples cap never bound")
+	}
+}
+
+// A noisy client rejected by its own per-client limit must not drain
+// the install-wide budget: the per-client limiter is checked first.
+func TestDemoNoisyClientDoesNotExhaustGlobalBudget(t *testing.T) {
+	perClient := newIPLimiter(5, time.Minute, time.Hour)
+	perClient.key = demoClientKey
+	global := newIPLimiter(10, time.Minute, time.Hour)
+	global.key = func(*http.Request) string { return "global" }
+	h := demoAccessMW(uuid.New(), demoVeh, perClient, global)(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	do := func(path, ip string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("CF-Connecting-IP", ip)
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// 100 requests from one client: 5 served, 95 rejected by its own limit.
+	served := 0
+	for i := 0; i < 100; i++ {
+		if do("/api/charges", "198.51.100.7") == 200 {
+			served++
+		}
+	}
+	if served != 5 {
+		t.Fatalf("noisy client served %d, want 5", served)
+	}
+	// The global budget (10) was charged 5 times, not 100: five other
+	// clients still get through.
+	for i := 0; i < 5; i++ {
+		if c := do("/api/charges", "203.0.113."+strconv.Itoa(i+1)); c != 200 {
+			t.Fatalf("other client %d = %d: the noisy client drained the global budget", i, c)
+		}
+	}
+}
+
+func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	do := func(ip string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/samples", nil)
+		req.Header.Set("CF-Connecting-IP", ip)
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	ok := 0
+	for i := 0; i < 1000; i++ {
+		if do("198.51.100.9") == 200 {
+			ok++
+		}
+	}
+	if ok != demoSamplesPerClientPerMin {
+		t.Fatalf("noisy client served %d, want %d", ok, demoSamplesPerClientPerMin)
+	}
+	// It used 20 of the 200 install-wide, not 1000: 150 other clients
+	// (well under the remaining 180) all pass.
+	for i := 0; i < 150; i++ {
+		if c := do("203.0.113." + strconv.Itoa(i+1)); c != 200 {
+			t.Fatalf("client %d = %d: the noisy client drained the global samples budget", i, c)
+		}
 	}
 }

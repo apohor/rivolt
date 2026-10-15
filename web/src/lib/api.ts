@@ -132,6 +132,12 @@ async function request<T>(
   return parsed as T;
 }
 
+// inDemo is true on the public sample-truck route, where there is no
+// session and the Rivian-account endpoints are skipped entirely.
+function inDemo(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/demo");
+}
+
 export const api = {
   get: <T>(url: string, signal?: AbortSignal) => request<T>("GET", url, undefined, signal),
   post: <T>(url: string, body?: unknown, signal?: AbortSignal) =>
@@ -530,6 +536,24 @@ export type DrainSnapshot = {
   daily: DrainDay[];
 };
 
+// Monthly statement email (statement-email-spec.md).
+export type StatementEmailSettings = {
+  enabled: boolean;
+  // False when the operator flag is off or the account has no email.
+  available: boolean;
+  last_sent_period?: string | null;
+  // IANA zone the monthly send uses (set when the user opts in).
+  timezone?: string | null;
+};
+
+export type StatementEmailPreview = {
+  subject: string;
+  text: string;
+  html: string;
+  will_send: boolean;
+  reason?: "not_opted_in" | "no_email" | "silent_month" | string;
+};
+
 export type LiveDrive = {
   vehicle_id: string;
   number: number;
@@ -707,6 +731,10 @@ export type RivianStatus = {
   email?: string;
   needs_reauth?: boolean;
   needs_reauth_reason?: string;
+  // The operator paused Rivolt's connection to Rivian (kill switch).
+  // paused_reason is a fixed code only ("operator_pause").
+  paused?: boolean;
+  paused_reason?: string;
 };
 
 // AIProvider enumerates the LLM backends Rivolt supports. Image/speech
@@ -841,8 +869,15 @@ export const backend = {
   // disabled / no session. We squash the 401 here so callers can
   // just await { user_id, username } | null without a try/catch.
   whoami: async (): Promise<AuthUser | null> => {
+    // The public demo is signed out by design: don't ask (a 401 each
+    // load is console noise and nothing there needs the answer).
+    if (inDemo()) return null;
     try {
-      return await api.get<AuthUser>("/api/auth/me");
+      const me = await api.get<AuthUser & { authenticated?: boolean }>("/api/auth/me");
+      // A signed-out visitor gets 200 {"authenticated": false}
+      // (no 401 console noise); callers still see "no user" as null.
+      if (me.authenticated === false || !("user_id" in me)) return null;
+      return me;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 401 || e.status === 404)) {
         return null;
@@ -941,6 +976,19 @@ export const backend = {
       throw e;
     }
   },
+  // Null on 404 (feature off / not wired): the Settings card hides.
+  statementEmailGet: async (): Promise<StatementEmailSettings | null> => {
+    try {
+      return await api.get<StatementEmailSettings>("/api/settings/statement-email");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  statementEmailPut: (enabled: boolean, timezone?: string) =>
+    api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled, timezone }),
+  // No month: the server uses the previous month in the user's zone.
+  statementEmailPreview: () => api.get<StatementEmailPreview>("/api/statement-email/preview"),
   liveSession: (vehicleID: string) =>
     api.get<LiveSession>(`/api/live-session/${encodeURIComponent(vehicleID)}`),
   // liveDrive returns null when the server replies 204 — no drive
@@ -954,7 +1002,10 @@ export const backend = {
     );
     return r ?? null;
   },
-  rivianStatus: () => api.get<RivianStatus>("/api/settings/rivian/"),
+  rivianStatus: async (): Promise<RivianStatus> => {
+    if (inDemo()) return { enabled: false, authenticated: false, mfa_pending: false };
+    return api.get<RivianStatus>("/api/settings/rivian/");
+  },
   // vehicle_count on a completed sign-in: how many vehicles the Rivian
   // account exposed (-1 if the lookup failed). 0 means connected but
   // nothing to record - usually an unaccepted Authorized Driver invite.
@@ -1343,6 +1394,22 @@ export const backend = {
   // trip can render the result instantly while still letting the
   // user re-plan against current station / weather state.
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
+  // Null on 404 (flag off or not the user's trip), so the section
+  // simply doesn't render.
+  planVsActual: async (savedTripID: string): Promise<PlanVsActual | null> => {
+    try {
+      return await api.get<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/actual`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  planVsActualLink: (savedTripID: string, tripID: string) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/link`, { trip_id: tripID }),
+  // Records the rejection of this outing (never suggested again); for a
+  // linked trip it also removes the link. trip_id is required (v1.1).
+  planVsActualUnlink: (savedTripID: string, tripID: string) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, { trip_id: tripID }),
   savedTripCreate: (body: SavedTripBody) =>
     api.post<SavedTrip>("/api/trips/saved", body),
   savedTripUpdate: (id: string, body: SavedTripBody) =>
@@ -2001,6 +2068,64 @@ export type SavedTripInputs = {
   overnight_limit_mode?: "soc" | "time" | "depart";
   overnight_parked_hours?: number;
   overnight_departure_local?: string;
+};
+
+// PlanVsActual is GET /api/trips/saved/{id}/actual
+// (plan-vs-actual-contract v1): a saved trip compared with the outing
+// that was actually driven. Nulls mean unknown, never 0; an incomplete
+// actual cost is null with actual_known/unpriced_sessions instead.
+export type PvaBand = "high" | "medium" | "low";
+
+export type PvaCandidate = {
+  trip_id: string;
+  started_at: string;
+  ended_at: string;
+  confidence: number;
+  band: PvaBand;
+  signals: Record<string, number>;
+  // v1.1
+  miles?: number | null;
+  in_progress?: boolean;
+};
+
+export type PvaReason = { code: string; amount?: number | null; detail?: string };
+
+export type PvaMetric = {
+  metric: "cost" | "energy_kwh" | "dcfc_stops" | "arrival_soc" | "duration";
+  unit: string;
+  planned: number | null;
+  actual: number | null;
+  delta: number | null;
+  actual_complete?: boolean;
+  actual_known?: number | null;
+  unpriced_sessions?: number;
+  actual_sources?: Partial<Record<"rivian" | "network_estimate" | "home_rate" | "user", number>>;
+  reasons: PvaReason[];
+};
+
+export type PvaStop = {
+  match: "same_station" | "same_network" | "other_network" | "nearby" | "skipped" | "extra";
+  planned?: { name?: string; network?: string | null; arrival_soc?: number | null; charge_min?: number | null; est_kwh?: number | null; est_cost?: number | null } | null;
+  actual?: { kind?: "dcfc" | "ac"; network?: string | null; kwh?: number | null; cost?: number | null; cost_source?: string; started_at?: string; minutes?: number | null } | null;
+};
+
+export type PvaComparison = {
+  currency: string;
+  plan_from: "snapshot" | "current";
+  leg: { started_at: string; arrived_at: string; miles?: number | null };
+  // v1.1: in_progress until the outing ends (e.g. back home).
+  status?: "in_progress" | "complete";
+  metrics: PvaMetric[];
+  stops: PvaStop[];
+};
+
+export type PlanVsActual = {
+  version: number;
+  saved_trip_id: string;
+  status: "linked" | "suggested" | "none";
+  link: { trip_id: string; confidence: number; band: PvaBand; linked_at: string; link_stale?: boolean } | null;
+  candidates: PvaCandidate[];
+  comparison: PvaComparison | null;
 };
 
 export type SavedTrip = {

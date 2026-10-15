@@ -104,8 +104,8 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 		VALUES ($1,$2,'c-old',$3,$4,'live')`, alice, v1, out, out.Add(time.Hour))
 	mustExec(t, pool, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh)
 		VALUES ($1,$2,'c-bob',$3,$4,'live',99)`, bob, vb, in, in.Add(time.Hour))
-	mustExec(t, pool, `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source)
-		VALUES ($1,$2,'d-1',$3,$4,12.5,'electrafi_import')`, alice, v1, in.Add(-time.Hour), in.Add(-30*time.Minute))
+	mustExec(t, pool, `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source, start_soc_pct, end_soc_pct)
+		VALUES ($1,$2,'d-1',$3,$4,12.5,'electrafi_import',80,74.5)`, alice, v1, in.Add(-time.Hour), in.Add(-30*time.Minute))
 
 	p, _ := ledger.ParsePeriod("2026-10", time.UTC)
 	from, to := ledger.LoadWindow(p)
@@ -125,7 +125,8 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 	if n.Cost != nil || n.EnergyKWh != nil || n.PricePerKWh != nil || n.Lat != nil || n.StartSoC != nil {
 		t.Errorf("NULL columns must load as nil: %+v", n)
 	}
-	if len(ds) != 1 || ds[0].DistanceMi == nil || *ds[0].DistanceMi != 12.5 || ds[0].EnergyKWh != nil {
+	if len(ds) != 1 || ds[0].DistanceMi == nil || *ds[0].DistanceMi != 12.5 || ds[0].EnergyKWh != nil ||
+		ds[0].StartSoC == nil || *ds[0].StartSoC != 80 || ds[0].EndSoC == nil || *ds[0].EndSoC != 74.5 {
 		t.Errorf("drives = %+v", ds)
 	}
 

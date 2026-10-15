@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner } from "./ui";
+import { track } from "../lib/track";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
@@ -30,6 +31,11 @@ export function RivianAccountPanel() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
+  // Recommended path first: a dedicated driver account keeps the main
+  // login out of Rivolt and is revocable from the Rivian app. The main
+  // account stays available.
+  const [kind, setKind] = useState<"driver" | "main">("driver");
+  const [whyOpen, setWhyOpen] = useState(false);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["rivian"] });
@@ -40,7 +46,11 @@ export function RivianAccountPanel() {
   };
 
   const login = useMutation({
-    mutationFn: () => backend.rivianLogin(email, password),
+    mutationFn: () => {
+      track("rivian_connect_start", { authorized_driver: kind === "driver" });
+      return backend.rivianLogin(email, password);
+    },
+    onError: () => track("rivian_connect_fail", { class: "other" }),
     onSuccess: () => {
       setPassword(""); // drop cleartext from memory on success
       invalidate();
@@ -190,6 +200,42 @@ export function RivianAccountPanel() {
       }}
       className="space-y-2"
     >
+      <p className="text-sm text-neutral-300">
+        We recommend a dedicated driver account, so Rivolt never holds your main Rivian login.
+      </p>
+      <div role="radiogroup" aria-label="Which account" className="space-y-1.5 text-sm">
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-neutral-800 p-2 has-[:checked]:border-emerald-700/60">
+          <input
+            type="radio"
+            name="rivian-account-kind"
+            checked={kind === "driver"}
+            onChange={() => setKind("driver")}
+            className="mt-0.5"
+          />
+          <span className="text-neutral-200">
+            Use a dedicated driver account <span className="text-emerald-300">(recommended)</span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-neutral-800 p-2 has-[:checked]:border-neutral-600">
+          <input
+            type="radio"
+            name="rivian-account-kind"
+            checked={kind === "main"}
+            onChange={() => setKind("main")}
+            className="mt-0.5"
+          />
+          <span className="text-neutral-200">Use my main Rivian account</span>
+        </label>
+      </div>
+      <button
+        type="button"
+        aria-expanded={whyOpen}
+        onClick={() => setWhyOpen((v) => !v)}
+        className="text-xs text-emerald-300 hover:underline"
+      >
+        {whyOpen ? "▾" : "▸"} Why a driver account?
+      </button>
+      {whyOpen && <WhyDriverAccount />}
       <div className="rounded-md border border-emerald-900/60 bg-emerald-950/30 px-3 py-2 text-xs leading-relaxed text-emerald-200/90">
         <div className="mb-1 font-semibold text-emerald-200">
           Your credentials, your control
@@ -223,6 +269,24 @@ export function RivianAccountPanel() {
         onChange={(e) => setEmail(e.target.value)}
         className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-200"
       />
+      <p className="text-xs text-neutral-500">
+        {kind === "driver" ? (
+          <>
+            Use the email you added as an Authorized Driver. Haven&apos;t set one up?{" "}
+            <a
+              href={DRIVER_GUIDE}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-neutral-300"
+            >
+              Show me how
+            </a>
+            .
+          </>
+        ) : (
+          "You can switch to a driver account later."
+        )}
+      </p>
       <input
         type="password"
         autoComplete="current-password"
@@ -237,8 +301,11 @@ export function RivianAccountPanel() {
         disabled={login.isPending || !email || !password}
         className="rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
       >
-        {login.isPending ? "Signing in…" : "Sign in"}
+        {login.isPending ? "Signing in…" : kind === "driver" ? "Sign in with driver account" : "Sign in"}
       </button>
+      {kind === "driver" && (
+        <p className="text-xs text-neutral-500">Recommended: a dedicated driver account.</p>
+      )}
       {login.isError && (
         <ErrorBox title="Sign-in failed" detail={String(login.error)} />
       )}
@@ -283,11 +350,9 @@ function ConnectedVehicles({
         No vehicles on this Rivian account
       </div>
       <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-        The sign-in worked, but Rivian doesn't list any vehicle for it, so
-        there's nothing to record yet. If this is an Authorized Driver
-        account, accept the invite and sign in to the Rivian app once with
-        it — then check again. Otherwise, sign out and connect the account
-        that owns the vehicle.
+        Sign-in worked, but no vehicle is on this account yet. If this is a driver account, the invite probably
+        isn&apos;t accepted: sign in to the Rivian app on a phone with this account once, then tap{" "}
+        <strong>Check again</strong>.
       </p>
       <button
         type="button"
@@ -310,25 +375,43 @@ function vehicleLabel(v: OwnedVehicle): string {
   return v.display_name || model || v.vin || "Your Rivian";
 }
 
-// AuthorizedDriverNote is the optional, low-key alternative to
-// connecting the primary Rivian login. It used to be the headline
-// "Recommended" path, and asking a brand-new user to create a second
-// Rivian account first was where most signups gave up.
-export function AuthorizedDriverNote() {
+const DRIVER_GUIDE =
+  "https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#recommended-connect-a-dedicated-authorized-driver-account";
+
+// WhyDriverAccount: the honest case for a driver account, trade-offs
+// included (PM copy, ad-onboarding-copy.md). "Driver account" in the UI;
+// "Authorized Driver" only in the docs.
+function WhyDriverAccount() {
   return (
-    <p className="text-xs leading-relaxed text-neutral-500">
-      <span className="text-neutral-400">Optional:</span> prefer to keep your
-      main login out of it? Add a second Rivian account as an{" "}
-      <a
-        href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md#optional-dedicated-authorized-driver-account"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline hover:text-neutral-300"
-      >
-        Authorized Driver
-      </a>{" "}
-      and connect that instead. It only sees your vehicle once it has
-      accepted the invite and signed in to the Rivian app.
-    </p>
+    <div className="space-y-2 rounded-md border border-neutral-800 bg-neutral-900/40 p-3 text-xs leading-relaxed text-neutral-300">
+      <p>
+        <strong className="text-neutral-100">It keeps your main login out of Rivolt.</strong> Rivolt stores a session
+        token, not your password, but a separate account means a separate login to revoke.
+      </p>
+      <p>
+        <strong className="text-neutral-100">You can remove Rivolt in one tap.</strong> Remove the driver in the
+        Rivian app and Rivolt loses access.
+      </p>
+      <p>
+        <strong className="text-neutral-100">It&apos;s gentler on your own Rivian app.</strong> Rivolt&apos;s requests
+        count against the driver account, so they&apos;re less likely to slow down the app on your phone.
+      </p>
+      <p>
+        <strong className="text-neutral-100">The honest trade-offs:</strong> you need a second email and a few
+        minutes in the Rivian app, and a driver account may not see history from before it was added. Rivolt is
+        unofficial; Rivian can change or block access at any time with either account.
+      </p>
+      <a href={DRIVER_GUIDE} target="_blank" rel="noopener noreferrer" className="inline-block text-emerald-300 hover:underline">
+        Step-by-step guide
+      </a>
+    </div>
   );
+}
+
+// AuthorizedDriverNote used to be a low-key optional aside under the
+// form. The sign-in form itself now recommends a driver account (with
+// the "Why?" and the main-account option), so this renders nothing; the
+// export stays so existing callers keep compiling.
+export function AuthorizedDriverNote() {
+  return null;
 }

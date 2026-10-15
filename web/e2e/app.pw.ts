@@ -42,13 +42,32 @@ const views: View[] = [
   ...nowViews,
   // With GET /now: the Replay badge, "location as of" and "since".
   { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /location as of/, /since /] },
-  { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect my Rivian"] },
+  { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect with a driver account"] },
+  // Stale frame: the pill must not say Live next to an old timestamp.
+  { name: "now-stale", path: "/", heading: "Now", opts: { scenario: "stale" }, text: [/Last seen [5-7] min ago/, /Updated [5-7] min ago/] },
+  { name: "demo-stale", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, scenario: "stale" }, text: [/Last seen [5-7] min ago/] },
+  {
+    name: "plan-vs-actual",
+    path: "/trips/plan",
+    heading: "Plan vs actual",
+    text: [
+      "We'll compare once you've driven it.",
+      "Confirm",
+      "Not this trip",
+      "Trip in progress. We'll compare when you're home.",
+      /Driven .* · 612 mi/,
+      "Fast-charging stops",
+      /so far .*2 not priced yet/,
+      "Sample network billed $0.48/kWh vs $0.56 planned",
+    ],
+  },
   { name: "money", path: "/money", heading: "Money", text: ["Statement"] },
   { name: "activity", path: "/activity", heading: "Activity", text: ["short drives"] },
   // Degraded-state banner: shown only when something is wrong.
   { name: "banner-mfa", path: "/money", heading: "Money", opts: { rivian: "mfa" }, text: ["Rivian is waiting for your verification code."] },
   { name: "banner-reauth", path: "/money", heading: "Money", opts: { rivian: "reauth" }, text: ["Your Rivian sign-in expired. Reconnect to keep recording."] },
   { name: "banner-disconnected", path: "/money", heading: "Money", opts: { rivian: "disconnected" }, text: ["Rivian isn't connected."] },
+  { name: "banner-paused", path: "/money", heading: "Money", opts: { rivian: "paused" }, text: ["Rivolt has paused its connection to Rivian."] },
   { name: "banner-backend-down", path: "/money", heading: "Money", opts: { rivian: "backend-down" }, text: ["Rivolt can't reach its server."] },
   { name: "settings", path: "/settings", heading: /Settings/, text: ["Rivolt account"] },
   { name: "truck-drain", path: "/truck", heading: "Truck", opts: { drain: "ok" }, text: ["Parked drain", /% \/ day/, /in the Sleep card below/] },
@@ -120,6 +139,14 @@ for (const view of views) {
           const card = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Rivolt account" }) }).last();
           await expect(card.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(1);
         }
+        if (view.name.endsWith("stale")) {
+          await expect(page.getByTestId("now-pill")).not.toHaveText("Live");
+        }
+        if (view.name === "demo" || view.name === "demo-stale") {
+          // No sign-in-only links in the public demo.
+          await expect(page.getByRole("link", { name: "Full telemetry →" })).toHaveCount(0);
+          await expect(page.locator('a[href="/live"]')).toHaveCount(0);
+        }
         if (view.name === "activity") {
           // One nav row: the filter tabs; no Feed/Drives/Charges sub-nav.
           await expect(page.getByRole("navigation", { name: "Activity sections" })).toHaveCount(0);
@@ -127,7 +154,7 @@ for (const view of views) {
         }
 
         // Light theme only applies inside the shell, signed in.
-        if (scheme === "light" && view.name !== "landing" && view.name !== "demo") {
+        if (scheme === "light" && view.name !== "landing" && !view.name.startsWith("demo")) {
           await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
         } else if (scheme === "dark") {
           await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");
@@ -169,3 +196,39 @@ for (const view of views) {
     }
   }
 }
+
+test("the public demo makes no session or Rivian-account calls", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const paths: string[] = [];
+  page.on("request", (r) => paths.push(new URL(r.url()).pathname));
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
+  await page.goto("/demo");
+  await expect(page.getByRole("heading", { name: /Rivolt demo/ })).toBeVisible();
+  for (const tab of ["Money", "Activity", "Now"]) {
+    await page.getByRole("button", { name: tab }).click();
+    await page.waitForTimeout(400);
+  }
+  expect(paths).not.toContain("/api/auth/me");
+  expect(paths).not.toContain("/api/settings/rivian/");
+  await ctx.close();
+});
+
+test("Settings > Notifications: statement email toggle and preview", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/settings?tab=notifications");
+  const sw = page.getByRole("switch", { name: /statement/i }).or(page.locator("#statement-email-toggle"));
+  await expect(sw).toBeVisible();
+  await expect(sw).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("button", { name: /Preview last month/ }).click();
+  await expect(page.getByText(/Your Rivian cost for September/)).toBeVisible();
+  await expect(page.getByText(/monthly statements are off for your account/)).toBeVisible();
+});
+
+test("statement email deep links: share=1 prompt and unpriced filter", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/money?src=statement&share=1");
+  await expect(page.getByText("Your statement is ready to share. Tap Share statement.")).toBeVisible();
+  await page.goto("/charges?unpriced=1&src=statement");
+  await expect(page.getByText("Showing charges that still need a price.")).toBeVisible();
+});

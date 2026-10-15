@@ -57,6 +57,9 @@ telemetry WebSocket and read your drive / charge history. Calls
 are **read-only**; Rivolt has never sent a command to a Rivian
 endpoint and never will.
 
+Tip: connect a dedicated Authorized Driver account (see
+"Recommended" below) if you can; the steps here are the same.
+
 1. Right after signup Rivolt shows the Rivian sign-in form. (Later,
    it's on the Overview until you're connected, and always under
    **Settings → Account → Rivian account**.)
@@ -78,17 +81,32 @@ sign-in worked but there's nothing to record — usually an Authorized
 Driver account whose invite hasn't been accepted yet (see step 4
 below). Fix it in the Rivian app, then click **Check again**.
 
-### Optional: dedicated Authorized Driver account
+### Recommended: connect a dedicated Authorized Driver account
 
-If you'd rather not hand Rivolt your primary Rivian login, you can
-create a second Rivian account (free), add it as an Authorized
-Driver on your vehicle, and connect that one instead. Benefits:
+We recommend connecting a second, free Rivian account added as an
+Authorized Driver on your vehicle, instead of your primary login.
+You can still connect your main account; this is the safer default.
+Benefits:
 
 - Rivolt uses *its* credentials, not yours.
 - Removing Rivolt is a one-click revocation in the Rivian app —
   no need to rotate your main account password.
 - A compromised Rivolt instance can't read your primary Rivian
   account metadata / inbox.
+- Rivolt's requests count against the dedicated account's limits,
+  not your main account's, so they are less likely to affect the
+  official Rivian app on your phone.
+
+Trade-offs, honestly:
+
+- You need a second email address and a few minutes in the Rivian
+  app (the steps below).
+- An Authorized Driver account may not see all of the history that
+  your primary account holds (for example charges started by the
+  owner). Live data from the moment you connect is complete.
+  <!-- VERIFY: exact visibility limits for Authorized Drivers -->
+- Rivolt is unofficial and Rivian can change or block access at any
+  time, with either kind of account.
 
 To set it up:
 

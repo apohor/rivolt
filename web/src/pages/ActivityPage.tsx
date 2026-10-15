@@ -1,3 +1,4 @@
+import { detailPath, inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -77,7 +78,9 @@ export default function ActivityPage() {
       <PageHeader
         title="Activity"
         subtitle="Drives and charges, newest first"
+        // The table pages are signed-in only: no links to them in the demo.
         actions={
+          inDemo() ? undefined : (
           <span className="text-xs text-neutral-500">
             Tables:{" "}
             <Link to="/drives" className="text-neutral-300 hover:text-emerald-300">
@@ -88,6 +91,7 @@ export default function ActivityPage() {
               Charges
             </Link>
           </span>
+          )
         }
       />
       <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
@@ -173,7 +177,7 @@ function DriveCard({ item }: { item: DriveItem }) {
   const missing = driveMissingEnergy(d);
   const dur = d.DrivingSeconds && d.DrivingSeconds > 0 ? d.DrivingSeconds : durationSeconds(d.StartedAt, d.EndedAt);
   return (
-    <Link to={`/drives/${encodeURIComponent(d.ID)}`} className={CARD}>
+    <Link to={detailPath("drives", d.ID)} className={CARD}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-neutral-100"><span aria-hidden>↗ </span>{title}</span>
         <span className="tabular-nums text-sm text-neutral-200">{d.DistanceMi.toFixed(1)} mi</span>
@@ -200,7 +204,7 @@ function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | n
   const where = item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
   const energy = c.EnergyAddedKWh > 0 ? `${c.EnergyAddedKWh.toFixed(1)} kWh` : "no energy recorded";
   return (
-    <Link to={`/charges/${encodeURIComponent(c.ID)}`} className={CARD}>
+    <Link to={detailPath("charges", c.ID)} className={CARD}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-neutral-100">
           <span aria-hidden className={item.fast ? "text-amber-400" : "text-emerald-400"}>⚡ </span>

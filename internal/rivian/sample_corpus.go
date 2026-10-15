@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -31,7 +32,9 @@ import (
 const SampleSeed int64 = 20261014
 
 const (
-	sampleDays      = 45
+	sampleDays = 45
+	// sampleWrapSoC is the state of charge the corpus starts and ends at.
+	sampleWrapSoC   = 80.0
 	samplePackKWh   = 131.0
 	sampleMiPerKWh  = 2.3
 	sampleRoadRatio = 1.2 // road distance ÷ straight-line distance
@@ -75,13 +78,21 @@ var (
 )
 
 // sampleDCFCStations are the stations the sample truck fast-charges at.
+//
+// billed is the $/kWh Rivian bills for a session there (the Rivian
+// Adventure Network bills through the Rivian app, so its sessions carry a
+// live-session price and record as cost_source rivian); 0 elsewhere,
+// where the recorder prices them as a network estimate (preview has the
+// charger archive). With home L2 at the home rate and the away AC
+// sessions left to price, the demo shows every cost source honestly.
 var sampleDCFCStations = []struct {
 	at            samplePoint
 	network, name string // as in the archive (EVNetwork, Name)
+	billed        float64
 }{
-	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA"},
-	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)"},
-	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger"},
+	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48},
+	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0},
+	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0},
 }
 
 type sampleSegKind int
@@ -107,6 +118,7 @@ type sampleSeg struct {
 	plugged    bool   // parked with the cable in
 	power      string // parked: ready | sleep
 	limit      float64
+	billedRate float64 // charge: $/kWh Rivian bills (0: not Rivian-billed)
 }
 
 func (s sampleSeg) frames() int {
@@ -115,8 +127,9 @@ func (s sampleSeg) frames() int {
 
 // SampleCorpus is the generated corpus.
 type SampleCorpus struct {
-	segs  []sampleSeg
-	stats SampleSummary // plan counts; frames and span filled by Summary
+	segs       []sampleSeg
+	userPriced int           // segment the owner priced by hand; -1 when none
+	stats      SampleSummary // plan counts; frames and span filled by Summary
 }
 
 // SampleSummary describes what a corpus contains, for tests and the CLI.
@@ -136,10 +149,17 @@ type SampleSummary struct {
 }
 
 // NewSampleCorpus plans the corpus for seed.
+//
+// The corpus starts and ends the same way, at home on a weekday morning,
+// plugged in at 80 % with the car awake shortly before leaving, so the
+// replay's wrap from one loop to the next (sampleLoopGap) reads as just
+// another morning, not a jump.
 func NewSampleCorpus(seed int64) *SampleCorpus {
-	b := &sampleBuilder{rng: rand.New(rand.NewSource(seed)), t: sampleStart, soc: 72, odo: 12480, at: SampleHome, limit: 80}
+	b := &sampleBuilder{rng: rand.New(rand.NewSource(seed)), t: sampleStart.Add(7*time.Hour + 30*time.Minute),
+		soc: sampleWrapSoC, odo: 12480, at: SampleHome, limit: 80, plugged: true}
+	b.userPriced = -1
 	b.plan()
-	return &SampleCorpus{segs: b.segs, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
+	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
 		AwayAC: b.awayAC, FailedSleeps: b.flickers, RoadTripMiles: b.tripMiles}}
 }
 
@@ -163,6 +183,9 @@ type sampleBuilder struct {
 	dcfc      int
 	awayAC    int
 	flickers  int
+	// userPriced is the segment index of the session the sample owner
+	// priced by hand (SampleUserPrice); -1 when none.
+	userPriced int
 }
 
 func (b *sampleBuilder) add(s sampleSeg) {
@@ -240,8 +263,14 @@ func (b *sampleBuilder) charge(target, kw float64, dcfc bool) {
 		step = 10 * time.Second
 	}
 	dur := time.Duration(kwh / avg * float64(time.Hour))
+	billed := 0.0
+	for _, st := range sampleDCFCStations {
+		if dcfc && st.at == b.at {
+			billed = st.billed
+		}
+	}
 	b.add(sampleSeg{kind: segCharge, start: b.t, end: b.t.Add(dur), step: step, socA: b.soc, socB: target,
-		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready"})
+		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, peakKW: kw, dcfc: dcfc, power: "ready", billedRate: billed})
 	b.soc = target
 	b.plugged = !dcfc // AC stays plugged in until the car leaves
 }
@@ -290,11 +319,35 @@ func (b *sampleBuilder) endTrip() {
 	b.inTrip = false
 	b.tripMiles = append(b.tripMiles, b.odo-b.tripStart)
 }
-func (b *sampleBuilder) dcfcStop(t float64) { b.charge(t, 150, true); b.dcfc++ }
+
+// dcfcStop parks, plugs in, fast-charges to t and unplugs before driving
+// on, as a real stop does: the car is in P and unplugged for a couple of
+// minutes on each side. (Going straight from D to charging and back made
+// the recorder close the drive and the charge through its mutual-
+// exclusion paths, which don't run the close hooks, so a replay lost
+// both.)
+func (b *sampleBuilder) dcfcStop(t float64) {
+	b.park(b.t.Add(2*time.Minute), false)
+	b.charge(t, 150, true)
+	b.park(b.t.Add(3*time.Minute), false)
+	b.dcfc++
+}
 
 func (b *sampleBuilder) plan() {
 	b.park(b.clock(0, 7, 45), false)
 	for day := 0; day < sampleDays; {
+		if day == sampleDays-1 {
+			// The last day: a commute, then plugged in to 80 % overnight,
+			// ending awake at 07:30 the next morning like the start.
+			b.commute(day)
+			b.park(b.t.Add(30*time.Minute), false)
+			b.limit = 80
+			b.charge(sampleWrapSoC, sampleL2KW, false)
+			b.homeL2++
+			b.plugged = true
+			b.park(b.clock(day+1, 7, 30), false)
+			break
+		}
 		weekday := sampleStart.AddDate(0, 0, day).Weekday()
 		switch {
 		case day == 17: // Thursday before trip 1: charge to 90 overnight.
@@ -309,6 +362,7 @@ func (b *sampleBuilder) plan() {
 			b.park(b.t.Add(90*time.Minute), false)
 			b.charge(90, sampleHotelKW, false) // hotel L2: away AC
 			b.awayAC++
+			b.userPriced = len(b.segs) - 1 // the owner enters the hotel's price
 			b.park(b.clock(day+1, 10, 0), false)
 			b.drive(48, sampleHoover, sampleVegas)
 			b.park(b.clock(day+1, 19, 0), false)
@@ -426,6 +480,11 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 			kw = s.peakKW * (1 - (f-0.9)*5)
 		}
 		fr.ChargerKW = round1(kw)
+		if s.billedRate > 0 {
+			// The running total Rivian's live session reports.
+			kwh := math.Max(0, soc-s.socA) / 100 * samplePackKWh
+			fr.SessionPrice, fr.SessionCurrency = round2(kwh*s.billedRate), "USD"
+		}
 	case segParked:
 		if s.plugged {
 			fr.ChargingState = "charging_complete"
@@ -506,6 +565,59 @@ func (c *SampleCorpus) Summary() SampleSummary {
 	return sum
 }
 
+// sampleLoopGap is the pause between the end of one loop of the sample
+// corpus and the next. The owner-replay's replayLoopGap (6 h) left the
+// public demo frozen on its last frame for up to 6 hours a loop ("asleep,
+// updated 5 h ago" beside a Live pill); the sample corpus ends where it
+// starts, so it needs no overnight park to hide the wrap.
+const sampleLoopGap = 5 * time.Minute
+
+// sampleTimeline is how the sample feed loops c over the wall clock.
+// SampleUserPrice maps times back through the same timeline.
+func sampleTimeline(c *SampleCorpus) replayTimeline {
+	start, end := c.span()
+	return replayTimeline{start: start, end: end, epoch: replayEpoch, gap: sampleLoopGap,
+		odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi}
+}
+
+// The price the sample owner entered for the Las Vegas hotel's L2: the
+// hotel charged a flat fee for the night's charging.
+const (
+	sampleUserPriceCost     = 15.00
+	sampleUserPriceCurrency = "USD"
+)
+
+var (
+	sampleTimelineOnce sync.Once
+	sampleCorpusShared *SampleCorpus
+	sampleTimelineMemo replayTimeline
+)
+
+// SampleUserPrice reports whether the sample truck's charge that started
+// at startedAt (wall clock, as the replay feed recorded it) is the one
+// its owner priced by hand (the Las Vegas hotel's L2, a flat $15), so the
+// demo seeder can apply that price through the normal user-pricing path
+// after the backfill: a price only a person can enter, which the
+// recorder must not invent. Deterministic: startedAt is mapped back onto
+// the looping corpus like the replay feed maps it forward.
+func SampleUserPrice(startedAt time.Time) (cost float64, currency string, ok bool) {
+	sampleTimelineOnce.Do(func() {
+		sampleCorpusShared = NewSampleCorpus(SampleSeed)
+		sampleTimelineMemo = sampleTimeline(sampleCorpusShared)
+	})
+	c, tl := sampleCorpusShared, sampleTimelineMemo
+	if c.userPriced < 0 {
+		return 0, "", false
+	}
+	k := tl.loopAt(startedAt)
+	corpusT := tl.start.Add(startedAt.Sub(tl.loopStart(k)))
+	d := corpusT.Sub(c.segs[c.userPriced].start)
+	if d < -2*time.Minute || d > 2*time.Minute {
+		return 0, "", false
+	}
+	return sampleUserPriceCost, sampleUserPriceCurrency, true
+}
+
 // NewSampleReplayFeed is the replay feed over the sample corpus
 // (RIVIAN_CLIENT=replay with RIVOLT_REPLAY_SOURCE=sample). pool, when
 // set, provides the resume point (the demo vehicle's latest sample).
@@ -514,13 +626,9 @@ func NewSampleReplayFeed(pool *sql.DB, backfill time.Duration, logger *slog.Logg
 		logger = slog.Default()
 	}
 	c := NewSampleCorpus(SampleSeed)
-	start, end := c.span()
 	f := &ReplayFeed{
-		corpus: c,
-		timeline: replayTimeline{
-			start: start, end: end, epoch: replayEpoch, gap: replayLoopGap,
-			odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi,
-		},
+		corpus:   c,
+		timeline: sampleTimeline(c),
 		source:   Vehicle{ID: "sample", Name: "Sample R1S", Model: "R1S", ModelYear: 2025, PackKWh: samplePackKWh},
 		backfill: backfill,
 		logger:   logger,

@@ -12,10 +12,17 @@ export async function resolveLanding(): Promise<"off" | "landing"> {
   try {
     const cfg = await ensureConfig();
     if (!cfg.features.landingEnabled) return "off";
-    // Only a 401 means "signed out". A 404 is auth disabled (self-host
-    // without auth), where the app itself must stay reachable at "/".
+    // Signed out is either a 401 (an expired or invalid session) or a
+    // 200 {"authenticated": false} (no session at all). A 404 is auth
+    // disabled (self-host without auth), where the app itself must
+    // stay reachable at "/".
     const r = await fetch("/api/auth/me", { credentials: "same-origin" });
-    return r.status === 401 ? "landing" : "off";
+    if (r.status === 401) return "landing";
+    if (r.status === 200) {
+      const body = (await r.json().catch(() => null)) as { authenticated?: boolean } | null;
+      return body && body.authenticated === false ? "landing" : "off";
+    }
+    return "off";
   } catch {
     return "off";
   }
