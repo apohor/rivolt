@@ -359,8 +359,14 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 	if hasReason(cost, "estimated") == nil || hasReason(cost, "unpriced") != nil {
 		t.Errorf("reasons = %+v", cost.Reasons)
 	}
-	if cost.Reasons[0].Code != "rate_differed" {
-		t.Errorf("reasons must lead with the largest amount: %+v", cost.Reasons)
+	// Both the rate and the energy explain part of the delta; how much
+	// each depends on the replayed session, so check the order, not
+	// which comes first.
+	for i := 1; i < len(cost.Reasons); i++ {
+		a, b := cost.Reasons[i-1].Amount, cost.Reasons[i].Amount
+		if b != nil && (a == nil || math.Abs(*b) > math.Abs(*a)) {
+			t.Errorf("reasons must lead with the largest amount: %+v", cost.Reasons)
+		}
 	}
 
 	// A planned stop at Baker that never happened: skipped, worth its
