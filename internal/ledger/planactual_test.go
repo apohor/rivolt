@@ -239,6 +239,31 @@ func eq(p *float64, want float64) bool { return p != nil && math.Abs(*p-want) < 
 
 // The Barstow fast charge, priced as the recorder would with a network
 // estimate (the replay has no price lookup, so it's unpriced as is).
+// unpricedBarstow is the replay with the Barstow fast charge unpriced.
+func unpricedBarstow(in Input) Input {
+	out := in
+	out.Charges = append([]Charge(nil), in.Charges...)
+	for i, c := range out.Charges {
+		if c.Lat != nil && haversineKM(*c.Lat, *c.Lon, pvaBarstow.Lat, pvaBarstow.Lon) < 0.25 {
+			out.Charges[i].Cost, out.Charges[i].Currency, out.Charges[i].CostSource, out.Charges[i].Network = nil, "", "", ""
+			out.Charges[i].PricePerKWh = nil
+		}
+	}
+	return out
+}
+
+// barstowKWh is the Barstow fast charge's energy as recorded.
+func barstowKWh(t *testing.T, in Input) float64 {
+	t.Helper()
+	for _, c := range in.Charges {
+		if c.Lat != nil && haversineKM(*c.Lat, *c.Lon, pvaBarstow.Lat, pvaBarstow.Lon) < 0.25 {
+			return val(c.EnergyKWh)
+		}
+	}
+	t.Fatal("no Barstow charge in the replay")
+	return 0
+}
+
 func pricedBarstow(in Input, rate float64) Input {
 	out := in
 	out.Charges = append([]Charge(nil), in.Charges...)
@@ -253,16 +278,29 @@ func pricedBarstow(in Input, rate float64) Input {
 }
 
 func TestComparePlanOnTheReplayCorpus(t *testing.T) {
-	base := sampleLedger(t)
+	replayed := sampleLedger(t)
 	p := vegasPlan(t, "2026-01-23T07:30:00Z")
-	trip := MatchPlan(p, base)[0].TripID
+	trip := MatchPlan(p, replayed)[0].TripID
+	kwh := barstowKWh(t, replayed)
 
-	if _, ok := ComparePlan(p, base, "trip_nope"); ok {
+	if _, ok := ComparePlan(p, replayed, "trip_nope"); ok {
 		t.Error("an unknown trip id must not compare")
 	}
 
-	// As replayed, the Barstow session is unpriced: no actual cost.
-	cmp, ok := ComparePlan(p, base, trip)
+	// As replayed, the RAN Barstow stop is Rivian-billed at $0.48/kWh
+	// (the sample's billed session): complete, billed, above plan.
+	cmp, ok := ComparePlan(p, replayed, trip)
+	if !ok {
+		t.Fatal("ComparePlan: not found")
+	}
+	if cost := metric(t, cmp, "cost"); !*cost.ActualComplete || !eq(ptrRound2(cost.ActualSources[SourceRivian]), 0.48*kwh) ||
+		hasReason(cost, "rate_differed") == nil || hasReason(cost, "rate_differed").Estimated {
+		t.Errorf("billed cost = %+v", cost)
+	}
+
+	// Unpriced, the actual cost is unknown, not zero.
+	base := unpricedBarstow(replayed)
+	cmp, ok = ComparePlan(p, base, trip)
 	if !ok {
 		t.Fatal("ComparePlan: not found")
 	}
@@ -300,7 +338,6 @@ func TestComparePlanOnTheReplayCorpus(t *testing.T) {
 	in := pricedBarstow(base, 0.40)
 	cmp, _ = ComparePlan(p, in, trip)
 	cost = metric(t, cmp, "cost")
-	kwh := cmp.Stops[0].Actual.KWh
 	if !*cost.ActualComplete || !eq(cost.Actual, 0.40*kwh) || !eq(cost.Delta, 0.40*kwh-14.85) ||
 		!eq(ptrRound2(cost.ActualSources[SourceNetworkEstimate]), 0.40*kwh) {
 		t.Errorf("priced cost = %+v (kWh %.1f)", cost, kwh)
