@@ -1003,7 +1003,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; " +
 		"script-src 'self'; " +
 		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; " +
+		"img-src 'self' data: blob: https://rivian.com https://*.rivian.com; " +
 		"font-src 'self' data:; " +
 		"connect-src 'self'; " +
 		"worker-src 'self'; " +

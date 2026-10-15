@@ -43,4 +43,11 @@ func TestSecurityHeadersNoCloudflareInsights(t *testing.T) {
 	if !strings.Contains(csp, "script-src 'self';") {
 		t.Fatalf("script-src: %s", csp)
 	}
+	// The CARTO raster fallback is gone; the basemap is self-hosted.
+	if strings.Contains(csp, "cartocdn") {
+		t.Fatalf("csp still allows cartocdn: %s", csp)
+	}
+	if !strings.Contains(csp, "img-src 'self' data: blob: https://rivian.com https://*.rivian.com;") {
+		t.Fatalf("img-src: %s", csp)
+	}
 }
