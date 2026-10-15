@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -394,5 +395,25 @@ func TestDemoTiles_PerClientLimit(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("tiles must be rate limited per client")
+	}
+}
+
+func TestClampDemoSamplesSpan(t *testing.T) {
+	until := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	cases := []struct{ name, since, wantSince string }{
+		{"wide window clamped", until.Add(-30 * 24 * time.Hour).Format(time.RFC3339), until.Add(-24 * time.Hour).Format(time.RFC3339)},
+		{"missing since bounded", "", until.Add(-24 * time.Hour).Format(time.RFC3339)},
+		{"narrow window kept", until.Add(-14 * time.Hour).Format(time.RFC3339), until.Add(-14 * time.Hour).Format(time.RFC3339)},
+	}
+	for _, c := range cases {
+		q := url.Values{"until": {until.Format(time.RFC3339)}}
+		if c.since != "" {
+			q.Set("since", c.since)
+		}
+		r := httptest.NewRequest("GET", "/api/samples?"+q.Encode(), nil)
+		clampDemoSamplesLimit(r)
+		if got := r.URL.Query().Get("since"); got != c.wantSince {
+			t.Errorf("%s: since = %q, want %q", c.name, got, c.wantSince)
+		}
 	}
 }
