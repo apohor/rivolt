@@ -113,6 +113,37 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 		}
 	})
 
+	// One freshness rule for energy, price and network (#195): a
+	// session that started well before the charge isn't its own, even
+	// when it reports no elapsed time.
+	startedAt := func(r *Replayer, sec int, total, kw float64, start time.Time) {
+		r.m.applyLiveSession(ctx, r.vehicle, &LiveSession{At: t0.Add(time.Duration(sec) * time.Second), Active: true,
+			TotalChargedEnergyKWh: total, PowerKW: kw, StartTime: start.Format(time.RFC3339)})
+	}
+	for _, tc := range []struct {
+		name     string
+		start    time.Duration
+		credited bool
+	}{
+		// 0.8 kWh of the total predates the charge, inside the power cap.
+		{"a session that started 2 h before the charge gives it no total", -2 * time.Hour, false},
+		{"a session that started 2 min before the charge is its own", -2 * time.Minute, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewReplayer("v")
+			for s := 0; s <= 3600; s += 30 {
+				r.Feed(frame(s, "charging_active", 7.2, 60+float64(s)/3600*5.5))
+				if s%180 == 0 {
+					startedAt(r, s, 0.8+7.0*float64(s)/3600, 7.2, t0.Add(tc.start))
+				}
+			}
+			e, _, _ := openRow(r)
+			if credited := e > 7.5; credited != tc.credited { // 7.8 total vs 7.2 integral
+				t.Errorf("energy %.2f kWh: session total credited %v, want %v", e, credited, tc.credited)
+			}
+		})
+	}
+
 	t.Run("genuine DC fast: the session total is credited", func(t *testing.T) {
 		r := NewReplayer("v")
 		for s := 0; s <= 1200; s += 10 {
