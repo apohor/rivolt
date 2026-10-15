@@ -152,6 +152,18 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         ? json(route, { enabled: true, vehicle_id: VEHICLE_ID, home_label: "Sample lot" })
         : json(route, { error: "not found" }, 404);
     }
+    if (p === "/api/settings/statement-email") {
+      return json(route, { enabled: false, available: true, last_sent_period: null });
+    }
+    if (p === "/api/statement-email/preview") {
+      return json(route, {
+        subject: "Your Rivian cost for September: $88.00",
+        text: "Hi there,\n\nHere's your September statement from Rivolt.\n\nYou spent $88.00 on charging",
+        html: "<p>Here's your September statement.</p>",
+        will_send: false,
+        reason: "not_opted_in",
+      });
+    }
     if (p === "/api/ledger/enabled") return json(route, { enabled: true });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
     if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12));

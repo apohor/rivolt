@@ -198,3 +198,22 @@ test("the public demo makes no session or Rivian-account calls", async ({ browse
   expect(paths).not.toContain("/api/settings/rivian/");
   await ctx.close();
 });
+
+test("Settings > Notifications: statement email toggle and preview", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/settings?tab=notifications");
+  const sw = page.getByRole("switch", { name: /statement/i }).or(page.locator("#statement-email-toggle"));
+  await expect(sw).toBeVisible();
+  await expect(sw).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("button", { name: /Preview last month/ }).click();
+  await expect(page.getByText(/Your Rivian cost for September/)).toBeVisible();
+  await expect(page.getByText(/monthly statements are off for your account/)).toBeVisible();
+});
+
+test("statement email deep links: share=1 prompt and unpriced filter", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/money?src=statement&share=1");
+  await expect(page.getByText("Your statement is ready to share. Tap Share statement.")).toBeVisible();
+  await page.goto("/charges?unpriced=1&src=statement");
+  await expect(page.getByText("Showing charges that still need a price.")).toBeVisible();
+});

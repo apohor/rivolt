@@ -2,6 +2,7 @@ package email
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,5 +152,60 @@ func TestFromAddress(t *testing.T) {
 		if got := client.FromAddress(); got != c.want {
 			t.Errorf("FromAddress(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// Extra headers (List-Unsubscribe) are passed through Resend's
+// `headers` object; a name or value with a line break is dropped so it
+// can never inject another header.
+func TestSend_PassesSafeHeaders(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	c := New(Config{APIKey: "test-key", From: "Rivolt <a@rivolt.dev>"})
+	c.base = srv.URL
+	err := c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t", Headers: map[string]string{
+		"List-Unsubscribe":      "<https://x/u?t=1>",
+		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+		"X-Evil":                "a\r\nBcc: attacker@example.com",
+		"Bad\nName":             "v",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, _ := got["headers"].(map[string]any)
+	if h["List-Unsubscribe"] != "<https://x/u?t=1>" || h["List-Unsubscribe-Post"] != "List-Unsubscribe=One-Click" {
+		t.Fatalf("headers = %v", h)
+	}
+	if _, bad := h["X-Evil"]; bad || len(h) != 2 {
+		t.Fatalf("unsafe header passed: %v", h)
+	}
+	// No headers: the field is omitted.
+	got = nil
+	_ = c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t"})
+	if _, has := got["headers"]; has {
+		t.Fatalf("empty headers sent: %v", got)
+	}
+}
+
+func TestSend_IdempotencyKeyHeader(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Idempotency-Key")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	c := New(Config{APIKey: "k", From: "Rivolt <a@rivolt.dev>"})
+	c.base = srv.URL
+	if err := c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t", IdempotencyKey: "stm-abc"}); err != nil || got != "stm-abc" {
+		t.Fatalf("key = %q (%v)", got, err)
+	}
+	got = "unchanged"
+	_ = c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t"})
+	if got != "" {
+		t.Fatalf("a message without a key sent %q", got)
 	}
 }

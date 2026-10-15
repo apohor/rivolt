@@ -258,3 +258,37 @@ func handleFlagsMoneyTabPut(store *flags.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{"money_tab": store.MoneyTab()})
 	}
 }
+
+// handleFlagsStatementEmailPut sets which users the monthly statement
+// email is enabled for (operator flag; each user must also opt in).
+func handleFlagsStatementEmailPut(store *flags.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req flagsMoneyTabRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		users := make([]string, 0, len(req.Users))
+		for _, u := range req.Users {
+			id, err := uuid.Parse(strings.TrimSpace(u))
+			if err != nil {
+				http.Error(w, "users must be user UUIDs", http.StatusBadRequest)
+				return
+			}
+			users = append(users, id.String())
+		}
+		actor := "admin"
+		if uid, ok := auth.UserFromContext(r.Context()); ok {
+			actor = uid.String()
+		}
+		if err := store.SetStatementEmail(r.Context(), flags.MoneyTabState{All: req.All, Users: users}, actor); err != nil {
+			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"statement_email": store.StatementEmail()})
+	}
+}

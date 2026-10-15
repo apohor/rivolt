@@ -60,6 +60,7 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -1571,7 +1572,13 @@ func runServer() {
 	// deletion (recorded in idp_delete_failures), with per-row backoff.
 	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
 
+	// Signs the monthly statement email's one-click unsubscribe links.
+	var statementSigner *statement.Signer
+	if len(cookieSecret) > 0 {
+		statementSigner = statement.NewSigner(cookieSecret)
+	}
 	handler := api.New(api.Deps{
+		StatementSigner:       statementSigner,
 		Rivian:                rivianClient,
 		Accounts:              accountRegistry,
 		PushService:           pushSvc,
