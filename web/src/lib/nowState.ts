@@ -329,3 +329,40 @@ export function statusPill(v: NowView): StatusPill {
   const t = `Last seen ${formatAgo(v.ageSec)}`;
   return { text: t, tone: v.stale ? "warn" : "neutral" };
 }
+
+export function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+// freshnessLine is the Now card's footer: how old the frame is, where the
+// last GPS fix stands, since when the truck has been in this state, and
+// the Replay marker. A fix that predates the state's start is said as
+// such ("last GPS fix 6:26 AM, before it parked"): a parked or sleeping
+// truck stops refreshing GPS, so an older fix is expected, not a fault.
+export function freshnessLine(v: NowView): string {
+  const at = v.lastContactMs > 0 ? clock(v.lastContactMs) : null;
+  let base: string;
+  if (v.kind === "offline") base = at ? `Last contact ${at} (${formatAgo(v.ageSec)})` : "No contact yet";
+  else if (v.kind === "asleep") base = `Asleep · updated ${formatAgo(v.ageSec)}`;
+  else base = `Updated ${formatAgo(v.ageSec)}`;
+  const parts = [base];
+  const stateful = v.kind === "parked" || v.kind === "plugged" || v.kind === "asleep";
+  const fixOld = v.locationFixMs != null && v.lastContactMs - v.locationFixMs > 10 * 60_000 && v.kind !== "driving";
+  const fixBeforeState = fixOld && stateful && v.stateSinceMs != null && v.locationFixMs! < v.stateSinceMs;
+  if (fixBeforeState) {
+    const before = v.kind === "asleep" ? "fell asleep" : v.kind === "plugged" ? "plugged in" : "parked";
+    parts.push(`last GPS fix ${clock(v.locationFixMs!)}, before it ${before}`);
+  } else if (fixOld) {
+    // A location fix older than 10 min is shown as such, never as "now".
+    parts.push(`location as of ${clock(v.locationFixMs!)}`);
+  }
+  if (v.stateSinceMs != null && stateful) {
+    const dsoc =
+      v.socChange != null && Math.abs(v.socChange) >= 0.5
+        ? ` (${v.socChange > 0 ? "+" : "−"}${Math.abs(Math.round(v.socChange))}%)`
+        : "";
+    parts.push(`since ${clock(v.stateSinceMs)}${dsoc}`);
+  }
+  if (v.replay) parts.push("Replay");
+  return parts.join(" · ");
+}

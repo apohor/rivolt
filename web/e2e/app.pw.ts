@@ -41,7 +41,7 @@ const nowViews: View[] = (["parked", "charging", "driving", "asleep", "offline"]
 const views: View[] = [
   ...nowViews,
   // With GET /now: the Replay badge, "location as of" and "since".
-  { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /location as of/, /since /] },
+  { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /last GPS fix .*before it parked/, /since /] },
   { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect with a driver account"] },
   // Stale frame: the pill must not say Live next to an old timestamp.
   { name: "now-stale", path: "/", heading: "Now", opts: { scenario: "stale" }, text: [/Last seen [5-7] min ago/, /Updated [5-7] min ago/] },
@@ -154,7 +154,7 @@ for (const view of views) {
         }
 
         // Light theme only applies inside the shell, signed in.
-        if (scheme === "light" && view.name !== "landing" && !view.name.startsWith("demo")) {
+        if (scheme === "light" && view.name !== "landing") {
           await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
         } else if (scheme === "dark") {
           await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");

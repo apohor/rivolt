@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VehicleState } from "./api";
-import { advanceTripDistance, computeNow, nowAlerts, statusPill, type NowInput } from "./nowState";
+import { advanceTripDistance, clock, computeNow, freshnessLine, nowAlerts, statusPill, type NowInput } from "./nowState";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const HOME = { latitude: 40, longitude: -90 };
@@ -183,5 +183,41 @@ describe("statusPill", () => {
   it("says Asleep for a sleeping truck and Offline when gone", () => {
     expect(pill({ power_state: "sleep", at: new Date(NOW - 3 * 60_000).toISOString() }, { asleepSinceMs: NOW - 600_000 }).text).toBe("Asleep");
     expect(pill({ at: new Date(NOW - 3_600_000).toISOString() }).text).toBe("Offline");
+  });
+});
+
+describe("freshnessLine", () => {
+  const snapFor = (o: object) =>
+    ({
+      version: 1, at: null, location_fix_at: null, connection: "live", state: "parked", state_since: null,
+      soc_at_state_start: null, tire_pressure_min_bar: null, failed_sleeps_6h: 0, charge: null, ...o,
+    }) as NonNullable<NowInput["server"]>;
+  const line = (server: object, p: Partial<VehicleState> = {}) => freshnessLine(computeNow(inp(p, { server: snapFor(server) })));
+  const FIX = "2026-10-10T10:00:00Z";
+  const SINCE = "2026-10-10T11:00:00Z";
+
+  it("says the fix came before it parked when the fix predates the state", () => {
+    const l = line({ state: "parked", location_fix_at: FIX, state_since: SINCE });
+    expect(l).toContain(`last GPS fix ${clock(Date.parse(FIX))}, before it parked`);
+    expect(l).toContain(`since ${clock(Date.parse(SINCE))}`);
+    expect(l).not.toContain("location as of");
+  });
+  it("uses the asleep and plugged-in variants", () => {
+    const asleep = freshnessLine(
+      computeNow(inp({ power_state: "sleep" }, { asleepSinceMs: NOW - 600_000, server: snapFor({ state: "asleep", location_fix_at: FIX, state_since: SINCE }) })),
+    );
+    expect(asleep).toContain("before it fell asleep");
+    const plugged = line({ state: "plugged", location_fix_at: FIX, state_since: SINCE }, { charger_status: "chrgr_sts_connected_not_charging" });
+    expect(plugged).toContain("before it plugged in");
+  });
+  it("keeps the plain wording when the fix is after the state start", () => {
+    const l = line({ state: "parked", location_fix_at: "2026-10-10T11:30:00Z", state_since: SINCE });
+    expect(l).toContain("location as of");
+    expect(l).not.toContain("before it");
+  });
+  it("says nothing about the fix when it is recent", () => {
+    const l = line({ state: "parked", location_fix_at: new Date(NOW - 60_000).toISOString(), state_since: SINCE });
+    expect(l).not.toContain("GPS fix");
+    expect(l).not.toContain("location as of");
   });
 });

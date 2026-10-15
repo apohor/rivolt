@@ -70,10 +70,11 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
 
-test("the demo never requests the chargers pmtiles layer", async ({ page }) => {
+test("the demo never requests tile archives or routing", async ({ page }) => {
   const tileReqs: string[] = [];
   page.on("request", (r) => {
-    if (r.url().includes(".pmtiles")) tileReqs.push(r.url());
+    // No tile archives and no anonymous routing/map-matching calls.
+    if (r.url().includes(".pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
   });
   await openDemo(page, "/demo?tab=activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
@@ -100,4 +101,90 @@ test("Share statement gives visible feedback in the demo", async ({ page }) => {
   await share.click();
   await download;
   await expect(page.getByRole("status").filter({ hasText: /Saved rivolt-.*\.png/ })).toBeVisible();
+});
+
+test("browser back from a demo drive detail throws no page error", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await openDemo(page, "/demo?tab=activity");
+  await page.locator('a[href^="/demo/drives/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
+  // Back immediately, while the map's deferred layout callbacks are pending.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/demo\?tab=activity/);
+  await page.waitForTimeout(800);
+  expect(errors.filter((m) => /LatLng/.test(m))).toEqual([]);
+});
+
+test("the demo's ledger calls use the fixed Pacific zone, whatever the viewer's", async ({ browser }) => {
+  // A viewer in Tokyo still gets the demo's month in the sample truck's zone.
+  const ctx = await browser.newContext({ timezoneId: "Asia/Tokyo", viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  const tzs: string[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith("/api/ledger/")) tzs.push(u.searchParams.get("tz") ?? "");
+  });
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
+  await page.goto("/demo?tab=money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.getByText("Times shown in Pacific time.")).toBeVisible();
+  const ledger = tzs.filter((t) => t !== "");
+  expect(ledger.length).toBeGreaterThan(0);
+  expect(new Set(ledger)).toEqual(new Set(["America/Los_Angeles"]));
+  await ctx.close();
+});
+
+test("the demo follows the OS theme, set before the app bundle loads", async ({ browser }) => {
+  for (const [os, expectLight] of [["light", true], ["dark", false]] as const) {
+    const ctx = await browser.newContext({ colorScheme: os, viewport: { width: 390, height: 844 } });
+    const page = await ctx.newPage();
+    // Block the app bundle: only theme-init.js can have set the attribute.
+    await page.route("**/assets/*.js", (r) => r.abort());
+    await page.goto("/demo", { waitUntil: "domcontentloaded" });
+    if (expectLight) await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "light");
+    await ctx.close();
+  }
+});
+
+test("the demo's money grammar stays readable in light mode", async ({ browser }) => {
+  const ctx = await browser.newContext({ colorScheme: "light", viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  await openDemo(page, "/demo?tab=money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  // Hero total, split-bar legend and a receipt's source label all
+  // contrast with the page (luminance gap, same check as the Money view).
+  const lum = (c: string) => {
+    const [r, g, b] = (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  for (const sel of ["div.text-4xl", "dl dt", "text=/Billed|Estimate|Home rate/"]) {
+    const el = page.locator(sel).first();
+    if ((await el.count()) === 0) continue;
+    const fg = await el.evaluate((n) => getComputedStyle(n).color);
+    expect(Math.abs(lum(fg) - lum(bg)), sel).toBeGreaterThan(60);
+  }
+  await ctx.close();
+});
+
+test("Activity filters in the demo keep the Activity tab and the filter sticks", async ({ page }) => {
+  await openDemo(page, "/demo?tab=activity");
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await page.getByRole("tab", { name: "Drives" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).toHaveURL(/f=drives/);
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await expect(page.locator('a[href^="/demo/charges/"]')).toHaveCount(0);
+  await expect(page.locator('a[href^="/demo/drives/"]').first()).toBeVisible();
+  await page.getByRole("tab", { name: "Charges" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).toHaveURL(/f=charges/);
+  await expect(page.locator('a[href^="/demo/drives/"]')).toHaveCount(0);
+  await expect(page.locator('a[href^="/demo/charges/"]').first()).toBeVisible();
+  await page.getByRole("tab", { name: "All" }).click();
+  await expect(page).toHaveURL(/tab=activity/);
+  await expect(page).not.toHaveURL(/f=/);
 });

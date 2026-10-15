@@ -1,5 +1,6 @@
 // Shared formatters and small presentational helpers.
 
+import { DEMO_TZ, inDemo } from "./demo";
 import { resolvedTimeZone } from "./preferences";
 
 // Timestamp rendering zone. Defaults to the browser's local zone via
@@ -9,6 +10,7 @@ import { resolvedTimeZone } from "./preferences";
 // updates take effect without a reload.
 function currentTZ(): string | undefined {
   if (typeof window === "undefined") return undefined;
+  if (inDemo()) return DEMO_TZ;
   try {
     const raw = window.localStorage.getItem("rivolt.preferences.v1");
     if (!raw) return undefined;
@@ -18,6 +20,12 @@ function currentTZ(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// displayTimeZone is the zone times are shown in: the demo's fixed zone,
+// else the user's preference (undefined = the browser's).
+export function displayTimeZone(): string | undefined {
+  return currentTZ();
 }
 
 // Format an RFC3339 string as a short date-time in the display zone.

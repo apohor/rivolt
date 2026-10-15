@@ -66,6 +66,21 @@ func UserIDFor(username string) uuid.UUID {
 // dsn accepts any DSN pgx understands — most commonly
 // `postgres://user:pass@host:5432/dbname?sslmode=disable`.
 func Open(ctx context.Context, dsn string) (*sql.DB, error) {
+	d, err := OpenNoMigrate(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := Migrate(ctx, d); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return d, nil
+}
+
+// OpenNoMigrate connects and pings but never changes the schema. Repair
+// and maintenance commands use it: a binary newer than the database must
+// not apply pending migrations as a side effect.
+func OpenNoMigrate(ctx context.Context, dsn string) (*sql.DB, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, fmt.Errorf("DATABASE_URL is empty")
 	}
@@ -82,10 +97,6 @@ func Open(ctx context.Context, dsn string) (*sql.DB, error) {
 	if err := d.PingContext(ctx); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	if err := Migrate(ctx, d); err != nil {
-		_ = d.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return d, nil
 }

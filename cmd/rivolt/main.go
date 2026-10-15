@@ -85,6 +85,10 @@ func main() {
 			return
 		case "reprice":
 			os.Exit(runReprice(os.Args[2:]))
+		case "repair-charge-fragments":
+			os.Exit(runRepairChargeFragments(os.Args[2:]))
+		case "repair-phantom-charges":
+			os.Exit(runRepairPhantoms(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -96,9 +100,20 @@ func printUsage() {
 Usage:
   rivolt          Start the HTTP server (default)
   rivolt --help   Show this help
+  rivolt repair-charge-fragments [--apply] [--user NAME] [--since T] [--until T]
+                  [--max-gap 200s] [--backup FILE]
+                  Merge back-to-back pieces of one charging session that
+                  carry a running energy total into one row. Dry run
+                  unless --apply; --apply needs --user/--since/--until
+                  and writes a CSV backup first.
   rivolt reprice [--apply] [--user NAME]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
+  rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
+                  Delete audited phantom live charges (dry run unless
+                  --apply; --user required; CSV backup first; never
+                  migrates the database; --restore/--restore-csv undo)
 
 Environment:
   RIVOLT_OIDC_TRUST_UNVERIFIED_EMAIL=true
@@ -807,6 +822,9 @@ func runServer() {
 		} else {
 			logger.Info("demo account seeded", "vehicle", demo.VehicleID())
 		}
+		// The replay backfill records sessions after boot, so the
+		// hand-priced hotel L2 gets its user price on a timer.
+		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every

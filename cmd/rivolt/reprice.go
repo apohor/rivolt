@@ -42,12 +42,16 @@ func runReprice(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := db.Open(ctx, postgresDSN())
+	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reprice: postgres:", err)
 		return 1
 	}
 	defer pool.Close()
+	if err := db.RequireTables(ctx, pool, "charges", "users"); err != nil {
+		fmt.Fprintln(os.Stderr, "reprice:", err)
+		return 1
+	}
 
 	var archive *chargers.Archive
 	if base := strings.TrimSpace(os.Getenv("RIVOLT_TILES_BASE_URL")); base != "" {

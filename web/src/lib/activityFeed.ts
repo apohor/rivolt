@@ -4,7 +4,7 @@
 // "Home" or nothing.
 
 import type { Charge, Drive } from "./api";
-import { isActiveCharge } from "./format";
+import { displayTimeZone, isActiveCharge } from "./format";
 
 export const ERRAND_MAX_MI = 3;
 export const HOME_RADIUS_M = 250;
@@ -41,7 +41,7 @@ function isHome(home: Pt, lat: number, lon: number): boolean {
   return metersBetween(home, lat, lon) <= HOME_RADIUS_M;
 }
 
-export function dayKey(ms: number, tz?: string): string {
+export function dayKey(ms: number, tz: string | undefined = displayTimeZone()): string {
   // en-CA gives YYYY-MM-DD, sortable and timezone-correct.
   return new Date(ms).toLocaleDateString("en-CA", { timeZone: tz });
 }

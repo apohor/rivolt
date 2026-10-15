@@ -1009,7 +1009,8 @@ export function DriveMap({
     ];
     if (valhallaAvailable) {
       snapToRoads(tracePoints, ac.signal).then((plan) => {
-        if (!plan || plan.segments.length === 0 || !mapRef.current) return;
+        if (ac.signal.aborted || mapRef.current !== map) return;
+        if (!plan || plan.segments.length === 0) return;
         if (line) line.remove();
         const layers = L.layerGroup();
         const allCoords: [number, number][] = [];
@@ -1124,17 +1125,27 @@ export function DriveMap({
     // freshly-revealed card the size is wrong until the next tick.
     // Re-invalidate after layout settles, and again when the window
     // resizes, so the tile pane always covers the full card.
+    // A removed (or detached) map reports a NaN centre, and fitBounds on
+    // it throws "Invalid LatLng (NaN, NaN)" (seen on browser back from a
+    // detail page). Guard every deferred callback and clear the timer.
+    let alive = true;
     const invalidate = () => {
+      if (!alive || mapRef.current !== map || !map.getContainer().isConnected) return;
       map.invalidateSize();
       if (latlngs.length > 1 && hasSpread) {
         map.fitBounds(L.latLngBounds(latlngs), { padding: [20, 20] });
       }
     };
-    const rAF = requestAnimationFrame(() => setTimeout(invalidate, 0));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const rAF = requestAnimationFrame(() => {
+      timer = setTimeout(invalidate, 0);
+    });
     const ro = new ResizeObserver(invalidate);
     ro.observe(ref.current);
 
     return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
       ac.abort();
       cancelAnimationFrame(rAF);
       ro.disconnect();
