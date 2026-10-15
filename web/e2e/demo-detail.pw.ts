@@ -214,3 +214,40 @@ test("without a basemap archive the map says so, and calls no third-party tile h
   await expect(page.getByText("© OpenStreetMap contributors").first()).toBeVisible();
   expect(reqs.filter((u) => /cartocdn\.com|openstreetmap\.org\/\d/.test(u))).toEqual([]);
 });
+
+test("a charge's pin names the network on the receipt, never a neighbouring brand", async ({ page }) => {
+  await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
+  const session = (id: string, network: string) => ({
+    charge_id: id, started_at: new Date().toISOString(), ended_at: new Date().toISOString(), soc_start: 20, soc_end: 80,
+    kwh: 50, peak_kw: 150, cost: 20, price_per_kwh: 0.4, cost_source: "network_estimate", network,
+    final_state: "charging_complete", source: "live", flags: [], kind: "dcfc", place: "away",
+  });
+  await page.route("**/api/ledger/monthly**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        version: 1, period: "x", tz: "America/Los_Angeles", currency: "USD",
+        spend: { total: 40, by_source: {}, priced_sessions: 2, unpriced_sessions: 0, unpriced_kwh: 0, unpriced_home_rate_estimate: null },
+        energy: { sessions: 2, kwh_added: 100, null_energy_sessions: 0, by_kind: {} },
+        driving: { drives: 0, miles: 0, miles_with_energy: 0, kwh_used_known: 0, coverage: null, cost_per_mile: null, cost_per_mile_basis: "spend_over_miles" },
+        data_quality: {},
+        receipts: [
+          { receipt_id: "r-ran", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 200, started_at: new Date().toISOString(),
+            ended_at: new Date().toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
+            cost: 20, cost_source: "network_estimate", rate: 0.4, network: "Rivian Adventure Network", session_count: 1, unpriced_sessions: 0,
+            flags: [], sessions: [session("charge-1", "Rivian Adventure Network")] },
+          { receipt_id: "r-ea", vehicle_id: "v", kind: "dcfc", place: "away", km_from_home: 300, started_at: new Date().toISOString(),
+            ended_at: new Date().toISOString(), local_date: "2026-09-01", spans_days: 1, soc_start: 20, soc_end: 80, kwh: 50, peak_kw: 150,
+            cost: 20, cost_source: "network_estimate", rate: 0.4, network: "Electrify America", session_count: 1, unpriced_sessions: 0,
+            flags: [], sessions: [session("charge-2", "Electrify America")] },
+        ],
+      }),
+    });
+  });
+  await page.goto("/demo/charges/charge-1");
+  await expect(page.locator(".rivolt-charger-label").first()).toHaveText("Rivian Adventure Network");
+  await page.goto("/demo/charges/charge-2");
+  await expect(page.locator(".rivolt-charger-label").first()).toHaveText("Electrify America");
+  await expect(page.getByText("Tesla Supercharger")).toHaveCount(0);
+});
