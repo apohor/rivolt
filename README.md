@@ -9,9 +9,8 @@ streams live telemetry from your truck, records every drive and
 charging session against your *real* electricity rate, and plans road
 trips with cost / weather / efficiency analysis built in.
 
-The official Rivian app shows you numbers; Rivolt turns them into a
-ledger you own and a planner that actually accounts for what the trip
-will cost.
+Rivolt turns your Rivian's charging and driving into a priced ledger
+you own, and a planner that accounts for what a trip will cost.
 
 ---
 
@@ -21,8 +20,6 @@ will cost.
 demo on a *generated* sample truck: no sign-in, no Rivian account, and
 no real vehicle data. Browse the Now card, the Money statement and the
 Activity feed the way you would on your own truck.
-
-![Money statement in the demo, phone](docs/images/demo-money-phone.png)
 
 - It runs on the **preview** environment, so it can reset or be briefly
   unavailable.
