@@ -12,14 +12,16 @@ export type Place = "home" | "away" | "unknown";
 // "Stale" / "offline" ages in seconds, from prod frame cadence (7 days of
 // vehicle_state): awake parked or plugged p99 8 s, charging p99 7 s,
 // asleep p50 177 s (Rivian replays a frame on each ~3-min connection
-// TTL, p99 181 s). Stale = two missed ~3-min replays plus slack for a
-// sleeping truck, and 2 min for an awake or charging one. Offline limits
-// are unchanged.
+// TTL, p99 181 s). Awake and charging go stale after 2 min. A sleeping
+// truck stays lenient (30 min): the sleep gate and hold_asleep park
+// subscriptions, and stale-Parallax-replay filtering (#159) will drop the
+// replays that keep its timestamp fresh, so a quiet sleeping truck is
+// healthy, not stale. Offline limits are unchanged.
 const FRESHNESS: Record<"driving" | "charging" | "parked" | "asleep", { stale: number; offline: number }> = {
   driving: { stale: 30, offline: 180 },
   charging: { stale: 120, offline: 600 },
   parked: { stale: 120, offline: 900 },
-  asleep: { stale: 420, offline: 2700 },
+  asleep: { stale: 1800, offline: 2700 },
 };
 
 // A sleep shorter than this doesn't change the hero (spec §3.1, NQ2).

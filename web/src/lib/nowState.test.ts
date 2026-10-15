@@ -70,12 +70,15 @@ describe("computeNow", () => {
     // Awake parked: stale after 2 min (p99 gap is 8 s).
     expect(computeNow(inp(old(90))).stale).toBe(false);
     expect(computeNow(inp(old(130))).stale).toBe(true);
-    // Asleep: a ~3-min replay cadence, stale after 7 min.
+    // Asleep stays lenient: the gate parks subscriptions, so a healthy
+    // sleeping truck may be silent for a long while. Stale only after 30 min.
     const asleep = (age: number) =>
-      computeNow(inp({ power_state: "sleep", ...old(age) }, { asleepSinceMs: NOW - 3_600_000 }));
+      computeNow(inp({ power_state: "sleep", ...old(age) }, { asleepSinceMs: NOW - 7_200_000 }));
     expect(asleep(200).stale).toBe(false);
-    expect(asleep(400).stale).toBe(false);
-    expect(asleep(450).stale).toBe(true);
+    expect(asleep(600).stale).toBe(false);
+    expect(asleep(1500).stale).toBe(false);
+    expect(asleep(1900).stale).toBe(true);
+    expect(asleep(1500).kind).toBe("asleep");
     expect(computeNow(inp(old(2000))).kind).toBe("offline");
   });
   it("derives ETA, energy and home cost from vehicle state alone", () => {
