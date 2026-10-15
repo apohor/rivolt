@@ -25,6 +25,7 @@ import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
 import { useThemeChoice, type ThemeChoice } from "../lib/theme";
+import { useImpersonationTarget } from "../lib/impersonation";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
@@ -178,6 +179,7 @@ export default function SettingsPage() {
 
       {tab === "data" && (
         <>
+          <ExportCard />
           <Card title="Import ElectraFi CSV" id="import">
             <ImportPanel />
           </Card>
@@ -187,6 +189,31 @@ export default function SettingsPage() {
         </>
       )}
     </div>
+  );
+}
+
+// ExportCard: a plain download link to GET /api/export (a zip of CSVs
+// and settings; same-origin cookie auth, attachment response). Hidden
+// while an admin is viewing as someone else: a plain navigation doesn't
+// carry the impersonation header, so it would export the admin's own
+// data under the wrong person's name.
+export function ExportCard() {
+  const impersonating = useImpersonationTarget() != null;
+  if (impersonating) return null;
+  return (
+    <Card title="Export my data" id="export">
+      <p className="mb-3 text-xs text-neutral-500">
+        A zip of CSV files (charges with cost source, drives, trips) and your settings. Raw telemetry is in Backup
+        below.
+      </p>
+      <a
+        href="/api/export"
+        download
+        className="inline-block rounded-md border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-700"
+      >
+        Export my data
+      </a>
+    </Card>
   );
 }
 
