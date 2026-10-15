@@ -1,9 +1,9 @@
 import { inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { track } from "../lib/track";
-import { backend } from "../lib/api";
+import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
@@ -12,6 +12,7 @@ import { useSelectedVehicle } from "../lib/selectedVehicle";
 import {
   currentMonth,
   dataQualityNotes,
+  unidentifiedPending,
   estimatedShare,
   fetchLedgerMonth,
   fetchLedgerSummary,
@@ -24,7 +25,9 @@ import {
   type MonthSummary,
   type Receipt,
 } from "../lib/ledger";
-import { hasOpenNetworkState } from "../lib/autoNetwork";
+import { isOpenNetworkState } from "../lib/autoNetwork";
+import { formatDateTime } from "../lib/format";
+import { detailPath } from "../lib/demo";
 
 // Money: the monthly charging statement (ux-slice-spec §4, ledger
 // contract v1). Every total comes from the server; the page only
@@ -35,7 +38,7 @@ type ReceiptFilter = "all" | "home" | "away" | "dcfc" | "confirm";
 function receiptMatches(r: Receipt, f: ReceiptFilter): boolean {
   if (f === "all") return true;
   if (f === "dcfc") return r.kind === "dcfc";
-  if (f === "confirm") return hasOpenNetworkState(r);
+  if (f === "confirm") return false; // listed from charges, all months
   if (f === "home") return r.kind === "ac" && r.place === "home";
   return r.kind === "ac" && r.place === "away";
 }
@@ -91,6 +94,17 @@ export default function MoneyPage() {
     retry: 1,
   });
 
+  const toConfirmN = summaryQ.data?.data.to_confirm_count ?? null;
+  // The "To confirm" view spans every month, so it comes from the charge
+  // list (the Money month only carries its own receipts).
+  const chargesQ = useQuery({
+    queryKey: ["charges", "all"],
+    queryFn: () => backend.allCharges(),
+    enabled: (toConfirmN ?? 0) > 0,
+    staleTime: 60_000,
+  });
+  const confirmCharges = (chargesQ.data ?? []).filter((c) => isOpenNetworkState(c.network_state));
+
   const m = monthQ.data?.data;
   const isSample = monthQ.data?.source === "fixture";
   const months = summaryQ.data?.data.months ?? [];
@@ -125,7 +139,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement toConfirm={summaryQ.data?.data.to_confirm_count ?? 0} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement toConfirm={summaryQ.data?.data.to_confirm_count ?? null} confirmCharges={confirmCharges} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -166,6 +180,7 @@ function Statement({
   filter,
   onFilter,
   toConfirm,
+  confirmCharges,
 }: {
   askShare: boolean;
   sample: boolean;
@@ -175,8 +190,10 @@ function Statement({
   onMetric: (v: "cost" | "kwh") => void;
   filter: ReceiptFilter;
   onFilter: (f: ReceiptFilter) => void;
-  // charges awaiting confirmation of their auto-detected network (all months)
-  toConfirm: number;
+  // charges awaiting confirmation of their auto-detected network (all
+  // months); null while DCFC auto-network is off
+  toConfirm: number | null;
+  confirmCharges: Charge[];
 }) {
   const cur = m.currency;
   // Server-owned splits only; by_place is absent on pre-§10 builds.
@@ -187,9 +204,12 @@ function Statement({
     : null;
   const where = !combined && m.energy.by_place ? placeSegments(m.energy.by_place) : null;
   const how = combined ? null : kindSegments(m.energy.by_kind);
-  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const auto = toConfirm != null;
+  const unid = unidentifiedPending(m);
+  const pending = auto ? unid.sessions : (m.spend.estimate_pending_sessions ?? 0);
+  const pendingKwh = auto ? unid.kwh : (m.spend.estimate_pending_kwh ?? 0);
   const estShare = estimatedShare(m);
-  const notes = useMemo(() => dataQualityNotes(m), [m]);
+  const notes = useMemo(() => dataQualityNotes(m, auto), [m, auto]);
   const suspect = useMemo(() => suspectSessionCount(m), [m]);
   const shown = m.receipts.filter((r) => receiptMatches(r, filter));
 
@@ -240,7 +260,7 @@ function Statement({
           {m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
 
-        {toConfirm > 0 && (
+        {toConfirm != null && toConfirm > 0 && (
           <button
             type="button"
             onClick={() => onFilter("confirm")}
@@ -260,20 +280,46 @@ function Statement({
 
         {(pending > 0 || suspect > 0 || m.spend.unpriced_sessions > 0) && (
           <ul className="mt-3 space-y-1.5 text-xs">
-            {pending > 0 && (
+            {auto && pending + suspect > 0 && (
               <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
-                <span className="font-medium text-amber-200">Estimate pending:</span> {pending} fast-charging{" "}
-                {pending === 1 ? "session" : "sessions"} ({(m.spend.estimate_pending_kwh ?? 0).toFixed(1)} kWh){" "}
-                {pending === 1 ? "isn't" : "aren't"} in the total yet. An older version priced{" "}
-                {pending === 1 ? "it" : "them"} at your home rate. Add the price, or wait for the re-price.
+                <span className="font-medium text-amber-200">Couldn't identify the network</span> for{" "}
+                {pending + suspect} {pending + suspect === 1 ? "session" : "sessions"}
+                {pending > 0 && (
+                  <>
+                    {" "}
+                    ({pending} {pending === 1 ? "isn't" : "aren't"} in the total yet, {pendingKwh.toFixed(1)} kWh)
+                  </>
+                )}
+                . Pick the network to price {pending + suspect === 1 ? "it" : "them"}.
               </li>
             )}
-            {suspect > 0 && (
+            {!auto && pending > 0 && (
               <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
-                <span className="font-medium text-amber-200">Likely wrong:</span> {suspect}{" "}
-                {suspect === 1 ? "session" : "sessions"} away from home{" "}
+                {auto ? (
+                  <>
+                    <span className="font-medium text-amber-200">Couldn't identify the network:</span> {pending}{" "}
+                    fast-charging {pending === 1 ? "session" : "sessions"} ({pendingKwh.toFixed(1)} kWh){" "}
+                    {pending === 1 ? "isn't" : "aren't"} in the total yet. Pick the network to price{" "}
+                    {pending === 1 ? "it" : "them"}.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-amber-200">Estimate pending:</span> {pending} fast-charging{" "}
+                    {pending === 1 ? "session" : "sessions"} ({pendingKwh.toFixed(1)} kWh){" "}
+                    {pending === 1 ? "isn't" : "aren't"} in the total yet. An older version priced{" "}
+                    {pending === 1 ? "it" : "them"} at your home rate. Add the price.
+                  </>
+                )}
+              </li>
+            )}
+            {!auto && suspect > 0 && (
+              <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
+                <span className="font-medium text-amber-200">
+                  {auto ? "Couldn't identify the network:" : "Likely wrong:"}
+                </span>{" "}
+                {suspect} {suspect === 1 ? "session" : "sessions"} away from home{" "}
                 {suspect === 1 ? "was" : "were"} priced at your home rate and {suspect === 1 ? "is" : "are"} in the
-                total.
+                total.{auto ? " Pick the network." : ""}
               </li>
             )}
             {m.spend.unpriced_sessions > 0 && (
@@ -333,7 +379,7 @@ function Statement({
             title="Receipts"
             actions={
               <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
-                {(["all", "home", "away", "dcfc", ...(filter === "confirm" || m.receipts.some((r) => hasOpenNetworkState(r)) ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
+                {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
                   <button
                     key={f}
                     type="button"
@@ -351,7 +397,9 @@ function Statement({
               </div>
             }
           >
-            {shown.length === 0 ? (
+            {filter === "confirm" ? (
+              <ToConfirmList charges={confirmCharges} />
+            ) : shown.length === 0 ? (
               <p className="text-sm text-neutral-500">No receipts match this filter.</p>
             ) : (
               <ul className="-mx-2 divide-y divide-neutral-800/70">
@@ -448,6 +496,58 @@ function ShareStatementButton({
       )}
       {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
       {done && <span role="status" className="text-xs text-emerald-300">{done}</span>}
+    </div>
+  );
+}
+
+// ToConfirmList: every charge whose auto-detected network is awaiting a
+// look, across all months, newest first, grouped by month.
+function ToConfirmList({ charges }: { charges: Charge[] }) {
+  if (charges.length === 0) return <p className="text-sm text-neutral-500">Nothing to confirm.</p>;
+  const groups = new Map<string, Charge[]>();
+  for (const c of [...charges].sort((a, b) => b.StartedAt.localeCompare(a.StartedAt))) {
+    const key = new Date(c.StartedAt).toLocaleDateString("en-CA").slice(0, 7);
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  return (
+    <div className="space-y-4" data-testid="to-confirm-list">
+      {[...groups].map(([period, rows]) => (
+        <section key={period} aria-label={monthLabel(period)}>
+          <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">{monthLabel(period)}</h3>
+          <ul className="-mx-2 divide-y divide-neutral-800/70">
+            {rows.map((c) => {
+              const strong = c.network_state === "needs_confirmation";
+              const net = c.network_evidence?.candidates?.[0]?.network;
+              const priced = c.PricePerKWh > 0;
+              return (
+                <li key={c.ID}>
+                  <Link
+                    to={`${detailPath("charges", c.ID)}#pricing`}
+                    className="flex items-baseline justify-between gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900/70"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-neutral-100">
+                        {formatDateTime(c.StartedAt)}
+                      </span>
+                      <span className="block text-xs text-neutral-400">
+                        {priced ? `${net ?? "Network"} · ${formatMoney(c.PricePerKWh, c.Currency || "USD", 3)}/kWh` : "Pick a network"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm tabular-nums text-neutral-100">
+                        {priced ? formatMoney(c.Cost, c.Currency || "USD") : "Unpriced"}
+                      </span>
+                      <span className={`block text-[11px] ${strong ? "text-amber-300" : "text-neutral-500"}`}>
+                        {strong ? "Please confirm →" : "Estimated · confirm →"}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

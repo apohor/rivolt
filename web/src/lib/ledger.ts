@@ -450,15 +450,40 @@ export function suspectSessionCount(m: LedgerMonth): number {
   return n;
 }
 
+// unidentifiedPending: with DCFC auto-network on, home-rate DCFC
+// sessions that now carry an estimate (network_state set) are folded into
+// "N charges to confirm"; only the ones the matcher couldn't price stay
+// "pending". Falls back to the server's counters when a month has no
+// per-session rows.
+export function unidentifiedPending(m: LedgerMonth): { sessions: number; kwh: number } {
+  let sessions = 0;
+  let kwh = 0;
+  let seen = false;
+  for (const r of m.receipts) {
+    for (const x of r.sessions) {
+      seen = true;
+      if (x.cost_source === "home_rate_misapplied" && !x.network_state) {
+        sessions += 1;
+        kwh += x.kwh ?? 0;
+      }
+    }
+  }
+  if (!seen) return { sessions: m.spend.estimate_pending_sessions ?? 0, kwh: m.spend.estimate_pending_kwh ?? 0 };
+  return { sessions, kwh };
+}
+
 // Plain-English quality notes from the server's counters (spec MQ*).
-export function dataQualityNotes(m: LedgerMonth): string[] {
+// `auto`: DCFC auto-network fields are present (to_confirm_count != null).
+export function dataQualityNotes(m: LedgerMonth, auto = false): string[] {
   const n: string[] = [];
   const dq = m.data_quality;
   const s = (k: number, one: string, many: string) => (k === 1 ? one : many);
-  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const pending = auto ? unidentifiedPending(m).sessions : (m.spend.estimate_pending_sessions ?? 0);
   if (pending > 0) {
     n.push(
-      `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until ${s(pending, "it's", "they're")} re-priced, or you add the price.`,
+      auto
+        ? `Couldn't identify the network for ${pending} fast-charging ${s(pending, "session", "sessions")}; ${s(pending, "it's", "they're")} left out of the total until you pick the network.`
+        : `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until you add the price.`,
     );
   }
   const suspect = suspectSessionCount(m);

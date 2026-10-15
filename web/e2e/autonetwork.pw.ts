@@ -34,7 +34,16 @@ async function setup(page: Page, state: string | null, extra: Record<string, unk
     ...extra,
   });
   const c3 = base(3, { Cost: 0, PricePerKWh: 0, CostSource: "", network_state: "needs_confirmation", network_confidence: 0 });
-  await page.route("**/api/charges?**", (r) => r.fulfill({ json: [base(1, { Cost: 4.4, PricePerKWh: 0.11, CostSource: "home_rate" }), c2, c3] }));
+  // An older month's charge: the To confirm view spans every month.
+  const old = base(4, {
+    StartedAt: new Date(Date.now() - 45 * 86_400_000).toISOString(),
+    EndedAt: new Date(Date.now() - 45 * 86_400_000 + 1_800_000).toISOString(),
+    Cost: 18.2, PricePerKWh: 0.35, CostSource: "network_estimate", network_state: "estimated", network_confidence: 0.9,
+    network_evidence: { v: 1, source: "archive", candidates: [{ network: "Electrify America", slug: "ea", dist_m: 40 }] },
+  });
+  await page.route("**/api/charges?**", (r) =>
+    r.fulfill({ json: [base(1, { Cost: 4.4, PricePerKWh: 0.11, CostSource: "home_rate" }), c2, c3, old] }),
+  );
   await page.route("**/api/settings/charging/networks", (r) =>
     r.fulfill({
       json: [
@@ -126,10 +135,19 @@ for (const [vpName, vp] of [
       await page.goto("/money");
       const badge = page.getByRole("button", { name: /3 charges to confirm/ });
       await expect(badge).toBeVisible();
-      await badge.click();
-      await expect(page.getByText(/Estimated, confirm/).first()).toBeVisible();
-      await expect(page.getByRole("link", { name: "Confirm →" }).first()).toBeVisible();
+      // One story: no "wait for the re-price", no legacy "Estimate pending".
+      await expect(page.getByText(/re-price/)).toHaveCount(0);
+      await expect(page.getByText("Estimate pending:")).toHaveCount(0);
+      await expect(page.getByText("Likely wrong:")).toHaveCount(0);
       await page.screenshot({ path: path.join(SHOTS, `autonet-money-${vpName}-${theme}.png`), fullPage: false });
+      await badge.click();
+      const list = page.getByTestId("to-confirm-list");
+      await expect(list).toBeVisible();
+      // Spans months: the older estimated charge is listed beside this month's.
+      await expect(list.getByRole("heading")).toHaveCount(2);
+      await expect(list).toContainText("Electrify America");
+      await list.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SHOTS, `autonet-money-list-${vpName}-${theme}.png`), fullPage: false });
       await ctx.close();
     });
   }
