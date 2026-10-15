@@ -346,3 +346,53 @@ func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoTiles_OnlyBasemapAnonymousAndOwnBudget(t *testing.T) {
+	h, uid := demoChain(newDemoLimiter(), nil)
+	for _, c := range []struct {
+		method, path string
+		ok           bool
+	}{
+		{"GET", "/api/maps/tiles/us.pmtiles", true},
+		{"HEAD", "/api/maps/tiles/us.pmtiles", true},
+		{"POST", "/api/maps/tiles/us.pmtiles", false},
+		{"GET", "/api/maps/tiles/chargers.pmtiles", false},
+		{"GET", "/api/maps/tiles/us.pmtiles/../chargers.pmtiles", false},
+		{"GET", "/api/maps/valhalla/trace_route", false},
+		{"POST", "/api/maps/valhalla/route", false},
+		{"POST", "/api/maps/chargers-along", false},
+	} {
+		rec := demoReq(h, c.method, c.path)
+		isDemo := rec.Header().Get("X-Test-User") == uid.String() && rec.Header().Get(demoHeader) == "1"
+		if isDemo != c.ok {
+			t.Errorf("%s %s: served as demo = %v, want %v", c.method, c.path, isDemo, c.ok)
+		}
+	}
+}
+
+func TestDemoTiles_DoNotDrawOnGeneralBudget(t *testing.T) {
+	// General per-client budget of 2: hammer tiles, then data still works.
+	h, _ := demoChain(newIPLimiter(2, time.Minute, time.Hour), nil)
+	for i := 0; i < 50; i++ {
+		if rec := demoReq(h, "GET", "/api/maps/tiles/us.pmtiles"); rec.Code != http.StatusOK {
+			t.Fatalf("tile %d: %d", i, rec.Code)
+		}
+	}
+	if rec := demoReq(h, "GET", "/api/charges"); rec.Code != http.StatusOK {
+		t.Fatalf("data call starved by tiles: %d", rec.Code)
+	}
+}
+
+func TestDemoTiles_PerClientLimit(t *testing.T) {
+	h, _ := demoChain(newDemoLimiter(), nil)
+	limited := false
+	for i := 0; i < demoTilesPerClientPerMin+50; i++ {
+		if demoReq(h, "GET", "/api/maps/tiles/us.pmtiles").Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("tiles must be rate limited per client")
+	}
+}
