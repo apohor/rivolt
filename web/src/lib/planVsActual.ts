@@ -4,7 +4,7 @@
 
 import type { PlanVsActual, PvaCandidate, PvaMetric, PvaStop } from "./api";
 
-export type PvaState = "none" | "suggested" | "linked-full" | "linked-partial";
+export type PvaState = "none" | "suggested" | "in-progress" | "linked-full" | "linked-partial";
 
 export function costMetric(p: PlanVsActual): PvaMetric | null {
   return p.comparison?.metrics.find((m) => m.metric === "cost") ?? null;
@@ -12,8 +12,14 @@ export function costMetric(p: PlanVsActual): PvaMetric | null {
 
 export function stateOf(p: PlanVsActual): PvaState {
   if (p.status === "none" || !p.comparison) {
-    return p.status === "suggested" && p.candidates.length > 0 ? "suggested" : "none";
+    if (p.status === "suggested" && p.candidates.length > 0) {
+      return topCandidate(p)?.in_progress ? "in-progress" : "suggested";
+    }
+    return "none";
   }
+  // An unfinished trip isn't compared yet (a half-driven trip would
+  // read as "saved money").
+  if (p.comparison.status === "in_progress" || topCandidate(p)?.in_progress) return "in-progress";
   if (p.status === "suggested") return "suggested";
   const c = costMetric(p);
   return c && c.actual_complete === false ? "linked-partial" : "linked-full";
@@ -150,8 +156,16 @@ export function costHeader(c: NonNullable<PlanVsActual["comparison"]>): string |
   return `${d} ${m.actual > m.planned ? "over" : "under"} plan. Planned ${money(m.planned, c.currency)}, paid ${paid}.`;
 }
 
+// Rivian's trip planner can report 0 planned energy (it isn't a
+// plan, it's missing). Treat it as unknown: show the actual only, no
+// difference and none of the reasons that depend on it.
+function planUnknown(m: PvaMetric): boolean {
+  return m.metric === "energy_kwh" && (m.planned == null || m.planned <= 0);
+}
+
 export function rows(c: NonNullable<PlanVsActual["comparison"]>): Row[] {
-  return c.metrics.map((m) => {
+  return c.metrics.map((raw) => {
+    const m: PvaMetric = planUnknown(raw) ? { ...raw, planned: null, delta: null, reasons: [] } : raw;
     const src = m.actual_sources ?? {};
     const estimated = m.metric === "cost" && (src.network_estimate ?? 0) > 0;
     const incomplete =
@@ -189,7 +203,8 @@ export const STOP_LABEL: Record<PvaStop["match"], string> = {
   extra: "Extra stop",
 };
 
-export function drivenText(c: NonNullable<PlanVsActual["comparison"]>, miles?: number | null): string {
+export function drivenText(c: NonNullable<PlanVsActual["comparison"]>, candidateMiles?: number | null): string {
+  const miles = c.leg.miles ?? candidateMiles;
   const d = new Date(c.leg.started_at);
   const when = Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return `Driven ${when}${miles ? ` · ${Math.round(miles)} mi` : ""}`.trim();

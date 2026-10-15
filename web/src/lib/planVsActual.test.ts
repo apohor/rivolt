@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanVsActual, PvaMetric } from "./api";
-import { costHeader, rows, stateOf, stopLabel, topCandidate } from "./planVsActual";
+import { costHeader, drivenText, rows, stateOf, stopLabel, topCandidate } from "./planVsActual";
 
 const m = (metric: PvaMetric["metric"], planned: number | null, actual: number | null, o: Partial<PvaMetric> = {}): PvaMetric => ({
   metric, unit: "", planned, actual, delta: planned != null && actual != null ? actual - planned : null, reasons: [], ...o,
@@ -107,5 +107,24 @@ describe("stopLabel", () => {
     expect(stopLabel({ match: "nearby" })).toBe("Nearby, network not known");
     expect(stopLabel({ match: "extra", actual: { kind: "ac" } })).toBe("Extra AC charge (not in the cost)");
     expect(stopLabel({ match: "extra", actual: { kind: "dcfc" } })).toBe("Extra stop");
+  });
+});
+
+describe("v1.1", () => {
+  it("is in progress when the comparison or the candidate says so", () => {
+    const c = { trip_id: "t", started_at: "", ended_at: "", confidence: 0.9, band: "high" as const, signals: {}, in_progress: true };
+    expect(stateOf(pva({ status: "suggested", candidates: [c], comparison: null }))).toBe("in-progress");
+    expect(stateOf(pva({ comparison: { ...cmp([m("cost", 50, 46)]), status: "in_progress" } }))).toBe("in-progress");
+  });
+  it("treats a planned energy of 0 as unknown: actual only, no delta, no reasons", () => {
+    const r = rows(cmp([m("energy_kwh", 0, 140, { reasons: [{ code: "less_efficient", detail: "The drive used 6% more energy per mile than planned." }] })]))[0];
+    expect(r.planned).toBeNull();
+    expect(r.actual).toBe("140 kWh");
+    expect(r.deltaText).toBeNull();
+    expect(r.reasons).toEqual([]);
+  });
+  it("shows the leg miles in the driven line", () => {
+    const c = { ...cmp([]), leg: { started_at: "2026-10-11T10:00:00Z", arrived_at: "2026-10-11T20:00:00Z", miles: 612 } };
+    expect(drivenText(c)).toMatch(/Driven .*11.* · 612 mi/);
   });
 });

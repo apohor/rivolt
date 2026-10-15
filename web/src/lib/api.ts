@@ -1375,8 +1375,10 @@ export const backend = {
   },
   planVsActualLink: (savedTripID: string, tripID: string) =>
     api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/link`, { trip_id: tripID }),
-  planVsActualUnlink: (savedTripID: string) =>
-    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, null),
+  // Records the rejection of this outing (never suggested again); for a
+  // linked trip it also removes the link. trip_id is required (v1.1).
+  planVsActualUnlink: (savedTripID: string, tripID: string) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, { trip_id: tripID }),
   savedTripCreate: (body: SavedTripBody) =>
     api.post<SavedTrip>("/api/trips/saved", body),
   savedTripUpdate: (id: string, body: SavedTripBody) =>
@@ -2050,6 +2052,9 @@ export type PvaCandidate = {
   confidence: number;
   band: PvaBand;
   signals: Record<string, number>;
+  // v1.1
+  miles?: number | null;
+  in_progress?: boolean;
 };
 
 export type PvaReason = { code: string; amount?: number | null; detail?: string };
@@ -2076,7 +2081,9 @@ export type PvaStop = {
 export type PvaComparison = {
   currency: string;
   plan_from: "snapshot" | "current";
-  leg: { started_at: string; arrived_at: string };
+  leg: { started_at: string; arrived_at: string; miles?: number | null };
+  // v1.1: in_progress until the outing ends (e.g. back home).
+  status?: "in_progress" | "complete";
   metrics: PvaMetric[];
   stops: PvaStop[];
 };

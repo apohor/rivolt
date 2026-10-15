@@ -250,22 +250,26 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       };
       return json(
         route,
-        ["none", "suggested", "full", "partial"].map((k, i) => ({
+        ["none", "suggested", "progress", "full", "partial"].map((k, i) => ({
           id: `st-${k}`, name: `Sample trip ${i + 1}`, inputs, created_at: iso(86_400_000), updated_at: iso(86_400_000),
         })),
       );
     }
-    const pva = p.match(/^\/api\/trips\/saved\/st-(none|suggested|full|partial)\/actual$/);
+    const pva = p.match(/^\/api\/trips\/saved\/st-(none|suggested|progress|full|partial)\/actual$/);
     if (pva) {
       const k = pva[1];
       const base = { version: 1, saved_trip_id: `st-${k}` };
       if (k === "none") return json(route, { ...base, status: "none", link: null, candidates: [], comparison: null });
+      if (k === "progress") {
+        const cand0 = { trip_id: "trip_9", started_at: iso(2 * 3_600_000), ended_at: iso(0), confidence: 0.9, band: "high", signals: {}, in_progress: true };
+        return json(route, { ...base, status: "suggested", link: null, candidates: [cand0], comparison: null });
+      }
       const metric = (metric: string, unit: string, planned: number, actual: number | null, extra: object = {}) => ({
         metric, unit, planned, actual, delta: actual == null ? null : actual - planned, reasons: [], ...extra,
       });
       const comparison = {
         currency: "USD", plan_from: k === "suggested" ? "current" : "snapshot",
-        leg: { started_at: iso(3 * 86_400_000), arrived_at: iso(3 * 86_400_000 - 40_000_000) },
+        leg: { started_at: iso(3 * 86_400_000), arrived_at: iso(3 * 86_400_000 - 40_000_000), miles: 612 },
         metrics: [
           k === "partial"
             ? metric("cost", "USD", 52.1, null, { actual_complete: false, actual_known: 21.12, unpriced_sessions: 2 })

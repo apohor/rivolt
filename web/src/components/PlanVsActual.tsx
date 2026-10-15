@@ -34,7 +34,10 @@ function TripCompare({ trip }: { trip: SavedTrip }) {
   });
   const set = (data: Pva) => qc.setQueryData(["trips", "pva", trip.id], data);
   const link = useMutation({ mutationFn: (tripID: string) => backend.planVsActualLink(trip.id, tripID), onSuccess: set });
-  const unlink = useMutation({ mutationFn: () => backend.planVsActualUnlink(trip.id), onSuccess: set });
+  const unlink = useMutation({
+    mutationFn: (tripID: string) => backend.planVsActualUnlink(trip.id, tripID),
+    onSuccess: set,
+  });
   const d = q.data;
   if (q.isLoading) return <div className="h-12 animate-pulse rounded bg-neutral-800/50" />;
   if (!d) return null; // endpoint absent: nothing to show
@@ -43,7 +46,7 @@ function TripCompare({ trip }: { trip: SavedTrip }) {
   return (
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
-      <Body d={d} busy={busy} onConfirm={(id) => link.mutate(id)} onUnlink={() => unlink.mutate()} />
+      <Body d={d} busy={busy} onConfirm={(id) => link.mutate(id)} onUnlink={(id) => unlink.mutate(id)} />
       {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
     </div>
   );
@@ -58,11 +61,14 @@ function Body({
   d: Pva;
   busy: boolean;
   onConfirm: (tripID: string) => void;
-  onUnlink: () => void;
+  onUnlink: (tripID: string) => void;
 }) {
   const state = stateOf(d);
   if (state === "none") {
     return <p className="mt-1 text-sm text-neutral-400">We&apos;ll compare once you&apos;ve driven it.</p>;
+  }
+  if (state === "in-progress") {
+    return <p className="mt-1 text-sm text-neutral-400">Trip in progress. We&apos;ll compare when you&apos;re home.</p>;
   }
   const c = topCandidate(d);
   if (state === "suggested") {
@@ -82,8 +88,8 @@ function Body({
           </button>
           <button
             type="button"
-            disabled={busy}
-            onClick={onUnlink}
+            disabled={busy || !c}
+            onClick={() => c && onUnlink(c.trip_id)}
             className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
           >
             Not this trip
@@ -100,8 +106,8 @@ function Body({
       )}
       <button
         type="button"
-        disabled={busy}
-        onClick={onUnlink}
+        disabled={busy || !d.link}
+        onClick={() => d.link && onUnlink(d.link.trip_id)}
         className="mt-3 text-xs text-neutral-500 underline hover:text-neutral-300 disabled:opacity-50"
       >
         Not this trip? Unlink
@@ -119,7 +125,7 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
   return (
     <div className="mt-2">
       <p className="text-xs text-neutral-500">
-        {drivenText(c, null)}
+        {drivenText(c, cand?.miles)}
         {preview ? " · preview" : ""}
         {c.plan_from === "snapshot" ? " · compared with the plan as saved" : ""}
         {cand && preview ? ` · ${cand.band} match` : ""}
