@@ -6,10 +6,10 @@ import { backend, type VehicleState } from "../lib/api";
 import {
   advanceTripDistance,
   computeNow,
-  formatAgo,
   formatEta,
   isChargingActive,
   isDrivingGear,
+  freshnessLine,
   nowAlerts,
   statusPill,
   SLEEP_HYSTERESIS_SEC,
@@ -282,7 +282,7 @@ export default function NowCard({
         </dl>
 
         <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
-          <p data-testid="now-freshness">{freshness(view)}</p>
+          <p data-testid="now-freshness">{freshnessLine(view)}</p>
           {!impersonating && showTelemetryLink && (
             <Link to="/live" className="text-neutral-300 hover:text-emerald-300">
               Full telemetry →
@@ -338,29 +338,6 @@ function placeLine(v: NowView): string | null {
     return `Parked · ${km < 10 ? km.toFixed(1) : Math.round(km)} km from home`;
   }
   return null;
-}
-
-function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-function freshness(v: NowView): string {
-  const at = v.lastContactMs > 0 ? clock(v.lastContactMs) : null;
-  let base: string;
-  if (v.kind === "offline") base = at ? `Last contact ${at} (${formatAgo(v.ageSec)})` : "No contact yet";
-  else if (v.kind === "asleep") base = `Asleep · updated ${formatAgo(v.ageSec)}`;
-  else base = `Updated ${formatAgo(v.ageSec)}`;
-  const parts = [base];
-  // A location fix older than 10 min is shown as such, never as "now".
-  if (v.locationFixMs != null && v.lastContactMs - v.locationFixMs > 10 * 60_000 && v.kind !== "driving") {
-    parts.push(`location as of ${clock(v.locationFixMs)}`);
-  }
-  if (v.stateSinceMs != null && (v.kind === "parked" || v.kind === "plugged" || v.kind === "asleep")) {
-    const dsoc = v.socChange != null && Math.abs(v.socChange) >= 0.5 ? ` (${v.socChange > 0 ? "+" : "−"}${Math.abs(Math.round(v.socChange))}%)` : "";
-    parts.push(`since ${clock(v.stateSinceMs)}${dsoc}`);
-  }
-  if (v.replay) parts.push("Replay");
-  return parts.join(" · ");
 }
 
 function details(
