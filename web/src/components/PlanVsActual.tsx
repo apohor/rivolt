@@ -67,6 +67,21 @@ function Body({
   if (state === "none") {
     return <p className="mt-1 text-sm text-neutral-400">We&apos;ll compare once you&apos;ve driven it.</p>;
   }
+  if (state === "link-lost") {
+    return (
+      <div className="mt-1">
+        <p className="text-sm text-neutral-400">We can&apos;t find the trip you linked any more.</p>
+        <button
+          type="button"
+          disabled={busy || !d.link}
+          onClick={() => d.link && onUnlink(d.link.trip_id)}
+          className="mt-2 text-xs text-neutral-500 underline hover:text-neutral-300 disabled:opacity-50"
+        >
+          Unlink
+        </button>
+      </div>
+    );
+  }
   if (state === "in-progress") {
     return <p className="mt-1 text-sm text-neutral-400">Trip in progress. We&apos;ll compare when you&apos;re home.</p>;
   }

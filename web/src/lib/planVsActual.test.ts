@@ -123,6 +123,10 @@ describe("v1.1", () => {
     expect(r.deltaText).toBeNull();
     expect(r.reasons).toEqual([]);
   });
+  it("reports a linked trip that can't be found any more", () => {
+    const link = { trip_id: "t", confidence: 0.9, band: "high" as const, linked_at: "", link_stale: true };
+    expect(stateOf(pva({ link, comparison: null }))).toBe("link-lost");
+  });
   it("shows the leg miles in the driven line", () => {
     const c = { ...cmp([]), leg: { started_at: "2026-10-11T10:00:00Z", arrived_at: "2026-10-11T20:00:00Z", miles: 612 } };
     expect(drivenText(c)).toMatch(/Driven .*11.* · 612 mi/);

@@ -4,13 +4,16 @@
 
 import type { PlanVsActual, PvaCandidate, PvaMetric, PvaStop } from "./api";
 
-export type PvaState = "none" | "suggested" | "in-progress" | "linked-full" | "linked-partial";
+export type PvaState = "none" | "suggested" | "in-progress" | "linked-full" | "linked-partial" | "link-lost";
 
 export function costMetric(p: PlanVsActual): PvaMetric | null {
   return p.comparison?.metrics.find((m) => m.metric === "cost") ?? null;
 }
 
 export function stateOf(p: PlanVsActual): PvaState {
+  // Linked, but the outing can't be found any more (data re-imported or
+  // de-duplicated): say so rather than "drive it first".
+  if (p.status === "linked" && !p.comparison && p.link) return "link-lost";
   if (p.status === "none" || !p.comparison) {
     if (p.status === "suggested" && p.candidates.length > 0) {
       return topCandidate(p)?.in_progress ? "in-progress" : "suggested";
