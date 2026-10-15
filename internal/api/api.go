@@ -827,6 +827,16 @@ func New(d Deps) http.Handler {
 			// optional snapshots so reopening a saved trip can render
 			// the map instantly while still letting the user re-plan
 			// against current station / weather state.
+			// Plan vs Actual (B12): compare a saved trip with the outing
+			// that happened. Read/links behind money_tab_enabled.
+			if d.DB != nil && d.Trips != nil {
+				pa := newPlanActualAPI(d.DB, d.Trips, d.Settings)
+				r.With(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags))).Group(func(r chi.Router) {
+					r.Get("/trips/saved/{id}/actual", withUser(pa.actual))
+					r.Post("/trips/saved/{id}/link", withUser(pa.link))
+					r.Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
+				})
+			}
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripsList(d.Trips.For(uid))(w, r)
 			}))
