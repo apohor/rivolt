@@ -1,3 +1,4 @@
+import { formatMoney } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { chargeCostLine } from "../lib/activityFeed";
@@ -280,9 +281,9 @@ function ChargeTable({
               </td>
               <td className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {c.Cost > 0
-                  ? `${c.Cost.toFixed(2)} ${c.Currency ?? ""}`.trim()
+                  ? formatMoney(c.Cost, c.Currency || "USD")
                   : c.estimated_cost && c.estimated_cost > 0
-                    ? `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency ?? ""}`.trim()
+                    ? `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`
                     : "—"}
               </td>
               <td className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
@@ -343,7 +344,7 @@ function SummaryStrip({ totals }: { totals: ChargeTotals }) {
         label="Cost"
         value={
           totals.cost > 0
-            ? `${totals.estimated ? "~" : ""}${totals.cost.toFixed(2)}${totals.currency ? ` ${totals.currency}` : ""}`
+            ? `${totals.estimated ? "~" : ""}${formatMoney(totals.cost, totals.currency || "USD")}`
             : "—"
         }
         hint={

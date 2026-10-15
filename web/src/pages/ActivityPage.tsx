@@ -1,3 +1,4 @@
+import { formatMoney } from "../lib/ledger";
 import { displayTimeZone } from "../lib/format";
 import { detailPath, inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
@@ -195,7 +196,7 @@ function DriveCard({ item }: { item: DriveItem }) {
           <span className="text-amber-300">no energy recorded</span>
         ) : d.estimated_cost != null ? (
           <span className="tabular-nums underline decoration-dotted underline-offset-4">
-            ~{d.estimated_cost.toFixed(2)} {d.estimated_currency}
+            ~{formatMoney(d.estimated_cost, d.estimated_currency || "USD")}
           </span>
         ) : (
           <span>{d.EnergyUsedKWh.toFixed(1)} kWh</span>
@@ -246,7 +247,7 @@ function ErrandsRow({ item }: { item: ErrandItem }) {
           {item.drives.length} short drives
         </span>
         <span className="tabular-nums text-xs text-neutral-400">
-          {item.miles.toFixed(1)} mi{item.cost != null ? ` · ~${item.cost.toFixed(2)} ${item.currency}` : ""}
+          {item.miles.toFixed(1)} mi{item.cost != null ? ` · ~${formatMoney(item.cost, item.currency || "USD")}` : ""}
         </span>
       </button>
       {open && (

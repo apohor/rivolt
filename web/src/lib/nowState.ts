@@ -3,6 +3,7 @@
 // Rivian session feed is unavailable (replay / preview). Everything
 // time-dependent takes `nowMs` so it is unit-testable.
 
+import { displayTimeZone } from "./format";
 import type { NowSnapshot, VehicleState } from "./api";
 
 export type NowKind = "offline" | "driving" | "charging" | "plugged" | "asleep" | "parked";
@@ -299,8 +300,9 @@ export function formatEta(hours: number, nowMs: number): string {
     return m === 0 ? `~${h} h` : `~${h} h ${m} m`;
   }
   const done = new Date(nowMs + hours * 3_600_000);
-  const day = done.toLocaleDateString(undefined, { weekday: "short" });
-  const t = done.toLocaleTimeString(undefined, { hour: "numeric" });
+  const tz = displayTimeZone();
+  const day = done.toLocaleDateString(undefined, { weekday: "short", timeZone: tz });
+  const t = done.toLocaleTimeString(undefined, { hour: "numeric", timeZone: tz });
   return `~${Math.round(hours)} h (${day} ${t})`;
 }
 
@@ -331,7 +333,7 @@ export function statusPill(v: NowView): StatusPill {
 }
 
 export function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() });
 }
 
 // freshnessLine is the Now card's footer: how old the frame is, where the

@@ -3,6 +3,7 @@
 // one expandable row. No coordinates leave this module: places are
 // "Home" or nothing.
 
+import { formatMoney } from "./ledger";
 import type { Charge, Drive } from "./api";
 import { displayTimeZone, isActiveCharge } from "./format";
 
@@ -142,7 +143,7 @@ export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   // The server couldn't classify (settings unreadable): say so rather
   // than guess with client rules.
   if (c.classification_unavailable) return { text: "Price unavailable", tone: "missing" };
-  const money = `${c.Cost.toFixed(2)} ${c.Currency || ""}`.trim();
+  const money = formatMoney(c.Cost, c.Currency || "USD");
   const est = { text: `~${money}`, tone: "est" as const };
   const src = c.cost_source_effective;
   if (src) {
@@ -160,7 +161,7 @@ export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
         // home rate rather than recorded: show it as an estimate.
         if (c.Cost > 0) return c.cost_source_derived ? est : { text: money, tone: "ok" };
         if (c.estimated_cost && c.estimated_cost > 0) {
-          return { text: `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency || ""}`.trim(), tone: "est" };
+          return { text: `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`, tone: "est" };
         }
         return { text: "Unpriced", tone: "missing" };
     }
@@ -179,7 +180,7 @@ export function chargeCostLine(c: Charge, homeRate?: number | null): CostLine {
   }
   if (c.Cost > 0) return { text: money, tone: "ok" };
   if (c.estimated_cost && c.estimated_cost > 0) {
-    return { text: `~${c.estimated_cost.toFixed(2)} ${c.estimated_currency || ""}`.trim(), tone: "est" };
+    return { text: `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`, tone: "est" };
   }
   return { text: "Unpriced", tone: "missing" };
 }

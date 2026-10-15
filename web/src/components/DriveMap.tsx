@@ -6,6 +6,7 @@
 // a personal tool but you'd swap in a self-hosted or paid provider for
 // higher traffic.
 
+import { displayTimeZone } from "../lib/format";
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -1476,6 +1477,7 @@ export function ChargesOverviewMap({
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: displayTimeZone(),
       });
       m.bindTooltip(
         `<div style="font:11px/1.3 ui-sans-serif,system-ui">` +
@@ -1726,6 +1728,7 @@ export function DrivesOverviewMap({
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",
+        timeZone: displayTimeZone(),
       });
       const tooltip =
         `<div style="font:11px/1.3 ui-sans-serif,system-ui">` +

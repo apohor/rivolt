@@ -17,6 +17,7 @@
 // (EnergyUsedKWh / SoC delta), so it works on every drive that has
 // telemetry without needing a per-vehicle pack-size config.
 
+import { displayTimeZone } from "../lib/format";
 import {
   useLayoutEffect,
   useMemo,
@@ -523,6 +524,12 @@ function TimelineSVG(props: {
   const textTF = (x: number, y: number) =>
     `translate(${x} ${y}) scale(${1 / aspect.fx} ${1 / aspect.fy})`;
 
+  // Rendered width in px (counter-scaled text is real pixels): below ~480
+  // px the 70/44-unit gutters are only ~25 px wide, so axis titles would
+  // sit on top of the first tick labels. The series chips above the
+  // chart already name (and colour) every series, so the titles drop out
+  // and the axis uses fewer ticks.
+  const narrow = aspect.fx * VIEW_W < 480;
   const xSpan = Math.max(1, xMax - xMin);
   // Warped time axis: parked/gap dead zones compressed to a fixed width so
   // real driving data owns the plot. sx + invert stay continuous, so every
@@ -673,7 +680,7 @@ function TimelineSVG(props: {
       {/* ---- Power ribbon ----------------------------------------- */}
       {/* PowerRibbon manages its own label; data inside is clipped. */}
       {showPower ? (
-        <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} />
+        <PowerRibbon powerPts={powerPts} sx={sx} cap={powerCap} textTF={textTF} hideLabel={narrow} />
       ) : null}
 
       {/* ---- Speed panel: frame + grid + ticks -------------------- */}
@@ -713,15 +720,17 @@ function TimelineSVG(props: {
           </g>
         );
       })}
-      <g transform={textTF(4, SPEED_TOP + 12)}>
-        <text
-          fontSize={10}
-          fill={SERIES.speed}
-          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-        >
-          Speed
-        </text>
-      </g>
+      {narrow ? null : (
+        <g transform={textTF(4, SPEED_TOP + 12)}>
+          <text
+            fontSize={10}
+            fill={SERIES.speed}
+            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+          >
+            Speed
+          </text>
+        </g>
+      )}
 
       {/* ---- Speed area + line ------------------------------------ */}
       {showSpeed && speedPts.length > 1
@@ -849,16 +858,18 @@ function TimelineSVG(props: {
           </g>
         );
       })}
-      <g transform={textTF(VIEW_W - PAD_R - 2, BATT_TOP + 12)}>
-        <text
-          textAnchor="end"
-          fontSize={10}
-          fill={SERIES.battery}
-          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-        >
-          SoC
-        </text>
-      </g>
+      {narrow ? null : (
+        <g transform={textTF(VIEW_W - PAD_R - 2, BATT_TOP + 12)}>
+          <text
+            textAnchor="end"
+            fontSize={10}
+            fill={SERIES.battery}
+            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+          >
+            SoC
+          </text>
+        </g>
+      )}
 
       {showElevation ? (
         <ElevationBackdrop
@@ -931,6 +942,7 @@ function TimelineSVG(props: {
       {/* ---- Precipitation strip ---------------------------------- */}
       <CategoricalStrip
         title="Precip"
+        shortTitle={narrow ? "Rain" : undefined}
         top={PRECIP_TOP}
         height={PRECIP_H}
         bands={precipBands.map((b) => ({
@@ -959,7 +971,7 @@ function TimelineSVG(props: {
       />
 
       {/* ---- Time axis -------------------------------------------- */}
-      <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} textTF={textTF} />
+      <TimeAxis xMin={xMin} xMax={xMax} sx={sx} top={AXIS_TOP} textTF={textTF} maxTicks={narrow ? 3 : 5} />
 
       {/* ---- Crosshair -------------------------------------------- */}
       {cursorVisible
@@ -1209,24 +1221,28 @@ function PowerRibbon({
   sx,
   cap,
   textTF,
+  hideLabel = false,
 }: {
   powerPts: PowerPt[];
   sx: (x: number) => number;
   cap: number;
   textTF: (x: number, y: number) => string;
+  hideLabel?: boolean;
 }) {
   if (powerPts.length < 2) return null;
   return (
     <g>
-      <g transform={textTF(4, RIBBON_TOP + RIBBON_H - 1)}>
-        <text
-          className="fill-neutral-500"
-          fontSize={9}
-          style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
-        >
-          Power
-        </text>
-      </g>
+      {hideLabel ? null : (
+        <g transform={textTF(4, RIBBON_TOP + RIBBON_H - 1)}>
+          <text
+            className="fill-neutral-500"
+            fontSize={9}
+            style={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+          >
+            Power
+          </text>
+        </g>
+      )}
       {/* Per-interval color cells live inside the plot clip so they
           can't bleed past the y-axis gutter when the chart is zoomed
           in. The frame rect and right-side legend stay outside the
@@ -1329,6 +1345,7 @@ function ElevationBackdrop({
 
 function CategoricalStrip({
   title,
+  shortTitle,
   top,
   height,
   bands,
@@ -1336,6 +1353,8 @@ function CategoricalStrip({
   textTF,
 }: {
   title: string;
+  // Used when the gutter is only ~25 px (phones).
+  shortTitle?: string;
   top: number;
   height: number;
   bands: { x0: number; x1: number; color: string; label: string }[];
@@ -1344,11 +1363,6 @@ function CategoricalStrip({
 }) {
   return (
     <g>
-      <g transform={textTF(4, top + height - 2)}>
-        <text className="fill-neutral-500" fontSize={9}>
-          {title}
-        </text>
-      </g>
       <rect
         x={PAD_L}
         y={top}
@@ -1357,6 +1371,12 @@ function CategoricalStrip({
         className="fill-neutral-900"
         rx={2}
       />
+      {/* Drawn after the strip so it can never be covered by it. */}
+      <g transform={textTF(2, top + height - 2)}>
+        <text className="fill-neutral-500" fontSize={9}>
+          {shortTitle ?? title}
+        </text>
+      </g>
       <g clipPath="url(#dt-plot-clip)">
         {bands.map((b, i) => {
           const w = Math.max(0, b.x1 - b.x0);
@@ -1392,14 +1412,16 @@ function TimeAxis({
   sx,
   top,
   textTF,
+  maxTicks = 5,
 }: {
   xMin: number;
   xMax: number;
   sx: (x: number) => number;
   top: number;
   textTF: (x: number, y: number) => string;
+  maxTicks?: number;
 }) {
-  const ticks = niceTimeTicks(xMin, xMax, 5);
+  const ticks = niceTimeTicks(xMin, xMax, maxTicks);
   return (
     <g>
       {ticks.map((t, i) => {
@@ -1990,6 +2012,7 @@ function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: displayTimeZone(),
   });
 }
 
@@ -1998,6 +2021,7 @@ function fmtClockSec(ms: number): string {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    timeZone: displayTimeZone(),
   });
 }
 
