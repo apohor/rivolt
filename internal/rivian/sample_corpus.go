@@ -121,8 +121,9 @@ type sampleSeg struct {
 	socA, socB float64
 	odoA, odoB float64 // miles
 	path       []samplePoint
-	cruise     float64 // mph (drive)
-	peakKW     float64 // charge
+	cruise     float64        // mph (drive)
+	prof       *sampleProfile // drive: the shape within the drive (nil: legacy sine)
+	peakKW     float64        // charge
 	dcfc       bool
 	plugged    bool   // parked with the cable in
 	power      string // parked: ready | sleep
@@ -258,7 +259,8 @@ func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
 	drop := miles / (sampleMiPerKWh * samplePackKWh) * 100
 	b.plugged = false
 	b.add(sampleSeg{kind: segDrive, start: b.t, end: b.t.Add(dur), step: 5 * time.Second,
-		socA: b.soc, socB: b.soc - drop, odoA: b.odo, odoB: b.odo + miles, path: path, cruise: cruise, power: "go"})
+		socA: b.soc, socB: b.soc - drop, odoA: b.odo, odoB: b.odo + miles, path: path, cruise: cruise, power: "go",
+		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise)})
 	b.soc -= drop
 	b.odo += miles
 	b.at = to[len(to)-1]
@@ -464,12 +466,19 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 		soc = s.socA + (s.socB-s.socA)*(1-math.Pow(1-f, 1.6))
 	}
 	pos := s.path[0]
+	odo := s.odoA + (s.odoB-s.odoA)*f
 	if s.kind == segDrive {
-		pos = alongPath(s.path, f)
+		d := f
+		if p := s.prof; p != nil && i >= 0 && i < len(p.speed) {
+			d = p.dist[i]
+			soc = s.socA + (s.socB-s.socA)*p.soc[i]
+			odo = s.odoA + (s.odoB-s.odoA)*d
+		}
+		pos = alongPath(s.path, d)
 	}
 	fix := t
 	fr := replayFrame{
-		At: t, ShiftState: "P", BatteryPct: round1(soc), OdometerMi: round2(s.odoA + (s.odoB-s.odoA)*f),
+		At: t, ShiftState: "P", BatteryPct: round1(soc), OdometerMi: round2(odo),
 		RangeMi: round1(soc / 100 * samplePackKWh * sampleMiPerKWh), Lat: round5(pos.Lat), Lon: round5(pos.Lon),
 		ChargingState: "charger_disconnected", PowerState: s.power, LocationFixAt: &fix,
 		DriveMode: "everyday", ChargeLimitPct: s.limit, TirePressureBar: 2.9,
@@ -482,8 +491,15 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 	case segDrive:
 		fr.ShiftState = "D"
 		fr.PowerState = "go"
-		ramp := math.Min(1, math.Min(f, 1-f)*40) // ease in/out over the first and last ~2.5 %
-		fr.SpeedMph = round1(math.Max(3, s.cruise*(0.88+0.12*math.Sin(float64(i)/9))*math.Max(ramp, 0.15)))
+		if p := s.prof; p != nil && i >= 0 && i < len(p.speed) {
+			fr.SpeedMph = p.speed[i]
+			if p.modeAt >= 0 && i >= p.modeAt {
+				fr.DriveMode = "sport"
+			}
+		} else {
+			ramp := math.Min(1, math.Min(f, 1-f)*40) // ease in/out over the first and last ~2.5 %
+			fr.SpeedMph = round1(math.Max(3, s.cruise*(0.88+0.12*math.Sin(float64(i)/9))*math.Max(ramp, 0.15)))
+		}
 		fr.InsideTempC = 21
 		fr.PackTempAvgC, fr.PackTempMinC, fr.PackTempMaxC = 28, 26, 30
 	case segCharge:
