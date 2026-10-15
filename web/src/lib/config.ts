@@ -191,9 +191,10 @@ export function valhallaBase(): string {
 // drive map to a vector basemap via protomaps-leaflet; empty keeps
 // the legacy CARTO raster path.
 export function tilesPMTilesURL(): string {
-  // The signed-out demo can't read the tile archive: use the public
-  // raster basemap (already allowed by the CSP) instead of 401ing.
-  if (inDemo()) return "";
+  // The demo uses the same self-hosted basemap archive as the signed-in
+  // app (the server allows the basemap for the demo). CARTO's public
+  // raster needs an API key now and renders placeholder tiles, so it is
+  // not a fallback for the demo.
   return cached.tiles.url;
 }
 
