@@ -97,7 +97,7 @@ export function choosePin(
     const unknown = UNKNOWN_NETWORKS.has(known.toLowerCase());
     return { snap: false, label: unknown ? "Charging station" : displayNetwork(known) };
   }
-  const snappedLabel = poi?.name ?? "Charging station";
+  const snappedLabel = poi?.name || "Charging station";
   if (UNKNOWN_NETWORKS.has(known.toLowerCase())) {
     return poi ? { snap: true, label: snappedLabel } : { snap: false, label: isDC ? "DC fast charger" : "Charging station" };
   }
