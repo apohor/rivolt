@@ -488,6 +488,9 @@ export type NowSnapshot = {
   // Not a freshness verdict: the client applies per-state cadence to `at`.
   connection: "live" | "replay" | "reauth" | "paused";
   state: "driving" | "charging" | "plugged" | "parked" | "asleep" | "unknown";
+  // True when the newest frame's power_state is sleep, independent of
+  // `state` (a plugged truck can be asleep). Absent on older servers.
+  asleep?: boolean;
   state_since: string | null;
   soc_at_state_start: number | null;
   tire_pressure_min_bar: number | null;

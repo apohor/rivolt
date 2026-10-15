@@ -74,6 +74,36 @@ func TestNowHandler(t *testing.T) {
 	}
 }
 
+// asleep is independent of the displayed state: a plugged truck whose
+// newest row is power_state=sleep reads state "plugged" and asleep true.
+func TestNowAsleepFlagIndependentOfState(t *testing.T) {
+	at := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	mk := func(asleep bool) nowAPI {
+		return nowAPI{
+			snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+				return nowSnapshot{At: &at, State: "plugged", Asleep: asleep}, nil
+			},
+			connection: func(uuid.UUID) string { return "live" },
+			now:        func() time.Time { return at },
+		}
+	}
+	_, m := nowGet(t, mk(true))
+	if m["state"] != "plugged" || m["asleep"] != true {
+		t.Fatalf("plugged+asleep: %v", m)
+	}
+	_, m = nowGet(t, mk(false))
+	if m["state"] != "plugged" || m["asleep"] != false {
+		t.Fatalf("plugged+awake: %v", m)
+	}
+	// An empty snapshot still carries the field (false).
+	a := mk(false)
+	a.snapshot = func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) { return nowSnapshot{}, nil }
+	_, m = nowGet(t, a)
+	if v, ok := m["asleep"]; !ok || v != false {
+		t.Fatalf("empty: asleep = %v (present %v)", v, ok)
+	}
+}
+
 func TestNowRunCache(t *testing.T) {
 	c := newNowRunCache(60 * time.Second)
 	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)

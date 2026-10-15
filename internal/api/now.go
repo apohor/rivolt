@@ -23,9 +23,13 @@ const nowSleepWindow = 6 * time.Hour
 
 // nowSnapshot is what the store derives for a vehicle at one instant.
 type nowSnapshot struct {
-	At               *time.Time
-	LocationFixAt    *time.Time
-	State            string // driving|charging|plugged|asleep|parked|unknown
+	At            *time.Time
+	LocationFixAt *time.Time
+	State         string // driving|charging|plugged|asleep|parked|unknown
+	// Asleep is true when the newest row's power_state is "sleep",
+	// independent of State (a plugged truck can be asleep: State reads
+	// "plugged" but its frames arrive every ~3 min, not every few s).
+	Asleep           bool
 	StateSince       *time.Time
 	SoCAtStateStart  *float64
 	TirePressureMinB *float64
@@ -45,6 +49,7 @@ type nowResponse struct {
 	LocationFixAt    *time.Time `json:"location_fix_at"`
 	Connection       string     `json:"connection"`
 	State            string     `json:"state"`
+	Asleep           bool       `json:"asleep"`
 	StateSince       *time.Time `json:"state_since"`
 	SoCAtStateStart  *float64   `json:"soc_at_state_start"`
 	TirePressureMinB *float64   `json:"tire_pressure_min_bar"`
@@ -88,7 +93,7 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	}
 	out := nowResponse{
 		Version: 1, At: snap.At, LocationFixAt: snap.LocationFixAt,
-		Connection: a.connection(uid), State: snap.State, StateSince: snap.StateSince,
+		Connection: a.connection(uid), State: snap.State, Asleep: snap.Asleep, StateSince: snap.StateSince,
 		SoCAtStateStart: snap.SoCAtStateStart, TirePressureMinB: snap.TirePressureMinB,
 		FailedSleeps6h: snap.FailedSleeps6h,
 	}
@@ -123,7 +128,8 @@ var nowCurSQL = fmt.Sprintf(`
 WITH v AS (
 	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
-	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st
+	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st,
+	       (vs.power_state IS NOT DISTINCT FROM 'sleep') AS asleep
 	FROM vehicle_state vs
 	WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v) AND vs.at >= $3::timestamptz
 	ORDER BY vs.at DESC LIMIT 1
@@ -131,6 +137,7 @@ WITH v AS (
 SELECT (SELECT at FROM cur),
        (SELECT st FROM cur),
        (SELECT location_fix_at FROM cur),
+       (SELECT asleep FROM cur),
        (SELECT vs.tire_pressure_min_bar FROM vehicle_state vs
          WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM v)
            AND vs.tire_pressure_min_bar IS NOT NULL AND vs.at >= $4::timestamptz
@@ -247,9 +254,10 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		var at, fix sql.NullTime
 		var st sql.NullString
 		var tire sql.NullFloat64
+		var asleep sql.NullBool
 		sleepFrom := now.Add(-nowSleepWindow).UTC()
 		if err := pool.QueryRowContext(ctx, nowCurSQL, uid, rivianID, now.Add(-nowLookback).UTC(), sleepFrom).
-			Scan(&at, &st, &fix, &tire); err != nil {
+			Scan(&at, &st, &fix, &asleep, &tire); err != nil {
 			return out, err
 		}
 		if at.Valid {
@@ -264,6 +272,7 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 			out.TirePressureMinB = &tire.Float64
 		}
 		out.State = st.String
+		out.Asleep = asleep.Valid && asleep.Bool
 		if !st.Valid {
 			return out, nil // no rows in the lookback
 		}
