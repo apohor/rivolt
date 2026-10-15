@@ -20,6 +20,7 @@ import {
 } from "../lib/config";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor, type Flavor as PMFlavor } from "@protomaps/basemaps";
+import { appMapFlavor, onAppMapFlavor, type MapFlavor } from "../lib/mapTheme";
 import { findNearestCharger, type POI } from "../lib/poi";
 import {
   cleanTrace,
@@ -443,48 +444,39 @@ function chargerSpecListHTML(poi: POI): string {
   );
 }
 
-// Basemap flavor toggle. protomaps-leaflet ships four named flavors
-// Basemap flavor toggle. @protomaps/basemaps ships four named
-// flavors (dark / light / black / white) but black is a marginal
-// variant of dark and white is a marginal variant of light --
-// not enough difference to justify four buttons in the UI. We
-// expose just dark and light. Persist the choice in localStorage
-// so it survives reloads. A custom event keeps all maps on the
-// page in sync -- switching flavor on the drive details page
-// also updates the inline mini-map in the sidebar (or any other
-// map mounted concurrently).
-type Flavor = "dark" | "light";
+// Basemap flavor. @protomaps/basemaps ships four named flavors
+// (dark / light / black / white) but black is a marginal variant of
+// dark and white of light, so we expose just dark and light. The
+// default is the resolved app theme (lib/mapTheme.ts), live. The D/L
+// buttons are a temporary override for this map view only: held in the
+// map's closure, never persisted, so the next map opens in the theme.
+type Flavor = MapFlavor;
 const FLAVORS: Flavor[] = ["dark", "light"];
-const FLAVOR_LS_KEY = "rivolt:basemap-flavor";
-const FLAVOR_EVENT = "rivolt:flavor-change";
 
-function getFlavor(): Flavor {
-  try {
-    const v = localStorage.getItem(FLAVOR_LS_KEY);
-    if (v && (FLAVORS as string[]).includes(v)) return v as Flavor;
-  } catch {
-    // localStorage can throw in private mode / disabled storage;
-    // fall through to the default.
-  }
-  return "dark";
-}
-
-function setFlavor(f: Flavor): void {
-  try {
-    localStorage.setItem(FLAVOR_LS_KEY, f);
-  } catch {
-    // see getFlavor — non-fatal.
-  }
-  window.dispatchEvent(new CustomEvent<Flavor>(FLAVOR_EVENT, { detail: f }));
-}
-
-// flavorControl renders a two-button picker in the top-right
-// corner for swapping between dark and light basemap flavors.
-// Click dispatches the FLAVOR_EVENT so every mounted map swaps
-// its layer in unison; the active button is highlighted on the
-// next event dispatch (initial paint and subsequent changes
-// alike).
-function flavorControl(map: L.Map): L.Control {
+// flavorControl renders a two-button picker in the top-right corner.
+// `pick` is called on click; the returned `refresh` re-highlights the
+// active flavor.
+function flavorControl(
+  map: L.Map,
+  active: Flavor,
+  pick: (f: Flavor) => void,
+): { refresh: (f: Flavor) => void } {
+  const buttons = {} as Record<Flavor, HTMLButtonElement>;
+  const refresh = (cur: Flavor) => {
+    for (const f of FLAVORS) {
+      const b = buttons[f];
+      if (!b) continue;
+      if (f === cur) {
+        b.style.background = "#262626";
+        b.style.color = "#fafafa";
+        b.style.borderColor = "#404040";
+      } else {
+        b.style.background = "transparent";
+        b.style.color = "#a3a3a3";
+        b.style.borderColor = "transparent";
+      }
+    }
+  };
   const ctl = new L.Control({ position: "topright" });
   ctl.onAdd = () => {
     const div = L.DomUtil.create("div", "rivolt-flavor-control");
@@ -493,10 +485,6 @@ function flavorControl(map: L.Map): L.Control {
       "border-radius:6px;padding:2px;display:inline-flex;gap:2px;" +
       "font:10px/1 ui-sans-serif,system-ui;backdrop-filter:blur(2px);" +
       "box-shadow:0 1px 2px rgba(0,0,0,0.4);";
-    const buttons: Record<Flavor, HTMLButtonElement> = {} as Record<
-      Flavor,
-      HTMLButtonElement
-    >;
     for (const f of FLAVORS) {
       const btn = L.DomUtil.create("button", "", div) as HTMLButtonElement;
       btn.type = "button";
@@ -508,38 +496,17 @@ function flavorControl(map: L.Map): L.Control {
         "cursor:pointer;padding:0;font:inherit;font-weight:600;";
       L.DomEvent.on(btn, "click", (e) => {
         L.DomEvent.stop(e);
-        setFlavor(f);
+        pick(f);
       });
       buttons[f] = btn;
     }
-    const refresh = (active: Flavor) => {
-      for (const f of FLAVORS) {
-        const b = buttons[f];
-        if (f === active) {
-          b.style.background = "#262626";
-          b.style.color = "#fafafa";
-          b.style.borderColor = "#404040";
-        } else {
-          b.style.background = "transparent";
-          b.style.color = "#a3a3a3";
-          b.style.borderColor = "transparent";
-        }
-      }
-    };
-    refresh(getFlavor());
-    const onChange = (e: Event) => {
-      refresh((e as CustomEvent<Flavor>).detail);
-    };
-    window.addEventListener(FLAVOR_EVENT, onChange);
+    refresh(active);
     L.DomEvent.disableClickPropagation(div);
     L.DomEvent.disableScrollPropagation(div);
-    map.once("unload", () => {
-      window.removeEventListener(FLAVOR_EVENT, onChange);
-    });
     return div;
   };
   ctl.addTo(map);
-  return ctl;
+  return { refresh };
 }
 
 // boostContrast returns a copy of a named protomaps flavor with
@@ -598,9 +565,9 @@ function boostContrast(name: Flavor, base: PMFlavor): PMFlavor {
 // host). The vector path renders labels inline with the basemap; the
 // route polyline draws on top.
 //
-// When the vector path is active, the layer is swapped on
-// FLAVOR_EVENT so every map on the page stays in sync with the
-// flavor picker. Listener is removed on map unload.
+// When the vector path is active, the layer is swapped when the app
+// theme flips or the D/L override is used. Observers are removed on map
+// unload.
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
   if (!url) {
@@ -629,20 +596,35 @@ function addBasemap(map: L.Map) {
       attribution: PROTOMAPS_ATTRIB,
     }) as unknown as L.Layer;
   };
-  let current = mkLayer(getFlavor());
+  // The container's own background shows until tiles paint; leaflet.css
+  // (unlayered) beats our themed rule, so set it per flavor here.
+  const paintBg = (f: Flavor) => {
+    map.getContainer().style.background = boostContrast(f, namedFlavor(f)).background;
+  };
+  let shown: Flavor = appMapFlavor();
+  let current = mkLayer(shown);
   current.addTo(map);
-  const onChange = (e: Event) => {
-    const next = (e as CustomEvent<Flavor>).detail;
+  paintBg(shown);
+  const show = (next: Flavor) => {
+    if (next === shown) return;
+    shown = next;
+    paintBg(next);
     const replacement = mkLayer(next);
     replacement.addTo(map);
     map.removeLayer(current);
     current = replacement;
   };
-  window.addEventListener(FLAVOR_EVENT, onChange);
-  map.once("unload", () => {
-    window.removeEventListener(FLAVOR_EVENT, onChange);
+  const ctl = flavorControl(map, shown, (f) => {
+    show(f);
+    ctl.refresh(f);
   });
-  flavorControl(map);
+  // A theme change (Settings, or the OS under System) resets the
+  // temporary override: the map goes back to following the app.
+  const off = onAppMapFlavor((f) => {
+    show(f);
+    ctl.refresh(f);
+  });
+  map.once("unload", off);
 }
 
 // Leaflet ships broken marker icon URLs when bundled. Replace them with
