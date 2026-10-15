@@ -408,7 +408,7 @@ function Panels(props: {
   const eSpan = Math.max(1, eMax - eMin);
   const eLo = eMin - eSpan * 0.1;
   const eHi = eMax + eSpan * 0.3;
-  const eStep = [50, 100, 200, 250, 500, 1000].find((st) => Math.floor(eHi / st) - Math.ceil(eLo / st) + 1 <= 3) ?? 1000;
+  const eStep = [50, 100, 200, 250, 500, 1000, 2000, 5000].find((st) => Math.floor(eHi / st) - Math.ceil(eLo / st) + 1 <= 3) ?? 5000;
   const elevTicks: number[] = [];
   if (elevPts.length > 1) for (let v = Math.ceil(eLo / eStep) * eStep; v <= eHi; v += eStep) elevTicks.push(v);
   const wAbs = Math.max(5, ...headwindPts.map((p) => Math.abs(p.y)));
@@ -770,7 +770,8 @@ function Readout({
     }
     if (soc != null) items.push({ color: C.soc, label: "Battery", value: `${soc.toFixed(1)} %` });
     if (elev != null) items.push({ color: C.elev, label: "Elev", value: `${elev.toFixed(0)} ft` });
-    if (cursorSample.OutsideTempC != null && Number.isFinite(cursorSample.OutsideTempC)) {
+    // /api/samples coalesces a missing outside temp to 0, so 0 means "no reading".
+    if (cursorSample.OutsideTempC != null && Number.isFinite(cursorSample.OutsideTempC) && cursorSample.OutsideTempC !== 0) {
       items.push({ color: C.elev, label: "Outside", value: fmtTemp(cursorSample.OutsideTempC, tempUnit) });
     }
     if (showTemp && cursorSample.pack_temp_avg_c) {
