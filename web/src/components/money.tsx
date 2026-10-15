@@ -225,9 +225,6 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             >
               {formatDateTime(r.started_at)}
               <span className={`ml-2 rounded-full border px-1.5 py-px text-[10px] ${chip.chip}`}>{chip.label}</span>
-              {r.place === "away" && r.km_from_home != null && (
-                <span className="ml-1.5 text-[11px] text-neutral-500">{formatDistance(r.km_from_home, distanceUnit)} from home</span>
-              )}
             </Link>
             <MoneyValue r={r} currency={currency} className="shrink-0 text-sm font-medium tabular-nums text-neutral-100" />
           </div>
@@ -240,6 +237,11 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             )}
             {r.peak_kw != null && (
               <span className="tabular-nums">{r.peak_kw.toFixed(r.peak_kw < 10 ? 1 : 0)} kW peak</span>
+            )}
+            {r.place === "away" && r.km_from_home != null && (
+              <span className="whitespace-nowrap tabular-nums text-neutral-500">
+                {formatDistance(r.km_from_home, distanceUnit)} from home
+              </span>
             )}
             {notes.map((n) => (
               <span key={n} className="text-neutral-500">
