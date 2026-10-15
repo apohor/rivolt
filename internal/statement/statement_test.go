@@ -252,11 +252,13 @@ func TestDue(t *testing.T) {
 // ---- job -------------------------------------------------------------
 
 type fakeStore struct {
-	mu     sync.Mutex
-	cands  []Candidate
-	sends  map[string]*fakeSend
-	prefs  map[uuid.UUID]Prefs
-	emails map[uuid.UUID]string
+	mu       sync.Mutex
+	cands    []Candidate
+	sends    map[string]*fakeSend
+	prefs    map[uuid.UUID]Prefs
+	emails   map[uuid.UUID]string
+	stuck    int
+	attempts map[string]int
 }
 type fakeSend struct {
 	status  string
@@ -265,7 +267,7 @@ type fakeSend struct {
 }
 
 func newFakeStore(cs ...Candidate) *fakeStore {
-	return &fakeStore{cands: cs, sends: map[string]*fakeSend{}, prefs: map[uuid.UUID]Prefs{}, emails: map[uuid.UUID]string{}}
+	return &fakeStore{cands: cs, sends: map[string]*fakeSend{}, prefs: map[uuid.UUID]Prefs{}, emails: map[uuid.UUID]string{}, attempts: map[string]int{}}
 }
 func key(uid uuid.UUID, p string) string { return uid.String() + "|" + p }
 func (f *fakeStore) GetPrefs(_ context.Context, uid uuid.UUID) (Prefs, error) {
@@ -294,13 +296,15 @@ func (f *fakeStore) Claim(_ context.Context, uid uuid.UUID, period string, now t
 	defer f.mu.Unlock()
 	k := key(uid, period)
 	if s, ok := f.sends[k]; ok {
-		if s.status == "failed" && now.Sub(s.created) < RetryWindow {
+		if s.status == "failed" && now.Sub(s.created) < RetryWindow && f.attempts[k] < MaxAttempts {
 			s.status = "sending"
+			f.attempts[k]++
 			return true, nil
 		}
 		return false, nil
 	}
 	f.sends[k] = &fakeSend{status: "sending", created: now}
+	f.attempts[k] = 1
 	return true, nil
 }
 func (f *fakeStore) Mark(_ context.Context, uid uuid.UUID, period, status, reason string, _ time.Time) error {
@@ -310,6 +314,9 @@ func (f *fakeStore) Mark(_ context.Context, uid uuid.UUID, period, status, reaso
 		s.status, s.reason = status, reason
 	}
 	return nil
+}
+func (f *fakeStore) StuckSending(context.Context, time.Duration, time.Time) (int, error) {
+	return f.stuck, nil
 }
 func (f *fakeStore) Purge(context.Context, time.Time) (int64, error) { return 0, nil }
 
@@ -499,5 +506,41 @@ func TestJob_BuildIsWhatSendUses(t *testing.T) {
 	_, _ = j.RunOnce(context.Background())
 	if len(mail.sent) != 1 || mail.sent[0].Subject != built.Subject || mail.sent[0].To != built.To {
 		t.Fatalf("send differs from build: %q vs %q", mail.sent[0].Subject, built.Subject)
+	}
+}
+
+func TestJob_AttemptsAreCappedAndStuckClaimsAreReported(t *testing.T) {
+	c := cand("UTC")
+	st, mail := newFakeStore(c), &fakeMailer{err: errors.New("resend 500")}
+	st.stuck = 2
+	j, _ := newJob(st, mail, oct1)
+	var failed, claimedRuns int
+	for i := 0; i < 6; i++ {
+		s, _ := j.RunOnce(context.Background())
+		if i == 0 && s.StuckSending != 2 {
+			t.Fatalf("stuck = %d, want 2", s.StuckSending)
+		}
+		failed += s.Failed
+		if s.Due > 0 && s.AlreadyDone == 0 {
+			claimedRuns++
+		}
+	}
+	if failed != MaxAttempts {
+		t.Fatalf("a permanently failing send was attempted %d times, want %d", failed, MaxAttempts)
+	}
+}
+
+func TestBuild_CarriesAStableOpaqueIdempotencyKey(t *testing.T) {
+	c := cand("UTC")
+	j, _ := newJob(newFakeStore(c), &fakeMailer{}, oct1)
+	cur := monthly("2026-09")
+	a, _ := j.Build(c, "2026-09", cur, nil)
+	b, _ := j.Build(c, "2026-09", cur, nil)
+	other, _ := j.Build(c, "2026-08", cur, nil)
+	if a.IdempotencyKey == "" || a.IdempotencyKey != b.IdempotencyKey || a.IdempotencyKey == other.IdempotencyKey {
+		t.Fatalf("keys: %q %q %q", a.IdempotencyKey, b.IdempotencyKey, other.IdempotencyKey)
+	}
+	if strings.Contains(a.IdempotencyKey, c.UserID.String()) {
+		t.Fatal("the key exposes the user id")
 	}
 }

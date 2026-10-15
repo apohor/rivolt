@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/apohor/rivolt/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,6 +55,9 @@ func (m *memStmStore) Claim(context.Context, uuid.UUID, string, time.Time) (bool
 }
 func (m *memStmStore) Mark(context.Context, uuid.UUID, string, string, string, time.Time) error {
 	return nil
+}
+func (m *memStmStore) StuckSending(context.Context, time.Duration, time.Time) (int, error) {
+	return 0, nil
 }
 func (m *memStmStore) Purge(context.Context, time.Time) (int64, error) { return 0, nil }
 
@@ -228,5 +232,16 @@ func TestStatementUnsubscribe_RejectsTamperedExpiredAndOtherKeys(t *testing.T) {
 	}
 	if p, _ := store.GetPrefs(context.Background(), uid); !p.Enabled {
 		t.Fatal("a rejected token changed the preference")
+	}
+}
+
+func TestStatementSettings_PutIsForbiddenWhileImpersonating(t *testing.T) {
+	a, _, uid, _ := stmFixture(true)
+	req := httptest.NewRequest("PUT", "/api/settings/statement-email", strings.NewReader(`{"enabled":true}`))
+	ctx := auth.WithImpersonation(req.Context(), uuid.New(), uid)
+	rec := httptest.NewRecorder()
+	a.putSettings(uid, rec, req.WithContext(ctx))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("impersonated PUT = %d, want 403", rec.Code)
 	}
 }

@@ -11,8 +11,17 @@
 -- (user_id, period) with status 'sending' BEFORE it sends, so two
 -- replicas (or two runs) can never send the same month twice.
 --   status    sending | sent | failed | skipped
---   attempts  send attempts; failed rows are retried for 3 days.
+--   attempts  send attempts (capped at 3); failed rows are retried hourly
+--             while the local send window (days 1-2) is open.
 -- Rows older than 13 months are deleted by the job.
+
+-- users.email_verified: mail (the statement) goes only to an address the
+-- identity provider verified. EnsureUserVerified maintains it from here
+-- on. Backfill: an email-keyed account (username = email) was keyed on a
+-- verified address by construction (or a first-party trusted one).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE users SET email_verified = TRUE
+ WHERE email_verified = FALSE AND email IS NOT NULL AND lower(username) = lower(email);
 
 CREATE TABLE IF NOT EXISTS statement_email_prefs (
     user_id    UUID        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

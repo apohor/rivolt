@@ -171,7 +171,7 @@ func TestSend_PassesSafeHeaders(t *testing.T) {
 		"List-Unsubscribe":      "<https://x/u?t=1>",
 		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
 		"X-Evil":                "a\r\nBcc: attacker@example.com",
-		"Bad\nName":            "v",
+		"Bad\nName":             "v",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -188,5 +188,24 @@ func TestSend_PassesSafeHeaders(t *testing.T) {
 	_ = c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t"})
 	if _, has := got["headers"]; has {
 		t.Fatalf("empty headers sent: %v", got)
+	}
+}
+
+func TestSend_IdempotencyKeyHeader(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Idempotency-Key")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	c := New(Config{APIKey: "k", From: "Rivolt <a@rivolt.dev>"})
+	c.base = srv.URL
+	if err := c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t", IdempotencyKey: "stm-abc"}); err != nil || got != "stm-abc" {
+		t.Fatalf("key = %q (%v)", got, err)
+	}
+	got = "unchanged"
+	_ = c.Send(context.Background(), Message{To: "u@example.com", Subject: "s", Text: "t"})
+	if got != "" {
+		t.Fatalf("a message without a key sent %q", got)
 	}
 }

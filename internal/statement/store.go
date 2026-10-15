@@ -9,9 +9,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// RetryWindow is how long a failed send is retried (hourly) before
-// the period is given up on.
-const RetryWindow = 3 * 24 * time.Hour
+// RetryWindow is how long a failed send may be retried before the
+// period is given up on, and MaxAttempts caps the retries within it.
+// (The send window itself is the user's local days 1-2, so in practice
+// it is the shorter bound.)
+const (
+	RetryWindow = 3 * 24 * time.Hour
+	MaxAttempts = 3
+)
 
 // SendRetention is how long statement_email_sends rows are kept.
 const SendRetention = 13 * 31 * 24 * time.Hour
@@ -37,7 +42,9 @@ type Store interface {
 	SetPrefs(ctx context.Context, uid uuid.UUID, p Prefs) error
 	// LastSentPeriod is the newest period with status 'sent', or "".
 	LastSentPeriod(ctx context.Context, uid uuid.UUID) (string, error)
-	// Email returns the account's email address ("" = none).
+	// Email returns the account's VERIFIED email address ("" = none or
+	// unverified): statements are only ever mailed to an address the
+	// identity provider verified.
 	Email(ctx context.Context, uid uuid.UUID) (string, error)
 	// OptedIn lists users with enabled=true and an email address.
 	OptedIn(ctx context.Context) ([]Candidate, error)
@@ -47,6 +54,10 @@ type Store interface {
 	// claimable. This is the idempotency key: it holds across replicas.
 	Claim(ctx context.Context, uid uuid.UUID, period string, now time.Time) (bool, error)
 	Mark(ctx context.Context, uid uuid.UUID, period, status, reason string, now time.Time) error
+	// StuckSending counts claims left in 'sending' for longer than d
+	// (a crash between Claim and Mark: at-most-once, never resent, so
+	// this is how a silently lost month becomes visible).
+	StuckSending(ctx context.Context, d time.Duration, now time.Time) (int, error)
 	// Purge deletes send rows created before cutoff.
 	Purge(ctx context.Context, cutoff time.Time) (int64, error)
 }
@@ -88,7 +99,7 @@ func (s *pgStore) LastSentPeriod(ctx context.Context, uid uuid.UUID) (string, er
 
 func (s *pgStore) Email(ctx context.Context, uid uuid.UUID) (string, error) {
 	var e sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1`, uid).Scan(&e)
+	err := s.db.QueryRowContext(ctx, `SELECT email FROM users WHERE id = $1 AND email_verified`, uid).Scan(&e)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -100,7 +111,7 @@ func (s *pgStore) OptedIn(ctx context.Context) ([]Candidate, error) {
 		SELECT p.user_id, p.timezone, u.email, COALESCE(u.display_name, '')
 		  FROM statement_email_prefs p
 		  JOIN users u ON u.id = p.user_id
-		 WHERE p.enabled AND COALESCE(u.email, '') <> '' AND COALESCE(u.disabled, FALSE) = FALSE
+		 WHERE p.enabled AND COALESCE(u.email, '') <> '' AND u.email_verified AND COALESCE(u.disabled, FALSE) = FALSE
 		 ORDER BY p.user_id`)
 	if err != nil {
 		return nil, err
@@ -124,8 +135,9 @@ func (s *pgStore) Claim(ctx context.Context, uid uuid.UUID, period string, now t
 		ON CONFLICT (user_id, period) DO UPDATE
 		   SET status = 'sending', attempts = statement_email_sends.attempts + 1
 		 WHERE statement_email_sends.status = 'failed'
+		   AND statement_email_sends.attempts < $5
 		   AND statement_email_sends.created_at > $3::timestamptz - make_interval(secs => $4)`,
-		uid, period, now.UTC(), RetryWindow.Seconds())
+		uid, period, now.UTC(), RetryWindow.Seconds(), MaxAttempts)
 	if err != nil {
 		return false, err
 	}
@@ -143,6 +155,15 @@ func (s *pgStore) Mark(ctx context.Context, uid uuid.UUID, period, status, reaso
 		   SET status = $3, reason = NULLIF($4, ''), sent_at = COALESCE($5::timestamptz, sent_at)
 		 WHERE user_id = $1 AND period = $2`, uid, period, status, reason, sentAt)
 	return err
+}
+
+func (s *pgStore) StuckSending(ctx context.Context, d time.Duration, now time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM statement_email_sends
+		 WHERE status = 'sending' AND created_at < $1::timestamptz - make_interval(secs => $2)`,
+		now.UTC(), d.Seconds()).Scan(&n)
+	return n, err
 }
 
 func (s *pgStore) Purge(ctx context.Context, cutoff time.Time) (int64, error) {

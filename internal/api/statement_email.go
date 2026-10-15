@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/statement"
 )
@@ -105,6 +106,12 @@ func (a *statementAPI) getSettings(uid uuid.UUID, w http.ResponseWriter, r *http
 
 // PUT /api/settings/statement-email {enabled, timezone}
 func (a *statementAPI) putSettings(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+	// Opting in to mail is the user's own act, never an admin's while
+	// viewing as them.
+	if auth.IsImpersonating(r.Context()) {
+		http.Error(w, "not available while viewing as another user", http.StatusForbidden)
+		return
+	}
 	var body struct {
 		Enabled  bool   `json:"enabled"`
 		Timezone string `json:"timezone"`

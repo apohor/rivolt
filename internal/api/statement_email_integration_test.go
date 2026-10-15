@@ -32,7 +32,7 @@ func TestStatementStore_ClaimPrefsCandidatesPurge(t *testing.T) {
 	store := statement.NewStore(pool)
 
 	mkUser := func(name, mail string) (u [16]byte) {
-		id, err := db.EnsureUserFull(ctx, pool, name, mail, "Sam Rivera")
+		id, err := db.EnsureUserVerified(ctx, pool, name, mail, "Sam Rivera", true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,6 +74,39 @@ func TestStatementStore_ClaimPrefsCandidatesPurge(t *testing.T) {
 		t.Fatal("a user who didn't opt in is a candidate")
 	}
 
+	// An address the IdP did NOT verify (an iss:sub account) never
+	// receives mail: not a candidate, and Email() reports none.
+	unv, err := db.EnsureUserVerified(ctx, pool, "https://idp.example.com:sub-1", "stranger-inbox@example.com", "X", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPrefs(ctx, unv, statement.Prefs{Enabled: true, Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	cs2, _ := store.OptedIn(ctx)
+	for _, c := range cs2 {
+		if c.UserID == unv {
+			t.Fatal("a user with an unverified address is a candidate")
+		}
+	}
+	if e, _ := store.Email(ctx, unv); e != "" {
+		t.Fatalf("Email() = %q for an unverified address, want none", e)
+	}
+	// Verification follows the address: a later sign-in verifying the
+	// same address raises the flag; a different address resets it.
+	if _, err := db.EnsureUserVerified(ctx, pool, "https://idp.example.com:sub-1", "stranger-inbox@example.com", "X", true); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := store.Email(ctx, unv); e != "stranger-inbox@example.com" {
+		t.Fatalf("after verifying: Email() = %q", e)
+	}
+	if _, err := db.EnsureUserVerified(ctx, pool, "https://idp.example.com:sub-1", "other@example.com", "X", false); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := store.Email(ctx, unv); e != "" {
+		t.Fatalf("a new unverified address inherited the old verification: %q", e)
+	}
+
 	// Claim: the idempotency key.
 	now := time.Now().UTC()
 	if ok, _ := store.Claim(ctx, alice, "2026-09", now); !ok {
@@ -100,6 +133,22 @@ func TestStatementStore_ClaimPrefsCandidatesPurge(t *testing.T) {
 	_ = store.Mark(ctx, bob, "2026-08", "failed", "send_failed", now)
 	if ok, _ := store.Claim(ctx, bob, "2026-08", now); ok {
 		t.Fatal("a period failed more than 3 days ago was retried")
+	}
+
+	// Attempts are capped: a send that keeps failing is given up on.
+	for i := 0; i < 4; i++ {
+		ok, _ := store.Claim(ctx, noMail, "2026-07", now)
+		if want := i < 3; ok != want {
+			t.Fatalf("attempt %d: claim = %v, want %v", i+1, ok, want)
+		}
+		_ = store.Mark(ctx, noMail, "2026-07", "failed", "send_failed", now)
+	}
+	// Claims left 'sending' are counted so a lost month is visible.
+	if ok, _ := store.Claim(ctx, off, "2026-06", now.Add(-2*time.Hour)); !ok {
+		t.Fatal("setup claim refused")
+	}
+	if n, err := store.StuckSending(ctx, time.Hour, now); err != nil || n != 1 {
+		t.Fatalf("stuck = %d (%v), want 1", n, err)
 	}
 
 	// Concurrency: exactly one winner per (user, period).
@@ -136,7 +185,7 @@ func TestStatementMonthly_MatchesLedgerBuild(t *testing.T) {
 		t.Fatalf("db.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	uid, err := db.EnsureUserFull(ctx, pool, "stm-ledger", "l@example.com", "")
+	uid, err := db.EnsureUserVerified(ctx, pool, "stm-ledger", "l@example.com", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

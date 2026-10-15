@@ -77,6 +77,10 @@ type Message struct {
 	// and values containing CR or LF are dropped so a value can never
 	// inject another header.
 	Headers map[string]string
+	// IdempotencyKey, when set, is sent as Resend's Idempotency-Key
+	// header so a retried send of the same message is not delivered
+	// twice.
+	IdempotencyKey string
 }
 
 // ErrNotConfigured is returned by Send when called on a nil Client so
@@ -135,6 +139,9 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if k := strings.TrimSpace(m.IdempotencyKey); k != "" && !strings.ContainsAny(k, "\r\n") {
+		req.Header.Set("Idempotency-Key", k)
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		c.observe("error")

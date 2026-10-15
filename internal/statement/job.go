@@ -2,6 +2,8 @@ package statement
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -43,6 +45,8 @@ type Job struct {
 // Stats is what one run did.
 type Stats struct {
 	Considered, Due, Sent, Failed, Skipped, AlreadyDone int
+	// StuckSending is claims left 'sending' for over an hour.
+	StuckSending int
 }
 
 const (
@@ -95,6 +99,12 @@ func (j *Job) RunOnce(ctx context.Context) (Stats, error) {
 	var st Stats
 	if _, err := j.Store.Purge(ctx, j.now().Add(-SendRetention)); err != nil {
 		j.logger().Warn("statement email: purge", "err", err.Error())
+	}
+	if n, err := j.Store.StuckSending(ctx, time.Hour, j.now()); err != nil {
+		j.logger().Warn("statement email: stuck check", "err", err.Error())
+	} else if n > 0 {
+		st.StuckSending = n
+		j.logger().Warn("statement email: claims stuck in 'sending' (a send may have been lost; not retried to avoid duplicates)", "count", n)
 	}
 	cands, err := j.Store.OptedIn(ctx)
 	if err != nil {
@@ -185,6 +195,9 @@ func (j *Job) Build(c Candidate, period string, cur ledger.Monthly, prev *ledger
 	unsub := j.unsubURL(c.UserID, period)
 	return email.Message{
 		To: c.Email, Subject: r.Subject, Text: r.Text, HTML: r.HTML,
+		// A timeout after a successful send must not become a second
+		// email on retry: Resend dedupes on this key for 24 h.
+		IdempotencyKey: idempotencyKey(c.UserID, period),
 		Headers: map[string]string{
 			"List-Unsubscribe":      "<" + unsub + ">",
 			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -218,4 +231,11 @@ func firstName(display string) string {
 		return ""
 	}
 	return f[0]
+}
+
+// idempotencyKey is a stable, opaque per-(user, period) key; the raw
+// user id never leaves the server.
+func idempotencyKey(uid uuid.UUID, period string) string {
+	sum := sha256.Sum256([]byte("rivolt/statement/" + uid.String() + "/" + period))
+	return "stm-" + hex.EncodeToString(sum[:16])
 }

@@ -40,8 +40,8 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
-	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/statement"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
 )
@@ -364,6 +364,7 @@ func New(d Deps) http.Handler {
 		if d.DB != nil && d.StatementSigner != nil {
 			stm := newStatementAPI(d.DB, d, d.StatementSigner)
 			unsubLimiter := newIPLimiter(30, time.Minute, time.Hour)
+			unsubLimiter.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
 			r.With(unsubLimiter.Middleware).Get("/statement-email/unsubscribe", stm.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/statement-email/unsubscribe", stm.unsubscribePost)
 		}
