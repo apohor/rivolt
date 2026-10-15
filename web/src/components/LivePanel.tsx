@@ -1,3 +1,4 @@
+import { detailPath } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, backend, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
@@ -729,7 +730,7 @@ function ParkedSummary({
           </div>
           {lastDrive ? (
             <Link
-              to={`/drives/${encodeURIComponent(lastDrive.ID)}`}
+              to={detailPath("drives", lastDrive.ID)}
               className="block hover:text-emerald-300"
             >
               <div className="tabular-nums text-neutral-200">
@@ -749,7 +750,7 @@ function ParkedSummary({
           </div>
           {lastCharge ? (
             <Link
-              to={`/charges/${encodeURIComponent(lastCharge.ID)}`}
+              to={detailPath("charges", lastCharge.ID)}
               className="block hover:text-emerald-300"
             >
               <div className="tabular-nums text-neutral-200">

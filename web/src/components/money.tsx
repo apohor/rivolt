@@ -1,3 +1,4 @@
+import { detailPath } from "../lib/demo";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -222,7 +223,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
             <Link
-              to={`/charges/${encodeURIComponent(parentID)}`}
+              to={detailPath("charges", parentID)}
               className="truncate text-sm text-neutral-100 hover:text-emerald-300"
             >
               {formatDateTime(r.started_at)}
@@ -254,7 +255,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
               {sourceLabel(r, currency)}
             </span>
             {action && (
-              <Link to={`/charges/${encodeURIComponent(fixID)}`} className="font-medium text-amber-300 hover:text-amber-200">
+              <Link to={detailPath("charges", fixID)} className="font-medium text-amber-300 hover:text-amber-200">
                 {action}
               </Link>
             )}
@@ -273,7 +274,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             <ul className="mt-2 space-y-1 border-l border-neutral-800 pl-3 text-[11px] text-neutral-400">
               {r.sessions.map((x) => (
                 <li key={x.charge_id} className="flex justify-between gap-3 tabular-nums">
-                  <Link to={`/charges/${encodeURIComponent(x.charge_id)}`} className="hover:text-neutral-200">
+                  <Link to={detailPath("charges", x.charge_id)} className="hover:text-neutral-200">
                     {formatDateTime(x.started_at)} · {x.kwh != null ? `${x.kwh.toFixed(1)} kWh` : "— kWh"}
                     {x.kind === "dcfc" ? " · DCFC" : ""}
                   </Link>

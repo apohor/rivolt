@@ -1,3 +1,4 @@
+import { detailPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -173,7 +174,7 @@ function DriveCard({ item }: { item: DriveItem }) {
   const missing = driveMissingEnergy(d);
   const dur = d.DrivingSeconds && d.DrivingSeconds > 0 ? d.DrivingSeconds : durationSeconds(d.StartedAt, d.EndedAt);
   return (
-    <Link to={`/drives/${encodeURIComponent(d.ID)}`} className={CARD}>
+    <Link to={detailPath("drives", d.ID)} className={CARD}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-neutral-100"><span aria-hidden>↗ </span>{title}</span>
         <span className="tabular-nums text-sm text-neutral-200">{d.DistanceMi.toFixed(1)} mi</span>
@@ -200,7 +201,7 @@ function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | n
   const where = item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
   const energy = c.EnergyAddedKWh > 0 ? `${c.EnergyAddedKWh.toFixed(1)} kWh` : "no energy recorded";
   return (
-    <Link to={`/charges/${encodeURIComponent(c.ID)}`} className={CARD}>
+    <Link to={detailPath("charges", c.ID)} className={CARD}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm text-neutral-100">
           <span aria-hidden className={item.fast ? "text-amber-400" : "text-emerald-400"}>⚡ </span>

@@ -1,3 +1,4 @@
+import { inDemo, listPath } from "../lib/demo";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -105,6 +106,7 @@ function ReadoutPill({
 }
 
 export default function ChargeDetailPage() {
+  const demo = inDemo();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -197,7 +199,7 @@ export default function ChargeDetailPage() {
         <Card>
           <p className="text-sm text-neutral-400">
             That charge ID doesn't exist in this dataset.{" "}
-            <Link to="/charges" className="text-emerald-400 hover:underline">
+            <Link to={listPath("charges")} className="text-emerald-400 hover:underline">
               Back to charges →
             </Link>
           </p>
@@ -299,7 +301,7 @@ export default function ChargeDetailPage() {
         }
         actions={
           <Link
-            to="/charges"
+            to={listPath("charges")}
             className="text-xs text-neutral-400 hover:text-neutral-200"
           >
             ← all charges
@@ -541,8 +543,10 @@ export default function ChargeDetailPage() {
         </Card>
       ) : null}
 
-      <PricingCard charge={charge} mutation={updatePricing} />
+      {/* The public demo is read-only: no pricing edits, no delete. */}
+      {!demo && <PricingCard charge={charge} mutation={updatePricing} />}
 
+      {!demo && (
       <Card title="Danger zone">
         <p className="text-xs text-neutral-500 mb-2">
           Permanently removes this row from the database. Use this on
@@ -571,8 +575,9 @@ export default function ChargeDetailPage() {
           </p>
         ) : null}
       </Card>
+      )}
 
-      {samples.isError ? (
+      {samples.isError && !demo ? (
         <ErrorBox
           title="Sample data unavailable"
           detail={String(samples.error)}

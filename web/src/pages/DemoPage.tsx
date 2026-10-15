@@ -1,6 +1,6 @@
-import { useState, type MouseEvent } from "react";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import ActivityPage from "./ActivityPage";
 import MoneyPage from "./MoneyPage";
 import NowCard from "../components/NowCard";
@@ -22,8 +22,45 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "activity", label: "Activity" },
 ];
 
+export function DemoBanner() {
+  return (
+      <div role="note" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
+          <span>
+            <span className="font-medium">Sample truck.</span> Generated data, read-only. Connect your Rivian to see
+            yours.
+          </span>
+          <Link to="/login" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
+            Connect my Rivian
+          </Link>
+        </div>
+      </div>
+  );
+}
+
+// DemoDetail wraps a charge or drive detail page for the signed-out
+// demo: the same sample banner and a way back to the demo.
+export function DemoDetail({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-full bg-neutral-950 text-neutral-100">
+      <DemoBanner />
+      <main className="mx-auto max-w-5xl px-4 py-4 pb-16">
+        <Link to="/demo" className="mb-3 inline-block text-sm text-neutral-400 hover:text-neutral-100">
+          ← Back to the demo
+        </Link>
+        {children}
+      </main>
+    </div>
+  );
+}
+
 export default function DemoPage() {
-  const [tab, setTab] = useState<Tab>("now");
+  // The tab lives in the URL so back and refresh from a detail page
+  // land on the same tab.
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("tab");
+  const tab: Tab = raw === "money" || raw === "activity" ? raw : "now";
+  const setTab = (t: Tab) => setParams(t === "now" ? {} : { tab: t }, { replace: true });
   const demo = useQuery({ queryKey: ["demo", "info"], queryFn: () => backend.demoInfo(), retry: 0 });
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
@@ -51,27 +88,10 @@ export default function DemoPage() {
   }
 
   const v = vehicles.data?.find((x) => x.id === demo.data!.vehicle_id) ?? vehicles.data?.[0];
-  // Detail pages sit outside the demo's read-only allowlist: keep
-  // those links inert instead of landing on an error.
-  const guardLinks = (e: MouseEvent) => {
-    const a = (e.target as HTMLElement).closest("a");
-    const href = a?.getAttribute("href") ?? "";
-    if (/^\/(drives|charges)\//.test(href)) e.preventDefault();
-  };
 
   return (
     <div className="min-h-full bg-neutral-950 text-neutral-100">
-      <div role="note" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
-          <span>
-            <span className="font-medium">Sample truck.</span> Generated data, read-only. Connect your Rivian to see
-            yours.
-          </span>
-          <Link to="/login" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
-            Connect my Rivian
-          </Link>
-        </div>
-      </div>
+      <DemoBanner />
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <h1 className="flex items-center gap-2 font-semibold tracking-tight">
           <Logo size={22} className="text-emerald-400" />
@@ -91,7 +111,7 @@ export default function DemoPage() {
           ))}
         </nav>
       </header>
-      <main onClickCapture={guardLinks} className="mx-auto max-w-5xl px-4 pb-16">
+      <main className="mx-auto max-w-5xl px-4 pb-16">
         {tab === "now" && (
           <NowCard
             vehicleID={demo.data.vehicle_id}
