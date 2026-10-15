@@ -151,10 +151,20 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			}))
-			if strings.TrimSuffix(r.URL.Path, "/") == "/api/samples" {
-				serve = samplesGlobal.Middleware(samples.Middleware(serve))
+			// Order matters: a token bucket is charged when it is
+			// checked, so every per-client limiter runs BEFORE any
+			// install-wide one. Otherwise one noisy client (rejected by
+			// its own limit) would still drain the global budget and
+			// starve everyone else.
+			isSamples := strings.TrimSuffix(r.URL.Path, "/") == "/api/samples"
+			if isSamples {
+				serve = samplesGlobal.Middleware(serve)
 			}
-			global.Middleware(limiter.Middleware(serve)).ServeHTTP(w, r)
+			serve = global.Middleware(serve)
+			if isSamples {
+				serve = samples.Middleware(serve)
+			}
+			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
 	}
 }
