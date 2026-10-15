@@ -3,6 +3,7 @@ package rivian
 import (
 	"math"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 )
@@ -124,7 +125,7 @@ func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
 			if n := stops(fs); n < 2 {
 				t.Errorf("city drive %d (%v): %d stops, want stop-and-go", k, dur, n)
 			}
-			if mx := maxOf(sp); mx > 52 {
+			if mx := maxOf(sp); mx > 45 {
 				t.Errorf("city drive %d: top speed %.1f mph", k, mx)
 			}
 			if sd < 8 {
@@ -132,10 +133,28 @@ func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
 			}
 		case s.cruise >= 45 && dur >= 30*time.Minute:
 			hwyLong++
+			if mx := maxOf(sp); mx > 80 {
+				t.Errorf("highway drive %d: top speed %.1f mph", k, mx)
+			}
 			if sd < 1 || sd > 22 {
 				t.Errorf("highway drive %d: speed std %.1f out of bounds", k, sd)
 			}
 		}
+	}
+	var cityMoving []float64
+	for k, s := range segs {
+		if s.cruise >= 45 {
+			continue
+		}
+		for _, f := range all[k] {
+			if f.SpeedMph > 0 {
+				cityMoving = append(cityMoving, f.SpeedMph)
+			}
+		}
+	}
+	sort.Float64s(cityMoving)
+	if p90 := cityMoving[len(cityMoving)*9/10]; p90 > 45 {
+		t.Errorf("city p90 moving speed %.1f mph, want <= 45", p90)
 	}
 	if cityLong < 10 || hwyLong < 3 {
 		t.Fatalf("corpus too thin to judge: %d city, %d highway long drives", cityLong, hwyLong)

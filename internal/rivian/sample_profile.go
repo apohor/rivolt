@@ -82,21 +82,32 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 		// stretch the speeds to hit it (which makes 35 mph city streets
 		// 55-70 mph), thin the stops until the raw average is already
 		// within ~10% of the plan, deterministically from the same RNG.
+		minStops := int(dur.Minutes() / 10)
+		if minStops < 1 {
+			minStops = 1
+		}
 		best := math.Inf(1)
 		var bestV []float64
-		for _, pStop := range []float64{0.7, 0.55, 0.4, 0.3, 0.2, 0.1, 0.0} {
-			cand := make([]float64, n)
-			cityProfile(cand, rng, dt, pStop)
-			integ := integral(cand)
-			if integ <= 0 {
-				continue
-			}
-			kk := miles / integ
-			if d := math.Abs(math.Log(kk)); d < best {
-				best, bestV, k = d, cand, kk
-			}
-			if kk >= 0.9 && kk <= 1.1 {
-				break
+	search:
+		for _, pStop := range []float64{0.7, 0.55, 0.4, 0.3, 0.2} {
+			for try := 0; try < 4; try++ {
+				cand := make([]float64, n)
+				cityProfile(cand, rng, dt, pStop)
+				integ := integral(cand)
+				if integ <= 0 {
+					continue
+				}
+				kk := miles / integ
+				d := math.Abs(math.Log(kk))
+				if countStops(cand) < minStops {
+					d += 10 // a stop-and-go drive needs its stops
+				}
+				if d < best {
+					best, bestV, k = d, cand, kk
+				}
+				if d < 10 && kk >= 0.9 && kk <= 1.12 {
+					break search
+				}
 			}
 		}
 		if bestV == nil {
@@ -111,8 +122,26 @@ func newSampleProfile(start time.Time, miles float64, dur, step time.Duration, c
 		}
 		k = miles / integ
 	}
+	// Hard caps: city holds never exceed 45 mph, highway ~80 (scaling by
+	// k <= ~1.15 and noise can otherwise nudge a 45 mph hold past it).
+	capMph := 80.0
+	if cruise < 45 {
+		capMph = 45
+	}
+	// Re-solve k a few times so the clamp does not shave the distance.
+	raw := append([]float64(nil), v...)
+	for it := 0; it < 6; it++ {
+		for i := range v {
+			v[i] = math.Min(raw[i]*k, capMph)
+		}
+		got := integral(v)
+		if got <= 0 || math.Abs(got-miles) < 0.001*miles {
+			break
+		}
+		k *= miles / got
+	}
 	for i := range v {
-		v[i] = round1(v[i] * k)
+		v[i] = round1(v[i])
 	}
 	// Re-integrate the rounded series so dist ends at exactly 1.
 	p := &sampleProfile{speed: v, dist: make([]float64, n+1), soc: make([]float64, n+1), modeAt: -1, scale: k}
@@ -191,7 +220,7 @@ func cityProfile(v []float64, rng *rand.Rand, dt float64, pStop float64) {
 			cur = 0
 			timer -= dt
 			if timer <= 0 {
-				phase, target = accel, 25+rng.Float64()*20
+				phase, target = accel, 27+rng.Float64()*15
 			}
 		case accel:
 			cur = math.Min(target, cur+2.2*dt)
@@ -205,7 +234,7 @@ func cityProfile(v []float64, rng *rand.Rand, dt float64, pStop float64) {
 				if rng.Float64() < pStop {
 					phase = decel
 				} else {
-					target = 25 + rng.Float64()*20
+					target = 25 + rng.Float64()*15
 					phase = accel
 				}
 			}
@@ -255,4 +284,20 @@ func highwayProfile(v []float64, rng *rand.Rand, dt float64, cruise float64) {
 		cur = math.Max(cur-2.5*dt, math.Min(cur+1.6*dt, want))
 		v[i] = math.Max(0, cur)
 	}
+}
+
+// countStops counts runs of >= 4 zero-speed frames.
+func countStops(v []float64) int {
+	n, run := 0, 0
+	for _, x := range v {
+		if x == 0 {
+			run++
+			if run == 4 {
+				n++
+			}
+		} else {
+			run = 0
+		}
+	}
+	return n
 }
