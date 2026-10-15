@@ -96,6 +96,7 @@ func runRepairPhantoms(args []string) int {
 	apply := fs.Bool("apply", false, "delete the rows (default: dry run)")
 	idsPath := fs.String("ids", "", "file of audited charge ids, one per line (required)")
 	backup := fs.String("backup", "", "CSV backup path (required with --apply; must not exist)")
+	user := fs.String("user", "", "username; ids owned by other users are skipped (required with --apply: approval is per user)")
 	restore := fs.String("restore", "", "undo a batch id from charges_deleted_backup (dry run unless --apply)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -137,6 +138,10 @@ func runRepairPhantoms(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: --ids is required (the audited list); this command never searches for candidates")
 		return 2
 	}
+	if *apply && *user == "" {
+		fmt.Fprintln(os.Stderr, "repair-phantom-charges: --apply requires --user (owner approval is per user)")
+		return 2
+	}
 	if *apply && *backup == "" {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: --apply requires --backup <csv path>")
 		return 2
@@ -158,7 +163,8 @@ func runRepairPhantoms(args []string) int {
 	for i, id := range ids {
 		idArr[i] = id.String()
 	}
-	orows, err := pool.QueryContext(ctx, `SELECT id, user_id FROM charges WHERE id = ANY($1::uuid[])`, "{"+strings.Join(idArr, ",")+"}")
+	orows, err := pool.QueryContext(ctx, `SELECT c.id, c.user_id FROM charges c JOIN users u ON u.id = c.user_id
+		  WHERE c.id = ANY($1::uuid[]) AND ($2 = '' OR lower(u.username) = lower($2))`, "{"+strings.Join(idArr, ",")+"}", *user)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges:", err)
 		return 1
@@ -175,7 +181,7 @@ func runRepairPhantoms(args []string) int {
 	}
 	orows.Close()
 	if found != len(ids) {
-		fmt.Printf("WARNING: %d of %d id(s) not found (already deleted or wrong id)\n", len(ids)-found, len(ids))
+		fmt.Printf("WARNING: %d of %d id(s) not found (already deleted, wrong id, or another user)\n", len(ids)-found, len(ids))
 	}
 
 	var all []phantom.Row
