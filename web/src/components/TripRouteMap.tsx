@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
+import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
@@ -705,7 +706,10 @@ const BASEMAP_RECREATE_MAX = 3;
 
 function addBasemap(map: L.Map) {
   const url = tilesPMTilesURL();
-  if (!url) return;
+  if (!url) {
+    addTilesUnavailableNotice(map);
+    return;
+  }
   const flavor = namedFlavor("dark");
   const make = () =>
     leafletLayer({
