@@ -62,6 +62,9 @@ export type NowView = {
   kind: NowKind;
   // True when the last frame is older than the stale limit but not yet offline.
   stale: boolean;
+  // The newest frame says the truck is asleep (server flag, else
+  // power_state), whatever `kind` reads: a plugged-in truck can sleep.
+  sleeping: boolean;
   ageSec: number;
   lastContactMs: number;
   soc: number;
@@ -132,8 +135,13 @@ function rawKind(s: VehicleState, server?: NowSnapshot | null): Exclude<NowKind,
 
 export function computeNow(i: NowInput): NowView {
   const s = i.state;
-  const atMs = new Date(s.at).getTime();
-  const lastContactMs = Number.isFinite(atMs) ? atMs : 0;
+  // Freshest evidence of contact: /api/state's At can lag /now's `at`
+  // (the monitor cache vs the recorded rows), and a sleeping truck's
+  // frames are minutes apart, so the age comes from whichever is newer.
+  const stateAtMs = new Date(s.at).getTime();
+  const serverAtMs = i.server?.at ? new Date(i.server.at).getTime() : NaN;
+  const atMs = Math.max(Number.isFinite(stateAtMs) ? stateAtMs : 0, Number.isFinite(serverAtMs) ? serverAtMs : 0);
+  const lastContactMs = atMs > 0 ? atMs : 0;
   const ageSec = lastContactMs > 0 ? Math.max(0, (i.nowMs - lastContactMs) / 1000) : Infinity;
 
   let kind: Exclude<NowKind, "offline"> = rawKind(s, i.server);
@@ -199,6 +207,7 @@ export function computeNow(i: NowInput): NowView {
   return {
     kind: offline ? "offline" : kind,
     stale,
+    sleeping: sleepingNow,
     ageSec,
     lastContactMs,
     soc,
@@ -338,7 +347,8 @@ export type StatusPill = { text: string; tone: "live" | "neutral" | "warn" };
 export function statusPill(v: NowView): StatusPill {
   if (v.kind === "offline") return { text: "Offline", tone: "neutral" };
   // A sleeping truck's frames are legitimately minutes apart.
-  if (v.kind === "asleep" && !v.stale) return { text: "Asleep", tone: "neutral" };
+  // A plugged-in truck that is asleep also has frames minutes apart.
+  if ((v.kind === "asleep" || (v.kind === "plugged" && v.sleeping)) && !v.stale) return { text: "Asleep", tone: "neutral" };
   if (!v.stale && v.ageSec <= LIVE_PILL_MAX_SEC) return { text: "Live", tone: "live" };
   const t = `Last seen ${formatAgo(v.ageSec)}`;
   return { text: t, tone: v.stale ? "warn" : "neutral" };
