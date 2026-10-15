@@ -175,7 +175,14 @@ export default function ChargeDetailPage() {
       const since = new Date(
         new Date(charge!.StartedAt).getTime() - 60_000,
       );
-      return backend.samples(since, 10_000);
+      // An explicit window: the session's end plus 60 s (the server
+      // downsamples only explicit windows, and an open-ended request
+      // would thin an old session across its span up to now). An open
+      // session runs to now.
+      const end = new Date(charge!.EndedAt).getTime();
+      const open = isActiveCharge(charge!) || !Number.isFinite(end) || end <= 0;
+      const until = new Date(open ? Date.now() + 60_000 : end + 60_000);
+      return backend.samples(since, 10_000, until);
     },
   });
 

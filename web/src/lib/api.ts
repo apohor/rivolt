@@ -1264,12 +1264,15 @@ export const backend = {
     body: { cost?: number; currency?: string; price_per_kwh?: number; free?: boolean },
   ) =>
     api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
-  samples: (since: Date, limit = 1000, until?: Date) => {
+  // `until` is required on purpose: the server downsamples explicit
+  // windows only, so an open-ended request would thin an old session
+  // across its whole span up to now.
+  samples: (since: Date, limit: number, until: Date) => {
     const params = new URLSearchParams({
       since: since.toISOString(),
+      until: until.toISOString(),
       limit: String(limit),
     });
-    if (until) params.set("until", until.toISOString());
     return api.get<Sample[]>(`/api/samples?${params.toString()}`);
   },
   // Efficiency analysis: AI-driven breakdown of what drove efficiency
