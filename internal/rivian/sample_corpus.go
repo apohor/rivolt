@@ -31,7 +31,9 @@ import (
 const SampleSeed int64 = 20261014
 
 const (
-	sampleDays      = 45
+	sampleDays = 45
+	// sampleWrapSoC is the state of charge the corpus starts and ends at.
+	sampleWrapSoC   = 80.0
 	samplePackKWh   = 131.0
 	sampleMiPerKWh  = 2.3
 	sampleRoadRatio = 1.2 // road distance ÷ straight-line distance
@@ -136,8 +138,14 @@ type SampleSummary struct {
 }
 
 // NewSampleCorpus plans the corpus for seed.
+//
+// The corpus starts and ends the same way, at home on a weekday morning,
+// plugged in at 80 % with the car awake shortly before leaving, so the
+// replay's wrap from one loop to the next (sampleLoopGap) reads as just
+// another morning, not a jump.
 func NewSampleCorpus(seed int64) *SampleCorpus {
-	b := &sampleBuilder{rng: rand.New(rand.NewSource(seed)), t: sampleStart, soc: 72, odo: 12480, at: SampleHome, limit: 80}
+	b := &sampleBuilder{rng: rand.New(rand.NewSource(seed)), t: sampleStart.Add(7*time.Hour + 30*time.Minute),
+		soc: sampleWrapSoC, odo: 12480, at: SampleHome, limit: 80, plugged: true}
 	b.plan()
 	return &SampleCorpus{segs: b.segs, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
 		AwayAC: b.awayAC, FailedSleeps: b.flickers, RoadTripMiles: b.tripMiles}}
@@ -307,6 +315,18 @@ func (b *sampleBuilder) dcfcStop(t float64) {
 func (b *sampleBuilder) plan() {
 	b.park(b.clock(0, 7, 45), false)
 	for day := 0; day < sampleDays; {
+		if day == sampleDays-1 {
+			// The last day: a commute, then plugged in to 80 % overnight,
+			// ending awake at 07:30 the next morning like the start.
+			b.commute(day)
+			b.park(b.t.Add(30*time.Minute), false)
+			b.limit = 80
+			b.charge(sampleWrapSoC, sampleL2KW, false)
+			b.homeL2++
+			b.plugged = true
+			b.park(b.clock(day+1, 7, 30), false)
+			break
+		}
 		weekday := sampleStart.AddDate(0, 0, day).Weekday()
 		switch {
 		case day == 17: // Thursday before trip 1: charge to 90 overnight.
@@ -518,6 +538,13 @@ func (c *SampleCorpus) Summary() SampleSummary {
 	return sum
 }
 
+// sampleLoopGap is the pause between the end of one loop of the sample
+// corpus and the next. The owner-replay's replayLoopGap (6 h) left the
+// public demo frozen on its last frame for up to 6 hours a loop ("asleep,
+// updated 5 h ago" beside a Live pill); the sample corpus ends where it
+// starts, so it needs no overnight park to hide the wrap.
+const sampleLoopGap = 5 * time.Minute
+
 // NewSampleReplayFeed is the replay feed over the sample corpus
 // (RIVIAN_CLIENT=replay with RIVOLT_REPLAY_SOURCE=sample). pool, when
 // set, provides the resume point (the demo vehicle's latest sample).
@@ -530,7 +557,7 @@ func NewSampleReplayFeed(pool *sql.DB, backfill time.Duration, logger *slog.Logg
 	f := &ReplayFeed{
 		corpus: c,
 		timeline: replayTimeline{
-			start: start, end: end, epoch: replayEpoch, gap: replayLoopGap,
+			start: start, end: end, epoch: replayEpoch, gap: sampleLoopGap,
 			odoSpanKm: (c.segs[len(c.segs)-1].odoB - c.segs[0].odoA) / kmToMi,
 		},
 		source:   Vehicle{ID: "sample", Name: "Sample R1S", Model: "R1S", ModelYear: 2025, PackKWh: samplePackKWh},
