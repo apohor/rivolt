@@ -58,6 +58,8 @@ const (
 // demoSamplesDefaultLimit / demoSamplesMaxLimit bound an anonymous
 // /api/samples request (the store treats limit<=0 as "no cap").
 const (
+	// demoSamplesMaxSpan bounds until-since for anonymous callers.
+	demoSamplesMaxSpan      = 24 * time.Hour
 	demoSamplesDefaultLimit = 2000
 	demoSamplesMaxLimit     = 5000
 )
@@ -123,6 +125,15 @@ func clampDemoSamplesLimit(r *http.Request) {
 		n = demoSamplesMaxLimit
 	}
 	q.Set("limit", strconv.Itoa(n))
+	// Bound the window too: a bounded window is bucketed server-side
+	// (a scan of every row in it), so an anonymous caller may not ask
+	// for days. Charge and drive pages need well under 24 h.
+	if u, err := time.Parse(time.RFC3339, q.Get("until")); err == nil {
+		lo := u.Add(-demoSamplesMaxSpan)
+		if sn, err := time.Parse(time.RFC3339, q.Get("since")); err != nil || sn.Before(lo) {
+			q.Set("since", lo.UTC().Format(time.RFC3339))
+		}
+	}
 	r.URL.RawQuery = q.Encode()
 }
 
