@@ -17,6 +17,7 @@
 // from raw GPS first anyway and overlay snapped roads when the
 // match call returns; a one-tick delay on first render is invisible.
 import { useEffect, useState } from "react";
+import { inDemo } from "./demo";
 export type RuntimeConfig = {
   tiles: {
     // url is the same-origin URL of the served .pmtiles bundle.
@@ -209,6 +210,9 @@ export function grafanaBaseURL(): string {
 // chargers with full OSM tags (operator, network, max kW, socket
 // types) instead of the basemap's stripped-down POIs.
 export function chargersPMTilesURL(): string {
+  // The public demo has no tile access (signed out): never request the
+  // chargers archive there; lookups fall back to the basemap layer.
+  if (inDemo()) return "";
   return cached.tiles.chargersUrl;
 }
 

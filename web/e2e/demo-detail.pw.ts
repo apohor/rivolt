@@ -69,3 +69,19 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await page.goto("/demo");
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
+
+test("the demo never requests the chargers pmtiles layer", async ({ page }) => {
+  const tileReqs: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes(".pmtiles")) tileReqs.push(r.url());
+  });
+  await openDemo(page, "/demo?tab=activity");
+  await page.locator('a[href^="/demo/drives/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
+  await page.waitForTimeout(1500);
+  await page.goBack();
+  await page.locator('a[href^="/demo/charges/"]').first().click();
+  await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(tileReqs).toEqual([]);
+});
