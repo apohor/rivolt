@@ -109,6 +109,40 @@ describe("computeNow", () => {
     // The server flag wins over a client power_state that disagrees.
     expect(plugged("ready", 240, srv(true)).stale).toBe(false);
   });
+  it("plugged + asleep: the /now frame (10 s) beats a 9-min-old /api/state; no Last-seen pill, Updated is ~now", () => {
+    const server = {
+      version: 1, at: new Date(NOW - 10_000).toISOString(), location_fix_at: null, connection: "live", state: "plugged",
+      state_since: null, soc_at_state_start: null, tire_pressure_min_bar: null, failed_sleeps_6h: 0, charge: null, asleep: true,
+    } as NonNullable<NowInput["server"]>;
+    const v = computeNow(
+      inp(
+        { charger_status: PLUG, charger_state: "charging_complete", power_state: "sleep", at: new Date(NOW - 9 * 60_000).toISOString() },
+        { server },
+      ),
+    );
+    expect(v.kind).toBe("plugged");
+    expect(v.ageSec).toBe(10);
+    expect(v.stale).toBe(false);
+    expect(statusPill(v).text).toBe("Asleep");
+    expect(freshnessLine(v)).toContain("Updated just now");
+    // Even with /now itself 5 min old (a normal ~3-min sleep cadence)
+    // a sleeping plugged-in truck shows no "Last seen" pill.
+    const old = computeNow(
+      inp(
+        { charger_status: PLUG, charger_state: "charging_complete", power_state: "sleep", at: new Date(NOW - 9 * 60_000).toISOString() },
+        { server: { ...server, at: new Date(NOW - 300_000).toISOString() } },
+      ),
+    );
+    expect(statusPill(old).text).toBe("Asleep");
+    // An awake plugged-in truck with the same ages is stale.
+    const awake = computeNow(
+      inp(
+        { charger_status: PLUG, charger_state: "charging_complete", power_state: "ready", at: new Date(NOW - 9 * 60_000).toISOString() },
+        { server: { ...server, asleep: false, at: new Date(NOW - 300_000).toISOString() } },
+      ),
+    );
+    expect(statusPill(awake).tone).toBe("warn");
+  });
   it("derives ETA, energy and home cost from vehicle state alone", () => {
     const v = computeNow(
       inp(
