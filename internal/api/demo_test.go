@@ -37,6 +37,21 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/settings/charging/networks", false},
 		{"POST", "/api/settings/charging/networks/reset", false},
 		{"GET", "/api/vehicles/other/pack-health", false},
+		// per-drive detail (weather only) and samples
+		{"GET", "/api/drives/drive-abc/weather", true},
+		{"GET", "/api/drives/live_veh_d_1760000000/weather/series", true},
+		{"GET", "/api/samples", true},
+		{"HEAD", "/api/drives/d1/weather", true},
+		{"GET", "/api/drives/d1/efficiency", false},
+		{"POST", "/api/drives/d1/weather", false},
+		{"POST", "/api/drives/weather/backfill", false},
+		{"GET", "/api/drives//weather", false},
+		{"GET", "/api/drives/a/b/weather", false},
+		{"GET", "/api/drives/../charges/weather", false},
+		{"GET", "/api/drives/d1/weather/series/extra", false},
+		{"GET", "/api/drives/d1", false},
+		{"GET", "/api/drives/d%2F1/weather", false},
+		{"DELETE", "/api/samples", false},
 		// other vehicles
 		{"GET", "/api/state/other", false},
 		{"GET", "/api/vehicles/other/now", false},
@@ -197,5 +212,29 @@ func TestDemoGlobalLimiter(t *testing.T) {
 	}
 	if codes[1] != 200 || codes[2] != http.StatusTooManyRequests {
 		t.Fatalf("global cap should bind across client IPs: %v", codes)
+	}
+}
+
+func TestDemoSamplesLimitIsClamped(t *testing.T) {
+	var seen string
+	demoUID := uuid.New()
+	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen = r.URL.Query().Get("limit") }))
+	for _, c := range []struct{ q, want string }{
+		{"", "2000"},
+		{"?limit=0", "2000"},
+		{"?limit=-5", "2000"},
+		{"?limit=100", "100"},
+		{"?limit=999999999", "5000"},
+		{"?limit=abc&since=2026-10-01T00:00:00Z", "2000"},
+	} {
+		seen = ""
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/samples"+c.q, nil)
+		req.RemoteAddr = "203.0.113.9:1"
+		h.ServeHTTP(rec, req)
+		if seen != c.want {
+			t.Errorf("%q: limit = %q, want %q", c.q, seen, c.want)
+		}
 	}
 }

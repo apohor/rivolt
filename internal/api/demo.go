@@ -3,6 +3,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,66 @@ var demoExactPaths = map[string]bool{
 	"/api/charges/clusters":       true,
 	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
 	"/api/settings/home-location": true,
+	// Curve data for the demo's drive/charge detail views. Results are
+	// scoped to the demo user by the store; the limit is clamped below.
+	"/api/samples": true,
+}
+
+// demoSamplesDefaultLimit / demoSamplesMaxLimit bound an anonymous
+// /api/samples request (the store treats limit<=0 as "no cap").
+const (
+	demoSamplesDefaultLimit = 2000
+	demoSamplesMaxLimit     = 5000
+)
+
+// demoPerDriveSuffixes are the per-drive GET sub-resources the demo's
+// drive detail view reads. {id} is a single, plain path segment; the
+// handlers scope by the demo user's id, so another user's drive id is
+// a 404 (weather) or an empty series, never data. Deliberately NOT
+// included: /efficiency (the AI recap) and anything that writes.
+var demoPerDriveSuffixes = []string{"/weather", "/weather/series"}
+
+// demoPerDrivePath reports whether p is /api/drives/{id}<suffix> for an
+// allowed suffix and a plain id segment.
+func demoPerDrivePath(p string) bool {
+	const prefix = "/api/drives/"
+	if !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	rest := p[len(prefix):]
+	for _, suf := range demoPerDriveSuffixes {
+		if !strings.HasSuffix(rest, suf) {
+			continue
+		}
+		id := strings.TrimSuffix(rest, suf)
+		if id == "" || len(id) > 128 {
+			return false
+		}
+		for _, r := range id {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-', r == '.', r == ':':
+			default:
+				return false
+			}
+		}
+		return id != "." && id != ".."
+	}
+	return false
+}
+
+// clampDemoSamplesLimit bounds the limit query param of an anonymous
+// /api/samples request in place.
+func clampDemoSamplesLimit(r *http.Request) {
+	q := r.URL.Query()
+	n, _ := strconv.Atoi(q.Get("limit"))
+	switch {
+	case n <= 0:
+		n = demoSamplesDefaultLimit
+	case n > demoSamplesMaxLimit:
+		n = demoSamplesMaxLimit
+	}
+	q.Set("limit", strconv.Itoa(n))
+	r.URL.RawQuery = q.Encode()
 }
 
 // demoAllowed reports whether method+path may be served to an
@@ -53,7 +114,8 @@ func demoAllowed(method, path, vehicleID string) bool {
 	if demoExactPaths[p] {
 		return true
 	}
-	return p == "/api/state/"+vehicleID ||
+	return demoPerDrivePath(p) ||
+		p == "/api/state/"+vehicleID ||
 		p == "/api/vehicles/"+vehicleID+"/now" ||
 		p == "/api/vehicles/"+vehicleID+"/pack-health"
 }
@@ -71,6 +133,9 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 			}
 			serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(demoHeader, "1")
+				if strings.TrimSuffix(r.URL.Path, "/") == "/api/samples" {
+					clampDemoSamplesLimit(r)
+				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			})
 			global.Middleware(limiter.Middleware(serve)).ServeHTTP(w, r)
