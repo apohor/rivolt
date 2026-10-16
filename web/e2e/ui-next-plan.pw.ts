@@ -39,3 +39,23 @@ for (const v of VIEWS) {
     });
   }
 }
+
+test("next-mode on a phone: the plan result follows the sample-trip picker, before Plan vs actual", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.goto("/demo/trips/plan");
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
+  const picker = await y(page.getByTestId("demo-presets"));
+  const result = await y(page.getByText(/Sample plan/));
+  const pva = await y(page.getByRole("heading", { name: "Plan vs actual" }));
+  const saved = await y(page.getByRole("heading", { name: "Saved trips" }));
+  expect(picker).toBeLessThan(result);
+  expect(result).toBeLessThan(pva);
+  expect(pva).toBeLessThan(saved);
+  await page.screenshot({ path: "e2e/__screenshots__/uinext-plan-phone-order-next.png" });
+  await ctx.close();
+});

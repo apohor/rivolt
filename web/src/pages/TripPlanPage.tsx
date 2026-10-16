@@ -685,7 +685,7 @@ export default function TripPlanPage() {
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <Card title="Plan a trip">
+      <Card title="Plan a trip" area="p-form">
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
@@ -1277,7 +1277,7 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
   };
   const trips = list.data?.trips ?? [];
   return (
-    <Card title="Try a sample trip">
+    <Card title="Try a sample trip" area="p-form">
       {list.isLoading ? (
         <Spinner />
       ) : trips.length === 0 ? (
@@ -1357,7 +1357,7 @@ function SavedTripsCard({
     onSave(n, matched);
   };
   return (
-    <Card title="Saved trips">
+    <Card title="Saved trips" area="p-saved">
       {loading ? (
         <Spinner />
       ) : trips.length === 0 ? (

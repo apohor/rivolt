@@ -832,3 +832,32 @@ html[data-ui='next'][data-theme='light'] [data-ui-header] {
     grid-column: 1 / -1;
   }
 }
+
+/* Plan on a phone: the result follows the form (or the sample-trip picker),
+   ahead of Plan vs actual and Saved trips. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-ui-grid='plan'] {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > *,
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] > * {
+    margin: 0;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] {
+    display: contents;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-form'] {
+    order: 1;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-result'] {
+    order: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-pva'] {
+    order: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-saved'] {
+    order: 4;
+  }
+}
