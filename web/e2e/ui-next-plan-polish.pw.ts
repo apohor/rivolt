@@ -124,6 +124,17 @@ for (const theme of ["dark", "light"] as const) {
       await expect(stop).toHaveAttribute("aria-expanded", "true");
       const detail = page.locator("[data-plan-stop-detail]");
       await expect(detail).toBeVisible();
+      if (v.name === "iphone") {
+        // The card reveals itself: its title row ends up inside the sheet body
+        // without any scrolling by the test.
+        await expect
+          .poll(async () => {
+            const t = await stop.boundingBox();
+            const b = await page.locator("[data-plan-sheet-body]").boundingBox();
+            return !!t && !!b && t.y >= b.y - 1 && t.y + t.height <= b.y + b.height + 1;
+          })
+          .toBe(true);
+      }
       await expect(detail).toContainText("Charge time");
       await expect(detail).toContainText("Max power");
       await detail.scrollIntoViewIfNeeded();
