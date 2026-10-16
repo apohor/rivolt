@@ -92,6 +92,9 @@ jobs:
           web=false; go=false
           if echo "$files" | grep -q '^web/'; then web=true; fi
           if echo "$files" | grep -v '^web/' | grep -q .; then go=true; fi
+          # The web suite also reads the shared charger-network vectors
+          # (chargerNetwork.vectors.test.ts), so a change there runs web too.
+          if echo "$files" | grep -q '^internal/dcfcrates/testdata/'; then web=true; fi
           if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
           echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"
 
