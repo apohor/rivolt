@@ -4,6 +4,7 @@ import { StopCard } from "../plan/StopCard";
 import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
+import { BottomSheet } from "../plan/BottomSheet";
 import { PlanSelectionProvider, useSelectedStop } from "../plan/selection";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
@@ -2740,20 +2741,30 @@ function RouteCard({
     // Map-first: summary strip and itinerary in the left panel, the map beside it.
     return (
       <>
-        <section data-plan-area="summary" aria-label="Trip summary">
-          {chooser}
-          {!route.DestinationReached && (
-            <p className="mb-3 text-sm text-amber-400">
-              Destination unreachable
-              {route.BatteryEmptyToDestMeters > 0 && <> — battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short</>}
-            </p>
-          )}
-          {hero}
-        </section>
-        <section data-plan-area="itinerary" aria-label="Itinerary">
-          <h2 className="ui-label mb-1">Itinerary</h2>
-          {timeline}
-        </section>
+        {/* On a phone the summary peeks over the map and the itinerary opens
+            with it; from 1024px up BottomSheet renders the two inline, as grid
+            items beside the map. */}
+        <BottomSheet
+          label="Trip details"
+          peekPx={240}
+          peek={
+            <section data-plan-area="summary" aria-label="Trip summary">
+              {chooser}
+              {!route.DestinationReached && (
+                <p className="mb-3 text-sm text-amber-400">
+                  Destination unreachable
+                  {route.BatteryEmptyToDestMeters > 0 && <> — battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short</>}
+                </p>
+              )}
+              {hero}
+            </section>
+          }
+        >
+          <section data-plan-area="itinerary" aria-label="Itinerary">
+            <h2 className="ui-label mb-1">Itinerary</h2>
+            {timeline}
+          </section>
+        </BottomSheet>
         <div data-plan-area="map">
           <Suspense fallback={<div className="h-full animate-pulse bg-neutral-900/50" />}>
             <TripRouteMap
