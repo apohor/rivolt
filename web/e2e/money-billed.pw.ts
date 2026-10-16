@@ -33,8 +33,8 @@ function withReceipts(on: boolean) {
   const billed = 21.4;
   m.spend.billed_total = billed;
   m.spend.estimated_total = Math.max(0, m.spend.total - billed);
-  m.spend.billed_sessions = 1;
-  m.spend.estimated_sessions = m.receipts.reduce((a, r) => a + (r.estimated_sessions ?? 0), 0);
+  m.billed_sessions = 1;
+  m.estimated_sessions = m.receipts.reduce((a, r) => a + (r.estimated_sessions ?? 0), 0);
   return m;
 }
 

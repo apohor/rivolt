@@ -151,9 +151,10 @@ export type MonthSummary = {
     // rivian_receipts: the total split into what Rivian billed and what we estimate.
     billed_total?: number | null;
     estimated_total?: number | null;
-    billed_sessions?: number;
-    estimated_sessions?: number;
   };
+  // rivian_receipts: sessions with and without a matched Rivian receipt this month.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   energy: {
     sessions: number;
     kwh_added: number;
