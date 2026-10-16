@@ -600,6 +600,9 @@ export default function ChargeDetailPage() {
       {/* The public demo is read-only: no pricing edits, no delete. */}
       {!demo && (
         <PricingCard
+          // Reseed the manual price fields when the server's pricing changes
+          // (Change network, Confirm); useState alone would keep the old value.
+          key={`${charge.PricePerKWh}|${charge.Cost}|${charge.CostSource ?? ""}|${charge.network_state ?? ""}`}
           charge={charge}
           mutation={updatePricing}
           confirm={confirmPricing}
