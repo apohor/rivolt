@@ -226,15 +226,18 @@ jobs:
   # runs: green when the matrix passed or was skipped, red otherwise.
   e2e-ok:
     name: e2e-ok
-    needs: e2e
+    needs: [changes, e2e]
     if: "always() && !startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-latest
     steps:
       - name: Matrix result
         env:
+          CHANGES: ${{ needs.changes.result }}
           RESULT: ${{ needs.e2e.result }}
         run: |
-          echo "e2e: $RESULT"
+          echo "changes: $CHANGES, e2e: $RESULT"
+          # A failed `changes` skips e2e; that must not read as green.
+          [ "$CHANGES" = "success" ] || exit 1
           [ "$RESULT" = "success" ] || [ "$RESULT" = "skipped" ]
 
   go:
