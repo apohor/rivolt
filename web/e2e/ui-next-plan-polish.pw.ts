@@ -105,6 +105,14 @@ for (const theme of ["dark", "light"] as const) {
         // (by design): open the sheet before touching a stop.
         const sheet = page.locator("[data-plan-sheet]");
         await expect(sheet).toHaveAttribute("data-snap", "peek");
+        // The handle must be what a finger hits at its centre, not the summary above it.
+        const handleHit = await page.evaluate(() => {
+          const h = document.querySelector("[data-plan-sheet-handle]")!;
+          const r = h.getBoundingClientRect();
+          const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return el === h;
+        });
+        expect(handleHit).toBe(true);
         await page.getByRole("button", { name: "Expand Trip details" }).click();
         await expect(sheet).toHaveAttribute("data-snap", "half");
       }
