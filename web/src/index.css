@@ -925,3 +925,15 @@ html[data-ui='next'] [data-plan-form] [data-plan-submit] {
 html[data-ui='next'] [data-plan-form] [data-plan-submit] > button {
   padding-block: 0.65rem;
 }
+
+/* Plan: the map runs edge to edge inside the result card. */
+html[data-ui='next'] [data-plan-map] {
+  margin-inline: -1rem;
+}
+html[data-ui='next'] [data-plan-map] > div > div:first-child {
+  padding-inline: 1rem;
+}
+html[data-ui='next'] [data-plan-map] .leaflet-container {
+  border-radius: 0;
+  border-inline-width: 0;
+}

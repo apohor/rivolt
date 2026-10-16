@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { inDemo } from "../lib/demo";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useUiNext } from "../lib/uiNext";
 import { backend, type PlanVsActual as Pva, type SavedTrip } from "../lib/api";
 import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Row } from "../lib/planVsActual";
 import { Card } from "./ui";
@@ -11,7 +12,9 @@ import { Card } from "./ui";
 // shows no difference; a metric with an unknown side shows none.
 
 export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
+  const next = useUiNext();
   if (trips.length === 0) return null;
+  if (next) return <NextSection trips={trips} highlightId={highlightId} />;
   return (
     <Card title="Plan vs actual" area="p-pva">
       <ul className="space-y-4">
@@ -25,7 +28,56 @@ export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]
   );
 }
 
-function TripCompare({ trip }: { trip: SavedTrip }) {
+// ui_theme_next: the latest matched trip as a compact bar comparison, unmatched
+// and in-progress trips as one-line rows, older matched trips behind a toggle.
+function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
+  const [more, setMore] = useState(false);
+  const qs = useQueries({
+    queries: trips.map((t) => ({
+      queryKey: ["trips", "pva", t.id],
+      queryFn: () => backend.planVsActual(t.id),
+      retry: 0,
+      staleTime: 60_000,
+    })),
+  });
+  const matched: SavedTrip[] = [];
+  const lines: SavedTrip[] = [];
+  trips.forEach((t, i) => {
+    const d = qs[i].data;
+    if (d && (stateOf(d) === "linked-full" || stateOf(d) === "linked-partial" || stateOf(d) === "suggested")) matched.push(t);
+    else lines.push(t);
+  });
+  const shown = more ? matched : matched.slice(0, 1);
+  const hidden = matched.length - 1;
+  return (
+    <Card title="Plan vs actual" area="p-pva">
+      <ul className="space-y-3" data-pva-next>
+        {shown.map((t) => (
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined}>
+            <TripCompare trip={t} compact />
+          </li>
+        ))}
+        {lines.map((t) => (
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined}>
+            <TripCompare trip={t} compact />
+          </li>
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          aria-expanded={more}
+          onClick={() => setMore((v) => !v)}
+          className="mt-3 text-xs text-neutral-400 hover:text-neutral-200"
+        >
+          {more ? "Show fewer" : `Show ${hidden} more`}
+        </button>
+      )}
+    </Card>
+  );
+}
+
+function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["trips", "pva", trip.id],
@@ -44,6 +96,18 @@ function TripCompare({ trip }: { trip: SavedTrip }) {
   if (!d) return null; // endpoint absent: nothing to show
   const busy = link.isPending || unlink.isPending;
   const err = link.error ?? unlink.error;
+  if (compact) {
+    const st = stateOf(d);
+    if (st === "none" || st === "in-progress" || st === "link-lost") {
+      const text = st === "none" ? "Not driven yet" : st === "in-progress" ? "In progress" : "Link lost";
+      return (
+        <div className="flex items-baseline justify-between gap-3 px-1 text-sm">
+          <span className="min-w-0 truncate text-neutral-200">{trip.name}</span>
+          <span className="shrink-0 text-xs text-neutral-500">{text}</span>
+        </div>
+      );
+    }
+  }
   return (
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
@@ -146,6 +210,7 @@ function matchLabel(band: string): string {
 
 function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
   const [showStops, setShowStops] = useState(false);
+  const next = useUiNext();
   const c = d.comparison!;
   const rs = rows(c);
   const cand = topCandidate(d);
@@ -158,6 +223,9 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
         {cand && preview ? ` · ${matchLabel(cand.band)}` : ""}
       </p>
       {costHeader(c) && <p className="mt-2 text-sm font-medium text-neutral-100">{costHeader(c)}</p>}
+      {next ? (
+        <BarRows rs={rs} currencyHint={c.currency} />
+      ) : (
       <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-2 text-sm">
         <div />
         <div className="text-right text-[11px] uppercase tracking-wide text-neutral-500">Planned</div>
@@ -166,6 +234,7 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
           <RowView key={r.key} r={r} currencyHint={c.currency} />
         ))}
       </div>
+      )}
       {incomplete && (
         <p className="mt-3 text-xs text-amber-300">
           Some fast charging on this trip isn&apos;t priced yet, so the actual cost isn&apos;t shown. Add the prices
@@ -236,5 +305,61 @@ function RowView({ r, currencyHint }: { r: Row; currencyHint: string }) {
         </div>
       )}
     </>
+  );
+}
+
+// Planned vs actual as paired bars per metric; deltas coloured by tone. A metric
+// with an unknown side (or an incomplete cost) falls back to the text row.
+function BarRows({ rs, currencyHint }: { rs: Row[]; currencyHint: string }) {
+  return (
+    <div className="mt-3 space-y-3" data-pva-bars>
+      {rs.map((r) => {
+        const tone = r.tone === "good" ? "text-emerald-300" : r.tone === "watch" ? "text-amber-300" : "text-neutral-400";
+        const fill = r.tone === "good" ? "bg-emerald-500" : r.tone === "watch" ? "bg-amber-500" : "bg-sky-500";
+        const bars = r.plannedN != null && r.actualN != null && Math.max(r.plannedN, r.actualN) > 0;
+        const max = bars ? Math.max(r.plannedN!, r.actualN!) : 1;
+        return (
+          <div key={r.key}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-neutral-200">{r.label}</span>
+              {r.deltaText && <span className={`text-xs tabular-nums ${tone}`}>{r.deltaText}</span>}
+            </div>
+            {bars ? (
+              <div className="mt-1 space-y-1">
+                <Bar label="Plan" value={r.planned ?? "—"} pct={(r.plannedN! / max) * 100} cls="bg-neutral-600" />
+                <Bar label="Actual" value={r.actual ?? "—"} pct={(r.actualN! / max) * 100} cls={fill} dotted={r.estimated} />
+              </div>
+            ) : (
+              <p className="mt-0.5 text-xs text-neutral-400">
+                Plan <span className="tabular-nums text-neutral-300">{r.planned ?? "—"}</span>
+                {" · "}
+                {r.incomplete ? (
+                  <span className="text-amber-300">
+                    so far{" "}
+                    {new Intl.NumberFormat(undefined, { style: "currency", currency: currencyHint || "USD" }).format(r.incomplete.known)}
+                    , {r.incomplete.unpriced} not priced yet
+                  </span>
+                ) : (
+                  <>Actual <span className="tabular-nums text-neutral-300">{r.actual ?? "—"}</span></>
+                )}
+              </p>
+            )}
+            {r.reasons.length > 0 && <p className="mt-1 text-xs text-neutral-500">{r.reasons[0]}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Bar({ label, value, pct, cls, dotted = false }: { label: string; value: string; pct: number; cls: string; dotted?: boolean }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-10 shrink-0 text-neutral-500">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-800/70">
+        <div className={`h-full rounded-full ${cls}`} style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} />
+      </div>
+      <span className={`w-20 shrink-0 text-right tabular-nums text-neutral-200 ${dotted ? "underline decoration-dotted underline-offset-4" : ""}`}>{value}</span>
+    </div>
   );
 }
