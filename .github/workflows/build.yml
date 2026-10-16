@@ -55,8 +55,8 @@ on:
 # Pushes (main, release/**, tags): every run gets its own group, so builds
 # run side by side instead of queueing behind each other (a burst of five
 # merges no longer serialises into ~25 min before preview moves). Ordering
-# is enforced where it matters, in bump-preview (job-level concurrency plus
-# a newest-wins check), so a slower older build can't roll preview back.
+# is enforced where it matters, in bump-preview (a newest-wins check that
+# retries a rejected push), so a slower older build can't roll preview back.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.ref) || format('build-{0}-{1}', github.ref, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -254,7 +254,7 @@ jobs:
         # branch. The sha stays as build metadata; images also get the
         # dev tag (no "+", which Docker tags don't allow).
         run: |
-          last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
+          last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' 2>/dev/null || echo v0.0.0)
           n=$(git rev-list --count "${last_tag}..HEAD" 2>/dev/null || echo 0)
           IFS=. read -r ma mi pa <<< "${last_tag#v}"
           if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then next="${ma}.${mi}.$((pa+1))"; else next="${ma}.$((mi+1)).0"; fi
@@ -288,7 +288,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ steps.ver.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       - name: Build & push
@@ -354,13 +353,16 @@ jobs:
             prev=$(grep -E '^[[:space:]]+tag:[[:space:]]+sha-[0-9a-f]+' "$file" | head -1 | sed -E 's/.*sha-([0-9a-f]+).*/\1/')
             if [ -n "$prev" ]; then
               prev_full=$(gh api "repos/$REPO/commits/$prev" --jq .sha 2>/dev/null || true)
-              if [ -n "$prev_full" ]; then
-                rel=$(gh api "repos/$REPO/compare/$prev_full...$SHA" --jq .status 2>/dev/null || echo unknown)
-                echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
-                case "$rel" in
-                  behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
-                esac
-              fi
+              rel=unknown
+              [ -n "$prev_full" ] && rel=$(gh api "repos/$REPO/compare/$prev_full...$SHA" --jq .status 2>/dev/null || echo unknown)
+              echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
+              case "$rel" in
+                behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
+                # An API blip must not roll preview back mid-QA; the next
+                # merge's build bumps it. "diverged" (preview pinned by hand
+                # off main) falls through to the old always-bump behaviour.
+                unknown) echo "::warning::couldn't compare ${prev} with ${SHA:0:7}; not bumping."; exit 0 ;;
+              esac
             fi
             # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
             sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
