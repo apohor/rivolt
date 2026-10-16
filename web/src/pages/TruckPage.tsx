@@ -84,7 +84,12 @@ export default function TruckPage() {
       <PageHeader
         title="Truck"
         subtitle={name}
-        actions={<VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />}
+        actions={
+          <>
+            {next && <PeriodPicker value={period} onChange={setPeriod} />}
+            <VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />
+          </>
+        }
       />
 
       <DrainCard vehicleID={selectedID} />
@@ -93,7 +98,7 @@ export default function TruckPage() {
         <PackHealthCard vehicleID={selectedID} />
       </Card>
 
-      <Card title="Sleep and idle-awake" span="full" actions={next ? <PeriodPicker value={period} onChange={setPeriod} /> : undefined}>
+      <Card title="Sleep and idle-awake" span="full">
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.

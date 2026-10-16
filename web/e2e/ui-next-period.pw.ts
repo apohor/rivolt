@@ -85,6 +85,8 @@ for (const v of [
     await expect(page.getByRole("group", { name: "Time scope" })).toBeVisible();
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(SHOTS, `uinext-period-custom-${v.name}.png`) });
+    // On a phone the choices live behind the compact label.
+    if (v.name === "iphone") await page.getByRole("group", { name: "Time scope" }).getByRole("button", { name: /^Time scope:/ }).click();
     await page.getByRole("group", { name: "Time scope" }).getByRole("button", { name: "Week" }).click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SHOTS, `uinext-period-week-${v.name}.png`) });
@@ -94,3 +96,61 @@ for (const v of [
     await ctx.close();
   });
 }
+
+test("next desktop: the hero card and the KPI grid share top and bottom edges; the scope sits in the page header", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, "on");
+  await page.goto("/");
+  const hero = page.locator("[data-ui-hero]").first();
+  const kpi = page.locator("[data-ui-area='kpi']");
+  await expect(hero).toBeVisible();
+  const a = (await hero.boundingBox())!;
+  const b = (await kpi.boundingBox())!;
+  expect(Math.abs(a.y - b.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(a.y + a.height - (b.y + b.height))).toBeLessThanOrEqual(2);
+  // The scope control lives in the header row with the title.
+  const header = page.locator("[data-ui-header]").first();
+  await expect(header.getByRole("group", { name: "Time scope" })).toBeVisible();
+  await expect(header.getByRole("heading", { name: "Now" })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, "uinext-now-parity-desktop.png") });
+  await ctx.close();
+});
+
+for (const url of ["/", "/activity", "/truck"]) {
+  test(`next: the scope header is sticky under the nav on scroll · ${url}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 600 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await open(page, "on");
+    await page.goto(url);
+    const header = page.locator("[data-ui-header]").first();
+    await expect(header).toBeVisible();
+    await page.mouse.wheel(0, 900);
+    await page.waitForTimeout(400);
+    const box = (await header.boundingBox())!;
+    // Pinned just under the 48px top nav, still on screen after scrolling.
+    expect(box.y).toBeGreaterThanOrEqual(40);
+    expect(box.y).toBeLessThanOrEqual(60);
+    await ctx.close();
+  });
+}
+
+test("next phone: a compact scope bar; tapping the label opens the choices", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, "on");
+  await page.goto("/");
+  const scope = page.getByRole("group", { name: "Time scope" });
+  // No full segmented row inline on a phone.
+  await expect(scope.getByRole("button", { name: "Week" })).toBeHidden();
+  const label = scope.getByRole("button", { name: /^Time scope:/ });
+  await expect(label).toBeVisible();
+  await label.click();
+  await expect(scope.getByRole("button", { name: "Week" })).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, "uinext-period-compact-open-iphone.png") });
+  await scope.getByRole("button", { name: "Week" }).click();
+  await expect(label).toHaveText(/^[A-Z][a-z]{2} \d{1,2}–/);
+  await page.keyboard.press("Escape");
+  await expect(scope.getByRole("button", { name: "Week" })).toBeHidden();
+  await ctx.close();
+});

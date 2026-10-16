@@ -89,7 +89,9 @@ export default function ActivityPage() {
         subtitle="Drives and charges, newest first"
         // The table pages are signed-in only: no links to them in the demo.
         actions={
-          inDemo() ? undefined : (
+          <>
+          {next && <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />}
+          {inDemo() ? undefined : (
           <span className="text-xs text-neutral-500">
             Tables:{" "}
             <Link to={appPath("/drives")} className="text-neutral-300 hover:text-emerald-300">
@@ -100,10 +102,10 @@ export default function ActivityPage() {
               Charges
             </Link>
           </span>
-          )
+          )}
+          </>
         }
       />
-      {next && <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />}
       <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
         {FILTERS.map((f) => (
           <button

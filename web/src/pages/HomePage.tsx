@@ -11,7 +11,7 @@ import { Link } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
-import { Card, ErrorBox } from "../components/ui";
+import { Card, ErrorBox, PageHeader } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
 import { PackHealthStat } from "../components/PackHealthCard";
 import {
@@ -264,7 +264,23 @@ export default function HomePage() {
       />
       )}
 
-      {shellEnabled && <h1 className="sr-only">Now</h1>}
+      {shellEnabled && !next && <h1 className="sr-only">Now</h1>}
+      {shellEnabled && next && (
+        <PageHeader
+          title="Now"
+          actions={
+            <ScopeBar
+              win={win}
+              onWinChange={setWin}
+              period={period}
+              onPeriodChange={setPeriod}
+              vehicles={vehicles.data ?? []}
+              selectedVehicleID={activeVehicleID}
+              onSelectVehicle={selectVehicle}
+            />
+          }
+        />
+      )}
       {shellEnabled && activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
@@ -277,7 +293,7 @@ export default function HomePage() {
         />
       )}
 
-      {shellEnabled && (
+      {shellEnabled && !next && (
         <ScopeBar
           win={win}
           onWinChange={setWin}
