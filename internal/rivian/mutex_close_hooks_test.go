@@ -15,6 +15,7 @@ import (
 // fire the close hooks like the normal ones (drive weather, charge
 // notifications); they used to only upsert.
 func TestMutualExclusionClosesFireHooks(t *testing.T) {
+	t.Parallel()
 	r := NewReplayer("veh-1")
 	var mu sync.Mutex
 	var closedCharges []charges.Charge
@@ -65,6 +66,7 @@ func TestMutualExclusionClosesFireHooks(t *testing.T) {
 // A session's close hook fires once however often it's closed, and the
 // fired set stays bounded over a long run.
 func TestCloseHooksFireOncePerSession(t *testing.T) {
+	t.Parallel()
 	r := NewReplayer("veh-1")
 	var mu sync.Mutex
 	n := 0
@@ -98,6 +100,7 @@ func TestCloseHooksFireOncePerSession(t *testing.T) {
 // charge abandoned with under 1 kWh, a drive under a minute and 0.1 mi
 // that ran into charging.
 func TestMutualExclusionHookThresholds(t *testing.T) {
+	t.Parallel()
 	r := NewReplayer("veh-1")
 	var mu sync.Mutex
 	var drivesN, chargesN int
