@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { inDemo } from "../lib/demo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type PlanVsActual as Pva, type SavedTrip } from "../lib/api";
 import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Row } from "../lib/planVsActual";
@@ -9,13 +10,13 @@ import { Card } from "./ui";
 // guesses: an incomplete cost reads "so far $X, N not priced yet" and
 // shows no difference; a metric with an unknown side shows none.
 
-export function PlanVsActualSection({ trips }: { trips: SavedTrip[] }) {
+export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
   if (trips.length === 0) return null;
   return (
     <Card title="Plan vs actual">
       <ul className="space-y-4">
         {trips.map((t) => (
-          <li key={t.id}>
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined} className={t.id === highlightId ? "rounded-lg ring-1 ring-emerald-700/60" : undefined}>
             <TripCompare trip={t} />
           </li>
         ))}
@@ -46,7 +47,7 @@ function TripCompare({ trip }: { trip: SavedTrip }) {
   return (
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
-      <Body d={d} busy={busy} onConfirm={(id) => link.mutate(id)} onUnlink={(id) => unlink.mutate(id)} />
+      <Body d={d} busy={busy} readOnly={inDemo()} onConfirm={(id) => link.mutate(id)} onUnlink={(id) => unlink.mutate(id)} />
       {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
     </div>
   );
@@ -55,9 +56,11 @@ function TripCompare({ trip }: { trip: SavedTrip }) {
 function Body({
   d,
   busy,
+  readOnly = false,
   onConfirm,
   onUnlink,
 }: {
+  readOnly?: boolean;
   d: Pva;
   busy: boolean;
   onConfirm: (tripID: string) => void;
@@ -92,7 +95,7 @@ function Body({
       <div className="mt-1">
         <p className="text-sm text-neutral-200">Was this your trip{when ? ` on ${when}` : ""}?</p>
         {d.comparison && <Compare d={d} preview />}
-        <div className="mt-3 flex gap-2">
+        <div className={`mt-3 flex gap-2 ${readOnly ? "hidden" : ""}`}>
           <button
             type="button"
             disabled={busy || !c}
@@ -119,14 +122,16 @@ function Body({
       {d.link?.link_stale && (
         <p className="mt-2 text-xs text-neutral-500">This match was re-found after your data changed; check it still looks right.</p>
       )}
-      <button
-        type="button"
-        disabled={busy || !d.link}
-        onClick={() => d.link && onUnlink(d.link.trip_id)}
-        className="mt-3 text-xs text-neutral-500 underline hover:text-neutral-300 disabled:opacity-50"
-      >
-        Not this trip? Unlink
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          disabled={busy || !d.link}
+          onClick={() => d.link && onUnlink(d.link.trip_id)}
+          className="mt-3 text-xs text-neutral-500 underline hover:text-neutral-300 disabled:opacity-50"
+        >
+          Not this trip? Unlink
+        </button>
+      )}
     </div>
   );
 }

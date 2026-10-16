@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
+import { inDemo } from "../lib/demo";
 import { BarChart } from "../components/charts";
 import { PackHealthCard } from "../components/PackHealthCard";
 import DrainCard from "../components/DrainCard";
@@ -24,7 +25,8 @@ export default function TruckPage() {
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
-    enabled: !!rivianStatus.data?.authenticated,
+    // The signed-out demo has no Rivian login; its sample truck is listed anyway.
+    enabled: !!rivianStatus.data?.authenticated || inDemo(),
     staleTime: 5 * 60_000,
     retry: 1,
   });

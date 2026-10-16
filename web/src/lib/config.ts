@@ -217,9 +217,6 @@ export function grafanaBaseURL(): string {
 // chargers with full OSM tags (operator, network, max kW, socket
 // types) instead of the basemap's stripped-down POIs.
 export function chargersPMTilesURL(): string {
-  // The public demo has no tile access (signed out): never request the
-  // chargers archive there; lookups fall back to the basemap layer.
-  if (inDemo()) return "";
   return cached.tiles.chargersUrl;
 }
 
@@ -235,6 +232,8 @@ export function chargersPMTilesURL(): string {
 // from a component that mounts before the config resolves will
 // permanently see `false` (no state subscription).
 export function aiEnabled(): boolean {
+  // AI calls cost money: never from the public demo.
+  if (inDemo()) return false;
   return cached.ai.enabled;
 }
 
@@ -261,11 +260,11 @@ export function useSignupEnabled(): boolean | null {
 // aiEnabled() will permanently return false in components that
 // mount before the /api/config fetch resolves.
 export function useAIEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(cached.ai.enabled);
+  const [enabled, setEnabled] = useState<boolean>(aiEnabled());
   useEffect(() => {
     let cancelled = false;
     ensureConfig().then((c) => {
-      if (!cancelled) setEnabled(c.ai.enabled);
+      if (!cancelled) setEnabled(inDemo() ? false : c.ai.enabled);
     });
     return () => {
       cancelled = true;

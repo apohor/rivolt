@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -76,7 +77,7 @@ export default function DrivesPage() {
             {view === "map" ? (
               <DrivesOverviewMap
                 drives={rows}
-                onSelect={(id) => navigate(`/drives/${id}`)}
+                onSelect={(id) => navigate(appPath(`/drives/${id}`))}
                 height={480}
               />
             ) : (
@@ -144,7 +145,7 @@ function DriveTable({ drives }: { drives: Drive[] }) {
             <tr
               key={d.ID}
               className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
-              {...clickableRowProps(() => navigate(`/drives/${d.ID}`), {
+              {...clickableRowProps(() => navigate(appPath(`/drives/${d.ID}`)), {
                 role: "link",
                 label: `Open drive from ${formatDateTime(d.StartedAt)}`,
               })}

@@ -206,7 +206,7 @@ test("the public demo makes no session or Rivian-account calls", async ({ browse
   await page.goto("/demo");
   await expect(page.getByRole("heading", { name: /Rivolt demo/ })).toBeVisible();
   for (const tab of ["Money", "Activity", "Now"]) {
-    await page.getByRole("button", { name: tab }).click();
+    await page.getByRole("link", { name: tab }).first().click();
     await page.waitForTimeout(400);
   }
   expect(paths).not.toContain("/api/auth/me");

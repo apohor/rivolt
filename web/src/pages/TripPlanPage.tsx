@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { ConnectHint } from "../components/DemoBanner";
+import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
-import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
+import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -675,9 +677,12 @@ export default function TripPlanPage() {
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <PageHeader
         title="Trip planner"
-        subtitle="Plan a route with charging stops via Rivian's planner."
+        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
       />
 
+      {inDemo() ? (
+        <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
+      ) : (
       <Card title="Plan a trip">
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
@@ -900,7 +905,7 @@ export default function TripPlanPage() {
             <span className="text-xs text-neutral-500">
               Tip: configure your charging settings in{" "}
               <a
-                href="/settings?tab=charging"
+                href={appPath("/settings?tab=charging")}
                 className="underline hover:text-neutral-300"
               >
                 Settings &rarr; Charging
@@ -910,8 +915,9 @@ export default function TripPlanPage() {
           </div>
         </form>
       </Card>
+      )}
 
-      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} />}
+      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
 
       <SavedTripsCard
         trips={savedTripsQuery.data ?? []}
@@ -920,6 +926,7 @@ export default function TripPlanPage() {
         canSave={!!origin && !!destination}
         saveDisabled={saveTripMutation.isPending}
         onLoad={loadSavedTrip}
+        readOnly={inDemo()}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={(saveTripMutation.error as Error | null)?.message}
@@ -1216,15 +1223,85 @@ function SnapshotBanner({
         from {human}
         {stale && " — charging stations, weather, and ETA may have drifted."}
       </span>
-      <button
-        type="button"
-        onClick={onReplan}
-        disabled={replanPending}
-        className="shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
-      >
-        {replanPending ? "Re-planning…" : "Re-plan now"}
-      </button>
+      {!inDemo() && (
+        <button
+          type="button"
+          onClick={onReplan}
+          disabled={replanPending}
+          className="shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+        >
+          {replanPending ? "Re-planning…" : "Re-plan now"}
+        </button>
+      )}
     </div>
+  );
+}
+
+// DemoPresetPicker: the public demo's planner. A handful of stored trips
+// rendered by the real planner UI (route, stops, cost, arrival SoC); any
+// other trip needs the visitor's own Rivian.
+function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpen: (t: SavedTrip) => void }) {
+  const list = useQuery({ queryKey: ["demo", "trips"], queryFn: () => backend.demoTrips(), retry: 0, staleTime: 60 * 60_000 });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const open = async (p: DemoTripPreset) => {
+    setBusy(p.id);
+    setErr(null);
+    try {
+      const fetched = await backend.demoTripPlan(p.id);
+      // The preset's geometry rides on the route unless the plan carries its own.
+      const geometry = p.shape ?? p.route_polyline;
+      const plan: TripPlan = geometry
+        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
+        : fetched;
+      const now = new Date().toISOString();
+      onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't load that trip.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const trips = list.data?.trips ?? [];
+  return (
+    <Card title="Try a sample trip">
+      {list.isLoading ? (
+        <Spinner />
+      ) : trips.length === 0 ? (
+        <p className="text-xs text-neutral-500">No sample trips available right now.</p>
+      ) : (
+        <ul className="space-y-1.5" data-testid="demo-presets">
+          {trips.map((p) => (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => open(p)}
+                disabled={busy != null}
+                className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                  p.id === activeId ? "border-emerald-700/60 bg-emerald-950/30" : "border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-neutral-100">{p.name}</span>
+                  <span className="block text-xs text-neutral-500">
+                    {p.inputs.origin?.label} → {p.inputs.destination?.label}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right text-xs tabular-nums text-neutral-400">
+                  {Math.round(p.summary.distance_mi)} mi · {p.summary.charge_stops} {p.summary.charge_stops === 1 ? "stop" : "stops"}
+                  <br />
+                  arrive {Math.round(p.summary.arrival_soc_pct)}%
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+      <div className="mt-3">
+        <ConnectHint what="plan any trip, with your truck's pack and charge level" />
+      </div>
+    </Card>
   );
 }
 
@@ -1238,7 +1315,9 @@ function SavedTripsCard({
   onDelete,
   onSave,
   saveError,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   trips: SavedTrip[];
   loading: boolean;
   activeId: string | null;
@@ -1270,8 +1349,9 @@ function SavedTripsCard({
         <Spinner />
       ) : trips.length === 0 ? (
         <p className="text-xs text-neutral-500">
-          No saved trips yet. Plan a route, then save it below so you can
-          re-open or re-plan it later.
+          {readOnly
+            ? "No sample trips here."
+            : "No saved trips yet. Plan a route, then save it below so you can re-open or re-plan it later."}
         </p>
       ) : (
         <ul className="mb-4 space-y-1.5">
@@ -1296,20 +1376,25 @@ function SavedTripsCard({
                     {t.inputs.origin?.label} → {t.inputs.destination?.label}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
-                  }}
-                  className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
-                >
-                  delete
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
+                    }}
+                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                  >
+                    delete
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       )}
+      {readOnly ? (
+        <ConnectHint what="save your own trips" />
+      ) : (
       <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -1326,7 +1411,8 @@ function SavedTripsCard({
           {active && active.name === name.trim() ? "Update" : "Save"}
         </button>
       </form>
-      {!canSave && (
+      )}
+      {!readOnly && !canSave && (
         <p className="mt-2 text-xs text-neutral-600">
           Pick a From + To above (and optionally hit Plan trip) before saving.
         </p>
@@ -1992,7 +2078,8 @@ function TripPlanResult({
   }
   return (
     <div className="space-y-4">
-      <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />
+      {/* AI analysis costs money: never offered in the public demo. */}
+      {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
       <WeatherAdjustmentChip plan={plan} />
       {plan.Routes.map((route, i) => (
         <RouteCard
