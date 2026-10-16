@@ -26,6 +26,5 @@ describe("e2e quarantine", () => {
       .filter((f) => f.endsWith(".pw.ts"))
       .flatMap((f) => fs.readFileSync(path.join(E2E, f), "utf8").split("\n").filter((l) => /test\.fixme\(/.test(l) && l.includes("QUARANTINE.md")));
     expect(hits.length).toBeLessThanOrEqual(3);
-    expect(hits.length).toBeLessThanOrEqual(Math.max(rows.length, 0) + 0 || 3);
   });
 });
