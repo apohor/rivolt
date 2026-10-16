@@ -44,7 +44,7 @@ const (
 	drainMinDailyParkedH = 12.0
 	// A day's idle-awake figure needs this much observed power state.
 	drainMinDailyObsH = 3.0
-	drainCacheTTL     = 60 * time.Second
+	drainCacheTTL     = 5 * time.Minute
 )
 
 type drainWindow struct {

@@ -855,7 +855,7 @@ func New(d Deps) http.Handler {
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).
 			r.Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSleepActivity(d.Samples.For(uid))(w, r)
+				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
 			// Trip planner — pass-through to Rivian's
 			// planTripWithMultiStop. Caller supplies origin +

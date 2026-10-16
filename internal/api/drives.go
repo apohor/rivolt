@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"net/http"
 	"sort"
 	"strconv"
@@ -226,12 +227,34 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 	}
 }
 
+// sleepActivityTTL is how long a computed sleep-activity series is
+// reused. The query window-scans up to 30 days of vehicle_state (prod
+// p95 was several seconds), and the series only changes as new samples
+// arrive, so a few minutes of staleness is invisible.
+const sleepActivityTTL = 5 * time.Minute
+
+var sleepActivityCache = newTTLCache[[]samples.DayActivity](sleepActivityTTL, 256)
+
+// sleepActivityKey is the cache key for one request: the window is
+// rounded down to the hour (since) and 5 minutes (until).
+func sleepActivityKey(uid uuid.UUID, vehicle string, since, until time.Time) string {
+	return strings.Join([]string{uid.String(), vehicle,
+		since.UTC().Truncate(time.Hour).Format(time.RFC3339),
+		until.UTC().Truncate(5 * time.Minute).Format(time.RFC3339)}, "|")
+}
+
 // handleSleepActivity returns per-day asleep/awake hours derived from the
 // persisted power_state column (migration 0038). Query params: `since`
 // (RFC3339, default 30d ago), `until` (optional), `vehicle` (optional
 // Rivian vehicle id to scope to one car). The series only has data from
 // the deploy that started recording power_state forward.
-func handleSleepActivity(store *samples.Store) http.HandlerFunc {
+//
+// Results are cached per (user, vehicle, window) for sleepActivityTTL,
+// per process. The window is part of the key rounded down to the hour
+// (since) and 5 minutes (until), because clients send "now minus N days"
+// and so never repeat an exact timestamp; the first caller in a bucket
+// computes with its exact bounds.
+func handleSleepActivity(uid uuid.UUID, store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusOK, []any{})
@@ -249,13 +272,22 @@ func handleSleepActivity(store *samples.Store) http.HandlerFunc {
 				until = t
 			}
 		}
-		out, err := store.SleepActivity(r.Context(), r.URL.Query().Get("vehicle"), since, until)
+		vehicle := r.URL.Query().Get("vehicle")
+		key := sleepActivityKey(uid, vehicle, since, until)
+		out, err := sleepActivityCache.get(key, func() ([]samples.DayActivity, error) {
+			// Shared with concurrent callers, so it must not die with
+			// this request's context.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 25*time.Second)
+			defer cancel()
+			res, err := store.SleepActivity(ctx, vehicle, since, until)
+			if res == nil {
+				res = []samples.DayActivity{}
+			}
+			return res, err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		if out == nil {
-			out = []samples.DayActivity{}
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
