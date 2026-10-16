@@ -124,8 +124,9 @@ stops, then layers on top of it:
 
 After the route comes back, the **Trip analysis** card breaks it
 down. The dollar figures are computed deterministically in Go —
-not asked of an LLM — from your home rate, stop SoC deltas, and an
-industry-default DCFC rate:
+not asked of an LLM — from your home rate, stop SoC deltas, and
+each matched charging network's rate (your member rate where set), with a
+default only for unknown stations:
 
 - **DCFC spend** — estimated spend at fast chargers along the way.
 - **Home-rate equivalent** — what the total energy used would have
