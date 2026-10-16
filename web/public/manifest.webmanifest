@@ -1,7 +1,7 @@
 {
   "name": "Rivolt — Rivian companion",
   "short_name": "Rivolt",
-  "description": "Self-hosted Rivian companion with drive, charge, and efficiency tracking.",
+  "description": "Open-source Rivian companion with drive, charge, and efficiency tracking.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
