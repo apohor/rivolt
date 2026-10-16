@@ -360,6 +360,7 @@ func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
 // All store writes are best-effort: errors are logged and swallowed
 // so recording failures never break the live-state HTTP path.
 func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr *State) {
+	m.noteScheduleNudge(vehicleID, prev, curr)
 	m.recordFrame(ctx, vehicleID, prev, curr, true /* lifecycle */)
 }
 
