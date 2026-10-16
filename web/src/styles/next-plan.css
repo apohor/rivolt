@@ -534,3 +534,12 @@ html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] [role='radio'] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* A stop card that expands is scrolled into view: keep it clear of the sticky
+   bars and the tab bar when the page is the scroller. */
+html[data-ui='next'] [data-plan-timeline] > li {
+  scroll-margin-block: calc(48px + 4.5rem) calc(3.5rem + 1rem);
+}
+html[data-ui='next'] [data-plan-sheet-body] [data-plan-timeline] > li {
+  scroll-margin-block: 0.5rem;
+}

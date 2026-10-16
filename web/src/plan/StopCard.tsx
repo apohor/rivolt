@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import type { TripCostStop, TripRoute } from "../lib/api";
 import { formatWaypointTime } from "./format";
+import { revealStop } from "./reveal";
 
 // StopCard: one itinerary entry for the ui_theme_next planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
@@ -43,9 +45,17 @@ export function StopCard({
   const outSoc = Math.max(0, Math.min(100, w.DepartureSoC));
   const isStop = kind === "stop";
   const detail = isStop && selected;
+  const cardRef = useRef<HTMLLIElement>(null);
+  const titleRef = useRef<HTMLButtonElement>(null);
+  // When the detail opens (a tap here, or a tap on the stop's map marker),
+  // bring the whole card, title included, into view.
+  useEffect(() => {
+    if (detail && cardRef.current && titleRef.current) revealStop(cardRef.current, titleRef.current);
+  }, [detail]);
   return (
-    <li data-kind={kind} data-selected={selected ? "true" : undefined}>
+    <li ref={cardRef} data-kind={kind} data-selected={selected ? "true" : undefined}>
       <button
+        ref={titleRef}
         type="button"
         aria-pressed={selected}
         aria-expanded={isStop ? selected : undefined}
