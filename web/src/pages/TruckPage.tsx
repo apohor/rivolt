@@ -1,4 +1,7 @@
 import { useMemo } from "react";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { periodRange, usePeriod } from "../lib/period";
+import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -41,10 +44,19 @@ export default function TruckPage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  const since = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
+  // ui_theme_next: the shared calendar scope drives the sleep chart; off keeps
+  // the fixed last 30 days.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(() => periodRange(period), [period]);
+  const since = useMemo(
+    () => (next && range.start ? range.start : next ? new Date(Date.now() - 730 * 86_400_000) : new Date(Date.now() - 30 * 86_400_000)).toISOString(),
+    [next, range],
+  );
+  const until = next && range.end ? range.end.toISOString() : undefined;
   const sleepQ = useQuery({
-    queryKey: ["sleepActivity", "truck", selectedID ?? ""],
-    queryFn: () => backend.sleepActivity(since, selectedID ?? undefined),
+    queryKey: ["sleepActivity", "truck", selectedID ?? "", since, until ?? ""],
+    queryFn: () => backend.sleepActivity(since, selectedID ?? undefined, until),
     enabled: !!selectedID,
     staleTime: 5 * 60_000,
     retry: 1,
@@ -81,7 +93,7 @@ export default function TruckPage() {
         <PackHealthCard vehicleID={selectedID} />
       </Card>
 
-      <Card title="Sleep and idle-awake" span="full">
+      <Card title="Sleep and idle-awake" span="full" actions={next ? <PeriodPicker value={period} onChange={setPeriod} /> : undefined}>
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.

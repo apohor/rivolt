@@ -1,4 +1,7 @@
 import { formatMoney } from "../lib/ledger";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { filterByRange, periodRange, usePeriod } from "../lib/period";
+import { useUiNext } from "../lib/uiNext";
 import { displayTimeZone } from "../lib/format";
 import { detailPath, inDemo, appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
@@ -36,6 +39,10 @@ export default function ActivityPage() {
   const filter: Filter = raw === "drives" || raw === "charges" ? raw : "all";
   const [shown, setShown] = useState(PAGE);
   const { roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes } = usePreferences();
+  // ui_theme_next: the shared calendar scope filters the feed; off shows everything.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
 
   const drivesQ = useQuery({ queryKey: ["drives", "all"], queryFn: () => backend.allDrives() });
   const chargesQ = useQuery({ queryKey: ["charges", "all"], queryFn: () => backend.allCharges() });
@@ -55,15 +62,15 @@ export default function ActivityPage() {
   const homeRate = settingsQ.data?.home_price_per_kwh ?? null;
 
   const days = useMemo(() => {
-    const ds = drivesQ.data ?? [];
+    const ds = filterByRange(drivesQ.data ?? [], range);
     const merged = roundTripsEnabled
       ? collapseRoundTrips(ds, roundTripRadiusMeters, roundTripMaxGapMinutes)
       : ds;
-    return buildFeed(merged, chargesQ.data ?? [], {
+    return buildFeed(merged, filterByRange(chargesQ.data ?? [], range), {
       home: homeQ.data?.set ? homeQ.data : null,
       filter,
     });
-  }, [drivesQ.data, chargesQ.data, homeQ.data, filter, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  }, [drivesQ.data, chargesQ.data, homeQ.data, filter, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
 
   const total = days.reduce((n, d) => n + d.items.length, 0);
   let budget = shown;
@@ -96,6 +103,7 @@ export default function ActivityPage() {
           )
         }
       />
+      {next && <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />}
       <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
         {FILTERS.map((f) => (
           <button
@@ -125,7 +133,11 @@ export default function ActivityPage() {
         <ErrorBox title="Couldn't load activity" detail={String(drivesQ.error)} />
       ) : total === 0 ? (
         <Card>
-          <p className="text-sm text-neutral-400">Nothing recorded yet. Drives and charges appear here as they happen.</p>
+          <p className="text-sm text-neutral-400">
+            {range.start || range.end
+              ? "Nothing recorded in this period. Step to another period or pick All."
+              : "Nothing recorded yet. Drives and charges appear here as they happen."}
+          </p>
         </Card>
       ) : (
         <div className="space-y-5" data-ui-feed>

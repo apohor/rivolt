@@ -1,4 +1,6 @@
 import { formatMoney } from "../lib/ledger";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { barsEndDay, filterByRange, periodLabel, periodRange, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
@@ -19,7 +21,6 @@ import {
 import {
   chargeStats,
   driveStats,
-  filterByWindow,
   milesPerDay,
   socTrend,
   windowStart,
@@ -37,6 +38,14 @@ import NowCard from "../components/NowCard";
 export default function HomePage() {
   const shellEnabled = useMoneyTabEnabled();
   const [win, setWin] = useState<WindowKey>("30d");
+  // ui_theme_next: calendar scope (Week/Month/Year/All/Custom) replaces the
+  // rolling windows; off keeps today's window picker exactly.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(
+    () => (next ? periodRange(period) : { start: windowStart(win), end: null }),
+    [next, period, win],
+  );
   const {
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -55,7 +64,7 @@ export default function HomePage() {
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);
   const winDrives = useMemo(() => {
-    const filtered = filterByWindow(all, win);
+    const filtered = filterByRange(all, range);
     return roundTripsEnabled
       ? collapseRoundTrips(
           filtered,
@@ -63,8 +72,8 @@ export default function HomePage() {
           roundTripMaxGapMinutes,
         )
       : filtered;
-  }, [all, win, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
-  const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
+  }, [all, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  const winCharges = useMemo(() => filterByRange(allC, range), [allC, range]);
   const ds = useMemo(() => driveStats(winDrives), [winDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
 
@@ -118,7 +127,6 @@ export default function HomePage() {
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
   // ui_theme_next: the hero gauge already shows the battery %, so the first KPI
   // tile reads "Since last charge" (miles driven since the latest finished charge).
-  const next = useUiNext();
   const sinceCharge = useMemo(() => {
     const ends = allC.filter((c) => !isActiveCharge(c)).map((c) => new Date(c.EndedAt).getTime()).filter(Number.isFinite);
     if (ends.length === 0) return null;
@@ -133,6 +141,11 @@ export default function HomePage() {
   // record to today, capped at ~2y so a multi-year corpus doesn't render
   // thousands of hairline bars.
   const barDays = useMemo(() => {
+    if (next && range.start && range.end) {
+      // Calendar period: bars run from its first day to its last (or today).
+      const last = barsEndDay(range);
+      return Math.max(1, Math.round((last.getTime() - range.start.getTime()) / 86_400_000) + 1);
+    }
     if (win === "7d") return 7;
     if (win === "30d") return 30;
     if (win === "90d") return 90;
@@ -144,10 +157,10 @@ export default function HomePage() {
     const spanDays =
       Math.ceil((Date.now() - Math.min(...times)) / 86_400_000) + 1;
     return Math.min(Math.max(spanDays, 7), 730);
-  }, [win, winDrives, winCharges]);
+  }, [next, range, win, winDrives, winCharges]);
   const dailyMiles = useMemo(
-    () => milesPerDay(winDrives, barDays),
-    [winDrives, barDays],
+    () => milesPerDay(winDrives, barDays, next && range.end ? barsEndDay(range) : undefined),
+    [winDrives, barDays, next, range],
   );
   const trend = useMemo(
     () => socTrend(winDrives, winCharges),
@@ -179,12 +192,13 @@ export default function HomePage() {
   // "all" falls back to a wide 2-year lookback.
   const sleepSince = useMemo(
     () =>
-      (windowStart(win) ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
-    [win],
+      (range.start ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
+    [range],
   );
+  const sleepUntil = next && range.end ? range.end.toISOString() : undefined;
   const sleepActivity = useQuery({
-    queryKey: ["sleepActivity", win, activeVehicleID ?? ""],
-    queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined),
+    queryKey: ["sleepActivity", sleepSince, sleepUntil ?? "", activeVehicleID ?? ""],
+    queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined, sleepUntil),
     staleTime: 5 * 60_000,
   });
   // Track IDLE-AWAKE minutes/day: the car awake while parked and not
@@ -267,6 +281,8 @@ export default function HomePage() {
         <ScopeBar
           win={win}
           onWinChange={setWin}
+          period={next ? period : null}
+          onPeriodChange={setPeriod}
           vehicles={vehicles.data ?? []}
           selectedVehicleID={activeVehicleID}
           onSelectVehicle={selectVehicle}
@@ -360,7 +376,7 @@ export default function HomePage() {
 
           <Card
             title={`Miles per day · ${
-              win === "all" ? "all time" : `last ${barDays} days`
+              next ? periodLabel(period) : win === "all" ? "all time" : `last ${barDays} days`
             }`}
           >
             <BarChart
@@ -607,12 +623,17 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
 function ScopeBar({
   win,
   onWinChange,
+  period,
+  onPeriodChange,
   vehicles,
   selectedVehicleID,
   onSelectVehicle,
 }: {
   win: WindowKey;
   onWinChange: (w: WindowKey) => void;
+  // Set in the ui_theme_next layer: calendar scope instead of the windows.
+  period: Period | null;
+  onPeriodChange: (p: Period) => void;
   vehicles: import("../lib/api").Vehicle[];
   selectedVehicleID: string | undefined;
   onSelectVehicle: (id: string) => void;
@@ -620,7 +641,7 @@ function ScopeBar({
   return (
     <div data-ui-area="scope" className="flex flex-wrap items-center justify-end gap-2">
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
-      <WindowPicker value={win} onChange={onWinChange} />
+      {period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
   );
 }
