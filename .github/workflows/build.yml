@@ -190,24 +190,13 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
-      # The browser download is the slow part; cache it by lockfile (the
-      # Playwright version lives there). System libraries are not part of the
-      # cache, so install-deps runs every time (a few seconds when present).
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
-
+      # No browser cache: a PR's Actions cache is only readable from that PR,
+      # so it never hit across PRs and 23 of them held 5 GB, enough to push
+      # main's go and Docker caches out of the 10 GB repo budget. A cold
+      # install is ~22 s (chromium) / ~49 s (webkit) per shard, in parallel.
       - name: Install Playwright browser
         working-directory: web
-        run: |
-          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps ${{ matrix.project }}
-          else
-            npx playwright install --with-deps ${{ matrix.project }}
-          fi
+        run: npx playwright install --with-deps ${{ matrix.project }}
 
       - name: Build web
         working-directory: web
