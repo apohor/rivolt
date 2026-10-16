@@ -53,7 +53,7 @@ func sampleExport() exportData {
 			{TransactionID: "txn-2", StartedAt: now.Add(-30 * time.Hour), EndedAt: now.Add(-29 * time.Hour), Currency: "USD", IsHome: &home},
 		},
 		Settings: map[string]string{"charging.home_price_per_kwh": "0.16"},
-		Profiles: []exportProfile{},
+		Profiles: []exportProfile{{RivianVehicleID: "rv-1", OTA: json.RawMessage(`{"current":{"version":"2026.30.0"}}`)}},
 	}
 }
 
@@ -115,6 +115,9 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 	}
 	if rrows[2][0] != "txn-2" || rrows[2][3] != "" || rrows[2][len(rrows[2])-1] != "false" {
 		t.Fatalf("unmatched receipt row: %v", rrows[2])
+	}
+	if !strings.Contains(files["vehicles.json"], `"ota"`) || !strings.Contains(files["vehicles.json"], "2026.30.0") {
+		t.Fatalf("vehicles.json lacks the stored OTA details: %s", files["vehicles.json"])
 	}
 	if !strings.HasPrefix(col["network"], "'=") {
 		t.Fatalf("formula injection not neutralised: %q", col["network"])

@@ -50,6 +50,10 @@ type Vehicle struct {
 	// camera angle so the UI can build a gallery or swap the hero
 	// image on hover.
 	Images []VehicleImage `json:"images,omitempty"`
+	// OTA is the current and available software release with release-notes
+	// links (stored by the OTA sync, served by /api/vehicles); nil until the
+	// first fetch.
+	OTA *OTAInfo `json:"ota,omitempty"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at

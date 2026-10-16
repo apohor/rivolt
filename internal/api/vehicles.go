@@ -349,6 +349,23 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				}
 			}
 		}
+		// OTA release details (current and available version, release-notes
+		// links) come from what the OTA sync stored; this never calls Rivian.
+		if sqlDB != nil {
+			if userID, ok := auth.UserFromContext(r.Context()); ok {
+				if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
+					attachOTA(vs, stored, func(id string) string {
+						if mon == nil {
+							return ""
+						}
+						if st, _ := mon.Latest(id); st != nil {
+							return st.OtaStatus
+						}
+						return ""
+					})
+				}
+			}
+		}
 		writeJSON(w, http.StatusOK, vs)
 	}
 }
@@ -456,5 +473,24 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
+	}
+}
+
+// attachOTA sets each vehicle's OTA details from the stored JSON and adds
+// the live status. A row that does not decode is skipped.
+func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, status func(id string) string) {
+	for i := range vs {
+		raw, ok := stored[vs[i].ID]
+		if !ok {
+			continue
+		}
+		var info rivian.OTAInfo
+		if json.Unmarshal(raw, &info) != nil {
+			continue
+		}
+		if status != nil {
+			info.Status = status(vs[i].ID)
+		}
+		vs[i].OTA = &info
 	}
 }

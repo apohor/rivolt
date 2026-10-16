@@ -50,6 +50,7 @@ import (
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
@@ -883,6 +884,12 @@ func runServer() {
 		// owner had opened /api/vehicles. COALESCE in the upsert means a
 		// blank never overwrites a stored value.
 		if pgPool != nil {
+			// OTA release details (version, release-notes link): once a day
+			// per vehicle and when a monitor connects (after the rows above
+			// exist), stored in vehicles.metadata and served by /api/vehicles.
+			otaSyncer := otadetails.New(pgPool, accountRegistry,
+				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) }, logger)
+			go otaSyncer.Run(ctx)
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
 				return func(vs []rivian.Vehicle) {
 					go func() {
@@ -899,6 +906,7 @@ func runServer() {
 								logger.Warn("persist vehicle info", "user_id", uid.String(), "rivian_vehicle_id", v.ID, "err", err.Error())
 							}
 						}
+						otaSyncer.OnConnect(uid)
 					}()
 				}
 			})
