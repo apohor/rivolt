@@ -182,8 +182,13 @@ func TestPriceCharges(t *testing.T) {
 	if got[2].CostSource != "" {
 		t.Errorf("DC fast at home priced: %+v", got[2])
 	}
-	if none := PriceCharges([]Charge{{Lat: 34, Lon: -118, EnergyKWh: 5}}, Pricing{HomeRadiusM: 250}); none[0].CostSource != "" || none[0].Place != "" {
-		t.Errorf("no home: %+v", none[0])
+	// No saved home: the recorder can't tell it's away, so the home rate.
+	if nh := PriceCharges([]Charge{{Lat: 34, Lon: -118, EnergyKWh: 5, PeakKW: 7}}, Pricing{HomeRate: 0.12, Currency: "USD", HomeRadiusM: 250, DCFCMinKW: 50}); nh[0].CostSource != "home_rate" || nh[0].Place != "" {
+		t.Errorf("no home, rate set: %+v", nh[0])
+	}
+	// No rate: unpriced.
+	if none := PriceCharges([]Charge{{Lat: 34, Lon: -118, EnergyKWh: 5}}, Pricing{HomeRadiusM: 250, DCFCMinKW: 50}); none[0].CostSource != "" {
+		t.Errorf("no rate: %+v", none[0])
 	}
 }
 
@@ -194,7 +199,11 @@ func TestFixtureTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var all map[string]struct {
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &all); err != nil {
+		t.Fatal(err)
+	}
+	var seq struct {
 		Events []struct {
 			T     float64  `json:"t"`
 			Kind  string   `json:"kind"`
@@ -203,12 +212,12 @@ func TestFixtureTrip(t *testing.T) {
 			SoC   float64  `json:"soc"`
 		} `json:"events"`
 	}
-	if err := json.Unmarshal(raw, &all); err != nil {
+	if err := json.Unmarshal(all["park_drive_park_sleep"], &seq); err != nil {
 		t.Fatal(err)
 	}
 	var rows []Row
 	power, odo, soc := "", 0.0, 0.0
-	for _, e := range all["park_drive_park_sleep"].Events {
+	for _, e := range seq.Events {
 		if e.Kind != "vs" {
 			continue
 		}

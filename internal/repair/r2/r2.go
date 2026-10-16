@@ -98,11 +98,11 @@ type Pricing struct {
 }
 
 // PriceCharges stamps each charge the way the recorder does for AC
-// charging: at home (within HomeRadiusM of the saved home) at the home
-// rate (cost_source home_rate, place home); away, or with no home or
-// no rate, unpriced (place away / unknown). A DC fast charge stays
-// unpriced: the recorder prices those from the network, which a repair
-// doesn't guess.
+// charging: at the home rate (cost_source home_rate) unless it is known
+// to be away (more than HomeRadiusM from a saved home), which stays
+// unpriced; no rate set, unpriced. Place is home / away when a home is
+// saved, else unknown. A DC fast charge stays unpriced: the recorder
+// prices those from the network, which a repair doesn't guess.
 func PriceCharges(chs []Charge, p Pricing) []Charge {
 	out := make([]Charge, len(chs))
 	for i, c := range chs {
@@ -113,7 +113,9 @@ func PriceCharges(chs []Charge, p Pricing) []Charge {
 				c.Place = "away"
 			}
 		}
-		if c.Place == "home" && p.HomeRate > 0 && c.PeakKW < p.DCFCMinKW && c.EnergyKWh > 0 {
+		// The recorder's rule (liveChargeRow): AC is priced at the home
+		// rate unless it is known to be away from home.
+		if c.Place != "away" && p.HomeRate > 0 && c.PeakKW < p.DCFCMinKW && c.EnergyKWh > 0 {
 			c.PricePerKWh = p.HomeRate
 			c.Cost = p.HomeRate * c.EnergyKWh
 			c.Currency = p.Currency
