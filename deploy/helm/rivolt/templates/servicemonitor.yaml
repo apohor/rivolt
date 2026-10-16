@@ -16,10 +16,12 @@ spec:
     matchLabels:
       {{- include "rivolt.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: http
+    - port: {{ if .Values.metrics.port }}metrics{{ else }}http{{ end }}
       # /metrics is mounted at the root by internal/api when Deps.Metrics
       # is non-nil (set in cmd/rivolt/main.go). It's intentionally NOT
-      # under /api so the auth middleware never touches it.
+      # under /api so the auth middleware never touches it. With
+      # metrics.port set it is served only on that port (RIVOLT_METRICS_ADDR)
+      # and is absent from the public router.
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}

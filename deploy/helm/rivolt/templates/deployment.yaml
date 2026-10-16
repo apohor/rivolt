@@ -67,6 +67,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
+            {{- if .Values.metrics.port }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "rivolt.fullname" . }}-config
@@ -84,6 +89,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            {{- if .Values.metrics.port }}
+            - name: RIVOLT_METRICS_ADDR
+              value: {{ printf ":%v" .Values.metrics.port | quote }}
+            {{- end }}
             {{- with .Values.ratelimit }}
             {{- if .redis.addr }}
             # Global token bucket: when set, every

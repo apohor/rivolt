@@ -127,6 +127,11 @@ ingress:
 # only governs whether a ServiceMonitor is created so a
 # kube-prometheus-stack scraper in the same cluster picks it up.
 metrics:
+  # -- Serve /metrics on its own port instead of the public one (the
+  # Ingress routes every path to the main port, so /metrics there is
+  # public). Empty keeps /metrics on the main port. When set, the
+  # container, Service and ServiceMonitor use this port.
+  port: ""
   serviceMonitor:
     # Disabled by default for environments without
     # kube-prometheus-stack installed. The rivolt-infra umbrella
