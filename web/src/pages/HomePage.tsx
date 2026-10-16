@@ -1,6 +1,6 @@
 import { formatMoney } from "../lib/ledger";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { barsEndDay, filterByRange, periodLabel, periodRange, usePeriod, type Period } from "../lib/period";
+import { barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
@@ -190,12 +190,12 @@ export default function HomePage() {
   // power_state (migration 0038). Only has data from when recording
   // started, so it fills forward. `since` follows the window picker;
   // "all" falls back to a wide 2-year lookback.
+  const sleepWin = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
   const sleepSince = useMemo(
-    () =>
-      (range.start ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
-    [range],
+    () => sleepWin?.since ?? (range.start ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
+    [sleepWin, range],
   );
-  const sleepUntil = next && range.end ? range.end.toISOString() : undefined;
+  const sleepUntil = sleepWin?.until;
   const sleepActivity = useQuery({
     queryKey: ["sleepActivity", sleepSince, sleepUntil ?? "", activeVehicleID ?? ""],
     queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined, sleepUntil),
