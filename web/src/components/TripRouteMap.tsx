@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { inDemo } from "../lib/demo";
 import L from "leaflet";
 import { safeFitBounds } from "../lib/mapFit";
 import { addTilesUnavailableNotice } from "../lib/mapNotice";
@@ -232,7 +233,9 @@ export function TripRouteMap({
         fitBox = line.getBounds();
         fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
         path = stored;
-      } else if (valhallaBase() !== "") {
+      } else if (!inDemo() && valhallaBase() !== "") {
+        // (valhallaBase() is already "" in the demo; the explicit check keeps
+        // anonymous visitors off the routing proxy even if that changes.)
         const snapped = await valhallaMultiRoute(ws, ac.signal);
         if (snapped && snapped.length >= 2 && !ac.signal.aborted) {
           placeholder.remove();

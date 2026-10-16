@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { stubApi } from "./stub";
+import { stubApi, VEHICLE_ID } from "./stub";
 
 // The public demo shell: every /demo/* route renders the real page, and a
 // signed-out visitor never trips an endpoint outside the demo allowlist
@@ -11,14 +11,14 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const ALLOW: RegExp[] = [
   /^\/api\/demo$/, /^\/api\/config$/, /^\/api\/health$/,
-  /^\/api\/vehicles$/, /^\/api\/vehicles\/[^/]+\/(now|pack-health|drain)$/,
-  /^\/api\/state\/[^/]+$/,
+  /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain)$`),
+  new RegExp(`^/api/state/${VEHICLE_ID}$`),
   /^\/api\/ledger\/(enabled|monthly|summary|trips)$/,
   /^\/api\/charges(\/clusters)?$/, /^\/api\/drives$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
   /^\/api\/settings\/(charging|charging\/networks|home-location)\/?$/,
   /^\/api\/trips\/saved$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
   /^\/api\/demo\/trips$/, /^\/api\/demo\/trips\/[a-z0-9-]+\/plan$/,
-  /^\/api\/maps\/tiles\//,
+  /^\/api\/maps\/tiles\/(us|chargers)\.pmtiles$/,
 ];
 
 function watch(page: Page) {
@@ -86,6 +86,10 @@ for (const [vpName, vp] of [
 test("demo planner: preset trips render the real planner result; custom trips need a Rivian; nothing is POSTed", async ({ page }) => {
   await stubApi(page, { demo: true, signedIn: false });
   const bad = watch(page);
+  const valhalla: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.includes("/api/maps/valhalla")) valhalla.push(r.url());
+  });
   const writes: string[] = [];
   page.on("request", (r) => {
     if (new URL(r.url()).pathname.startsWith("/api/") && r.method() !== "GET") writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
@@ -104,6 +108,9 @@ test("demo planner: preset trips render the real planner result; custom trips ne
   await expect(page.getByRole("button", { name: /^Save$/ })).toHaveCount(0);
   await expect(page.getByTestId("connect-hint").first()).toContainText("plan any trip");
   await page.waitForTimeout(800);
+  // The default stub preset has NO route_polyline: the map must not fall
+  // back to the routing proxy (401 for anonymous visitors).
+  expect(valhalla).toEqual([]);
   expect(writes).toEqual([]);
   expect(bad, bad.join("\n")).toEqual([]);
 });
