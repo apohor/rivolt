@@ -292,10 +292,9 @@ type Spend struct {
 	EstimatePendingKWh       float64            `json:"estimate_pending_kwh"`
 	// BilledTotal is what Rivian billed over the month's sessions that have
 	// a receipt in the statement currency; EstimatedTotal is our own cost
-	// over the other sessions counted in Total. With Config.Billed each
-	// session counts once, as its receipt when it has one, so
-	// Total == BilledTotal + EstimatedTotal. Present only when Config.Billed;
-	// off, Total is our own cost per session as before.
+	// over the sessions counted in Total that have none. Their sum is the
+	// best-known spend; Total itself is unchanged (our cost per session).
+	// Present only when Config.Billed.
 	BilledTotal    *float64 `json:"billed_total,omitempty"`
 	EstimatedTotal *float64 `json:"estimated_total,omitempty"`
 }
@@ -735,43 +734,6 @@ func billedCost(c Charge, cfg Config) (float64, bool) {
 	return *c.BilledCost, true
 }
 
-// applyBilled makes Rivian's receipt the session's cost when the user has
-// the feature on: the billed amount is what was actually charged, so it
-// replaces our estimate in the statement (cost, source "rivian", the rate
-// implied by the energy, no pending verify state). Sessions without a usable
-// receipt are untouched. The stored estimate is not modified; this works on
-// a copy. With the feature off the input is returned as is.
-func applyBilled(cs []Charge, cfg Config) []Charge {
-	if !cfg.Billed {
-		return cs
-	}
-	var out []Charge
-	for i, c := range cs {
-		b, ok := billedCost(c, cfg)
-		if !ok {
-			continue
-		}
-		if out == nil {
-			out = append([]Charge(nil), cs...)
-		}
-		cost := b
-		c.Cost = &cost
-		c.Currency = strings.ToUpper(c.BilledCurrency)
-		c.CostSource = SourceRivian
-		c.PricePerKWh = nil
-		if kwh := val(c.EnergyKWh); kwh > 0 {
-			rate := b / kwh
-			c.PricePerKWh = &rate
-		}
-		c.NetworkState, c.NetworkConfidence, c.NetworkEvidence = "", nil, nil
-		out[i] = c
-	}
-	if out == nil {
-		return cs
-	}
-	return out
-}
-
 func strPtr(s string) *string {
 	if s == "" {
 		return nil
@@ -926,7 +888,6 @@ type Input struct {
 // Build produces the statement for p. withReceipts=false yields the
 // month summary shape (no receipts, no superseded list).
 func Build(in Input, p Period, withReceipts bool) Monthly {
-	in.Charges = applyBilled(in.Charges, in.Config)
 	effCharges, lost := EffectiveCharges(in.Charges)
 	drives, lostDrives := EffectiveDrives(in.Drives)
 
@@ -1037,9 +998,6 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 	}
 	if in.Config.Billed {
 		bt, et := round4(billedTotal), round4(estimatedTotal)
-		// Every counted session is in exactly one bucket (its receipt when it
-		// has one, otherwise our estimate), so the headline is their sum.
-		out.Spend.Total = round4(bt + et)
 		out.Spend.BilledTotal, out.Spend.EstimatedTotal = &bt, &et
 		out.BilledSessions, out.EstimatedSessions = &billedSessions, &estimatedSessions
 	}
