@@ -18,7 +18,9 @@ import (
 // produce the right apply order.
 //
 // Adding a new migration is "drop a .sql file in internal/db/migrations/
-// and rebuild". Nothing else to touch.
+// and rebuild". Nothing else to touch, except that one altering
+// vehicle_state sets a bounded lock_timeout first (see
+// migrate_locktimeout_test.go).
 //
 //go:embed migrations/*.sql
 var migrationFS embed.FS
