@@ -91,6 +91,8 @@ func main() {
 			os.Exit(runRepairPhantoms(os.Args[2:]))
 		case "repair-r2-history":
 			os.Exit(runRepairR2History(os.Args[2:]))
+		case "announce":
+			os.Exit(runAnnounce(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -117,6 +119,13 @@ Usage:
                   from its samples (R2s recorded before park/sleep came
                   from Parallax). Dry run unless --apply; CSV backup
                   first; one transaction; never migrates.
+  rivolt announce --subject S --body-file FILE [--apply] [--sent-log FILE]
+                  [--test-to USER_ID] [--exclude-user ID|NAME ...] [--rate 2]
+                  One-time service email to active users through the
+                  configured mailer, one message each. Dry run lists
+                  user id prefixes only; --apply sends and records each
+                  user id in --sent-log so a re-run resumes; --test-to
+                  sends to one user. Never migrates; never prints emails.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
                   Delete audited phantom live charges (dry run unless
