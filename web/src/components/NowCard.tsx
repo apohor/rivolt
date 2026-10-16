@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArcGauge } from "./ArcGauge";
+import { useUiNext } from "../lib/uiNext";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -181,6 +183,7 @@ export default function NowCard({
     });
   }, [state, nowMs, tracker, openCharge, server, packKwh, homeQ.data, chargingQ.data]);
 
+  const next = useUiNext(); // a hook: must run before the early returns below
   const driveQ = useQuery({
     queryKey: ["rivian", "live-drive", vehicleID],
     queryFn: () => backend.liveDrive(vehicleID),
@@ -219,10 +222,13 @@ export default function NowCard({
   const pill = statusPill(view);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
+  const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   return (
     <section aria-label="Now" className="space-y-2">
       <div
+        data-ui-hero="true"
+        data-live={liveKind}
         className={`rounded-xl border bg-neutral-900/60 p-5 ${
           critical ? "border-rose-500/50" : "border-neutral-800"
         }`}
@@ -248,6 +254,43 @@ export default function NowCard({
           </span>
         </div>
 
+        {next ? (
+          <div className="mt-3 flex items-center gap-5">
+            <ArcGauge
+              value={view.soc}
+              label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
+              live={view.kind === "charging"}
+              tone={offline ? "idle" : critical ? "critical" : "ok"}
+            >
+              {(shown) => (
+                <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                  <span className="text-4xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                  <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
+                </span>
+              )}
+            </ArcGauge>
+            <div className="min-w-0 space-y-3">
+              {view.kind === "driving" && view.speedMph != null && (
+                <div>
+                  <p className="ui-label">Speed</p>
+                  <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
+                    {Math.round(view.speedMph)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mph</span>
+                  </p>
+                </div>
+              )}
+              {view.rangeMi != null && (
+                <div>
+                  <p className="ui-label">Range</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
+                    {Math.round(view.rangeMi)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mi</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           {view.kind === "driving" && view.speedMph != null ? (
             <>
@@ -269,6 +312,7 @@ export default function NowCard({
             </>
           )}
         </div>
+        )}
 
         {(view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
           <LimitBar soc={view.soc} limit={view.limitPct} />

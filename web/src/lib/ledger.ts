@@ -7,6 +7,7 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { setServerUiNext } from "./uiNext";
 import { hasOpenNetworkState, type NetworkState } from "./autoNetwork";
 import { DEMO_TZ, inDemo } from "./demo";
 import { cacheShellFlag } from "./theme";
@@ -200,8 +201,11 @@ let flagInflight: Promise<boolean> | null = null;
 export function loadMoneyTabEnabled(): Promise<boolean> {
   if (!flagInflight) {
     flagInflight = api
-      .get<{ enabled?: boolean }>("/api/ledger/enabled")
-      .then((r) => !!r?.enabled)
+      .get<{ enabled?: boolean; ui_theme_next?: boolean }>("/api/ledger/enabled")
+      .then((r) => {
+        setServerUiNext(!!r?.ui_theme_next);
+        return !!r?.enabled;
+      })
       .catch(() => false)
       .then((v) => {
         flagCache = v;

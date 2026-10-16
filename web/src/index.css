@@ -339,3 +339,121 @@ html[data-theme='light'] {
   --color-indigo-900: oklch(93% 0.034 272.788);
   --color-indigo-950: oklch(96.2% 0.018 272.314);
 }
+
+/* ---- ui_theme_next: the "cinematic cockpit" layer --------------------------
+   Everything here sits under html[data-ui='next'] (set by useApplyUiNext when
+   the flag or a ?ui=next override is on), so flag off is exactly today's UI.
+   Dark first: a cooler, near-black base with four elevation steps (token
+   overrides, so the whole app follows), a 1px top-edge highlight on cards, a
+   soft light pool behind the hero metric, glow only on live states, small-caps
+   labels, tabular mono numerals and 150-250 ms motion. Text keeps its
+   lightness (AA is checked by axe in the demo e2e); glows are decoration. */
+.ui-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+
+html[data-ui='next']:not([data-theme='light']) {
+  --color-neutral-950: oklch(13.5% 0.009 262);
+  --color-neutral-900: oklch(17.5% 0.011 262);
+  --color-neutral-800: oklch(24.5% 0.013 262);
+  --color-neutral-700: oklch(31.5% 0.014 262);
+  --ui-hero-tint: oklch(78% 0.15 168);
+  --ui-drive-tint: oklch(76% 0.12 235);
+  --ui-edge: oklch(100% 0 0 / 0.07);
+}
+
+html[data-ui='next']:not([data-theme='light']) body {
+  background-image: radial-gradient(120% 60% at 50% -10%, oklch(40% 0.05 250 / 0.18), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* Elevation: top-edge highlight and a faint vertical sheen on card surfaces. */
+html[data-ui='next']:not([data-theme='light']) :is(.rounded-xl, .rounded-lg)[class*='border-neutral-800'] {
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 1px 2px oklch(0% 0 0 / 0.45),
+    0 8px 24px -12px oklch(0% 0 0 / 0.5);
+  background-image: linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+
+/* Hero: a soft light pool behind the headline metric; glow only when live. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero] {
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(78% 0.15 168 / 0.13), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero][data-live='charging'] {
+  border-color: oklch(78% 0.15 168 / 0.42);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(78% 0.15 168 / 0.16),
+    0 0 44px -10px oklch(78% 0.15 168 / 0.4);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero][data-live='driving'] {
+  border-color: oklch(76% 0.12 235 / 0.42);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(76% 0.12 235 / 0.16),
+    0 0 44px -10px oklch(76% 0.12 235 / 0.4);
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(76% 0.12 235 / 0.13), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next'] .ui-gauge[data-live='true'] .ui-gauge-fill {
+  filter: drop-shadow(0 0 5px oklch(78% 0.15 168 / 0.6));
+}
+
+/* Type: tight small-caps labels, tabular mono numerals. */
+html[data-ui='next'] .uppercase.tracking-wide,
+html[data-ui='next'] .ui-label {
+  letter-spacing: 0.09em;
+  font-weight: 500;
+}
+html[data-ui='next'] .tabular-nums:not(.text-xs, [class*='text-[1']) {
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Glass, sparingly: only the top bar and the bottom tab bar. */
+html[data-ui='next']:not([data-theme='light']) header.sticky,
+html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
+  background-color: oklch(13.5% 0.009 262 / 0.72);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+}
+
+/* Charts: thinner gridlines. */
+html[data-ui='next'] svg line.text-neutral-800,
+html[data-ui='next'] svg line[class*='neutral-800'] {
+  opacity: 0.55;
+}
+
+/* Skeletons shimmer instead of pulsing. */
+@keyframes ui-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+html[data-ui='next'] .animate-pulse {
+  animation: ui-shimmer 1.8s linear infinite;
+  background-image: linear-gradient(90deg, transparent 20%, oklch(100% 0 0 / 0.06) 50%, transparent 80%);
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui='next'] * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
