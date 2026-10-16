@@ -217,9 +217,6 @@ export function grafanaBaseURL(): string {
 // chargers with full OSM tags (operator, network, max kW, socket
 // types) instead of the basemap's stripped-down POIs.
 export function chargersPMTilesURL(): string {
-  // The public demo has no tile access (signed out): never request the
-  // chargers archive there; lookups fall back to the basemap layer.
-  if (inDemo()) return "";
   return cached.tiles.chargersUrl;
 }
 

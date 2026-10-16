@@ -16,8 +16,9 @@ const ALLOW: RegExp[] = [
   /^\/api\/ledger\/(enabled|monthly|summary|trips)$/,
   /^\/api\/charges(\/clusters)?$/, /^\/api\/drives$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,
   /^\/api\/settings\/(charging|charging\/networks|home-location)\/?$/,
-  /^\/api\/trips\/(plan|plan-multiday|saved)$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
-  /^\/api\/geocode$/, /^\/api\/maps\//,
+  /^\/api\/trips\/saved$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
+  /^\/api\/demo\/trips$/, /^\/api\/demo\/trips\/[a-z0-9-]+\/plan$/,
+  /^\/api\/maps\/tiles\//,
 ];
 
 function watch(page: Page) {
@@ -31,7 +32,7 @@ function watch(page: Page) {
     if (u.pathname.startsWith("/api/") && r.status() === 401) bad.push(`401: ${u.pathname}`);
   });
   page.on("console", (m) => {
-    if (m.type() === "error" && !/tiles|pmtiles|Failed to load resource.*(404|416)/i.test(m.text())) bad.push(`console: ${m.text().slice(0, 140)}`);
+    if (m.type() === "error" && !/tiles|pmtiles|Bad response code|Failed to load resource.*(404|416)/i.test(m.text())) bad.push(`console: ${m.text().slice(0, 140)}`);
   });
   page.on("pageerror", (e) => bad.push(`pageerror: ${e.message.slice(0, 140)}`));
   return bad;
@@ -80,4 +81,50 @@ for (const [vpName, vp] of [
       await ctx.close();
     });
   }
+}
+
+test("demo planner: preset trips render the real planner result; custom trips need a Rivian; nothing is POSTed", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  const bad = watch(page);
+  const writes: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.startsWith("/api/") && r.method() !== "GET") writes.push(`${r.method()} ${new URL(r.url()).pathname}`);
+  });
+  await page.goto("/demo/trips/plan");
+  const presets = page.getByTestId("demo-presets");
+  await expect(presets).toBeVisible();
+  await presets.getByRole("button", { name: /LA to Las Vegas/ }).click();
+  // The real result: stops table with a charger, cost, arrival SoC.
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  await expect(page.getByText(/24%/).first()).toBeVisible();
+  // No custom origin/destination form, no AI, no save/delete.
+  await expect(page.getByRole("button", { name: "Plan trip" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Re-plan/ })).toHaveCount(0);
+  await expect(page.getByText(/Analyze|AI advice/i)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Save$/ })).toHaveCount(0);
+  await expect(page.getByTestId("connect-hint").first()).toContainText("plan any trip");
+  await page.waitForTimeout(800);
+  expect(writes).toEqual([]);
+  expect(bad, bad.join("\n")).toEqual([]);
+});
+
+for (const [vpName, vp, scheme] of [
+  ["iphone", { width: 390, height: 844 }, "dark"],
+  ["desktop", { width: 1280, height: 900 }, "light"],
+  ["iphone", { width: 390, height: 844 }, "light"],
+  ["desktop", { width: 1280, height: 900 }, "dark"],
+] as const) {
+  test(`demo planner preset screenshot · ${vpName} · ${scheme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: vp, colorScheme: scheme });
+    const page = await ctx.newPage();
+    await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), scheme);
+    await stubApi(page, { demo: true, signedIn: false });
+    await page.goto("/demo/trips/plan");
+    await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+    await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+    await page.waitForTimeout(800);
+    await page.addStyleTag({ content: "nav, header, [class*=fixed], [class*=sticky] { position: static !important; }" });
+    await page.screenshot({ path: path.join(SHOTS, `demo-plan-preset-${vpName}-${scheme}.png`), fullPage: true });
+    await ctx.close();
+  });
 }

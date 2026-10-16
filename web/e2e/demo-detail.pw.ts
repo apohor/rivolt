@@ -70,13 +70,12 @@ test("closed sign-ups send the demo CTA to login", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/login");
 });
 
-test("the demo never requests the chargers archive or routing", async ({ page }) => {
+test("the demo never requests anonymous routing or the corridor query", async ({ page }) => {
   const tileReqs: string[] = [];
   page.on("request", (r) => {
-    // No tile archives and no anonymous routing/map-matching calls.
-    // The basemap archive (us.pmtiles) is allowed for the demo; the
-    // chargers archive and anonymous routing are not.
-    if (r.url().includes("chargers.pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
+    // No anonymous routing/map-matching and no server-side corridor query.
+    // The public tile archives (us.pmtiles, chargers.pmtiles) are allowed.
+    if (r.url().includes("/api/maps/valhalla") || r.url().includes("/api/maps/chargers-along")) tileReqs.push(r.url());
   });
   await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();

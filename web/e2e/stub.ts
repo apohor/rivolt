@@ -107,6 +107,64 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
   ...o,
 });
 
+// Sample preset trips served by GET /api/demo/trips (synthetic, not real roads).
+export const DEMO_PRESETS = [
+  {
+    id: "la-vegas",
+    name: "LA to Las Vegas",
+    inputs: {
+      origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" },
+      destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" },
+      extra_stops: [],
+      starting_soc: "90",
+      target_soc: "20",
+    },
+    summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
+  },
+  {
+    id: "la-san-diego",
+    name: "LA to San Diego",
+    inputs: {
+      origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" },
+      destination: { lat: 32.72, lon: -117.16, label: "San Diego" },
+      extra_stops: [],
+      starting_soc: "80",
+      target_soc: "20",
+    },
+    summary: { distance_mi: 120, duration_min: 120, charge_stops: 0, arrival_soc_pct: 52 },
+  },
+];
+
+export const DEMO_PLAN = {
+  Status: "OK",
+  ChargeStationsAvailable: true,
+  SoCBelowLimit: false,
+  Routes: [
+    {
+      DestinationReached: true,
+      TotalChargingDurationSec: 1500,
+      TotalDriveDurationSec: 13200,
+      TotalTripDurationSec: 14700,
+      TotalDriveDistanceMeters: 434500,
+      ArrivalSoC: 24,
+      ArrivalReachableMeters: 90000,
+      EnergyConsumptionKWh: 118,
+      BatteryEmptyToDestMeters: 0,
+      BatteryEmptyLat: 0,
+      BatteryEmptyLon: 0,
+      RouteResponseRaw: null,
+      Waypoints: [
+        { WaypointType: "origin", EntityID: "", Name: "Los Angeles", Latitude: 34.05, Longitude: -118.24, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 90, DepartureSoC: 90, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 0 },
+        { WaypointType: "charger", EntityID: "demo-1", Name: "Sample Fast Charge, Barstow", Latitude: 34.9, Longitude: -117.02, MaxPowerKW: 200, ChargeDurationSec: 1500, ArrivalSoC: 38, DepartureSoC: 65, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 215000 },
+        { WaypointType: "destination", EntityID: "", Name: "Las Vegas", Latitude: 36.17, Longitude: -115.14, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 24, DepartureSoC: 24, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 434500 },
+      ],
+    },
+  ],
+  costs: [
+    { currency: "USD", dcfc_spend: 14.4, dcfc_spend_user_member: 11.2, dcfc_spend_all_member: 11.2, home_equivalent: 13, gas_equivalent: 52, gas_price_per_gallon: 4.5, gas_mpg: 25, dcfc_rate_used: 0.5, dcfc_rate_used_user_member: 0.4, dcfc_rate_used_all_member: 0.4, home_rate_used: 0.11 },
+  ],
+};
+
 export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down" | "paused";
 
 export type DrainMode = "absent" | "ok" | "insufficient";
@@ -276,6 +334,13 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         });
       }
       return json(route, out);
+    }
+    if (p === "/api/demo/trips") {
+      return demo ? json(route, { trips: DEMO_PRESETS }) : json(route, { error: "not found" }, 404);
+    }
+    const dp = p.match(/^\/api\/demo\/trips\/([a-z0-9-]+)\/plan$/);
+    if (dp) {
+      return demo && DEMO_PRESETS.some((x) => x.id === dp[1]) ? json(route, DEMO_PLAN) : json(route, { error: "not found" }, 404);
     }
     if (p === "/api/trips/saved") {
       const inputs = {

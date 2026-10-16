@@ -1381,6 +1381,10 @@ export const backend = {
   // Trip-planner default drive mode + Tesla NACS adapter flag.
   // SPA pre-fills the per-trip form from these.
   // In the demo these live in browser memory only (no request, nothing saved).
+  // Public demo only: the preset trips (stored plans in the real planner's
+  // response shape). There is no demo planner compute.
+  demoTrips: () => api.get<{ trips: DemoTripPreset[] }>("/api/demo/trips"),
+  demoTripPlan: (id: string) => api.get<TripPlan>(`/api/demo/trips/${encodeURIComponent(id)}/plan`),
   plannerFavoritesGet: async (): Promise<PlannerFavorite[]> =>
     inDemo() ? [] : api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
   plannerFavoritesPut: async (list: PlannerFavorite[]): Promise<PlannerFavorite[]> =>
@@ -2170,6 +2174,15 @@ export type PlanVsActual = {
   link: { trip_id: string; confidence: number; band: PvaBand; linked_at: string; link_stale?: boolean } | null;
   candidates: PvaCandidate[];
   comparison: PvaComparison | null;
+};
+
+// DemoTripPreset: one entry of GET /api/demo/trips. `inputs` has the shape of
+// SavedTrip.inputs, so a preset opens like a saved trip.
+export type DemoTripPreset = {
+  id: string;
+  name: string;
+  inputs: SavedTripInputs;
+  summary: { distance_mi: number; duration_min: number; charge_stops: number; arrival_soc_pct: number };
 };
 
 export type SavedTrip = {

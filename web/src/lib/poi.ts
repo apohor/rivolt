@@ -22,6 +22,7 @@
 // bundle as transitive deps of protomaps-leaflet, so reading the
 // raw tile bytes costs nothing extra at runtime.
 
+import { inDemo } from "./demo";
 import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
@@ -350,6 +351,9 @@ export async function findChargersAlongPath(
   // POST that returns decoded POIs. The Go-side reader holds the
   // chargers.pmtiles file in memory so per-query time is dominated by
   // MVT parsing + corridor math, not network.
+  // The corridor query is a server-side POST: not available to the
+  // signed-out demo, which draws no charger overlay.
+  if (inDemo()) return [];
   let resp: { chargers: ServerCharger[]; count: number };
   try {
     resp = await backend.chargersAlongPath({ path, filter });
