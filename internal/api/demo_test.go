@@ -778,3 +778,46 @@ func TestDemoClientKeyObserverCountsSource(t *testing.T) {
 		t.Errorf("sources = %v", got)
 	}
 }
+
+// The tile budgets come from the env when it holds a sane whole number,
+// else the defaults; the limiter enforces what was read.
+func TestDemoTileBudgetsFromEnv(t *testing.T) {
+	for _, c := range []struct {
+		client, global       string
+		wantClient, wantGlob int
+	}{
+		{"", "", demoTilesPerClientPerMin, demoTilesGlobalPerMin},
+		{"600", "3000", 600, 3000},
+		{" 600 ", "3000", 600, 3000},
+		{"0", "-5", demoTilesPerClientPerMin, demoTilesGlobalPerMin},
+		{"lots", "3e3", demoTilesPerClientPerMin, demoTilesGlobalPerMin},
+		{"100001", "100000", demoTilesPerClientPerMin, 100000},
+	} {
+		t.Setenv("RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN", c.client)
+		t.Setenv("RIVOLT_DEMO_TILES_GLOBAL_PER_MIN", c.global)
+		if pc, g := demoTileBudgets(); pc != c.wantClient || g != c.wantGlob {
+			t.Errorf("env %q/%q: %d/%d, want %d/%d", c.client, c.global, pc, g, c.wantClient, c.wantGlob)
+		}
+	}
+
+	tilesUntil429 := func(t *testing.T) int {
+		t.Helper()
+		h, _ := demoChain(newDemoLimiter(), nil)
+		for i := 1; i <= 200; i++ {
+			if demoReq(h, "GET", "/api/maps/tiles/us.pmtiles").Code == http.StatusTooManyRequests {
+				return i
+			}
+		}
+		return 0
+	}
+	t.Setenv("RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN", "5")
+	t.Setenv("RIVOLT_DEMO_TILES_GLOBAL_PER_MIN", "")
+	if n := tilesUntil429(t); n != 6 {
+		t.Errorf("per-client 5: first 429 at request %d, want 6", n)
+	}
+	t.Setenv("RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN", "100")
+	t.Setenv("RIVOLT_DEMO_TILES_GLOBAL_PER_MIN", "3")
+	if n := tilesUntil429(t); n != 4 {
+		t.Errorf("global 3: first 429 at request %d, want 4", n)
+	}
+}
