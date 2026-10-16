@@ -49,7 +49,7 @@ for (const pg of PAGES) {
 // qa2 fixes (preview, iPhone): opaque-enough glass, one SoC readout (arc + limit
 // tick, no linear bar), mono only for short numeric readouts.
 for (const theme of ["dark", "light"] as const) {
-  test(`next: glass bars are opaque enough, the limit is a tick on the arc, text values are not mono · ${theme}`, async ({ browser }) => {
+  test(`next: glass bars are fully solid, the limit is a tick on the arc, text values are not mono · ${theme}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: theme });
     const page = await ctx.newPage();
     await page.addInitScript((t) => {
@@ -65,8 +65,10 @@ for (const theme of ["dark", "light"] as const) {
         const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
         return m.length > 3 ? Number(m[3]) : 1;
       });
-    expect(await alpha("header.sticky")).toBeGreaterThanOrEqual(0.95);
-    expect(await alpha(".app-safe-bottom.fixed")).toBeGreaterThanOrEqual(0.95);
+    // Fully solid: nothing may read through the top bar or the tab bar.
+    expect(await alpha("header.sticky")).toBe(1);
+    expect(await alpha(".app-safe-bottom.fixed")).toBe(1);
+    expect(await page.locator("header.sticky").first().evaluate((el) => getComputedStyle(el).backdropFilter)).toBe("none");
     // One SoC readout: the limit is a tick on the arc and there is no linear bar.
     await expect(page.getByTestId("gauge-limit")).toHaveCount(1);
     await expect(page.getByRole("region", { name: "Now" }).getByText("Limit 80%")).toHaveCount(0);

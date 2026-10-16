@@ -447,12 +447,11 @@ html[data-ui='next'] .ui-mono {
   letter-spacing: 0;
 }
 
-/* Glass, sparingly: only the top bar and the bottom tab bar. */
+/* The top bar, the bottom tab bar and the sticky page header are fully solid:
+   anything translucent let page text read through them (qa2, iPhone). */
 html[data-ui='next']:not([data-theme='light']) header.sticky,
 html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
-  background-color: oklch(13.5% 0.009 262 / 0.92);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  backdrop-filter: blur(20px) saturate(1.25);
+  background-color: oklch(13.5% 0.009 262);
 }
 
 /* Charts: thinner gridlines. */
@@ -746,12 +745,10 @@ html[data-ui='next'][data-theme='light'] .ui-spark-line {
 html[data-ui='next'][data-theme='light'] .ui-spark-dot {
   filter: drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.7));
 }
-/* Glass bars in white. */
+/* The bars in white, fully solid. */
 html[data-ui='next'][data-theme='light'] header.sticky,
 html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed {
-  background-color: oklch(99% 0 0 / 0.93);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  backdrop-filter: blur(20px) saturate(1.2);
+  background-color: oklch(99% 0 0);
 }
 /* Skeleton shimmer needs a dark sheen on light. */
 html[data-ui='next'][data-theme='light'] .animate-pulse {
@@ -767,17 +764,12 @@ html[data-ui='next'][data-theme='light'] [data-ui-feed] li::before {
   box-shadow: 0 0 0 3px oklch(97.6% 0.004 262), 0 0 8px 0 var(--node);
 }
 
-/* Glass must not be legible through: the sticky page header (from the scope
-   work) uses the same opaque-enough surface as the nav bars. */
+/* The sticky page header (from the scope work) is as solid as the nav bars. */
 html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
-  background-color: oklch(13.5% 0.009 262 / 0.92);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  backdrop-filter: blur(20px) saturate(1.25);
+  background-color: oklch(13.5% 0.009 262);
 }
 html[data-ui='next'][data-theme='light'] [data-ui-header] {
-  background-color: oklch(98.5% 0 0 / 0.93);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  backdrop-filter: blur(20px) saturate(1.2);
+  background-color: oklch(98.5% 0 0);
 }
 /* Sticky page header: the title row with the scope control stays under the top
    nav on scroll, so the charts below always show which period they are for. */
@@ -790,14 +782,12 @@ html[data-ui='next'] [data-ui-header] {
   align-items: center;
   flex-wrap: nowrap;
   border-bottom: 1px solid oklch(100% 0 0 / 0.05);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
 }
 html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
-  background-color: oklch(13.5% 0.009 262 / 0.78);
+  background-color: oklch(13.5% 0.009 262);
 }
 html[data-ui='next'][data-theme='light'] [data-ui-header] {
-  background-color: oklch(98.5% 0 0 / 0.85);
+  background-color: oklch(98.5% 0 0);
   border-bottom-color: oklch(0% 0 0 / 0.07);
 }
 @media (max-width: 767.98px) {
@@ -937,14 +927,22 @@ html[data-ui='next'] [data-plan-map] .leaflet-container {
   border-radius: 0;
   border-inline-width: 0;
 }
-/* Glass bars: nearly solid, so nothing reads through behind the tab bar. */
+/* Bars: fully solid (alpha 1), nothing reads through behind the tab bar. The
+   Tailwind backdrop-blur-sm on the bars is dropped too: a blur behind an
+   opaque surface does nothing but cost a compositing layer. */
+html[data-ui='next'] header.sticky,
+html[data-ui='next'] .app-safe-bottom.fixed,
+html[data-ui='next'] [data-ui-header] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 html[data-ui='next']:not([data-theme='light']) header.sticky,
 html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed,
 html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
-  background-color: oklch(13.5% 0.009 262 / 0.97);
+  background-color: oklch(13.5% 0.009 262);
 }
 html[data-ui='next'][data-theme='light'] header.sticky,
 html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed,
 html[data-ui='next'][data-theme='light'] [data-ui-header] {
-  background-color: oklch(99% 0 0 / 0.97);
+  background-color: oklch(99% 0 0);
 }
