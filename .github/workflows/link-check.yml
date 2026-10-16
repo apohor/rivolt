@@ -1,0 +1,33 @@
+# Weekly check that the footer's external links still work. A Discord
+# invite that expires or is revoked is otherwise silent: the footer just
+# links to "Invite invalid". A failure here shows up as a failed scheduled
+# run (GitHub emails the repo owner).
+name: link-check
+
+on:
+  schedule:
+    - cron: "17 13 * * 1"   # Mondays 13:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Discord invite is valid and never expires
+        run: |
+          code=$(grep -o 'discord.gg/[A-Za-z0-9]*' web/src/layout/AppLayout.tsx | head -1 | cut -d/ -f2)
+          [ -n "$code" ] || { echo "::error::no discord.gg invite found in the footer"; exit 1; }
+          body=$(curl -fsS "https://discord.com/api/v10/invites/${code}?with_expiration=true") || { echo "::error::invite ${code} is invalid"; exit 1; }
+          exp=$(echo "$body" | jq -r '.expires_at')
+          [ "$exp" = "null" ] || { echo "::error::invite ${code} expires at ${exp}"; exit 1; }
+          echo "OK: discord.gg/${code} is valid and never expires"
+      - name: Other footer links resolve
+        run: |
+          for u in https://github.com/apohor/rivolt https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L "$u"); echo "$u -> $code"
+            [ "$code" = 200 ] || { echo "::error::$u returned $code"; exit 1; }
+          done
