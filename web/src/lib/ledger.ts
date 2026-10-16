@@ -544,7 +544,6 @@ export const DCFC_MIN_KW = 50;
 // names: places are home/away and distances are rounded.
 export function ledgerMonthFixture(month: string): LedgerMonth {
   const [y, mo] = month.split("-").map(Number);
-  const tz = "America/Chicago";
   // Local CDT wall clock → UTC (fixture only; fixed -5h offset).
   const at = (day: number, h: number, min = 0) =>
     new Date(Date.UTC(y, mo - 1, day, h + 5, min)).toISOString();
@@ -689,7 +688,23 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     ]),
   ];
   receipts.sort((a, b) => b.started_at.localeCompare(a.started_at));
+  return ledgerMonthFromReceipts(month, receipts, { homeRate, vid });
+}
 
+// ledgerMonthFromReceipts computes a month's totals from its receipts the way
+// the server does (per session, by kind/place/source). The fixture and the
+// edge-state fixtures (no charges, home-only, R2, ...) share it.
+export function ledgerMonthFromReceipts(
+  month: string,
+  receipts: Receipt[],
+  opts: { homeRate?: number; vid?: string; miles?: number; drives?: number } = {},
+): LedgerMonth {
+  const [y, mo] = month.split("-").map(Number);
+  const tz = "America/Chicago";
+  const homeRate = opts.homeRate ?? 0.11;
+  const vid = opts.vid ?? "01-000000000";
+  const inTotal = (x: ReceiptSession) =>
+    x.cost != null && x.cost_source !== "unknown" && x.cost_source !== "home_rate_misapplied";
   // Totals computed once here, per session, the way the server does.
   const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
   const by_kind: Record<ChargeKind, KindTotals> = { ac: empty(), dcfc: empty() };
@@ -734,7 +749,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     }
   }
   const total = by_source.rivian + by_source.home_rate + by_source.network_estimate + by_source.user;
-  const miles = 1284.3;
+  const miles = opts.miles ?? 1284.3;
   return {
     version: LEDGER_CONTRACT_VERSION,
     period: month,
@@ -744,8 +759,8 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     currency: "USD",
     vehicle_id: null,
     is_current_month: month === currentMonth(),
-    first_activity_at: at(2, 7, 31),
-    last_activity_at: at(30, 19, 50),
+    first_activity_at: receipts.length ? receipts[receipts.length - 1].started_at : null,
+    last_activity_at: receipts.length ? receipts[0].started_at : null,
     spend: {
       total,
       by_source,
@@ -753,7 +768,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       priced_sessions: priced,
       unpriced_sessions: unpriced,
       unpriced_kwh: unpricedKwh,
-      unpriced_home_rate_estimate: +(unpricedKwh * homeRate).toFixed(4),
+      unpriced_home_rate_estimate: homeRate > 0 ? +(unpricedKwh * homeRate).toFixed(4) : null,
       estimate_pending_sessions: pending,
       estimate_pending_kwh: pendingKwh,
     },
@@ -766,20 +781,20 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       by_place_kind,
     },
     driving: {
-      drives: 61,
+      drives: opts.drives ?? 61,
       miles,
-      miles_with_energy: 1278.0,
-      kwh_used_known: 560.1,
-      coverage: 1278.0 / miles,
-      cost_per_mile: total / miles,
+      miles_with_energy: miles ? miles * 0.995 : 0,
+      kwh_used_known: miles ? 560.1 : 0,
+      coverage: miles ? 0.995 : null,
+      cost_per_mile: miles ? total / miles : null,
       cost_per_mile_basis: "spend_over_miles",
     },
     receipts,
     data_quality: {
       cost_source_inferred: derived > 0,
       cost_source_derived_sessions: derived,
-      superseded_excluded: 1,
-      superseded: [{ charge_id: `live_${vid}_c_fx900`, superseded_by: `live_${vid}_c_fx002` }],
+      superseded_excluded: receipts.length ? 1 : 0,
+      ...(receipts.length ? { superseded: [{ charge_id: `live_${vid}_c_fx900`, superseded_by: `live_${vid}_c_fx002` }] } : {}),
       drives_superseded_excluded: 0,
       open_sessions: 0,
       home_rate_on_dcfc: onDcfc,
