@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useUiNext } from "../lib/uiNext";
+import { StopCard } from "../plan/StopCard";
 import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
 import { ConnectHint } from "../components/DemoBanner";
@@ -2625,68 +2626,26 @@ function RouteCard({
       compact={next}
     />
   );
-  const timelineRow = (idx: number, kind: "start" | "stop" | "end", name: string, n?: number) => {
-    const w = route.Waypoints[idx];
-    const prev = idx > 0 ? route.Waypoints[idx - 1] : undefined;
-    const leg = haveDistances && prev ? (w.DistanceFromOriginMeters ?? 0) - (prev.DistanceFromOriginMeters ?? 0) : 0;
-    const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs);
-    const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs);
-    const sc = kind === "stop" && n != null ? stopBreakdown[n] : undefined;
-    const selected = selectedStop === idx;
-    return (
-      <li key={idx} data-kind={kind} data-selected={selected ? "true" : undefined}>
-        <button
-          type="button"
-          aria-pressed={selected}
-          onClick={() => toggleStop(idx)}
-          className="block w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-neutral-900/50"
-        >
-          <span className="flex items-baseline justify-between gap-3">
-            <span className="min-w-0 text-sm font-medium text-neutral-100">
-              {name}
-              {w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name) && (
-                <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
-              )}
-            </span>
-            {leg > 0 && <span className="ui-mono shrink-0 text-xs text-neutral-500">+{mFmt(leg)}</span>}
-          </span>
-          <span className="mt-0.5 flex flex-wrap items-baseline gap-x-3 text-xs text-neutral-400">
-            {kind === "start" && (
-              <span>
-                {dep && <span className="ui-mono">{dep}</span>} depart{w.DepartureSoC > 0 && <> at <span className="ui-mono text-neutral-200">{w.DepartureSoC.toFixed(0)}%</span></>}
-              </span>
-            )}
-            {kind === "stop" && (
-              <>
-                <span>
-                  {arr && <span className="ui-mono">{arr}</span>} <span className="ui-mono text-neutral-200">{w.ArrivalSoC.toFixed(0)}% → {w.DepartureSoC.toFixed(0)}%</span>
-                </span>
-                <span className="ui-mono text-neutral-200">{Math.round(w.ChargeDurationSec / 60)} min</span>
-                {selected && w.MaxPowerKW > 0 && <span className="ui-mono">{w.MaxPowerKW.toFixed(0)} kW max</span>}
-                {selected && sc && <span className="ui-mono">{sc.energy_kwh.toFixed(0)} kWh</span>}
-                {sc && (
-                  <span className="ui-mono text-neutral-200">
-                    {fmtCurrency(sc.energy_kwh * sc.guest_rate)}
-                    {sc.user_rate < sc.guest_rate && <span className="ml-1 text-emerald-400">{fmtCurrency(sc.energy_kwh * sc.user_rate)}</span>}
-                  </span>
-                )}
-              </>
-            )}
-            {kind === "end" && (
-              <span>
-                {arr && <span className="ui-mono">{arr}</span>} arrive{w.ArrivalSoC > 0 && <> at <span className="ui-mono text-neutral-200">{w.ArrivalSoC.toFixed(0)}%</span></>}
-              </span>
-            )}
-          </span>
-        </button>
-      </li>
-    );
-  };
+  const row = (idx: number, kind: "start" | "stop" | "end", name: string, n?: number) => (
+    <StopCard
+      key={idx}
+      kind={kind}
+      name={name}
+      waypoint={route.Waypoints[idx]}
+      prev={idx > 0 ? route.Waypoints[idx - 1] : undefined}
+      showLeg={haveDistances}
+      stopCost={kind === "stop" && n != null ? stopBreakdown[n] : undefined}
+      currency={cost?.currency || "USD"}
+      timeShiftMs={timeShiftMs}
+      selected={selectedStop === idx}
+      onSelect={() => toggleStop(idx)}
+    />
+  );
   const timeline = showTable && (
     <ol data-plan-timeline aria-label="Route and charging stops" className="mt-4">
-      {origin && timelineRow(originIdx, "start", originLabel || origin.Name || "Origin")}
-      {chargingWithIdx.map(({ w, i: wpIdx }, j) => timelineRow(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, j))}
-      {dest && timelineRow(destIdx, "end", destLabel || dest.Name || "Destination")}
+      {origin && row(originIdx, "start", originLabel || origin.Name || "Origin")}
+      {chargingWithIdx.map(({ w, i: wpIdx }, j) => row(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, j))}
+      {dest && row(destIdx, "end", destLabel || dest.Name || "Destination")}
     </ol>
   );
   if (next) {
