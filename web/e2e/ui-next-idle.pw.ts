@@ -33,7 +33,7 @@ for (const theme of ["dark", "light"] as const) {
           const tile = page.getByTestId("idle-tile");
           await expect(tile).toBeVisible();
           await expect(tile).toContainText("Idle awake");
-          await expect(tile).toContainText(/avg .* a day/);
+          await expect(tile).toContainText(/today · avg /);
           await expect(page.getByRole("heading", { name: "Idle-awake time per day" })).toHaveCount(0);
           await expect(page.getByRole("status").filter({ hasText: "Not staying asleep" })).toBeVisible();
         }
@@ -58,3 +58,44 @@ test("the tile opens Truck's sleep card", async ({ page }) => {
   await expect(page).toHaveURL(/\/truck#sleep$/);
   await expect(page.locator("#sleep").getByText("Sleep and idle-awake")).toBeVisible();
 });
+
+// qa2 (iPhone, prod): "Idle awake 3 h 37 min today" wrapped onto three lines. At 390px the
+// value stays on one line and the whole tile is at most two text lines of 11/12/14/24.
+for (const theme of ["dark", "light"] as const) {
+  test(`idle tile with a long value stays tidy at 390 · ${theme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: theme });
+    const page = await ctx.newPage();
+    await page.addInitScript(([t]) => {
+      localStorage.setItem("rivolt.ui.next", "on");
+      localStorage.setItem("rivolt.theme", t);
+    }, [theme]);
+    await stubApi(page, { scenario: "parked", drain: "ok" });
+    await page.route("**/api/sleep-activity**", (r) => {
+      const days = Array.from({ length: 14 }, (_, i) => ({
+        day: new Date(Date.now() - (13 - i) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
+        asleep_h: 18, idle_awake_h: i === 13 ? 3.62 : 1.43, sleeps: 3, failed_sleeps: 0,
+      }));
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(days) });
+    });
+    await page.goto("/");
+    const tile = page.getByTestId("idle-tile");
+    await expect(tile).toContainText("3 h 37 min");
+    await page.waitForTimeout(500);
+    const res = await tile.evaluate((el) => {
+      const lines = [...el.querySelectorAll("div")].map((d) => {
+        const cs = getComputedStyle(d);
+        const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+        return { t: (d.textContent || "").trim(), lines: Math.round(d.getBoundingClientRect().height / lh), size: Math.round(parseFloat(cs.fontSize)) };
+      });
+      return { lines, over: el.scrollWidth > el.clientWidth + 1 };
+    });
+    expect(res.over).toBe(false);
+    for (const l of res.lines) {
+      expect(l.lines, l.t).toBe(1);
+      expect([11, 12, 14, 24, 36], `${l.t} size`).toContain(l.size);
+    }
+    await tile.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, `idle-tile-long-390-${theme}.png`) });
+    await ctx.close();
+  });
+}
