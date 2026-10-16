@@ -29,6 +29,9 @@ type ipLimiter struct {
 	// key overrides the bucket key (default clientIP). Used by the demo
 	// limiter to key on CF-Connecting-IP and to add a global bucket.
 	key func(*http.Request) string
+	// onDeny, when set, is called once for every request the limiter
+	// rejects (the demo counts 429s by class; no addresses).
+	onDeny func()
 
 	mu      sync.Mutex
 	buckets map[string]*ipBucket
@@ -61,6 +64,9 @@ func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 			ip = l.key(r)
 		}
 		if !l.allow(ip) {
+			if l.onDeny != nil {
+				l.onDeny()
+			}
 			w.Header().Set("Retry-After", "60")
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{
 				"error": "too many requests, try again later",

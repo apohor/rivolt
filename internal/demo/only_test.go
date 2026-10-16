@@ -18,8 +18,8 @@ func TestOnlyEnabledNeedsTheReplayDemo(t *testing.T) {
 	if OnlyEnabled() {
 		t.Fatal("demo-only turned on for a live client")
 	}
-	if !MisconfiguredOnly() {
-		t.Error("demo-only without the replay demo must be reported as misconfigured")
+	if !MisconfiguredOnly() || StrayOnly() {
+		t.Error("a half-configured demo (RIVOLT_DEMO on, not replay) must be refused, not ignored")
 	}
 	demoEnv(t)
 	if !OnlyEnabled() || MisconfiguredOnly() {
@@ -51,5 +51,25 @@ func TestAppURL(t *testing.T) {
 		if got := AppURL(); got != want {
 			t.Errorf("AppURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestStrayDemoOnlyIsIgnoredNotFatal(t *testing.T) {
+	// Prod: RIVOLT_DEMO_ONLY leaked in, RIVOLT_DEMO absent.
+	t.Setenv("RIVOLT_DEMO_ONLY", "true")
+	t.Setenv("RIVOLT_DEMO", "")
+	t.Setenv("RIVIAN_CLIENT", "live")
+	if OnlyEnabled() {
+		t.Fatal("stray RIVOLT_DEMO_ONLY enabled demo-only")
+	}
+	if MisconfiguredOnly() {
+		t.Error("a stray RIVOLT_DEMO_ONLY must not refuse to boot (it would take prod down)")
+	}
+	if !StrayOnly() {
+		t.Error("stray RIVOLT_DEMO_ONLY not reported")
+	}
+	t.Setenv("RIVOLT_DEMO_ONLY", "")
+	if StrayOnly() {
+		t.Error("StrayOnly true without the variable")
 	}
 }

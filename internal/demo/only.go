@@ -17,11 +17,20 @@ func OnlyEnabled() bool {
 	return Enabled() && envTrue("RIVOLT_DEMO_ONLY")
 }
 
-// MisconfiguredOnly reports RIVOLT_DEMO_ONLY=true without the replay demo
-// it depends on. The caller refuses to boot: serving a half-demo install
-// to the public is worse than not starting.
+// MisconfiguredOnly reports a half-configured standalone demo:
+// RIVOLT_DEMO_ONLY=true and RIVOLT_DEMO=true, but not the replay sample
+// setup the demo needs. The caller refuses to boot: serving a half-demo
+// install to the public is worse than not starting.
 func MisconfiguredOnly() bool {
-	return envTrue("RIVOLT_DEMO_ONLY") && !Enabled()
+	return envTrue("RIVOLT_DEMO_ONLY") && envTrue("RIVOLT_DEMO") && !Enabled()
+}
+
+// StrayOnly reports RIVOLT_DEMO_ONLY=true without RIVOLT_DEMO=true: not a
+// demo install at all, just a stray variable. It is ignored (the caller
+// logs a loud warning) rather than refused, so it can never take a real
+// install down.
+func StrayOnly() bool {
+	return envTrue("RIVOLT_DEMO_ONLY") && !envTrue("RIVOLT_DEMO")
 }
 
 func envTrue(name string) bool {

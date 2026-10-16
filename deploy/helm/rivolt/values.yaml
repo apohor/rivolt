@@ -127,12 +127,19 @@ ingress:
 # only governs whether a ServiceMonitor is created so a
 # kube-prometheus-stack scraper in the same cluster picks it up.
 metrics:
-  # -- Serve /metrics on its own port instead of the public one (the
-  # Ingress routes every path to the main port, so /metrics there is
-  # public). Empty keeps /metrics on the main port. When set, the
-  # container, Service and ServiceMonitor use this port.
-  port: ""
+  # -- Port of the app's separate metrics listener (RIVOLT_METRICS_ADDR).
+  # /metrics is NOT on the main port: the Ingress routes every path
+  # there, so it would be public. The container and the Service expose
+  # this port; the Ingress never routes to it.
+  port: 9090
   serviceMonitor:
+    # -- Which Service port the ServiceMonitor scrapes: "metrics" (the
+    # separate listener, app versions that have it) or "http" (older
+    # app versions that still serve /metrics on the main port; use only
+    # during the rollout, in this order: chart with the metrics port,
+    # then the new app image, then flip this to "metrics" in the same
+    # change as the image).
+    port: metrics
     # Disabled by default for environments without
     # kube-prometheus-stack installed. The rivolt-infra umbrella
     # turns this on for the rivolt cluster.
