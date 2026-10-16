@@ -46,6 +46,11 @@ type StateMonitor struct {
 	// calls Rivian at most once per stateRefetchEvery.
 	fallbackMu sync.Mutex
 	fallbackAt map[string]time.Time
+
+	// remoteLatest holds RemoteLatest's recent reads of the shared store
+	// (remoteLatestTTL).
+	remoteMu     sync.Mutex
+	remoteLatest map[string]remoteLatestEntry
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -2825,16 +2830,48 @@ var liveStateSnapshotInterval = 5 * time.Second
 // would omit every subscription-only field (pack temperature, numeric
 // tire pressures, charging context, driver chips, windows). Reading the
 // owner's published snapshot serves those fields pod-agnostically.
+//
+// A snapshot read is reused for remoteLatestTTL: the owner republishes
+// only every liveStateSnapshotInterval, so /now and /api/state polls (the
+// public demo's visitors all poll the same vehicle) share one store read
+// instead of one each. Misses aren't cached.
 func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *State {
 	if m == nil || m.liveStateStore == nil {
 		return nil
 	}
+	m.remoteMu.Lock()
+	if e, ok := m.remoteLatest[vehicleID]; ok && time.Since(e.at) < remoteLatestTTL {
+		m.remoteMu.Unlock()
+		cp := *e.st
+		return &cp
+	}
+	m.remoteMu.Unlock()
 	st, err := m.liveStateStore.GetState(ctx, vehicleID)
 	if err != nil {
 		m.logger.Debug("remote live state get failed", "vehicle", vehicleID, "err", err.Error())
 		return nil
 	}
-	return st
+	if st == nil {
+		return nil
+	}
+	m.remoteMu.Lock()
+	if m.remoteLatest == nil {
+		m.remoteLatest = make(map[string]remoteLatestEntry)
+	}
+	m.remoteLatest[vehicleID] = remoteLatestEntry{st: st, at: time.Now()}
+	m.remoteMu.Unlock()
+	cp := *st
+	return &cp
+}
+
+// remoteLatestTTL is how long RemoteLatest reuses a snapshot it read:
+// well under liveStateSnapshotInterval, so it adds at most that much
+// staleness to a peer's view.
+var remoteLatestTTL = 2 * time.Second
+
+type remoteLatestEntry struct {
+	st *State
+	at time.Time
 }
 
 // stateRefetchEvery bounds how often /api/state on a pod that doesn't
