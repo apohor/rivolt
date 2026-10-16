@@ -68,6 +68,10 @@ type StateMonitor struct {
 	// call and cleared on return; nil/missing entry means the
 	// supervisor is currently in backoff. Guarded by mu.
 	subCancel map[string]context.CancelCauseFunc
+	// subCtx[vehicleID] is the context subCancel[vehicleID] cancels, so a
+	// subscription that ends after its successor started clears only its
+	// own handle (clearSubCancel). Guarded by mu.
+	subCtx map[string]context.Context
 	// shortSubEnds[vehicleID] holds recent timestamps of abnormally
 	// short-lived WS sessions. A burst of them means the live feed is
 	// flapping — the classic signature of a *competing subscriber to the
@@ -1187,9 +1191,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// when REST detects the car just woke up (otherwise we'd
 		// wait up to wsStaleThreshold for the watchdog). Cleared
 		// below on return.
-		m.mu.Lock()
-		m.subCancel[vehicleID] = cancelSub
-		m.mu.Unlock()
+		m.setSubCancel(vehicleID, subCtx, cancelSub)
 		// Reset stamp cursor so the watchdog measures this attempt,
 		// not a stale value from a prior failed connection. Track
 		// connect time + frame count so we can distinguish three
@@ -1237,9 +1239,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			m.record(ctx, vehicleID, prev, merged)
 		})
 		cancelSub(nil)
-		m.mu.Lock()
-		delete(m.subCancel, vehicleID)
-		m.mu.Unlock()
+		m.clearSubCancel(vehicleID, subCtx)
 		if ctx.Err() != nil {
 			break
 		}
@@ -1443,6 +1443,32 @@ var errStaleSubscription = errors.New("rivian ws stale, watchdog cancelled subsc
 // quiet \u2014 we don't want to wait up to wsStaleThreshold for the
 // watchdog to discover what we already know.
 var errResubscribeRequested = errors.New("rivian ws resubscribe requested by wakeup nudge")
+
+// setSubCancel publishes the current vehicleState subscription's
+// cancel handle (see kickResubscribe).
+func (m *StateMonitor) setSubCancel(vehicleID string, ctx context.Context, cancel context.CancelCauseFunc) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subCtx == nil {
+		m.subCtx = map[string]context.Context{}
+	}
+	m.subCancel[vehicleID] = cancel
+	m.subCtx[vehicleID] = ctx
+}
+
+// clearSubCancel drops the subscription's cancel handle when it ends,
+// only if it is still that subscription's: after a quick release →
+// re-acquire the successor may already have published its own, which an
+// unconditional delete removed (kickResubscribe then couldn't nudge it).
+func (m *StateMonitor) clearSubCancel(vehicleID string, ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cur, ok := m.subCtx[vehicleID]; ok && cur != ctx {
+		return
+	}
+	delete(m.subCancel, vehicleID)
+	delete(m.subCtx, vehicleID)
+}
 
 // kickResubscribe cancels the active SubscribeVehicleState context
 // for vehicleID, if any, with errResubscribeRequested as the cause.
