@@ -305,9 +305,10 @@ func TestR2ChargingReadyDoesNotOpenACharge(t *testing.T) {
 	}
 }
 
-// Parallax power enum 1 is sleep and 2 standby (fleet evidence).
+// Parallax power enum 1 is sleep and 2 standby (fleet evidence); 5-7 are
+// vehicle_reset, ota_update (confirmed live) and shutdown.
 func TestPowerStateFromParallaxSleep(t *testing.T) {
-	for v, want := range map[uint64]string{1: "sleep", 2: "standby", 3: "ready", 4: "go", 0: "", 9: ""} {
+	for v, want := range map[uint64]string{1: "sleep", 2: "standby", 3: "ready", 4: "go", 5: "vehicle_reset", 6: "ota_update", 7: "shutdown", 0: "", 8: "", 9: ""} {
 		if got := powerStateFromParallax(v); got != want {
 			t.Errorf("enum %d = %q, want %q", v, got, want)
 		}
