@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +136,9 @@ func demoReq(h http.Handler, method, path string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, path, nil)
 	req.RemoteAddr = "203.0.113.9:4000"
+	if strings.Contains(path, "/tiles/") {
+		req.Header.Set("Range", "bytes=0-16383") // tiles need a bounded range
+	}
 	h.ServeHTTP(rec, req)
 	return rec
 }
@@ -216,7 +221,7 @@ func TestDemoRateLimitKeyedOnCFConnectingIP(t *testing.T) {
 	do := func(cf, spoof string) int {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/charges", nil)
-		req.RemoteAddr = "10.0.0.1:1"
+		req.RemoteAddr = "173.245.48.5:1" // a Cloudflare edge address
 		req.Header.Set("CF-Connecting-IP", cf)
 		req.Header.Set("X-Real-IP", spoof) // client-controlled; must not matter
 		h.ServeHTTP(rec, req)
@@ -244,6 +249,7 @@ func TestDemoGlobalLimiter(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/charges", nil)
 		req.Header.Set("CF-Connecting-IP", "198.51.100."+string(rune('1'+i)))
+		req.RemoteAddr = "173.245.48.5:1"
 		h.ServeHTTP(rec, req)
 		codes = append(codes, rec.Code)
 	}
@@ -286,6 +292,7 @@ func TestDemoSamplesHasItsOwnTighterLimits(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", path, nil)
 		req.Header.Set("CF-Connecting-IP", ip)
+		req.RemoteAddr = "173.245.48.5:1"
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
@@ -332,6 +339,7 @@ func TestDemoNoisyClientDoesNotExhaustGlobalBudget(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", path, nil)
 		req.Header.Set("CF-Connecting-IP", ip)
+		req.RemoteAddr = "173.245.48.5:1"
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
@@ -362,6 +370,7 @@ func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/samples", nil)
 		req.Header.Set("CF-Connecting-IP", ip)
+		req.RemoteAddr = "173.245.48.5:1"
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
@@ -467,7 +476,7 @@ func TestDemoDrainLimitAndCache(t *testing.T) {
 	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
 	path := "/api/vehicles/" + demoVeh + "/drain"
 	var codes []int
-	for i := 0; i < demoDrainPerClientPerMin+3; i++ {
+	for i := 0; i < demoHeavyPerClientPerMin+3; i++ {
 		rec := demoReq(h, "GET", path)
 		codes = append(codes, rec.Code)
 		if rec.Code == 200 && (rec.Header().Get(demoHeader) != "1" || rec.Body.String() != `{"ok":true}`) {
@@ -476,7 +485,7 @@ func TestDemoDrainLimitAndCache(t *testing.T) {
 	}
 	for i, c := range codes {
 		want := 200
-		if i >= demoDrainPerClientPerMin {
+		if i >= demoHeavyPerClientPerMin {
 			want = 429
 		}
 		if c != want {
@@ -527,5 +536,182 @@ func TestDemoResponseCacheExpiresAndSkipsErrors(t *testing.T) {
 	get("d=1")
 	if calls != before+1 {
 		t.Errorf("overflow key was cached: calls %d vs %d", calls, before)
+	}
+}
+
+func TestDemoClientKeyTrustsCFHeaderOnlyFromCloudflare(t *testing.T) {
+	key := func(remote, xff, cf string) string {
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.RemoteAddr = remote
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		if cf != "" {
+			req.Header.Set("CF-Connecting-IP", cf)
+		}
+		return demoClientKey(req)
+	}
+	// Peer is a Cloudflare edge (the last X-Forwarded-For entry): the
+	// visitor address in CF-Connecting-IP is used.
+	if got := key("10.42.0.7:1", "173.245.48.5", "198.51.100.8"); got != "198.51.100.8" {
+		t.Errorf("cloudflare peer: %q", got)
+	}
+	if got := key("10.42.0.7:1", "9.9.9.9, 2606:4700::1", "198.51.100.8"); got != "198.51.100.8" {
+		t.Errorf("cloudflare v6 peer: %q", got)
+	}
+	// Peer is not Cloudflare: the header is ignored, so spoofing it does
+	// not give a fresh bucket.
+	if got := key("10.42.0.7:1", "203.0.113.50", "198.51.100.8"); got != "203.0.113.50" {
+		t.Errorf("non-cloudflare peer trusted the header: %q", got)
+	}
+	// A client-supplied XFF entry on the left cannot make a non-CF peer
+	// look like Cloudflare.
+	if got := key("10.42.0.7:1", "173.245.48.5, 203.0.113.50", "198.51.100.8"); got != "203.0.113.50" {
+		t.Errorf("forged left XFF entry: %q", got)
+	}
+	// No proxy header at all: the connection address, header ignored.
+	if got := key("203.0.113.9:4000", "", "198.51.100.8"); got != "203.0.113.9" {
+		t.Errorf("direct: %q", got)
+	}
+	// Cloudflare peer but a garbage CF-Connecting-IP: fall back to the peer.
+	if got := key("10.42.0.7:1", "173.245.48.5", "not-an-ip"); got != "173.245.48.5" {
+		t.Errorf("bad cf header: %q", got)
+	}
+}
+
+func TestDemoTileRangeGuard(t *testing.T) {
+	h, _ := demoChain(newDemoLimiter(), nil)
+	do := func(method, rng string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/api/maps/tiles/us.pmtiles", nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		if rng != "" {
+			req.Header.Set("Range", rng)
+		}
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, c := range []struct {
+		method, rng string
+		want        int
+	}{
+		{"GET", "", 400},                      // no range: the whole archive
+		{"GET", "bytes=0-16383", 200},         // pmtiles header read
+		{"GET", "bytes=1048576-3145727", 200}, // exactly 2 MiB
+		{"GET", "bytes=0-2097152", 416},       // one byte over
+		{"GET", "bytes=0-", 400},              // open ended
+		{"GET", "bytes=-1024", 200},           // suffix within cap
+		{"GET", "bytes=-9999999", 416},        // suffix over cap
+		{"GET", "bytes=0-1,5-9", 400},         // multi-range
+		{"GET", "bytes=9-1", 400},
+		{"GET", "items=0-1", 400},
+		{"GET", "bytes=a-b", 400},
+		{"HEAD", "", 200}, // no body, no range needed
+	} {
+		if got := do(c.method, c.rng); got != c.want {
+			t.Errorf("%s Range %q = %d, want %d", c.method, c.rng, got, c.want)
+		}
+	}
+}
+
+func TestDemoResponsesAreNotCacheableByShares(t *testing.T) {
+	h, _ := demoChain(newDemoLimiter(), nil)
+	rec := demoReq(h, "GET", "/api/charges")
+	if rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
+	}
+	vary := strings.Join(rec.Header().Values("Vary"), ",")
+	if !strings.Contains(vary, "Cookie") || !strings.Contains(vary, "Authorization") {
+		t.Errorf("Vary = %q", vary)
+	}
+	// Tiles are public archives, not demo-user data: left cacheable.
+	if rec := demoReq(h, "GET", "/api/maps/tiles/us.pmtiles"); rec.Header().Get("Cache-Control") != "" {
+		t.Errorf("tile Cache-Control = %q", rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestDemoHeavyReadsIgnoreQueryNoise(t *testing.T) {
+	var seen []string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.RawQuery)
+		_, _ = w.Write([]byte("{}"))
+	})
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	drain := "/api/vehicles/" + demoVeh + "/drain"
+	// Random tz values and extra params all collapse to one cache entry.
+	for _, q := range []string{"", "?tz=Mars/Base", "?tz=random1&x=1", "?foo=bar", "?tz="} {
+		if rec := demoReq(h, "GET", drain+q); rec.Code != 200 {
+			t.Fatalf("%q = %d", q, rec.Code)
+		}
+	}
+	if len(seen) != 1 || seen[0] != "" {
+		t.Fatalf("handler saw %q, want one call with no query", seen)
+	}
+	// An allowed zone passes through (and is its own cache key).
+	demoReq(h, "GET", drain+"?tz=America/Chicago&junk=1")
+	demoReq(h, "GET", drain+"?tz=America/Chicago")
+	if len(seen) != 2 || seen[1] != "tz=America%2FChicago" {
+		t.Fatalf("allowed tz: %q", seen)
+	}
+}
+
+func TestDemoPlanActualSharesHeavyBudgetAndCache(t *testing.T) {
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("{}"))
+	})
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	path := "/api/trips/saved/" + demoTripID + "/actual"
+	var codes []int
+	for i := 0; i < demoHeavyPerClientPerMin+2; i++ {
+		codes = append(codes, demoReq(h, "GET", path+"?cachebust="+strconv.Itoa(i)).Code)
+	}
+	if codes[demoHeavyPerClientPerMin-1] != 200 || codes[demoHeavyPerClientPerMin] != 429 {
+		t.Fatalf("codes = %v", codes)
+	}
+	if calls != 1 {
+		t.Errorf("cache-busting params reached the handler %d times", calls)
+	}
+}
+
+func TestDemoResponseCacheSingleflight(t *testing.T) {
+	c := newDemoResponseCache(time.Minute, 4)
+	release := make(chan struct{})
+	started := make(chan struct{}, 8)
+	var mu sync.Mutex
+	calls := 0
+	h := c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		started <- struct{}{}
+		<-release
+		_, _ = w.Write([]byte("ok"))
+	}))
+	var wg sync.WaitGroup
+	bodies := make([]string, 6)
+	for i := range bodies {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest("GET", "/p", nil))
+			bodies[i] = rec.Body.String()
+		}(i)
+	}
+	<-started // the leader is computing
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if calls != 1 {
+		t.Errorf("handler ran %d times for 6 concurrent requests, want 1", calls)
+	}
+	for i, b := range bodies {
+		if b != "ok" {
+			t.Errorf("body %d = %q", i, b)
+		}
 	}
 }
