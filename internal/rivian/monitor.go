@@ -163,6 +163,11 @@ type StateMonitor struct {
 	// vehicleState "ready" while Parallax is live (holdParallaxLocked).
 	// Guarded by mu.
 	lastPxPower map[string]string
+	// vehChargerStatus[vehicleID] is set once vehicleState has delivered a
+	// chargerStatus (an R1). Parallax charging.session.status is applied
+	// only to vehicles without it (an R2); on the rest it's shadow-logged
+	// to validate the mapping. Guarded by mu.
+	vehChargerStatus map[string]bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -420,6 +425,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastPxGear:      make(map[string]string),
 		lastPxGearAt:    make(map[string]time.Time),
 		lastPxPower:     make(map[string]string),
+		vehChargerStatus: make(map[string]bool),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
@@ -2380,6 +2386,27 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			}
 			m.mu.Unlock()
 		}
+	case rvmChargingStatus:
+		m.applyParallaxChargingStatus(ctx, vehicleID, f, prev)
+	case rvmBatteryChars:
+		// Decode-log only, during the time-boxed capture: the pack's own
+		// capacity next to the one we infer (InferPackKWh) and the
+		// vehicleState figure.
+		if !pxChargeCapturing(time.Now()) {
+			return
+		}
+		bc, ok := decodeBatteryCharacteristics(f.Payload)
+		var vehKWh float64
+		if prev != nil {
+			vehKWh = prev.BatteryCapacityKWh
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "battery_characteristics",
+			"px_ok", ok, "px_chemistry", bc.Chemistry, "px_cell_type", bc.CellType,
+			"px_module_type", bc.ModuleType, "px_pack_capacity", bc.PackCapacity,
+			"px_pack_kwh", packCapacityKWh(bc.PackCapacity),
+			"px_user_total_kwh", bc.UserTotalKWh, "px_user_max_kwh", bc.UserMaxKWh,
+			"vehicleState_capacity_kwh", vehKWh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 	default:
 		// Any other not-yet-RE'd topic: log the raw payload + best-effort
 		// varint so its wire shape can be decoded offline from the logs,
@@ -2389,6 +2416,54 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			"px_enum", f.Value, "px_enum_ok", f.ValueOK,
 			"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 	}
+}
+
+// applyParallaxChargingStatus handles a charging.session.status frame. It
+// shadow-logs the decoded plug and display status next to vehicleState's
+// chargerStatus and chargerState (on an R1 that validates the mapping) and,
+// for a vehicle whose vehicleState sends no chargerStatus (an R2), applies
+// the plug status to the cache, marked ChargerStatusPx so the recorder keeps
+// the power inference as the fallback. A plug status is a state, not an
+// event: the cloud's replay of the latest frame applies too (after a restart
+// it's the only frame until the plug changes), but an out-of-order older
+// frame doesn't.
+func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleID string, f DriveDynamicsFrame, prev *State) {
+	cs, ok := decodeChargingStatus(f.Payload)
+	status := chargerStatusFromParallax(cs.Plug)
+	var vehStatus, vehState string
+	if prev != nil {
+		vehStatus, vehState = prev.ChargerStatus, prev.ChargerState
+	}
+	m.mu.RLock()
+	vehReports := m.vehChargerStatus[vehicleID]
+	latest := f.TimestampMs > 0 && m.lastTopicTs[vehicleID+"|"+f.RVM] == f.TimestampMs
+	m.mu.RUnlock()
+	args := []any{"vehicle", vehicleID, "topic", "charging_status",
+		"px_ok", ok, "px_plug", cs.Plug, "px_display", cs.Display, "px_evse", cs.EVSE,
+		"px_charger_status", status, "px_charger_state", chargerStateFromParallax(cs.Display),
+		"vehicleState_charger_status", vehStatus, "vehicleState_charger_state", vehState,
+		"vehicleState_has_status", vehReports, "ts_ms", f.TimestampMs}
+	// Raw payloads only from the R2s, only during the time-boxed capture.
+	if pxChargeCapturing(time.Now()) && m.readyUnreliable(vehicleID) {
+		args = append(args, "px_raw_b64", f.Payload)
+	}
+	m.logger.Info("parallax drive-dynamics shadow", args...)
+	if !m.parallaxDriveDynamics || !ok || status == "" || vehReports || !latest {
+		return
+	}
+	m.mu.Lock()
+	base := m.cache[vehicleID]
+	if base == nil || m.vehChargerStatus[vehicleID] || (base.ChargerStatus == status && base.ChargerStatusPx) {
+		m.mu.Unlock()
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.ChargerStatus = status
+	next.ChargerStatusPx = true
+	m.putCacheLocked(vehicleID, &next)
+	m.mu.Unlock()
+	m.record(ctx, vehicleID, base, &next)
 }
 
 // parkableGear reports whether a Parallax P should replace the cached gear:
@@ -2517,6 +2592,9 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	// whatever we had cached so static fields (odometer, gear, charge
 	// limit, tire pressures) don't disappear between frames.
 	prev := m.cache[vehicleID]
+	if st != nil && strings.TrimSpace(st.ChargerStatus) != "" {
+		m.vehChargerStatus[vehicleID] = true
+	}
 	merged := mergeState(prev, st)
 	m.holdParallaxLocked(vehicleID, prev, merged)
 	m.putCacheLocked(vehicleID, merged)
@@ -2736,6 +2814,9 @@ func mergeState(prev, next *State) *State {
 	mergeString(&out.DriveMode, next.DriveMode)
 	mergeString(&out.ChargerState, next.ChargerState)
 	mergeString(&out.ChargerStatus, next.ChargerStatus)
+	if next.ChargerStatus != "" {
+		out.ChargerStatusPx = next.ChargerStatusPx
+	}
 	mergeString(&out.ChargePortState, next.ChargePortState)
 	mergeString(&out.RemoteChargingAvailable, next.RemoteChargingAvailable)
 	mergeString(&out.CabinPreconditioningStatus, next.CabinPreconditioningStatus)

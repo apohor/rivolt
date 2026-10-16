@@ -563,7 +563,26 @@ const (
 	rvmPetMode     = "comfort.cabin.pet_mode_status"
 	rvmClimateHold = "comfort.cabin.climate_hold_status"
 	rvmImmobilizer = "security.access.immobilizer_state"
+	// rvmChargingStatus is charging.session.status (APK 3.17 RVM 35), the
+	// plug indicator an R2's vehicleState lacks: {1: plug_connection_status,
+	// 2: display_status, 3: evse_type}. The app writes it into its own
+	// vehicleState chargerStatus/chargerState (see chargerStatusFromParallax).
+	rvmChargingStatus = "charging.session.status"
+	// rvmBatteryChars is energy.high_voltage.battery_characteristics, the
+	// pack's own identity and usable capacity. Decode-logged only, and
+	// subscribed only until pxChargeCaptureUntil.
+	rvmBatteryChars = "energy.high_voltage.battery_characteristics"
 )
+
+// pxChargeCaptureUntil time-boxes the charging.session.status capture: until
+// then the R2s log its raw payload, and every vehicle subscribes to and logs
+// battery_characteristics (dropped at the first reconnect after it). One day
+// of frames to check the decode against the R1s' vehicleState chargerStatus
+// and their known packs.
+var pxChargeCaptureUntil = time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+
+// pxChargeCapturing reports whether the time-boxed capture is still on.
+func pxChargeCapturing(now time.Time) bool { return now.Before(pxChargeCaptureUntil) }
 
 // CaptureRVMs are the read topics carried on the drive-dynamics
 // subscription only under the preview capture flag, so prod isn't
@@ -946,6 +965,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		rvms := []string{
 			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
+			rvmChargingStatus,
 		}
 		if extra != nil {
 			rvms = append(rvms, extra()...)
@@ -991,5 +1011,176 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			return ctx.Err()
 		case <-time.After(wait):
 		}
+	}
+}
+
+// ChargingStatus is one charging.session.status frame (APK 3.17 proto
+// fields; enum values pinned from the decompile). Absent fields are 0, the
+// proto default: plug INIT, display SNA.
+type ChargingStatus struct {
+	Plug    uint64 // 1: 0 INIT, 1 NOT_CONNECTED, 2 CONNECTED, 3 ERROR, 4 V2L_CONNECTED
+	Display uint64 // 2: 0 SNA, 1 READY … 25 SMART_CHARGING_CHARGING (chargerStateFromParallax)
+	EVSE    uint64 // 3: evse_type, enum not pinned
+}
+
+// decodeChargingStatus parses a charging.session.status payload. ok=false
+// means the payload was malformed; an empty message is valid (all INIT).
+func decodeChargingStatus(b64 string) (ChargingStatus, bool) {
+	var cs ChargingStatus
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return cs, false
+	}
+	if err := pbScan(raw, func(f, w int, val []byte) {
+		if w != 0 {
+			return
+		}
+		v, n := binary.Uvarint(val)
+		if n <= 0 {
+			return
+		}
+		switch f {
+		case 1:
+			cs.Plug = v
+		case 2:
+			cs.Display = v
+		case 3:
+			cs.EVSE = v
+		}
+	}); err != nil {
+		return cs, false
+	}
+	return cs, true
+}
+
+// chargerStatusFromParallax maps plug_connection_status to the vehicleState
+// chargerStatus vocabulary the way the app does: CONNECTED is
+// connected_no_chrg (the app never derives connected_charging from it; the
+// session state says whether it charges), NOT_CONNECTED and V2L are
+// not_connected, ERROR is fault. INIT and unknown values return "", which
+// leaves the cached status alone.
+func chargerStatusFromParallax(plug uint64) string {
+	switch plug {
+	case 1, 4:
+		return "chrgr_sts_not_connected"
+	case 2:
+		return "chrgr_sts_connected_no_chrg"
+	case 3:
+		return "chrgr_sts_fault"
+	default:
+		return ""
+	}
+}
+
+// chargerStateFromParallax maps display_status to the vehicleState
+// chargerState vocabulary, as the app does. Logged next to vehicleState's
+// value only; vehicleState still owns ChargerState. SNA (0), the smart
+// charging states (24, 25) and unknown values return "".
+func chargerStateFromParallax(display uint64) string {
+	switch display {
+	case 1:
+		return "charging_ready"
+	case 2:
+		return "charging_connecting"
+	case 3:
+		return "charging_active"
+	case 4:
+		return "charging_complete"
+	case 5:
+		return "charging_scheduled"
+	case 6:
+		return "charging_vehicle_error"
+	case 7:
+		return "charging_station_error"
+	case 8, 19:
+		return "charging_user_stopped"
+	case 9:
+		return "charging_station_stopped"
+	case 10, 20:
+		return "charging_payment_error"
+	case 11, 12, 21, 22, 23:
+		return "charging_tls_error"
+	case 13:
+		return "charging_error_ac_adapter_used_on_dc"
+	case 14:
+		return "charging_error_dc_adapter_used_on_ac"
+	case 15:
+		return "charging_error_incompatible_charger"
+	case 16:
+		return "charging_sd_compensation"
+	case 17:
+		return "waiting_on_charger"
+	case 18:
+		return "charger_not_ready_or_incompatible"
+	default:
+		return ""
+	}
+}
+
+// BatteryCharacteristics is one energy.high_voltage.battery_characteristics
+// frame (APK 3.17 proto). The enums are logged raw; packCapacityKWh names
+// the capacity one.
+type BatteryCharacteristics struct {
+	Chemistry    uint64  // 1: 1 NCA, 2 LFP, 3 NMC
+	CellType     uint64  // 2: 1 50G, 2 53G, 3 G124, 4 LG_4695
+	ModuleType   uint64  // 3: 1 9M, 2 1M, 3 8M, 4 6M, 5 11M, 6 7M, 7 3M, 8 10M
+	PackCapacity uint64  // 4: see packCapacityKWh
+	UserTotalKWh float32 // 5
+	UserMaxKWh   float32 // 6
+}
+
+// decodeBatteryCharacteristics parses a battery_characteristics payload.
+func decodeBatteryCharacteristics(b64 string) (BatteryCharacteristics, bool) {
+	var bc BatteryCharacteristics
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return bc, false
+	}
+	if err := pbScan(raw, func(f, w int, val []byte) {
+		switch {
+		case w == 0 && f >= 1 && f <= 4:
+			v, n := binary.Uvarint(val)
+			if n <= 0 {
+				return
+			}
+			switch f {
+			case 1:
+				bc.Chemistry = v
+			case 2:
+				bc.CellType = v
+			case 3:
+				bc.ModuleType = v
+			case 4:
+				bc.PackCapacity = v
+			}
+		case w == 5 && f == 5:
+			bc.UserTotalKWh = math.Float32frombits(binary.LittleEndian.Uint32(val))
+		case w == 5 && f == 6:
+			bc.UserMaxKWh = math.Float32frombits(binary.LittleEndian.Uint32(val))
+		}
+	}); err != nil {
+		return bc, false
+	}
+	return bc, true
+}
+
+// packCapacityKWh names the battery_characteristics pack_capacity enum in
+// kWh; 0 for unspecified or unknown.
+func packCapacityKWh(v uint64) float64 {
+	switch v {
+	case 1:
+		return 135
+	case 2:
+		return 150
+	case 3:
+		return 100
+	case 4:
+		return 116
+	case 5:
+		return 108
+	case 6:
+		return 88
+	default:
+		return 0
 	}
 }

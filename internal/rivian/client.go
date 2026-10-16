@@ -118,6 +118,11 @@ type State struct {
 	// powerState.timeStamp, or the Parallax power.state frame time);
 	// zero when unknown. Anchors wake attribution (actions.go).
 	PowerStateAt time.Time `json:"-"`
+	// ChargerStatusPx marks a ChargerStatus taken from Parallax
+	// charging.session.status, on a vehicle whose vehicleState sends none
+	// (an R2). The recorder trusts it for "plugged" but keeps its power
+	// inference as the fallback.
+	ChargerStatusPx bool `json:"-"`
 	// VehicleStateFrameAt rides only on the snapshot the lease owner
 	// publishes for peer pods (liveStatePublisher), so they can serve
 	// /now's vehicle_state_frame_at; never set on the cache.
