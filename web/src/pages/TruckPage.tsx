@@ -68,7 +68,7 @@ export default function TruckPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="truck">
       <PageHeader
         title="Truck"
         subtitle={name}
@@ -81,7 +81,7 @@ export default function TruckPage() {
         <PackHealthCard vehicleID={selectedID} />
       </Card>
 
-      <Card title="Sleep and idle-awake">
+      <Card title="Sleep and idle-awake" span="full">
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.
@@ -118,7 +118,7 @@ export default function TruckPage() {
       </Card>
 
       {(tire || software) && (
-        <Card title="Vehicle">
+        <Card title="Vehicle" span="full">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             {tire && (
               <>

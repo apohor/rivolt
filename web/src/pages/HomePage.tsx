@@ -1,5 +1,7 @@
 import { formatMoney } from "../lib/ledger";
+import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
+import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -114,6 +116,16 @@ export default function HomePage() {
   const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
   const liveSoC = liveState.data?.battery_level_pct ?? 0;
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
+  // ui_theme_next: the hero gauge already shows the battery %, so the first KPI
+  // tile reads "Since last charge" (miles driven since the latest finished charge).
+  const next = useUiNext();
+  const sinceCharge = useMemo(() => {
+    const ends = allC.filter((c) => !isActiveCharge(c)).map((c) => new Date(c.EndedAt).getTime()).filter(Number.isFinite);
+    if (ends.length === 0) return null;
+    const last = Math.max(...ends);
+    const ds = all.filter((d) => new Date(d.StartedAt).getTime() > last);
+    return { miles: ds.reduce((n, d) => n + (d.DistanceMi || 0), 0), drives: ds.length, since: last };
+  }, [all, allC]);
   const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
   // Daily-bar count follows the window picker rather than pinning at 60.
@@ -215,7 +227,7 @@ export default function HomePage() {
     (charges.data?.length ?? 0) === 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="now">
       <ConnectRivianPrompt
         inline
         context="Once connected, drives, charges, and live telemetry start streaming."
@@ -275,8 +287,20 @@ export default function HomePage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
+          <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            {next ? (
+              <Stat
+                label="Since last charge"
+                value={sinceCharge ? num(sinceCharge.miles, 1, "mi") : "—"}
+                hint={
+                  sinceCharge
+                    ? `${sinceCharge.drives} ${sinceCharge.drives === 1 ? "drive" : "drives"} · since ${new Date(sinceCharge.since).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                    : "no finished charges yet"
+                }
+              />
+            ) : (
+              <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
+            )}
             <Stat
               label="Miles"
               value={num(ds.miles, 1, "mi")}
@@ -594,7 +618,7 @@ function ScopeBar({
   onSelectVehicle: (id: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div data-ui-area="scope" className="flex flex-wrap items-center justify-end gap-2">
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
       <WindowPicker value={win} onChange={onWinChange} />
     </div>

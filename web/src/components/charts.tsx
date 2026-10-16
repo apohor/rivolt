@@ -4,10 +4,12 @@
 
 import {
   useCallback,
+  useId,
   useRef,
   useState,
   type CSSProperties,
 } from "react";
+import { useUiNext } from "../lib/uiNext";
 
 type Point = { x: number; y: number };
 
@@ -112,6 +114,8 @@ export function LineChart({
   };
 }) {
   const width = 1000; // viewBox width, the SVG scales to container
+  const next = useUiNext();
+  const uid = useId().replace(/:/g, "");
   const svgRef = useRef<SVGSVGElement | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
   // preserveAspectRatio="none" stretches the viewBox non-uniformly, which
@@ -440,11 +444,26 @@ export function LineChart({
         return (
           <g key={i}>
             {s.area && proj.length > 1 ? (
-              <path
-                d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
-                fill={color}
-                opacity={0.15}
-              />
+              next ? (
+                <>
+                  <defs>
+                    <linearGradient id={`${uid}-a${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.34} />
+                      <stop offset="100%" stopColor={color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
+                    fill={`url(#${uid}-a${i})`}
+                  />
+                </>
+              ) : (
+                <path
+                  d={`${path} L ${proj[proj.length - 1].x.toFixed(2)},${baseY.toFixed(2)} L ${proj[0].x.toFixed(2)},${baseY.toFixed(2)} Z`}
+                  fill={color}
+                  opacity={0.15}
+                />
+              )
             ) : null}
             <path
               d={path}
@@ -636,6 +655,8 @@ export function BarChart({
   barGap?: number;
 }) {
   const width = 1000;
+  const next = useUiNext();
+  const uid = useId().replace(/:/g, "");
   // Hooks must run before any early return (Rules of Hooks).
   const svgRef = useRef<SVGSVGElement | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
@@ -708,25 +729,33 @@ export function BarChart({
           </g>
         </g>
       ))}
+      {next && (
+        <defs>
+          <linearGradient id={`${uid}-bar`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.95} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.3} />
+          </linearGradient>
+        </defs>
+      )}
       {data.map((d, i) => {
         const h = (d.value / max) * innerH;
         const x = padL + i * (innerW / data.length) + barGap / 2;
         const y = padT + innerH - h;
         return (
           <g key={i}>
-            <rect
-              x={x}
-              y={y}
-              width={barW}
-              height={h}
-              fill={color}
-              opacity={0.85}
-              rx={1.5}
-            >
-              <title>
-                {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
-              </title>
-            </rect>
+            {next ? (
+              <path data-bar style={{ color }} d={roundedTopBar(x, y, barW, h)} fill={`url(#${uid}-bar)`}>
+                <title>
+                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
+                </title>
+              </path>
+            ) : (
+              <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.85} rx={1.5}>
+                <title>
+                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
+                </title>
+              </rect>
+            )}
           </g>
         );
       })}
@@ -751,6 +780,15 @@ export function BarChart({
           })}
     </svg>
   );
+}
+
+// roundedTopBar: a bar with rounded top corners (radius up to 5, never more
+// than half the width or the height), flat at the base.
+function roundedTopBar(x: number, y: number, w: number, h: number): string {
+  const r = Math.max(0, Math.min(5, w / 2, h));
+  const x1 = x + w;
+  const yb = y + h;
+  return `M ${x},${yb} L ${x},${y + r} Q ${x},${y} ${x + r},${y} L ${x1 - r},${y} Q ${x1},${y} ${x1},${y + r} L ${x1},${yb} Z`;
 }
 
 function EmptyChart({ height }: { height: number }) {

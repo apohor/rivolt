@@ -1,4 +1,5 @@
 import { useSystemTheme } from "../lib/theme";
+import { useApplyUiNext } from "../lib/uiNext";
 import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -171,6 +172,7 @@ export default function AppLayout() {
   // renders exactly the layout below, unchanged.
   const moneyTabEnabled = useMoneyTabEnabled();
   useSystemTheme(moneyTabEnabled);
+  useApplyUiNext();
   if (moneyTabEnabled) {
     const tabs = buildTabs({
       tripPlannerEnabled,
@@ -324,7 +326,7 @@ function Footer() {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-mono text-neutral-600 hover:text-neutral-300"
+                className="font-mono text-neutral-500 hover:text-neutral-300"
                 title={title}
               >
                 {label}

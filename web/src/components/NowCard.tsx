@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { ArcGauge } from "./ArcGauge";
+import { PowerSpark } from "./PowerSpark";
+import { useUiNext } from "../lib/uiNext";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -120,6 +123,15 @@ export default function NowCard({
   useEffect(() => {
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
+  // Charging power history for the ui_theme_next sparkline: one reading per
+  // successful poll while charging, cleared when the session ends.
+  const [powerHist, setPowerHist] = useState<number[]>([]);
+  useEffect(() => {
+    const kw = state?.charger_power_kw;
+    if (typeof kw === "number" && kw > 0) setPowerHist((h) => [...h.slice(-47), kw]);
+    else setPowerHist((h) => (h.length ? [] : h));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateQ.dataUpdatedAt]);
 
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (older server / flag off): fall back to the
@@ -181,6 +193,7 @@ export default function NowCard({
     });
   }, [state, nowMs, tracker, openCharge, server, packKwh, homeQ.data, chargingQ.data]);
 
+  const next = useUiNext(); // a hook: must run before the early returns below
   const driveQ = useQuery({
     queryKey: ["rivian", "live-drive", vehicleID],
     queryFn: () => backend.liveDrive(vehicleID),
@@ -219,10 +232,13 @@ export default function NowCard({
   const pill = statusPill(view);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
+  const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   return (
-    <section aria-label="Now" className="space-y-2">
+    <section aria-label="Now" data-ui-area="hero" className="space-y-2">
       <div
+        data-ui-hero="true"
+        data-live={liveKind}
         className={`rounded-xl border bg-neutral-900/60 p-5 ${
           critical ? "border-rose-500/50" : "border-neutral-800"
         }`}
@@ -248,6 +264,43 @@ export default function NowCard({
           </span>
         </div>
 
+        {next ? (
+          <div className="mt-3 flex items-center gap-5">
+            <ArcGauge
+              value={view.soc}
+              label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
+              live={view.kind === "charging"}
+              tone={offline ? "idle" : critical ? "critical" : "ok"}
+            >
+              {(shown) => (
+                <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                  <span className="text-4xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                  <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
+                </span>
+              )}
+            </ArcGauge>
+            <div className="min-w-0 space-y-3">
+              {view.kind === "driving" && view.speedMph != null && (
+                <div>
+                  <p className="ui-label">Speed</p>
+                  <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
+                    {Math.round(view.speedMph)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mph</span>
+                  </p>
+                </div>
+              )}
+              {view.rangeMi != null && (
+                <div>
+                  <p className="ui-label">Range</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
+                    {Math.round(view.rangeMi)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mi</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           {view.kind === "driving" && view.speedMph != null ? (
             <>
@@ -269,13 +322,28 @@ export default function NowCard({
             </>
           )}
         </div>
+        )}
+
+        {next && view.kind === "charging" && powerHist.length >= 2 && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="ui-label shrink-0">Power</span>
+            <PowerSpark values={powerHist} />
+            <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
+              {Math.round(powerHist[powerHist.length - 1])}
+              <span className="ml-1 text-xs font-normal text-neutral-400">kW</span>
+            </span>
+          </div>
+        )}
 
         {(view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
           <LimitBar soc={view.soc} limit={view.limitPct} />
         )}
 
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {details(view, tracker, driveQ.data ?? null, nowMs, currency).map((d) => (
+          {details(view, tracker, driveQ.data ?? null, nowMs, currency)
+            // the sparkline row already shows the live power
+            .filter((d) => !(next && view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
+            .map((d) => (
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
               <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
