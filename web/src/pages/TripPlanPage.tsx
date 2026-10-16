@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { forVehicle } from "../lib/vehicleSamples";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
@@ -223,13 +224,17 @@ export default function TripPlanPage() {
   // (0, 0) — the WS frame may not have carried GNSSLocation. Walk
   // newest → oldest to pick the most recent fix.
   const samplesQuery = useQuery({
-    queryKey: ["samplesLatestForPlanner"],
+    queryKey: ["samplesLatestForPlanner", firstVehicle?.rivian_vehicle_id],
+    // /api/samples is user-scoped: keep the planner vehicle's rows so a
+    // second truck's last fix is never used as the start position.
     queryFn: () =>
-      backend.samples(
-        new Date(Date.now() - 6 * 60 * 60 * 1000),
-        5000,
-        new Date(Date.now() + 60_000),
-      ),
+      backend
+        .samples(
+          new Date(Date.now() - 6 * 60 * 60 * 1000),
+          5000,
+          new Date(Date.now() + 60_000),
+        )
+        .then((r) => forVehicle(r, firstVehicle?.rivian_vehicle_id)),
     enabled: stateQuery.isFetched && !stateHasFix,
     staleTime: 30 * 1000,
   });
