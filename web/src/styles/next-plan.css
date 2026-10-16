@@ -312,3 +312,51 @@ html[data-ui='next'] [data-plan-sheet-inline] > * {
     padding-bottom: calc(240px + 1rem);
   }
 }
+
+/* Route bar (plumbing defaults; the look is ux's). Hooks: data-plan-endpoints,
+   data-plan-swap, data-plan-when, data-plan-soc, data-plan-more,
+   data-plan-more-toggle, data-plan-more-body. */
+html[data-ui='next'] [data-plan-endpoints] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+html[data-ui='next'] [data-plan-endpoints] [data-plan-swap] {
+  align-self: flex-start;
+  border: 1px solid oklch(35% 0.01 262);
+  border-radius: 9999px;
+  padding: 0.125rem 0.75rem;
+  font-size: 0.75rem;
+}
+html[data-ui='next'] [data-plan-soc-head] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+html[data-ui='next'] [data-plan-soc-head] output {
+  font-variant-numeric: tabular-nums;
+}
+html[data-ui='next'] [data-plan-more-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+html[data-ui='next'] [data-plan-more-count] {
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: oklch(60% 0.14 168 / 0.25);
+  font-size: 0.75rem;
+  text-align: center;
+}
+html[data-ui='next'] [data-plan-more-body] {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+html[data-ui='next'] [data-plan-more-body][hidden] {
+  display: none;
+}
