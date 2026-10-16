@@ -743,19 +743,19 @@ export function BarChart({
         const y = padT + innerH - h;
         return (
           <g key={i}>
-            <rect
-              x={x}
-              y={y}
-              width={barW}
-              height={h}
-              fill={next ? `url(#${uid}-bar)` : color}
-              opacity={next ? 1 : 0.85}
-              rx={1.5}
-            >
-              <title>
-                {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
-              </title>
-            </rect>
+            {next ? (
+              <path data-bar style={{ color }} d={roundedTopBar(x, y, barW, h)} fill={`url(#${uid}-bar)`}>
+                <title>
+                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
+                </title>
+              </path>
+            ) : (
+              <rect x={x} y={y} width={barW} height={h} fill={color} opacity={0.85} rx={1.5}>
+                <title>
+                  {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
+                </title>
+              </rect>
+            )}
           </g>
         );
       })}
@@ -780,6 +780,15 @@ export function BarChart({
           })}
     </svg>
   );
+}
+
+// roundedTopBar: a bar with rounded top corners (radius up to 5, never more
+// than half the width or the height), flat at the base.
+function roundedTopBar(x: number, y: number, w: number, h: number): string {
+  const r = Math.max(0, Math.min(5, w / 2, h));
+  const x1 = x + w;
+  const yb = y + h;
+  return `M ${x},${yb} L ${x},${y + r} Q ${x},${y} ${x + r},${y} L ${x1 - r},${y} Q ${x1},${y} ${x1},${y + r} L ${x1},${yb} Z`;
 }
 
 function EmptyChart({ height }: { height: number }) {

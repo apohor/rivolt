@@ -416,10 +416,36 @@ html[data-ui='next'] .ui-label {
   letter-spacing: 0.09em;
   font-weight: 500;
 }
-html[data-ui='next'] .tabular-nums:not(.text-xs, [class*='text-[1']) {
-  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+/* Geist (sans, tabular figures) for the whole layer; Geist Mono only for tiny
+   technical readouts (Power, Time left, kWh deltas, hint lines). Both are
+   self-hosted woff2 (SIL OFL, src/assets/fonts), fetched only when the layer
+   is on, and allowed by font-src 'self'. */
+@font-face {
+  font-family: 'Geist UI';
+  src: url('./assets/fonts/geist-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Mono UI';
+  src: url('./assets/fonts/geist-mono-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+html[data-ui='next'] body {
+  font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+html[data-ui='next'] .tabular-nums {
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
+}
+html[data-ui='next'] :is(dd.tabular-nums, .text-xs.tabular-nums, [class*='text-[11px]'].tabular-nums, [class*='text-[10px]'].tabular-nums),
+html[data-ui='next'] .ui-mono {
+  font-family: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0;
 }
 
 /* Glass, sparingly: only the top bar and the bottom tab bar. */
@@ -434,6 +460,65 @@ html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
 html[data-ui='next'] svg line.text-neutral-800,
 html[data-ui='next'] svg line[class*='neutral-800'] {
   opacity: 0.55;
+}
+
+/* Desktop cockpit: use the width. Now: hero beside the scope bar and the KPI
+   grid. Truck: drain and pack side by side, sleep and vehicle full width. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid] {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+  html[data-ui='next'] [data-ui-grid] > * {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='scope'] {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='kpi'] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  html[data-ui='next'] [data-ui-grid='truck'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  html[data-ui='next'] [data-ui-grid='truck'] > :not([data-span='full']) {
+    grid-column: auto;
+  }
+}
+
+html[data-ui='next'] .ui-spark-line {
+  filter: drop-shadow(0 0 4px oklch(78% 0.15 168 / 0.7));
+}
+html[data-ui='next'] .ui-spark-dot {
+  filter: drop-shadow(0 0 5px oklch(84% 0.14 168 / 0.9));
+}
+
+/* Bars: a faint glow on the bar under the pointer or focus. */
+html[data-ui='next'] svg path[data-bar] {
+  transition: filter 160ms ease-out;
+}
+html[data-ui='next'] svg path[data-bar]:hover {
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+/* Maps: the route layers glow subtly. */
+html[data-ui='next']:not([data-theme='light']) .leaflet-overlay-pane canvas {
+  filter: drop-shadow(0 0 3px oklch(78% 0.15 168 / 0.55));
 }
 
 /* Skeletons shimmer instead of pulsing. */

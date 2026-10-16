@@ -23,9 +23,15 @@ for (const v of VIEWS) {
         await page.addInitScript((s) => localStorage.setItem("rivolt.ui.next", s === "next" ? "on" : "off"), state);
         await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
         await stubApi(page, { scenario });
+        // A charging session collects a power reading per poll: let three polls pass.
+        if (scenario === "charging") await page.clock.install();
         await page.goto("/");
         await expect(page.getByRole("region", { name: "Now" })).toBeVisible();
+        if (scenario === "charging") {
+          for (let i = 0; i < 4; i++) await page.clock.runFor(16_000);
+        }
         await page.waitForTimeout(900);
+        if (scenario === "charging" && state === "next") await expect(page.locator(".ui-spark")).toBeVisible();
         if (state === "off") await expect(page.locator("html")).not.toHaveAttribute("data-ui", "next");
         else await expect(page.locator("html")).toHaveAttribute("data-ui", "next");
         await page.screenshot({ path: path.join(SHOTS, `uinext-now-${scenario}-${v.name}-${state}.png`) });

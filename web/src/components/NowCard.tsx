@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArcGauge } from "./ArcGauge";
+import { PowerSpark } from "./PowerSpark";
 import { useUiNext } from "../lib/uiNext";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -122,6 +123,15 @@ export default function NowCard({
   useEffect(() => {
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
+  // Charging power history for the ui_theme_next sparkline: one reading per
+  // successful poll while charging, cleared when the session ends.
+  const [powerHist, setPowerHist] = useState<number[]>([]);
+  useEffect(() => {
+    const kw = state?.charger_power_kw;
+    if (typeof kw === "number" && kw > 0) setPowerHist((h) => [...h.slice(-47), kw]);
+    else setPowerHist((h) => (h.length ? [] : h));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateQ.dataUpdatedAt]);
 
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (older server / flag off): fall back to the
@@ -225,7 +235,7 @@ export default function NowCard({
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   return (
-    <section aria-label="Now" className="space-y-2">
+    <section aria-label="Now" data-ui-area="hero" className="space-y-2">
       <div
         data-ui-hero="true"
         data-live={liveKind}
@@ -314,12 +324,26 @@ export default function NowCard({
         </div>
         )}
 
+        {next && view.kind === "charging" && powerHist.length >= 2 && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="ui-label shrink-0">Power</span>
+            <PowerSpark values={powerHist} />
+            <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
+              {Math.round(powerHist[powerHist.length - 1])}
+              <span className="ml-1 text-xs font-normal text-neutral-400">kW</span>
+            </span>
+          </div>
+        )}
+
         {(view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
           <LimitBar soc={view.soc} limit={view.limitPct} />
         )}
 
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {details(view, tracker, driveQ.data ?? null, nowMs, currency).map((d) => (
+          {details(view, tracker, driveQ.data ?? null, nowMs, currency)
+            // the sparkline row already shows the live power
+            .filter((d) => !(next && view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
+            .map((d) => (
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
               <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
