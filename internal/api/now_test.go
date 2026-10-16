@@ -104,6 +104,42 @@ func TestNowAsleepFlagIndependentOfState(t *testing.T) {
 	}
 }
 
+// vehicle_state_frame_at is always present: the feed's last frame time
+// while the connection is live (or replay), null otherwise.
+func TestNowVehicleStateFrameAt(t *testing.T) {
+	at := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	frame := at.Add(-90 * time.Second)
+	conn := "live"
+	a := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{At: &at, State: "parked", Asleep: true}, nil
+		},
+		connection: func(uuid.UUID) string { return conn },
+		frameAt:    func(context.Context, uuid.UUID, string) *time.Time { return &frame },
+		now:        func() time.Time { return at },
+	}
+	for _, c := range []struct {
+		conn string
+		want any
+	}{{"live", "2026-10-13T11:58:30Z"}, {"replay", "2026-10-13T11:58:30Z"}, {"paused", nil}, {"reauth", nil}} {
+		conn = c.conn
+		_, m := nowGet(t, a)
+		if v, ok := m["vehicle_state_frame_at"]; !ok || v != c.want {
+			t.Errorf("%s: vehicle_state_frame_at = %v (present %v), want %v", c.conn, v, ok, c.want)
+		}
+	}
+	// No live feed to judge (or no monitor wired): null, still present.
+	conn = "live"
+	a.frameAt = func(context.Context, uuid.UUID, string) *time.Time { return nil }
+	if _, m := nowGet(t, a); m["vehicle_state_frame_at"] != nil {
+		t.Errorf("no feed: %v", m["vehicle_state_frame_at"])
+	}
+	a.frameAt = nil
+	if _, m := nowGet(t, a); m["vehicle_state_frame_at"] != nil {
+		t.Errorf("no seam: %v", m["vehicle_state_frame_at"])
+	}
+}
+
 func TestNowRunCache(t *testing.T) {
 	c := newNowRunCache(60 * time.Second)
 	t0 := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)

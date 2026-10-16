@@ -484,6 +484,7 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		prev := m.cache[vehicleID]
 		m.putCacheLocked(vehicleID, &cur)
 		m.stamp[vehicleID] = time.Now()
+		m.noteVehicleStateFrameLocked(vehicleID)
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
 		m.applyReplaySession(ctx, vehicleID, &cur, sess)
@@ -2813,7 +2814,8 @@ func (m *StateMonitor) Latest(vehicleID string) (*State, time.Time) {
 // republishes its merged live State to the shared store so peer replicas
 // can serve a complete /api/state. Kept well under LiveStateSnapshotTTL
 // so the snapshot never expires between refreshes on a healthy owner.
-const liveStateSnapshotInterval = 5 * time.Second
+// A var so tests can shrink it.
+var liveStateSnapshotInterval = 5 * time.Second
 
 // RemoteLatest returns the live State a peer pod published to the shared
 // store for this vehicle, or nil when none is available (no shared store
@@ -2907,11 +2909,13 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 		case <-t.C:
 			m.mu.RLock()
 			cached := m.cache[vehicleID]
+			frameAt := m.vehicleStateFrameAtLocked(vehicleID)
 			m.mu.RUnlock()
 			if cached == nil {
 				continue
 			}
 			snap := *cached // value copy; publish outside the lock
+			snap.VehicleStateFrameAt = frameAt
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			if err := m.liveStateStore.PutState(pctx, vehicleID, &snap, LiveStateSnapshotTTL); err != nil {
 				m.logger.Debug("live state publish failed", "vehicle", vehicleID, "err", err.Error())
@@ -2919,6 +2923,56 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 			cancel()
 		}
 	}
+}
+
+// noteVehicleStateFrameLocked records that a vehicleState frame just
+// arrived. Caller holds mu.
+func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
+	if m.lastVSFrame == nil {
+		m.lastVSFrame = make(map[string]time.Time)
+	}
+	m.lastVSFrame[vehicleID] = time.Now()
+}
+
+// vehicleStateFrameAtLocked is VehicleStateFrameAt for a vehicle this
+// pod streams: nil while no live feed is expected (no frame yet, or
+// vehicleState held while asleep). Caller holds mu (read or write).
+func (m *StateMonitor) vehicleStateFrameAtLocked(vehicleID string) *time.Time {
+	t, ok := m.lastVSFrame[vehicleID]
+	if !ok || t.IsZero() || m.holdingVS[vehicleID] {
+		return nil
+	}
+	t = t.UTC()
+	return &t
+}
+
+// VehicleStateFrameAt is when the vehicleState feed last delivered a
+// frame for the vehicle (GET /now's vehicle_state_frame_at), or nil
+// when there is no live feed to judge: this pod doesn't stream the
+// vehicle and the owner hasn't published one, the subscription hasn't
+// delivered yet, or it is held while the car sleeps (wake-safety
+// HoldAsleep). A non-nil time that's old means the feed is stuck. A pod
+// that doesn't stream the vehicle reads the owner's published snapshot
+// (refreshed every liveStateSnapshotInterval; gone after
+// LiveStateSnapshotTTL once the owner stops).
+func (m *StateMonitor) VehicleStateFrameAt(ctx context.Context, vehicleID string) *time.Time {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	_, streaming := m.active[vehicleID]
+	var at *time.Time
+	if streaming {
+		at = m.vehicleStateFrameAtLocked(vehicleID)
+	}
+	m.mu.RUnlock()
+	if streaming {
+		return at
+	}
+	if remote := m.RemoteLatest(ctx, vehicleID); remote != nil {
+		return remote.VehicleStateFrameAt
+	}
+	return nil
 }
 
 // LatestLiveSession returns the last charging-session snapshot
