@@ -120,18 +120,17 @@ stops, then layers on top of it:
 
 ---
 
-## Trip analysis — what the trip actually costs
+## Trip analysis — what the trip will cost (estimate)
 
 After the route comes back, the **Trip analysis** card breaks it
 down. The dollar figures are computed deterministically in Go —
 not asked of an LLM — from your home rate, stop SoC deltas, and an
 industry-default DCFC rate:
 
-- **DCFC spend** — what you'll actually pay at fast chargers along
-  the way.
+- **DCFC spend** — estimated spend at fast chargers along the way.
 - **Home-rate equivalent** — what the total energy used would have
   cost if every kWh came from your home meter; useful as a
-  "what is this trip actually costing me" baseline.
+  "what is this trip costing me" baseline.
 
 Around those numbers, when an AI provider is wired by the operator,
 the model writes short categorised commentary across **Cost**,
