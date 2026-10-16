@@ -156,11 +156,17 @@ export function TripRouteMap({
     //      always catches up.
     // `fitted` stays false while the container had no size at fit time;
     // the next resize then refits (see safeFitBounds).
+    // In the fill layout the charger chips float over the top of the map: pad the fit so
+    // the route clears them.
+    const fitOpts = (maxZoom: number): L.FitBoundsOptions =>
+      fill
+        ? { paddingTopLeft: [24, window.innerWidth < 640 ? 96 : 64], paddingBottomRight: [24, window.innerWidth < 640 ? 40 : 24], maxZoom }
+        : { padding: [24, 24], maxZoom };
     let fitted = false;
     let fitBox: L.LatLngBounds | null = null;
     const refit = () => {
       if (!fitted && fitBox && mapRef.current === map) {
-        fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
+        fitted = safeFitBounds(map, fitBox, fitOpts(12));
       }
     };
     const raf = requestAnimationFrame(() => {
@@ -184,7 +190,7 @@ export function TripRouteMap({
 
     const wpLatLngs = ws.map((w) => [w.Latitude, w.Longitude] as [number, number]);
     fitBox = L.latLngBounds(wpLatLngs);
-    fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
+    fitted = safeFitBounds(map, fitBox, fitOpts(12));
 
     const placeholder = L.polyline(wpLatLngs, {
       color: "#34d399",
@@ -234,7 +240,7 @@ export function TripRouteMap({
         placeholder.remove();
         const line = L.polyline(stored, { color: "#34d399", weight: 3, opacity: 0.85 }).addTo(map);
         fitBox = line.getBounds();
-        fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
+        fitted = safeFitBounds(map, fitBox, fitOpts(13));
         path = stored;
       } else if (!inDemo() && valhallaBase() !== "") {
         // (valhallaBase() is already "" in the demo; the explicit check keeps
@@ -248,7 +254,7 @@ export function TripRouteMap({
             opacity: 0.85,
           }).addTo(map);
           fitBox = line.getBounds();
-          fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
+          fitted = safeFitBounds(map, fitBox, fitOpts(13));
           path = snapped;
         }
       }
@@ -266,7 +272,7 @@ export function TripRouteMap({
       setRoutePath([]);
       setChargerCount(null);
     };
-  }, [route]);
+  }, [route, fill]);
 
   // Effect: external selection. When the parent (e.g. a table-row
   // click) flips selectedIdx, swap the matched marker's icon to a
