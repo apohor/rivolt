@@ -1,0 +1,122 @@
+/* ui_theme_next: map-first trip planner. Desktop is a split view (a left panel,
+   a sticky full-height map on the right); phone stacks the bar, a 40vh map, then
+   the itinerary as a sheet. Everything is scoped to html[data-ui='next']. */
+
+html[data-ui='next'] [data-plan-contents] {
+  display: contents;
+}
+html[data-ui='next'] [data-plan-split] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+html[data-ui='next'] [data-plan-split] > :not([data-plan-area='map']),
+html[data-ui='next'] [data-plan-contents] > :not([data-plan-area='map']) {
+  grid-column: 1;
+  min-width: 0;
+}
+
+/* The left-panel blocks share the card surface. */
+html[data-ui='next'] [data-plan-bar],
+html[data-ui='next'] [data-plan-area='summary'],
+html[data-ui='next'] [data-plan-area='itinerary'] {
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.9rem;
+  background: oklch(from var(--color-neutral-900) l c h / 0.55);
+  padding: 1rem;
+}
+html[data-ui='next'] [data-plan-bar] > [data-plan-edit] {
+  padding-block: 0.15rem;
+}
+html[data-ui='next'] [data-plan-bar][data-collapsed='true'] > [data-plan-bar-body] {
+  display: none;
+}
+
+/* The map. */
+html[data-ui='next'] [data-plan-area='map'] {
+  position: relative;
+  height: 40vh;
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.9rem;
+}
+html[data-ui='next'] [data-plan-area='map'][data-empty='true'] {
+  background:
+    radial-gradient(60% 50% at 50% 40%, oklch(78% 0.15 168 / 0.07), transparent 70%),
+    var(--color-neutral-900);
+}
+
+/* Phone: bar, map, then the itinerary sheet overlapping the map's lower edge. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
+    order: 1;
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='summary'],
+  html[data-ui='next'] [data-plan-split] [data-plan-area='itinerary'] {
+    order: 2;
+    border-radius: 0;
+    border-inline-width: 0;
+    margin-inline: -1rem;
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='summary'] {
+    margin-top: -1.5rem;
+    z-index: 1;
+    border-radius: 1.25rem 1.25rem 0 0;
+    border-top-color: var(--color-neutral-700);
+    background: var(--color-neutral-900);
+    position: relative;
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='summary']::before {
+    content: '';
+    display: block;
+    width: 2.25rem;
+    height: 4px;
+    margin: -0.35rem auto 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-neutral-600);
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='itinerary'] {
+    background: var(--color-neutral-900);
+  }
+  html[data-ui='next'] [data-plan-split] > :not([data-plan-area='map']):not([data-plan-bar]):not([data-plan-area='summary']):not([data-plan-area='itinerary']):not([data-plan-contents]),
+  html[data-ui='next'] [data-plan-contents] > :not([data-plan-area='map']):not([data-plan-area='summary']):not([data-plan-area='itinerary']) {
+    order: 3;
+  }
+}
+
+/* Desktop: split view. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-plan-split] {
+    grid-template-columns: minmax(380px, 4fr) minmax(0, 6fr);
+    column-gap: 1.25rem;
+    row-gap: 0.75rem;
+    align-items: start;
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
+    grid-column: 2;
+    grid-row: 1 / span 30;
+    position: sticky;
+    top: calc(48px + 1rem);
+    height: calc(100vh - 48px - 2rem);
+    min-height: 420px;
+  }
+}
+
+/* Itinerary: the rail from Activity, a glowing node per stop. */
+html[data-ui='next'] [data-plan-area='itinerary'] [data-plan-timeline] {
+  margin-top: 0.25rem;
+}
+
+/* Light: the sheet and panels use the white surfaces. */
+html[data-ui='next'][data-theme='light'] [data-plan-bar],
+html[data-ui='next'][data-theme='light'] [data-plan-area='summary'],
+html[data-ui='next'][data-theme='light'] [data-plan-area='itinerary'] {
+  background: oklch(99% 0 0 / 0.9);
+}
+@media (max-width: 1023.98px) {
+  html[data-ui='next'][data-theme='light'] [data-plan-split] [data-plan-area='summary'],
+  html[data-ui='next'][data-theme='light'] [data-plan-split] [data-plan-area='itinerary'] {
+    background: oklch(99% 0 0);
+  }
+}

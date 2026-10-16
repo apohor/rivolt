@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './styles/next-plan.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,

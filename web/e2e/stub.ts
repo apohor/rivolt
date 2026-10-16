@@ -172,6 +172,8 @@ export type DrainMode = "absent" | "ok" | "insufficient";
 export type StubOptions = {
   // No basemap archive configured (tiles.url empty).
   noTiles?: boolean;
+  // Real basemap for design screenshots: an absolute pmtiles URL (e.g. preview's).
+  tilesUrl?: string;
   // features.signup_enabled=false (RIVOLT_SIGNUP_DISABLED).
   signupDisabled?: boolean;
   // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
@@ -190,7 +192,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -198,6 +200,14 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const p = url.pathname;
+    // Absolute remote URLs (the real basemap in design screenshots) pass through.
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      // preview sends duplicate CORS headers, so fetch it here and re-serve with one.
+      const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "range, if-match, if-none-match", "access-control-expose-headers": "content-range, content-length, etag" };
+      if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+      const r = await route.fetch();
+      return route.fulfill({ status: r.status(), headers: { ...r.headers(), ...cors, "access-control-allow-origin": "*" }, body: await r.body() });
+    }
     if (p === "/api/auth/me") {
       return signedIn
         ? json(route, { user_id: "u-sample", username: "sample@example.com", role: admin ? "admin" : "user" })
@@ -206,7 +216,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/config") {
       return json(route, {
         features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
-        tiles: { url: noTiles ? "" : "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
+        tiles: { url: noTiles ? "" : tilesUrl || "/api/maps/tiles/us.pmtiles", chargers_url: tilesUrl ? tilesUrl.replace("us.pmtiles", "chargers.pmtiles") : "/api/maps/tiles/chargers.pmtiles" },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
       });

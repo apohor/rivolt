@@ -679,12 +679,15 @@ export default function TripPlanPage() {
   // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
   // for everyone; in the ui_theme_next layer the result follows the form in the DOM
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
+  const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data);
+  const routeSummary = `${origin?.label ?? "…"} → ${destination?.label ?? "…"}${startingSoc.trim() ? ` · ${startingSoc}%` : ""}${departureAt ? ` · ${new Date(departureAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}`;
+  const [planTab, setPlanTab] = useState<"planner" | "saved" | "pva">("planner");
   const formEl = (
     <>
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <Card title="Plan a trip" area="p-form">
+      <FormShell next={nextUi} hasResult={hasResult} summary={routeSummary}>
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
@@ -961,7 +964,7 @@ export default function TripPlanPage() {
             </span>
           </div>
         </form>
-      </Card>
+      </FormShell>
       )}
     </>
   );
@@ -1239,6 +1242,51 @@ export default function TripPlanPage() {
     </>
   );
 
+  if (nextUi) {
+    const tabs = [
+      ["planner", "Planner"],
+      ["saved", "Saved"],
+      ...(moneyShell ? [["pva", "Plan vs actual"]] : []),
+    ] as const;
+    return (
+      <div data-plan-next>
+        <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
+          <div role="tablist" aria-label="Trip planner sections" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+            {tabs.map(([k, l]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={planTab === k}
+                onClick={() => setPlanTab(k as "planner" | "saved" | "pva")}
+                className={`rounded-md px-3 py-1.5 ${planTab === k ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        {planTab === "planner" && (
+          <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
+            {formEl}
+            {resultEl}
+            {!hasResult && (
+              <div data-plan-area="map" data-empty="true" aria-hidden>
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
+                  {planMutation.isPending || multidayMutation.isPending ? "Planning your route…" : "Your route and charging stops appear here."}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {planTab === "saved" && <div className="space-y-6">{savedEl}</div>}
+        {planTab === "pva" && <div className="space-y-6">{pvaEl}</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6" data-ui-grid="plan">
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
@@ -1334,6 +1382,31 @@ function SnapshotBanner({
 // DemoPresetPicker: the public demo's planner. A handful of stored trips
 // rendered by the real planner UI (route, stops, cost, arrival SoC); any
 // other trip needs the visitor's own Rivian.
+// FormShell: the classic card, or in ui_theme_next the compact route bar. On a
+// phone the bar collapses to a one-line summary once there is a plan.
+function FormShell({ next, hasResult, summary, children }: { next: boolean; hasResult: boolean; summary: string; children: React.ReactNode }) {
+  const [editing, setEditing] = useState(false);
+  if (!next) return <Card title="Plan a trip" area="p-form">{children}</Card>;
+  const collapsed = hasResult && !editing;
+  return (
+    <div data-plan-bar data-collapsed={collapsed ? "true" : undefined}>
+      {hasResult && (
+        <button
+          type="button"
+          data-plan-edit
+          aria-expanded={!collapsed}
+          onClick={() => setEditing((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 text-left text-sm lg:hidden"
+        >
+          <span className="min-w-0 truncate text-neutral-100">{summary}</span>
+          <span className="shrink-0 text-xs text-emerald-300">{collapsed ? "Edit" : "Done"}</span>
+        </button>
+      )}
+      <div data-plan-bar-body>{children}</div>
+    </div>
+  );
+}
+
 function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpen: (t: SavedTrip) => void }) {
   const list = useQuery({ queryKey: ["demo", "trips"], queryFn: () => backend.demoTrips(), retry: 0, staleTime: 60 * 60_000 });
   const [busy, setBusy] = useState<string | null>(null);
@@ -1357,6 +1430,42 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     }
   };
   const trips = list.data?.trips ?? [];
+  const next = useUiNext();
+  if (next) {
+    return (
+      <div data-plan-bar>
+        <p className="ui-label mb-2">Sample trips</p>
+        {list.isLoading ? (
+          <Spinner />
+        ) : (
+          <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
+            {trips.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => open(p)}
+                  disabled={busy != null}
+                  aria-pressed={p.id === activeId}
+                  className={`rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                    p.id === activeId ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
+                  }`}
+                >
+                  <span className="block text-neutral-100">{p.name}</span>
+                  <span className="block text-xs text-neutral-500">
+                    {p.inputs.origin?.label} → {p.inputs.destination?.label} · {Math.round(p.summary.distance_mi)} mi
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+        <div className="mt-2">
+          <ConnectHint what="plan any trip, with your truck's pack and charge level" />
+        </div>
+      </div>
+    );
+  }
   return (
     <Card title="Try a sample trip" area="p-form">
       {list.isLoading ? (
@@ -2159,6 +2268,7 @@ function TripPlanResult({
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
+  const nextUi = useUiNext();
   if (plan.Routes.length === 0) {
     return (
       <Card title="Result">
@@ -2171,7 +2281,7 @@ function TripPlanResult({
     );
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-plan-contents={nextUi ? "" : undefined}>
       {/* AI analysis costs money: never offered in the public demo. */}
       {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
       <WeatherAdjustmentChip plan={plan} />
@@ -2411,7 +2521,9 @@ function RouteCard({
   defaultCollapsed?: boolean;
 }) {
   const { distanceUnit } = usePreferences();
-  const next = useUiNext();
+  const uiNext = useUiNext();
+  // Map-first layout is for the primary route; alternatives keep the classic card.
+  const next = uiNext && index === 0;
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -2542,20 +2654,14 @@ function RouteCard({
     }
     return t;
   })();
-  const nextTitle = (
-    <span className="flex flex-wrap items-baseline gap-x-2">
-      <span>{label}</span>
-      {!route.DestinationReached && <span className="text-amber-400">· destination unreachable</span>}
-    </span>
-  );
   // ui_theme_next: the result as a hero (cost, arrival arc, time) over the map and a route timeline.
   const hero = (
-    <div data-plan-hero className="mb-4 flex flex-wrap items-center gap-x-7 gap-y-4">
+    <div data-plan-hero className="mb-4 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-4">
       <ArcGauge
         value={arrSoCNext}
         label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent` : "Arrival battery unknown"}
         tone={arrSoCNext > 0 && arrSoCNext < 15 ? "critical" : "ok"}
-        size={116}
+        size={next ? 104 : 116}
       >
         {(shown) => (
           <span className="font-semibold leading-none tabular-nums text-neutral-100">
@@ -2587,22 +2693,22 @@ function RouteCard({
           </p>
         )}
       </div>
-      <dl className="grid w-full grid-cols-2 gap-x-6 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
+      <dl className="col-span-2 grid w-full grid-cols-2 gap-x-4 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
         <div>
           <dt className="ui-label">Time</dt>
-          <dd className="text-lg font-medium tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
-          <dd className="text-lg font-medium tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
+          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="text-lg font-medium tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
+          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>
-          <dd className="text-lg font-medium tabular-nums text-neutral-100">
+          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">
             {charging.length > 0 ? `${charging.length} · ${totalChargeMin} min` : "none"}
           </dd>
         </div>
@@ -2646,8 +2752,8 @@ function RouteCard({
                   {arr && <span className="ui-mono">{arr}</span>} <span className="ui-mono text-neutral-200">{w.ArrivalSoC.toFixed(0)}% → {w.DepartureSoC.toFixed(0)}%</span>
                 </span>
                 <span className="ui-mono text-neutral-200">{Math.round(w.ChargeDurationSec / 60)} min</span>
-                {w.MaxPowerKW > 0 && <span className="ui-mono">{w.MaxPowerKW.toFixed(0)} kW</span>}
-                {sc && <span className="ui-mono">{sc.energy_kwh.toFixed(0)} kWh</span>}
+                {selected && w.MaxPowerKW > 0 && <span className="ui-mono">{w.MaxPowerKW.toFixed(0)} kW max</span>}
+                {selected && sc && <span className="ui-mono">{sc.energy_kwh.toFixed(0)} kWh</span>}
                 {sc && (
                   <span className="ui-mono text-neutral-200">
                     {fmtCurrency(sc.energy_kwh * sc.guest_rate)}
@@ -2673,8 +2779,42 @@ function RouteCard({
       {dest && timelineRow(destIdx, "end", destLabel || dest.Name || "Destination")}
     </ol>
   );
+  if (next) {
+    // Map-first: summary strip and itinerary in the left panel, the map beside it.
+    return (
+      <>
+        <section data-plan-area="summary" aria-label="Trip summary">
+          {!route.DestinationReached && (
+            <p className="mb-3 text-sm text-amber-400">
+              Destination unreachable
+              {route.BatteryEmptyToDestMeters > 0 && <> — battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short</>}
+            </p>
+          )}
+          {hero}
+        </section>
+        <section data-plan-area="itinerary" aria-label="Itinerary">
+          <h2 className="ui-label mb-1">Itinerary</h2>
+          {timeline}
+        </section>
+        <div data-plan-area="map">
+          <Suspense fallback={<div className="h-full animate-pulse bg-neutral-900/50" />}>
+            <TripRouteMap
+              fill
+              route={route}
+              onAddStop={onAddStop}
+              onAddOvernight={onAddOvernight}
+              onPreviewStop={onPreviewStop}
+              selectedIdx={selectedStop}
+              onSelectStop={(idx) => setSelectedStop(idx)}
+              departureAt={departureAt}
+            />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
   return (
-    <Card title={next ? nextTitle : title}>
+    <Card title={title}>
       {index > 0 && allRoutes.length > 1 && (() => {
         // Alternative comparison line. Renders below the title so the
         // user can see at a glance how this route diverges from

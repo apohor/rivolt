@@ -45,6 +45,7 @@ type PreviewStop = (
 export function TripRouteMap({
   route,
   height = 320,
+  fill = false,
   onAddStop,
   onAddOvernight,
   onPreviewStop,
@@ -54,6 +55,8 @@ export function TripRouteMap({
 }: {
   route: TripRoute;
   height?: number;
+  // Fill the parent (ui_theme_next map-first layout): chips float over the map.
+  fill?: boolean;
   onAddStop?: AddStop;
   // Hotel-L2 popups get a dedicated "Add as overnight stop" button.
   // Same shape as onAddStop; the parent appends to extraStops AND
@@ -402,8 +405,8 @@ export function TripRouteMap({
   };
 
   return (
-    <div>
-      <div className="flex items-center gap-1 mb-1">
+    <div className={fill ? "relative h-full" : undefined}>
+      <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined}>
         <span className="text-xs text-neutral-500 mr-1">Chargers:</span>
         {(["dcfc", "l2", "hotels", "all"] as const).map((f) => (
           <button
@@ -436,8 +439,8 @@ export function TripRouteMap({
       </div>
       <div
         ref={ref}
-        className="rounded-lg overflow-hidden border border-neutral-800"
-        style={{ height }}
+        className={fill ? "h-full overflow-hidden" : "rounded-lg overflow-hidden border border-neutral-800"}
+        style={fill ? undefined : { height }}
       />
     </div>
   );
