@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -62,21 +63,42 @@ func handleReadyz(pool *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleHealth(version string) http.HandlerFunc {
-	// The retag flow attaches vX.Y.Z to a main-built image without
-	// rebuilding, so the binary's compile-time VERSION stamp still
-	// reflects the main commit a retag was based on. The Helm chart
-	// projects the actual deployed tag (.Values.image.tag) into the
-	// pod via the downward API at /etc/podinfo/image-tag. Read it
-	// once and prefer it when present; fall back to the build-time
-	// stamp for local dev / raw docker run where there's no chart
-	// in the loop.
-	effective := version
-	if b, err := os.ReadFile("/etc/podinfo/image-tag"); err == nil {
-		if tag := strings.TrimSpace(string(b)); tag != "" {
-			effective = tag
-		}
+// releaseTagRE matches a deployed release tag: bare or v-prefixed semver
+// ("0.34.0", "v0.34.0", "0.34.0-rc.1"). Image tags that name a commit or a
+// branch ("sha-6dc87c0", "main", "latest") do not match.
+var releaseTagRE = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+
+// effectiveVersion picks the version /api/health reports.
+//
+// The retag flow attaches vX.Y.Z to a main-built image without
+// rebuilding, so on prod the binary's compile-time stamp still names the
+// main commit the image was built from, and the deployed release tag
+// (projected by the chart to /etc/podinfo/image-tag) is the truthful
+// answer: a release tag wins. Preview deploys the image by commit
+// (image.tag = sha-xxxxxxx), which says less than the stamp the build
+// computed (v0.35.0-dev.24+sha-6dc87c0): there the stamp wins. With no
+// stamp ("dev": a local build) the podinfo tag, whatever it is, is better
+// than nothing; with no podinfo, the stamp.
+func effectiveVersion(build, podTag string) string {
+	podTag = strings.TrimSpace(podTag)
+	switch {
+	case podTag == "":
+		return build
+	case releaseTagRE.MatchString(podTag):
+		return podTag
+	case build == "" || build == "dev":
+		return podTag
+	default:
+		return build
 	}
+}
+
+func handleHealth(version string) http.HandlerFunc {
+	podTag := ""
+	if b, err := os.ReadFile("/etc/podinfo/image-tag"); err == nil {
+		podTag = string(b)
+	}
+	effective := effectiveVersion(version, podTag)
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
