@@ -5,7 +5,8 @@ import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { BottomSheet } from "../plan/BottomSheet";
-import { formatRouteSummary, useRouteBarCollapse, useRouteBarState } from "../plan/routeBar";
+import { RouteBar } from "../plan/RouteBarPanel";
+import { countNonDefaultOptions, formatRouteSummary, useRouteBarCollapse, useRouteBarState } from "../plan/routeBar";
 import { PlanSelectionProvider, useSelectedStop } from "../plan/selection";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
@@ -691,21 +692,12 @@ export default function TripPlanPage() {
   const routeSummary = formatRouteSummary(routeBar);
   const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null;
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
-  const formEl = (
-    <>
-      {inDemo() ? (
-        <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
-      ) : (
-      <FormShell next={nextUi} hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
-        {firstVehicle && (
-          <p className="mb-3 text-xs text-neutral-500">
-            Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
-          </p>
-        )}
-        <form onSubmit={onSubmit} className="space-y-4" data-plan-form>
-          <DeparturePicker value={departureAt} onChange={setDepartureAt} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
-            <label className="flex flex-col gap-1 text-sm">
+  // The form's pieces. The classic form (flag off) lays them out in its
+  // original order; the map-first route bar (ui_theme_next) takes the same
+  // elements into RouteBar's structure, so both modes share one set of fields.
+  const departureEl = <DeparturePicker value={departureAt} onChange={setDepartureAt} />;
+  const socNumberEl = (
+<label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
               <input
                 type="number"
@@ -721,19 +713,9 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
-            {nextUi && (
-              <input
-                type="range"
-                min={5}
-                max={100}
-                step={1}
-                aria-label="Starting SoC slider"
-                value={Number(startingSoc) || Math.round(stateQuery.data?.battery_level_pct ?? 80)}
-                onChange={(e) => setStartingSoc(e.target.value)}
-                className="ui-range sm:col-span-4 sm:-mt-1"
-              />
-            )}
-            <label className="flex flex-col gap-1 text-sm">
+  );
+  const targetSocEl = (
+<label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Target arrival SoC %</span>
               <input
                 type="number"
@@ -744,7 +726,8 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
-            {nextUi ? (
+  );
+  const driveModeEl = nextUi ? (
               <div role="radiogroup" aria-label="Drive mode" className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-400">Drive mode</span>
                 <div className="flex gap-1.5">
@@ -774,8 +757,9 @@ export default function TripPlanPage() {
                 <option value="DISTANCE">Conserve</option>
               </select>
             </label>
-            )}
-            {vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) && (
+            );
+  const adapterEl = vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) ? (
+
               <div className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-400">Tesla NACS adapter</span>
                 <button
@@ -797,9 +781,10 @@ export default function TripPlanPage() {
                   </span>
                 </button>
               </div>
-            )}
-          </div>
-          <LocationField
+            
+  ) : null;
+  const fromEl = (
+<LocationField
             heading="From"
             value={origin}
             onChange={(s) => setOrigin(s ? relabelIfHome(s, home) : null)}
@@ -822,7 +807,9 @@ export default function TripPlanPage() {
               })),
             ]}
           />
-          <ViaStopList
+  );
+  const viaEl = (
+<ViaStopList
             stops={extraStops}
             overnightFlags={overnightFlags}
             onRemove={(i) => {
@@ -851,7 +838,9 @@ export default function TripPlanPage() {
               setOvernightFlags((prev) => [...prev, false]);
             }}
           />
-          {hasOvernightStops && (
+  );
+  const overnightEl = hasOvernightStops ? (
+
             <div
               className="flex flex-wrap items-center gap-2 text-xs text-neutral-300"
               title="How to limit overnight L2 charging: cap the post-charge SoC, cap by hours plugged in, or cap by next-day departure time."
@@ -921,8 +910,10 @@ export default function TripPlanPage() {
                 </label>
               )}
             </div>
-          )}
-          <LocationField
+          
+  ) : null;
+  const toEl = (
+<LocationField
             heading="To"
             value={destination}
             onChange={(s) => setDestination(s ? relabelIfHome(s, home) : null)}
@@ -938,26 +929,19 @@ export default function TripPlanPage() {
               })),
             ]}
           />
-          {nextUi && (
-            <button
-              type="button"
-              data-plan-swap
-              onClick={routeBar.swap}
-              className="self-start rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-500"
-            >
-              ⇅ Swap From and To
-            </button>
-          )}
-          <div className="flex items-center gap-3" data-plan-submit>
-            <button
+  );
+  const planButtonEl = (
+      <button
               type="submit"
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
               className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
               {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
-            {(planMutation.isPending || multidayMutation.isPending) && <Spinner />}
-            <span className="text-xs text-neutral-500">
+  );
+  const planSpinnerEl = (planMutation.isPending || multidayMutation.isPending) && <Spinner />;
+  const planTipEl = (
+      <span className="text-xs text-neutral-500">
               Tip: configure your charging settings in{" "}
               <a
                 href={appPath("/settings?tab=charging")}
@@ -967,7 +951,76 @@ export default function TripPlanPage() {
               </a>{" "}
               to see accurate per-stop costs and membership savings.
             </span>
-          </div>
+  );
+  const moreCount = countNonDefaultOptions({
+    viaStops: extraStops.length,
+    targetSoc,
+    driveModeIsDefault: driveMode === "EVERYDAY",
+    hasAdapter,
+  });
+  const formEl = (
+    <>
+      {inDemo() ? (
+        <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
+      ) : (
+      <FormShell next={nextUi} hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
+        {firstVehicle && (
+          <p className="mb-3 text-xs text-neutral-500">
+            Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
+          </p>
+        )}
+        <form onSubmit={onSubmit} className="space-y-4" data-plan-form>
+          {nextUi ? (
+            <RouteBar
+              from={fromEl}
+              to={toEl}
+              onSwap={routeBar.swap}
+              when={departureEl}
+              soc={{
+                value: startingSoc,
+                live: typeof stateQuery.data?.battery_level_pct === "number" ? stateQuery.data.battery_level_pct : null,
+                onChange: setStartingSoc,
+              }}
+              moreCount={moreCount}
+              more={
+                <>
+                  {viaEl}
+                  {overnightEl}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
+                    {targetSocEl}
+                    {driveModeEl}
+                    {adapterEl}
+                  </div>
+                  {planTipEl}
+                </>
+              }
+              submit={
+                <div className="flex items-center gap-3" data-plan-submit>
+                  {planButtonEl}
+                  {planSpinnerEl}
+                </div>
+              }
+            />
+          ) : (
+            <>
+              {departureEl}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
+                {socNumberEl}
+                {targetSocEl}
+                {driveModeEl}
+                {adapterEl}
+              </div>
+              {fromEl}
+              {viaEl}
+              {overnightEl}
+              {toEl}
+              <div className="flex items-center gap-3" data-plan-submit>
+                {planButtonEl}
+                {planSpinnerEl}
+                {planTipEl}
+              </div>
+            </>
+          )}
         </form>
       </FormShell>
       )}

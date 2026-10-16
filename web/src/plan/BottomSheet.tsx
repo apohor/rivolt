@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
 // A bottom sheet for phones (ui_theme_next planner): the summary peeks over
 // the map; drag the handle, or use the keyboard, to raise it to half height
@@ -183,6 +183,16 @@ export function BottomSheet({
         break;
     }
   };
+  // Tapping the peek (the summary) raises the sheet, like tapping the handle,
+  // unless the tap was on something interactive inside it (the route chooser,
+  // a link): those keep their own action. Pointer convenience only; the handle
+  // is the keyboard and screen-reader way.
+  const onPeekClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (snap !== "peek") return;
+    const t = e.target as Element | null;
+    if (t?.closest("button, a, input, select, textarea, label, summary, [role='button'], [role='tab'], [role='switch'], [role='radio'], [role='slider']")) return;
+    set("half");
+  };
   const onRegionKey = (e: KeyboardEvent<HTMLElement>) => {
     // Escape from anywhere in the sheet folds it back to the peek.
     if (e.key === "Escape" && snap !== "peek") {
@@ -216,7 +226,12 @@ export function BottomSheet({
         onClick={onClick}
         onKeyDown={onKey}
       />
-      {peek != null && <div data-plan-sheet-peek>{peek}</div>}
+      {peek != null && (
+        // Pointer-only shortcut: the handle above is the keyboard and screen-reader control.
+        <div data-plan-sheet-peek onClick={onPeekClick}>
+          {peek}
+        </div>
+      )}
       <div id={contentId} data-plan-sheet-body inert={!expanded}>
         {children}
       </div>

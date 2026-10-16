@@ -54,7 +54,7 @@ for (const theme of ["dark", "light"] as const) {
 }
 
 for (const state of ["off", "on"] as const) {
-  test(`signed-in form ${state}: slider, mode chips and swap only in the new look`, async ({ browser }) => {
+  test(`signed-in form ${state}: route bar: slider and swap, mode chips under More options, only in the new look`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
     const page = await ctx.newPage();
     await page.addInitScript((s) => {
@@ -65,9 +65,15 @@ for (const state of ["off", "on"] as const) {
     await page.goto("/trips/plan");
     await expect(page.getByRole("button", { name: "Plan trip" })).toBeVisible();
     const n = state === "on" ? 1 : 0;
-    await expect(page.getByLabel("Starting SoC slider")).toHaveCount(n);
-    await expect(page.getByRole("radiogroup", { name: "Drive mode" })).toHaveCount(n);
+    await expect(page.getByRole("slider", { name: "Starting SoC" })).toHaveCount(n);
     await expect(page.getByRole("button", { name: /Swap From and To/ })).toHaveCount(n);
+    // The mode chips live under "More options" (collapsed until opened) in the new look.
+    await expect(page.getByRole("radiogroup", { name: "Drive mode" })).toHaveCount(0);
+    if (state === "on") {
+      await page.getByRole("button", { name: /More options/ }).click();
+      await expect(page.getByRole("radiogroup", { name: "Drive mode" })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: /More options/ })).toHaveAttribute("aria-expanded", "true");
+    }
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(SHOTS, `plan-form-iphone-dark-${state}.png`), fullPage: true });
     if (state === "on") {
@@ -94,6 +100,22 @@ for (const theme of ["dark", "light"] as const) {
       await stubApi(page, { demo: true, signedIn: false });
       await page.goto("/demo/trips/plan");
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+      if (v.name === "iphone") {
+        // On a phone the itinerary is in the bottom sheet, inert at its peek
+        // (by design): open the sheet before touching a stop.
+        const sheet = page.locator("[data-plan-sheet]");
+        await expect(sheet).toHaveAttribute("data-snap", "peek");
+        // The handle must be what a finger hits at its centre, not the summary above it.
+        const handleHit = await page.evaluate(() => {
+          const h = document.querySelector("[data-plan-sheet-handle]")!;
+          const r = h.getBoundingClientRect();
+          const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return el === h;
+        });
+        expect(handleHit).toBe(true);
+        await page.getByRole("button", { name: "Expand Trip details" }).click();
+        await expect(sheet).toHaveAttribute("data-snap", "half");
+      }
       const stop = page.getByRole("button", { name: /Sample Fast Charge, Barstow/ });
       await expect(stop).toBeVisible();
       await expect(stop).toHaveAttribute("aria-expanded", "false");

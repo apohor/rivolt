@@ -122,6 +122,23 @@ describe("BottomSheet", () => {
     expect(region).not.toHaveAttribute("data-dragging");
   });
 
+  it("tapping the peek raises the sheet, but not when the tap is on a control inside it", () => {
+    mockViewport(false);
+    render(
+      <BottomSheet label="Trip details" peek={<div><p>Summary text</p><button type="button">Route 2</button></div>}>
+        {body}
+      </BottomSheet>,
+    );
+    const region = screen.getByRole("region", { name: "Trip details" });
+    fireEvent.click(screen.getByRole("button", { name: "Route 2" }));
+    expect(region).toHaveAttribute("data-snap", "peek"); // the control keeps its own action
+    fireEvent.click(screen.getByText("Summary text"));
+    expect(region).toHaveAttribute("data-snap", "half");
+    // Open: tapping the summary does not fold it back.
+    fireEvent.click(screen.getByText("Summary text"));
+    expect(region).toHaveAttribute("data-snap", "half");
+  });
+
   it("a tap (no movement) is a click, not a drag", () => {
     mockViewport(false);
     vi.stubGlobal("PointerEvent", FakePointerEvent);

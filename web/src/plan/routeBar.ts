@@ -78,3 +78,16 @@ export function useRouteBarCollapse(hasResult: boolean, resultKey: unknown) {
   const toggle = useCallback(() => setEditing((v) => !v), []);
   return { collapsed, toggle, bodyId };
 }
+
+// countNonDefaultOptions is the badge on "More options": how many of the
+// hidden settings differ from their defaults (via stops, a target arrival
+// SoC other than 20%, a non-default drive mode, the Tesla adapter).
+export function countNonDefaultOptions(o: {
+  viaStops: number;
+  targetSoc: string;
+  driveModeIsDefault: boolean;
+  hasAdapter: boolean;
+}): number {
+  const target = o.targetSoc.trim();
+  return o.viaStops + (target !== "" && target !== "20" ? 1 : 0) + (o.driveModeIsDefault ? 0 : 1) + (o.hasAdapter ? 1 : 0);
+}
