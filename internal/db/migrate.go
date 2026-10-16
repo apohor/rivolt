@@ -20,7 +20,10 @@ import (
 // Adding a new migration is "drop a .sql file in internal/db/migrations/
 // and rebuild". Nothing else to touch, except that one altering
 // vehicle_state sets a bounded lock_timeout first (see
-// migrate_locktimeout_test.go).
+// migrate_locktimeout_test.go). Hitting that timeout fails the
+// migration, so Open fails and the server exits at startup; the pod
+// restarts and retries. That is the intended trade: a delayed boot
+// instead of every vehicle_state insert queued behind the ALTER's lock.
 //
 //go:embed migrations/*.sql
 var migrationFS embed.FS
