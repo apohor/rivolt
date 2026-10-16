@@ -57,6 +57,16 @@ type ledgerAPI struct {
 	// toConfirmCount counts the user's open verify-state charges; nil
 	// leaves the summary counts at zero.
 	toConfirmCount func(ctx context.Context, uid uuid.UUID) (open, attention int, err error)
+	// billed reports the rivian_receipts flag for a user: when on, the
+	// statement carries Rivian's billed amounts (billed_* fields). nil = off.
+	billed func(uid uuid.UUID) bool
+}
+
+// withBilled returns a copy that adds the billed_* fields for users the
+// rivian_receipts flag covers. Only the Money endpoints use it.
+func (a ledgerAPI) withBilled(f *flags.Store) ledgerAPI {
+	a.billed = func(uid uuid.UUID) bool { return f != nil && f.RivianReceipts().Enabled(uid.String()) }
+	return a
 }
 
 // newLedgerAPI wires the production seams: read-only queries on the
@@ -138,6 +148,7 @@ func (a ledgerAPI) input(ctx context.Context, uid uuid.UUID, p ledgerParams, per
 	if err != nil {
 		return ledger.Input{}, err
 	}
+	cfg.Billed = a.billed != nil && a.billed(uid)
 	from, to := ledger.LoadWindow(periods...)
 	cs, ds, err := a.load(ctx, uid, p.vehicleID, from, to)
 	if err != nil {

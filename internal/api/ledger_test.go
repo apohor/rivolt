@@ -267,3 +267,41 @@ func TestLedgerEnabled_ReportsUIThemeNextPerUser(t *testing.T) {
 		t.Error("nil store enabled the theme")
 	}
 }
+
+// The billed_* fields reach /api/ledger/monthly and /summary only for users
+// the rivian_receipts flag covers, and use the names the Money UI reads.
+func TestLedger_BilledFieldsFollowTheReceiptsFlag(t *testing.T) {
+	withReceipts, without := uuid.New(), uuid.New()
+	c := ledger.Charge{
+		ID: "c1", VehicleID: "veh-1",
+		StartedAt: time.Date(2026, 10, 9, 18, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 10, 9, 19, 0, 0, 0, time.UTC),
+		EnergyKWh: ledgerFloat(40), PeakKW: ledgerFloat(150), FinalState: "charging_complete", Source: "live",
+		Cost: ledgerFloat(16), Currency: "USD", PricePerKWh: ledgerFloat(0.4), CostSource: "network_estimate",
+		BilledCost: ledgerFloat(14.25), BilledCurrency: "USD", BilledVendor: "Electrify America", BilledCharger: "EA Reno",
+	}
+	data := &fakeLedgerData{charges: []ledger.Charge{c}}
+	la := data.api(time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC))
+	la.billed = func(uid uuid.UUID) bool { return uid == withReceipts }
+	h := ledgerRouter(map[string]bool{withReceipts.String(): true, without.String(): true}, la)
+
+	body := func(uid uuid.UUID, url string) string {
+		rec := ledgerGET(t, h, uid, url)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d %s", url, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	on := body(withReceipts, "/api/ledger/monthly?month=2026-10")
+	for _, key := range []string{`"billed_total":14.25`, `"estimated_total":0`, `"billed_sessions":1`, `"estimated_sessions":0`,
+		`"billed_cost":14.25`, `"billed_currency":"USD"`, `"billed_vendor":"Electrify America"`, `"billed_charger":"EA Reno"`} {
+		if !strings.Contains(on, key) {
+			t.Errorf("monthly with the flag on lacks %s:\n%s", key, on)
+		}
+	}
+	if sum := body(withReceipts, "/api/ledger/summary?months=1"); !strings.Contains(sum, `"billed_total":14.25`) || !strings.Contains(sum, `"billed_sessions":1`) || strings.Contains(sum, `"billed_vendor"`) {
+		t.Errorf("summary with the flag on: %s", sum)
+	}
+	if off := body(without, "/api/ledger/monthly?month=2026-10"); strings.Contains(off, "billed_") || strings.Contains(off, "estimated_total") {
+		t.Errorf("monthly with the flag off carries billed fields:\n%s", off)
+	}
+}
