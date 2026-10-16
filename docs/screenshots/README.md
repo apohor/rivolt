@@ -1,23 +1,28 @@
 # Screenshots
 
-The main `README.md` references the images in this folder. Drop new
-PNGs in with the listed filenames; the README will pick them up.
+The main `README.md` references the images in this folder.
 
-Captured against a real account in dark mode (the only theme Rivolt
-ships). Target aspect ratio is roughly **3:2 landscape**.
+**Every capture comes from the public demo at
+[demo.rivolt.dev](https://demo.rivolt.dev)**, which runs on a generated
+sample truck. Never capture a real account or production: no real
+location, VIN, name or money belongs in a screenshot here.
 
-| Filename             | Page / view                                      | Shipped |
-|---                   |---                                               |:---:    |
-| `overview.png`       | Home — current SoC, recent activity, weekly KPIs | ✅      |
-| `live.png`           | Live page — real-time telemetry                  | ✅      |
-| `drives.png`         | Drives list — every recorded drive               | ✅      |
-| `drive-details.png`  | Drive detail — map + timeline charts + weather   | ✅      |
-| `charges.png`        | Charges list — every recorded charge session     | ✅      |
-| `charge-details.png` | Charge detail — power curve + cost + thermal     | ✅      |
-| `trip-planner.png`   | Trip planner — form + result map + corridor      | ✅      |
-| `trip-analysis.png`  | Trip analysis card — cost strip + categories     |         |
-| `settings.png`       | Settings — tabbed layout                         |         |
-| `notifications.png`  | Notifications panel + a delivered push           |         |
+Rivolt ships both a dark and a light theme; most captures are dark.
+Desktop shots are roughly **3:2 landscape** (1440 × 960). Phone shots
+are 390 × 844.
 
-When the missing rows get captured, the matching `![...]()` blocks
-go back into the relevant section of the main `README.md`.
+| Filename          | Page / view                                                     | Theme |
+|---                |---                                                              |:---:  |
+| `now.png`         | Now — state card, KPIs, miles per day, battery trend            | dark  |
+| `activity.png`    | Activity — the day-grouped feed                                 | dark  |
+| `money.png`       | Money — monthly statement, energy split, receipts               | dark  |
+| `plan.png`        | Plan — a sample trip with route, summary and itinerary          | dark  |
+| `truck.png`       | Truck — parked drain, pack, sleep and idle-awake                | dark  |
+| `plan-phone.png`  | Plan on a phone — map with the sheet at half height             | dark  |
+| `now-phone.png`   | Now on a phone                                                  | dark  |
+| `now-light.png`   | Now in the light theme                                          | light |
+
+To refresh them, open the demo with a clean browser profile, pick the
+theme (Settings → Appearance, or the system setting), choose the "LA to
+Las Vegas" sample trip for the Plan shots, and replace the file with the
+same name.
