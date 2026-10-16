@@ -131,6 +131,17 @@ type liveSessions struct {
 	// electrafi-imported numbers (which are scoped per-export).
 	driveCounter  int64
 	chargeCounter int64
+
+	// stuck is the charging state a charge with no plug indicator was
+	// abandoned in by the stale guard, and the SoC since. The same state
+	// with no SoC gain is the stuck state still, not a new charge (its
+	// merged power sticks too, so it looks like one).
+	stuck *stuckCharge
+}
+
+type stuckCharge struct {
+	state string
+	soc   float64
 }
 
 type liveDrive struct {
@@ -251,6 +262,20 @@ type liveCharge struct {
 	// its gap against this, not endAt, so a session can't be kept open
 	// indefinitely by Rivian replaying sticky "charging_ready" frames.
 	lastMeaningfulAt time.Time
+
+	// lastProgressAt is the last frame where SoC rose or chargerState
+	// changed, power aside. A vehicle with no plug indicator (an R2) can
+	// keep reporting charging_active after the cable is pulled, and its
+	// merged charger power sticks at the last value (zeros don't merge),
+	// so power can't show the charge is over; the stale guard measures
+	// such a charge against this instead.
+	lastProgressAt time.Time
+	// progressKWh and progressActiveSec are energyIntKWh and
+	// activeSeconds as of lastProgressAt: the stale guard rolls a stuck
+	// charge back to them, since the sticky power after the last
+	// progress kept integrating (noteProgress).
+	progressKWh       float64
+	progressActiveSec float64
 }
 
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
@@ -264,6 +289,17 @@ func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) 
 	stateChanged := state != "" && state != c.finalState
 	if socUp || active || stateChanged {
 		c.lastMeaningfulAt = t
+	}
+	if socUp || stateChanged {
+		c.lastProgressAt = t
+	}
+}
+
+// noteProgress records the energy integral and active time as of a
+// progress frame (t is lastProgressAt). Call after accumulateEnergy.
+func (c *liveCharge) noteProgress(t time.Time) {
+	if c.lastProgressAt.Equal(t) {
+		c.progressKWh, c.progressActiveSec = c.energyIntKWh, c.activeSeconds
 	}
 }
 
@@ -1056,14 +1092,33 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// opens a phantom session that then absorbs stale 25 kWh from
 	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
 	// See v0.3.48 for the matching frontend gate.
-	charging := isChargingCS(curr.ChargerState) && s.plugged(curr)
-	// Some vehicles report charging_ready while driving and parked
-	// unplugged (R2). Where that's so, charging_ready doesn't open a
-	// charge; charging_active does. An open charge isn't affected.
-	if charging && s.charge == nil && curr.ChargerPowerKW <= 0 &&
-		strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") && m.readyUnreliable(curr.VehicleID) {
-		charging = false
+	chargingNow := func() bool {
+		c := isChargingCS(curr.ChargerState) && s.plugged(curr)
+		// Some vehicles report charging_ready while driving and parked
+		// unplugged (R2). Where that's so, charging_ready doesn't open a
+		// charge; charging_active does. An open charge isn't affected.
+		if c && s.charge == nil && curr.ChargerPowerKW <= 0 &&
+			strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") && m.readyUnreliable(curr.VehicleID) {
+			c = false
+		}
+		if s.stuck != nil && s.charge == nil {
+			if strings.EqualFold(strings.TrimSpace(curr.ChargerState), s.stuck.state) && curr.BatteryLevelPct <= s.stuck.soc {
+				c = false
+				// Follow SoC down (it was driven, still stuck): the next
+				// rise from here is a charge.
+				s.stuck.soc = curr.BatteryLevelPct
+			} else {
+				s.stuck = nil // it moved on: a new charge may open
+			}
+		}
+		return c
 	}
+	charging := chargingNow()
+	// No plug indicator (an R2): an open charge counts as plugged while
+	// its charging state lasts, so only this guard ends a charge whose
+	// state stuck after the unplug, and it measures progress (SoC up or
+	// a state change), since the merged power sticks too.
+	noPlugStatus := strings.TrimSpace(curr.ChargerStatus) == ""
 
 	// Stale-session guard. Force-close if too long has passed since
 	// anything meaningful happened (SoC went up, power was above the
@@ -1074,6 +1129,9 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// activity behind them.
 	if charging && s.charge != nil {
 		ref := s.charge.lastMeaningfulAt
+		if noPlugStatus && !s.charge.lastProgressAt.IsZero() {
+			ref = s.charge.lastProgressAt
+		}
 		if ref.IsZero() {
 			ref = s.charge.startedAt
 		}
@@ -1084,15 +1142,35 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				"vehicle", curr.VehicleID,
 				"id", s.charge.id,
 				"gap", gap.Round(time.Second),
-				"soc_drop", socDrop)
+				"soc_drop", socDrop,
+				// No plug indicator (R2): the gap is since the last SoC
+				// rise or state change (lastProgressAt), not power.
+				"no_plug_status", noPlugStatus)
 			s.charge.finalState = "abandoned"
+			// Without a plug indicator the sticky frames since the last
+			// progress weren't charging: end the row there, and take back
+			// the energy and active time their sticky power integrated
+			// (it would be billed on Money).
+			if noPlugStatus && ref.After(s.charge.startedAt) && ref.Before(s.charge.endAt) {
+				s.charge.endAt = ref
+				s.charge.energyIntKWh, s.charge.activeSeconds = s.charge.progressKWh, s.charge.progressActiveSec
+				s.charge.lastPowerAt, s.charge.lastPowerKW = time.Time{}, 0
+			}
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+			if noPlugStatus {
+				s.stuck = &stuckCharge{state: strings.TrimSpace(curr.ChargerState), soc: s.charge.endSoC}
+			}
 			s.charge = nil
 			m.mu.Lock()
 			delete(m.lastSession, curr.VehicleID)
 			delete(m.chargeBond, curr.VehicleID)
 			delete(m.lastSessionFor, curr.VehicleID)
 			m.mu.Unlock()
+			// Plugged-in-ness was judged with the charge open; judge it
+			// again, or an R2's sticky frame reopens an empty charge at
+			// once (with a plug indicator, as on an R1, nothing changes;
+			// without one, s.stuck now holds the state off).
+			charging = chargingNow()
 		}
 	}
 
@@ -1121,6 +1199,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
 			accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+			s.charge.noteProgress(curr.At)
 			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1139,11 +1218,13 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			endSoC:           curr.BatteryLevelPct,
 			finalState:       curr.ChargerState,
 			lastMeaningfulAt: curr.At,
+			lastProgressAt:   curr.At,
 		}
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1157,6 +1238,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
 		if curr.At.After(s.charge.endAt) {
@@ -1976,12 +2058,14 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		finalState: row.FinalState,
 		// Continue the active-charging-time accumulator from the
 		// persisted value so a mid-charge restart doesn't reset it.
-		activeSeconds: row.ActiveSeconds,
+		activeSeconds:     row.ActiveSeconds,
+		progressActiveSec: row.ActiveSeconds,
 		// Anchor the stale-session guard at the last advanced frame, not
 		// zero. A zero lastMeaningfulAt makes the guard fall back to
 		// startedAt and abandon any resumed charge older than the gap
 		// window on the first idle frame after a restart.
 		lastMeaningfulAt: row.EndedAt,
+		lastProgressAt:   row.EndedAt,
 	}
 	m.logger.Info("resumed open charge from DB",
 		"vehicle", curr.VehicleID,
