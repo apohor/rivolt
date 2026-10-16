@@ -68,6 +68,12 @@ export type ReceiptSession = {
   place?: Place;
   network?: string | null;
   network_state?: NetworkState | null;
+  // rivian_receipts (per-user flag): what Rivian billed for the matched session.
+  // Optional; absent on servers or users without the flag.
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -93,6 +99,13 @@ export type Receipt = {
   network?: string | null;
   // Set while the auto-detected network still needs the owner's eye.
   network_state?: NetworkState | null;
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
+  // Sessions with and without a matched Rivian receipt; present only with the flag.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -135,6 +148,11 @@ export type MonthSummary = {
     unpriced_home_rate_estimate: number | null;
     estimate_pending_sessions?: number;
     estimate_pending_kwh?: number;
+    // rivian_receipts: the total split into what Rivian billed and what we estimate.
+    billed_total?: number | null;
+    estimated_total?: number | null;
+    billed_sessions?: number;
+    estimated_sessions?: number;
   };
   energy: {
     sessions: number;

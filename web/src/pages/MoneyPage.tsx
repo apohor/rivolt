@@ -280,7 +280,20 @@ function Statement({
           </button>
         )}
 
-        {estShare > 0 && (
+        {m.spend.billed_total != null && m.spend.estimated_total != null && (
+          <p data-billed-split className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+            <span className="text-emerald-300">
+              {formatMoney(m.spend.billed_total, cur)} billed by Rivian
+              {m.spend.billed_sessions != null && <span className="text-neutral-500"> · {m.spend.billed_sessions} {m.spend.billed_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+            <span className="text-neutral-400">
+              {formatMoney(m.spend.estimated_total, cur)} estimated
+              {m.spend.estimated_sessions != null && <span className="text-neutral-500"> · {m.spend.estimated_sessions} {m.spend.estimated_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+          </p>
+        )}
+
+        {estShare > 0 && m.spend.billed_total == null && (
           <p className="mt-0.5 text-xs text-neutral-500">
             Includes{" "}
             <span className="underline decoration-dotted underline-offset-4">{Math.round(estShare * 100)}% estimated</span>{" "}

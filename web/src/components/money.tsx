@@ -30,10 +30,22 @@ export function MoneyValue({
   currency,
   className = "",
 }: {
-  r: Pick<Receipt, "cost" | "cost_source" | "flags"> & { sessions?: Receipt["sessions"] };
+  r: Pick<Receipt, "cost" | "cost_source" | "flags"> & {
+    sessions?: Receipt["sessions"];
+    billed_cost?: number | null;
+    billed_currency?: string | null;
+  };
   currency: string;
   className?: string;
 }) {
+  // A matched Rivian receipt wins: its amount, solid, never dotted-estimated.
+  if (r.billed_cost != null) {
+    return (
+      <span className={className} title="Billed by Rivian">
+        {formatMoney(r.billed_cost, r.billed_currency || currency)}
+      </span>
+    );
+  }
   const g = grammarFor(r);
   if (g === "pending") {
     return (
@@ -202,6 +214,8 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   const [open, setOpen] = useState(false);
   const chip = kindChip(r);
   const g = grammarFor(r);
+  // Rivian receipts are on for this user when the server sends the matched counts.
+  const billedMode = r.billed_sessions != null;
   const parentID = r.sessions[0]?.charge_id ?? r.receipt_id.replace(/^rcpt_/, "");
   const notes = r.flags.map((f) => FLAG_TEXT[f]).filter(Boolean) as string[];
   if (r.spans_days > 1) notes.unshift(`${r.spans_days} days`);
@@ -240,6 +254,11 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             {r.peak_kw != null && (
               <span className="tabular-nums">{r.peak_kw.toFixed(r.peak_kw < 10 ? 1 : 0)} kW peak</span>
             )}
+            {r.place !== "home" && (r.billed_vendor || r.billed_charger) && (
+              <span data-billed-where className="text-neutral-300">
+                {[r.billed_vendor, r.billed_charger].filter(Boolean).join(" · ")}
+              </span>
+            )}
             {r.place === "away" && r.km_from_home != null && (
               <span className="whitespace-nowrap tabular-nums text-neutral-500">
                 {formatDistance(r.km_from_home, distanceUnit)} from home
@@ -252,9 +271,16 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             ))}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px]">
-            <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
-              {sourceLabel(r, currency)}
-            </span>
+            {billedMode && r.billed_cost != null ? (
+              <span data-price-label="billed" className="font-medium text-emerald-300">Billed by Rivian</span>
+            ) : (
+              <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
+                {billedMode && r.cost_source !== "rivian" && g !== "unknown" && g !== "pending" && g !== "free" && (
+                  <span data-price-label="estimated" className="font-medium text-neutral-300">Estimated · </span>
+                )}
+                {sourceLabel(r, currency)}
+              </span>
+            )}
             {action && (
               <Link to={`${detailPath("charges", fixID)}${!addPrice && g !== "suspect" ? "#pricing" : ""}`} className="font-medium text-amber-300 hover:text-amber-200">
                 {action}
