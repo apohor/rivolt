@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -354,14 +355,12 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		if sqlDB != nil {
 			if userID, ok := auth.UserFromContext(r.Context()); ok {
 				if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
-					attachOTA(vs, stored, func(id string) string {
+					attachOTA(vs, stored, func(id string) *rivian.State {
 						if mon == nil {
-							return ""
+							return nil
 						}
-						if st, _ := mon.Latest(id); st != nil {
-							return st.OtaStatus
-						}
-						return ""
+						st, _ := mon.Latest(id)
+						return st
 					})
 				}
 			}
@@ -477,19 +476,34 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 }
 
 // attachOTA sets each vehicle's OTA details from the stored JSON and adds
-// the live status. A row that does not decode is skipped.
-func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, status func(id string) string) {
+// the live status. Where Rivian's getOTAUpdateDetails gave no version (it
+// fails for the R2s), the live state's versions stand in (vehicleState, or
+// Parallax ota.deployment.state), without release-notes links. A row that
+// does not decode is treated as absent.
+func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, live func(id string) *rivian.State) {
 	for i := range vs {
-		raw, ok := stored[vs[i].ID]
-		if !ok {
-			continue
-		}
 		var info rivian.OTAInfo
-		if json.Unmarshal(raw, &info) != nil {
-			continue
+		raw, have := stored[vs[i].ID]
+		if have && json.Unmarshal(raw, &info) != nil {
+			info, have = rivian.OTAInfo{}, false
 		}
-		if status != nil {
-			info.Status = status(vs[i].ID)
+		var st *rivian.State
+		if live != nil {
+			st = live(vs[i].ID)
+		}
+		if st != nil {
+			if info.Current == nil || info.Current.Version == "" {
+				if v := strings.TrimSpace(st.OtaCurrentVersion); v != "" {
+					info.Current, have = &rivian.OTAVersion{Version: v}, true
+					if a := strings.TrimSpace(st.OtaAvailableVersion); a != "" && a != v && info.Available == nil {
+						info.Available = &rivian.OTAVersion{Version: a}
+					}
+				}
+			}
+			info.Status = st.OtaStatus
+		}
+		if !have {
+			continue
 		}
 		vs[i].OTA = &info
 	}
