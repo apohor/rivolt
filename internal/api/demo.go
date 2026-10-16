@@ -257,6 +257,42 @@ func demoAllowed(method, path, vehicleID string) bool {
 		p == "/api/vehicles/"+vehicleID+"/pack-health"
 }
 
+// demoOnlyPublic reports whether method+path may be served at all by the
+// standalone demo (demo.OnlyEnabled): the SPA's config and health reads,
+// demo discovery, the static preset trips, and the demo allowlist.
+func demoOnlyPublic(method, path, vehicleID string) bool {
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	p := strings.TrimSuffix(path, "/")
+	switch p {
+	case "/api/config", "/api/health", "/api/demo", "/api/demo/trips":
+		return true
+	}
+	if rest, ok := strings.CutPrefix(p, "/api/demo/trips/"); ok && strings.HasSuffix(rest, "/plan") {
+		id := strings.TrimSuffix(rest, "/plan")
+		return id != "" && !strings.Contains(id, "/")
+	}
+	return demoAllowed(method, path, vehicleID)
+}
+
+// demoOnlyGateMW makes every /api route outside demoOnlyPublic a 404 on
+// the standalone demo, before authentication runs: no sign-in, signup,
+// account, admin, Hydra/Kratos/OIDC or write surface exists there, signed
+// in or not. Non-/api paths (the SPA, health probes) are untouched.
+func demoOnlyGateMW(vehicleID string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if (r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/")) &&
+				!demoOnlyPublic(r.Method, r.URL.Path, vehicleID) {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // demoAccessMW serves allowlisted anonymous requests as the demo user.
 // It runs after authentication resolves the real identity and before
 // impersonation, so a real session always wins and impersonation sees

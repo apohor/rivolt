@@ -198,6 +198,17 @@ func runServer() {
 	logger := slog.New(logging.NewContextHandler(inner))
 	slog.SetDefault(logger)
 
+	// Standalone public demo (RIVOLT_DEMO_ONLY): refuse a half-configured
+	// install, then make sure no sign-in, mail, push or AI subsystem can
+	// come up from stray environment, before any flag default reads it.
+	if demo.MisconfiguredOnly() {
+		logger.Error("RIVOLT_DEMO_ONLY needs the replay sample demo (RIVOLT_DEMO=true, RIVIAN_CLIENT=replay, RIVOLT_REPLAY_SOURCE=sample, no RIVOLT_REPLAY_SOURCE_VEHICLE)")
+		os.Exit(1)
+	}
+	if demo.OnlyEnabled() {
+		demoOnlyScrubEnv(logger)
+	}
+
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
 	dataDir := flag.String("data-dir", envOr("DATA_DIR", "./data"), "directory for the SQLite database and caches")
 	vapidSubject := flag.String("vapid-subject", envOr("VAPID_SUBJECT", "mailto:rivolt@invalid"),
@@ -353,7 +364,7 @@ func runServer() {
 	// VAPID without binding to a user. Per-user fan-out
 	// (digest sender) constructs its own service per request.
 	var pushSvc *push.Service
-	if pgPool != nil {
+	if pgPool != nil && !demo.OnlyEnabled() {
 		serverPushStore := push.NewServerStore(pgPool)
 		vapid, verr := push.LoadOrGenerateVAPID(ctx, serverPushStore, *vapidPub, *vapidPriv, *vapidSubject)
 		if verr != nil {

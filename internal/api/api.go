@@ -271,6 +271,12 @@ func New(d Deps) http.Handler {
 		MaxAge: 300,
 	}))
 
+	// Standalone public demo: nothing but the demo allowlist exists under
+	// /api, whoever asks. Runs before authentication.
+	if demo.OnlyEnabled() {
+		r.Use(demoOnlyGateMW(demo.VehicleID()))
+	}
+
 	// Authentication middleware runs on every request so handlers
 	// below can read auth.UserFromContext regardless of whether
 	// auth is enforced. With auth unconfigured (nil Service) the

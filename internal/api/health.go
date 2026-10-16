@@ -134,6 +134,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// SignupEnabled is false when RIVOLT_SIGNUP_DISABLED=true: the
 		// SPA hides "Create an account" and shows /signup as closed.
 		SignupEnabled bool `json:"signup_enabled"`
+		// DemoOnly is true on the standalone demo (RIVOLT_DEMO_ONLY): the
+		// SPA serves only /demo, makes no auth calls, and points every
+		// sign-in or sign-up link at AppURL.
+		DemoOnly bool `json:"demo_only"`
+		// AppURL is the real app's origin (RIVOLT_APP_URL), set only on
+		// the standalone demo.
+		AppURL string `json:"app_url,omitempty"`
 		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
 		// SPA's track() helper sends nothing unless true.
 		EventsEnabled bool `json:"events_enabled"`
@@ -206,10 +213,23 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
+	if demo.OnlyEnabled() {
+		// The standalone demo has no accounts, AI, events or landing page;
+		// its planner is the static presets.
+		base.Features.DemoOnly = true
+		base.Features.AppURL = demo.AppURL()
+		base.Features.SignupEnabled = false
+		base.Features.LandingEnabled = false
+		base.Features.EventsEnabled = false
+		base.AI.Enabled = false
+	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		c := base
 		if flagsStore != nil {
 			c.Features.TripPlannerEnabled = flagsStore.TripPlanner().Enabled
+		}
+		if base.Features.DemoOnly {
+			c.Features.TripPlannerEnabled = true // the presets need no flag
 		}
 		if settingsMgr != nil {
 			g := settingsMgr.GPSPublic()
