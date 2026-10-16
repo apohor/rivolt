@@ -1366,6 +1366,9 @@ func runServer() {
 	}
 
 	authSvc, err := auth.New(auth.Config{
+		// A parent-domain Kratos cookie reaches sibling hosts (preview,
+		// demo); only the base URL's host may use it.
+		KratosHost:        os.Getenv("RIVOLT_BASE_URL"),
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
 		TrustedProxyCIDRs: trustedNets,

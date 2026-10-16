@@ -107,6 +107,14 @@ type Config struct {
 	// path. Empty disables the issuer.
 	KratosCookieName string
 
+	// KratosHost, when set, restricts the Kratos session issuer to
+	// requests whose Host header names it (hostname, case-insensitive,
+	// port ignored; normally the host of RIVOLT_BASE_URL). A Kratos
+	// session cookie scoped to a parent domain is also sent to sibling
+	// hosts (preview, demo); with this set those hosts ignore it instead
+	// of authenticating with it. Empty keeps the old behaviour.
+	KratosHost string
+
 	// KratosResolver, when non-nil, enables the Kratos session
 	// issuer. The function receives the cookie value (verbatim)
 	// and returns the Rivolt user UUID, an "ok" flag (false →
@@ -174,6 +182,7 @@ type Service struct {
 	bypassUserID uuid.UUID
 
 	kratosCookieName string
+	kratosHost       string
 	kratosResolver   func(ctx context.Context, cookieHeader string) (uuid.UUID, bool, error)
 
 	// sessionStore, when non-nil, is the source of truth for
@@ -265,6 +274,7 @@ func New(cfg Config) (*Service, error) {
 		bypassUserID: cfg.BypassUserID,
 
 		kratosCookieName: cfg.KratosCookieName,
+		kratosHost:       normalizeHost(cfg.KratosHost),
 		kratosResolver:   cfg.KratosResolver,
 	}, nil
 }
@@ -453,12 +463,35 @@ func (s *Service) HasCredentials(r *http.Request) bool {
 			return true
 		}
 	}
-	if s.kratosCookieName != "" {
+	if s.kratosCookieName != "" && s.kratosHostOK(r) {
 		if _, err := r.Cookie(s.kratosCookieName); err == nil {
 			return true
 		}
 	}
 	return false
+}
+
+// kratosHostOK reports whether the Kratos session issuer may be used for
+// r: always when no KratosHost is configured, else only when the request
+// Host names it.
+func (s *Service) kratosHostOK(r *http.Request) bool {
+	return s.kratosHost == "" || normalizeHost(r.Host) == s.kratosHost
+}
+
+// normalizeHost lower-cases a host or host:port and drops the port and
+// any trailing dot. A full URL (scheme://host/...) is reduced to its host.
+func normalizeHost(h string) string {
+	h = strings.TrimSpace(h)
+	if i := strings.Index(h, "://"); i >= 0 {
+		h = h[i+3:]
+		if j := strings.IndexAny(h, "/?#"); j >= 0 {
+			h = h[:j]
+		}
+	}
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	return strings.ToLower(strings.TrimSuffix(strings.Trim(h, "[]"), "."))
 }
 
 // ErrSignupClosed is what a Kratos resolver returns for a valid
@@ -509,7 +542,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 		// cost at zero for the common case (Rivolt's own cookie),
 		// and bounded to a single in-cluster GET when the user
 		// signed in via Hydra/Kratos.
-		if s.kratosResolver != nil {
+		if s.kratosResolver != nil && s.kratosHostOK(r) {
 			if _, err := r.Cookie(s.kratosCookieName); err == nil {
 				uid, ok, err := s.kratosResolver(r.Context(), r.Header.Get("Cookie"))
 				if err == nil && ok {
