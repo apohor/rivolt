@@ -44,3 +44,15 @@ describe("sleepSummary", () => {
     expect(s.avgIdleMinutes).toBe(180);
   });
 });
+
+describe("softwareInfo update line", () => {
+  it("hides an unset or zero available version", () => {
+    for (const v of ["", "0.0.0", "0.0", "0", "  ", undefined as unknown as string]) {
+      expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: v })?.available).toBeNull();
+    }
+  });
+  it("shows a real newer version and hides one equal to current", () => {
+    expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.40.1" })?.available).toBe("2026.40.1");
+    expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.36.0" })?.available).toBeNull();
+  });
+});

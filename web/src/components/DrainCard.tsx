@@ -15,8 +15,9 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
     staleTime: 5 * 60_000,
     retry: 0,
   });
-  if (q.isLoading) return <div className="h-32 animate-pulse rounded-xl border border-neutral-800 bg-neutral-900/50" />;
-  if (!q.data) return null; // 404 or error: no card
+  // Nothing until the data is here: a bordered placeholder that never
+  // fills (404, error, slow request) read as an empty card.
+  if (!q.data) return null; // loading, 404 or error: no card
   const d = q.data;
   const v = view(d.windows[win], win);
   const other = win === "7d" ? "30d" : "7d";

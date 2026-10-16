@@ -101,6 +101,10 @@ export default function TruckPage() {
               . Today is still in progress. Driving and charging are excluded.
             </p>
           </>
+        ) : sleepQ.isLoading ? (
+          <div className="h-24 animate-pulse rounded-sm bg-neutral-900/50" aria-label="Loading sleep data" />
+        ) : sleepQ.isError ? (
+          <p className="text-xs text-neutral-500">Couldn't load sleep data. Try again in a moment.</p>
         ) : (
           <p className="text-xs text-neutral-500">
             No sleep data yet. This fills in as power-state recording builds up history.
