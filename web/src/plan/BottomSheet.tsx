@@ -227,7 +227,7 @@ export function BottomSheet({
         onKeyDown={onKey}
       />
       {peek != null && (
-        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        // Pointer-only shortcut: the handle above is the keyboard and screen-reader control.
         <div data-plan-sheet-peek onClick={onPeekClick}>
           {peek}
         </div>
