@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -100,6 +101,7 @@ type chargePricer interface {
 	UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error)
 	MarkFree(ctx context.Context, externalID, currency string) (int64, error)
 	SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error)
+	GetByExternalID(ctx context.Context, externalID string) (*charges.Charge, error)
 }
 
 // handlePatchChargePricing accepts {cost?, currency?, price_per_kwh?}
@@ -131,6 +133,19 @@ func handlePatchChargePricing(store *charges.Store, settingsStore *settings.Stor
 // DCFC rate table is USD; same as the close-time pricer).
 const networkCurrency = "USD"
 
+// chargeStaleAfter is how long an open-looking live row may go without a
+// sample before it counts as ended. Same rule as the web's isActiveCharge:
+// a row left open by a crash must stay editable.
+const chargeStaleAfter = 30 * time.Minute
+
+// chargeInProgress reports whether c is a live session still being
+// recorded: an open final_state, from the live recorder, whose last
+// update is recent.
+func chargeInProgress(c charges.Charge, now time.Time) bool {
+	return charges.IsOpenLiveFinalState(c.FinalState) && c.Source == "live" &&
+		now.Sub(c.EndedAt) <= chargeStaleAfter
+}
+
 func patchChargePricing(store chargePricer, overrides func(context.Context) []dcfcrates.NetworkOverride) http.HandlerFunc {
 	type body struct {
 		// NetworkSlug re-prices at the user's rate for that network
@@ -150,6 +165,22 @@ func patchChargePricing(store chargePricer, overrides func(context.Context) []dc
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		// A session still in progress has no final energy: a price set now
+		// would be frozen at the energy so far (the recorder keeps a
+		// user's price). Wait for it to end.
+		cur0, err := store.GetByExternalID(r.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cur0 == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if chargeInProgress(*cur0, time.Now()) {
+			http.Error(w, "charge still in progress", http.StatusConflict)
 			return
 		}
 		if b.NetworkSlug != nil {
@@ -196,7 +227,6 @@ func patchChargePricing(store chargePricer, overrides func(context.Context) []dc
 			return
 		}
 		var n int64
-		var err error
 		if b.Free != nil && *b.Free {
 			if cost != 0 || ppk != 0 {
 				http.Error(w, "free cannot be combined with cost or price_per_kwh", http.StatusBadRequest)
