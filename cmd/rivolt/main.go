@@ -895,6 +895,9 @@ func runServer() {
 		// The replay backfill records sessions after boot, so the
 		// hand-priced hotel L2 gets its user price on a timer.
 		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		// The sample owner's saved Las Vegas plans follow the replay onto
+		// each loop's trip, for the demo's Plan vs Actual.
+		go demo.RunPlans(ctx, pgPool, settingsFactory, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every

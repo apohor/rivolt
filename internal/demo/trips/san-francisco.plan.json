@@ -1,0 +1,102 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 2157,
+      "TotalDriveDurationSec": 20412,
+      "TotalTripDurationSec": 22569,
+      "TotalDriveDistanceMeters": 613079,
+      "ArrivalSoC": 15.8,
+      "ArrivalReachableMeters": 76613.5,
+      "EnergyConsumptionKWh": 178.9,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Rose Bowl parking (sample)",
+          "Latitude": 34.1613,
+          "Longitude": -118.1676,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Harris Ranch Inn \u0026 Restaurant - Tesla Supercharger",
+          "Latitude": 36.253866439110055,
+          "Longitude": -120.24047702550888,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 2157,
+          "ArrivalSoC": 17.6,
+          "DepartureSoC": 80,
+          "ArrivalReachableMeters": 85341.6,
+          "DepartureReachableMeters": 387916.3,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T18:57:01Z",
+          "DepartureTimeUTC": "2026-11-14T19:32:58Z",
+          "DistanceFromOriginMeters": 319021
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Ferry Building, San Francisco",
+          "Latitude": 37.7955,
+          "Longitude": -122.3937,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 15.8,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 76613.5,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T22:16:08Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 613079
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend": 44.9592,
+      "dcfc_spend_user_member": 44.9592,
+      "dcfc_spend_all_member": 32.6976,
+      "home_equivalent": 28.624000000000002,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "dcfc_rate_used": 0.55,
+      "dcfc_rate_used_user_member": 0.55,
+      "dcfc_rate_used_all_member": 0.4,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "tesla_sc",
+          "network_name": "Tesla Supercharger",
+          "charger_name": "Harris Ranch Inn \u0026 Restaurant - Tesla Supercharger",
+          "energy_kwh": 81.744,
+          "guest_rate": 0.55,
+          "user_rate": 0.55,
+          "all_member_rate": 0.4,
+          "member_plan": "Supercharging Membership - $12.99/mo"
+        }
+      ]
+    }
+  ]
+}
