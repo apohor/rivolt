@@ -43,7 +43,7 @@ MIT licensed. Download all your data as a JSON backup (CSV statement export is p
 - Beta: fewer than ten vehicles today; expect rough edges. (Update the number at publish time; don't hard-code.)
 
 ## Live-demo idea
-[demo.rivolt.dev](https://demo.rivolt.dev) shows a generated truck ("Sample R1S") through the real Now, Activity, Money, Plan and Truck tabs, read-only, no login, no Rivian call. Plan has sample trips (LA to Las Vegas, LA to San Diego) to open instead of a route form. Banner: "Sample data". Spec: sample-truck.md.
+[demo.rivolt.dev](https://demo.rivolt.dev) shows a generated truck ("Sample R1S") through the real Now, Activity, Money, Plan and Truck tabs, read-only, no login, no Rivian call. Plan has sample trips (Las Vegas weekend, Pasadena to San Francisco and more) to open instead of a route form. Banner: "Sample data". Spec: sample-truck.md.
 
 ## Metrics
 Visitor to demo view, demo view to connect click, connect click to connected vehicle. See instrumentation.md.
