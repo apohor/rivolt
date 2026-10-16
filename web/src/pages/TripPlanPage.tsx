@@ -2256,6 +2256,9 @@ function TripPlanResult({
   departureAt?: string;
 }) {
   const nextUi = useUiNext();
+  const [active, setActive] = useState(0);
+  const planKey = plan.Routes.length;
+  useEffect(() => setActive(0), [plan, planKey]);
   if (plan.Routes.length === 0) {
     return (
       <Card title="Result">
@@ -2272,7 +2275,36 @@ function TripPlanResult({
       {/* AI analysis costs money: never offered in the public demo. */}
       {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
       <WeatherAdjustmentChip plan={plan} />
-      {plan.Routes.map((route, i) => (
+      {nextUi ? (
+        (() => {
+          const i = Math.min(active, plan.Routes.length - 1);
+          const route = plan.Routes[i];
+          return (
+            <RouteCard
+              key={i}
+              route={route}
+              index={i}
+              forceNext
+              allRoutes={plan.Routes}
+              originLabel={originLabel}
+              destLabel={destLabel}
+              onAddStop={onAddStop}
+              onAddOvernight={onAddOvernight}
+              onPreviewStop={onPreviewStop}
+              departureAt={departureAt}
+              cost={plan.costs?.[i]}
+              primaryCost={plan.costs?.[0]}
+              adjustment={i === 0 ? plan.weather_adjustment : undefined}
+              chooser={
+                plan.Routes.length > 1 ? (
+                  <RouteChooser routes={plan.Routes} costs={plan.costs} active={i} onChange={setActive} />
+                ) : undefined
+              }
+            />
+          );
+        })()
+      ) : (
+      plan.Routes.map((route, i) => (
         <RouteCard
           key={i}
           route={route}
@@ -2289,7 +2321,8 @@ function TripPlanResult({
           primaryCost={plan.costs?.[0]}
           adjustment={i === 0 ? plan.weather_adjustment : undefined}
         />
-      ))}
+      ))
+      )}
       {plan.SoCBelowLimit && (
         <ErrorBox
           title="SoC below limit"
@@ -2391,6 +2424,50 @@ function planForTable(plan: string): string {
 // etc.) competed for screen space with the cost line and lost -
 // the user can see Distance / Total time / Arrival in the stat
 // grid right below the title.
+// RouteChooser: the ui_theme_next planner's compact route picker (Recommended and
+// alternatives as selectable chips with cost, time and stops).
+function RouteChooser({
+  routes,
+  costs,
+  active,
+  onChange,
+}: {
+  routes: TripRoute[];
+  costs?: TripCostEstimate[];
+  active: number;
+  onChange: (i: number) => void;
+}) {
+  const money = (v: number, cur?: string) =>
+    new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+  return (
+    <div role="radiogroup" aria-label="Route options" data-plan-routes className="mb-3 flex gap-2 overflow-x-auto pb-1">
+      {routes.map((r, i) => {
+        const c = costs?.[i];
+        const diff = i === active || i === 0 ? [] : routeDiff(r, c, routes[0], costs?.[0]);
+        return (
+          <button
+            key={i}
+            type="button"
+            role="radio"
+            aria-checked={i === active}
+            onClick={() => onChange(i)}
+            className={`min-w-32 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+              i === active ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
+            }`}
+          >
+            <span className="block text-sm font-medium text-neutral-100">{routeLabel(i, routes)}</span>
+            <span className="mt-0.5 block tabular-nums text-neutral-400">
+              {c && c.dcfc_spend > 0 ? `${money(c.dcfc_spend, c.currency)} · ` : ""}
+              {formatDuration(r.TotalTripDurationSec)} · {countChargingStops(r)} {countChargingStops(r) === 1 ? "stop" : "stops"}
+            </span>
+            {diff.length > 0 && <span className="mt-0.5 block text-[11px] text-neutral-500">{diff.slice(0, 2).join(" · ")}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function routeLabel(index: number, allRoutes: TripRoute[]): string {
   if (allRoutes.length <= 1) return "Recommended";
   if (index === 0) return "Recommended";
@@ -2468,6 +2545,8 @@ function RouteCard({
   primaryCost,
   adjustment,
   defaultCollapsed,
+  forceNext = false,
+  chooser,
 }: {
   route: TripRoute;
   index: number;
@@ -2487,11 +2566,15 @@ function RouteCard({
   // each other before the user signals interest. The Recommended
   // route stays expanded.
   defaultCollapsed?: boolean;
+  // ui_theme_next: render this (alternative) route in the map-first layout.
+  forceNext?: boolean;
+  // ui_theme_next: the route chooser, shown at the top of the summary.
+  chooser?: React.ReactNode;
 }) {
   const { distanceUnit } = usePreferences();
   const uiNext = useUiNext();
   // Map-first layout is for the primary route; alternatives keep the classic card.
-  const next = uiNext && index === 0;
+  const next = uiNext && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -2653,6 +2736,7 @@ function RouteCard({
     return (
       <>
         <section data-plan-area="summary" aria-label="Trip summary">
+          {chooser}
           {!route.DestinationReached && (
             <p className="mb-3 text-sm text-amber-400">
               Destination unreachable
