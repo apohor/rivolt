@@ -24,7 +24,10 @@ ARG TARGETARCH
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# Retry: the module proxy occasionally resets streams mid-download
+# (stream error: INTERNAL_ERROR), which failed a main publish on 2026-10-16.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    for i in 1 2 3; do go mod download && exit 0; echo "go mod download failed (attempt $i), retrying"; sleep $((i * 5)); done; exit 1
 # Copy only what the Go build consumes so edits to docs, CI, compose
 # files, or web sources don't invalidate the build cache.
 COPY cmd/ ./cmd/
