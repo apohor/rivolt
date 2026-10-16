@@ -981,9 +981,13 @@ func TestNearestVerifiedNetwork(t *testing.T) {
 	store := factory.For(uidA)
 	ctx := context.Background()
 	start := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	// Each charge gets its own hour: live charges of one vehicle can't
+	// overlap (charges_live_no_overlap).
+	slot := 0
 	put := func(s *charges.Store, id string, lat, lon float64, mut func(*charges.Charge)) {
 		t.Helper()
-		c := sampleCharge(id, "rv-A", start, "charging_complete")
+		slot++
+		c := sampleCharge(id, "rv-A", start.Add(time.Duration(slot)*time.Hour), "charging_complete")
 		c.Lat, c.Lon = lat, lon
 		mut(&c)
 		if err := s.Upsert(ctx, c); err != nil {
