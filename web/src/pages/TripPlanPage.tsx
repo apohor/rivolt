@@ -4,6 +4,7 @@ import { StopCard } from "../plan/StopCard";
 import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
+import { PlanSelectionProvider, useSelectedStop } from "../plan/selection";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -1259,6 +1260,9 @@ export default function TripPlanPage() {
           <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
         </div>
         <PlanTabPanel tab="planner" active={planTab === "planner"}>
+          {/* One selected stop for the whole result: the itinerary, the map and
+              anything that follows the selection. A new plan clears it. */}
+          <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null}>
           <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
             {formEl}
             {resultEl}
@@ -1270,6 +1274,7 @@ export default function TripPlanPage() {
               </div>
             )}
           </div>
+          </PlanSelectionProvider>
         </PlanTabPanel>
         <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
           {savedEl}
@@ -2624,10 +2629,18 @@ function RouteCard({
   // Holds the index in route.Waypoints of the highlighted stop, or
   // null for "nothing selected". Reset to null when the route prop
   // changes so an old selection doesn't leak across plans.
-  const [selectedStop, setSelectedStop] = useState<number | null>(null);
-  useEffect(() => { setSelectedStop(null); }, [route]);
-  const toggleStop = (idx: number) =>
-    setSelectedStop((prev) => (prev === idx ? null : idx));
+  // Shared with the rest of the map-first layout through
+  // PlanSelectionProvider; the classic cards keep their own (see useSelectedStop).
+  const stopSel = useSelectedStop(route, { shared: next });
+  const selectedStop = stopSel.selected;
+  const setSelectedStop = stopSel.select;
+  const toggleStop = stopSel.toggle;
+  // The route chooser swaps which route this card shows; the shared selection
+  // belongs to one route's stops, so a different route starts with none.
+  const clearStop = stopSel.clear;
+  useEffect(() => {
+    if (next) clearStop();
+  }, [route, next, clearStop]);
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
   // leg = current - previous. Hidden when Rivian didn't populate the
   // field (legacy plans). All values converted to miles for display.
