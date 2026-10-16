@@ -264,4 +264,8 @@ func TestLoad_BilledFromReceipts(t *testing.T) {
 	if m.Spend.BilledTotal == nil || *m.Spend.BilledTotal != 19.75 || *m.BilledSessions != 2 || *m.EstimatedSessions != 1 {
 		t.Errorf("statement billed total %v sessions %v/%v", m.Spend.BilledTotal, m.BilledSessions, m.EstimatedSessions)
 	}
+	// Two billed sessions (19.75) plus the one estimated session (12.5): the headline is their sum.
+	if m.Spend.EstimatedTotal == nil || *m.Spend.EstimatedTotal != 12.5 || m.Spend.Total != 32.25 {
+		t.Errorf("estimated_total %v, spend.total %v; want 12.5 and 32.25", m.Spend.EstimatedTotal, m.Spend.Total)
+	}
 }
