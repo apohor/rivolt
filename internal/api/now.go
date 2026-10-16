@@ -144,8 +144,7 @@ func envReplay() bool {
 // The query's v CTE supplies r2 (vehicles.model).
 const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 	            WHEN %[1]s.charging_state = 'charging_active' THEN 'charging'
-	            WHEN COALESCE(%[1]s.charger_status, '') <> '' AND starts_with(%[1]s.charger_status, 'chrgr_sts_connected')
-	                 AND %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN starts_with(COALESCE(%[1]s.charger_status, ''), 'chrgr_sts_connected') THEN 'plugged'
 	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND NOT COALESCE((SELECT r2 FROM v), false)
 	                 AND %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
 	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND COALESCE((SELECT r2 FROM v), false)

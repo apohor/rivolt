@@ -131,6 +131,10 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 		{name: "rv-r2-connecting-idle", model: "R2", charge: "charging_connecting", want: "parked"},
 		{name: "rv-r2-connecting-power", model: "R2", charge: "charging_connecting", kw: 11, want: "plugged"},
 		{name: "rv-r2-status-connected", model: "R2", status: "chrgr_sts_connected_no_chrg", charge: "charging_ready", want: "plugged"},
+		// connected means plugged whatever the charging_state says
+		{name: "rv-cs-connected-waiting", status: "chrgr_sts_connected_no_chrg", charge: "charging_scheduled", want: "plugged"},
+		{name: "rv-cs-connected-waiting2", status: "chrgr_sts_connected_no_chrg", charge: "waiting_on_charger", want: "plugged"},
+		{name: "rv-cs-notconnected-waiting", status: "chrgr_sts_not_connected", charge: "waiting_on_charger", want: "parked"},
 		{name: "rv-r1-ready-model", model: "R1T", charge: "charging_ready", want: "plugged"},
 	} {
 		var vid string
