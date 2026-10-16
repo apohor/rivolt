@@ -416,8 +416,8 @@ html[data-ui='next'] .ui-label {
   letter-spacing: 0.09em;
   font-weight: 500;
 }
-/* Geist (sans, tabular figures) for the whole layer; Geist Mono only for tiny
-   technical readouts (Power, Time left, kWh deltas, hint lines). Both are
+/* Geist (sans, tabular figures) for the whole layer; Geist Mono only for the
+   hero readouts (Time left, the kW value); hint lines stay sans so they don't wrap. Both are
    self-hosted woff2 (SIL OFL, src/assets/fonts), fetched only when the layer
    is on, and allowed by font-src 'self'. */
 @font-face {
@@ -442,7 +442,7 @@ html[data-ui='next'] .tabular-nums {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.012em;
 }
-html[data-ui='next'] :is(dd.tabular-nums, .text-xs.tabular-nums, [class*='text-[11px]'].tabular-nums, [class*='text-[10px]'].tabular-nums),
+html[data-ui='next'] [data-ui-hero] dd.tabular-nums,
 html[data-ui='next'] .ui-mono {
   font-family: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0;
