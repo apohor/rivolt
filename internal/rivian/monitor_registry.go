@@ -421,18 +421,27 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 	mon.EnsureSubscribed(rivianVehicleID)
 }
 
-// Streaming reports whether this pod is subscribed to the vehicle: its
-// owner has a monitor here and that monitor runs a subscription for
-// it (including one parked waiting for auth or re-auth). The lease
-// coordinator re-subscribes a leased vehicle that isn't
-// (SetStreamingCheck). An owner lookup failure reads as not streaming.
+// Streaming reports whether this pod runs a subscription for the
+// vehicle on any of its monitors (including one parked waiting for
+// auth or re-auth). The lease coordinator re-subscribes a leased
+// vehicle that isn't streaming (SetStreamingCheck). Any monitor, not
+// just the current owner's: if the owner resolution changed (users
+// sharing a VIN), the old owner's run still counts, so the heal can't
+// start a second subscription beside it. No database lookup: it runs
+// inside every reconcile.
 func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
-	uid, err := r.ownerOf(rivianVehicleID)
-	if err != nil {
-		return false
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
 	}
-	mon := r.For(uid)
-	return mon != nil && mon.Subscribed(rivianVehicleID)
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m != nil && m.Subscribed(rivianVehicleID) {
+			return true
+		}
+	}
+	return false
 }
 
 // Unsubscribe routes the same way as EnsureSubscribed.
