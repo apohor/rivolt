@@ -158,8 +158,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	return tx.Commit()
 }
 
-// bulkInsertRows bounds one multi-row INSERT: 500 rows × 26 params stays
-// far below Postgres's 65,535 bind-parameter limit.
+// bulkInsertRows bounds one multi-row INSERT: 500 rows × one param per
+// sampleColumns column (27) stays far below Postgres's 65,535
+// bind-parameter limit (store_params_test.go).
 const bulkInsertRows = 500
 
 // InsertBulk is InsertBatch for large batches: each chunk of up to
