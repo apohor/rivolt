@@ -812,52 +812,36 @@ html[data-ui='next'][data-theme='light'] [data-ui-header] {
     display: none;
   }
 }
-/* Plan: the form, Plan vs actual and saved trips stack left; the result
-   (map, stops, cost) fills the right. With no result yet the left stack takes
-   the full width. */
+/* Plan (ui_theme_next). DOM order is form, result, then Plan vs actual and saved
+   trips, so Tab and screen readers reach the result first. On a phone that is
+   also the visual order; on desktop the form and the "below" stack sit left
+   and the result fills the right. With no result yet the left stack is full
+   width. */
 @media (min-width: 1024px) {
-  html[data-ui='next'] [data-ui-grid='plan'] {
+  html[data-ui='next'] [data-ui-area='p-body'] {
+    display: grid;
     grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
-  }
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] {
-    grid-column: 1;
-  }
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-result'] {
-    grid-column: 2;
-  }
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] > * + * {
-    margin-top: 1.5rem;
-  }
-  html[data-ui='next'] [data-ui-grid='plan']:not(:has(> [data-ui-area='p-result'] > *)) > [data-ui-area='p-left'] {
-    grid-column: 1 / -1;
-  }
-}
-
-/* Plan on a phone: the result follows the form (or the sample-trip picker),
-   ahead of Plan vs actual and Saved trips. */
-@media (max-width: 1023.98px) {
-  html[data-ui='next'] [data-ui-grid='plan'] {
-    display: flex;
-    flex-direction: column;
+    grid-template-rows: auto 1fr;
     gap: 1.5rem;
+    align-items: start;
   }
-  html[data-ui='next'] [data-ui-grid='plan'] > *,
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] > * {
+  html[data-ui='next'] [data-ui-area='p-body'] > * {
     margin: 0;
   }
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] {
-    display: contents;
+  html[data-ui='next'] [data-ui-area='p-body'] > [data-ui-area='p-form'] {
+    grid-column: 1;
+    grid-row: 1;
   }
-  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-form'] {
-    order: 1;
+  html[data-ui='next'] [data-ui-area='p-body'] > [data-ui-area='p-result'] {
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
-  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-result'] {
-    order: 2;
+  html[data-ui='next'] [data-ui-area='p-body'] > [data-ui-area='p-below'] {
+    grid-column: 1;
+    grid-row: 2;
   }
-  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-pva'] {
-    order: 3;
-  }
-  html[data-ui='next'] [data-ui-grid='plan'] [data-ui-area='p-saved'] {
-    order: 4;
+  html[data-ui='next'] [data-ui-area='p-body']:not(:has(> [data-ui-area='p-result']:not(:empty))) > [data-ui-area='p-form'],
+  html[data-ui='next'] [data-ui-area='p-body']:not(:has(> [data-ui-area='p-result']:not(:empty))) > [data-ui-area='p-below'] {
+    grid-column: 1 / -1;
   }
 }

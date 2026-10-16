@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useUiNext } from "../lib/uiNext";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -164,6 +165,7 @@ function normalizeDriveMode(v: unknown): DriveMode {
 }
 
 export default function TripPlanPage() {
+  const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
   const [origin, setOrigin] = useState<Selection>(null);
   const [destination, setDestination] = useState<Selection>(null);
@@ -673,15 +675,11 @@ export default function TripPlanPage() {
     }
   };
 
-  return (
-    <div className="space-y-6" data-ui-grid="plan">
-      <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
-      <PageHeader
-        title="Trip planner"
-        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
-      />
-
-      <div className="space-y-6" data-ui-area="p-left">
+  // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
+  // for everyone; in the ui_theme_next layer the result follows the form in the DOM
+  // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
+  const formEl = (
+    <>
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
@@ -918,9 +916,15 @@ export default function TripPlanPage() {
         </form>
       </Card>
       )}
-
+    </>
+  );
+  const pvaEl = (
+    <>
       {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
-
+    </>
+  );
+  const savedEl = (
+    <>
       <SavedTripsCard
         trips={savedTripsQuery.data ?? []}
         loading={savedTripsQuery.isLoading}
@@ -933,9 +937,10 @@ export default function TripPlanPage() {
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={(saveTripMutation.error as Error | null)?.message}
       />
-      </div>
-
-      <div className="space-y-6" data-ui-area="p-result">
+    </>
+  );
+  const resultEl = (
+    <>
       {planMutation.error && (
         <ErrorBox
           title="Planner failed"
@@ -1184,7 +1189,36 @@ export default function TripPlanPage() {
           </ErrorBoundary>
         );
       })()}
-      </div>
+    </>
+  );
+
+  return (
+    <div className="space-y-6" data-ui-grid="plan">
+      <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
+      <PageHeader
+        title="Trip planner"
+        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
+      />
+
+      {nextUi ? (
+        <div className="space-y-6" data-ui-area="p-body">
+          {formEl}
+          <div className="space-y-6 empty:hidden" data-ui-area="p-result">
+            {resultEl}
+          </div>
+          <div className="space-y-6 empty:hidden" data-ui-area="p-below">
+            {pvaEl}
+            {savedEl}
+          </div>
+        </div>
+      ) : (
+        <>
+          {formEl}
+          {pvaEl}
+          {savedEl}
+          {resultEl}
+        </>
+      )}
     </div>
   );
 }
