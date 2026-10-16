@@ -4,11 +4,11 @@ import { expect, test, type Page } from "@playwright/test";
 import { DEMO_PLAN, stubApi } from "./stub";
 
 // ui_theme_next planner typography: one family (Geist sans, no mono) and one size
-// scale (24/30 headings, 15 values, 13 sub-lines, 11 captions), weights 400-600.
+// scale (24/36 headings, 14 values, 12 sub-lines, 11 captions, as on Now/Truck), weights 400-600.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const SIZES = new Set([11, 13, 15, 24, 30]);
+const SIZES = new Set([11, 12, 14, 24, 36]);
 const WEIGHTS = new Set([400, 500, 600]);
 
 async function audit(page: Page) {
@@ -28,7 +28,7 @@ async function audit(page: Page) {
       const w = Number(cs.fontWeight);
       const label = `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} "${(n.textContent ?? "").trim().slice(0, 24)}"`;
       if (!/Geist UI/.test(cs.fontFamily) || /mono/i.test(cs.fontFamily)) bad.push(`family ${cs.fontFamily.slice(0, 30)} · ${label}`);
-      if (![11, 13, 15, 24, 30].includes(size)) bad.push(`size ${size} · ${label}`);
+      if (![11, 12, 14, 24, 36].includes(size)) bad.push(`size ${size} · ${label}`);
       if (![400, 500, 600].includes(w)) bad.push(`weight ${w} · ${label}`);
     }
     root.querySelectorAll("input, select, textarea").forEach((el) => {
@@ -36,7 +36,7 @@ async function audit(page: Page) {
       const size = parseFloat(cs.fontSize);
       if (!/Geist UI/.test(cs.fontFamily)) bad.push(`family ${cs.fontFamily.slice(0, 30)} · ${el.tagName} ${(el as HTMLInputElement).name || (el as HTMLInputElement).ariaLabel || ""}`);
       // Inputs stay at 16px so iOS Safari doesn't zoom on focus.
-      if (![11, 13, 15, 16, 24, 30].includes(Math.round(size))) bad.push(`size ${size} · ${el.tagName}`);
+      if (![11, 12, 14, 16, 24, 36].includes(Math.round(size))) bad.push(`size ${size} · ${el.tagName}`);
     });
     return bad;
   });

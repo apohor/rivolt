@@ -190,11 +190,11 @@ html[data-ui='next'] [data-plan-tabs] {
   padding: 2px;
   border: 1px solid oklch(30% 0.01 262);
   border-radius: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 html[data-ui='next'] [data-plan-tabs] [role='tab'] {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   padding: 0.375rem 0.75rem;
   border-radius: 0.375rem;
   color: oklch(70% 0.01 262);
@@ -485,19 +485,19 @@ html[data-ui='next'] [data-plan-more-body][hidden] {
    planner element maps to one of these sizes; the Tailwind size utilities used
    inside the planner are folded onto the scale below (unlayered, so they win).
 
-     title   24px / 600   page title
-     hero    30px / 600   trip cost, arrival SoC
-     value   15px / 600   metrics, stop names, chip titles
-     sub     13px / 400   sub-lines, form text, hints
-     cap     11px / 500   section labels (uppercase), units, captions
+     title   24px / 600   page title            (Now/Truck/Activity titles: 24)
+     hero    36px / 600   trip cost, arrival SoC (Now's gauge number: 36)
+     value   14px / 600   metrics, stop names, chip titles (Now/Truck values: 14)
+     sub     12px / 400   sub-lines, form text, hints      (Now/Truck sub-lines: 12)
+     cap     11px / 500   section labels (uppercase), units, captions (Now/Truck: 11)
 
    Weights: labels 500, values 600, body 400. Units (mi, kW, %) are caption-sized
    and neutral-400 everywhere (.pt-unit). */
 html[data-ui='next'] [data-plan-next] {
   --pt-title: 1.5rem;
-  --pt-hero: 1.875rem;
-  --pt-value: 0.9375rem;
-  --pt-sub: 0.8125rem;
+  --pt-hero: 2.25rem;
+  --pt-value: 0.875rem;
+  --pt-sub: 0.75rem;
   --pt-cap: 0.6875rem;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
