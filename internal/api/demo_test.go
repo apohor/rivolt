@@ -821,3 +821,35 @@ func TestDemoTileBudgetsFromEnv(t *testing.T) {
 		t.Errorf("global 3: first 429 at request %d, want 4", n)
 	}
 }
+
+func TestDemoRateLimitedObserverCountsByClassAndScope(t *testing.T) {
+	type k struct{ class, scope string }
+	got := map[k]int{}
+	demoRateLimitedObserver = func(c, s string) { got[k{c, s}]++ }
+	t.Cleanup(func() { demoRateLimitedObserver = nil })
+
+	// general client limit of 1
+	l := newDemoLimiter()
+	l.rps, l.burst = 0, 1
+	h, _ := demoChain(l, nil)
+	demoReq(h, "GET", "/api/charges")
+	demoReq(h, "GET", "/api/charges")
+	// samples: 20/min per client, then 429
+	h2, _ := demoChain(newIPLimiter(100000, time.Minute, time.Hour), nil)
+	for i := 0; i < demoSamplesPerClientPerMin+2; i++ {
+		demoReq(h2, "GET", "/api/samples")
+	}
+	// heavy: 10/min per client, then 429
+	for i := 0; i < demoHeavyPerClientPerMin+2; i++ {
+		demoReq(h2, "GET", "/api/vehicles/"+demoVeh+"/drain")
+	}
+	if got[k{"general", "client"}] != 1 {
+		t.Errorf("general/client = %d", got[k{"general", "client"}])
+	}
+	if got[k{"samples", "client"}] != 2 {
+		t.Errorf("samples/client = %d", got[k{"samples", "client"}])
+	}
+	if got[k{"heavy", "client"}] != 2 {
+		t.Errorf("heavy/client = %d", got[k{"heavy", "client"}])
+	}
+}
