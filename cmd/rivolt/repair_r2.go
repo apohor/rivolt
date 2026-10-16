@@ -122,6 +122,19 @@ func runRepairR2History(args []string) int {
 		return 1
 	}
 	printR2Plan(os.Stdout, plan, len(rows))
+	// The window must end before the fixed recorder (#214) reached prod:
+	// after that, live drives are right and must not be replaced.
+	var newest time.Time
+	for _, d := range plan.DeleteDrives {
+		if d.End.After(newest) {
+			newest = d.End
+		}
+	}
+	fmt.Printf("\nwindow check: newest replaced drive ends %s", fmtTime(newest))
+	if next, ok, err := r2.NextLiveDriveAfter(ctx, pool, v, until); err == nil && ok {
+		fmt.Printf("; next live drive after --until starts %s", fmtTime(next))
+	}
+	fmt.Println("\n  --until must be before the release with #214 reached prod; confirm before --apply")
 	if !*apply {
 		fmt.Println("\ndry run: nothing written (pass --apply --backup FILE)")
 		return 0
@@ -206,4 +219,11 @@ func readR2CSV(r io.Reader) ([]r2.BackupRow, error) {
 		out = append(out, r2.BackupRow{Kind: rec[0], Row: []byte(rec[1])})
 	}
 	return out, nil
+}
+
+func fmtTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.UTC().Format(time.RFC3339)
 }

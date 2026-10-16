@@ -106,6 +106,20 @@ func loadExisting(ctx context.Context, d *sql.DB, q string, v Vehicle, since, un
 	return out, rs.Err()
 }
 
+// NextLiveDriveAfter returns the start of the vehicle's first live drive
+// starting at or after t (ok=false when none). The operator checks it
+// against when the fixed recorder reached prod: drives recorded after
+// that must stay out of the window.
+func NextLiveDriveAfter(ctx context.Context, d *sql.DB, v Vehicle, t time.Time) (time.Time, bool, error) {
+	var at sql.NullTime
+	err := d.QueryRowContext(ctx,
+		`SELECT min(started_at) FROM drives WHERE vehicle_id = $1 AND source = 'live' AND started_at >= $2::timestamptz`, v.ID, t).Scan(&at)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return at.Time, at.Valid, nil
+}
+
 // Plan is what an apply does.
 type Plan struct {
 	Vehicle       Vehicle
@@ -289,6 +303,34 @@ func Restore(ctx context.Context, d *sql.DB, v Vehicle, rows []BackupRow) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// A repaired row the user has since made their own (notes, tags, a
+	// price, a confirmed network) isn't removed silently.
+	var edited []string
+	for _, r := range rows {
+		var m struct {
+			ExternalID string `json:"external_id"`
+		}
+		if r.Kind != "inserted_drive" && r.Kind != "inserted_charge" {
+			continue
+		}
+		if err := json.Unmarshal(r.Row, &m); err != nil || m.ExternalID == "" {
+			return fmt.Errorf("bad marker %s", r.Row)
+		}
+		q := `SELECT count(*) FROM drives WHERE vehicle_id = $1 AND external_id = $2 AND (COALESCE(notes,'') <> '' OR cardinality(tags) > 0)`
+		if r.Kind == "inserted_charge" {
+			q = `SELECT count(*) FROM charges WHERE vehicle_id = $1 AND external_id = $2 AND cost_source = 'user'`
+		}
+		var n int
+		if err := tx.QueryRowContext(ctx, q, v.ID, m.ExternalID).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			edited = append(edited, m.ExternalID)
+		}
+	}
+	if len(edited) > 0 {
+		return fmt.Errorf("refusing: the user has edited repaired rows since (%s); restore them by hand", strings.Join(edited, ", "))
+	}
 	for _, r := range rows {
 		switch r.Kind {
 		case "inserted_drive", "inserted_charge":

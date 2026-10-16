@@ -121,6 +121,16 @@ func TestR2HistoryRepair(t *testing.T) {
 		t.Error("a stale plan applied twice")
 	}
 
+	// A repaired trip the user annotated since: restore refuses.
+	if _, err := pool.ExecContext(ctx, `UPDATE drives SET notes = 'mine' WHERE id = (SELECT id FROM drives WHERE vehicle_id = $1 ORDER BY started_at LIMIT 1)`, vid); err != nil {
+		t.Fatal(err)
+	}
+	if err := r2.Restore(ctx, pool, v, backup); err == nil {
+		t.Fatal("restore removed a repaired drive the user had annotated")
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE drives SET notes = NULL WHERE vehicle_id = $1`, vid); err != nil {
+		t.Fatal(err)
+	}
 	if err := r2.Restore(ctx, pool, v, backup); err != nil {
 		t.Fatal(err)
 	}
