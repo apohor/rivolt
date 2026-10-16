@@ -1104,6 +1104,8 @@ func TestNetworkStateSurvivesResaves(t *testing.T) {
 	}
 	if c := get("s-2"); c.CostSource != "rivian" || c.Cost != 26 || c.NetworkState != "" {
 		t.Fatalf("confirmed then billed: source %q cost %.2f state %q", c.CostSource, c.Cost, c.NetworkState)
+	}
+}
 
 // TestSetNetworkPriceAndGet: the user's own network choice prices the
 // session (rate × energy), marks it confirmed, keeps the evidence, and
