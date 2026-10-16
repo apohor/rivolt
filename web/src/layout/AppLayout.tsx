@@ -307,7 +307,7 @@ function Footer() {
         </a>
         {health.data?.version && (() => {
           // Three CI-stamped shapes:
-          //   vX.Y.Z+sha-<hex>  → preview / main builds (link to commit)
+          //   vX.Y.Z-dev.N+sha-<hex> → preview / main builds (link to commit)
           //   sha-<hex>         → legacy preview stamp (link to commit)
           //   X.Y.Z             → tagged prod build (link to release)
           const v = health.data.version;
