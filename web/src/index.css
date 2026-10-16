@@ -542,3 +542,144 @@ html[data-ui='next'] .animate-pulse {
     transition: none !important;
   }
 }
+
+/* ---- ui_theme_next: Activity and Money ------------------------------------ */
+
+/* Activity: a timeline rail with a glowing node per row (drive sky, charge
+   emerald, fast charge amber), day headers with a fading rule, and on
+   desktop two columns of days. */
+html[data-ui='next'] [data-ui-feed] > section > h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+html[data-ui='next'] [data-ui-feed] > section > h2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--color-neutral-800), transparent);
+}
+html[data-ui='next'] [data-ui-feed] ul {
+  position: relative;
+  padding-left: 1.25rem;
+}
+html[data-ui='next'] [data-ui-feed] ul::before {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 1px;
+  background: linear-gradient(180deg, var(--color-neutral-700), transparent);
+}
+html[data-ui='next'] [data-ui-feed] li {
+  position: relative;
+  --node: oklch(78% 0.15 168);
+}
+html[data-ui='next'] [data-ui-feed] li[data-kind='drive'] {
+  --node: oklch(76% 0.12 235);
+}
+html[data-ui='next'] [data-ui-feed] li[data-kind='fast'] {
+  --node: oklch(80% 0.15 75);
+}
+html[data-ui='next'] [data-ui-feed] li::before {
+  content: '';
+  position: absolute;
+  left: -1.2rem;
+  top: 1.1rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--node);
+  box-shadow: 0 0 0 3px oklch(13.5% 0.009 262), 0 0 10px 1px var(--node);
+}
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-feed] {
+    columns: 2;
+    column-gap: 2rem;
+  }
+  html[data-ui='next'] [data-ui-feed] > section {
+    break-inside: avoid;
+    margin: 0 0 1.25rem;
+  }
+  html[data-ui='next'] [data-ui-feed] > * + * {
+    margin-top: 0;
+  }
+}
+
+/* Money: a big statement numeral under a light pool; on desktop the statement
+   and the energy split sit left, the receipts right. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-area='m-hero'] {
+  background-image:
+    radial-gradient(60% 90% at 12% 0%, oklch(78% 0.15 168 / 0.13), transparent 70%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next'] .ui-bignum {
+  font-size: 3.25rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+@media (min-width: 1024px) {
+  /* Rows: header, statement, split (takes the slack beside the tall receipts). */
+  html[data-ui='next'] [data-ui-grid='money'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: auto auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-span='full']:first-child {
+    grid-row: 1;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-hero'] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-split'] {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+  }
+  /* The "sample data" banner sits above the grid, full width, and pushes the
+     statement, split and receipts down one row. */
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-banner'] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
+    grid-template-rows: auto auto auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-hero'] {
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-split'] {
+    grid-row: 4;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-receipts'] {
+    grid-row: 3 / span 2;
+  }
+}
+
+/* Money: equal-height columns. The receipts card takes the height of the left
+   column (statement + energy split) and scrolls inside. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid='money'] {
+    grid-template-rows: auto auto auto;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
+    grid-template-rows: auto auto auto auto;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] {
+    align-self: stretch;
+    height: 0;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] > div:last-child {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}

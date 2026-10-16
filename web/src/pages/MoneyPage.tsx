@@ -110,7 +110,7 @@ export default function MoneyPage() {
   const months = summaryQ.data?.data.months ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="money">
       <PageHeader
         title="Money"
         subtitle="What charging actually cost"
@@ -124,6 +124,7 @@ export default function MoneyPage() {
 
       {isSample && (
         <div
+          data-ui-area="m-banner"
           role="note"
           className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-2 text-xs text-sky-200"
         >
@@ -237,7 +238,7 @@ function Statement({
 
   return (
     <>
-      <section className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
+      <section data-ui-area="m-hero" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {m.is_current_month && (
             <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-neutral-300">Month to date</span>
@@ -250,7 +251,7 @@ function Statement({
           )}
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
-          <div className="text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
+          <div className="ui-bignum text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
             {formatMoney(m.spend.total, cur)}
           </div>
           {delta != null && (
@@ -369,6 +370,7 @@ function Statement({
       ) : (
         <>
           <Card
+            area="m-split"
             title="Where the energy came from"
             actions={
               <div className="inline-flex rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Split by">
@@ -393,7 +395,7 @@ function Statement({
             </div>
           </Card>
 
-          <Card title="Receipts">
+          <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
               {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
                 <button

@@ -128,7 +128,7 @@ export default function ActivityPage() {
           <p className="text-sm text-neutral-400">Nothing recorded yet. Drives and charges appear here as they happen.</p>
         </Card>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-5" data-ui-feed>
           {(drivesQ.isError || chargesQ.isError) && (
             <p role="status" className="text-xs text-amber-300">
               {drivesQ.isError ? "Drives" : "Charges"} couldn't be loaded, so this feed is incomplete.
@@ -140,11 +140,11 @@ export default function ActivityPage() {
               <ul className="space-y-2">
                 {d.items.map((it) =>
                   it.kind === "drive" ? (
-                    <li key={it.drive.ID}><DriveCard item={it} /></li>
+                    <li key={it.drive.ID} data-kind="drive"><DriveCard item={it} /></li>
                   ) : it.kind === "charge" ? (
-                    <li key={it.charge.ID}><ChargeCard item={it} homeRate={homeRate} /></li>
+                    <li key={it.charge.ID} data-kind={it.fast ? "fast" : "charge"}><ChargeCard item={it} homeRate={homeRate} /></li>
                   ) : (
-                    <li key={it.drives[0].drive.ID}><ErrandsRow item={it} /></li>
+                    <li key={it.drives[0].drive.ID} data-kind="drive"><ErrandsRow item={it} /></li>
                   ),
                 )}
               </ul>
