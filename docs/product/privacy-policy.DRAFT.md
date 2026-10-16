@@ -1,23 +1,25 @@
 # Rivolt Privacy Policy (hosted service)
 
 > **DRAFT. Not legal advice. Needs review by a qualified lawyer before publication.**
-> Every data claim below cites where it comes from in the code. **[VERIFY]** items need a check against the deployed build before publishing. **[DECIDE]** items are owner decisions.
+> Every data claim below cites where it comes from in the code. **[VERIFY]** items need a check against the deployed build before publishing. **[DECIDE]** items are owner decisions. Where a default is filled in, it is marked "(default, owner may change)".
 > Applies to the hosted service at rivolt.dev. For self-hosted installs, you are the data controller; none of this applies to us.
 > Benchmark: compared with another Rivian companion app's published policy in `docs/product/roamer-privacy-analysis.md`. No wording was copied.
 
 Last updated: DRAFT 2026-10-15
 
 ## Open items before this can be published (read this first)
-**[LAWYER] (needs a qualified reviewer):**
-1. Rights by region (section 7): California CCPA/CPRA wording, especially the sensitive-data limitation; EU/UK GDPR rights, legal bases, representative and international transfers (data is processed in the US).
-2. Children and the age floor (the Terms draft says under-16s are excluded); COPPA / GDPR-K.
-3. Breach-notification commitment and legal minimums (section 6).
-4. Whether a one-time service-update email to existing account holders needs any further consent.
-5. Whether the policy can be published before the Terms, and the Rivian-identity disclosure wording (shared with the Terms).
+**Only two things need the owner (everything else below has a default):**
+1. **Operator identity:** who runs Rivolt: an individual or an entity, and a mailing address (section 1).
+2. **[LAWYER] review** of the whole draft, in particular:
+   - Rights by region (section 7): California CCPA/CPRA wording and the sensitive-data limitation; EU/UK rights, legal bases, representative and international transfers (data is processed in the US).
+   - Children and the age floor (the Terms draft says under-16s are excluded); COPPA / GDPR-K.
+   - The breach-notification commitment and legal minimums (section 6).
+   - Whether a one-time service-update email to existing account holders needs further consent.
+   - Whether the policy can be published before the Terms, and the Rivian-identity disclosure wording (shared with the Terms).
 
-**[DECIDE] (owner):** operator identity and contact address; retention for history, logs and backups (no automatic history deletion exists today); backup retention period; hosting and backup provider names; change-of-ownership handling; how to announce material changes; response time for rights requests; EU/UK scope; whether to strip addresses from trip-advice LLM payloads (feature is off for all prod users).
+**Defaults filled in (owner may change any):** contact = the sender address; history kept until you delete it; logs 90 days; backups 365 days; hosting on self-operated US servers; 30 days' notice for material changes and for a change of ownership; rights requests answered in 30 days; service aimed at US Rivian owners; addresses stripped from trip-advice LLM payloads (build pending).
 
-**[VERIFY] (team, on the deployed build, before publishing):** Loki re-scan for emails, tokens and VINs (pod-log scan passed 2026-10-16); Cloudflare logging/retention and TLS termination; the Cloudflare Web Analytics CSP entry (remove, or disclose); shared statement image has no coordinates; statement email template; export contents (saved places, receipts, price overrides; CSV export now exists as `GET /api/export`); account deletion clears the repair undo rows (#207, v0.33.0); waitlist-deletion wording against `internal/api/data.go`.
+**[VERIFY] (team, on the deployed build, before publishing):** Loki re-scan for emails, tokens and VINs (pod-log scan passed 2026-10-16); Cloudflare logging/retention and TLS termination; the Cloudflare Web Analytics CSP entry (remove, or disclose); shared statement image has no coordinates; statement email template; export contents (saved places, receipts, price overrides); account deletion clears the repair undo rows (#207, v0.33.0); waitlist-deletion wording against `internal/api/data.go`; whether the backup storage volume is encrypted at rest and where it physically sits; trip-advice address stripping once built.
 
 ---
 
@@ -28,10 +30,10 @@ Last updated: DRAFT 2026-10-15
 - **Location is the most sensitive thing we hold.** It is never shown to other users, and our public demo uses generated data only.
 - **We do not sell your data and do not run advertising.** No third-party analytics scripts; our product analytics are first-party and honor Do Not Track and Global Privacy Control.
 - **You can export and delete.** Download your data and delete your history or your whole account in Settings.
-- **What we cannot promise yet:** automatic deletion of old history, and some retention periods, are not decided or enforced (see sections 5 and 9).
+- **What we do not do:** there is no automatic deletion of old history, and deleted data can stay in backups for up to 365 days (sections 5 and 9).
 
 ## 1. Who we are
-Rivolt is operated by **[DECIDE: individual or entity, contact address]**. Independent project; not affiliated with Rivian.
+Rivolt is operated by **[DECIDE (owner): individual or entity, and mailing address]**. Contact: anton@rivolt.dev (default, owner may change). Independent project; not affiliated with Rivian.
 
 ## 2. What we collect and why
 | Data | Why | Where it lives (code ground truth) |
@@ -69,11 +71,11 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 |---|---|---|
 | Rivian | your credentials and requests, as in your own app; Rivolt's requests identify themselves as Rivian's iOS app (see the Terms) | read your vehicle data |
 | Cloudflare (CDN / proxy) | every request to rivolt.dev, including your IP address and request metadata, passes through it | delivery, caching, DDoS protection **[VERIFY: Cloudflare's logging/retention and whether TLS terminates there]** |
-| Cloud hosting / backup storage **[DECIDE: provider names]** | encrypted at rest as configured | run the service |
+| Hosting and backups: self-operated servers in the United States (default, owner may change); database backups go to storage run inside the same cluster (S3-compatible MinIO on a network volume), not to a third-party cloud | all service data, including encrypted backups | run the service. **[VERIFY: encryption at rest and physical location of the backup volume.]** |
 | Open-Meteo (weather) | drive coordinates rounded to 0.1 degree (about 11 km) plus the hour, per request | weather in trip analysis |
 | Open-Meteo (geocoding fallback) | the place text you typed, only when our own geocoder (Photon) fails or finds nothing (`internal/api/planner.go`) | place lookup in the trip planner |
 | Charger data (NREL AFDC) | nothing: never queried live; data comes from a local archive | charger lookup |
-| LLM provider (Anthropic / OpenAI / Gemini are implemented in `internal/ai`; a per-user setting, off unless you add a key) | only if you turn it on: recaps send date/time, drive stats, weather and nearby charge totals, no coordinates or addresses (`internal/recap`); trip advice sends the origin and destination text you typed (which can be an address), charger names or coordinates at 3 decimals (about 110 m), and tire pressures (`internal/tripadvice/advice.go`). Capped per user per day (`internal/aibudget`). | explanations. No production user has enabled it. **[DECIDE: strip addresses and coordinates from trip-advice payloads before sending.]** |
+| LLM provider (Anthropic / OpenAI / Gemini are implemented in `internal/ai`; a per-user setting, off unless you add a key) | only if you turn it on: recaps send date/time, drive stats, weather and nearby charge totals, no coordinates or addresses (`internal/recap`); trip advice sends the origin and destination text you typed (which can be an address), charger names or coordinates at 3 decimals (about 110 m), and tire pressures (`internal/tripadvice/advice.go`). Capped per user per day (`internal/aibudget`). | explanations. No production user has enabled it. We will strip addresses and coordinates from trip-advice payloads before sending (default, owner may change); until that ships, the origin and destination text you type is sent if you enable the feature. |
 | Resend (email) | your email address; for statement emails, your statement summary | signup links, notices, monthly statement if you opt in |
 | Browser push services (Apple, Google, Mozilla) | an encrypted notification payload via your browser's push endpoint | notifications, only if you enable them |
 
@@ -81,11 +83,11 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 
 **Analytics:** the Content-Security-Policy allows `static.cloudflareinsights.com` (Cloudflare Web Analytics), but no beacon is served today. **[VERIFY: if it is ever enabled it must be disclosed here and contradicts instrumentation.md's "no third-party analytics"; otherwise remove the CSP entry.]**
 
-**Change of ownership.** **[DECIDE: what happens to user data if the service is transferred or shut down, e.g. notify and offer export/delete first.]**
+**Change of ownership.** If the service is transferred or shut down, we will email users at least 30 days beforehand, with the chance to export and delete their data (default, owner may change).
 
 ## 5. Retention, export and deletion
-- **Retention.** We keep vehicle samples, drives and charges until you delete them. There is currently **no automatic deletion** of history in the code; partition drops are manual. **[DECIDE: adopt a retention period, e.g. raw samples 24 months, and implement before promising it.]**
-- **Logs.** Retention is set by our log stack, not the app. **[VERIFY: Loki retention in days; DECIDE: state it here once confirmed.]**
+- **Retention.** We keep vehicle samples, drives and charges until you delete them. There is currently **no automatic deletion** of history in the code; partition drops are manual. Our default is to keep history until you delete it, with no automatic deletion (default, owner may change). Raw-sample retention (for example 24 months) may be added later and will be announced first.
+- **Logs.** Logs are kept for 90 days (Loki, 2160 h), set by our log stack rather than the app (default, owner may change).
 - **Export.** Signed-in users can download all their drives, charges and samples as one JSON bundle: `GET /api/data/backup` (`internal/api/data.go`), or a zip of CSVs (charges with effective cost source, drives, trips) plus settings from `GET /api/export` (Settings > Data > Export my data). The bundle includes settings. **[VERIFY: whether the exports include saved places, receipts and price overrides.]**
 - **Delete history only.** `DELETE /api/data/sessions` wipes samples, drives and charges, keeping your account and settings.
 - **Delete everything.** `DELETE /api/data/account` deletes your account and cascades through per-user tables (drives, charges, samples, settings, user_secrets, push subscriptions, statement email preferences and send log, sessions, events), then asks the identity provider to remove your record (if that step fails it is recorded and an administrator retries it, so it is not silently lost). Last admin accounts are protected.
@@ -93,22 +95,22 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 - **Disconnect Rivian.** Logging out of Rivian in Rivolt deletes the sealed session. You can also revoke an Authorized Driver from the Rivian app.
 - **Repair undo copies.** When an operator repairs bad records (for example a phantom charge), the deleted rows are copied to an undo table (`charges_deleted_backup`, migration 0049) kept for at least 90 days. Deleting your account removes your rows from that table (#207, merged to main; ships in the next full release, so **[VERIFY on the deployed build before publishing]**).
 - **Caches.** Redis live-state entries are keyed per vehicle and are not cleared by account deletion; they expire on their own (2 hours / 90 seconds, section 2).
-- **Backups.** Deleted data can persist in encrypted backups until they rotate. **[DECIDE/VERIFY: backup retention period.]**
+- **Backups.** The database is backed up continuously (write-ahead log) with a daily base backup at 02:30 UTC, and backups are kept for **365 days** (CNPG `retentionPolicy: 365d`, `rivolt-infra/apps/platform/rivolt/values.yaml`). Data you delete can therefore remain in backups for up to a year; we do not edit backups. **[VERIFY: whether a restore procedure re-applies earlier deletions; if not, say so here.]** Whole-year retention is a default; the owner may shorten it (default, owner may change).
 
 ## 6. Security
-Per-user scoping on every query and row-level security policies; opaque server-side sessions; envelope encryption for Rivian credentials; a kill switch for the upstream; open-source code you can audit. Vehicle history is protected by access control and storage encryption as configured, not by per-user encryption. No system is perfectly secure. **[DECIDE: breach-notification commitment, e.g. notify affected users within a stated number of days; lawyer to confirm legal minimums.]**
+Per-user scoping on every query and row-level security policies; opaque server-side sessions; envelope encryption for Rivian credentials; a kill switch for the upstream; open-source code you can audit. Vehicle history is protected by access control and storage encryption as configured, not by per-user encryption. No system is perfectly secure. If a breach affects your data we will tell you without undue delay and within the time the law requires. **[LAWYER: confirm the commitment and legal minimums.]**
 
 ## 7. Your choices and rights
 You can, from inside the app: see and export your data, correct your settings and prices, delete your history, delete your account, turn off notifications and the statement email, and revoke Rivolt's access to your Rivian account from the Rivian app.
 
 ### Rights by region **[LAWYER: confirm every item below; nothing here is a compliance claim yet]**
 - **California (CCPA/CPRA).** Rights to know, delete, correct, and opt out of sale or sharing. We do not sell or share personal information for cross-context advertising, so there is nothing to opt out of; we honor Global Privacy Control for analytics events. We do not use sensitive personal information (including precise location) to infer characteristics. **[VERIFY and LAWYER: the sensitive-data limitation language.]**
-- **EU/UK (GDPR).** Rights of access, rectification, erasure, restriction, portability and objection, and to complain to your supervisory authority. **[DECIDE: whether we serve EU/UK users at all; if yes, name legal bases per purpose, the representative if required, and the international-transfer mechanism, since data is processed in the US.]** The roadmap lists subject-access endpoints as unchecked: do not claim GDPR compliance until confirmed.
-- **Everywhere.** Email the contact in section 8 and we will respond within **[DECIDE: response time, e.g. 30 days]**. We cannot identify anonymous-only analytics events, so we cannot act on requests about them (section 2).
-- **Children.** Rivolt is not directed to children and is for adults who own or drive a Rivian. **[DECIDE: age floor, align with the Terms (draft says under-16s excluded); LAWYER: COPPA/GDPR-K.]** If we learn we hold a child's account, we delete it.
+- **EU/UK (GDPR).** Rights of access, rectification, erasure, restriction, portability and objection, and to complain to your supervisory authority. Rivolt is aimed at US Rivian owners (default, owner may change); export and deletion are available to everyone, wherever they live. **[LAWYER: if EU/UK users are in scope, legal bases per purpose, the representative if required, and the transfer mechanism, since data is processed in the US.]** The roadmap lists subject-access endpoints as unchecked: do not claim GDPR compliance until confirmed.
+- **Everywhere.** Email the contact in section 8 and we will respond within 30 days (default, owner may change). We cannot identify anonymous-only analytics events, so we cannot act on requests about them (section 2).
+- **Children.** Rivolt is not directed to children and is for adults who own or drive a Rivian. **[LAWYER: age floor, aligned with the Terms (the draft says under-16s excluded); COPPA/GDPR-K.]** If we learn we hold a child's account, we delete it.
 
 ## 8. Changes and contact
-We will notify signed-in users of material changes before they take effect **[DECIDE: how, e.g. in-app banner plus email]**. Contact: **[DECIDE]**.
+We will tell you about material changes by email and with an in-app notice at least 30 days before they take effect (default, owner may change). Contact: anton@rivolt.dev (default, owner may change).
 
 ## 9. What is not decided or not yet true (so we do not overpromise)
-Open items the owner or a lawyer must close before publication: email addresses in logs (fixed in #205/#206; verify deployed); operator identity and contact; retention periods for history, logs and backups; breach-notification commitment; LLM trip-advice payload minimization; Cloudflare and hosting provider disclosure; EU/UK scope; change-of-ownership handling; age floor.
+Still needed from the owner: operator identity and mailing address, and the lawyer review (see the top of this page). Not yet true: addresses are not yet stripped from trip-advice payloads (build pending; feature off for all production users); there is no automatic deletion of history (by default choice); backups hold deleted data for up to 365 days; email addresses were removed from logs in #205/#206 (verify on the deployed build). Everything else marked "(default, owner may change)" is a recommended default.
