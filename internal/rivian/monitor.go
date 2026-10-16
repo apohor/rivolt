@@ -195,10 +195,6 @@ type StateMonitor struct {
 	sessMu     sync.Mutex
 	sessions   map[string]*liveSessions
 	rehydrated map[string]bool
-	// readyMoving[vehicleID]: charging_ready seen while moving, so it
-	// doesn't mean plugged in on this vehicle (readyUnreliable). Guarded
-	// by sessMu.
-	readyMoving map[string]bool
 
 	// liveStateStore persists liveSessions across pod restarts and
 	// lease handoffs. Set via SetLiveStateStore at boot; nil disables

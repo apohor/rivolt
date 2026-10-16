@@ -237,6 +237,19 @@ func TestR2ChargingReadyDoesNotOpenACharge(t *testing.T) {
 	if _, c := r1.session(); c == nil {
 		t.Error("an R1's charging_ready no longer opens a charge")
 	}
+
+	// An R1 that reported charging_ready while driving (every R1 does)
+	// still opens a charge on charging_ready once parked and plugged:
+	// the rule is R2-only, not "seen ready while moving".
+	r1m := newR2Run()
+	r1m.m.vehicleInfo["r2"] = &Vehicle{ID: "r2", Model: "R1S"}
+	r1m.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: at, Gear: "D", SpeedKph: 90,
+		ChargerState: "charging_ready", ChargerStatus: "chrgr_sts_not_connected", BatteryLevelPct: 60, OdometerKm: 30000})
+	r1m.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: at.Add(20 * time.Minute), Gear: "P",
+		ChargerState: "charging_ready", ChargerStatus: "chrgr_sts_connected_charging", BatteryLevelPct: 55, OdometerKm: 30030})
+	if _, c := r1m.session(); c == nil {
+		t.Error("an R1 seen charging_ready while moving no longer opens a charge when plugged")
+	}
 }
 
 // Parallax power enum 1 is sleep and 2 standby (fleet evidence).

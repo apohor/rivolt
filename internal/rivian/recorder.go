@@ -415,15 +415,6 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		m.sessions[vehicleID] = sess
 	}
 
-	// charging_ready while moving: this vehicle's charging_ready says
-	// nothing about a plug (readyUnreliable).
-	if curr.SpeedKph*kphToMi > driveCloseSpeedMph && strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") {
-		if m.readyMoving == nil {
-			m.readyMoving = map[string]bool{}
-		}
-		m.readyMoving[vehicleID] = true
-	}
-
 	var driveNum, chargeNum int64
 	var snap LiveStateSnapshot
 	saveSnapshot := false
@@ -1903,12 +1894,10 @@ func minNonZero4(a, b, c, d float64) float64 {
 }
 
 // readyUnreliable reports a vehicle whose charging_ready doesn't mean
-// plugged in: an R2, or one seen reporting it while moving. Must be
-// called with m.sessMu held (readyMoving).
+// plugged in: an R2. R1s also report charging_ready while driving, but
+// their charge open/close already relies on it, so the rule stays
+// R2-only.
 func (m *StateMonitor) readyUnreliable(vehicleID string) bool {
-	if m.readyMoving[vehicleID] {
-		return true
-	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	v := m.vehicleInfo[vehicleID]
