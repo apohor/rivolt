@@ -14,6 +14,7 @@ import (
 )
 
 const demoVeh = "demo-0000"
+const demoTripID = "0b8c4c3e-3f55-4a56-9c1e-2d6a7a1f9a10"
 
 func TestDemoAllowed(t *testing.T) {
 	cases := []struct {
@@ -26,7 +27,10 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/ledger/monthly", true},
 		{"GET", "/api/ledger/trips", true},
 		{"GET", "/api/trips", false},
-		{"GET", "/api/trips/saved", false},
+		{"GET", "/api/trips/saved", true},
+		{"POST", "/api/trips/saved", false},
+		{"PUT", "/api/trips/saved/" + demoTripID, false},
+		{"DELETE", "/api/trips/saved/" + demoTripID, false},
 		{"GET", "/api/trips/plan/diag", false},
 		{"GET", "/api/state/" + demoVeh, true},
 		{"GET", "/api/vehicles/" + demoVeh + "/now", true},
@@ -36,8 +40,37 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/vehicles/" + demoVeh + "/pack-health", true},
 		{"PUT", "/api/settings/charging", false},
 		{"PUT", "/api/settings/home-location", false},
-		{"GET", "/api/settings/charging/networks", false},
+		{"GET", "/api/settings/charging/networks", true},
+		{"PUT", "/api/settings/charging/networks", false},
 		{"POST", "/api/settings/charging/networks/reset", false},
+		{"GET", "/api/settings/charging/networks/extra", false},
+		// demo parity: drain (demo vehicle only), saved-trip actual,
+		// charger archive tiles
+		{"GET", "/api/vehicles/" + demoVeh + "/drain", true},
+		{"GET", "/api/vehicles/other/drain", false},
+		{"POST", "/api/vehicles/" + demoVeh + "/drain", false},
+		{"GET", "/api/trips/saved/" + demoTripID + "/actual", true},
+		{"GET", "/api/trips/saved/not-a-uuid/actual", false},
+		{"GET", "/api/trips/saved/../actual", false},
+		{"GET", "/api/trips/saved/" + demoTripID, false},
+		{"GET", "/api/trips/saved/" + demoTripID + "/actual/x", false},
+		{"POST", "/api/trips/saved/" + demoTripID + "/link", false},
+		{"POST", "/api/trips/saved/" + demoTripID + "/unlink", false},
+		{"GET", "/api/maps/tiles/chargers.pmtiles", true},
+		{"GET", "/api/maps/tiles/other.pmtiles", false},
+		{"GET", "/api/maps/tiles/chargers.pmtiles.bak", false},
+		// never reachable: planner compute, AI, geocode, routing, corridor
+		{"POST", "/api/trips/plan", false},
+		{"POST", "/api/trips/plan-multiday", false},
+		{"POST", "/api/trips/plan/advice", false},
+		{"POST", "/api/trips/plan/raw", false},
+		{"GET", "/api/trips/plan/diag", false},
+		{"GET", "/api/geocode", false},
+		{"GET", "/api/maps/valhalla/route", false},
+		{"POST", "/api/maps/valhalla/route", false},
+		{"POST", "/api/maps/chargers-along", false},
+		{"GET", "/api/maps/chargers-along", false},
+		{"GET", "/api/live-drive", false},
 		{"GET", "/api/vehicles/other/pack-health", false},
 		// per-drive detail (weather only) and samples
 		{"GET", "/api/drives/drive-abc/weather", true},
@@ -115,7 +148,9 @@ func TestDemoAccessMW_AnonymousAllowlistedBecomesDemoUser(t *testing.T) {
 		{"POST", "/api/charges"},
 		{"GET", "/api/admin/users"},
 		{"GET", "/api/state/other"},
-		{"GET", "/api/settings/charging/networks"},
+		{"PUT", "/api/settings/charging/networks"},
+		{"POST", "/api/trips/plan"},
+		{"GET", "/api/geocode"},
 	} {
 		rec := demoReq(h, c[0], c[1])
 		if rec.Header().Get("X-Test-User") != "" || rec.Header().Get(demoHeader) != "" {
@@ -348,7 +383,7 @@ func TestDemoNoisySamplesClientDoesNotExhaustGlobalSamplesBudget(t *testing.T) {
 	}
 }
 
-func TestDemoTiles_OnlyBasemapAnonymousAndOwnBudget(t *testing.T) {
+func TestDemoTiles_OnlyPublicArchivesAnonymousAndOwnBudget(t *testing.T) {
 	h, uid := demoChain(newDemoLimiter(), nil)
 	for _, c := range []struct {
 		method, path string
@@ -357,7 +392,10 @@ func TestDemoTiles_OnlyBasemapAnonymousAndOwnBudget(t *testing.T) {
 		{"GET", "/api/maps/tiles/us.pmtiles", true},
 		{"HEAD", "/api/maps/tiles/us.pmtiles", true},
 		{"POST", "/api/maps/tiles/us.pmtiles", false},
-		{"GET", "/api/maps/tiles/chargers.pmtiles", false},
+		// Demo parity: the public charger archive is readable too (same
+		// tile budgets); nothing else under /api/maps/tiles is.
+		{"GET", "/api/maps/tiles/chargers.pmtiles", true},
+		{"GET", "/api/maps/tiles/other.pmtiles", false},
 		{"GET", "/api/maps/tiles/us.pmtiles/../chargers.pmtiles", false},
 		{"GET", "/api/maps/valhalla/trace_route", false},
 		{"POST", "/api/maps/valhalla/route", false},
@@ -415,5 +453,79 @@ func TestClampDemoSamplesSpan(t *testing.T) {
 		if got := r.URL.Query().Get("since"); got != c.wantSince {
 			t.Errorf("%s: since = %q, want %q", c.name, got, c.wantSince)
 		}
+	}
+}
+
+func TestDemoDrainLimitAndCache(t *testing.T) {
+	demoUID := uuid.New()
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	h := demoAccessMW(demoUID, demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour))(inner)
+	path := "/api/vehicles/" + demoVeh + "/drain"
+	var codes []int
+	for i := 0; i < demoDrainPerClientPerMin+3; i++ {
+		rec := demoReq(h, "GET", path)
+		codes = append(codes, rec.Code)
+		if rec.Code == 200 && (rec.Header().Get(demoHeader) != "1" || rec.Body.String() != `{"ok":true}`) {
+			t.Fatalf("response %d: header %q body %q", i, rec.Header().Get(demoHeader), rec.Body.String())
+		}
+	}
+	for i, c := range codes {
+		want := 200
+		if i >= demoDrainPerClientPerMin {
+			want = 429
+		}
+		if c != want {
+			t.Fatalf("codes = %v, want 200s then 429s", codes)
+		}
+	}
+	// Ten identical reads inside the TTL reached the handler once.
+	if calls != 1 {
+		t.Errorf("handler called %d times, want 1 (cached)", calls)
+	}
+}
+
+func TestDemoResponseCacheExpiresAndSkipsErrors(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	c := newDemoResponseCache(time.Minute, 2)
+	c.now = func() time.Time { return now }
+	status, calls := 200, 0
+	h := c.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte("x"))
+	}))
+	get := func(q string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/p?"+q, nil))
+		return rec
+	}
+	get("a=1")
+	if rec := get("a=1"); calls != 1 || rec.Header().Get("X-Rivolt-Demo-Cache") != "hit" {
+		t.Fatalf("second read not cached: calls %d", calls)
+	}
+	now = now.Add(2 * time.Minute)
+	get("a=1")
+	if calls != 2 {
+		t.Errorf("entry did not expire: calls %d", calls)
+	}
+	// Errors are never cached; a full cache serves new keys uncached.
+	status = 500
+	get("b=1")
+	get("b=1")
+	if calls != 4 {
+		t.Errorf("500 was cached: calls %d", calls)
+	}
+	status = 200
+	get("c=1")
+	get("d=1") // third distinct key, cache max 2
+	before := calls
+	get("d=1")
+	if calls != before+1 {
+		t.Errorf("overflow key was cached: calls %d vs %d", calls, before)
 	}
 }
