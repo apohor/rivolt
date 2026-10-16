@@ -262,6 +262,12 @@ type StateMonitor struct {
 	// pick an accurate pack size for the SoC-delta energy fallback.
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
+	// Charging schedule reads (charging_schedule.go): a nudge channel per
+	// vehicle, the last read's time and position, and the fetch (nil =
+	// client.ChargingSchedules; tests set it). Guarded by mu.
+	scheduleNudge  map[string]chan struct{}
+	scheduleReads  map[string]scheduleRead
+	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// vehicleInfoHook receives each RefreshVehicleInfo result (trim, image,
 	// pack guess) so it can be persisted. Set before Start; called outside
 	// the monitor lock and must not block.
@@ -1220,6 +1226,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.sleepGate(refreshCtx, vehicleID, func(wctx context.Context) {
 		go m.periodicRefresh(wctx, vehicleID)
 		go m.chargingSessionMetadataFetcher(wctx, vehicleID)
+		go m.chargingScheduleLoop(wctx, vehicleID)
 		go m.chargingSessionSubscriber(wctx, vehicleID)
 		go m.batteryStateSubscriber(wctx, vehicleID)
 		if eligibleParallaxGPS {
@@ -2818,6 +2825,9 @@ func mergeState(prev, next *State) *State {
 	mergeString(&out.DriveMode, next.DriveMode)
 	mergeString(&out.ChargerState, next.ChargerState)
 	mergeString(&out.ChargerStatus, next.ChargerStatus)
+	if next.ChargingSchedules != nil {
+		out.ChargingSchedules = next.ChargingSchedules
+	}
 	if next.ChargerStatus != "" {
 		out.ChargerStatusPx = next.ChargerStatusPx
 	}

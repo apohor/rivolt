@@ -118,6 +118,11 @@ type State struct {
 	// powerState.timeStamp, or the Parallax power.state frame time);
 	// zero when unknown. Anchors wake attribution (actions.go).
 	PowerStateAt time.Time `json:"-"`
+	// ChargingSchedules are the vehicle's scheduled charging windows
+	// (charging_schedule.go), read on connect, daily and at plug-in; nil
+	// until the first read. They explain a car that is plugged in and not
+	// charging.
+	ChargingSchedules []ChargingSchedule `json:"charging_schedules,omitempty"`
 	// ChargerStatusPx marks a ChargerStatus taken from Parallax
 	// charging.session.status, on a vehicle whose vehicleState sends none
 	// (an R2). The recorder trusts it for "plugged" but keeps its power

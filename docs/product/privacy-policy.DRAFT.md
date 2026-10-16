@@ -18,6 +18,7 @@ Rivolt is operated by **[DECIDE: individual or entity, contact address]**. Indep
 | One-time code (MFA) in flight | complete sign-in | sealed `rivian.pending-mfa` secret, expires after 15 minutes, cleared on success or logout (`internal/secrets/rivian.go`) |
 | Vehicle state samples: charge level, range, odometer, speed, gear, charging state and power, tire pressure, temperatures, **GPS location** | history, costs, drive and charge records | `vehicle_state` (about 3,200 rows per vehicle per day per the architecture report) |
 | Drives and charges: start/end time, place, energy, cost, price source, route points | statements, receipts, planner | `drives`, `charges` tables |
+| Charging schedule windows: start, length, weekdays, amperage, on/off (read from Rivian; the schedule's location is used only to tell whether the truck is at it, and is never stored or shown) | explain a car that is plugged in and not charging | in memory and the short-lived live-state cache; not in the database (`internal/rivian/charging_schedule.go`) |
 | Locations you save, trips you plan | personalise | `locations`, saved trips |
 | Settings: electricity rates, notification preferences | calculate costs | `user_settings` |
 | Push subscription (endpoint and keys) if you enable notifications | send alerts | `push_subscriptions` |
