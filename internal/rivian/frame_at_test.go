@@ -90,3 +90,39 @@ func TestPublisherAddsFrameAtToTheSnapshotOnly(t *testing.T) {
 		t.Error("the frame time leaked into the cache")
 	}
 }
+
+// A pod that loses the vehicle and gets it back reports nil until its
+// own first frame, not the previous ownership's frame time (DA note on
+// #218); lastVSFrame itself survives the forget.
+func TestFrameAtAfterReacquireWaitsForAFrame(t *testing.T) {
+	ctx := context.Background()
+	m := NewStateMonitor(nil, nil)
+	m.active["v"] = func() {}
+	m.mu.Lock()
+	m.noteVehicleStateFrameLocked("v")
+	m.mu.Unlock()
+	if m.VehicleStateFrameAt(ctx, "v") == nil {
+		t.Fatal("no frame time after a frame")
+	}
+
+	m.forgetVehicle("v") // lease lost; then re-acquired
+	m.active["v"] = func() {}
+	if got := m.VehicleStateFrameAt(ctx, "v"); got != nil {
+		t.Errorf("re-acquired, no frame yet: %v, want nil", got)
+	}
+	m.mu.RLock()
+	_, kept := m.lastVSFrame["v"]
+	m.mu.RUnlock()
+	if !kept {
+		t.Error("forget dropped lastVSFrame (#129's guard reads it)")
+	}
+
+	time.Sleep(time.Millisecond)
+	m.mu.Lock()
+	m.noteVehicleStateFrameLocked("v")
+	frame := m.lastVSFrame["v"]
+	m.mu.Unlock()
+	if got := m.VehicleStateFrameAt(ctx, "v"); got == nil || !got.Equal(frame) {
+		t.Errorf("after the new frame: %v, want %v", got, frame)
+	}
+}

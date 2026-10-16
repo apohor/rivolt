@@ -2510,11 +2510,7 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	// Cold-start guard: any real WS frame proves the subscription is
 	// delivering, so adaptiveRefreshInterval can return to
 	// PowerState-driven cadence.
-	m.wsSeen[vehicleID] = true
-	if m.lastVSFrame == nil {
-		m.lastVSFrame = map[string]time.Time{}
-	}
-	m.lastVSFrame[vehicleID] = time.Now()
+	m.noteVehicleStateFrameLocked(vehicleID)
 	m.mu.Unlock()
 	m.record(ctx, vehicleID, prev, merged)
 }
@@ -2932,8 +2928,9 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 }
 
 // noteVehicleStateFrameLocked records that a vehicleState frame just
-// arrived. Caller holds mu.
+// arrived: the feed is delivering (wsSeen) and when. Caller holds mu.
 func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
+	m.wsSeen[vehicleID] = true
 	if m.lastVSFrame == nil {
 		m.lastVSFrame = make(map[string]time.Time)
 	}
@@ -2942,10 +2939,14 @@ func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
 
 // vehicleStateFrameAtLocked is VehicleStateFrameAt for a vehicle this
 // pod streams: nil while no live feed is expected (no frame yet, or
-// vehicleState held while asleep). Caller holds mu (read or write).
+// vehicleState held while asleep). "No frame yet" is this ownership's:
+// wsSeen is cleared when the vehicle is forgotten (lease lost), so a pod
+// that re-acquires it reports nil until its own first frame instead of
+// the previous ownership's time. lastVSFrame itself is kept (#129's
+// guard reads it). Caller holds mu (read or write).
 func (m *StateMonitor) vehicleStateFrameAtLocked(vehicleID string) *time.Time {
 	t, ok := m.lastVSFrame[vehicleID]
-	if !ok || t.IsZero() || m.holdingVS[vehicleID] {
+	if !ok || t.IsZero() || !m.wsSeen[vehicleID] || m.holdingVS[vehicleID] {
 		return nil
 	}
 	t = t.UTC()
