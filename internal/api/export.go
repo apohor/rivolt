@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/receipts"
 )
 
 // "Take your data with you" (B11): GET /api/export.
@@ -86,6 +87,7 @@ type exportData struct {
 	Classes   []ledger.Classification // parallel to Charges
 	Drives    []drives.Drive
 	Trips     []ledger.Trip
+	Receipts  []receipts.Receipt
 	Settings  map[string]string
 	Profiles  []exportProfile
 }
@@ -135,6 +137,12 @@ var exportChargeHeader = []string{
 	"cost", "currency", "price_per_kwh", "cost_source", "network", "place",
 	"effective_cost_source", "effective_cost_source_derived", "kind", "effective_place", "km_from_home",
 	"counts_in_spend", "flags",
+	"receipt_cost", "receipt_currency", "receipt_txn_id",
+}
+
+var exportReceiptHeader = []string{
+	"transaction_id", "started_at", "ended_at", "total_cost", "currency", "energy_kwh", "range_added_km",
+	"vendor", "city", "charger_name", "is_home_charger", "matched_to_charge",
 }
 
 var exportDriveHeader = []string{
@@ -166,6 +174,32 @@ func writeChargesCSV(w io.Writer, e exportData) error {
 			fnum(c.Cost), csvText(c.Currency), fnum(c.PricePerKWh), csvText(c.CostSource), csvText(c.Network), csvText(c.Place),
 			csvText(cl.CostSource), strconv.FormatBool(cl.CostSourceDerived), csvText(cl.Kind), csvText(cl.Place), fptr(cl.KMFromHome),
 			strconv.FormatBool(cl.CountsInSpend), csvText(strings.Join(cl.Flags, ";")),
+			fptr(c.ReceiptCost), csvText(c.ReceiptCurrency), csvText(c.ReceiptTxnID),
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+// writeReceiptsCSV is every Rivian charging receipt we stored (what Rivian
+// billed), matched to one of the charges or not.
+func writeReceiptsCSV(w io.Writer, e exportData) error {
+	cw := csv.NewWriter(w)
+	if err := cw.Write(exportReceiptHeader); err != nil {
+		return err
+	}
+	for _, r := range e.Receipts {
+		home := ""
+		if r.IsHome != nil {
+			home = strconv.FormatBool(*r.IsHome)
+		}
+		row := []string{
+			csvText(r.TransactionID), tstr(r.StartedAt), tstr(r.EndedAt), fptr(r.TotalCost), csvText(r.Currency),
+			fptr(r.EnergyKWh), fptr(r.RangeAddedKm), csvText(r.Vendor), csvText(r.City), csvText(r.ChargerName),
+			home, strconv.FormatBool(r.ChargeID != nil),
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -223,6 +257,9 @@ const exportReadme = `Rivolt data export
 
 charges.csv  every charging session, with the stored cost and cost_source,
              plus the ledger's effective_* columns (what the Money tab uses)
+             and receipt_* (what Rivian billed, kept next to our estimate)
+rivian_receipts.csv  Rivian charging receipts we stored: amount, currency,
+             energy, window, vendor, city, charger name (not for home chargers)
 drives.csv   every drive, including the encoded route polyline
 trips.csv    auto-detected multi-day trips (ledger), with cost and mix
 settings.json    your preferences (credentials are never included)
@@ -268,6 +305,7 @@ func writeExportZip(w io.Writer, e exportData) error {
 		{"charges.csv", func(w io.Writer) error { return writeChargesCSV(w, e) }},
 		{"drives.csv", func(w io.Writer) error { return writeDrivesCSV(w, e) }},
 		{"trips.csv", func(w io.Writer) error { return writeTripsCSV(w, e) }},
+		{"rivian_receipts.csv", func(w io.Writer) error { return writeReceiptsCSV(w, e) }},
 		{"settings.json", jsonFile(e.Settings)},
 		{"vehicles.json", jsonFile(e.Profiles)},
 		{"export.json", jsonFile(e.meta())},
@@ -300,6 +338,7 @@ func writeExportJSON(w io.Writer, e exportData) error {
 		"charges":          cs,
 		"drives":           e.Drives,
 		"trips":            e.Trips,
+		"rivian_receipts":  e.Receipts,
 		"settings":         e.Settings,
 		"vehicle_profiles": e.Profiles,
 	})
@@ -341,7 +380,11 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 	e.Classes = ledger.ClassifyAll(lc, cfg)
 
 	e.Profiles = []exportProfile{}
+	e.Receipts = []receipts.Receipt{}
 	if d.DB != nil {
+		if rs, rerr := receipts.NewStore(d.DB).ListAll(ctx, uid); rerr == nil && rs != nil {
+			e.Receipts = rs
+		}
 		if vehs, verr := db.ListUserVehicles(ctx, d.DB, uid); verr == nil {
 			for _, v := range vehs {
 				p, perr := db.GetVehicleProfile(ctx, d.DB, uid, v.ID)

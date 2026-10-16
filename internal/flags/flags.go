@@ -67,6 +67,16 @@ const DCFCAutoNetworkName = "dcfc_auto_network"
 //	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
 const UIThemeNextName = "ui_theme_next"
 
+// RivianReceiptsName gates the sync of Rivian's charging receipts (what
+// Rivian billed per session) into charges.receipt_*. Same shape as
+// MoneyTabState; off when the row is missing or malformed, so the extra
+// upstream calls start only for the users the operator names:
+//
+//	INSERT INTO flags (name, value, updated_by)
+//	VALUES ('rivian_receipts', '{"users":["<user uuid>"]}', 'ops')
+//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+const RivianReceiptsName = "rivian_receipts"
+
 // TripPlannerEnabledName is the flags.name value gating the trip
 // planner UI + endpoints. Default-off: when the row is missing or
 // the JSON decodes to {enabled:false}, the planner stays hidden.
@@ -301,6 +311,7 @@ type Store struct {
 	statementEmail atomic.Pointer[MoneyTabState]
 	dcfcAutoNet    atomic.Pointer[MoneyTabState]
 	uiThemeNext    atomic.Pointer[MoneyTabState]
+	rivianReceipts atomic.Pointer[MoneyTabState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
 
 	startOnce sync.Once
@@ -369,7 +380,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, UIThemeNextName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, UIThemeNextName, RivianReceiptsName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -383,6 +394,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	statementEmail := MoneyTabState{}
 	dcfcAutoNet := MoneyTabState{}
 	uiThemeNext := MoneyTabState{}
+	rivianReceipts := MoneyTabState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
 		var name string
@@ -433,6 +445,12 @@ func (s *Store) refresh(ctx context.Context) error {
 				s.logger.Warn("flags: ui_theme_next malformed, treating as off", "err", err.Error())
 				uiThemeNext = MoneyTabState{}
 			}
+		case RivianReceiptsName:
+			// Extra upstream calls: a malformed row reads as off.
+			if err := json.Unmarshal(raw, &rivianReceipts); err != nil {
+				s.logger.Warn("flags: rivian_receipts malformed, treating as off", "err", err.Error())
+				rivianReceipts = MoneyTabState{}
+			}
 		case WakeSafetyName:
 			// Experiment switches: a typo reads as all-off rather than
 			// freezing every other flag (kill switch included).
@@ -454,6 +472,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.statementEmail.Store(&statementEmail)
 	s.dcfcAutoNet.Store(&dcfcAutoNet)
 	s.uiThemeNext.Store(&uiThemeNext)
+	s.rivianReceipts.Store(&rivianReceipts)
 	s.wakeSafety.Store(&wakeSafety)
 	return nil
 }
@@ -525,6 +544,19 @@ func (s *Store) UIThemeNext() MoneyTabState {
 		return MoneyTabState{}
 	}
 	p := s.uiThemeNext.Load()
+	if p == nil {
+		return MoneyTabState{}
+	}
+	return *p
+}
+
+// RivianReceipts returns the cached per-user receipts-sync flag
+// (Enabled(userID)). Lock-free; off when the row is missing.
+func (s *Store) RivianReceipts() MoneyTabState {
+	if s == nil {
+		return MoneyTabState{}
+	}
+	p := s.rivianReceipts.Load()
 	if p == nil {
 		return MoneyTabState{}
 	}

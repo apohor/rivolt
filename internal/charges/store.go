@@ -111,6 +111,14 @@ type Charge struct {
 	// without it keeps the stored value. Not read back yet. Migration
 	// 0050.
 	RivianCharger *bool
+	// ReceiptCost is what Rivian billed for the session (its Charging
+	// history receipt), kept next to Cost (our estimate), which a receipt
+	// never overwrites. Nil when no receipt matched. ReceiptCurrency and
+	// ReceiptTxnID go with it. Migration 0055; written only by the
+	// receipts sync.
+	ReceiptCost     *float64
+	ReceiptCurrency string
+	ReceiptTxnID    string
 }
 
 // Store wraps the charges table.
@@ -335,7 +343,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
-		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -352,6 +361,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		var thermal sql.NullFloat64
 		var netConf sql.NullFloat64
 		var netEv []byte
+		var recCost sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -360,13 +370,14 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-			&c.NetworkState, &netConf, &netEv,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 		); err != nil {
 			return nil, err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
 		c.NetworkConfidence = floatFromNull(netConf)
 		c.NetworkEvidence = netEv
+		c.ReceiptCost = floatFromNull(recCost)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -395,7 +406,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
-		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -416,6 +428,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 	var thermal sql.NullFloat64
 	var netConf sql.NullFloat64
 	var netEv []byte
+	var recCost sql.NullFloat64
 	if err := row.Scan(&c.ID, &c.VehicleID,
 		&c.StartedAt, &c.EndedAt,
 		&c.StartSoCPct, &c.EndSoCPct,
@@ -424,13 +437,14 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-		&c.NetworkState, &netConf, &netEv,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 	); err != nil {
 		return nil, err
 	}
 	c.ThermalKWh = floatFromNull(thermal)
 	c.NetworkConfidence = floatFromNull(netConf)
 	c.NetworkEvidence = netEv
+	c.ReceiptCost = floatFromNull(recCost)
 	c.StartedAt = c.StartedAt.UTC()
 	c.EndedAt = c.EndedAt.UTC()
 	return &c, nil
@@ -597,7 +611,8 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
-		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -613,6 +628,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		var thermal sql.NullFloat64
 		var netConf sql.NullFloat64
 		var netEv []byte
+		var recCost sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -621,13 +637,14 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-			&c.NetworkState, &netConf, &netEv,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 		); err != nil {
 			return nil, err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
 		c.NetworkConfidence = floatFromNull(netConf)
 		c.NetworkEvidence = netEv
+		c.ReceiptCost = floatFromNull(recCost)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -760,7 +777,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
 		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
-		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -774,6 +792,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 	var c Charge
 	var thermal, netConf sql.NullFloat64
 	var netEv []byte
+	var recCost sql.NullFloat64
 	if err := rows.Scan(&c.ID, &c.VehicleID,
 		&c.StartedAt, &c.EndedAt,
 		&c.StartSoCPct, &c.EndSoCPct,
@@ -782,13 +801,14 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
-		&c.NetworkState, &netConf, &netEv,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 	); err != nil {
 		return nil, err
 	}
 	c.ThermalKWh = floatFromNull(thermal)
 	c.NetworkConfidence = floatFromNull(netConf)
 	c.NetworkEvidence = netEv
+	c.ReceiptCost = floatFromNull(recCost)
 	c.StartedAt, c.EndedAt = c.StartedAt.UTC(), c.EndedAt.UTC()
 	return &c, rows.Err()
 }

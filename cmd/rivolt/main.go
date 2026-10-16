@@ -53,6 +53,7 @@ import (
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -875,6 +876,23 @@ func runServer() {
 				}
 			})
 			logger.Info("battery capacity persistence hook enabled")
+		}
+		// Rivian charging receipts: what Rivian billed per session, stored
+		// next to our estimate (charges.receipt_*). Gated per user by the
+		// rivian_receipts flag; one summaries call per user a day plus one
+		// after a charge closes, details paced (internal/receipts).
+		if pgPool != nil && flagsStore != nil {
+			receiptSyncer := receipts.NewSyncer(
+				receipts.NewStore(pgPool), accountRegistry,
+				func(uid uuid.UUID) bool { return flagsStore.RivianReceipts().Enabled(uid.String()) },
+				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) },
+				logger,
+			)
+			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				return func(_ context.Context, _ charges.Charge) { receiptSyncer.OnChargeClose(uid) }
+			})
+			go receiptSyncer.Run(ctx)
+			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.

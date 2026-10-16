@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // stubGateway spins up an httptest server that speaks the tiny subset
@@ -31,6 +32,9 @@ type stubGateway struct {
 	userInfoAuthFails int32
 	// imagesByVersion answers getVehicleImages per versionVehicle ("3", "2").
 	imagesByVersion map[string][]any
+	// summaries / chargerByTxn answer the charging-history operations.
+	summaries    []any
+	chargerByTxn map[string]any
 }
 
 type gatewayCall struct {
@@ -151,6 +155,16 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 		})
+	case "GetCompletedSessionSummaries":
+		writeJSON(w, map[string]any{"data": map[string]any{"getCompletedSessionSummaries": g.summaries}})
+	case "GetDetailedSessionInfoByTxnId":
+		vars, _ := body["variables"].(map[string]any)
+		txn, _ := vars["transactionId"].(string)
+		var detail any
+		if ch, ok := g.chargerByTxn[txn]; ok {
+			detail = map[string]any{"charger": ch}
+		}
+		writeJSON(w, map[string]any{"data": map[string]any{"getDetailedSessionInfoByTxnId": detail}})
 	case "getVehicleImages":
 		vars, _ := body["variables"].(map[string]any)
 		ver, _ := vars["versionVehicle"].(string)
@@ -630,5 +644,68 @@ func TestVehicleImagesTriesVersion3ThenFallsBack(t *testing.T) {
 	got, err = login(g).VehicleImages(context.Background())
 	if err != nil || len(got) != 0 {
 		t.Errorf("no images = %+v, err %v, want an empty slice", got, err)
+	}
+}
+
+func TestCompletedSessionSummariesAndChargerDetail(t *testing.T) {
+	g := newStubGateway(t)
+	g.summaries = []any{
+		map[string]any{"transactionId": "t-1", "startInstant": "2026-10-01T18:00:00Z", "endInstant": "2026-10-01T19:00:00Z",
+			"totalCost": 12.34, "rangeAddedKm": 120.5, "totalEnergyKwh": 38.2, "vendor": "Rivian", "currencyCode": "usd", "city": "Reno"},
+		// No cost: the app shows nothing for it, so we keep nil, not 0.
+		map[string]any{"transactionId": "t-2", "startInstant": "2026-10-02T18:00:00Z", "endInstant": "2026-10-02T18:30:00Z",
+			"totalCost": nil, "totalEnergyKwh": 5.0, "vendor": nil, "currencyCode": nil, "city": nil},
+		// Unusable rows are dropped.
+		map[string]any{"transactionId": "", "startInstant": "2026-10-03T18:00:00Z", "endInstant": "2026-10-03T19:00:00Z"},
+		map[string]any{"transactionId": "t-bad", "startInstant": "not a time", "endInstant": "2026-10-03T19:00:00Z"},
+	}
+	g.chargerByTxn = map[string]any{"t-1": map[string]any{"name": "Reno Fast", "vendor": "Rivian", "isHomeCharger": false}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	// The charging gateway is the same stub.
+	c.chargingEndpoint = g.srv.URL
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+
+	sums, err := c.CompletedSessionSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sums) != 2 {
+		t.Fatalf("got %d summaries, want 2 (blank id and bad time dropped)", len(sums))
+	}
+	if s := sums[0]; s.TransactionID != "t-1" || s.TotalCost == nil || *s.TotalCost != 12.34 || s.Currency != "USD" ||
+		s.EnergyKWh == nil || *s.EnergyKWh != 38.2 || s.Vendor != "Rivian" || s.City != "Reno" ||
+		!s.EndedAt.Equal(time.Date(2026, 10, 1, 19, 0, 0, 0, time.UTC)) {
+		t.Errorf("summary 0 = %+v", s)
+	}
+	if sums[1].TotalCost != nil || sums[1].Currency != "" {
+		t.Errorf("summary 1 should keep a nil cost: %+v", sums[1])
+	}
+
+	ch, err := c.SessionCharger(ctx, "t-1")
+	if err != nil || ch == nil || ch.Name != "Reno Fast" || ch.IsHome == nil || *ch.IsHome {
+		t.Fatalf("charger = %+v, err %v", ch, err)
+	}
+	if ch, err := c.SessionCharger(ctx, "t-unknown"); err != nil || ch != nil {
+		t.Errorf("unknown transaction = %+v, err %v; want nil, nil", ch, err)
+	}
+
+	// What went over the wire: the detail document asks for nothing private.
+	var detailQueries []string
+	for _, call := range g.capturedReqs {
+		if call.Operation == "GetDetailedSessionInfoByTxnId" {
+			q, _ := call.Body["query"].(string)
+			detailQueries = append(detailQueries, q)
+		}
+	}
+	if len(detailQueries) != 2 {
+		t.Fatalf("%d detail requests, want 2", len(detailQueries))
+	}
+	for _, banned := range []string{"paymentMethod", "card", "lastFour", "order", "paidTotal", "address", "postalCode", "line1"} {
+		if strings.Contains(detailQueries[0], banned) {
+			t.Errorf("detail request selects %q: %s", banned, detailQueries[0])
+		}
 	}
 }
