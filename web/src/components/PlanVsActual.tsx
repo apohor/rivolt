@@ -10,13 +10,13 @@ import { Card } from "./ui";
 // guesses: an incomplete cost reads "so far $X, N not priced yet" and
 // shows no difference; a metric with an unknown side shows none.
 
-export function PlanVsActualSection({ trips }: { trips: SavedTrip[] }) {
+export function PlanVsActualSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?: string | null }) {
   if (trips.length === 0) return null;
   return (
     <Card title="Plan vs actual">
       <ul className="space-y-4">
         {trips.map((t) => (
-          <li key={t.id}>
+          <li key={t.id} data-highlight={t.id === highlightId ? "true" : undefined} className={t.id === highlightId ? "rounded-lg ring-1 ring-emerald-700/60" : undefined}>
             <TripCompare trip={t} />
           </li>
         ))}

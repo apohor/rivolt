@@ -183,3 +183,24 @@ test("demo planner: a preset with a stored polyline still renders (straight legs
   await page.waitForTimeout(800);
   expect(errors).toEqual([]);
 });
+
+test("demo planner: opening a preset highlights its seeded saved trip's Plan vs Actual", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  // The stub's saved trips are st-*; point the preset at one of them.
+  await page.route("**/api/demo/trips", (r) =>
+    r.fulfill({
+      json: {
+        trips: [
+          {
+            id: "la-vegas", name: "LA to Las Vegas", saved_trip_id: "st-full",
+            inputs: { origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" }, destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" }, extra_stops: [] },
+            summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/demo/trips/plan");
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+  await expect(page.locator('[data-highlight="true"]')).toHaveCount(1);
+});

@@ -917,7 +917,7 @@ export default function TripPlanPage() {
       </Card>
       )}
 
-      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} />}
+      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
 
       <SavedTripsCard
         trips={savedTripsQuery.data ?? []}
@@ -1254,7 +1254,7 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
         ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: p.route_polyline } : r)) }
         : fetched;
       const now = new Date().toISOString();
-      onOpen({ id: p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
+      onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Couldn't load that trip.");
     } finally {
