@@ -1114,11 +1114,13 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		return c
 	}
 	charging := chargingNow()
-	// No plug indicator (an R2): an open charge counts as plugged while
-	// its charging state lasts, so only this guard ends a charge whose
-	// state stuck after the unplug, and it measures progress (SoC up or
-	// a state change), since the merged power sticks too.
-	noPlugStatus := strings.TrimSpace(curr.ChargerStatus) == ""
+	// No plug indicator from vehicleState (an R2): an open charge counts
+	// as plugged while its charging state lasts, so only this guard ends a
+	// charge whose state stuck after the unplug, and it measures progress
+	// (SoC up or a state change), since the merged power sticks too. A
+	// Parallax plug status (ChargerStatusPx) doesn't lift that: if its
+	// "connected" outlives the unplug, the progress guard still ends it.
+	noPlugStatus := strings.TrimSpace(curr.ChargerStatus) == "" || curr.ChargerStatusPx
 
 	// Stale-session guard. Force-close if too long has passed since
 	// anything meaningful happened (SoC went up, power was above the
@@ -1993,7 +1995,12 @@ func isChargingCS(s string) bool {
 // charge as before. Must be called with m.sessMu held.
 func (s *liveSessions) plugged(curr *State) bool {
 	if strings.TrimSpace(curr.ChargerStatus) != "" {
-		return isPluggedCS(curr.ChargerStatus)
+		// A Parallax status (R2) that says unplugged or fault doesn't
+		// overrule the power inference below: a wrong reading must not
+		// keep a charging car from recording.
+		if !curr.ChargerStatusPx || isPluggedCS(curr.ChargerStatus) {
+			return isPluggedCS(curr.ChargerStatus)
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(curr.ChargerState)) {
 	case "charging_active", "charging_connecting":
