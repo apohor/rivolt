@@ -1250,8 +1250,9 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     try {
       const fetched = await backend.demoTripPlan(p.id);
       // The preset's geometry rides on the route unless the plan carries its own.
-      const plan: TripPlan = p.route_polyline
-        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: p.route_polyline } : r)) }
+      const geometry = p.shape ?? p.route_polyline;
+      const plan: TripPlan = geometry
+        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
         : fetched;
       const now = new Date().toISOString();
       onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
