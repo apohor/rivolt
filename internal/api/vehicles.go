@@ -252,19 +252,10 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 					if vs[i].ID == "" {
 						continue
 					}
-					_, uerr := sqlDB.ExecContext(r.Context(), `
-						INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, pack_kwh)
-						VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, 0)::double precision)
-						ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
-							vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
-							display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
-							model        = COALESCE(EXCLUDED.model,        vehicles.model),
-							model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
-							-- Preserve an observed vehicle-reported pack_kwh over
-							-- this sync's InferPackKWh guess; only seed when null.
-							pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
-							updated_at   = NOW()
-					`, userID, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
+					uerr := db.UpsertVehicleFromSync(r.Context(), sqlDB, userID, db.VehicleSync{
+						RivianID: vs[i].ID, VIN: vs[i].VIN, Name: vs[i].Name, Model: vs[i].Model,
+						ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh,
+					})
 					if uerr != nil && logger != nil {
 						logger.Warn("vehicles prime upsert failed",
 							"user_id", userID.String(),
@@ -341,6 +332,20 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 							}
 						}
 					}()
+				}
+			}
+		}
+		// The hero image arrives after the upsert (monitor cache), so store it
+		// now: vehicles.image_url was empty for every vehicle.
+		if sqlDB != nil {
+			if userID, ok := auth.UserFromContext(r.Context()); ok {
+				for i := range vs {
+					if vs[i].ID == "" || vs[i].ImageURL == "" {
+						continue
+					}
+					if ierr := db.SetVehicleImageURL(r.Context(), sqlDB, userID, vs[i].ID, vs[i].ImageURL); ierr != nil && logger != nil {
+						logger.Warn("vehicle image persist failed", "rivian_vehicle_id", vs[i].ID, "err", ierr.Error())
+					}
 				}
 			}
 		}

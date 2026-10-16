@@ -304,3 +304,56 @@ func SetVehicleProfile(ctx context.Context, d *sql.DB, userID, vehicleID uuid.UU
 	}
 	return nil
 }
+
+// VehicleSync is what a Rivian sync knows about one vehicle. Zero values
+// mean "not known": they never overwrite a stored value.
+type VehicleSync struct {
+	RivianID  string
+	VIN       string
+	Name      string
+	Model     string
+	ModelYear int
+	// Trim is Rivian's trimOption.optionId (e.g. "PKG-ADV", "LRG-DM-PRFM"):
+	// InferPackKWh and the pack-health "documented" figure key on it.
+	Trim string
+	// PackKWh is the InferPackKWh guess; it only seeds a null pack_kwh,
+	// because the vehicle-reported capacity may already be stored.
+	PackKWh  float64
+	ImageURL string
+}
+
+// UpsertVehicleFromSync creates or refreshes the vehicles row for one
+// vehicle the user owns. Existing values are kept when the sync has none
+// (COALESCE), including trim and image_url, which the upsert used to drop.
+func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v VehicleSync) error {
+	_, err := d.ExecContext(ctx, `
+		INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, trim, pack_kwh, image_url)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, ''), NULLIF($8, 0)::double precision, NULLIF($9, ''))
+		ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
+			vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
+			display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
+			model        = COALESCE(EXCLUDED.model,        vehicles.model),
+			model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
+			trim         = COALESCE(EXCLUDED.trim,         vehicles.trim),
+			image_url    = COALESCE(EXCLUDED.image_url,    vehicles.image_url),
+			-- Keep an existing pack_kwh: it may be the vehicle-reported
+			-- capacity (write-through from observeBatteryCapacity), which
+			-- must not be clobbered by InferPackKWh. Only seed when null.
+			pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
+			updated_at   = NOW()
+	`, userID, v.RivianID, v.VIN, v.Name, v.Model, v.ModelYear, v.Trim, v.PackKWh, v.ImageURL)
+	return err
+}
+
+// SetVehicleImageURL stores the hero image once the (slower) image lookup
+// has landed, only touching a row whose value differs.
+func SetVehicleImageURL(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID, url string) error {
+	if url == "" {
+		return nil
+	}
+	_, err := d.ExecContext(ctx, `
+		UPDATE vehicles SET image_url = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2 AND image_url IS DISTINCT FROM $3
+	`, userID, rivianID, url)
+	return err
+}
