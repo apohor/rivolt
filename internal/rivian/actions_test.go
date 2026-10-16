@@ -281,3 +281,46 @@ func TestPowerStateTimestampSwitch(t *testing.T) {
 		}
 	}
 }
+
+// The main wake path: a vehicleState push taking the cache out of sleep
+// stamps the frame anchor (applyVehicleStatePush → putCacheLocked, after
+// the Parallax hold), so the gate's attribution says wake_source=frame.
+// A push the hold keeps asleep (an R2's stale "ready" while Parallax
+// says sleep) stamps nothing.
+func TestVehicleStatePushStampsTheWake(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	ctx := context.Background()
+	at := time.Now()
+	m.applyVehicleStatePush(ctx, "v", &State{VehicleID: "v", At: at, PowerState: "sleep", Gear: "P", BatteryLevelPct: 50, OdometerKm: 1000})
+	m.mu.RLock()
+	_, stamped := m.wokeAt["v"]
+	m.mu.RUnlock()
+	if stamped {
+		t.Fatal("a sleep push stamped a wake")
+	}
+	before := time.Now()
+	m.applyVehicleStatePush(ctx, "v", &State{VehicleID: "v", At: at.Add(time.Minute), PowerState: "ready"})
+	m.mu.RLock()
+	woke, ok := m.wokeAt["v"]
+	m.mu.RUnlock()
+	if !ok || woke.Before(before) {
+		t.Fatalf("sleep → ready push: wokeAt %v (set %v), want stamped now", woke, ok)
+	}
+
+	// Held: Parallax says sleep and is live, vehicleState replays ready.
+	h := NewStateMonitor(nil, nil)
+	h.parallaxDriveDynamics = true
+	h.applyVehicleStatePush(ctx, "v", &State{VehicleID: "v", At: at, PowerState: "sleep", BatteryLevelPct: 50, OdometerKm: 1000})
+	h.mu.Lock()
+	h.lastPxPower["v"] = "sleep"
+	h.lastParallaxAt["v"] = time.Now()
+	h.mu.Unlock()
+	h.applyVehicleStatePush(ctx, "v", &State{VehicleID: "v", At: at.Add(time.Minute), PowerState: "ready"})
+	h.mu.RLock()
+	_, heldStamped := h.wokeAt["v"]
+	ps := h.cache["v"].PowerState
+	h.mu.RUnlock()
+	if heldStamped || ps != "sleep" {
+		t.Errorf("held sleep: power %q, wake stamped %v; want sleep and no stamp", ps, heldStamped)
+	}
+}
