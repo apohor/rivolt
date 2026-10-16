@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -460,28 +461,27 @@ func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
 	return false
 }
 
-// Unsubscribe routes the same way as EnsureSubscribed.
+// Unsubscribe tears the vehicle's subscription down on every monitor
+// that runs it, not only its current owner's. After an owner flip (users
+// sharing a VIN) the old owner's run is still the one streaming; routing
+// by owner cancelled the new owner's (a no-op) and left the old one
+// streaming on a pod that no longer holds the lease: a cross-pod
+// duplicate. Unsubscribe on a monitor that doesn't run it is a no-op.
+// No database lookup.
 func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 	if rivianVehicleID == "" {
 		return
 	}
-	uid, err := r.ownerOf(rivianVehicleID)
-	if err != nil {
-		// Best-effort: try every monitor. Ownership row may have
-		// been deleted; we still want the WS torn down.
-		r.mu.RLock()
-		mons := make([]*StateMonitor, 0, len(r.monitors))
-		for _, e := range r.monitors {
-			mons = append(mons, e.monitor)
-		}
-		r.mu.RUnlock()
-		for _, m := range mons {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m != nil {
 			m.Unsubscribe(rivianVehicleID)
 		}
-		return
-	}
-	if mon := r.For(uid); mon != nil {
-		mon.Unsubscribe(rivianVehicleID)
 	}
 }
 
@@ -501,6 +501,9 @@ func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 // enabled over disabled, not-needing-reauth over needing it, has a
 // stored rivian session over none, freshest session, then a stable
 // created_at tiebreak. Single-owner vehicles are unaffected.
+// ownerLookupTimeout bounds ownerOf's query.
+const ownerLookupTimeout = 2 * time.Second
+
 func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 	if r.pool == nil {
 		return uuid.Nil, errors.New("no db pool")
@@ -519,8 +522,13 @@ func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 			s.updated_at DESC NULLS LAST,      -- freshest re-auth wins
 			v.created_at ASC                   -- stable, deterministic tiebreak
 		LIMIT 1`
+	// Bounded: it runs inside the lease reconcile (acquire, release and
+	// the not-streaming heal), and a hung connection there would stall
+	// lease renewals until a peer took the vehicles over.
+	ctx, cancel := context.WithTimeout(context.Background(), ownerLookupTimeout)
+	defer cancel()
 	var uid uuid.UUID
-	err := r.pool.QueryRowContext(context.Background(), q, rivianVehicleID).Scan(&uid)
+	err := r.pool.QueryRowContext(ctx, q, rivianVehicleID).Scan(&uid)
 	if err != nil {
 		return uuid.Nil, err
 	}
