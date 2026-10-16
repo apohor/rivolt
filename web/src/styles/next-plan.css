@@ -666,3 +666,11 @@ html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-thumb {
   border: 2px solid var(--color-neutral-950);
   background: oklch(78% 0.15 168);
 }
+
+/* Phone: the map fills the space between the top bar and the sheet's peek (the top
+   bar ~48px, the tab bar ~72px, the 240px peek, a little air). */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-area='map'] {
+    height: max(260px, calc(100dvh - 376px));
+  }
+}
