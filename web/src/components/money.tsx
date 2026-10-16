@@ -216,6 +216,10 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   const g = grammarFor(r);
   // Rivian receipts are on for this user when the server sends the matched counts.
   const billedMode = r.billed_sessions != null;
+  // Some sessions matched a receipt and some did not: the row total is still our estimate, with
+  // the billed part noted.
+  const billedPart = r.sessions.reduce((a, x) => a + (x.billed_cost ?? 0), 0);
+  const partly = billedMode && r.billed_cost == null && (r.billed_sessions ?? 0) > 0 && (r.estimated_sessions ?? 0) > 0 && billedPart > 0;
   const parentID = r.sessions[0]?.charge_id ?? r.receipt_id.replace(/^rcpt_/, "");
   const notes = r.flags.map((f) => FLAG_TEXT[f]).filter(Boolean) as string[];
   if (r.spans_days > 1) notes.unshift(`${r.spans_days} days`);
@@ -273,6 +277,14 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px]">
             {billedMode && r.billed_cost != null ? (
               <span data-price-label="billed" className="font-medium text-emerald-300">Billed by Rivian</span>
+            ) : partly ? (
+              <span data-price-label="partly" className="font-medium text-neutral-300">
+                Partly billed
+                <span className="font-normal text-neutral-500">
+                  {" · "}
+                  {formatMoney(billedPart, r.sessions.find((x) => x.billed_cost != null)?.billed_currency || currency)} billed by Rivian
+                </span>
+              </span>
             ) : (
               <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
                 {billedMode && r.cost_source !== "rivian" && g !== "unknown" && g !== "pending" && g !== "free" && (
