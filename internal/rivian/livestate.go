@@ -190,6 +190,9 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 			lastMeaningfulAt: lma,
 			lastProgressAt:   lpa,
 			activeSeconds:    c.ActiveSeconds,
+			// The integral isn't carried over (it restarts at 0), so the
+			// progress point is where this pod picks up.
+			progressActiveSec: c.ActiveSeconds,
 		}
 	}
 	return s

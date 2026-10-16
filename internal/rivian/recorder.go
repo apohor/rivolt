@@ -270,6 +270,12 @@ type liveCharge struct {
 	// so power can't show the charge is over; the stale guard measures
 	// such a charge against this instead.
 	lastProgressAt time.Time
+	// progressKWh and progressActiveSec are energyIntKWh and
+	// activeSeconds as of lastProgressAt: the stale guard rolls a stuck
+	// charge back to them, since the sticky power after the last
+	// progress kept integrating (noteProgress).
+	progressKWh       float64
+	progressActiveSec float64
 }
 
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
@@ -286,6 +292,14 @@ func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) 
 	}
 	if socUp || stateChanged {
 		c.lastProgressAt = t
+	}
+}
+
+// noteProgress records the energy integral and active time as of a
+// progress frame (t is lastProgressAt). Call after accumulateEnergy.
+func (c *liveCharge) noteProgress(t time.Time) {
+	if c.lastProgressAt.Equal(t) {
+		c.progressKWh, c.progressActiveSec = c.energyIntKWh, c.activeSeconds
 	}
 }
 
@@ -1128,12 +1142,19 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				"vehicle", curr.VehicleID,
 				"id", s.charge.id,
 				"gap", gap.Round(time.Second),
-				"soc_drop", socDrop)
+				"soc_drop", socDrop,
+				// No plug indicator (R2): the gap is since the last SoC
+				// rise or state change (lastProgressAt), not power.
+				"no_plug_status", noPlugStatus)
 			s.charge.finalState = "abandoned"
 			// Without a plug indicator the sticky frames since the last
-			// progress weren't charging: end the row there.
+			// progress weren't charging: end the row there, and take back
+			// the energy and active time their sticky power integrated
+			// (it would be billed on Money).
 			if noPlugStatus && ref.After(s.charge.startedAt) && ref.Before(s.charge.endAt) {
 				s.charge.endAt = ref
+				s.charge.energyIntKWh, s.charge.activeSeconds = s.charge.progressKWh, s.charge.progressActiveSec
+				s.charge.lastPowerAt, s.charge.lastPowerKW = time.Time{}, 0
 			}
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			if noPlugStatus {
@@ -1178,6 +1199,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
 			accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+			s.charge.noteProgress(curr.At)
 			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1202,6 +1224,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1215,6 +1238,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
 		if curr.At.After(s.charge.endAt) {
@@ -2034,7 +2058,8 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		finalState: row.FinalState,
 		// Continue the active-charging-time accumulator from the
 		// persisted value so a mid-charge restart doesn't reset it.
-		activeSeconds: row.ActiveSeconds,
+		activeSeconds:     row.ActiveSeconds,
+		progressActiveSec: row.ActiveSeconds,
 		// Anchor the stale-session guard at the last advanced frame, not
 		// zero. A zero lastMeaningfulAt makes the guard fall back to
 		// startedAt and abandon any resumed charge older than the gap

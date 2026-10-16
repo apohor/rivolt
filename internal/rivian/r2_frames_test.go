@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -386,6 +387,10 @@ func TestR2StickyChargingActiveClosesOnce(t *testing.T) {
 	}
 	first := charge.id
 	lastReal := at.Add(20 * time.Minute)
+	atLastReal := r.m.liveChargeRow("r2", charge)
+	if atLastReal.EnergyAddedKWh <= 0 {
+		t.Fatalf("no energy after 20 min at 7.4 kW: %+v", atLastReal)
+	}
 	// Unplugged: an hour of sticky charging_active (0 kW pushed, which
 	// doesn't merge), flat SoC.
 	opened := map[string]bool{first: true}
@@ -403,6 +408,13 @@ func TestR2StickyChargingActiveClosesOnce(t *testing.T) {
 	}
 	if charge.finalState != "abandoned" || !charge.endAt.Equal(lastReal) {
 		t.Errorf("closed %q ending %v, want abandoned at the last progress %v", charge.finalState, charge.endAt, lastReal)
+	}
+	// The sticky tail (its merged 7.4 kW kept integrating) adds nothing:
+	// the row's energy and active time are those at the last progress.
+	closed := r.m.liveChargeRow("r2", charge)
+	if math.Abs(closed.EnergyAddedKWh-atLastReal.EnergyAddedKWh) > 1e-9 || closed.ActiveSeconds != atLastReal.ActiveSeconds {
+		t.Errorf("closed with %.3f kWh / %.0f s active, want the %.3f kWh / %.0f s at the last progress",
+			closed.EnergyAddedKWh, closed.ActiveSeconds, atLastReal.EnergyAddedKWh, atLastReal.ActiveSeconds)
 	}
 	// Driven while still stuck (SoC falls), then plugged in again: the
 	// first SoC rise opens a new charge.
