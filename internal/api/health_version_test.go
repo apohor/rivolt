@@ -23,6 +23,10 @@ func TestEffectiveVersion(t *testing.T) {
 		{"no podinfo", stamp, "", stamp},
 		{"no podinfo, unstamped", "dev", "", "dev"},
 		{"whitespace-only podinfo", stamp, " \n", stamp},
+		// CI's devtag image X.Y.Z-dev.N is release-shaped: reported as is
+		{"devtag", stamp, "0.35.0-dev.24", "0.35.0-dev.24"},
+		// the X.Y alias is not (bump-prod never writes it)
+		{"minor alias", stamp, "0.34", stamp},
 		// look-alikes are not release tags
 		{"four-part numbers", stamp, "1.2.3.4", stamp},
 		{"semver-ish word", stamp, "v1.2", stamp},
