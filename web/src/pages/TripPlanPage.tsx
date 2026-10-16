@@ -235,6 +235,7 @@ export default function TripPlanPage() {
           new Date(Date.now() - 6 * 60 * 60 * 1000),
           5000,
           new Date(Date.now() + 60_000),
+          firstVehicle?.rivian_vehicle_id,
         )
         .then((r) => forVehicle(r, firstVehicle?.rivian_vehicle_id)),
     enabled: stateQuery.isFetched && !stateHasFix,

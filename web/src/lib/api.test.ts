@@ -143,3 +143,21 @@ describe("liveDrive in the demo", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("backend.samples vehicle scope", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("passes ?vehicle= when given and omits it otherwise", async () => {
+    Object.defineProperty(window, "location", { value: { pathname: "/", search: "", assign: vi.fn() }, writable: true });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { backend } = await import("./api");
+    const a = new Date("2026-01-01T00:00:00Z");
+    const b = new Date("2026-01-01T01:00:00Z");
+    await backend.samples(a, 100, b, "veh-1");
+    await backend.samples(a, 100, b);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("vehicle=veh-1");
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain("vehicle=");
+  });
+});
