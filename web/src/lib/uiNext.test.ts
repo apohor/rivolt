@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { setServerUiNext, uiNextEnabled } from "./uiNext";
+import { overrideAllowed, setServerUiNext, uiNextEnabled } from "./uiNext";
 
 // ui_theme_next: off by default; the server flag turns it on; a per-device
 // override (?ui=next / ?ui=off) beats the server flag.
@@ -31,5 +31,23 @@ describe("ui_theme_next resolution", () => {
     expect(uiNextEnabled()).toBe(false);
     at("?ui=reset");
     expect(uiNextEnabled()).toBe(true); // back to the server flag
+  });
+
+  it("honours the override only on preview and local dev", () => {
+    expect(overrideAllowed("preview.rivolt.dev")).toBe(true);
+    expect(overrideAllowed("localhost")).toBe(true);
+    expect(overrideAllowed("127.0.0.1")).toBe(true);
+    expect(overrideAllowed("rivolt.dev")).toBe(false);
+    expect(overrideAllowed("demo.rivolt.dev")).toBe(false);
+    expect(overrideAllowed("evil-preview.rivolt.dev")).toBe(false);
+  });
+
+  it("on prod, ?ui=next is ignored and a stored override is cleared; the server flag still works", () => {
+    window.localStorage.setItem("rivolt.ui.next", "on");
+    at("?ui=next");
+    expect(uiNextEnabled("rivolt.dev")).toBe(false);
+    expect(window.localStorage.getItem("rivolt.ui.next")).toBeNull();
+    setServerUiNext(true);
+    expect(uiNextEnabled("rivolt.dev")).toBe(true);
   });
 });
