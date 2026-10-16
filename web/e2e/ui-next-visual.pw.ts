@@ -78,7 +78,7 @@ for (const s of SHOTS) {
           fullPage: true,
           animations: "disabled",
           caret: "hide",
-          mask: [page.locator(".leaflet-container")],
+          mask: [page.locator(".leaflet-tile-pane")],
           maxDiffPixelRatio: 0.002,
         });
         await ctx.close();
