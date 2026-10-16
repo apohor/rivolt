@@ -48,6 +48,10 @@ type Metrics struct {
 	// Subscription leases owned by this pod. The lease layer
 	// increments/decrements as it claims and releases.
 	SubscriptionLeases prometheus.Gauge
+	// LeaseUnstreamed counts episodes of a lease this pod holds without
+	// a subscription behind it (the coordinator re-subscribes; alert on
+	// any increase).
+	LeaseUnstreamed prometheus.Counter
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge
 	// (closed/half_open/open) so Grafana can alert on
@@ -144,6 +148,12 @@ func New() *Metrics {
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
 			},
 		),
+		LeaseUnstreamed: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "rivolt_lease_unstreamed_total",
+				Help: "Episodes of a Rivian subscription lease held by this pod with no subscription running (re-subscribed by the lease coordinator).",
+			},
+		),
 		RivianBreakerState: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: "rivolt_rivian_breaker_state",
@@ -206,6 +216,7 @@ func New() *Metrics {
 		m.HTTPRequestDuration,
 		m.RivianResultsTotal,
 		m.SubscriptionLeases,
+		m.LeaseUnstreamed,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,

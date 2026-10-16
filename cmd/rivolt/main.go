@@ -1150,6 +1150,11 @@ func runServer() {
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
 		})
+		// Heal a lease held without a subscription (an exited run, a
+		// monitor that never started): reconcile re-subscribes it and
+		// counts the episode.
+		coord.SetStreamingCheck(monitorRegistry.Streaming)
+		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
 		// unsubscribed. This covers both account deletion (vehicles row

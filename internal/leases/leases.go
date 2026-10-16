@@ -223,7 +223,28 @@ type Coordinator struct {
 
 	mu    sync.Mutex
 	owned map[string]struct{}
+
+	// streaming, when set, reports whether this pod is actually
+	// subscribed to a vehicle it holds the lease for. Holding a lease
+	// without a subscription is silent data loss: Sep 7–27 2026, two
+	// trucks recorded nothing for 20 days while their lease was renewed
+	// every tick, because onAcquire only fires on acquisition. Reconcile
+	// re-fires onAcquire for such a vehicle (EnsureSubscribed is
+	// idempotent), at most every unstreamedRetry, and reports each
+	// episode once to onUnstreamed (a metric) with a Warn. nil disables
+	// the check.
+	streaming    func(vehicleID string) bool
+	onUnstreamed func(vehicleID string)
+	// unstreamed[vehicleID] is when the current episode's last
+	// re-subscribe was fired. Guarded by mu.
+	unstreamed map[string]time.Time
+	now        func() time.Time
 }
+
+// unstreamedRetry bounds how often reconcile re-fires onAcquire for a
+// vehicle that stays unsubscribed (a monitor that can't start for it
+// would otherwise be poked every tick).
+const unstreamedRetry = 5 * time.Minute
 
 // storeAPI is the slice of *Store the Coordinator actually uses.
 // Pulled out so tests can supply an in-memory fake without standing
@@ -266,6 +287,8 @@ func newCoordinator(
 		reconcileInterval: reconcileInterval,
 		trigger:           make(chan struct{}, 1),
 		owned:             make(map[string]struct{}),
+		unstreamed:        make(map[string]time.Time),
+		now:               time.Now,
 	}
 }
 
@@ -293,6 +316,73 @@ func (c *Coordinator) TriggerReconcile() {
 // with the current number of leases owned. Safe to call before Run.
 func (c *Coordinator) SetCountObserver(fn func(count int)) {
 	c.onCountChange = fn
+}
+
+// SetStreamingCheck wires the "is this pod subscribed to the vehicle"
+// probe that lets reconcile heal a lease held without a subscription.
+// Safe to call before Run.
+func (c *Coordinator) SetStreamingCheck(fn func(vehicleID string) bool) {
+	c.streaming = fn
+}
+
+// SetUnstreamedObserver wires a callback fired once per episode of a
+// lease held without a subscription (the metric). Safe to call before
+// Run.
+func (c *Coordinator) SetUnstreamedObserver(fn func(vehicleID string)) {
+	c.onUnstreamed = fn
+}
+
+// healUnstreamed re-fires onAcquire for every owned vehicle this pod
+// isn't subscribed to (see streaming). Runs after renew/reap, before
+// acquisition, so a vehicle acquired this tick isn't judged before its
+// subscription had a chance to start.
+func (c *Coordinator) healUnstreamed() {
+	if c.streaming == nil {
+		return
+	}
+	c.mu.Lock()
+	owned := make([]string, 0, len(c.owned))
+	for vid := range c.owned {
+		owned = append(owned, vid)
+	}
+	c.mu.Unlock()
+	now := c.now()
+	for _, vid := range owned {
+		if c.streaming(vid) {
+			c.mu.Lock()
+			_, was := c.unstreamed[vid]
+			delete(c.unstreamed, vid)
+			c.mu.Unlock()
+			if was {
+				c.log.Info("lease streaming again", "vehicle", vid)
+			}
+			continue
+		}
+		c.mu.Lock()
+		last, inEpisode := c.unstreamed[vid]
+		due := !inEpisode || now.Sub(last) >= unstreamedRetry
+		if due {
+			c.unstreamed[vid] = now
+		}
+		c.mu.Unlock()
+		if !inEpisode {
+			c.log.Warn("lease held, not streaming; resubscribing", "vehicle", vid)
+			if c.onUnstreamed != nil {
+				c.onUnstreamed(vid)
+			}
+		}
+		if due {
+			c.onAcquire(vid)
+		}
+	}
+	// Episodes end with the lease too.
+	c.mu.Lock()
+	for vid := range c.unstreamed {
+		if _, ok := c.owned[vid]; !ok {
+			delete(c.unstreamed, vid)
+		}
+	}
+	c.mu.Unlock()
 }
 
 // SetAuthoritative wires the existence source used to reap orphan
@@ -407,6 +497,8 @@ func (c *Coordinator) reconcile(ctx context.Context) {
 			}
 		}
 	}
+
+	c.healUnstreamed()
 
 	// Pull the cluster's vehicle set and try to acquire anything we
 	// don't already own.
