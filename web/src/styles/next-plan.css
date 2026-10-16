@@ -195,3 +195,34 @@ html[data-ui='next'] [data-plan-form] [data-plan-submit] > button {
   padding-block: 0.65rem;
 }
 
+
+/* Plan tabs (plumbing defaults; the look is ux's): a segmented control. */
+html[data-ui='next'] [data-plan-tabs] {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid oklch(30% 0.01 262);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab'] {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  color: oklch(70% 0.01 262);
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab']:hover {
+  color: oklch(97% 0 0);
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab'][data-tab-active='true'] {
+  background: oklch(27% 0.012 262);
+  color: oklch(97% 0 0);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] {
+  border-color: oklch(86% 0.005 262);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] [role='tab'] {
+  color: oklch(45% 0.01 262);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] [role='tab'][data-tab-active='true'] {
+  background: oklch(94% 0.005 262);
+  color: oklch(20% 0 0);
+}
