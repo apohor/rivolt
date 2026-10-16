@@ -169,6 +169,67 @@ func TestLogWakeAttribution(t *testing.T) {
 	}
 }
 
+// The first awake frame's arrival anchors the wake when we have it: a
+// refresh that frame triggered half a second later is listed as our
+// reaction (+), not as the last action before the wake, even though the
+// gate only saw the wake on its next tick.
+func TestLogWakeAttributionAnchorsOnTheFirstAwakeFrame(t *testing.T) {
+	frame := time.Date(2026, 10, 15, 4, 10, 0, 0, time.UTC)
+	now := frame
+	c := NewLive()
+	c.actions.now = func() time.Time { return now }
+	note := func(at time.Time, kind, op, detail string) {
+		now = at
+		c.noteAction("veh-1", kind, op, detail)
+	}
+	note(frame.Add(-20*time.Minute), "subscribe", "VehicleState", "")
+	note(frame.Add(500*time.Millisecond), "request", "GetVehicleState", "refresh")
+
+	logs := &syncBuffer{}
+	m := &StateMonitor{client: c, logger: slog.New(slog.NewTextHandler(logs, nil)),
+		cache:  map[string]*State{"veh-1": {PowerState: "standby", PowerStateAt: frame.Add(-2 * time.Second)}},
+		wokeAt: map[string]time.Time{"veh-1": frame}}
+	m.logWakeAttribution("veh-1", frame.Add(-2*time.Minute), frame.Add(900*time.Millisecond), "standby", false)
+	got := logs.String()
+	for _, want := range []string{"wake_source=frame", "wake_at=2026-10-15T04:10:00Z", "seen_after=900ms",
+		`last_action="subscribe VehicleState"`, "request GetVehicleState(refresh) +500ms",
+		"car_wake_at=2026-10-15T04:09:58Z"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %s in:\n%s", want, got)
+		}
+	}
+
+	// A stamp from an earlier wake (before this sleep was seen) is not
+	// this wake's: fall back to the car's time.
+	logs = &syncBuffer{}
+	m.logger = slog.New(slog.NewTextHandler(logs, nil))
+	m.wokeAt["veh-1"] = frame.Add(-3 * time.Minute)
+	m.logWakeAttribution("veh-1", frame.Add(-2*time.Minute), frame.Add(900*time.Millisecond), "standby", false)
+	if got := logs.String(); !strings.Contains(got, "wake_source=car") || strings.Contains(got, "car_wake_at") {
+		t.Errorf("stale frame stamp used:\n%s", got)
+	}
+}
+
+// Only a sleep → awake change stamps the frame time.
+func TestPutCacheStampsWakeFrames(t *testing.T) {
+	m := &StateMonitor{cache: map[string]*State{}}
+	m.putCacheLocked("v", &State{PowerState: "sleep"})
+	if _, ok := m.wokeAt["v"]; ok {
+		t.Fatal("first frame (asleep) stamped a wake")
+	}
+	m.putCacheLocked("v", &State{PowerState: ""}) // not reported: no wake
+	m.cache["v"] = &State{PowerState: "sleep"}
+	m.putCacheLocked("v", &State{PowerState: "standby"})
+	first, ok := m.wokeAt["v"]
+	if !ok {
+		t.Fatal("sleep → standby not stamped")
+	}
+	m.putCacheLocked("v", &State{PowerState: "ready"}) // already awake
+	if m.wokeAt["v"] != first {
+		t.Error("an awake → awake change moved the wake stamp")
+	}
+}
+
 // The sleep gate emits the attribution line when a sleep ends.
 func TestSleepGateLogsWakeAttribution(t *testing.T) {
 	old := sleepGateTick
@@ -184,7 +245,7 @@ func TestSleepGateLogsWakeAttribution(t *testing.T) {
 	go m.sleepGate(ctx, "veh-1", func(context.Context) {})
 	set := func(ps string) {
 		m.mu.Lock()
-		m.cache["veh-1"] = &State{PowerState: ps}
+		m.putCacheLocked("veh-1", &State{PowerState: ps})
 		m.mu.Unlock()
 	}
 	// Sleep, then wake, until the gate (ticking every millisecond, but
@@ -199,7 +260,7 @@ func TestSleepGateLogsWakeAttribution(t *testing.T) {
 		set("standby")
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !strings.Contains(logs.String(), `last_action="subscribe VehicleState"`) {
+	if !strings.Contains(logs.String(), `last_action="subscribe VehicleState"`) || !strings.Contains(logs.String(), "wake_source=frame") {
 		t.Errorf("logs:\n%s", logs.String())
 	}
 }
