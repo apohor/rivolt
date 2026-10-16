@@ -2394,6 +2394,15 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 // applicable reports whether a drive-dynamics value may be applied to
 // the live state: a fresh frame (noteParallaxFrame) whose event time is
 // within parallaxGearMaxAge. A replay is counted for the replay metric.
+// parkableGear reports whether a Parallax P should replace the cached gear:
+// a driving gear (vehicleState that never reports park, so the last D or R
+// sticks) or none at all (an R2's vehicleState sends the gear blank, and
+// after a restart the cache starts without one until a gear frame lands;
+// stored and served blank, it reads as "unknown" rather than parked).
+func parkableGear(g string) bool {
+	return isDrivingGear(g) || strings.TrimSpace(g) == ""
+}
+
 func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
 	ok := fresh && f.TimestampMs > 0 && time.Since(time.UnixMilli(f.TimestampMs)) <= parallaxGearMaxAge
 	if !ok {
@@ -2432,14 +2441,14 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 			"vehicle", vehicleID, "px_enum", f.Value, "px_gear", g,
 			"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
 		// One exception: a replayed P is the last gear the car reported,
-		// so a car standing still while the cache reads driving (a
-		// vehicleState that never reports park, after a restart or a
+		// so a car standing still while the cache reads driving or has no
+		// gear at all (a vehicleState that never reports park, after a restart or a
 		// missed park frame) is parked. It doesn't count as fresh: the
 		// close corroboration still needs a stop (speed) or time.
 		if g == "P" && m.parallaxDriveDynamics && f.TimestampMs > 0 {
 			m.mu.Lock()
 			base := m.cache[vehicleID]
-			if base != nil && isDrivingGear(base.Gear) && base.SpeedKph*kphToMi <= driveCloseSpeedMph {
+			if base != nil && parkableGear(base.Gear) && base.SpeedKph*kphToMi <= driveCloseSpeedMph {
 				m.lastPxGear[vehicleID] = "P"
 				next := *base
 				next.At = time.Now()
@@ -2482,7 +2491,7 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 	if m.parallaxDriveDynamics && (isDrivingGear(g) || g == "P") {
 		m.mu.Lock()
 		base := m.cache[vehicleID]
-		if base != nil && (g != "P" || isDrivingGear(base.Gear)) {
+		if base != nil && (g != "P" || parkableGear(base.Gear)) {
 			next := *base
 			next.At = time.Now()
 			next.Gear = g
