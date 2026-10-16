@@ -1,4 +1,4 @@
-import { inDemo } from "../lib/demo";
+import { appPath, inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -219,7 +219,11 @@ function Statement({
   const shown = m.receipts.filter((r) => receiptMatches(r, filter));
 
   const prev = months.find((x) => x.period === shiftMonth(m.period, -1));
-  const delta = prev && prev.spend.total > 0 ? (m.spend.total - prev.spend.total) / prev.spend.total : null;
+  // Nothing priced this month (no charging, or every session unpriced): a
+  // "vs last month" delta (-100%) or a $/mi of $0 says nothing true, so both
+  // stay hidden.
+  const hasCharging = m.spend.priced_sessions > 0 || m.spend.total > 0;
+  const delta = hasCharging && prev && prev.spend.total > 0 ? (m.spend.total - prev.spend.total) / prev.spend.total : null;
   // Partial month (MQ8): the first month with any data, where activity
   // starts well after the 1st.
   const earliest = months.find((x) => x.first_activity_at != null);
@@ -262,7 +266,7 @@ function Statement({
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
           {m.driving.miles > 0 && <> · {m.driving.miles.toFixed(0)} mi</>}
-          {m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
+          {hasCharging && m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
 
         {toConfirm != null && toConfirm > 0 && (
@@ -331,7 +335,7 @@ function Statement({
               <li className="text-neutral-400">
                 Not included: {m.spend.unpriced_sessions} unpriced{" "}
                 {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh)
-                {m.spend.unpriced_home_rate_estimate != null && (
+                {m.spend.unpriced_home_rate_estimate != null && m.spend.unpriced_home_rate_estimate > 0 && (
                   <>
                     {" "}
                     ≈{" "}
@@ -339,6 +343,15 @@ function Statement({
                       {formatMoney(m.spend.unpriced_home_rate_estimate, cur)}
                     </span>{" "}
                     if charged at home
+                  </>
+                )}
+                {m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0 && (
+                  <>
+                    . No home rate is set;{" "}
+                    <Link to={appPath("/settings?tab=charging")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+                      set it in Settings
+                    </Link>{" "}
+                    to price home charging.
                   </>
                 )}
               </li>
