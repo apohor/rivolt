@@ -342,7 +342,8 @@ type Priceable = {
   cost: number | null;
   cost_source: ReceiptCostSource;
   flags: ReceiptFlag[];
-  sessions?: Pick<ReceiptSession, "cost_source" | "flags">[];
+  network_state?: NetworkState | null;
+  sessions?: Pick<ReceiptSession, "cost_source" | "flags" | "network_state">[];
 };
 
 // isSuspect: a session counted in the total at the home rate while
@@ -367,13 +368,25 @@ export function needsPrice(r: Pick<Receipt, "flags" | "sessions">): boolean {
   );
 }
 
+// isConfirmedNetwork: the owner confirmed (or picked) the auto-detected
+// network, so the price is no longer an estimate they should check.
+export function isConfirmedNetwork(r: {
+  cost_source: ReceiptCostSource;
+  network_state?: NetworkState | null;
+  sessions?: { cost_source?: string; network_state?: NetworkState | null }[];
+}): boolean {
+  if (r.network_state === "confirmed") return true;
+  const est = (r.sessions ?? []).filter((x) => x.cost_source === "network_estimate");
+  return r.cost_source === "network_estimate" && est.length > 0 && est.every((x) => x.network_state === "confirmed");
+}
+
 export function grammarFor(r: Priceable): CostGrammar {
   if (r.cost_source === "home_rate_misapplied") return "pending";
   if (r.cost == null || r.cost_source === "unknown") {
     return r.flags.includes("estimate_pending") ? "pending" : "unknown";
   }
   if (r.cost_source === "user" && r.cost === 0) return "free";
-  if (r.cost_source === "network_estimate") return "estimated";
+  if (r.cost_source === "network_estimate") return isConfirmedNetwork(r) ? "recorded" : "estimated";
   if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate")) {
     return "estimated";
   }
@@ -402,7 +415,7 @@ export function sourceLabel(
         ? `Home rate, but away from home${rate} · likely wrong`
         : `Home rate${rate}`;
     case "network_estimate":
-      return `${hasOpenNetworkState(r) ? "Estimated, confirm" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
+      return `${hasOpenNetworkState(r) ? "Estimated, confirm" : isConfirmedNetwork(r) ? "Confirmed" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
