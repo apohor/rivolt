@@ -32,7 +32,7 @@ func TestBilledFieldsAbsentWhenFlagOff(t *testing.T) {
 
 // billed_total counts Rivian's amount for every counted session that has a
 // receipt (even one our estimate could not price); estimated_total is our
-// cost over the priced sessions without one; spend.total stays our figure.
+// cost over the priced sessions without one; spend.total is their sum.
 func TestBilledTotalsSplitTheMonth(t *testing.T) {
 	month, _ := ParsePeriod("2026-10", chicago)
 	matched := billed(at(priced(charge("m", "2026-10-09T18:00:00Z", time.Hour, 40, 150), 0.40), awayLat, awayLon), 14.25, "usd", "Electrify America", "EA Reno 12", false)
@@ -55,10 +55,32 @@ func TestBilledTotalsSplitTheMonth(t *testing.T) {
 	if *m.BilledSessions != 3 || *m.EstimatedSessions != 2 {
 		t.Errorf("sessions billed/estimated = %d/%d, want 3/2", *m.BilledSessions, *m.EstimatedSessions)
 	}
-	// spend.total is unchanged: our own cost over the priced sessions (matched
-	// 16, home 5.5, no receipt 2.2, the EUR-receipt session's 1.1 estimate).
-	if want := round4(40*0.40 + 50*0.11 + 20*0.11 + 10*0.11); m.Spend.Total != want {
-		t.Errorf("spend.total = %v, want %v (our own figure, untouched)", m.Spend.Total, want)
+	// Each session counts once, as its receipt when it has one: the headline is
+	// the sum of the two lines, exactly.
+	if want := round4(*m.Spend.BilledTotal + *m.Spend.EstimatedTotal); m.Spend.Total != want {
+		t.Errorf("spend.total = %v, want billed_total + estimated_total = %v", m.Spend.Total, want)
+	}
+	if want := round4(14.25 + 20 + 5.5 + 2.2 + 1.1); m.Spend.Total != want {
+		t.Errorf("spend.total = %v, want %v", m.Spend.Total, want)
+	}
+	if got := m.Spend.BySource[SourceRivian]; got != round4(14.25+20+5.5) {
+		t.Errorf("by_source.rivian = %v, want the billed amounts", got)
+	}
+	var kindCost float64
+	for _, k := range m.Energy.ByKind {
+		kindCost += k.Cost
+	}
+	if round4(kindCost) != m.Spend.Total {
+		t.Errorf("by_kind costs %v do not add up to spend.total %v", kindCost, m.Spend.Total)
+	}
+	// The unpriced-but-billed session is no longer unpriced.
+	if m.Spend.UnpricedSessions != 0 || m.Spend.PricedSessions != 5 {
+		t.Errorf("priced/unpriced = %d/%d, want 5/0", m.Spend.PricedSessions, m.Spend.UnpricedSessions)
+	}
+	// With the flag off the same rows give today's statement.
+	off := Build(Input{Charges: []Charge{matched, unpricedButBilled, homeBilled, noReceipt, otherCur}, Config: cfg(), Now: ts("2026-10-13T23:00:00Z")}, month, true)
+	if want := round4(40*0.40 + 50*0.11 + 20*0.11 + 10*0.11); off.Spend.Total != want || off.Spend.UnpricedSessions != 1 {
+		t.Errorf("flag off: spend.total = %v (want %v), unpriced %d (want 1)", off.Spend.Total, want, off.Spend.UnpricedSessions)
 	}
 
 	byID := map[string]ReceiptSession{}
@@ -73,6 +95,9 @@ func TestBilledTotalsSplitTheMonth(t *testing.T) {
 		if r.Sessions[0].ChargeID == "m" {
 			matchedRcpt = r
 		}
+	}
+	if s := byID["m"]; s.Cost == nil || *s.Cost != 14.25 || s.CostSource != SourceRivian {
+		t.Errorf("a billed session's cost must be the receipt, source rivian: %+v", s)
 	}
 	if s := byID["m"]; s.BilledCost == nil || *s.BilledCost != 14.25 || s.BilledCurrency == nil || *s.BilledCurrency != "USD" ||
 		s.BilledVendor == nil || *s.BilledVendor != "Electrify America" || s.BilledCharger == nil || *s.BilledCharger != "EA Reno 12" {
