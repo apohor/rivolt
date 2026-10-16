@@ -65,11 +65,11 @@ for (const theme of ["dark", "light"] as const) {
         const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g) ?? [];
         return m.length > 3 ? Number(m[3]) : 1;
       });
-    expect(await alpha("header.sticky")).toBeGreaterThanOrEqual(0.9);
-    expect(await alpha(".app-safe-bottom.fixed")).toBeGreaterThanOrEqual(0.9);
+    expect(await alpha("header.sticky")).toBeGreaterThanOrEqual(0.95);
+    expect(await alpha(".app-safe-bottom.fixed")).toBeGreaterThanOrEqual(0.95);
     // One SoC readout: the limit is a tick on the arc and there is no linear bar.
     await expect(page.getByTestId("gauge-limit")).toHaveCount(1);
-    await expect(page.getByText("Limit 80%")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Now" }).getByText("Limit 80%")).toHaveCount(0);
     // Long text values keep Geist sans; short numeric ones may be mono.
     const fonts = await page.locator("[data-ui-hero] dd").evaluateAll((els) =>
       els.map((e) => ({ t: (e.textContent ?? "").trim(), mono: /Mono|monospace/i.test(getComputedStyle(e).fontFamily) })),

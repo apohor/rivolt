@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
@@ -405,6 +406,15 @@ export default function HomePage() {
           </Card>
 
           <Card title="Battery (SoC) trend">
+            {next ? (
+              <SocTrendChart
+                trend={trend}
+                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime() }))}
+                drives={winDrives.map((d) => ({ x0: new Date(d.StartedAt).getTime(), x1: new Date(d.EndedAt).getTime() }))}
+                domain={range.start ? [range.start.getTime(), Math.min(range.end ? range.end.getTime() : Date.now(), Date.now())] : null}
+                limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
+              />
+            ) : (
             <LineChart
               ariaLabel="Battery state of charge over time"
               series={[
@@ -450,6 +460,7 @@ export default function HomePage() {
                 })
               }
             />
+            )}
             {capacityPct > 0 ? (
               <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <span
