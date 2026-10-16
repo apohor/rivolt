@@ -174,7 +174,7 @@ test("demo planner: a preset with a stored polyline still renders (straight legs
       json: {
         trips: [
           {
-            id: "la-vegas", name: "LA to Las Vegas", saved_trip_id: "00000000-0000-4000-8000-000000000001", shape: poly,
+            id: "la-vegas", name: "LA to Las Vegas", saved_trip_id: "00000000-0000-4000-8000-000000000001", route_polyline: poly,
             inputs: { origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" }, destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" }, extra_stops: [] },
             summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
           },
