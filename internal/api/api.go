@@ -288,6 +288,9 @@ func New(d Deps) http.Handler {
 		if demo.Enabled() {
 			if d.Metrics != nil {
 				demoClientKeyObserver = func(source string) { d.Metrics.DemoClientKeyTotal.WithLabelValues(source).Inc() }
+				demoRateLimitedObserver = func(routeClass, scope string) {
+					d.Metrics.DemoRateLimitedTotal.WithLabelValues(routeClass, scope).Inc()
+				}
 			}
 			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
 		}

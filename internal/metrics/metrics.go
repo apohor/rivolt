@@ -105,6 +105,12 @@ type Metrics struct {
 	// "peer" share on a Cloudflare-fronted install means visitors are
 	// sharing buckets.
 	DemoClientKeyTotal *prometheus.CounterVec
+
+	// Demo requests rejected by a rate limiter (HTTP 429), by route class
+	// (general, samples, heavy, tiles) and by which budget bound (client
+	// or global). A sustained global count is the signal to look at; no
+	// addresses are recorded.
+	DemoRateLimitedTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -203,6 +209,13 @@ func New() *Metrics {
 			},
 			[]string{"source"},
 		),
+		DemoRateLimitedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_demo_rate_limited_total",
+				Help: "Demo requests answered 429, by route class and which budget (client or global) bound.",
+			},
+			[]string{"route_class", "scope"},
+		),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -238,6 +251,7 @@ func New() *Metrics {
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
 		m.DemoClientKeyTotal,
+		m.DemoRateLimitedTotal,
 		m.FunnelEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,

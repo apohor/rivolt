@@ -109,3 +109,16 @@ func observeDemoClientKey(source string) {
 		f(source)
 	}
 }
+
+// demoRateLimitedObserver, when set (once, at startup), counts demo 429s
+// by route class (general, samples, heavy, tiles) and which budget bound
+// (client or global). No addresses are recorded.
+var demoRateLimitedObserver func(routeClass, scope string)
+
+func demoDenied(routeClass, scope string) func() {
+	return func() {
+		if f := demoRateLimitedObserver; f != nil {
+			f(routeClass, scope)
+		}
+	}
+}

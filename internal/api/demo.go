@@ -300,18 +300,24 @@ func demoOnlyGateMW(vehicleID string) func(http.Handler) http.Handler {
 func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) func(http.Handler) http.Handler {
 	samples := newIPLimiter(demoSamplesPerClientPerMin, time.Minute, time.Hour)
 	samples.key = demoClientKey
+	samples.onDeny = demoDenied("samples", "client")
 	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
 	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
+	samplesGlobal.onDeny = demoDenied("samples", "global")
 	tiles := newIPLimiter(demoTilesPerClientPerMin, time.Minute, time.Hour)
 	tiles.key = demoClientKey
+	tiles.onDeny = demoDenied("tiles", "client")
 	tilesGlobal := newIPLimiter(demoTilesGlobalPerMin, time.Minute, time.Hour)
 	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
+	tilesGlobal.onDeny = demoDenied("tiles", "global")
 	// The heavy reads (parked drain, plan-vs-actual) share one small
 	// budget and one response cache.
 	heavy := newIPLimiter(demoHeavyPerClientPerMin, time.Minute, time.Hour)
 	heavy.key = demoClientKey
+	heavy.onDeny = demoDenied("heavy", "client")
 	heavyGlobal := newIPLimiter(demoHeavyGlobalPerMin, time.Minute, time.Hour)
 	heavyGlobal.key = func(*http.Request) string { return "global-heavy" }
+	heavyGlobal.onDeny = demoDenied("heavy", "global")
 	heavyCache := newDemoResponseCache(demoHeavyCacheTTL, 32)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -412,11 +418,13 @@ const demoRateGlobalPerMin = 1200
 func newDemoLimiter() *ipLimiter {
 	l := newIPLimiter(demoRatePerMin, time.Minute, time.Hour)
 	l.key = demoClientKey
+	l.onDeny = demoDenied("general", "client")
 	return l
 }
 
 func newDemoGlobalLimiter() *ipLimiter {
 	l := newIPLimiter(demoRateGlobalPerMin, time.Minute, time.Hour)
 	l.key = func(*http.Request) string { return "global" }
+	l.onDeny = demoDenied("general", "global")
 	return l
 }
