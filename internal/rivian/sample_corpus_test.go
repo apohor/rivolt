@@ -48,18 +48,29 @@ func sharedSampleCorpus() *SampleCorpus {
 var (
 	sampleReplayOnce sync.Once
 	sampleReplay     *Replayer
+	sampleFramesOnce sync.Once
+	sampleFrames     []State
 )
+
+// sharedSampleFrames is every frame of the shared corpus, generated once
+// (tests only read it). Rendering 45 days of frames is the bulk of each
+// corpus test's cost under -race.
+func sharedSampleFrames() []State {
+	sampleFramesOnce.Do(func() {
+		c := sharedSampleCorpus()
+		start, end := c.span()
+		sampleFrames, _ = c.Frames(context.Background(), start, end.Add(time.Second))
+	})
+	return sampleFrames
+}
 
 // sharedSampleReplay is the whole shared corpus fed once through the real
 // recorder (the slowest step under -race); tests read its drives and
 // charges.
 func sharedSampleReplay() *Replayer {
 	sampleReplayOnce.Do(func() {
-		c := sharedSampleCorpus()
-		start, end := c.span()
-		frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
 		sampleReplay = NewReplayer("sample")
-		sampleReplay.FeedAll(frames)
+		sampleReplay.FeedAll(sharedSampleFrames())
 	})
 	return sampleReplay
 }
@@ -96,10 +107,7 @@ func TestSampleCorpus_FramesConsistent(t *testing.T) {
 	t.Parallel()
 	c := sharedSampleCorpus()
 	start, end := c.span()
-	all, err := c.Frames(context.Background(), start, end.Add(time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	all := sharedSampleFrames()
 	for i := 1; i < len(all); i++ {
 		if !all[i].At.After(all[i-1].At) {
 			t.Fatalf("frame %d at %s not after %s", i, all[i].At, all[i-1].At)
@@ -110,9 +118,11 @@ func TestSampleCorpus_FramesConsistent(t *testing.T) {
 	}
 	for _, at := range []time.Time{start, start.Add(37 * time.Hour), start.Add(19*24*time.Hour + 13*time.Minute), end} {
 		got, _ := c.LastAtOrBefore(context.Background(), at)
-		window, _ := c.Frames(context.Background(), start, at.Add(time.Nanosecond))
-		if got == nil || !got.At.Equal(window[len(window)-1].At) {
-			t.Errorf("LastAtOrBefore(%s) = %v, want %s", at, got, window[len(window)-1].At)
+		// The last of all frames at or before at (the frames are ordered,
+		// checked above), instead of rendering the window again.
+		want := all[sort.Search(len(all), func(i int) bool { return all[i].At.After(at) })-1]
+		if got == nil || !got.At.Equal(want.At) {
+			t.Errorf("LastAtOrBefore(%s) = %v, want %s", at, got, want.At)
 		}
 	}
 	if got, _ := c.LastAtOrBefore(context.Background(), start.Add(-time.Second)); got != nil {
@@ -246,12 +256,7 @@ func TestSampleUserPrice(t *testing.T) {
 // Now card never looks stale next to a live truck.
 func TestSampleCorpusCadence(t *testing.T) {
 	t.Parallel()
-	c := sharedSampleCorpus()
-	start, end := c.span()
-	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	frames := sharedSampleFrames()
 	var worstAsleep, worstAwake time.Duration
 	for i := 1; i < len(frames); i++ {
 		gap := frames[i].At.Sub(frames[i-1].At)
@@ -298,12 +303,7 @@ func TestSampleRoutesFollowRoads(t *testing.T) {
 // next night after a 90% trip charge.)
 func TestSampleCorpusSoCWithinLimit(t *testing.T) {
 	t.Parallel()
-	c := sharedSampleCorpus()
-	start, end := c.span()
-	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	frames := sharedSampleFrames()
 	over := 0
 	for _, f := range frames {
 		plugged := f.ChargerState == "charging_complete" || f.ChargerState == "charging_active"
@@ -354,12 +354,7 @@ func TestSampleCorpus_TruckFields(t *testing.T) {
 // times" story), which is most of the max.
 func TestSampleCorpus_IdleAwakePerDay(t *testing.T) {
 	t.Parallel()
-	c := sharedSampleCorpus()
-	s := c.Summary()
-	fr, err := c.Frames(context.Background(), s.Start, s.End.Add(time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	fr := sharedSampleFrames()
 	idle := map[time.Time]float64{}
 	viaStandby, sleeps := 0, 0
 	for i := 0; i+1 < len(fr); i++ {
