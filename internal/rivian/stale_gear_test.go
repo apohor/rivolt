@@ -205,3 +205,20 @@ func TestParallaxPowerAndDriveModeReplaysIgnored(t *testing.T) {
 		t.Errorf("replays counted %v, want power 2, mode 1", obs.byTopic)
 	}
 }
+
+// An R2 has no vehicleState powerState, so Parallax is its only power source:
+// a fresh OTA frame (enum 6) must replace a cached "sleep" so a mid-OTA truck
+// doesn't read as asleep (sleep gate, drain attribution).
+func TestParallaxOTAPowerStateReplacesSleep(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.parallaxDriveDynamics = true
+	m.cache["vid-1"] = &State{VehicleID: "vid-1", At: time.Now(), Gear: "P", PowerState: "sleep", BatteryLevelPct: 60, OdometerKm: 1000}
+	m.onDriveDynamicsFrame(context.Background(), "vid-1",
+		DriveDynamicsFrame{RVM: rvmPowerState, Value: 6, ValueOK: true, TimestampMs: time.Now().UnixMilli()})
+	m.mu.RLock()
+	got := m.cache["vid-1"].PowerState
+	m.mu.RUnlock()
+	if got != "ota_update" || isSleepPS(got) {
+		t.Errorf("mid-OTA power state = %q, want ota_update (not asleep)", got)
+	}
+}

@@ -699,8 +699,14 @@ func gearFromParallax(v uint64) string {
 // 15): on R1s enum 1 coincides with vehicleState "sleep" (2,003 / 47
 // and 1,530 / 0 frames on two trucks). 2=standby is weaker evidence
 // (mixed vehicleState values on R1s) but sits between ready and sleep
-// as the car settles. Returns "" for an unmapped value so callers fall
-// back to vehicleState.
+// as the car settles. 5=vehicle_reset, 6=ota_update and 7=shutdown follow
+// the proto declaration order (UNDEFINED, SLEEP, STANDBY, READY, GO,
+// VEHICLE_RESET, OTA_UPDATE, SHUTDOWN) and use the vehicleState vocabulary;
+// 6 is confirmed live (22 frames co-occurring with vehicleState ota_update
+// over 7 days), 5 is consistent (2 frames, with ready), 7 is unseen. An R2
+// has no vehicleState powerState, so without these a mid-OTA R2 kept its
+// last state, often "sleep". Returns "" for an unmapped value so callers
+// fall back to vehicleState.
 func powerStateFromParallax(v uint64) string {
 	switch v {
 	case 1:
@@ -711,6 +717,12 @@ func powerStateFromParallax(v uint64) string {
 		return "ready"
 	case 4:
 		return "go"
+	case 5:
+		return "vehicle_reset"
+	case 6:
+		return "ota_update"
+	case 7:
+		return "shutdown"
 	default:
 		return ""
 	}

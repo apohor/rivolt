@@ -105,8 +105,8 @@ type State struct {
 	OutsideTempC               float64 `json:"outside_temp_c"`
 	CabinPreconditioningStatus string  `json:"cabin_preconditioning_status"`
 	// PowerState is the vehicle's high-level power mode reported by the
-	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
-	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
+	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" |
+	// "ota_update" | "shutdown" | "" (unknown). Mirrors home-assistant-rivian's powerState sensor.
 	PowerState string `json:"power_state"`
 	// ReplaySession is what Rivian's live charging session would report
 	// alongside this frame (the running billed price at a Rivian
