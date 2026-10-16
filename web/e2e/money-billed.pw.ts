@@ -103,3 +103,27 @@ for (const ui of ["off", "on"] as const) {
     await expect(page.getByText("Billed by Rivian")).toHaveCount(0);
   });
 }
+
+test("a partly billed receipt says so and notes the billed part", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { scenario: "parked" });
+  const m = withReceipts(true);
+  const i = m.receipts.findIndex((r) => r.session_count >= 2 && r.place === "away");
+  expect(i).toBeGreaterThanOrEqual(0);
+  const r = m.receipts[i];
+  r.billed_cost = null;
+  r.billed_sessions = 1;
+  r.estimated_sessions = r.session_count - 1;
+  r.sessions[0].billed_cost = 9.8;
+  r.sessions[0].billed_currency = m.currency;
+  await page.route("**/api/ledger/monthly**", (rt) => rt.fulfill({ json: m }));
+  await page.goto("/money");
+  await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
+  const partly = page.locator("[data-price-label='partly']");
+  await expect(partly).toHaveCount(1);
+  await expect(partly).toContainText("Partly billed");
+  await expect(partly).toContainText("$9.80 billed by Rivian");
+  // It is not labelled as fully billed or as purely estimated.
+  const row = page.locator("li").filter({ has: partly });
+  await expect(row.locator("[data-price-label='billed'], [data-price-label='estimated']")).toHaveCount(0);
+});
