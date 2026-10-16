@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { chargeCostLine } from "../lib/activityFeed";
@@ -140,7 +141,7 @@ export default function ChargesPage() {
             ) : view === "map" ? (
               <ChargesOverviewMap
                 charges={rows}
-                onSelect={(id) => navigate(`/charges/${id}`)}
+                onSelect={(id) => navigate(appPath(`/charges/${id}`))}
                 height={480}
               />
             ) : (
@@ -256,7 +257,7 @@ function ChargeTable({
             <tr
               key={c.ID}
               className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
-              {...clickableRowProps(() => navigate(`/charges/${c.ID}`), {
+              {...clickableRowProps(() => navigate(appPath(`/charges/${c.ID}`)), {
                 role: "link",
                 label: `Open charge from ${formatDateTime(c.StartedAt)}`,
               })}

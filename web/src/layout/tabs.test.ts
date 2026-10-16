@@ -51,4 +51,15 @@ describe("activeTab", () => {
     expect(activeTab(tabs, "/nope")).toBeUndefined();
     expect(activeTab(tabs, "/moneybags")).toBeUndefined();
   });
+
+  it("prefixes every route with the shell base for the demo and keeps the active tab logic", () => {
+    const tabs = buildTabs({ ...base, base: "/demo" });
+    expect(tabs.map((t) => t.to)).toEqual(["/demo", "/demo/activity", "/demo/money", "/demo/trips/plan", "/demo/truck"]);
+    expect(tabs.find((t) => t.key === "truck")!.subs.map((s) => s.to)).toEqual(["/demo/truck", "/demo/settings"]);
+    expect(activeTab(tabs, "/demo")?.key).toBe("now");
+    expect(activeTab(tabs, "/demo/drives/abc")?.key).toBe("activity");
+    expect(activeTab(tabs, "/demo/charges/abc")?.key).toBe("activity");
+    expect(activeTab(tabs, "/demo/settings")?.key).toBe("truck");
+    expect(activeTab(tabs, "/demo/trips/plan")?.key).toBe("plan");
+  });
 });

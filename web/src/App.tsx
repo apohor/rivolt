@@ -29,8 +29,8 @@ const SignupPage = lazy(pageLoaders.signup);
 const OnboardingPage = lazy(pageLoaders.onboarding);
 const NotFoundPage = lazy(pageLoaders.notFound);
 const LandingPage = lazy(pageLoaders.landing);
-const DemoPage = lazy(pageLoaders.demo);
-const DemoDetail = lazy(() => pageLoaders.demo().then((m) => ({ default: m.DemoDetail })));
+const DemoIndex = lazy(pageLoaders.demo);
+const DemoLayout = lazy(() => import("./layout/DemoLayout"));
 
 // TripPlanGuard renders the planner page only when the feature
 // flag is on. When off it falls through to the 404 — same surface
@@ -101,9 +101,20 @@ export default function App() {
       <Route path="signup" element={<SignupPage />} />
       <Route path="signup/full" element={<SignupPage />} />
       <Route path="onboarding" element={<OnboardingPage />} />
-      <Route path="demo" element={<DemoPage />} />
-      <Route path="demo/charges/:id" element={<DemoDetail><ChargeDetailPage /></DemoDetail>} />
-      <Route path="demo/drives/:id" element={<DemoDetail><DriveDetailPage /></DemoDetail>} />
+      <Route path="demo" element={<DemoLayout />}>
+        <Route index element={<DemoIndex home={<HomePage />} />} />
+        <Route path="activity" element={<ActivityPage />} />
+        <Route path="money" element={<MoneyPage />} />
+        <Route path="plan" element={<TripPlanPage />} />
+        <Route path="trips/plan" element={<TripPlanPage />} />
+        <Route path="truck" element={<TruckPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="drives" element={<DrivesPage />} />
+        <Route path="drives/:id" element={<DriveDetailPage />} />
+        <Route path="charges" element={<ChargesPage />} />
+        <Route path="charges/:id" element={<ChargeDetailPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="drives" element={<DrivesPage />} />

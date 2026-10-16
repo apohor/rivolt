@@ -1,6 +1,6 @@
 import { formatMoney } from "../lib/ledger";
 import { displayTimeZone } from "../lib/format";
-import { detailPath, inDemo } from "../lib/demo";
+import { detailPath, inDemo, appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -85,11 +85,11 @@ export default function ActivityPage() {
           inDemo() ? undefined : (
           <span className="text-xs text-neutral-500">
             Tables:{" "}
-            <Link to="/drives" className="text-neutral-300 hover:text-emerald-300">
+            <Link to={appPath("/drives")} className="text-neutral-300 hover:text-emerald-300">
               Drives
             </Link>
             {" · "}
-            <Link to="/charges" className="text-neutral-300 hover:text-emerald-300">
+            <Link to={appPath("/charges")} className="text-neutral-300 hover:text-emerald-300">
               Charges
             </Link>
           </span>

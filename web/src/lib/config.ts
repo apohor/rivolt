@@ -235,6 +235,8 @@ export function chargersPMTilesURL(): string {
 // from a component that mounts before the config resolves will
 // permanently see `false` (no state subscription).
 export function aiEnabled(): boolean {
+  // AI calls cost money: never from the public demo.
+  if (inDemo()) return false;
   return cached.ai.enabled;
 }
 
@@ -261,11 +263,11 @@ export function useSignupEnabled(): boolean | null {
 // aiEnabled() will permanently return false in components that
 // mount before the /api/config fetch resolves.
 export function useAIEnabled(): boolean {
-  const [enabled, setEnabled] = useState<boolean>(cached.ai.enabled);
+  const [enabled, setEnabled] = useState<boolean>(aiEnabled());
   useEffect(() => {
     let cancelled = false;
     ensureConfig().then((c) => {
-      if (!cancelled) setEnabled(c.ai.enabled);
+      if (!cancelled) setEnabled(inDemo() ? false : c.ai.enabled);
     });
     return () => {
       cancelled = true;

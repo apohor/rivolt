@@ -1,4 +1,6 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { inDemo } from "../lib/demo";
+import DemoSettings from "./DemoSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
@@ -66,7 +68,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "data", label: "Data" },
 ];
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const location = useLocation();
   // In the tab-bar shell the header no longer carries Sign out.
   const shell = useMoneyTabEnabled();
@@ -363,7 +365,7 @@ export function ExportCard() {
 
 // DisplayPreferences surfaces the client-side display toggles
 // (units, etc.) backed by localStorage via usePreferences().
-function DisplayPreferences() {
+export function DisplayPreferences() {
   const {
     temperatureUnit,
     distanceUnit,
@@ -2703,4 +2705,11 @@ function PlannerPrefsPanel() {
       </div>
     </div>
   );
+}
+
+// The signed-out demo shows a read-only settings page (see DemoSettings);
+// the real page, with its account, Rivian, push and data sections, is for
+// signed-in users.
+export default function SettingsPage() {
+  return inDemo() ? <DemoSettings /> : <SettingsPageInner />;
 }

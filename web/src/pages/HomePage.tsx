@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -91,7 +92,7 @@ export default function HomePage() {
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
-    enabled: !!rivianStatus.data?.authenticated,
+    enabled: !!rivianStatus.data?.authenticated || inDemo(), // the demo lists its sample truck without a Rivian login
     staleTime: 5 * 60_000,
     retry: 1,
   });
@@ -244,6 +245,8 @@ export default function HomePage() {
             vehicles.data?.find((v) => v.id === activeVehicleID)?.name || "Your truck"
           }
           packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
+          // /live needs a session: no dead link in the demo.
+          showTelemetryLink={!inDemo()}
         />
       )}
 

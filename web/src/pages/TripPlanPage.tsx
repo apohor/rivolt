@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { ConnectHint } from "../components/DemoBanner";
+import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -900,7 +902,7 @@ export default function TripPlanPage() {
             <span className="text-xs text-neutral-500">
               Tip: configure your charging settings in{" "}
               <a
-                href="/settings?tab=charging"
+                href={appPath("/settings?tab=charging")}
                 className="underline hover:text-neutral-300"
               >
                 Settings &rarr; Charging
@@ -920,6 +922,7 @@ export default function TripPlanPage() {
         canSave={!!origin && !!destination}
         saveDisabled={saveTripMutation.isPending}
         onLoad={loadSavedTrip}
+        readOnly={inDemo()}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={(saveTripMutation.error as Error | null)?.message}
@@ -1238,7 +1241,9 @@ function SavedTripsCard({
   onDelete,
   onSave,
   saveError,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   trips: SavedTrip[];
   loading: boolean;
   activeId: string | null;
@@ -1270,8 +1275,9 @@ function SavedTripsCard({
         <Spinner />
       ) : trips.length === 0 ? (
         <p className="text-xs text-neutral-500">
-          No saved trips yet. Plan a route, then save it below so you can
-          re-open or re-plan it later.
+          {readOnly
+            ? "No sample trips here."
+            : "No saved trips yet. Plan a route, then save it below so you can re-open or re-plan it later."}
         </p>
       ) : (
         <ul className="mb-4 space-y-1.5">
@@ -1296,20 +1302,25 @@ function SavedTripsCard({
                     {t.inputs.origin?.label} → {t.inputs.destination?.label}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
-                  }}
-                  className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
-                >
-                  delete
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
+                    }}
+                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                  >
+                    delete
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       )}
+      {readOnly ? (
+        <ConnectHint what="save your own trips" />
+      ) : (
       <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -1326,7 +1337,8 @@ function SavedTripsCard({
           {active && active.name === name.trim() ? "Update" : "Save"}
         </button>
       </form>
-      {!canSave && (
+      )}
+      {!readOnly && !canSave && (
         <p className="mt-2 text-xs text-neutral-600">
           Pick a From + To above (and optionally hit Plan trip) before saving.
         </p>

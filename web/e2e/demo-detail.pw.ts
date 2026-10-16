@@ -10,7 +10,7 @@ async function openDemo(page: Page, path: string) {
 }
 
 test("a Money receipt opens a read-only charge detail; back and refresh work", async ({ page }) => {
-  await openDemo(page, "/demo?tab=money");
+  await openDemo(page, "/demo/money");
   await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
   const link = page.locator('a[href^="/demo/charges/"]').first();
   await expect(link).toBeVisible();
@@ -26,13 +26,13 @@ test("a Money receipt opens a read-only charge detail; back and refresh work", a
   // Refresh on the detail route.
   await page.reload();
   await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
-  // Back lands on the same tab.
-  await page.getByRole("link", { name: /Back to the demo/ }).click();
-  await expect(page).toHaveURL(/\/demo$/);
+  // The shell nav is still there: Money leads back to the demo's Money.
+  await page.getByRole("link", { name: "Money" }).first().click();
+  await expect(page).toHaveURL(/\/demo\/money$/);
 });
 
 test("Activity drive and charge cards open demo detail routes", async ({ page }) => {
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   const drive = page.locator('a[href^="/demo/drives/"]').first();
   await expect(drive).toBeVisible();
   await drive.click();
@@ -40,7 +40,7 @@ test("Activity drive and charge cards open demo detail routes", async ({ page })
   await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
   await expect(page.getByText("Sample truck.")).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/demo\?tab=activity/);
+  await expect(page).toHaveURL(/\/demo\/activity/);
   const charge = page.locator('a[href^="/demo/charges/"]').first();
   await expect(charge).toBeVisible();
   await charge.click();
@@ -50,7 +50,7 @@ test("Activity drive and charge cards open demo detail routes", async ({ page })
 
 test("a fresh open of a demo detail URL works signed out", async ({ page }) => {
   await openDemo(page, "/demo");
-  await page.getByRole("button", { name: "Activity" }).click();
+  await page.getByRole("link", { name: "Activity" }).first().click();
   const href = await page.locator('a[href^="/demo/charges/"]').first().getAttribute("href");
   expect(href).toBeTruthy();
   await page.goto(href!);
@@ -78,7 +78,7 @@ test("the demo never requests the chargers archive or routing", async ({ page })
     // chargers archive and anonymous routing are not.
     if (r.url().includes("chargers.pmtiles") || r.url().includes("/api/maps/valhalla")) tileReqs.push(r.url());
   });
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
   await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
   await page.waitForTimeout(1500);
@@ -90,13 +90,13 @@ test("the demo never requests the chargers archive or routing", async ({ page })
 });
 
 test("the demo's Activity has no sign-in-only table links", async ({ page }) => {
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await expect(page.locator('a[href="/drives"], a[href="/charges"]')).toHaveCount(0);
 });
 
 test("Share statement gives visible feedback in the demo", async ({ page }) => {
-  await openDemo(page, "/demo?tab=money");
+  await openDemo(page, "/demo/money");
   const share = page.getByRole("button", { name: "Share statement" });
   await expect(share).toBeEnabled();
   const download = page.waitForEvent("download");
@@ -108,12 +108,12 @@ test("Share statement gives visible feedback in the demo", async ({ page }) => {
 test("browser back from a demo drive detail throws no page error", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
   await expect(page.getByRole("heading", { name: /Drive/ }).first()).toBeVisible();
   // Back immediately, while the map's deferred layout callbacks are pending.
   await page.goBack();
-  await expect(page).toHaveURL(/\/demo\?tab=activity/);
+  await expect(page).toHaveURL(/\/demo\/activity/);
   await page.waitForTimeout(800);
   expect(errors.filter((m) => /LatLng/.test(m))).toEqual([]);
 });
@@ -128,7 +128,7 @@ test("the demo's ledger calls use the fixed Pacific zone, whatever the viewer's"
     if (u.pathname.startsWith("/api/ledger/")) tzs.push(u.searchParams.get("tz") ?? "");
   });
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true });
-  await page.goto("/demo?tab=money");
+  await page.goto("/demo/money");
   await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
   await expect(page.getByText("Times shown in Pacific time.")).toBeVisible();
   const ledger = tzs.filter((t) => t !== "");
@@ -153,7 +153,7 @@ test("the demo follows the OS theme, set before the app bundle loads", async ({ 
 test("the demo's money grammar stays readable in light mode", async ({ browser }) => {
   const ctx = await browser.newContext({ colorScheme: "light", viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
-  await openDemo(page, "/demo?tab=money");
+  await openDemo(page, "/demo/money");
   await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   // Hero total, split-bar legend and a receipt's source label all
@@ -173,28 +173,25 @@ test("the demo's money grammar stays readable in light mode", async ({ browser }
 });
 
 test("Activity filters in the demo keep the Activity tab and the filter sticks", async ({ page }) => {
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await page.getByRole("tab", { name: "Drives" }).click();
-  await expect(page).toHaveURL(/tab=activity/);
-  await expect(page).toHaveURL(/f=drives/);
+    await expect(page).toHaveURL(/f=drives/);
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await expect(page.locator('a[href^="/demo/charges/"]')).toHaveCount(0);
   await expect(page.locator('a[href^="/demo/drives/"]').first()).toBeVisible();
   await page.getByRole("tab", { name: "Charges" }).click();
-  await expect(page).toHaveURL(/tab=activity/);
-  await expect(page).toHaveURL(/f=charges/);
+    await expect(page).toHaveURL(/f=charges/);
   await expect(page.locator('a[href^="/demo/drives/"]')).toHaveCount(0);
   await expect(page.locator('a[href^="/demo/charges/"]').first()).toBeVisible();
   await page.getByRole("tab", { name: "All" }).click();
-  await expect(page).toHaveURL(/tab=activity/);
-  await expect(page).not.toHaveURL(/f=/);
+    await expect(page).not.toHaveURL(/f=/);
 });
 
 test("the demo map uses the self-hosted basemap, never CARTO's keyed raster", async ({ page }) => {
   const reqs: string[] = [];
   page.on("request", (r) => reqs.push(r.url()));
-  await openDemo(page, "/demo?tab=activity");
+  await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/charges/"]').first().click();
   await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
   await page.waitForTimeout(1500);
@@ -207,7 +204,7 @@ test("without a basemap archive the map says so, and calls no third-party tile h
   const reqs: string[] = [];
   page.on("request", (r) => reqs.push(r.url()));
   await stubApi(page, { signedIn: false, demo: true, nowEndpoint: true, noTiles: true });
-  await page.goto("/demo?tab=activity");
+  await page.goto("/demo/activity");
   await page.locator('a[href^="/demo/charges/"]').first().click();
   await expect(page.getByRole("heading", { name: /Charge/ }).first()).toBeVisible();
   await expect(page.getByText("Map tiles unavailable on this server").first()).toBeVisible();

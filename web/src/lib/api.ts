@@ -949,8 +949,25 @@ export const backend = {
   // picker. Always returns the calling user's vehicles, even when the
   // Rivian gateway is unreachable (unlike /api/vehicles which proxies
   // upstream). Excludes legacy electrafi-* synthetic rows.
-  listOwnedVehicles: () =>
-    api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned"),
+  listOwnedVehicles: async (): Promise<{ vehicles: OwnedVehicle[] }> => {
+    // /api/vehicles/owned needs a session; the demo lists its sample truck
+    // through the public /api/vehicles instead.
+    if (inDemo()) {
+      const vs = await api.get<Vehicle[]>("/api/vehicles");
+      return {
+        vehicles: (vs ?? []).map((v) => ({
+          id: v.id,
+          rivian_vehicle_id: v.id,
+          vin: v.vin,
+          display_name: v.name,
+          model: v.model,
+          model_year: v.model_year,
+          pack_kwh: v.pack_kwh,
+        })),
+      };
+    }
+    return api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned");
+  },
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   // vehicleNow returns null when the endpoint is absent (404: flag off
@@ -1332,10 +1349,11 @@ export const backend = {
   // extra load, frequently_tows). Persisted in vehicles.metadata.profile;
   // pulled into every efficiency analysis. The path param is the
   // Rivian gateway vehicle id.
-  vehicleProfileGet: (vehicleID: string) =>
-    api.get<VehicleProfile>(
-      `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
-    ),
+  vehicleProfileGet: async (vehicleID: string): Promise<VehicleProfile> => {
+    // Per-account tire/wheel profile: nothing to read for the sample truck.
+    if (inDemo()) return {};
+    return api.get<VehicleProfile>(`/api/vehicles/${encodeURIComponent(vehicleID)}/profile`);
+  },
   vehicleProfilePut: (vehicleID: string, profile: VehicleProfile) =>
     api.put<VehicleProfile>(
       `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
@@ -1362,13 +1380,15 @@ export const backend = {
     api.put<HomeLocation>("/api/settings/home-location", h),
   // Trip-planner default drive mode + Tesla NACS adapter flag.
   // SPA pre-fills the per-trip form from these.
-  plannerFavoritesGet: () =>
-    api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
-  plannerFavoritesPut: (list: PlannerFavorite[]) =>
-    api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
-  plannerPrefsGet: () => api.get<PlannerPrefs>("/api/settings/planner"),
-  plannerPrefsPut: (p: PlannerPrefs) =>
-    api.put<PlannerPrefs>("/api/settings/planner", p),
+  // In the demo these live in browser memory only (no request, nothing saved).
+  plannerFavoritesGet: async (): Promise<PlannerFavorite[]> =>
+    inDemo() ? [] : api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
+  plannerFavoritesPut: async (list: PlannerFavorite[]): Promise<PlannerFavorite[]> =>
+    inDemo() ? list : api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
+  plannerPrefsGet: async (): Promise<PlannerPrefs> =>
+    inDemo() ? { drive_mode: "EVERYDAY", has_adapter: false } : api.get<PlannerPrefs>("/api/settings/planner"),
+  plannerPrefsPut: async (p: PlannerPrefs): Promise<PlannerPrefs> =>
+    inDemo() ? p : api.put<PlannerPrefs>("/api/settings/planner", p),
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
