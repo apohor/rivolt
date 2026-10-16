@@ -1,0 +1,85 @@
+import fs from "node:fs";
+import path from "node:path";
+import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { stubApi } from "./stub";
+
+// ui_theme_next on Plan (the demo's preset planner stands in for a signed-in
+// plan: same page): before/after, flag-off check, axe.
+const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
+test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
+
+const VIEWS = [
+  { name: "iphone", vp: { width: 390, height: 844 } },
+  { name: "desktop", vp: { width: 1280, height: 900 } },
+] as const;
+
+for (const v of VIEWS) {
+  for (const state of ["off", "next"] as const) {
+    test(`ui ${state}: plan with a preset open · ${v.name} · dark`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
+      const page = await ctx.newPage();
+      await page.addInitScript((s) => {
+        localStorage.setItem("rivolt.ui.next", s === "next" ? "on" : "off");
+        localStorage.setItem("rivolt.theme", "dark");
+      }, state);
+      await stubApi(page, { demo: true, signedIn: false });
+      await page.goto("/demo/trips/plan");
+      if (state === "off") await expect(page.locator("html")).not.toHaveAttribute("data-ui", "next");
+      await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+      await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+      await page.waitForTimeout(900);
+      await page.screenshot({ path: path.join(SHOTS, `uinext-plan-${v.name}-${state}.png`), fullPage: v.name === "iphone" });
+      if (state === "next") {
+        const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+        const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+        expect(summary, summary.join("\n")).toEqual([]);
+      }
+      await ctx.close();
+    });
+  }
+}
+
+test("next-mode on a phone: the plan result follows the sample-trip picker, before Plan vs actual", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.goto("/demo/trips/plan");
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
+  // DOM order too (Tab / screen readers): the result comes before Plan vs actual and Saved trips.
+  const domOrder = await page.evaluate(() => {
+    const idx = (sel: string) => {
+      const el = document.querySelector(sel);
+      return el ? [...document.querySelectorAll("[data-ui-area='p-body'] *")].indexOf(el) : -1;
+    };
+    return [idx("[data-ui-area='p-form']"), idx("[data-ui-area='p-result']"), idx("[data-ui-area='p-below']")];
+  });
+  expect(domOrder[0]).toBeGreaterThanOrEqual(0);
+  expect(domOrder[1]).toBeGreaterThan(domOrder[0]);
+  expect(domOrder[2]).toBeGreaterThan(domOrder[1]);
+  const picker = await y(page.getByTestId("demo-presets"));
+  const result = await y(page.getByText(/Sample plan/));
+  const pva = await y(page.getByRole("heading", { name: "Plan vs actual" }));
+  const saved = await y(page.getByRole("heading", { name: "Saved trips" }));
+  expect(picker).toBeLessThan(result);
+  expect(result).toBeLessThan(pva);
+  expect(pva).toBeLessThan(saved);
+  await page.screenshot({ path: "e2e/__screenshots__/uinext-plan-phone-order-next.png" });
+  await ctx.close();
+});
+
+test("flag off: the planner DOM is flat in today's order, with no empty wrapper gap", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "off"));
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.goto("/demo/trips/plan");
+  await expect(page.getByTestId("demo-presets")).toBeVisible();
+  // No new wrappers when the flag is off (so nothing can add a gap), and the
+  // empty result leaves no trailing element.
+  await expect(page.locator("[data-ui-area='p-body'], [data-ui-area='p-result'], [data-ui-area='p-below']")).toHaveCount(0);
+  await ctx.close();
+});

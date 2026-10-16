@@ -21,7 +21,7 @@ export function setServerUiNext(v: boolean) {
 // preview host and local dev only. Prod and the public demo use the server
 // flag alone, so a shared link can't put anyone on it.
 export function overrideAllowed(host: string = typeof window !== "undefined" ? window.location.hostname : ""): boolean {
-  return host === "localhost" || host === "127.0.0.1" || /^preview\./.test(host);
+  return host === "localhost" || host === "127.0.0.1" || /^preview\.rivolt\.dev$/.test(host);
 }
 
 function readOverride(host?: string): "on" | "off" | null {
