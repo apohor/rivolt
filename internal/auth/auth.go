@@ -109,10 +109,12 @@ type Config struct {
 
 	// KratosHost, when set, restricts the Kratos session issuer to
 	// requests whose Host header names it (hostname, case-insensitive,
-	// port ignored; normally the host of RIVOLT_BASE_URL). A Kratos
-	// session cookie scoped to a parent domain is also sent to sibling
-	// hosts (preview, demo); with this set those hosts ignore it instead
-	// of authenticating with it. Empty keeps the old behaviour.
+	// port ignored). It must be the host where Kratos cookies are
+	// legitimately issued (RIVOLT_KRATOS_COOKIE_HOST, e.g. rivolt.dev),
+	// the SAME value on every install that shares that Kratos, NOT the
+	// install's own host: a Kratos cookie scoped to a parent domain is
+	// also sent to sibling hosts (preview, demo), and keying on their own
+	// host would let them accept it. Empty keeps the old behaviour.
 	KratosHost string
 
 	// KratosResolver, when non-nil, enables the Kratos session

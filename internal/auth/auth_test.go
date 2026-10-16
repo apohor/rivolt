@@ -433,6 +433,36 @@ func TestKratos_HostGuard(t *testing.T) {
 	}
 }
 
+// An install that is NOT the cookie host (preview) is configured with the
+// same cookie host as prod; its own Host never matches, so a prod cookie
+// that reaches it through a parent-domain Domain is refused.
+func TestKratos_HostGuard_PreviewConfiguredWithTheCookieHost(t *testing.T) {
+	calls := 0
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosHost:   "rivolt.dev", // RIVOLT_KRATOS_COOKIE_HOST, not preview's own base URL
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			calls++
+			return fakeUserIDFor("prod-user@example.com"), true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "preview.rivolt.dev"
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "prod-cookie"})
+	r.RemoteAddr = "1.2.3.4:1"
+	var got uuid.UUID
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+	})).ServeHTTP(httptest.NewRecorder(), r)
+	if got != uuid.Nil || calls != 0 || s.HasCredentials(r) {
+		t.Errorf("preview accepted a prod Kratos cookie: user %s, resolver calls %d", got, calls)
+	}
+}
+
 // Without KratosHost the issuer works for any host, as before.
 func TestKratos_NoHostGuardByDefault(t *testing.T) {
 	want := fakeUserIDFor("kratos@example.com")
