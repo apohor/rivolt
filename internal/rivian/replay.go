@@ -52,6 +52,10 @@ type replayFrame struct {
 	SessionCurrency string  `json:"session_currency,omitempty"`
 	// SessionNetwork names the network billing that session.
 	SessionNetwork string `json:"session_network,omitempty"`
+
+	// OtaCurrentVersion is the installed software version. Only the
+	// sample corpus sets it (vehicle_state has no column for it).
+	OtaCurrentVersion string `json:"ota_current_version,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -80,6 +84,7 @@ func (f replayFrame) toState() State {
 		TirePressureFRBar: f.TirePressureBar,
 		TirePressureRLBar: f.TirePressureBar,
 		TirePressureRRBar: f.TirePressureBar,
+		OtaCurrentVersion: f.OtaCurrentVersion,
 	}
 	// chargerStatus (cable connected?) isn't a vehicle_state column, but
 	// the charge lifecycle requires it to open a session, so infer it.

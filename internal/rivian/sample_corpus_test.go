@@ -282,3 +282,29 @@ func TestSampleCorpusSoCWithinLimit(t *testing.T) {
 		t.Errorf("%d frames over the charge limit", over)
 	}
 }
+
+// The Truck tab shows the sample's software version, tires and sleep:
+// every frame reports a version (none pending) and the tire pressure.
+func TestSampleCorpus_TruckFields(t *testing.T) {
+	c := NewSampleCorpus(SampleSeed)
+	s := c.Summary()
+	frames, err := c.Frames(context.Background(), s.Start, s.Start.Add(48*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	asleep := 0
+	for _, f := range frames {
+		if f.OtaCurrentVersion != sampleSoftwareVersion || f.OtaAvailableVersion != "" {
+			t.Fatalf("frame at %v: software %q / %q", f.At, f.OtaCurrentVersion, f.OtaAvailableVersion)
+		}
+		if f.TirePressureFLBar <= 0 || f.TirePressureRRBar <= 0 {
+			t.Fatalf("frame at %v: no tire pressure", f.At)
+		}
+		if f.PowerState == "sleep" {
+			asleep++
+		}
+	}
+	if asleep == 0 {
+		t.Error("no sleep in two days")
+	}
+}
