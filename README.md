@@ -25,8 +25,7 @@ Activity feed the way you would on your own truck.
   unavailable.
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
-- Connecting a real Rivian requires an invite while Rivolt is in beta;
-  see [`docs/SIGNUP.md`](docs/SIGNUP.md).
+- To use it with your own truck, sign up directly — no invite needed; see [`docs/SIGNUP.md`](docs/SIGNUP.md).
 
 ---
 
@@ -176,8 +175,7 @@ anomaly alerts have the plumbing — event sources land next.
 
 See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
 of:
-- requesting beta access and finishing signup from the one-click
-  email link an admin sends,
+- signing up directly,
 - connecting your Rivian account (with the dedicated Authorized
   Driver account approach we recommend),
 - importing your history from ElectraFi,
