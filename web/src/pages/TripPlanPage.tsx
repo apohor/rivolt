@@ -692,6 +692,27 @@ export default function TripPlanPage() {
   const routeSummary = formatRouteSummary(routeBar);
   const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null;
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
+  // Phones: when a plan arrives, bring the map up under the top bar so it fills the
+  // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
+  // is not moved (the results announcement keeps it).
+  useEffect(() => {
+    if (!nextUi || !resultKey || planTab !== "planner" || window.innerWidth >= 1024) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        const el = document.querySelector("[data-plan-area='map']");
+        if (!el) return;
+        const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
+        const top = el.getBoundingClientRect().top + window.scrollY - bar - 8;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        window.scrollTo({ top: Math.max(0, top), behavior: reduce ? "auto" : "smooth" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [nextUi, resultKey, planTab]);
   // The form's pieces. The classic form (flag off) lays them out in its
   // original order; the map-first route bar (ui_theme_next) takes the same
   // elements into RouteBar's structure, so both modes share one set of fields.
