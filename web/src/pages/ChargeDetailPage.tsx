@@ -4,6 +4,7 @@ import { useMoneyTabEnabled } from "../lib/ledger";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { forVehicle } from "../lib/vehicleSamples";
 import { backend, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { LineChart } from "../components/charts";
@@ -189,7 +190,7 @@ export default function ChargeDetailPage() {
       const end = new Date(charge!.EndedAt).getTime();
       const open = isActiveCharge(charge!) || !Number.isFinite(end) || end <= 0;
       const until = new Date(open ? Date.now() + 60_000 : end + 60_000);
-      return backend.samples(since, 10_000, until);
+      return backend.samples(since, 10_000, until).then((r) => forVehicle(r, charge!.VehicleID));
     },
   });
 
