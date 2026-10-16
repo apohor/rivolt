@@ -303,8 +303,8 @@ func Restore(ctx context.Context, d *sql.DB, v Vehicle, rows []BackupRow) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	// A repaired row the user has since made their own (notes, tags, a
-	// price, a confirmed network) isn't removed silently.
+	// A repaired row the user has since made their own (notes or tags on
+	// a drive, their own price on a charge) isn't removed silently.
 	var edited []string
 	for _, r := range rows {
 		var m struct {
