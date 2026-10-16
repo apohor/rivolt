@@ -20,7 +20,7 @@ Rules:
 
 CI runs Chromium shards on web PRs; the WebKit shard (the iPhone Safari engine) is not required per PR. At tag time QA runs the gate below on the **exact preview version** that will be tagged; `ship-release` waits for a PASS naming that version.
 
-1. Read the preview footer or `/api/health`: record the full version string (`vX.Y.Z-dev.N+sha-…`). Hold preview (`preview-hold`) while testing; release it after.
+1. Read the preview footer or `/api/health` and record the full version string (`vX.Y.Z-dev.N+sha-…`). Preview now deploys on every merge, so it may move while you test. That is fine: the lead tags exactly the sha you gate, and later preview deploys do not matter. Re-read the footer at the end and note any screen captured on a different sha. The preview version bar ("New version available", with an auto-reload when the page is hidden) can reload a page mid-run; expect it, and re-take any shot that landed mid-reload.
 2. iPhone WebKit, signed in as the QA owner, read-only (non-GET blocked), dark and light:
    - `?ui=off` equals today's UI on Now, Activity, Money, Plan, Truck.
    - With the flag on: Now, Activity, Money, Plan, Truck render with no overflow and no console errors.
