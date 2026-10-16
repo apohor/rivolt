@@ -17,8 +17,20 @@ export function setServerUiNext(v: boolean) {
   listeners.forEach((l) => l());
 }
 
-function readOverride(): "on" | "off" | null {
+// The ?ui= override is for comparing the unfinished look: honoured on the
+// preview host and local dev only. Prod and the public demo use the server
+// flag alone, so a shared link can't put anyone on it.
+export function overrideAllowed(host: string = typeof window !== "undefined" ? window.location.hostname : ""): boolean {
+  return host === "localhost" || host === "127.0.0.1" || /^preview\./.test(host);
+}
+
+function readOverride(host?: string): "on" | "off" | null {
   try {
+    if (!overrideAllowed(host)) {
+      // A stored override from an earlier visit must not outlive the policy.
+      window.localStorage.removeItem(KEY);
+      return null;
+    }
     const q = new URLSearchParams(window.location.search).get("ui");
     if (q === "next") window.localStorage.setItem(KEY, "on");
     else if (q === "off") window.localStorage.setItem(KEY, "off");
@@ -30,8 +42,8 @@ function readOverride(): "on" | "off" | null {
   }
 }
 
-export function uiNextEnabled(): boolean {
-  const o = readOverride();
+export function uiNextEnabled(host?: string): boolean {
+  const o = readOverride(host);
   return o ? o === "on" : serverFlag;
 }
 
