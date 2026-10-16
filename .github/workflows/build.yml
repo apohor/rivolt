@@ -157,7 +157,7 @@ jobs:
   # the OS and do not match Linux. Three shards in parallel; each builds the SPA
   # itself so the shards never wait on each other. Not a required check yet.
   e2e:
-    name: e2e (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
+    name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
     needs: changes
     if: "github.event_name == 'pull_request' && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
@@ -166,12 +166,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { project: chromium, shard: 1, total: 3 }
-          - { project: chromium, shard: 2, total: 3 }
-          - { project: chromium, shard: 3, total: 3 }
+          # next: the ui-next-* specs, flag on (and their flag-off twins).
+          - { suite: next, project: chromium, shard: 1, total: 3 }
+          - { suite: next, project: chromium, shard: 2, total: 3 }
+          - { suite: next, project: chromium, shard: 3, total: 3 }
           # WebKit = the iPhone Safari engine: the phone specs only (see
           # web/playwright.config.ts), one shard.
-          - { project: webkit, shard: 1, total: 1 }
+          - { suite: next, project: webkit, shard: 1, total: 1 }
+          # legacy: every other spec (flag off, the pre-redesign pages and the
+          # demo), so a regression in the old UI shows up in CI too.
+          - { suite: legacy, project: chromium, shard: 1, total: 2 }
+          - { suite: legacy, project: chromium, shard: 2, total: 2 }
     steps:
       - uses: actions/checkout@v6
 
@@ -208,18 +213,23 @@ jobs:
         working-directory: web
         run: npm run build
 
-      - name: Playwright (ui-next-*, ${{ matrix.project }})
+      - name: Playwright (${{ matrix.suite }}, ${{ matrix.project }})
         working-directory: web
         env:
           CI: "true"
           E2E_WEBKIT: "1"
-        run: npx playwright test ui-next- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          # ui-next-*.pw.ts is the "next" suite; every other spec is "legacy"
+          # (ui-next.pw.ts, the prototype spec, has no dash after "next").
+          if [ "$SUITE" = "next" ]; then files="ui-next-"; else files=$(ls e2e/*.pw.ts | grep -v '^e2e/ui-next-'); fi
+          npx playwright test $files --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
 
       - name: Upload report and screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-${{ matrix.project }}-${{ matrix.shard }}
+          name: e2e-${{ matrix.suite }}-${{ matrix.project }}-${{ matrix.shard }}
           path: |
             web/playwright-report
             web/e2e/__screenshots__
@@ -258,7 +268,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      # setup-go's own cache saves only when its key (go.sum) misses, so after
+      # the first run the build and test-result cache is never refreshed and
+      # every commit recompiles what changed. Restore the newest cache by
+      # prefix and save a fresh one from main pushes only (PRs read main's).
+      - name: Restore Go build and module cache
+        id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-unit-${{ runner.os }}-
 
       # Satisfy `//go:embed all:dist` without running the vite build.
       # Assets() returns nil at runtime when index.html is absent, so
@@ -282,6 +308,15 @@ jobs:
           cat vet.log
           exit $(( t != 0 || v != 0 ))
 
+      - name: Save Go build and module cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
+
   integration:
     name: integration
     needs: changes
@@ -296,7 +331,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      # setup-go's own cache saves only when its key (go.sum) misses, so after
+      # the first run the build and test-result cache is never refreshed and
+      # every commit recompiles what changed. Restore the newest cache by
+      # prefix and save a fresh one from main pushes only (PRs read main's).
+      - name: Restore Go build and module cache
+        id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-integration-${{ runner.os }}-
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
       # postgres image fetch. ~80MB, cached across runs by docker.
@@ -309,6 +360,15 @@ jobs:
         # in PR. internal/api/... covers the end-to-end isolation
         # contract over the real handlers.
         run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/leases/... ./internal/api/... ./internal/ledger/... ./internal/samples/... ./internal/drain/...
+
+      - name: Save Go build and module cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
 
   publish:
     name: publish
