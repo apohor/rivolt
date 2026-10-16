@@ -783,6 +783,8 @@ html[data-ui='next'] [data-ui-header] {
   align-items: center;
   flex-wrap: nowrap;
   border-bottom: 1px solid oklch(100% 0 0 / 0.05);
+  /* A soft shadow under the lower edge, so content slides cleanly under it. */
+  box-shadow: 0 8px 8px -8px oklch(0% 0 0 / 0.45);
 }
 html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
   background-color: oklch(13.5% 0.009 262);
@@ -790,6 +792,7 @@ html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
 html[data-ui='next'][data-theme='light'] [data-ui-header] {
   background-color: oklch(98.5% 0 0);
   border-bottom-color: oklch(0% 0 0 / 0.07);
+  box-shadow: 0 8px 8px -8px oklch(0% 0 0 / 0.14);
 }
 @media (max-width: 767.98px) {
   html[data-ui='next'] [data-ui-header] {
