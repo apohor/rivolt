@@ -51,6 +51,7 @@ func annRows() ([]announceUserRow, map[string]uuid.UUID) {
 
 func annDeps(rows []announceUserRow, ids map[string]uuid.UUID, m announceMailer, out *bytes.Buffer, logBuf *bytes.Buffer) announceDeps {
 	return announceDeps{
+		From:     "hello@rivolt.dev",
 		List:     func(context.Context) ([]announceUserRow, error) { return rows, nil },
 		Mailer:   m,
 		Out:      out,
@@ -78,6 +79,10 @@ func TestAnnounceDryRunPrintsPrefixesOnly(t *testing.T) {
 		!strings.Contains(s, "disabled 1, unverified 1, bad address 3, bypass/demo 1, excluded 1") {
 		t.Errorf("report:\n%s", s)
 	}
+	if !strings.Contains(s, "from: hello@rivolt.dev") {
+		t.Errorf("sender address not shown:\n%s", s)
+	}
+	s = strings.ReplaceAll(s, "hello@rivolt.dev", "")
 	if strings.Contains(s, "@") || strings.Contains(s, ids["a"].String()) {
 		t.Errorf("dry run leaked an address or full id:\n%s", s)
 	}

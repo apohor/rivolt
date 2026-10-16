@@ -125,8 +125,12 @@ func runAnnounce(args []string) int {
 		return 1
 	}
 	var mailer announceMailer
+	from := ""
+	c := email.New(email.Config{APIKey: os.Getenv("RIVOLT_RESEND_API_KEY"), From: os.Getenv("RIVOLT_EMAIL_FROM")})
+	if c != nil {
+		from = c.FromAddress()
+	}
 	if *apply || only != uuid.Nil {
-		c := email.New(email.Config{APIKey: os.Getenv("RIVOLT_RESEND_API_KEY"), From: os.Getenv("RIVOLT_EMAIL_FROM")})
 		if c == nil {
 			fmt.Fprintln(os.Stderr, "announce: mailer not configured (RIVOLT_RESEND_API_KEY / RIVOLT_EMAIL_FROM)")
 			return 1
@@ -137,6 +141,7 @@ func runAnnounce(args []string) int {
 	return announceRun(ctx, announceDeps{
 		List:     func(ctx context.Context) ([]announceUserRow, error) { return listAnnounceUsers(ctx, pool) },
 		Mailer:   mailer,
+		From:     from,
 		Out:      os.Stdout,
 		Logger:   logger,
 		Sleep:    time.Sleep,
@@ -196,6 +201,7 @@ func listAnnounceUsers(ctx context.Context, pool *sql.DB) ([]announceUserRow, er
 type announceDeps struct {
 	List     func(context.Context) ([]announceUserRow, error)
 	Mailer   announceMailer
+	From     string // our own sender address; replies go here (no Reply-To header is set)
 	Out      io.Writer
 	Logger   *slog.Logger
 	Sleep    func(time.Duration)
@@ -270,6 +276,11 @@ func announceRun(ctx context.Context, d announceDeps) int {
 		mode = "sending"
 	}
 	fmt.Fprintf(d.Out, "announce (%s): subject %q, %d recipient(s)\n", mode, d.Subject, len(recs))
+	if d.From != "" {
+		fmt.Fprintf(d.Out, "from: %s (no Reply-To header, so replies go to the sender)\n", d.From)
+	} else {
+		fmt.Fprintln(d.Out, "from: mailer not configured here (RIVOLT_RESEND_API_KEY / RIVOLT_EMAIL_FROM)")
+	}
 	fmt.Fprintf(d.Out, "left out: disabled %d, unverified %d, bad address %d, bypass/demo %d, excluded %d, already sent %d\n",
 		sk.Disabled, sk.Unverified, sk.BadAddress, sk.Bypass, sk.Excluded, sk.AlreadySent)
 	if !send {
