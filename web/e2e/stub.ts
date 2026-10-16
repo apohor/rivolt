@@ -197,6 +197,17 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+  // No service worker in the harness: once it controls the page, requests the
+  // page makes go through it and WebKit does not hand them to page.route, so
+  // the stubbed API never answered ("checking…" forever). The app treats the
+  // worker as a progressive enhancement, so the specs lose nothing.
+  await page.addInitScript(() => {
+    try {
+      if (navigator.serviceWorker) navigator.serviceWorker.register = () => new Promise(() => {});
+    } catch {
+      /* no service worker support */
+    }
+  });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const p = url.pathname;
