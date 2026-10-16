@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DayActivity } from "./api";
-import { lowestTire, sleepSummary, softwareInfo } from "./truckHealth";
+import { lowestTire, sleepSummary, softwareInfo, safeNotesUrl } from "./truckHealth";
 
 describe("lowestTire", () => {
   it("ignores unreported wheels and flags a low reading", () => {
@@ -54,5 +54,16 @@ describe("softwareInfo update line", () => {
   it("shows a real newer version and hides one equal to current", () => {
     expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.40.1" })?.available).toBe("2026.40.1");
     expect(softwareInfo({ ota_current_version: "2026.36.0", ota_available_version: "2026.36.0" })?.available).toBeNull();
+  });
+});
+
+describe("safeNotesUrl", () => {
+  it("keeps plain https links only", () => {
+    expect(safeNotesUrl("https://rivian.com/notes/2026.30")).toBe("https://rivian.com/notes/2026.30");
+    for (const bad of ["http://rivian.com/x", "javascript:alert(1)", "data:text/html,x", "https://u:p@rivian.com/x", "", "  ", "//rivian.com/x", "notaurl"]) {
+      expect(safeNotesUrl(bad), bad).toBeNull();
+    }
+    expect(safeNotesUrl(null)).toBeNull();
+    expect(safeNotesUrl(undefined)).toBeNull();
   });
 });
