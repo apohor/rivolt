@@ -81,7 +81,7 @@ func TestPresetsFiles(t *testing.T) {
 		}
 		// The map's road shape runs from the origin through every stop
 		// to the destination.
-		shape := decodePolyline6(p.Shape)
+		shape := decodePolyline6(p.RoutePolyline)
 		near := func(lat, lon, km float64) bool {
 			for _, q := range shape {
 				if haversineM(q, [2]float64{lat, lon}) <= km*1000 {
@@ -89,6 +89,11 @@ func TestPresetsFiles(t *testing.T) {
 				}
 			}
 			return false
+		}
+		for _, q := range shape {
+			if q[0] < 32 || q[0] > 42.1 || q[1] < -124.5 || q[1] > -114 {
+				t.Fatalf("%s: polyline point %v outside California/Nevada", p.ID, q)
+			}
 		}
 		if len(shape) < 10 || haversineM(shape[0], [2]float64{r.Waypoints[0].Latitude, r.Waypoints[0].Longitude}) > 500 ||
 			haversineM(shape[len(shape)-1], [2]float64{r.Waypoints[len(r.Waypoints)-1].Latitude, r.Waypoints[len(r.Waypoints)-1].Longitude}) > 500 {

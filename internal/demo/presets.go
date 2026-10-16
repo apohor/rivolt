@@ -49,10 +49,10 @@ type Preset struct {
 	Name    string          `json:"name"`
 	Inputs  json.RawMessage `json:"inputs"`
 	Summary PresetSummary   `json:"summary"`
-	// Shape is the route's road shape through every waypoint, as an
-	// encoded polyline (precision 6), for the map: the demo can't ask
-	// Valhalla for it.
-	Shape string `json:"shape"`
+	// RoutePolyline is the route's road shape (Valhalla's, simplified)
+	// through every waypoint, as a Google encoded polyline of precision
+	// 6, for the map: the demo can't ask Valhalla for it.
+	RoutePolyline string `json:"route_polyline"`
 }
 
 // PresetSummary is what the preset list shows.

@@ -108,7 +108,7 @@ func TestGeneratePresets(t *testing.T) {
 		files = append(files, f)
 	}
 	for i := range files {
-		if files[i].Shape, err = genShape(vbase, files[i].Plan); err != nil {
+		if files[i].RoutePolyline, err = genShape(vbase, files[i].Plan); err != nil {
 			t.Fatalf("%s: shape: %v", files[i].ID, err)
 		}
 	}
