@@ -924,6 +924,15 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	go m.run(ctx, vehicleID)
 }
 
+// Subscribed reports whether a subscription goroutine is running for
+// vehicleID (EnsureSubscribed started it and it hasn't exited).
+func (m *StateMonitor) Subscribed(vehicleID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.active[vehicleID]
+	return ok
+}
+
 // Unsubscribe tears down the background subscription for vehicleID
 // if one is running, and is a no-op otherwise. Used by the lease
 // coordinator when this pod loses ownership of a vehicle to a peer.

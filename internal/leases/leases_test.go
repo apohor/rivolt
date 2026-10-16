@@ -380,3 +380,97 @@ func TestCoordinatorTriggerCoalesces(t *testing.T) {
 	// And it survives a nil receiver gracefully.
 	(*Coordinator)(nil).TriggerReconcile()
 }
+
+// A lease held without a subscription (the run exited, or the owner's
+// monitor never started) is healed: reconcile re-fires onAcquire within
+// one tick, reports the episode once, retries at most every
+// unstreamedRetry, and the episode ends when the vehicle streams again.
+func TestCoordinatorHealsALeaseHeldWithoutASubscription(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	var (
+		mu        sync.Mutex
+		acquires  = map[string]int{}
+		episodes  []string
+		streaming = map[string]bool{}
+	)
+	c := newCoordinator(fs,
+		func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
+		func(v string) { mu.Lock(); acquires[v]++; streaming[v] = true; mu.Unlock() },
+		func(string) {}, nil, time.Hour)
+	c.SetStreamingCheck(func(v string) bool { mu.Lock(); defer mu.Unlock(); return streaming[v] })
+	c.SetUnstreamedObserver(func(v string) { mu.Lock(); episodes = append(episodes, v); mu.Unlock() })
+	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return now }
+	ctx := context.Background()
+
+	c.reconcile(ctx) // acquires both; both stream
+	// v1's run exits on its own (a rejected session): the lease stays.
+	mu.Lock()
+	streaming["v1"] = false
+	acquires = map[string]int{}
+	mu.Unlock()
+
+	// Next tick: re-subscribed (healed), episode reported once.
+	// The monitor can't start it, so it stays unstreamed.
+	now = now.Add(30 * time.Second)
+	c.SetStreamingCheck(func(v string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if v == "v1" {
+			return false
+		}
+		return streaming[v]
+	})
+	c.reconcile(ctx)
+	mu.Lock()
+	if acquires["v1"] != 1 || acquires["v2"] != 0 || len(episodes) != 1 || episodes[0] != "v1" {
+		t.Fatalf("first tick: acquires %v episodes %v, want v1 re-subscribed once and one episode", acquires, episodes)
+	}
+	mu.Unlock()
+
+	// Still unstreamed: no retry before unstreamedRetry, no new episode.
+	now = now.Add(30 * time.Second)
+	c.reconcile(ctx)
+	mu.Lock()
+	if acquires["v1"] != 1 || len(episodes) != 1 {
+		t.Fatalf("within the retry window: acquires %v episodes %v", acquires, episodes)
+	}
+	mu.Unlock()
+	now = now.Add(unstreamedRetry)
+	c.reconcile(ctx)
+	mu.Lock()
+	if acquires["v1"] != 2 || len(episodes) != 1 {
+		t.Fatalf("after the retry window: acquires %v episodes %v, want a retry, same episode", acquires, episodes)
+	}
+	mu.Unlock()
+
+	// Streams again: the episode ends; a later drop is a new episode.
+	c.SetStreamingCheck(func(v string) bool { mu.Lock(); defer mu.Unlock(); return streaming[v] })
+	c.reconcile(ctx)
+	mu.Lock()
+	streaming["v1"] = false
+	mu.Unlock()
+	now = now.Add(30 * time.Second)
+	c.reconcile(ctx)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(episodes) != 2 || acquires["v1"] != 3 {
+		t.Fatalf("second drop: acquires %v episodes %v, want a new episode and a re-subscribe", acquires, episodes)
+	}
+}
+
+// Without a streaming check reconcile behaves as before.
+func TestCoordinatorWithoutStreamingCheck(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	n := 0
+	c := newCoordinator(fs,
+		func(context.Context) ([]string, error) { return []string{"v1"}, nil },
+		func(string) { n++ }, func(string) {}, nil, time.Hour)
+	c.reconcile(context.Background())
+	c.reconcile(context.Background())
+	if n != 1 {
+		t.Fatalf("onAcquire fired %d times, want 1 (acquisition only)", n)
+	}
+}

@@ -421,6 +421,20 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 	mon.EnsureSubscribed(rivianVehicleID)
 }
 
+// Streaming reports whether this pod is subscribed to the vehicle: its
+// owner has a monitor here and that monitor runs a subscription for
+// it (including one parked waiting for auth or re-auth). The lease
+// coordinator re-subscribes a leased vehicle that isn't
+// (SetStreamingCheck). An owner lookup failure reads as not streaming.
+func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
+	uid, err := r.ownerOf(rivianVehicleID)
+	if err != nil {
+		return false
+	}
+	mon := r.For(uid)
+	return mon != nil && mon.Subscribed(rivianVehicleID)
+}
+
 // Unsubscribe routes the same way as EnsureSubscribed.
 func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 	if rivianVehicleID == "" {
