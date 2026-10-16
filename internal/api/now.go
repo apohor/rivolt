@@ -128,9 +128,16 @@ func envReplay() bool {
 // driving (gear D/R only) > charging (charging_active) > plugged
 // (connected, not charging) > asleep (power_state) > parked. A plugged
 // truck that is also asleep reads "plugged" (agreed with ux).
+//
+// Plugged means Rivian's charger_status says connected
+// ('chrgr_sts_connected*', migration 0053) when the row has one. An R2
+// reports charging_ready while parked unplugged, so the charging_state
+// alone is only trusted on rows with no charger_status (older rows, and
+// vehicles that never report it).
 const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 	            WHEN %[1]s.charging_state = 'charging_active' THEN 'charging'
-	            WHEN %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting')
+	                 AND (COALESCE(%[1]s.charger_status, '') = '' OR starts_with(%[1]s.charger_status, 'chrgr_sts_connected')) THEN 'plugged'
 	            WHEN %[1]s.power_state = 'sleep' THEN 'asleep'
 	            ELSE 'parked' END`
 
