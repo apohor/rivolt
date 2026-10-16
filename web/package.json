@@ -13,7 +13,9 @@
     "typecheck": "tsc -b --noEmit",
     "icons": "node scripts/generate-pwa-icons.mjs",
     "e2e": "npm run build && playwright test",
-    "e2e:run": "playwright test"
+    "e2e:run": "playwright test",
+    "e2e:visual": "E2E_VISUAL=1 playwright test e2e/ui-next-visual.pw.ts --workers=1",
+    "e2e:visual:update": "E2E_VISUAL=1 playwright test e2e/ui-next-visual.pw.ts --workers=1 --update-snapshots"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
