@@ -84,6 +84,9 @@ type LiveChargeSnapshot struct {
 	// LastMeaningfulAt anchors the stale-session guard across restarts.
 	// Older snapshots omit it; restore falls back to EndAt then.
 	LastMeaningfulAt time.Time `json:"last_meaningful_at"`
+	// LastProgressAt anchors it for a charge with no plug indicator;
+	// zero (older snapshots) restores as LastMeaningfulAt.
+	LastProgressAt time.Time `json:"last_progress_at,omitempty"`
 	// ActiveSeconds carries the accumulated real charging time across a
 	// pod handoff so the session duration doesn't reset when a peer
 	// takes over mid-charge.
@@ -137,6 +140,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			MaxPower: c.maxPower,
 			EndAt:    c.endAt, EndSoC: c.endSoC, FinalState: c.finalState,
 			LastMeaningfulAt: c.lastMeaningfulAt,
+			LastProgressAt:   c.lastProgressAt,
 			ActiveSeconds:    c.activeSeconds,
 		}
 	}
@@ -174,12 +178,17 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 		if lma.IsZero() {
 			lma = c.EndAt
 		}
+		lpa := c.LastProgressAt
+		if lpa.IsZero() {
+			lpa = lma
+		}
 		s.charge = &liveCharge{
 			id: c.ID, number: c.Number, startedAt: c.StartedAt,
 			startSoC: c.StartSoC, lat: c.Lat, lon: c.Lon,
 			maxPower: c.MaxPower,
 			endAt:    c.EndAt, endSoC: c.EndSoC, finalState: c.FinalState,
 			lastMeaningfulAt: lma,
+			lastProgressAt:   lpa,
 			activeSeconds:    c.ActiveSeconds,
 		}
 	}

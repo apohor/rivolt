@@ -358,3 +358,72 @@ func TestR1ChargeFollowsChargerStatus(t *testing.T) {
 		t.Error("R1: plugged charging_ready no longer opens a charge")
 	}
 }
+
+// An R2 can keep reporting charging_active after the cable is pulled
+// (Rivian's charger fields stick), and its merged power sticks at the
+// last value too, since a pushed 0 kW doesn't merge. Without a
+// chargerStatus the open charge counts as plugged, so only the
+// stale-session guard ends it: after liveChargeMaxGap with no SoC gain
+// or state change, the charge closes (abandoned) at its last progress,
+// and the same sticky frames don't open a new, empty one; a real change
+// (a new charge with SoC rising, or a state change) still opens one. An R1 still reopens on a stale close
+// while its status says connected, as before.
+func TestR2StickyChargingActiveClosesOnce(t *testing.T) {
+	r := newR2Run()
+	ctx := context.Background()
+	at := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
+	push := func(m *StateMonitor, min float64, cs, status string, kw, soc float64) {
+		m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: at.Add(time.Duration(min * float64(time.Minute))),
+			Gear: "P", ChargerState: cs, ChargerStatus: status, ChargerPowerKW: kw, BatteryLevelPct: soc, OdometerKm: 30000})
+	}
+	// 20 minutes at 7.4 kW, 50 % → 52.6 %.
+	for i := 0; i <= 20; i++ {
+		push(r.m, float64(i), "charging_active", "", 7.4, 50+float64(i)*0.13)
+	}
+	_, charge := r.session()
+	if charge == nil {
+		t.Fatal("the charge never opened")
+	}
+	first := charge.id
+	lastReal := at.Add(20 * time.Minute)
+	// Unplugged: an hour of sticky charging_active (0 kW pushed, which
+	// doesn't merge), flat SoC.
+	opened := map[string]bool{first: true}
+	for m := 23.0; m <= 80; m += 3 {
+		push(r.m, m, "charging_active", "", 0, 52.6)
+		if _, c := r.session(); c != nil {
+			opened[c.id] = true
+		}
+	}
+	if _, c := r.session(); c != nil {
+		t.Errorf("a charge is still open after an hour of 0 kW sticky frames (%s)", c.id)
+	}
+	if len(opened) != 1 {
+		t.Errorf("sticky frames opened %d more charge(s)", len(opened)-1)
+	}
+	if charge.finalState != "abandoned" || !charge.endAt.Equal(lastReal) {
+		t.Errorf("closed %q ending %v, want abandoned at the last progress %v", charge.finalState, charge.endAt, lastReal)
+	}
+	// Driven while still stuck (SoC falls), then plugged in again: the
+	// first SoC rise opens a new charge.
+	push(r.m, 85, "charging_active", "", 0, 45)
+	push(r.m, 88, "charging_active", "", 0, 44)
+	if _, c := r.session(); c != nil {
+		t.Errorf("a falling SoC in the stuck state opened %s", c.id)
+	}
+	push(r.m, 90, "charging_active", "", 7.4, 44.2)
+	if _, c := r.session(); c == nil || c.id == first {
+		t.Errorf("a real charge after the stuck state didn't open: %v", c)
+	}
+
+	// An R1 reports a connected status: a stale close reopens as before.
+	r1 := newR2Run()
+	r1.m.vehicleInfo["r2"] = &Vehicle{ID: "r2", Model: "R1S"}
+	push(r1.m, 0, "charging_active", "chrgr_sts_connected_charging", 7.4, 50)
+	_, c1 := r1.session()
+	push(r1.m, 45, "charging_ready", "chrgr_sts_connected_charging", 0, 50)
+	_, c2 := r1.session()
+	if c1 == nil || c2 == nil || c1.id == c2.id {
+		t.Errorf("R1: %v then %v, want a stale close and a new charge while still connected", c1, c2)
+	}
+}
