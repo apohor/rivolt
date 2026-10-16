@@ -1204,7 +1204,7 @@ function SnapshotBanner({
 }) {
   const ageMs = Date.now() - new Date(updatedAt).getTime();
   const ageH = ageMs / 3_600_000;
-  const stale = ageH > SAVED_SNAPSHOT_STALE_HOURS;
+  const stale = !inDemo() && ageH > SAVED_SNAPSHOT_STALE_HOURS;
   const human =
     ageH < 1
       ? `${Math.max(1, Math.round(ageMs / 60_000))} min ago`
@@ -1220,9 +1220,17 @@ function SnapshotBanner({
       }`}
     >
       <span>
-        Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
-        from {human}
-        {stale && " — charging stations, weather, and ETA may have drifted."}
+        {inDemo() ? (
+          <>
+            Sample plan <strong className="text-neutral-100">"{name}"</strong>
+          </>
+        ) : (
+          <>
+            Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+            from {human}
+            {stale && " — charging stations, weather, and ETA may have drifted."}
+          </>
+        )}
       </span>
       {!inDemo() && (
         <button
