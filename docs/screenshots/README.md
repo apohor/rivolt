@@ -23,6 +23,6 @@ are 390 × 844.
 | `now-light.png`   | Now in the light theme                                          | light |
 
 To refresh them, open the demo with a clean browser profile, pick the
-theme (Settings → Appearance, or the system setting), choose the "LA to
-Las Vegas" sample trip for the Plan shots, and replace the file with the
+theme (Settings → Appearance, or the system setting), choose the "Las Vegas
+weekend" sample trip for the Plan shots, and replace the file with the
 same name.
