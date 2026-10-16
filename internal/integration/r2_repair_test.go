@@ -37,8 +37,8 @@ func TestR2HistoryRepair(t *testing.T) {
 	sample := func(min int, power, cs string, odo, soc, kw float64) {
 		t.Helper()
 		if _, err := pool.ExecContext(ctx, `
-			INSERT INTO vehicle_state (vehicle_id, at, user_id, power_state, charging_state, odometer_mi, battery_level_pct, speed_mph, lat, lon, charger_power_kw)
-			VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,0,34.1,-118.1,$8)`, vid, at(min), uid, power, cs, odo, soc, kw); err != nil {
+			INSERT INTO vehicle_state (vehicle_id, at, user_id, power_state, charging_state, odometer_mi, battery_level_pct, speed_mph, lat, lon, charger_power_kw, source)
+			VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,0,34.1,-118.1,$8,'live')`, vid, at(min), uid, power, cs, odo, soc, kw); err != nil {
 			t.Fatalf("sample %d: %v", min, err)
 		}
 	}
