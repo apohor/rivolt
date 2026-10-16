@@ -17,6 +17,9 @@ import (
 
 var presetID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
+// presetMaxBytes caps each preset file.
+const presetMaxBytes = 16 << 10
+
 func readPresets(t *testing.T) PresetIndex {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(PresetsDir, "index.json"))
@@ -81,6 +84,12 @@ func TestPresetsFiles(t *testing.T) {
 	}
 	got, _ := filepath.Glob(filepath.Join(PresetsDir, "*"))
 	for i := range got {
+		// Served anonymously: keep each response small.
+		if st, err := os.Stat(got[i]); err != nil {
+			t.Error(err)
+		} else if st.Size() > presetMaxBytes {
+			t.Errorf("%s: %d bytes, max %d", got[i], st.Size(), presetMaxBytes)
+		}
 		got[i] = filepath.Base(got[i])
 	}
 	sort.Strings(got)
@@ -90,7 +99,7 @@ func TestPresetsFiles(t *testing.T) {
 	}
 }
 
-// The Las Vegas presets are the seeded saved trips (same ids) and are
+// The Las Vegas presets are the seeded saved trips (linked by name) and are
 // what the corpus builds now: a corpus change must regenerate them
 // (go test -tags demotripsgen, see presets_gen_test.go).
 func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
@@ -103,14 +112,23 @@ func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := SampleTripIDs()
-	if len(vegas) != len(ids) {
-		t.Fatalf("%d Las Vegas presets for %d saved trips", len(vegas), len(ids))
+	names := map[string]bool{}
+	for _, n := range SampleTripNames() {
+		names[n] = true
+	}
+	linked := 0
+	for _, p := range idx.Trips {
+		if p.SavedTripName != "" {
+			linked++
+			if !names[p.SavedTripName] {
+				t.Errorf("%s links to %q, not a seeded saved trip", p.ID, p.SavedTripName)
+			}
+		}
+	}
+	if len(vegas) != len(names) || linked != len(names) {
+		t.Fatalf("%d Las Vegas presets, %d linked, for %d saved trips", len(vegas), linked, len(names))
 	}
 	for _, v := range vegas {
-		if v.ID != ids[v.Name].String() {
-			t.Errorf("%s: preset id %s, saved trip id %s", v.Name, v.ID, ids[v.Name])
-		}
 		p, ok := byID[v.ID]
 		if !ok {
 			t.Errorf("%s (%s) is not a preset", v.Name, v.ID)
@@ -120,7 +138,7 @@ func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if compact(b) != compact(v.Plan) || p.Name != v.Name || compact(p.Inputs) != compact(v.Inputs) || p.Summary != v.Summary {
+		if compact(b) != compact(v.Plan) || p.Name != v.Name || p.SavedTripName != v.SavedTripName || compact(p.Inputs) != compact(v.Inputs) || p.Summary != v.Summary {
 			t.Errorf("%s: the preset differs from what the corpus builds; regenerate", v.Name)
 		}
 	}

@@ -15,7 +15,7 @@ import (
 // demo's home rate and the default networks.
 func samplePlansAt(t *testing.T, now time.Time) []SamplePlan {
 	t.Helper()
-	plans, err := SamplePlans(now, settings.ChargingConfig{HomePricePerKWh: HomeRate, HomeCurrency: "USD"}, settings.DefaultChargingNetworks())
+	plans, err := SamplePlans(now, time.Time{}, settings.ChargingConfig{HomePricePerKWh: HomeRate, HomeCurrency: "USD"}, settings.DefaultChargingNetworks())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func replayedOuting(t *testing.T, start time.Time) ([]ledger.Drive, []ledger.Cha
 
 func TestSamplePlansPairWithTheReplayedTrip(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	trips := rivian.SampleTripPlans(now)
+	trips := rivian.SampleTripPlans(now, time.Time{})
 	plans := samplePlansAt(t, now)
 	if len(plans) != 2 || len(trips) != 2 || plans[0].Name != "Las Vegas weekend" || plans[1].Name != "Las Vegas back home" {
 		t.Fatalf("plans = %+v", plans)
@@ -144,16 +144,25 @@ func TestSamplePlansInputsAreThePlannerForm(t *testing.T) {
 }
 
 func TestSamplePlansMoveOnOnlyWhenTheNextTripIsOver(t *testing.T) {
-	if p := rivian.SampleTripPlans(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); p != nil {
+	if p := rivian.SampleTripPlans(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{}); p != nil {
 		t.Fatalf("plans before any trip: %+v", p)
 	}
-	cur := rivian.SampleTripPlans(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC))
+	cur := rivian.SampleTripPlans(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC), time.Time{})
 	end := cur[0].OutingEnd
-	if got := rivian.SampleTripPlans(end); !got[0].OutingStart.Equal(cur[0].OutingStart) {
+	if got := rivian.SampleTripPlans(end, time.Time{}); !got[0].OutingStart.Equal(cur[0].OutingStart) {
 		t.Errorf("at the trip's end: plan for %v, want %v", got[0].OutingStart, cur[0].OutingStart)
 	}
-	if got := rivian.SampleTripPlans(end.Add(-time.Second)); len(got) == 2 && !got[0].OutingEnd.Before(cur[0].OutingStart) {
+	if got := rivian.SampleTripPlans(end.Add(-time.Second), time.Time{}); len(got) == 2 && !got[0].OutingEnd.Before(cur[0].OutingStart) {
 		t.Errorf("before the trip's end: plan for %v, want the previous loop's", got[0].OutingStart)
+	}
+	// Only a trip recorded whole: none when recording began after it
+	// started (a fresh install's backfill), until the next one is over.
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	if got := rivian.SampleTripPlans(now, cur[0].OutingStart); len(got) != 2 {
+		t.Errorf("recorded from the trip's start: %d plans", len(got))
+	}
+	if got := rivian.SampleTripPlans(now, cur[0].OutingStart.Add(time.Second)); got != nil {
+		t.Errorf("recorded from mid-trip: %+v", got)
 	}
 	// Stable between loops: the same plan (so no rewrite) until then.
 	a := samplePlansAt(t, end.Add(time.Hour))

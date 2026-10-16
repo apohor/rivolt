@@ -15,8 +15,8 @@ import (
 // planner (GET /api/demo/trips, /api/demo/trips/{id}/plan). The data
 // lives in internal/demo/trips: index.json lists the presets, and
 // <id>.plan.json holds each one's response. The Las Vegas presets are
-// the sample owner's saved plans (same ids, so the demo can open them
-// with Plan vs Actual) and are built from the corpus here; the others
+// the sample owner's saved plans (SavedTripName links each to its saved
+// trip, so the demo can open it with Plan vs Actual) and are built from the corpus here; the others
 // are generated from Valhalla routes, the chargers archive and the
 // sample truck's efficiency by presets_gen_test.go (run by hand).
 
@@ -38,6 +38,12 @@ func presetDepart() (time.Time, error) {
 // Las Vegas presets' content doesn't depend on which loop it picks.
 var presetPlansAt = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 
+// samplePresetIDs are the Las Vegas presets' ids, by saved trip name.
+var samplePresetIDs = map[string]string{
+	"Las Vegas weekend":   "las-vegas-weekend",
+	"Las Vegas back home": "las-vegas-back-home",
+}
+
 // PresetIndex is index.json.
 type PresetIndex struct {
 	Trips []Preset `json:"trips"`
@@ -45,10 +51,13 @@ type PresetIndex struct {
 
 // Preset is one preset trip in index.json.
 type Preset struct {
-	ID      string          `json:"id"`
-	Name    string          `json:"name"`
-	Inputs  json.RawMessage `json:"inputs"`
-	Summary PresetSummary   `json:"summary"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// SavedTripName names the demo's saved trip this preset is (for
+	// Plan vs Actual); "" for the others.
+	SavedTripName string          `json:"saved_trip_name,omitempty"`
+	Inputs        json.RawMessage `json:"inputs"`
+	Summary       PresetSummary   `json:"summary"`
 }
 
 // PresetSummary is what the preset list shows.
@@ -106,12 +115,17 @@ func vegasPresets() ([]presetFile, error) {
 		return nil, err
 	}
 	var out []presetFile
-	for _, p := range rivian.SampleTripPlans(presetPlansAt) {
+	for _, p := range rivian.SampleTripPlans(presetPlansAt, time.Time{}) {
 		plan := shiftPlan(p.Plan, depart.Sub(p.DepartAt))
-		f, err := newPreset(SampleTripID(p.Name).String(), p.Name, p.Origin, p.Destination, p.StartSoC, p.TargetSoC, p.PackKWh, plan)
+		id, ok := samplePresetIDs[p.Name]
+		if !ok {
+			return nil, fmt.Errorf("demo: no preset id for %q", p.Name)
+		}
+		f, err := newPreset(id, p.Name, p.Origin, p.Destination, p.StartSoC, p.TargetSoC, p.PackKWh, plan)
 		if err != nil {
 			return nil, err
 		}
+		f.SavedTripName = p.Name
 		out = append(out, f)
 	}
 	return out, nil

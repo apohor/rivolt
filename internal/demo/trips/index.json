@@ -1,8 +1,9 @@
 {
   "trips": [
     {
-      "id": "7041ba4f-947f-50d3-882d-e5f5f9d08b82",
+      "id": "las-vegas-weekend",
       "name": "Las Vegas weekend",
+      "saved_trip_name": "Las Vegas weekend",
       "inputs": {
         "departure_at": "",
         "destination": {
@@ -29,8 +30,9 @@
       }
     },
     {
-      "id": "5d929483-6bf5-52b2-903d-672064da254a",
+      "id": "las-vegas-back-home",
       "name": "Las Vegas back home",
+      "saved_trip_name": "Las Vegas back home",
       "inputs": {
         "departure_at": "",
         "destination": {

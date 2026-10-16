@@ -16,7 +16,7 @@ import (
 // TestDemoSamplePlansSeed: the pass writes the two Las Vegas plans for
 // the demo user, rewrites nothing while the loop is unchanged, moves
 // the same rows (same ids) to the next loop's trip, and leaves other
-// saved trips alone. The rows carry the fixed ids the demo's presets use.
+// saved trips alone.
 func TestDemoSamplePlansSeed(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "true")
 	t.Setenv("RIVIAN_CLIENT", "replay")
@@ -66,6 +66,18 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 		return out
 	}
 
+	// Nothing recorded yet: nothing to pair with, no rows.
+	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 0 {
+		t.Fatalf("before any frame: n=%d err=%v", n, err)
+	}
+	// The replay has recorded since well before the trip.
+	var vid string
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2) RETURNING id::text`, uid, demo.VehicleID()).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'replay')`, uid, vid, now.AddDate(0, -3, 0)); err != nil {
+		t.Fatal(err)
+	}
 	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 2 {
 		t.Fatalf("first pass: n=%d err=%v", n, err)
 	}
@@ -86,7 +98,7 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	next := read()
 	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home"} {
 		a, b := first[name], next[name]
-		if a.id != demo.SampleTripID(name).String() || a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
+		if a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
 			t.Errorf("%s: %+v then %+v, want the same row on a later trip", name, a, b)
 		}
 	}

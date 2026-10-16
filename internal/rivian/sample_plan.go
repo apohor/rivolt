@@ -82,15 +82,16 @@ func SampleTripPlanNames() []string {
 
 // SampleTripPlans returns the sample owner's saved plans for the latest
 // sample road trip that is over by now (its outing back home at or
-// before now), or nil before the first one ends. A trip's plans stay
-// on that loop until the next loop's trip is over, so a plan never
-// points at an outing still under way.
-func SampleTripPlans(now time.Time) []SampleTripPlan {
+// before now) and started at or after since, or nil when there is none.
+// A trip's plans stay on that loop until the next loop's trip is over,
+// so a plan never points at an outing still under way; since keeps it
+// off a trip recorded only in part.
+func SampleTripPlans(now, since time.Time) []SampleTripPlan {
 	c, tl := sampleShared()
-	return c.tripPlans(tl, now)
+	return c.tripPlans(tl, now, since)
 }
 
-func (c *SampleCorpus) tripPlans(tl replayTimeline, now time.Time) []SampleTripPlan {
+func (c *SampleCorpus) tripPlans(tl replayTimeline, now, since time.Time) []SampleTripPlan {
 	var out []SampleTripPlan
 	for _, p := range c.planned {
 		trip := c.trips[p.trip]
@@ -100,7 +101,7 @@ func (c *SampleCorpus) tripPlans(tl replayTimeline, now time.Time) []SampleTripP
 		for k >= 0 && end.Add(shift(k)).After(now) {
 			k--
 		}
-		if k < 0 {
+		if k < 0 || start.Add(shift(k)).Before(since) {
 			continue
 		}
 		out = append(out, c.planLeg(p, shift(k), start.Add(shift(k)), end.Add(shift(k))))
