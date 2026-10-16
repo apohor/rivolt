@@ -22,7 +22,7 @@ var presetID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 // its plan) and each file.
 const presetMaxBytes = 64 << 10
 
-func readPresets(t *testing.T) PresetIndex {
+func readPresetIndex(t *testing.T) PresetIndex {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(PresetsDir, "index.json"))
 	if err != nil {
@@ -41,7 +41,7 @@ func readPresets(t *testing.T) PresetIndex {
 // index entry and nothing else, valid ids, plans in the planner's
 // response shape, and summaries that agree with the plans.
 func TestPresetsFiles(t *testing.T) {
-	idx := readPresets(t)
+	idx := readPresetIndex(t)
 	if len(idx.Trips) < 5 {
 		t.Fatalf("%d presets, want at least 5", len(idx.Trips))
 	}
@@ -134,7 +134,7 @@ func TestPresetsFiles(t *testing.T) {
 // what the corpus builds now: a corpus change must regenerate them
 // (go test -tags demotripsgen, see presets_gen_test.go).
 func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
-	idx := readPresets(t)
+	idx := readPresetIndex(t)
 	byID := map[string]Preset{}
 	for _, p := range idx.Trips {
 		byID[p.ID] = p
