@@ -100,6 +100,7 @@ type chargePricer interface {
 	UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error)
 	MarkFree(ctx context.Context, externalID, currency string) (int64, error)
 	SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error)
+	GetByExternalID(ctx context.Context, externalID string) (*charges.Charge, error)
 }
 
 // handlePatchChargePricing accepts {cost?, currency?, price_per_kwh?}
@@ -152,6 +153,22 @@ func patchChargePricing(store chargePricer, overrides func(context.Context) []dc
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
+		// A session still in progress has no final energy: a price set now
+		// would be frozen at the energy so far (the recorder keeps a
+		// user's price). Wait for it to end.
+		cur0, err := store.GetByExternalID(r.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cur0 == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if charges.IsOpenLiveFinalState(cur0.FinalState) {
+			http.Error(w, "charge still in progress", http.StatusConflict)
+			return
+		}
 		if b.NetworkSlug != nil {
 			if b.Cost != nil || b.PricePerKWh != nil || (b.Free != nil && *b.Free) {
 				http.Error(w, "network_slug cannot be combined with cost, price_per_kwh or free", http.StatusBadRequest)
@@ -196,7 +213,6 @@ func patchChargePricing(store chargePricer, overrides func(context.Context) []dc
 			return
 		}
 		var n int64
-		var err error
 		if b.Free != nil && *b.Free {
 			if cost != 0 || ppk != 0 {
 				http.Error(w, "free cannot be combined with cost or price_per_kwh", http.StatusBadRequest)

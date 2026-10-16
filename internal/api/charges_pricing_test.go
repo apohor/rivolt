@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -19,6 +20,15 @@ import (
 type fakePricer struct {
 	calls []string
 	found bool
+	// finalState is the stored charge's final_state ("" = terminal).
+	finalState string
+}
+
+func (f *fakePricer) GetByExternalID(_ context.Context, id string) (*charges.Charge, error) {
+	if !f.found {
+		return nil, nil
+	}
+	return &charges.Charge{ID: id, FinalState: f.finalState}, nil
 }
 
 func (f *fakePricer) UpdatePricing(_ context.Context, id string, cost float64, cur string, ppk float64) (int64, error) {
@@ -144,5 +154,34 @@ func TestChargeResponse_ClassificationUnavailable(t *testing.T) {
 	if !strings.Contains(s, `"classification_unavailable":true`) || strings.Contains(s, "cost_source_effective") ||
 		strings.Contains(s, `"kind"`) {
 		t.Errorf("unavailable classification JSON = %s", s)
+	}
+}
+
+func TestPatchChargePricing_OpenSessionIs409(t *testing.T) {
+	for _, st := range []string{"charging_active", "charging_ready", "charging_connecting", "waiting_on_charger"} {
+		for _, body := range []string{
+			`{"network_slug":"` + dcfcrates.Networks[0].Slug + `"}`,
+			`{"cost": 12.5, "price_per_kwh": 0.4}`,
+			`{"free": true}`,
+		} {
+			f := &fakePricer{found: true, finalState: st}
+			if code := patchPricing(t, f, body); code != http.StatusConflict {
+				t.Errorf("%s %s = %d, want 409", st, body, code)
+			}
+			if len(f.calls) != 0 {
+				t.Errorf("%s %s wrote: %v", st, body, f.calls)
+			}
+		}
+	}
+	// Terminal states still price; an unknown charge is 404 before any write.
+	for _, st := range []string{"charging_complete", "charging_user_stopped", ""} {
+		f := &fakePricer{found: true, finalState: st}
+		if code := patchPricing(t, f, `{"cost": 12.5}`); code != http.StatusNoContent {
+			t.Errorf("terminal %q = %d, want 204", st, code)
+		}
+	}
+	f := &fakePricer{}
+	if code := patchPricing(t, f, `{"cost": 12.5}`); code != http.StatusNotFound || len(f.calls) != 0 {
+		t.Errorf("missing = %d %v", code, f.calls)
 	}
 }
