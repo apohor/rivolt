@@ -174,9 +174,9 @@ export function SocTrendChart({
           className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 text-xs text-neutral-200 shadow-lg"
           style={{ left: Math.min(Math.max(X(hover) - 50, 0), w - 120) }}
         >
-          <span className="ui-mono">{new Date(hover).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+          <span>{new Date(hover).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           {" · "}
-          <span className="ui-mono font-medium">{Math.round(hv.y)}%</span>
+          <span className="font-medium">{Math.round(hv.y)}%</span>
           {" · "}
           {hv.state}
         </div>

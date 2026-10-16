@@ -357,7 +357,7 @@ export default function NowCard({
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
               {/* Mono only for short numeric readouts (a kW, a time left); text stays sans so it can wrap. */}
-              <dd className={`text-right tabular-nums text-neutral-200${/^[~$\d]/.test(d.v) && d.v.length <= 24 ? " ui-mono" : ""}`}>{d.v}</dd>
+              <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
             </div>
           ))}
         </dl>
