@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { baselineVersion, isNewVersion, isPreviewHost, nextAction } from "./versionCheck";
 
 describe("baselineVersion", () => {
-  it("prefers the baked version, ignoring the dev stamp", () => {
-    expect(baselineVersion("v1.2.3", "v9")).toBe("v1.2.3");
-    expect(baselineVersion("dev", "v9")).toBe("v9");
-    expect(baselineVersion(undefined, "v9")).toBe("v9");
-    expect(baselineVersion("", null)).toBeNull();
+  it("is the first version the server reported", () => {
+    expect(baselineVersion("v9")).toBe("v9");
+    expect(baselineVersion(" v9 ")).toBe("v9");
+    expect(baselineVersion("")).toBeNull();
+    expect(baselineVersion(null)).toBeNull();
   });
 });
 

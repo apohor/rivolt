@@ -8,10 +8,6 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY web/ ./
-# VERSION (same build-arg the Go stage stamps) is baked into the bundle so an open
-# tab can tell when the server has moved on (see VersionBar).
-ARG VERSION=dev
-ENV VITE_APP_VERSION=${VERSION}
 # Vite writes to ../internal/web/dist (relative to /web), so mirror that path.
 RUN mkdir -p /internal/web && npm run build
 

@@ -4,11 +4,9 @@
 
 export const VERSION_POLL_MS = 60_000;
 
-// The version this bundle belongs to: the CI-stamped one when present (not "dev"),
-// otherwise whatever the server reported at load (first seen).
-export function baselineVersion(baked: string | undefined, firstSeen: string | null): string | null {
-  const b = (baked ?? "").trim();
-  if (b && b !== "dev") return b;
+// The version this page belongs to: whatever the server reported on the first
+// check after load. An open tab sees a deploy as a later check that differs.
+export function baselineVersion(firstSeen: string | null): string | null {
   return firstSeen && firstSeen.trim() ? firstSeen.trim() : null;
 }
 

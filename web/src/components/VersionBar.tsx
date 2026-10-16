@@ -10,9 +10,6 @@ import { VERSION_POLL_MS, baselineVersion, isPreviewHost, nextAction } from "../
 export function VersionBar() {
   const [fresh, setFresh] = useState(false);
   const firstSeen = useRef<string | null>(null);
-  // The baked version is only trusted if the server agreed with it on the first
-  // check; a stamp-format mismatch would otherwise show the bar forever.
-  const bakedTrusted = useRef(false);
   const preview = isPreviewHost(window.location.hostname);
 
   const reload = useCallback(async () => {
@@ -36,13 +33,9 @@ export function VersionBar() {
         return;
       }
       if (stopped) return;
-      if (firstSeen.current == null) {
-        firstSeen.current = live;
-        const baked = (import.meta.env.VITE_APP_VERSION ?? "").trim();
-        bakedTrusted.current = !!baked && baked !== "dev" && baked === (live ?? "").trim();
-      }
+      if (firstSeen.current == null) firstSeen.current = live;
       const action = nextAction({
-        baseline: baselineVersion(bakedTrusted.current ? import.meta.env.VITE_APP_VERSION : undefined, firstSeen.current),
+        baseline: baselineVersion(firstSeen.current),
         live,
         hidden: document.visibilityState === "hidden",
         preview,
