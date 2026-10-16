@@ -99,3 +99,19 @@ for (const theme of ["dark", "light"] as const) {
     await ctx.close();
   });
 }
+
+test("a new truck's idle tile keeps the caption: today · no full days yet, on one line at 390", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page, { scenario: "parked", drain: "ok" });
+  await page.route("**/api/sleep-activity**", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ day: new Date().toISOString().slice(0, 10) + "T00:00:00Z", asleep_h: 10, idle_awake_h: 1.1, sleeps: 1, failed_sleeps: 0 }]) }),
+  );
+  await page.goto("/");
+  const tile = page.getByTestId("idle-tile");
+  await expect(tile).toContainText("today · no full days yet");
+  const lines = await tile.evaluate((el) => [...el.querySelectorAll("div")].map((d) => Math.round(d.getBoundingClientRect().height / (parseFloat(getComputedStyle(d).lineHeight) || parseFloat(getComputedStyle(d).fontSize) * 1.5))));
+  for (const n of lines) expect(n).toBe(1);
+  await ctx.close();
+});
