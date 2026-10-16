@@ -195,7 +195,7 @@ export default function ChargeDetailPage() {
       const end = new Date(charge!.EndedAt).getTime();
       const open = isActiveCharge(charge!) || !Number.isFinite(end) || end <= 0;
       const until = new Date(open ? Date.now() + 60_000 : end + 60_000);
-      return backend.samples(since, 10_000, until).then((r) => forVehicle(r, charge!.VehicleID));
+      return backend.samples(since, 10_000, until, charge!.VehicleID).then((r) => forVehicle(r, charge!.VehicleID));
     },
   });
 

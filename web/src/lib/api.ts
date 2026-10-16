@@ -1288,12 +1288,15 @@ export const backend = {
   // `until` is required on purpose: the server downsamples explicit
   // windows only, so an open-ended request would thin an old session
   // across its whole span up to now.
-  samples: (since: Date, limit: number, until: Date) => {
+  // `vehicle` (Rivian vehicle id) scopes the window to one truck; without it
+  // the server returns every vehicle on the account interleaved by time.
+  samples: (since: Date, limit: number, until: Date, vehicle?: string | null) => {
     const params = new URLSearchParams({
       since: since.toISOString(),
       until: until.toISOString(),
       limit: String(limit),
     });
+    if (vehicle) params.set("vehicle", vehicle);
     return api.get<Sample[]>(`/api/samples?${params.toString()}`);
   },
   // Efficiency analysis: AI-driven breakdown of what drove efficiency

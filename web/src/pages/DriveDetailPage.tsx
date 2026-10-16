@@ -110,7 +110,7 @@ export default function DriveDetailPage() {
       // rows that the SPA throws away after a filter pass.
       const until = new Date(endMs + 10 * 60_000);
       // The endpoint isn't vehicle-scoped: keep this drive's truck only.
-      return backend.samples(since, 20_000, until).then((r) => forVehicle(r, drive!.VehicleID));
+      return backend.samples(since, 20_000, until, drive!.VehicleID).then((r) => forVehicle(r, drive!.VehicleID));
     },
   });
 
