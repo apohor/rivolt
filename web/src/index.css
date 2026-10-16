@@ -917,3 +917,11 @@ html[data-ui='next'][data-theme='light'] [data-plan-timeline] > li::before {
     height: 460px !important;
   }
 }
+html[data-ui='next'] [data-plan-form] [data-plan-submit] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+html[data-ui='next'] [data-plan-form] [data-plan-submit] > button {
+  padding-block: 0.65rem;
+}

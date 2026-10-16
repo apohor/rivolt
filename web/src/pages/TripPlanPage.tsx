@@ -2587,22 +2587,22 @@ function RouteCard({
           </p>
         )}
       </div>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <dl className="grid w-full grid-cols-2 gap-x-6 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
         <div>
           <dt className="ui-label">Time</dt>
-          <dd className="ui-mono text-lg text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          <dd className="ui-mono text-base text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
-          <dd className="ui-mono text-lg text-neutral-100">{arriveAt || "—"}</dd>
+          <dd className="ui-mono text-base text-neutral-100">{arriveAt || "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="ui-mono text-lg text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
+          <dd className="ui-mono text-base text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>
-          <dd className="ui-mono text-lg text-neutral-100">
+          <dd className="ui-mono text-base text-neutral-100">
             {charging.length > 0 ? `${charging.length} · ${totalChargeMin} min` : "none"}
           </dd>
         </div>
