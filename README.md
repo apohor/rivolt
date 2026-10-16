@@ -1,12 +1,12 @@
 # Rivolt
 
-> A real Rivian companion. Live telemetry, per-trip analytics, a real
-> charging cost ledger, and a route planner that tells you what a road
-> trip will actually cost.
+> A Rivian companion. Live telemetry, per-trip analytics, a charging
+> cost ledger, and a route planner that estimates what a road trip will
+> cost.
 
 **Rivolt** is an open-source companion app for Rivian vehicles. It
 streams live telemetry from your truck, records every drive and
-charging session against your *real* electricity rate, and plans road
+charging session against your own electricity rate, and plans road
 trips with cost / weather / efficiency analysis built in.
 
 Rivolt turns your Rivian's charging and driving into a priced ledger
@@ -160,7 +160,7 @@ A five-tab layout for the per-user controls:
 
 ---
 
-## Notifications — push that actually fires
+## Notifications — web push
 
 Web Push (VAPID), per-device subscribe. Enable once on each
 device you want pinged, pick which events you care about, and
