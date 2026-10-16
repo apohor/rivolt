@@ -29,6 +29,13 @@ describe("nextScheduledStartMin", () => {
     expect(nextScheduledStartMin([s({ applies_here: undefined })], now, TZ)).toBeNull();
     expect(nextScheduledStartMin([s({ weekdays: ["Thursday"] })], now, TZ)).toBeNull();
   });
+  it("matches weekdays case- and short-form-tolerantly", () => {
+    for (const d of ["Wednesday", "WEDNESDAY", "wednesday", "Wed", "wed", "WED"]) {
+      expect(nextScheduledStartMin([s({ weekdays: [d] })], now, TZ), d).toBe(23 * 60);
+    }
+    expect(nextScheduledStartMin([s({ weekdays: ["Monday", "MON", "Tue"] })], now, TZ)).toBeNull();
+    expect(nextScheduledStartMin([s({ weekdays: [] })], now, TZ)).toBeNull();
+  });
   it("is null once the window has started (the truck would be charging)", () => {
     expect(nextScheduledStartMin([s({ start_min: 21 * 60 })], now, TZ)).toBeNull();
     expect(nextScheduledStartMin([s({ start_min: 21 * 60 + 30 })], now, TZ)).toBeNull();

@@ -11,6 +11,10 @@ export type ChargingSchedule = {
   applies_here?: boolean | null;
 };
 
+// Rivian's weekday strings pass through untouched, so "Monday", "MONDAY" and "Mon" all match:
+// compare the lowercased first three letters.
+const day3 = (d: string) => d.trim().slice(0, 3).toLowerCase();
+
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 // The weekday name and the minutes after midnight "now" is at, in the display zone.
@@ -28,7 +32,7 @@ export function nextScheduledStartMin(schedules: ChargingSchedule[] | undefined 
   if (!schedules?.length) return null;
   const { weekday, minutes } = localParts(now, timeZone);
   const starts = schedules
-    .filter((s) => s.enabled && s.applies_here === true && s.weekdays.includes(weekday) && s.start_min > minutes)
+    .filter((s) => s.enabled && s.applies_here === true && s.weekdays.some((d) => day3(d) === day3(weekday)) && s.start_min > minutes)
     .map((s) => s.start_min);
   return starts.length ? Math.min(...starts) : null;
 }
