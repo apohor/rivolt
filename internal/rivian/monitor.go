@@ -968,12 +968,10 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 // coordinator when this pod loses ownership of a vehicle to a peer.
 //
 // Cancellation is async — the run goroutine observes ctx.Done() the
-// next time it loops around. The cache entry is left intact so a
-// subsequent Latest() call returns the last known state for the
-// short window between Unsubscribe and the goroutine actually
-// exiting; once Unsubscribe is called we should not be the source
-// of new state, but stale-but-coherent is better than blanking the
-// UI mid-rebalance.
+// next time it loops around. Everything this pod knew about the
+// vehicle is forgotten (forgetVehicle): the new owner is the source
+// of state from here on, and /api/state on this pod follows its
+// published snapshot.
 func (m *StateMonitor) Unsubscribe(vehicleID string) {
 	m.mu.Lock()
 	cancel, ok := m.active[vehicleID]
@@ -983,48 +981,71 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		// quick succession) doesn't see a stale cancel func.
 		delete(m.active, vehicleID)
 		delete(m.activeCtx, vehicleID)
-		// Reset cold-start tracking: a re-acquired lease starts
-		// fresh and should poll fast until its first WS frame.
-		delete(m.wsSeen, vehicleID)
 	}
 	m.mu.Unlock()
-	// A re-acquired lease should try the livestate rehydrate path
-	// again — in particular, if a peer pod was holding the vehicle
-	// and just released it (lease handoff in the other direction),
-	// the snapshot in Redis is the authoritative open-drive state.
-	m.sessMu.Lock()
-	delete(m.rehydrated, vehicleID)
-	m.sessMu.Unlock()
-	// Drop the sample-spacing cursor too: on re-subscribe the first
-	// frame should always be recorded rather than being gated by a
-	// timestamp from the previous ownership window.
-	m.forgetSampleSlot(vehicleID)
+	m.forgetVehicle(vehicleID)
 	if ok && cancel != nil {
 		cancel()
 	}
 }
 
+// forgetVehicle drops this pod's per-vehicle state when it stops
+// streaming the vehicle, so a later re-acquire starts from what the
+// peer owner left behind rather than from this pod's last frame hours
+// ago:
+//   - the merged State cache: the REST seed merges *under* it, so a
+//     stale gear, location or charger state would win over a fresh
+//     seed until Rivian happened to push that field again;
+//   - the live-session cache and its charge bond;
+//   - the open drive/charge accumulators, but only with a shared
+//     store: a re-acquire then rehydrates the peer's snapshot (the
+//     authoritative open-drive state) instead of extending or closing
+//     a session the peer already closed. Without a store there is no
+//     peer and nothing better to rebuild from, so they stay;
+//   - cold-start tracking (poll fast until the first WS frame) and the
+//     sample-spacing cursor (the first frame is always recorded).
+func (m *StateMonitor) forgetVehicle(vehicleID string) {
+	m.mu.Lock()
+	delete(m.cache, vehicleID)
+	delete(m.stamp, vehicleID)
+	delete(m.lastSession, vehicleID)
+	delete(m.chargeBond, vehicleID)
+	delete(m.lastSessionFor, vehicleID)
+	delete(m.wsSeen, vehicleID)
+	m.mu.Unlock()
+	m.sessMu.Lock()
+	if m.liveStateStore != nil {
+		delete(m.sessions, vehicleID)
+	}
+	delete(m.rehydrated, vehicleID)
+	m.sessMu.Unlock()
+	m.forgetSampleSlot(vehicleID)
+}
+
 // releaseActive is how a run goroutine gives up its active entry when
-// it exits: only if the entry is still its own. Lease reconcile can
-// release a vehicle and re-acquire it in the same tick (a Renew error
-// reports every lease lost; Acquire then succeeds because the row is
-// still ours), so the successor's EnsureSubscribed may run before this
-// goroutine has exited. Deleting unconditionally removed the
-// successor's entry: it kept streaming, but Unsubscribe could no longer
-// cancel it, and the next EnsureSubscribed started a second run.
+// it exits. It removes the entry only if it is still this goroutine's
+// (a quick release → re-acquire may already have installed a
+// successor, which an unconditional delete would orphan: Unsubscribe
+// could then never cancel it). When the goroutine ends because it was
+// cancelled and nothing replaced it, the vehicle is forgotten again:
+// frames recorded during teardown, after Unsubscribe's forget, would
+// otherwise leave a stale accumulator behind.
 func (m *StateMonitor) releaseActive(ctx context.Context, vehicleID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	cur, tracked := m.activeCtx[vehicleID]
 	switch {
 	case tracked && cur == ctx:
 		delete(m.active, vehicleID)
 		delete(m.activeCtx, vehicleID)
 	case !tracked:
-		// No tracked successor: Unsubscribe already removed the entry
-		// (delete is then a no-op), or the monitor was built without
-		// activeCtx. Same as before.
+		// Untracked (a monitor built without activeCtx): keep the old
+		// behavior.
 		delete(m.active, vehicleID)
+	}
+	_, successor := m.active[vehicleID]
+	m.mu.Unlock()
+	if ctx.Err() != nil && !successor {
+		m.forgetVehicle(vehicleID)
 	}
 }
 
