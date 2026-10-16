@@ -2391,9 +2391,6 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 	}
 }
 
-// applicable reports whether a drive-dynamics value may be applied to
-// the live state: a fresh frame (noteParallaxFrame) whose event time is
-// within parallaxGearMaxAge. A replay is counted for the replay metric.
 // parkableGear reports whether a Parallax P should replace the cached gear:
 // a driving gear (vehicleState that never reports park, so the last D or R
 // sticks) or none at all (an R2's vehicleState sends the gear blank, and
@@ -2403,6 +2400,9 @@ func parkableGear(g string) bool {
 	return isDrivingGear(g) || strings.TrimSpace(g) == ""
 }
 
+// applicable reports whether a drive-dynamics value may be applied to
+// the live state: a fresh frame (noteParallaxFrame) whose event time is
+// within parallaxGearMaxAge. A replay is counted for the replay metric.
 func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
 	ok := fresh && f.TimestampMs > 0 && time.Since(time.UnixMilli(f.TimestampMs)) <= parallaxGearMaxAge
 	if !ok {
