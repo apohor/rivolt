@@ -1,8 +1,10 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -153,10 +155,36 @@ const (
 // A map view issues dozens of range reads, so tiles get their own
 // per-client and install-wide budgets and do NOT draw on the general
 // demo limits (a map must not starve the data calls, or the reverse).
+// These are the defaults; a deployment sets its own with
+// RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN and RIVOLT_DEMO_TILES_GLOBAL_PER_MIN
+// (the public demo.rivolt.dev runs tighter, sized to its origin).
 const (
 	demoTilesPerClientPerMin = 1200
 	demoTilesGlobalPerMin    = 12000
+	demoTilesMaxPerMin       = 100000 // a sanity bound on the env values
 )
+
+// demoTileBudgets returns the per-client and install-wide tile budgets
+// per minute: the env values when set to a whole number in
+// [1, demoTilesMaxPerMin], else the defaults (with a warning, so a typo
+// can't silently lift or zero the limit).
+func demoTileBudgets() (perClient, global int) {
+	return demoBudgetEnv("RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN", demoTilesPerClientPerMin),
+		demoBudgetEnv("RIVOLT_DEMO_TILES_GLOBAL_PER_MIN", demoTilesGlobalPerMin)
+}
+
+func demoBudgetEnv(name string, def int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > demoTilesMaxPerMin {
+		slog.Warn("demo: ignoring invalid tile budget; using the default", "env", name, "value", v, "default", def)
+		return def
+	}
+	return n
+}
 
 // demoPerDriveSuffixes are the per-drive GET sub-resources the demo's
 // drive detail view reads. {id} is a single, plain path segment; the
@@ -302,9 +330,10 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 	samples.key = demoClientKey
 	samplesGlobal := newIPLimiter(demoSamplesGlobalPerMin, time.Minute, time.Hour)
 	samplesGlobal.key = func(*http.Request) string { return "global-samples" }
-	tiles := newIPLimiter(demoTilesPerClientPerMin, time.Minute, time.Hour)
+	tilesPerClient, tilesPerInstall := demoTileBudgets()
+	tiles := newIPLimiter(tilesPerClient, time.Minute, time.Hour)
 	tiles.key = demoClientKey
-	tilesGlobal := newIPLimiter(demoTilesGlobalPerMin, time.Minute, time.Hour)
+	tilesGlobal := newIPLimiter(tilesPerInstall, time.Minute, time.Hour)
 	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
 	// The heavy reads (parked drain, plan-vs-actual) share one small
 	// budget and one response cache.

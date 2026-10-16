@@ -164,6 +164,10 @@ Environment:
                                  nobody).
   RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
                                  client (preview: replay/mock/stub only).
+  RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN / _GLOBAL_PER_MIN
+                                 demo: anonymous map-tile budgets per
+                                 client and per install, requests/min
+                                 (default 1200 / 12000).
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
                                  legacy "local" user on boot, then continue.
                                  Vehicles/settings/push are preserved.
