@@ -5,6 +5,7 @@ import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { BottomSheet } from "../plan/BottomSheet";
+import { formatRouteSummary, useRouteBarCollapse, useRouteBarState } from "../plan/routeBar";
 import { PlanSelectionProvider, useSelectedStop } from "../plan/selection";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
@@ -173,8 +174,10 @@ function normalizeDriveMode(v: unknown): DriveMode {
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const [origin, setOrigin] = useState<Selection>(null);
-  const [destination, setDestination] = useState<Selection>(null);
+  // From, to, departure and starting SoC: one hook shared by the classic form
+  // and the map-first route bar.
+  const routeBar = useRouteBarState();
+  const { origin, destination, setOrigin, setDestination } = routeBar;
   const [extraStops, setExtraStops] = useState<NonNullable<Selection>[]>([]);
   // Parallel array to extraStops: true marks that stop as an overnight
   // (ends one day, starts the next). Any true value flips planning to
@@ -193,13 +196,13 @@ export default function TripPlanPage() {
   const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
-  const [startingSoc, setStartingSoc] = useState<string>("");
+  const { startingSoc, setStartingSoc } = routeBar;
   const [driveMode, setDriveMode] = useState<DriveMode>("EVERYDAY");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
   // departureAt is a datetime-local string (local time, no timezone).
   // Empty = depart now; Rivian's planner always plans from "now", so
   // we store this and shift displayed waypoint times client-side.
-  const [departureAt, setDepartureAt] = useState<string>("");
+  const { departureAt, setDepartureAt } = routeBar;
   const aiEnabled = useAIEnabled();
 
   const ownedQuery = useQuery({
@@ -685,14 +688,15 @@ export default function TripPlanPage() {
   // for everyone; in the ui_theme_next layer the result follows the form in the DOM
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
   const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data);
-  const routeSummary = `${origin?.label ?? "…"} → ${destination?.label ?? "…"}${startingSoc.trim() ? ` · ${startingSoc}%` : ""}${departureAt ? ` · ${new Date(departureAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}`;
+  const routeSummary = formatRouteSummary(routeBar);
+  const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null;
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   const formEl = (
     <>
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <FormShell next={nextUi} hasResult={hasResult} summary={routeSummary}>
+      <FormShell next={nextUi} hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
@@ -938,11 +942,7 @@ export default function TripPlanPage() {
             <button
               type="button"
               data-plan-swap
-              onClick={() => {
-                const o = origin;
-                setOrigin(destination);
-                setDestination(o);
-              }}
+              onClick={routeBar.swap}
               className="self-start rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-500"
             >
               ⇅ Swap From and To
@@ -1369,10 +1369,9 @@ function SnapshotBanner({
 // other trip needs the visitor's own Rivian.
 // FormShell: the classic card, or in ui_theme_next the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
-function FormShell({ next, hasResult, summary, children }: { next: boolean; hasResult: boolean; summary: string; children: React.ReactNode }) {
-  const [editing, setEditing] = useState(false);
+function FormShell({ next, hasResult, resultKey, summary, children }: { next: boolean; hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
+  const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);
   if (!next) return <Card title="Plan a trip" area="p-form">{children}</Card>;
-  const collapsed = hasResult && !editing;
   return (
     <div data-plan-bar data-collapsed={collapsed ? "true" : undefined}>
       {hasResult && (
@@ -1380,14 +1379,15 @@ function FormShell({ next, hasResult, summary, children }: { next: boolean; hasR
           type="button"
           data-plan-edit
           aria-expanded={!collapsed}
-          onClick={() => setEditing((v) => !v)}
+          aria-controls={bodyId}
+          onClick={toggle}
           className="flex w-full items-center justify-between gap-3 text-left text-sm lg:hidden"
         >
           <span className="min-w-0 truncate text-neutral-100">{summary}</span>
           <span className="shrink-0 text-xs text-emerald-300">{collapsed ? "Edit" : "Done"}</span>
         </button>
       )}
-      <div data-plan-bar-body>{children}</div>
+      <div id={bodyId} data-plan-bar-body>{children}</div>
     </div>
   );
 }
