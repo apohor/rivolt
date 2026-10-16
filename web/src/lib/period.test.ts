@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { barsEndDay, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
@@ -85,11 +85,33 @@ describe("sleepWindow", () => {
 });
 
 describe("flag-off Now filtering", () => {
+  // Fixed clock and items offset from the window edges (no item sits on a
+  // boundary by accident); exact-boundary items are added explicitly and use the
+  // same cutoff instant, so the comparison is deterministic.
   it("filterByRange({start: windowStart, end: null}) matches filterByWindow", async () => {
     const { filterByWindow, windowStart } = await import("./analytics");
-    const items = Array.from({ length: 40 }, (_, i) => ({ StartedAt: new Date(Date.now() - i * 5 * 86_400_000).toISOString() }));
-    for (const k of ["7d", "30d", "90d", "365d", "all"] as const) {
-      expect(filterByRange(items, { start: windowStart(k), end: null })).toEqual(filterByWindow(items, k));
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0));
+      const day = 86_400_000;
+      const base = Date.now();
+      const items = Array.from({ length: 80 }, (_, i) => ({
+        StartedAt: new Date(base - i * 4.7 * day - 3_600_000).toISOString(),
+      }));
+      for (const k of ["7d", "30d", "90d", "365d", "all"] as const) {
+        const cut = windowStart(k);
+        const edge = cut
+          ? [
+              { StartedAt: cut.toISOString() },
+              { StartedAt: new Date(cut.getTime() - 1).toISOString() },
+              { StartedAt: new Date(cut.getTime() + 1).toISOString() },
+            ]
+          : [];
+        const all = [...items, ...edge];
+        expect(filterByRange(all, { start: cut, end: null })).toEqual(filterByWindow(all, k));
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
