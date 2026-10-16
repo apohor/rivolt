@@ -34,8 +34,12 @@ for (const theme of ["dark", "light"] as const) {
           await expect(chart).toBeVisible();
           await expect(page.locator("[data-band='charge']").first()).toBeAttached();
           await expect(page.getByTestId("soc-limit")).toHaveCount(1);
-          const box = await chart.locator("svg").boundingBox();
-          await page.mouse.move(box!.x + box!.width * 0.6, box!.y + 80);
+          // hover() scrolls the plot into view first: a raw mouse.move at a page
+          // coordinate can land below the fold on a short or slower-loading page
+          // (it did on the Linux CI runner, desktop only).
+          const svg = chart.locator("svg");
+          const box = await svg.boundingBox();
+          await svg.hover({ position: { x: box!.width * 0.6, y: Math.min(80, box!.height / 2) } });
           await expect(page.getByTestId("soc-tip")).toContainText(/%/);
           await expect(page.getByTestId("soc-tip")).toContainText(/Charging|Driving|Parked/);
         }
