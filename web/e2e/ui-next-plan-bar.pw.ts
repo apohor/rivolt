@@ -47,3 +47,44 @@ for (const theme of ["dark", "light"] as const) {
     });
   }
 }
+
+// Owner screenshot (phone): option chips wrapped and overlapped the adapter toggle,
+// labels wrapped to 2-3 lines, and a disabled number input duplicated the slider.
+test("route bar options at 390px: stacked, no overlap, labels on one line, no duplicate SoC input", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page);
+  await page.goto("/trips/plan");
+  await page.locator("[data-plan-more-toggle]").click();
+  const body = page.locator("[data-plan-more-body]");
+  await expect(body).toBeVisible();
+  // The adapter toggle (the old overlap victim) is present in this setup.
+  await expect(body.getByRole("switch")).toHaveCount(1);
+  await page.screenshot({ path: path.join(SHOTS, "bar-options-iphone-dark-after.png"), fullPage: true });
+  // One starting-SoC control: the slider, no number input beside it.
+  await expect(page.locator("[data-plan-bar] input[type='number'][placeholder]")).toHaveCount(0);
+  await expect(page.getByLabel("Starting SoC")).toHaveCount(1);
+  const res = await page.evaluate(() => {
+    const body = document.querySelector("[data-plan-more-body]")!;
+    const ctrls = [...body.querySelectorAll("input, select, button, [role='radio'], [role='switch']")].filter((e) => (e as HTMLElement).offsetParent);
+    const rects = ctrls.map((e) => ({ n: `${e.tagName}:${(e.textContent || (e as HTMLInputElement).ariaLabel || "").trim().slice(0, 20)}`, r: e.getBoundingClientRect() }));
+    const overlaps: string[] = [];
+    for (let i = 0; i < rects.length; i++)
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i].r, b = rects[j].r;
+        if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps.push(`${rects[i].n} x ${rects[j].n}`);
+      }
+    const labels = [...body.querySelectorAll("label > span:first-child, [role='radiogroup'] > span, [data-plan-settings] > div > span:first-child")].map((e) => {
+      const cs = getComputedStyle(e);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+      return { t: (e.textContent || "").trim(), lines: Math.round(e.getBoundingClientRect().height / lh) };
+    });
+    const wide = rects.filter((x) => x.r.right > window.innerWidth + 1).map((x) => x.n);
+    return { overlaps, labels, wide };
+  });
+  expect(res.overlaps).toEqual([]);
+  expect(res.wide).toEqual([]);
+  for (const l of res.labels) expect(l.lines, l.t).toBeLessThanOrEqual(1);
+  await ctx.close();
+});

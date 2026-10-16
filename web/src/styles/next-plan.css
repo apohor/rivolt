@@ -509,3 +509,28 @@ html[data-ui='next'][data-theme='light'] [data-plan-endpoints] [data-plan-swap] 
 html[data-ui='next'] [data-plan-swap] {
   font-size: var(--pt-value, 0.875rem);
 }
+
+/* More options on a phone: one option per row, labels on one line in the 12px
+   label style, chips never wrap. (On wider screens the settings grid keeps its
+   columns inside the panel.) */
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] label > span:first-child,
+html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] > span,
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] > div > span:first-child {
+  font-size: var(--pt-sub);
+  font-weight: 500;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+}
+html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] [role='radio'] {
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-plan-more-body] [data-plan-settings] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
