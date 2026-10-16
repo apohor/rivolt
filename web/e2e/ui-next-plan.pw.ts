@@ -40,7 +40,7 @@ for (const v of VIEWS) {
   }
 }
 
-test("next-mode on a phone: the plan result follows the sample-trip picker, before Plan vs actual", async ({ browser }) => {
+test("next-mode on a phone: map first, then the summary and itinerary; Saved and Plan vs actual live in tabs", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
@@ -48,26 +48,21 @@ test("next-mode on a phone: the plan result follows the sample-trip picker, befo
   await page.goto("/demo/trips/plan");
   await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
   await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
-  const y = async (loc: import("@playwright/test").Locator) => (await loc.first().boundingBox())!.y;
-  // DOM order too (Tab / screen readers): the result comes before Plan vs actual and Saved trips.
-  const domOrder = await page.evaluate(() => {
-    const idx = (sel: string) => {
-      const el = document.querySelector(sel);
-      return el ? [...document.querySelectorAll("[data-ui-area='p-body'] *")].indexOf(el) : -1;
-    };
-    return [idx("[data-ui-area='p-form']"), idx("[data-ui-area='p-result']"), idx("[data-ui-area='p-below']")];
-  });
-  expect(domOrder[0]).toBeGreaterThanOrEqual(0);
-  expect(domOrder[1]).toBeGreaterThan(domOrder[0]);
-  expect(domOrder[2]).toBeGreaterThan(domOrder[1]);
-  const picker = await y(page.getByTestId("demo-presets"));
-  const result = await y(page.getByText(/Sample plan/));
-  const pva = await y(page.getByRole("heading", { name: "Plan vs actual" }));
-  const saved = await y(page.getByRole("heading", { name: "Saved trips" }));
-  expect(picker).toBeLessThan(result);
-  expect(result).toBeLessThan(pva);
-  expect(pva).toBeLessThan(saved);
-  await page.screenshot({ path: "e2e/__screenshots__/uinext-plan-phone-order-next.png" });
+  const y = async (sel: string) => (await page.locator(sel).first().boundingBox())!.y;
+  const bar = await y("[data-plan-bar]");
+  const map = await y("[data-plan-area='map']");
+  const summary = await y("[data-plan-area='summary']");
+  const itinerary = await y("[data-plan-area='itinerary']");
+  expect(bar).toBeLessThan(map);
+  expect(map).toBeLessThan(summary);
+  expect(summary).toBeLessThan(itinerary);
+  // The planner tab is only planning.
+  await expect(page.getByRole("heading", { name: "Plan vs actual" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Saved trips" })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Plan vs actual" }).click();
+  await expect(page.getByRole("heading", { name: "Plan vs actual" })).toBeVisible();
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await expect(page.getByRole("heading", { name: "Saved trips" })).toBeVisible();
   await ctx.close();
 });
 
