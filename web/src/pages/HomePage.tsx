@@ -1,4 +1,5 @@
 import { formatMoney } from "../lib/ledger";
+import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -403,7 +404,7 @@ export default function HomePage() {
             ) : null}
           </Card>
 
-          <Card title="Idle-awake · minutes/day">
+          <Card title="Idle-awake time per day">
             {sleepTrouble && (
               <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
                 <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
@@ -418,11 +419,12 @@ export default function HomePage() {
                   data={sleepBars}
                   height={140}
                   color="#6366f1"
-                  formatY={(v) => `${v.toFixed(0)}m`}
+                  formatY={formatMinutesShort}
+                  formatValue={formatMinutes}
                   formatX={(label) => String(label).slice(5)}
                 />
                 <p className="mt-2 text-[11px] text-neutral-500">
-                  Minutes/day the car was <span className="text-indigo-300">awake while
+                  Time per day the car was <span className="text-indigo-300">awake while
                   parked and not charging</span> — staying awake for no obvious reason.
                   This is the vampire-drain signal; driving and charging are excluded.
                 </p>

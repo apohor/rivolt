@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
@@ -92,13 +93,14 @@ export default function TruckPage() {
               data={sleep.bars}
               height={140}
               color="#6366f1"
-              formatY={(v) => `${v.toFixed(0)}m`}
+              formatY={formatMinutesShort}
+              formatValue={formatMinutes}
               formatX={(label) => String(label).slice(5)}
             />
             <p className="mt-2 text-[11px] text-neutral-500">
-              Minutes per day awake while parked and not charging
+              Time per day awake while parked and not charging
               {sleep.avgDays > 0 && (
-                <>, averaging {Math.round(sleep.avgIdleMinutes)} min over the last {sleep.avgDays} full days</>
+                <>, averaging {formatMinutes(sleep.avgIdleMinutes)} a day over the last {sleep.avgDays} full days</>
               )}
               . Today is still in progress. Driving and charging are excluded.
             </p>

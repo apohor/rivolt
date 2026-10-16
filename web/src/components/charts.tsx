@@ -613,6 +613,7 @@ export function BarChart({
   height = 100,
   color = "#10b981",
   formatY,
+  formatValue,
   formatX,
   className,
   barGap = 2,
@@ -621,6 +622,8 @@ export function BarChart({
   height?: number;
   color?: string;
   formatY?: (v: number) => string;
+  // Per-bar tooltip value; default one decimal.
+  formatValue?: (v: number) => string;
   formatX?: (label: string, i: number) => string;
   className?: string;
   barGap?: number;
@@ -713,7 +716,7 @@ export function BarChart({
               rx={1.5}
             >
               <title>
-                {d.label}: {d.value.toFixed(1)}
+                {d.label}: {formatValue ? formatValue(d.value) : d.value.toFixed(1)}
               </title>
             </rect>
           </g>
