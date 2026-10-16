@@ -26,7 +26,7 @@ export function VersionBar() {
     let stopped = false;
     const check = async () => {
       if (stopped || navigator.onLine === false) return;
-      let live: string | null = null;
+      let live: string | null;
       try {
         live = (await backend.health()).version ?? null;
       } catch {
