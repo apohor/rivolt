@@ -160,7 +160,7 @@ export function TripRouteMap({
     // the route clears them.
     const fitOpts = (maxZoom: number): L.FitBoundsOptions =>
       fill
-        ? { paddingTopLeft: [24, window.innerWidth < 640 ? 96 : 64], paddingBottomRight: [24, 24], maxZoom }
+        ? { paddingTopLeft: [24, window.innerWidth < 640 ? 96 : 64], paddingBottomRight: [24, window.innerWidth < 640 ? 40 : 24], maxZoom }
         : { padding: [24, 24], maxZoom };
     let fitted = false;
     let fitBox: L.LatLngBounds | null = null;

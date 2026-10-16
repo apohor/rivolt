@@ -22,7 +22,10 @@ for (const theme of ["dark", "light"] as const) {
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
       await expect(page.locator("[data-plan-chips]")).toBeVisible();
       await page.waitForTimeout(1500);
-      if (w === 390) await page.locator("[data-plan-area='map']").scrollIntoViewIfNeeded();
+      // On a phone the bottom sheet is fixed over the page's lower part: with the map
+      // scrolled up under the top bar (its top at 80px), no route marker may sit under the peek.
+      if (w === 390) await page.locator("[data-plan-area='map']").evaluate((el) => window.scrollBy(0, el.getBoundingClientRect().top - 80));
+      await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(SHOTS, `plan-map-chips-${w}-${theme}.png`) });
       const res = await page.evaluate(() => {
         const chips = document.querySelector("[data-plan-chips]")!.getBoundingClientRect();
@@ -30,11 +33,14 @@ for (const theme of ["dark", "light"] as const) {
         const markers = [...document.querySelectorAll("[data-plan-area='map'] .leaflet-marker-icon")].map((m) => m.getBoundingClientRect());
         const hits = markers.filter((m) => m.left < chips.right && m.right > chips.left && m.top < chips.bottom && m.bottom > chips.top).length;
         const outside = markers.filter((m) => m.top < map.top || m.bottom > map.bottom || m.left < map.left || m.right > map.right).length;
-        return { n: markers.length, hits, outside };
+        const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect();
+        const underSheet = sheet ? markers.filter((m) => m.bottom > sheet.top && m.top < sheet.bottom && m.left < sheet.right && m.right > sheet.left).length : 0;
+        return { n: markers.length, hits, outside, underSheet };
       });
       expect(res.n).toBeGreaterThan(1);
       expect(res.hits).toBe(0);
       expect(res.outside).toBe(0);
+      expect(res.underSheet).toBe(0);
       await ctx.close();
     });
   }
