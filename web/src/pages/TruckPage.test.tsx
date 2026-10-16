@@ -44,7 +44,7 @@ describe("TruckPage loading states", () => {
     localStorage.clear();
   });
 
-  it("shows a skeleton, not 'No sleep data yet', while sleep loads, and no drain card until it has data", async () => {
+  it("shows skeletons, not 'No sleep data yet' or a missing drain card, while they load", async () => {
     stubFetch({
       "/api/settings/rivian": ok({ enabled: true, authenticated: true, mfa_pending: false }),
       "/api/vehicles/v1/drain": never,
@@ -58,8 +58,26 @@ describe("TruckPage loading states", () => {
     await waitFor(() => expect(screen.getByText("Sleep and idle-awake")).toBeInTheDocument());
     expect(screen.queryByText(/No sleep data yet/)).toBeNull();
     expect(screen.getByLabelText("Loading sleep data")).toBeInTheDocument();
+    // The drain slot shows a titled skeleton while it loads (never an empty
+    // bordered box), and it is not the real card yet.
+    const skel = screen.getByTestId("drain-skeleton");
+    expect(skel).toHaveTextContent("Parked drain");
     expect(screen.queryByLabelText("Parked drain")).toBeNull();
-    // No bordered, empty placeholder card above Pack capacity.
-    expect(document.querySelector(".animate-pulse.h-32")).toBeNull();
+  });
+
+  it("removes the drain skeleton when the endpoint is absent (404): no card, no empty box", async () => {
+    stubFetch({
+      "/api/settings/rivian": ok({ enabled: true, authenticated: true, mfa_pending: false }),
+      "/api/vehicles/v1/drain": async () => ({ status: 404, body: "not found" }),
+      "/api/vehicles/v1/state": ok({}),
+      "/api/vehicles/v1/pack-health": ok({ samples: [], headline: {} }),
+      "/api/sleep-activity": ok([]),
+      "/api/vehicles": ok([{ id: "v1", name: "Tank" }]),
+      "/api/state": ok({}),
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Sleep and idle-awake")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("drain-skeleton")).toBeNull());
+    expect(screen.queryByLabelText("Parked drain")).toBeNull();
   });
 });
