@@ -2,9 +2,12 @@ package rivian
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 // Streaming is true when any local monitor runs the vehicle, not only
@@ -30,5 +33,24 @@ func TestRegistryStreamingAnyMonitor(t *testing.T) {
 	}
 	if r.Streaming("vin-2") {
 		t.Error("another vehicle reads as streaming")
+	}
+}
+
+// Independent charge-close side effects (push, receipts) all run for one
+// close, in the order registered.
+func TestComposeChargeCloseRunsEveryHook(t *testing.T) {
+	if composeChargeClose(nil) != nil {
+		t.Fatal("no hooks should compose to nil")
+	}
+	var calls []string
+	h := func(name string) ChargeCloseHook {
+		return func(_ context.Context, c charges.Charge) { calls = append(calls, name+":"+c.ID) }
+	}
+	one := composeChargeClose([]ChargeCloseHook{h("a")})
+	one(context.Background(), charges.Charge{ID: "c1"})
+	both := composeChargeClose([]ChargeCloseHook{h("a"), h("b")})
+	both(context.Background(), charges.Charge{ID: "c2"})
+	if got := strings.Join(calls, ","); got != "a:c1,a:c2,b:c2" {
+		t.Errorf("calls = %s", got)
 	}
 }

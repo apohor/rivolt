@@ -51,6 +51,7 @@ type MonitorRegistry struct {
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
+	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
@@ -204,6 +205,16 @@ func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) 
 	r.mu.Unlock()
 }
 
+// AddChargeCloseHookFactory registers a further charge-close side effect
+// next to the one SetChargeCloseHookFactory holds (push notifications), so
+// independent features can each react to a closed charge. Every registered
+// hook runs, in order registered, for each close.
+func (r *MonitorRegistry) AddChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
+	r.mu.Lock()
+	r.extraChargeClose = append(r.extraChargeClose, factory)
+	r.mu.Unlock()
+}
+
 // Start launches a monitor for uid if one is not already running.
 // Returns the monitor (existing or new). Returns nil when the account
 // is neither a LiveClient nor an authenticated FrameSource (mock/stub
@@ -277,8 +288,19 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 			mon.SetDriveCloseHook(h)
 		}
 	}
-	if r.chargeCloseHook != nil {
-		if h := r.chargeCloseHook(uid); h != nil {
+	{
+		var hooks []ChargeCloseHook
+		if r.chargeCloseHook != nil {
+			if h := r.chargeCloseHook(uid); h != nil {
+				hooks = append(hooks, h)
+			}
+		}
+		for _, f := range r.extraChargeClose {
+			if h := f(uid); h != nil {
+				hooks = append(hooks, h)
+			}
+		}
+		if h := composeChargeClose(hooks); h != nil {
 			mon.SetChargeCloseHook(h)
 		}
 	}
@@ -533,4 +555,20 @@ func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return uid, nil
+}
+
+// composeChargeClose runs every hook, in order, for one closed charge. No
+// hooks give nil; one is returned as is.
+func composeChargeClose(hooks []ChargeCloseHook) ChargeCloseHook {
+	switch len(hooks) {
+	case 0:
+		return nil
+	case 1:
+		return hooks[0]
+	}
+	return func(ctx context.Context, c charges.Charge) {
+		for _, h := range hooks {
+			h(ctx, c)
+		}
+	}
 }

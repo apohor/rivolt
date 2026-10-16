@@ -25,24 +25,33 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/ledger"
+	"github.com/apohor/rivolt/internal/receipts"
 )
 
 func sampleExport() exportData {
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	km := 3.2
 	th := 1.5
+	billed := 5.12
+	chargeID := uuid.New()
+	home := true
 	return exportData{
 		Version: "v0.32.1", CreatedAt: now, TZ: "UTC", Currency: "USD",
 		Charges: []charges.Charge{{
 			ID: "live_v_c_1", VehicleID: "rv-1", StartedAt: now.Add(-3 * time.Hour), EndedAt: now.Add(-2 * time.Hour),
 			EnergyAddedKWh: 30.5, Cost: 4.88, Currency: "USD", PricePerKWh: 0.16, CostSource: "home_rate",
 			Network: "=HYPERLINK(\"http://x\")", Place: "home", ThermalKWh: &th, Source: "live",
+			ReceiptCost: &billed, ReceiptCurrency: "USD", ReceiptTxnID: "txn-1",
 		}},
 		Classes: []ledger.Classification{{CostSource: "home_rate", Kind: "ac", Place: "home", KMFromHome: &km, CountsInSpend: true, Flags: []string{"a", "b"}}},
 		Drives: []drives.Drive{{ID: "d1", VehicleID: "rv-1", StartedAt: now.Add(-5 * time.Hour), EndedAt: now.Add(-4 * time.Hour),
 			DistanceMi: 12.5, StartLat: 34.1, StartLon: -118.1, Source: "live", RoutePolyline: "abc"}},
 		Trips: []ledger.Trip{{TripID: "trip_1", VehicleID: "rv-1", StartedAt: now.Add(-48 * time.Hour), EndedAt: now.Add(-24 * time.Hour),
 			Miles: 600, DriveIDs: []string{"d1", "d2"}, ChargeIDs: []string{"c1"}, CostSourceMix: map[string]float64{"network_estimate": 30, "home_rate": 5}}},
+		Receipts: []receipts.Receipt{
+			{TransactionID: "txn-1", StartedAt: now.Add(-3 * time.Hour), EndedAt: now.Add(-2 * time.Hour), TotalCost: &billed, Currency: "USD", Vendor: "Rivian", City: "Reno", ChargeID: &chargeID},
+			{TransactionID: "txn-2", StartedAt: now.Add(-30 * time.Hour), EndedAt: now.Add(-29 * time.Hour), Currency: "USD", IsHome: &home},
+		},
 		Settings: map[string]string{"charging.home_price_per_kwh": "0.16"},
 		Profiles: []exportProfile{},
 	}
@@ -73,7 +82,7 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := readZip(t, buf.Bytes())
-	for _, name := range []string{"README.txt", "charges.csv", "drives.csv", "trips.csv", "settings.json", "vehicles.json", "export.json"} {
+	for _, name := range []string{"README.txt", "charges.csv", "drives.csv", "trips.csv", "rivian_receipts.csv", "settings.json", "vehicles.json", "export.json"} {
 		if _, ok := files[name]; !ok {
 			t.Errorf("missing %s", name)
 		}
@@ -89,6 +98,23 @@ func TestExportZip_ContentsAndEffectiveColumns(t *testing.T) {
 	if col["cost_source"] != "home_rate" || col["effective_cost_source"] != "home_rate" || col["kind"] != "ac" ||
 		col["counts_in_spend"] != "true" || col["flags"] != "a;b" || col["km_from_home"] != "3.2" {
 		t.Fatalf("charge row: %v", col)
+	}
+	if col["receipt_cost"] != "5.12" || col["receipt_currency"] != "USD" || col["receipt_txn_id"] != "txn-1" || col["cost"] != "4.88" {
+		t.Fatalf("receipt columns must sit beside the untouched estimate: %v", col)
+	}
+	rrows, err := csv.NewReader(strings.NewReader(files["rivian_receipts.csv"])).ReadAll()
+	if err != nil || len(rrows) != 3 {
+		t.Fatalf("rivian_receipts.csv: %v rows=%d", err, len(rrows))
+	}
+	rcol := map[string]string{}
+	for i, h := range rrows[0] {
+		rcol[h] = rrows[1][i]
+	}
+	if rcol["transaction_id"] != "txn-1" || rcol["total_cost"] != "5.12" || rcol["matched_to_charge"] != "true" || rcol["city"] != "Reno" {
+		t.Fatalf("receipt row: %v", rcol)
+	}
+	if rrows[2][0] != "txn-2" || rrows[2][3] != "" || rrows[2][len(rrows[2])-1] != "false" {
+		t.Fatalf("unmatched receipt row: %v", rrows[2])
 	}
 	if !strings.HasPrefix(col["network"], "'=") {
 		t.Fatalf("formula injection not neutralised: %q", col["network"])
