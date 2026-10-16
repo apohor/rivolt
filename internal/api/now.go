@@ -129,15 +129,27 @@ func envReplay() bool {
 // (connected, not charging) > asleep (power_state) > parked. A plugged
 // truck that is also asleep reads "plugged" (agreed with ux).
 //
-// Plugged means Rivian's charger_status says connected
-// ('chrgr_sts_connected*', migration 0053) when the row has one. An R2
-// reports charging_ready while parked unplugged, so the charging_state
-// alone is only trusted on rows with no charger_status (older rows, and
-// vehicles that never report it).
+// Plugged:
+//   - a row with a charger_status (R1s report it, migration 0053) is
+//     plugged when it starts with chrgr_sts_connected, whatever the
+//     charging_state says: an R1 reports charging_ready while parked
+//     unplugged;
+//   - a row without one on an R1 (older rows) keeps the charging_state
+//     rule (ready, complete or connecting);
+//   - an R2 never reports charger_status, and its charging_ready (and
+//     charging_complete) say nothing about the plug, so the only sign is
+//     the recorder's own: charging_connecting with power flowing. This is
+//     the rule the recorder uses to open a charge (liveSessions.plugged).
+//
+// The query's v CTE supplies r2 (vehicles.model).
 const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 	            WHEN %[1]s.charging_state = 'charging_active' THEN 'charging'
-	            WHEN %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting')
-	                 AND (COALESCE(%[1]s.charger_status, '') = '' OR starts_with(%[1]s.charger_status, 'chrgr_sts_connected')) THEN 'plugged'
+	            WHEN COALESCE(%[1]s.charger_status, '') <> '' AND starts_with(%[1]s.charger_status, 'chrgr_sts_connected')
+	                 AND %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND NOT COALESCE((SELECT r2 FROM v), false)
+	                 AND %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND COALESCE((SELECT r2 FROM v), false)
+	                 AND %[1]s.charging_state = 'charging_connecting' AND COALESCE(%[1]s.charger_power_kw, 0) > 0 THEN 'plugged'
 	            WHEN %[1]s.power_state = 'sleep' THEN 'asleep'
 	            ELSE 'parked' END`
 
@@ -145,7 +157,7 @@ const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 // pressure in the last 6 h: two LIMIT 1 index probes, cheap every poll.
 var nowCurSQL = fmt.Sprintf(`
 WITH v AS (
-	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
 	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st,
 	       (vs.power_state IS NOT DISTINCT FROM 'sleep') AS asleep
@@ -169,7 +181,7 @@ SELECT (SELECT at FROM cur),
 // than the window and the start is NULL (unknown), not the window edge.
 var nowRunSQL = fmt.Sprintf(`
 WITH v AS (
-	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), brk AS (
 	SELECT vs.at
 	FROM vehicle_state vs

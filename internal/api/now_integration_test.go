@@ -115,15 +115,26 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	// charging_ready while parked unplugged.
 	for _, c := range []struct {
 		name, status, charge, want string
+		model                      string
+		kw                         float64
 	}{
-		{"rv-cs-unplugged", "chrgr_sts_not_connected", "charging_ready", "parked"},
-		{"rv-cs-connected-idle", "chrgr_sts_connected_no_chrg", "charging_ready", "plugged"},
-		{"rv-cs-connected-complete", "chrgr_sts_connected_no_chrg", "charging_complete", "plugged"},
-		{"rv-cs-legacy-null", "", "charging_ready", "plugged"}, // no charger_status: old rule
-		{"rv-cs-unplugged-complete", "chrgr_sts_not_connected", "charging_complete", "parked"},
+		{name: "rv-cs-unplugged", status: "chrgr_sts_not_connected", charge: "charging_ready", want: "parked"},
+		{name: "rv-cs-connected-idle", status: "chrgr_sts_connected_no_chrg", charge: "charging_ready", want: "plugged"},
+		{name: "rv-cs-connected-complete", status: "chrgr_sts_connected_no_chrg", charge: "charging_complete", want: "plugged"},
+		{name: "rv-cs-legacy-null", charge: "charging_ready", want: "plugged"}, // R1 without charger_status: old rule
+		{name: "rv-cs-unplugged-complete", status: "chrgr_sts_not_connected", charge: "charging_complete", want: "parked"},
+		// R2: never reports charger_status; charging_ready/complete say
+		// nothing about the plug, only charging_connecting with power does.
+		{name: "rv-r2-ready", model: "R2", charge: "charging_ready", want: "parked"},
+		{name: "rv-r2-ready-power", model: "R2", charge: "charging_ready", kw: 7, want: "parked"},
+		{name: "rv-r2-complete", model: "R2", charge: "charging_complete", want: "parked"},
+		{name: "rv-r2-connecting-idle", model: "R2", charge: "charging_connecting", want: "parked"},
+		{name: "rv-r2-connecting-power", model: "R2", charge: "charging_connecting", kw: 11, want: "plugged"},
+		{name: "rv-r2-status-connected", model: "R2", status: "chrgr_sts_connected_no_chrg", charge: "charging_ready", want: "plugged"},
+		{name: "rv-r1-ready-model", model: "R1T", charge: "charging_ready", want: "plugged"},
 	} {
 		var vid string
-		if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,$2) RETURNING id`, alice, c.name).Scan(&vid); err != nil {
+		if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,$2,NULLIF($3,'')) RETURNING id`, alice, c.name, c.model).Scan(&vid); err != nil {
 			t.Fatal(err)
 		}
 		var cs any
@@ -132,7 +143,7 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 		}
 		if _, err := pool.Exec(`INSERT INTO vehicle_state
 			(user_id, vehicle_id, at, source, power_state, shift_state, charging_state, charger_status, battery_level_pct, charger_power_kw, location_fix_at)
-			VALUES ($1,$2,$3,'live','ready','P',$4,$5,50,0,$3)`, alice, vid, now.Add(-time.Minute), c.charge, cs); err != nil {
+			VALUES ($1,$2,$3,'live','ready','P',$4,$5,50,$6,$3)`, alice, vid, now.Add(-time.Minute), c.charge, cs, c.kw); err != nil {
 			t.Fatalf("seed %s: %v", c.name, err)
 		}
 		got, err := newNowSnapshotter(pool)(ctx, alice, c.name, now)
