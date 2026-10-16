@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/chargers"
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
@@ -43,12 +44,24 @@ import (
 // id, and --apply refuses unless every one of them would be re-priced.
 // --apply needs --backup FILE: each row as it was (to_jsonb), written
 // 0600 and fsynced before the update transaction starts.
+//
+// --detect classifies with DC fast charge network detection (the
+// recorder's, contract dcfc-auto-network v1) instead of the nearest
+// station: the user's own verified charge at the site, then every
+// station within 250 m. It writes network_state / network_confidence /
+// network_evidence too (migration 0051 required), so co-located sites
+// land as needs_confirmation for the user to settle. --min-confidence
+// keeps only rows detected at least that sure (0.85 = estimates only).
+// A row nothing matched is skipped. Undo as 0040's comment, plus
+// network_state, network_confidence and network_evidence = NULL.
 func runReprice(args []string) int {
 	fs := flag.NewFlagSet("reprice", flag.ContinueOnError)
 	apply := fs.Bool("apply", false, "write the changes (default: dry run)")
 	user := fs.String("user", "", "only this username")
 	idsPath := fs.String("ids", "", "only the charge ids in this file (one per line)")
 	backupPath := fs.String("backup", "", "with --apply: CSV of each row before the update (required)")
+	detect := fs.Bool("detect", false, "classify with network detection and write the verify state (needs migration 0051)")
+	minConf := fs.Float64("min-confidence", 0, "with --detect: only rows detected at least this confident (0.85 = estimates only)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -83,6 +96,14 @@ func runReprice(args []string) int {
 	if err := db.RequireTables(ctx, pool, "charges", "users"); err != nil {
 		fmt.Fprintln(os.Stderr, "reprice:", err)
 		return 1
+	}
+	if *detect {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM information_schema.columns
+			WHERE table_name = 'charges' AND column_name IN ('network_state', 'network_confidence', 'network_evidence')`).Scan(&n); err != nil || n != 3 {
+			fmt.Fprintln(os.Stderr, "reprice: --detect needs migration 0051 (charges.network_state); this database doesn't have it")
+			return 1
+		}
 	}
 
 	var archive *chargers.Archive
@@ -130,6 +151,9 @@ func runReprice(args []string) int {
 	}
 	sf := settings.NewFactory(pool)
 	pricers := map[uuid.UUID]rivian.DCFCPriceLookup{}
+	detectors := map[uuid.UUID]rivian.DCFCDetector{}
+	cf := charges.NewFactory(pool, db.NewVehicleResolverFactory(pool))
+	always := func() bool { return true }
 	homeRates := map[uuid.UUID]float64{}
 	for rows.Next() {
 		var (
@@ -146,6 +170,7 @@ func runReprice(args []string) int {
 		if _, ok := pricers[uid]; !ok {
 			ss := sf.For(uid)
 			pricers[uid] = newDCFCPricer(archive, ss)
+			detectors[uid] = newDCFCDetector(archive, ss, cf.For(uid), always)
 			if ss != nil {
 				if cfg, err := settings.GetChargingConfig(ctx, ss); err == nil {
 					homeRates[uid] = cfg.HomePricePerKWh
@@ -161,10 +186,29 @@ func runReprice(args []string) int {
 			skip(c.id, "peak glitch (effective power below DCFC)")
 			continue
 		}
-		rate, _, network, ok := pricers[uid](lat, lon)
-		if !ok {
-			skip(c.id, "no DCFC station within range")
-			continue
+		var (
+			rate    float64
+			network string
+		)
+		if *detect {
+			v, _ := detectors[uid](lat, lon, false, c.kw)
+			if !v.Priced {
+				skip(c.id, "no network detected (left for the user)")
+				continue
+			}
+			if v.Confidence < *minConf {
+				skip(c.id, fmt.Sprintf("detected below --min-confidence (%s)", v.State))
+				continue
+			}
+			rate, network = v.Rate, v.Network
+			c.state, c.conf, c.evidence = v.State, v.Confidence, v.Evidence
+		} else {
+			r, _, n, ok := pricers[uid](lat, lon)
+			if !ok {
+				skip(c.id, "no DCFC station within range")
+				continue
+			}
+			rate, network = r, n
 		}
 		c.oldRate, c.rate, c.newCost, c.network = ppk, rate, rate*c.kwh, network
 		changes = append(changes, c)
@@ -182,8 +226,12 @@ func runReprice(args []string) int {
 		t[0] += c.oldCost
 		t[1] += c.newCost
 		totals[c.user] = t
-		fmt.Printf("%s  %s  %-24s %6.1f kWh  %5.0f kW  $%7.2f → $%7.2f  %s @ $%.2f/kWh\n",
-			c.id, c.at.Format("2006-01-02 15:04"), c.user, c.kwh, c.kw, c.oldCost, c.newCost, c.network, c.rate)
+		verdict := ""
+		if c.state != "" {
+			verdict = fmt.Sprintf("  [%s %.2f]", c.state, c.conf)
+		}
+		fmt.Printf("%s  %s  %-24s %6.1f kWh  %5.0f kW  $%7.2f → $%7.2f  %s @ $%.2f/kWh%s\n",
+			c.id, c.at.Format("2006-01-02 15:04"), c.user, c.kwh, c.kw, c.oldCost, c.newCost, c.network, c.rate, verdict)
 	}
 	unpriced := repriceUnaccounted(idStrs, outcome)
 	for _, line := range unpriced {
@@ -233,6 +281,14 @@ func runReprice(args []string) int {
 			fmt.Fprintln(os.Stderr, "reprice: update:", err)
 			return 1
 		}
+		if c.state != "" {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE charges SET network_state = $2, network_confidence = $3, network_evidence = $4::jsonb
+				WHERE id = $1`, c.id, c.state, c.conf, string(c.evidence)); err != nil {
+				fmt.Fprintln(os.Stderr, "reprice: update state:", err)
+				return 1
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		fmt.Fprintln(os.Stderr, "reprice: commit:", err)
@@ -250,6 +306,10 @@ type repriceChange struct {
 	kwh, kw, oldCost, newCost float64
 	oldRate, rate             float64
 	network                   string
+	// --detect only: the verify state written with the price.
+	state    string
+	conf     float64
+	evidence []byte
 }
 
 // repriceUnaccounted lists, one line each, the --ids entries that won't

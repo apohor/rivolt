@@ -258,22 +258,27 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			source           = EXCLUDED.source,
 			-- A price the user entered survives the recorder re-saving
 			-- the session (lifecycle upserts keep firing until close).
-			cost             = CASE WHEN charges.cost_source = 'user' THEN charges.cost ELSE EXCLUDED.cost END,
-			currency         = CASE WHEN charges.cost_source = 'user' THEN charges.currency ELSE EXCLUDED.currency END,
-			price_per_kwh    = CASE WHEN charges.cost_source = 'user' THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
+			cost             = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost ELSE EXCLUDED.cost END,
+			currency         = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.currency ELSE EXCLUDED.currency END,
+			price_per_kwh    = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
 			-- Only overwrite thermal_kwh when the new row actually
 			-- has one. A re-upsert from a path that doesn't track
 			-- this metric (REST poller, ElectraFi import) shouldn't
 			-- erase a value the Parallax stream already captured.
 			thermal_kwh      = COALESCE(EXCLUDED.thermal_kwh, charges.thermal_kwh),
 			active_seconds   = COALESCE(EXCLUDED.active_seconds, charges.active_seconds),
-			cost_source      = CASE WHEN charges.cost_source = 'user' THEN charges.cost_source ELSE EXCLUDED.cost_source END,
-			-- A network the user confirmed stays, as a user's own price
-			-- does; so does the detection record behind either.
-			network          = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network ELSE EXCLUDED.network END,
-			network_state      = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_state ELSE EXCLUDED.network_state END,
-			network_confidence = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_confidence ELSE EXCLUDED.network_confidence END,
-			network_evidence   = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_evidence ELSE EXCLUDED.network_evidence END,
+			cost_source      = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost_source ELSE EXCLUDED.cost_source END,
+			-- A network the user confirmed stays with its price, as a
+			-- user's own price does, until Rivian's bill arrives. The
+			-- detection record survives a re-save that carries none
+			-- (only the detector sets it); Rivian's bill ends the state.
+			network          = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.network ELSE EXCLUDED.network END,
+			network_state      = CASE WHEN charges.cost_source = 'user' THEN charges.network_state
+			                          WHEN EXCLUDED.cost_source = 'rivian' THEN NULL
+			                          WHEN charges.network_state = 'confirmed' THEN charges.network_state
+			                          ELSE COALESCE(EXCLUDED.network_state, charges.network_state) END,
+			network_confidence = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_confidence ELSE COALESCE(EXCLUDED.network_confidence, charges.network_confidence) END,
+			network_evidence   = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_evidence ELSE COALESCE(EXCLUDED.network_evidence, charges.network_evidence) END,
 			place            = COALESCE(EXCLUDED.place, charges.place),
 			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			updated_at       = NOW()`,
@@ -724,6 +729,54 @@ func (s *Store) NetworkToConfirm(ctx context.Context) (toConfirm, needsAttention
 		WHERE user_id = $1 AND network_state IN ('estimated', 'needs_confirmation')
 	`, s.userID).Scan(&toConfirm, &needsAttention)
 	return toConfirm, needsAttention, err
+}
+
+// VerifiedNetwork is a DC fast charge of the user's own whose network
+// they confirmed or set themselves, and how far it is from a point.
+type VerifiedNetwork struct {
+	Network string
+	DistM   float64
+}
+
+// NearestVerifiedNetwork returns the user's nearest DC fast charge within
+// radiusM of (lat, lon) whose network is settled: confirmed, or a user
+// price that names a network. It is auto-detection's site memory, so a
+// co-located site the user already resolved isn't asked about again.
+// ok=false when there is none (or no position).
+func (s *Store) NearestVerifiedNetwork(ctx context.Context, lat, lon, radiusM float64) (VerifiedNetwork, bool, error) {
+	if (lat == 0 && lon == 0) || radiusM <= 0 {
+		return VerifiedNetwork{}, false, nil
+	}
+	// A bounding box on the index-friendly columns, then exact distance.
+	dLat := radiusM / 111_320.0
+	dLon := dLat / math.Max(math.Cos(lat*math.Pi/180), 0.01)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT network, lat, lon
+		FROM charges
+		WHERE user_id = $1
+		  AND COALESCE(network, '') <> ''
+		  AND (network_state = 'confirmed' OR cost_source = 'user')
+		  AND COALESCE(max_power_kw, 0) >= 50
+		  AND lat BETWEEN $2::float8 AND $3::float8
+		  AND lon BETWEEN $4::float8 AND $5::float8
+		ORDER BY ended_at DESC
+		LIMIT 50`, s.userID, lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	if err != nil {
+		return VerifiedNetwork{}, false, err
+	}
+	defer rows.Close()
+	best, found := VerifiedNetwork{}, false
+	for rows.Next() {
+		var n string
+		var la, lo float64
+		if err := rows.Scan(&n, &la, &lo); err != nil {
+			return VerifiedNetwork{}, false, err
+		}
+		if d := haversineM(lat, lon, la, lo); d <= radiusM && (!found || d < best.DistM) {
+			best, found = VerifiedNetwork{Network: n, DistM: d}, true
+		}
+	}
+	return best, found, rows.Err()
 }
 
 // LiveOverlap describes the live session another recorder wrote over

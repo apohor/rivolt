@@ -972,3 +972,137 @@ func TestNetworkState(t *testing.T) {
 		t.Fatalf("to confirm at the end = %d", n)
 	}
 }
+
+// TestNearestVerifiedNetwork: site memory only counts this user's
+// settled DC fast charges (confirmed, or a user price naming a network)
+// within the radius, nearest first.
+func TestNearestVerifiedNetwork(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	// Each charge gets its own hour: live charges of one vehicle can't
+	// overlap (charges_live_no_overlap).
+	slot := 0
+	put := func(s *charges.Store, id string, lat, lon float64, mut func(*charges.Charge)) {
+		t.Helper()
+		slot++
+		c := sampleCharge(id, "rv-A", start.Add(time.Duration(slot)*time.Hour), "charging_complete")
+		c.Lat, c.Lon = lat, lon
+		mut(&c)
+		if err := s.Upsert(ctx, c); err != nil {
+			t.Fatalf("Upsert %s: %v", id, err)
+		}
+	}
+	const lat, lon = 30.2700, -97.7400
+	// ~60 m north: confirmed Electrify America.
+	put(store, "v-conf", lat+0.00054, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "network_estimate", "Electrify America", "estimated"
+	})
+	if n, err := store.ConfirmNetwork(ctx, "v-conf"); err != nil || n != 1 {
+		t.Fatalf("confirm: %d %v", n, err)
+	}
+	// ~30 m: an unconfirmed estimate (not settled), and an AC session.
+	put(store, "v-est", lat+0.00027, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "network_estimate", "Tesla Supercharger", "estimated"
+	})
+	put(store, "v-ac", lat, lon+0.0001, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.MaxPowerKW = "user", "ChargePoint", 7
+	})
+	// ~400 m: a user price naming a network, outside the radius.
+	put(store, "v-far", lat+0.0036, lon, func(c *charges.Charge) { c.CostSource, c.Network = "user", "EVgo" })
+	// Another user's confirmed charge right on the spot.
+	put(factory.For(uidB), "v-other", lat, lon, func(c *charges.Charge) {
+		c.CostSource, c.Network, c.NetworkState = "user", "IONNA", ""
+	})
+
+	got, ok, err := store.NearestVerifiedNetwork(ctx, lat, lon, 100)
+	if err != nil || !ok || got.Network != "Electrify America" || got.DistM < 50 || got.DistM > 70 {
+		t.Fatalf("got %+v ok=%v err=%v, want Electrify America at ~60 m", got, ok, err)
+	}
+	if _, ok, _ := store.NearestVerifiedNetwork(ctx, lat+0.01, lon, 100); ok {
+		t.Fatal("found a verified network 1 km away")
+	}
+	if _, ok, _ := store.NearestVerifiedNetwork(ctx, 0, 0, 100); ok {
+		t.Fatal("no position must find nothing")
+	}
+}
+
+// TestNetworkStateSurvivesResaves (devils-advocate's must-fix): the
+// recorder re-saving a detected row without a state keeps it; Rivian's
+// bill ends it; a confirmed row keeps its price until that bill.
+func TestNetworkStateSurvivesResaves(t *testing.T) {
+	factory, uidA, _ := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	get := func(id string) charges.Charge {
+		t.Helper()
+		all, err := store.ListRecent(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range all {
+			if c.ID == id {
+				return c
+			}
+		}
+		t.Fatalf("%s not listed", id)
+		return charges.Charge{}
+	}
+	est := sampleCharge("s-1", "rv-A", start, "charging_complete")
+	est.CostSource, est.Network, est.Cost, est.PricePerKWh = "network_estimate", "Tesla Supercharger", 20, 0.40
+	est.NetworkState, est.NetworkConfidence, est.NetworkEvidence = "estimated", f64p(0.9), []byte(`{"v":1}`)
+	if err := store.Upsert(ctx, est); err != nil {
+		t.Fatal(err)
+	}
+
+	// A re-save without detection (another pass, or the plain pricer).
+	resave := est
+	resave.NetworkState, resave.NetworkConfidence, resave.NetworkEvidence = "", nil, nil
+	if err := store.Upsert(ctx, resave); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("s-1"); c.NetworkState != "estimated" || c.NetworkConfidence == nil || len(c.NetworkEvidence) == 0 {
+		t.Fatalf("re-save without a state wiped it: %q %v %s", c.NetworkState, c.NetworkConfidence, c.NetworkEvidence)
+	}
+
+	// Rivian's bill arrives: it wins and the verify state ends.
+	billed := resave
+	billed.CostSource, billed.Cost, billed.PricePerKWh, billed.Network = "rivian", 27, 0.54, ""
+	if err := store.Upsert(ctx, billed); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("s-1"); c.CostSource != "rivian" || c.Cost != 27 || c.NetworkState != "" {
+		t.Fatalf("Rivian bill: source %q cost %.2f state %q", c.CostSource, c.Cost, c.NetworkState)
+	}
+
+	// A confirmed estimate keeps its price through re-saves...
+	conf := sampleCharge("s-2", "rv-A", start.Add(time.Hour), "charging_complete")
+	conf.CostSource, conf.Network, conf.Cost, conf.PricePerKWh = "network_estimate", "Electrify America", 24, 0.48
+	conf.NetworkState, conf.NetworkConfidence = "estimated", f64p(0.9)
+	if err := store.Upsert(ctx, conf); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := store.ConfirmNetwork(ctx, "s-2"); err != nil || n != 1 {
+		t.Fatalf("confirm: %d %v", n, err)
+	}
+	again := conf
+	again.Cost, again.PricePerKWh, again.Network, again.NetworkState = 30, 0.60, "Tesla Supercharger", "needs_confirmation"
+	if err := store.Upsert(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("s-2"); c.Cost != 24 || c.PricePerKWh != 0.48 || c.Network != "Electrify America" ||
+		c.CostSource != "network_estimate" || c.NetworkState != "confirmed" {
+		t.Fatalf("confirmed row re-saved: cost %.2f rate %.2f network %q source %q state %q",
+			c.Cost, c.PricePerKWh, c.Network, c.CostSource, c.NetworkState)
+	}
+	// ...until Rivian's bill.
+	again.CostSource, again.Cost, again.Network = "rivian", 26, ""
+	if err := store.Upsert(ctx, again); err != nil {
+		t.Fatal(err)
+	}
+	if c := get("s-2"); c.CostSource != "rivian" || c.Cost != 26 || c.NetworkState != "" {
+		t.Fatalf("confirmed then billed: source %q cost %.2f state %q", c.CostSource, c.Cost, c.NetworkState)
+	}
+}

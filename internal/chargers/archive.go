@@ -397,9 +397,26 @@ func (poi POI) matches(filter Filter) bool {
 // tile and its eight neighbours, so maxM must stay well under a z14
 // tile (~2.4 km at the equator). Concurrent-safe.
 func (a *Archive) Nearest(lat, lon, maxM float64, filter Filter) (POI, bool, error) {
+	near, err := a.Within(lat, lon, maxM, filter)
+	if err != nil || len(near) == 0 {
+		return POI{}, false, err
+	}
+	return near[0].POI, true, nil
+}
+
+// NearPOI is a charger with its distance from the query point.
+type NearPOI struct {
+	POI
+	DistM float64
+}
+
+// Within returns every charger passing filter within maxM meters of
+// (lat, lon), nearest first: the whole site, so a caller can tell a
+// co-located one (a Supercharger beside RAN) from a single network.
+// Same tile search and maxM limit as Nearest. Concurrent-safe.
+func (a *Archive) Within(lat, lon, maxM float64, filter Filter) ([]NearPOI, error) {
 	cx, cy := lonToTileX(lon, chargersZoom), latToTileY(lat, chargersZoom)
-	var best POI
-	bestD := math.Inf(1)
+	var out []NearPOI
 	for dx := -1; dx <= 1; dx++ {
 		for dy := -1; dy <= 1; dy++ {
 			x, y := int64(cx)+int64(dx), int64(cy)+int64(dy)
@@ -408,19 +425,20 @@ func (a *Archive) Nearest(lat, lon, maxM float64, filter Filter) (POI, bool, err
 			}
 			pois, err := a.tilePOIs(chargersZoom, uint32(x), uint32(y))
 			if err != nil {
-				return POI{}, false, err
+				return nil, err
 			}
 			for _, p := range pois {
 				if !p.matches(filter) {
 					continue
 				}
-				if d := haversineM(lat, lon, p.Lat, p.Lon); d <= maxM && d < bestD {
-					best, bestD = p, d
+				if d := haversineM(lat, lon, p.Lat, p.Lon); d <= maxM {
+					out = append(out, NearPOI{POI: p, DistM: d})
 				}
 			}
 		}
 	}
-	return best, !math.IsInf(bestD, 1), nil
+	sort.SliceStable(out, func(i, j int) bool { return out[i].DistM < out[j].DistM })
+	return out, nil
 }
 
 func haversineM(lat1, lon1, lat2, lon2 float64) float64 {

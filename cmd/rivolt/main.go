@@ -106,7 +106,7 @@ Usage:
                   carry a running energy total into one row. Dry run
                   unless --apply; --apply needs --user/--since/--until
                   and writes a CSV backup first.
-  rivolt reprice [--user NAME] [--ids FILE] [--apply --backup FILE]
+  rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
@@ -684,6 +684,14 @@ func runServer() {
 		// "Unknown DCFC" rate. Without it they'd land on the home rate.
 		monitorRegistry.SetDCFCPriceLookupFactory(func(uid uuid.UUID) rivian.DCFCPriceLookup {
 			return newDCFCPricer(chargersArchive, settingsFactory.For(uid))
+		})
+		// Where dcfc_auto_network covers the user, detect the network
+		// with a confidence and a verify state instead (contract
+		// dcfc-auto-network v1); elsewhere the pricer above stands.
+		monitorRegistry.SetDCFCDetectorFactory(func(uid uuid.UUID) rivian.DCFCDetector {
+			return newDCFCDetector(chargersArchive, settingsFactory.For(uid), chargesFactory.For(uid), func() bool {
+				return flagsStore != nil && flagsStore.DCFCAutoNetwork().Enabled(uid.String())
+			})
 		})
 		// Live-session persistence: when Redis is wired, install a
 		// per-user LiveStateStore factory so each StateMonitor can

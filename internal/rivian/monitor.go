@@ -1,6 +1,7 @@
 package rivian
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"log/slog"
@@ -271,6 +272,9 @@ type StateMonitor struct {
 	// from the network of the station at its location. Nil leaves
 	// such sessions on the home rate (the pre-0040 behaviour).
 	dcfcPrice DCFCPriceLookup
+	// dcfcDetect, when set and on for the user, replaces dcfcPrice with
+	// network detection plus a verify state (dcfc_auto_network flag).
+	dcfcDetect DCFCDetector
 	// homeLookup returns the user's saved home location. The recorder
 	// uses it to leave AC charging away from home unpriced instead of
 	// stamping the home rate on it. nil (or ok=false) = home unknown,
@@ -322,6 +326,27 @@ type StateMonitor struct {
 // display name ("" when no station matched and a fallback rate was
 // used). ok=false means no estimate is available.
 type DCFCPriceLookup func(lat, lon float64) (ratePerKWh float64, currency, network string, ok bool)
+
+// DCFCVerdict is a DC fast charge network detection, priced: the
+// network, its rate for this user, and the verify state the charge row
+// carries (contract dcfc-auto-network v1). Priced=false means nothing
+// matched: the charge stays unpriced and needs the user.
+type DCFCVerdict struct {
+	Priced     bool
+	Rate       float64
+	Currency   string
+	Network    string
+	State      string
+	Confidence float64
+	Evidence   json.RawMessage
+}
+
+// DCFCDetector detects and prices the network of a DC fast charge Rivian
+// didn't bill, at the charge's position (where it opened). on=false
+// means auto-detection is off for this user: the recorder falls back to
+// the DCFCPriceLookup. rivianCharger is Rivian's isRivianCharger for
+// this charge's own session; peakKW is the session's peak so far.
+type DCFCDetector func(lat, lon float64, rivianCharger bool, peakKW float64) (v DCFCVerdict, on bool)
 
 // HomeLookup returns the user's saved home location; ok=false when the
 // user hasn't set one.
@@ -729,6 +754,13 @@ func (m *StateMonitor) SetHomeLookup(fn HomeLookup) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.homeLookup = fn
+}
+
+// SetDCFCDetector wires fast-charge network detection (see dcfcDetect).
+func (m *StateMonitor) SetDCFCDetector(fn DCFCDetector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dcfcDetect = fn
 }
 
 // SetDCFCPriceLookup wires the fast-charge pricer (see dcfcPrice).
