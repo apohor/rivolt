@@ -68,6 +68,7 @@ func TestInsertBulk(t *testing.T) {
 			ChargingState: "charger_disconnected", Source: "live", DriveNumber: 7,
 			LocationFixAt: &fix, AltitudeM: &alt, TirePressureMinBar: &tire,
 			PackTempAvgC: &temp, PackTempMaxC: &temp, PackTempMinC: &temp, PowerState: "go",
+			ChargerStatus: "chrgr_sts_not_connected",
 		})
 	}
 	if err := store.InsertBulk(ctx, batch); err != nil {
@@ -92,13 +93,13 @@ func TestInsertBulk(t *testing.T) {
 		SELECT count(*) FROM (
 		  SELECT at, battery_level_pct, range_mi, odometer_mi, lat, lon, location_fix_at, speed_mph,
 		         shift_state, drive_mode, charging_state, drive_number, source, altitude_m,
-		         tire_pressure_min_bar, pack_temp_avg_c, power_state
+		         tire_pressure_min_bar, pack_temp_avg_c, power_state, charger_status
 		  FROM vehicle_state vs JOIN vehicles v ON v.id = vs.vehicle_id
 		  WHERE v.rivian_vehicle_id = 'rv-bulk' AND vs.at = $1
 		  EXCEPT
 		  SELECT at, battery_level_pct, range_mi, odometer_mi, lat, lon, location_fix_at, speed_mph,
 		         shift_state, drive_mode, charging_state, drive_number, source, altitude_m,
-		         tire_pressure_min_bar, pack_temp_avg_c, power_state
+		         tire_pressure_min_bar, pack_temp_avg_c, power_state, charger_status
 		  FROM vehicle_state vs JOIN vehicles v ON v.id = vs.vehicle_id
 		  WHERE v.rivian_vehicle_id = 'rv-batch'
 		) d`, t0).Scan(&diff); err != nil {
@@ -106,5 +107,10 @@ func TestInsertBulk(t *testing.T) {
 	}
 	if diff != 0 {
 		t.Errorf("InsertBulk and InsertBatch rows differ")
+	}
+	var cst string
+	if err := pool.QueryRowContext(ctx, `SELECT charger_status FROM vehicle_state vs JOIN vehicles v ON v.id = vs.vehicle_id
+		WHERE v.rivian_vehicle_id = 'rv-batch' AND vs.at = $1`, t0).Scan(&cst); err != nil || cst != "chrgr_sts_not_connected" {
+		t.Errorf("charger_status = %q (%v), want chrgr_sts_not_connected", cst, err)
 	}
 }
