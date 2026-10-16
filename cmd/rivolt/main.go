@@ -398,6 +398,16 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
+	// /metrics on its own listener, off the public router. The Ingress
+	// routes every path to the main port, so a /metrics route there is
+	// public (counts, route names, rate-limit state). RIVOLT_METRICS_ADDR
+	// (e.g. ":9091") moves it; the standalone demo always does. Unset
+	// elsewhere keeps the old behaviour until the deployment's
+	// ServiceMonitor points at the new port.
+	metricsAddr := strings.TrimSpace(os.Getenv("RIVOLT_METRICS_ADDR"))
+	if metricsAddr == "" && demo.OnlyEnabled() {
+		metricsAddr = ":9091"
+	}
 	// Resend email client. Both vars must be set for the client to
 	// actually send; otherwise the approve handler still returns the
 	// magic-link in the response so the admin can forward it manually.
@@ -1679,44 +1689,45 @@ func runServer() {
 		statementSigner = statement.NewSigner(cookieSecret)
 	}
 	handler := api.New(api.Deps{
-		StatementSigner:       statementSigner,
-		Rivian:                rivianClient,
-		Accounts:              accountRegistry,
-		PushService:           pushSvc,
-		Drives:                drivesFactory,
-		Charges:               chargesFactory,
-		Samples:               samplesFactory,
-		Settings:              settingsFactory,
-		Push:                  pushFactory,
-		Trips:                 tripsFactory,
-		PackHealth:            packhealth.NewStore(pgPool),
-		Monitors:              monitorRegistry,
-		SettingsMgr:           settingsMgr,
-		Auth:                  authSvc,
-		AuthEnforced:          authEnforced,
-		ImpersonationDisabled: impersonationDisabled,
-		OIDC:                  oidcSvc,
-		WebFS:                 webFS,
-		Version:               version,
-		DB:                    pgPool,
-		Logger:                logger,
-		Flags:                 flagsStore,
-		AIBudget:              aibudget.New(pgPool),
-		Secrets:               secretsStore,
-		Metrics:               appMetrics,
-		Users:                 userProvider,
-		SignupRequests:        signupRequestStore,
-		Email:                 mailer,
-		BaseURL:               os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy:         valhallaProxy,
-		TilesProxy:            tilesProxy,
-		ChargersArchive:       chargersArchive,
-		Photon:                photonClient,
-		WeatherClient:         weather.NewClient(),
-		WeatherCache:          weather.NewMemCache(15*time.Minute, 1024),
-		Hydra:                 hydraClient,
-		Kratos:                kratosClient,
-		HydraRememberFor:      hydraRememberFor,
+		StatementSigner:           statementSigner,
+		Rivian:                    rivianClient,
+		Accounts:                  accountRegistry,
+		PushService:               pushSvc,
+		Drives:                    drivesFactory,
+		Charges:                   chargesFactory,
+		Samples:                   samplesFactory,
+		Settings:                  settingsFactory,
+		Push:                      pushFactory,
+		Trips:                     tripsFactory,
+		PackHealth:                packhealth.NewStore(pgPool),
+		Monitors:                  monitorRegistry,
+		SettingsMgr:               settingsMgr,
+		Auth:                      authSvc,
+		AuthEnforced:              authEnforced,
+		ImpersonationDisabled:     impersonationDisabled,
+		OIDC:                      oidcSvc,
+		WebFS:                     webFS,
+		Version:                   version,
+		DB:                        pgPool,
+		Logger:                    logger,
+		Flags:                     flagsStore,
+		AIBudget:                  aibudget.New(pgPool),
+		Secrets:                   secretsStore,
+		Metrics:                   appMetrics,
+		MetricsOnSeparateListener: metricsAddr != "",
+		Users:                     userProvider,
+		SignupRequests:            signupRequestStore,
+		Email:                     mailer,
+		BaseURL:                   os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:             valhallaProxy,
+		TilesProxy:                tilesProxy,
+		ChargersArchive:           chargersArchive,
+		Photon:                    photonClient,
+		WeatherClient:             weather.NewClient(),
+		WeatherCache:              weather.NewMemCache(15*time.Minute, 1024),
+		Hydra:                     hydraClient,
+		Kratos:                    kratosClient,
+		HydraRememberFor:          hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span
@@ -1751,6 +1762,19 @@ func runServer() {
 		// IdleTimeout closes idle keep-alive sockets so a misbehaving
 		// client can't accumulate fds. Browsers reconnect cheaply.
 		IdleTimeout: 90 * time.Second,
+	}
+
+	if metricsAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", appMetrics.Handler())
+		msrv := &http.Server{Addr: metricsAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			logger.Info("metrics listening", "addr", metricsAddr)
+			if err := msrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("metrics server error", "err", err.Error())
+			}
+		}()
+		defer func() { _ = msrv.Close() }()
 	}
 
 	errCh := make(chan error, 1)

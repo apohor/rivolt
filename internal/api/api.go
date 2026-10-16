@@ -160,6 +160,11 @@ type Deps struct {
 	// mounts /metrics. nil disables both — useful for tests that
 	// don't want the global default registry pollution.
 	Metrics *metrics.Metrics
+	// MetricsOnSeparateListener is true when /metrics is served by its
+	// own listener (RIVOLT_METRICS_ADDR) and must NOT be mounted on this
+	// public router: the Ingress routes every path here, so a /metrics
+	// route on it is public.
+	MetricsOnSeparateListener bool
 	// Users, when non-nil, provisions user identities in the
 	// configured IdP on POST /api/admin/users and DELETE.
 	// nil (or a disabled provider) skips IdP provisioning —
@@ -307,7 +312,7 @@ func New(d Deps) http.Handler {
 	// /api tree, with no auth. The Prometheus scraper inside the
 	// cluster reaches it via the pod IP; the Ingress doesn't expose
 	// /metrics externally.
-	if d.Metrics != nil {
+	if d.Metrics != nil && !d.MetricsOnSeparateListener {
 		r.Handle("/metrics", d.Metrics.Handler())
 	}
 
