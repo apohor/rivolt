@@ -5,7 +5,7 @@ import { VERSION_POLL_MS, baselineVersion, isPreviewHost, nextAction } from "../
 // "New version available" bar. Polls /api/health every minute while the page is
 // visible, and on visibilitychange/focus. Prod: the bar only, never an
 // auto-reload. Preview: reloads on its own once the tab is hidden, so the next
-// time the owner switches back he is on the new build. Offline or failing
+// time the owner switches back they are on the new build. Offline or failing
 // requests are ignored (the offline shell keeps working).
 export function VersionBar() {
   const [fresh, setFresh] = useState(false);
