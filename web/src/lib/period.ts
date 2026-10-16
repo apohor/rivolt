@@ -175,3 +175,23 @@ export function usePeriod(): [Period, (p: Period) => void] {
   }, []);
   return [p, savePeriod];
 }
+
+export const SLEEP_MAX_DAYS = 90;
+
+// Bounds for /api/sleep-activity. The endpoint is heavy and buckets by UTC day,
+// so the request is capped to the last 90 days of the period and snapped to
+// whole UTC days: the first and last bars are then full days, not slivers.
+export function sleepWindow(
+  r: PeriodRange,
+  now: Date = new Date(),
+): { since: string; until: string | undefined; capped: boolean } {
+  const day = 86_400_000;
+  const utcDay = (t: number) => Math.floor(t / day) * day;
+  const endMs = r.end ? Math.min(r.end.getTime(), now.getTime()) : now.getTime();
+  const wanted = r.start ? r.start.getTime() : endMs - 730 * day;
+  const floor = endMs - SLEEP_MAX_DAYS * day;
+  const capped = wanted < floor;
+  const since = new Date(utcDay(Math.max(wanted, floor))).toISOString();
+  const until = r.end ? new Date(utcDay(endMs) + day).toISOString() : undefined;
+  return { since, until, capped };
+}
