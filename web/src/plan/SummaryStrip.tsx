@@ -1,6 +1,7 @@
 import { ArcGauge } from "../components/ArcGauge";
 import type { TripCostEstimate, TripPlan, TripRoute } from "../lib/api";
 import { formatDuration, formatWaypointTime } from "./format";
+import { Unit } from "./Unit";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
 // gas sublines, time, arrival, distance, charging). Used by the ui_theme_next planner.
@@ -34,7 +35,6 @@ export function SummaryStrip({
   const userSavings = totalGuest - totalUser;
   const gasEquiv = cost?.gas_equivalent ?? 0;
   const totalChargeMin = chargeMinutes;
-  const charging = { length: stopCount };
   const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
   const arriveAt = (() => {
     let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
@@ -55,15 +55,15 @@ export function SummaryStrip({
       >
         {(shown) => (
           <span className="font-semibold leading-none tabular-nums text-neutral-100">
-            <span className="text-3xl">{arrSoCNext > 0 ? Math.round(shown) : "—"}</span>
-            <span className="ml-0.5 text-base font-normal text-neutral-400">%</span>
+            <span className="pt-hero">{arrSoCNext > 0 ? Math.round(shown) : "—"}</span>
+            <Unit>%</Unit>
           </span>
         )}
       </ArcGauge>
       <div className="min-w-0">
         <p className="ui-label">Trip cost</p>
         <p
-          className="text-3xl font-semibold leading-none tabular-nums text-neutral-100"
+          className="pt-hero tabular-nums text-neutral-100"
           title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
         >
           {totalGuest > 0 ? fmtCurrency(totalGuest) : "No fast charging"}
@@ -86,20 +86,20 @@ export function SummaryStrip({
       <dl className="col-span-2 grid w-full grid-cols-2 gap-x-4 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
         <div>
           <dt className="ui-label">Time</dt>
-          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
-          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
+          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
+          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? <>{(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)}<Unit>mi</Unit></> : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>
-          <dd className="whitespace-nowrap text-base font-medium tabular-nums text-neutral-100">
-            {charging.length > 0 ? `${charging.length} · ${totalChargeMin} min` : "none"}
+          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">
+            {stopCount > 0 ? <>{stopCount}<Unit>{stopCount === 1 ? "stop" : "stops"}</Unit> {totalChargeMin}<Unit>min</Unit></> : "none"}
           </dd>
         </div>
       </dl>
