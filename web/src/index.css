@@ -640,4 +640,22 @@ html[data-ui='next'] .ui-bignum {
     grid-column: 2;
     grid-row: 2 / span 2;
   }
+  /* The "sample data" banner sits above the grid, full width, and pushes the
+     statement, split and receipts down one row. */
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-banner'] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
+    grid-template-rows: auto auto auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-hero'] {
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-split'] {
+    grid-row: 4;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-receipts'] {
+    grid-row: 3 / span 2;
+  }
 }

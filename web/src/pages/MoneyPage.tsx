@@ -124,6 +124,7 @@ export default function MoneyPage() {
 
       {isSample && (
         <div
+          data-ui-area="m-banner"
           role="note"
           className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-2 text-xs text-sky-200"
         >
