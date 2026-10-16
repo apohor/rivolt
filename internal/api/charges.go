@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -132,6 +133,19 @@ func handlePatchChargePricing(store *charges.Store, settingsStore *settings.Stor
 // DCFC rate table is USD; same as the close-time pricer).
 const networkCurrency = "USD"
 
+// chargeStaleAfter is how long an open-looking live row may go without a
+// sample before it counts as ended. Same rule as the web's isActiveCharge:
+// a row left open by a crash must stay editable.
+const chargeStaleAfter = 30 * time.Minute
+
+// chargeInProgress reports whether c is a live session still being
+// recorded: an open final_state, from the live recorder, whose last
+// update is recent.
+func chargeInProgress(c charges.Charge, now time.Time) bool {
+	return charges.IsOpenLiveFinalState(c.FinalState) && c.Source == "live" &&
+		now.Sub(c.EndedAt) <= chargeStaleAfter
+}
+
 func patchChargePricing(store chargePricer, overrides func(context.Context) []dcfcrates.NetworkOverride) http.HandlerFunc {
 	type body struct {
 		// NetworkSlug re-prices at the user's rate for that network
@@ -165,7 +179,7 @@ func patchChargePricing(store chargePricer, overrides func(context.Context) []dc
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if charges.IsOpenLiveFinalState(cur0.FinalState) {
+		if chargeInProgress(*cur0, time.Now()) {
 			http.Error(w, "charge still in progress", http.StatusConflict)
 			return
 		}

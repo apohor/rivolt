@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,13 +23,23 @@ type fakePricer struct {
 	found bool
 	// finalState is the stored charge's final_state ("" = terminal).
 	finalState string
+	// source / endedAt default to a live row that just updated.
+	source  string
+	endedAt time.Time
 }
 
 func (f *fakePricer) GetByExternalID(_ context.Context, id string) (*charges.Charge, error) {
 	if !f.found {
 		return nil, nil
 	}
-	return &charges.Charge{ID: id, FinalState: f.finalState}, nil
+	src, ended := f.source, f.endedAt
+	if src == "" {
+		src = "live"
+	}
+	if ended.IsZero() {
+		ended = time.Now()
+	}
+	return &charges.Charge{ID: id, FinalState: f.finalState, Source: src, EndedAt: ended}, nil
 }
 
 func (f *fakePricer) UpdatePricing(_ context.Context, id string, cost float64, cur string, ppk float64) (int64, error) {
@@ -179,6 +190,22 @@ func TestPatchChargePricing_OpenSessionIs409(t *testing.T) {
 		if code := patchPricing(t, f, `{"cost": 12.5}`); code != http.StatusNoContent {
 			t.Errorf("terminal %q = %d, want 204", st, code)
 		}
+	}
+	// A row left in an open state that stopped updating (crash, lost
+	// stream) is not in progress: it must stay editable, or it could never
+	// be priced. Same for a non-live source.
+	for _, f := range []*fakePricer{
+		{found: true, finalState: "charging_ready", endedAt: time.Now().Add(-2 * time.Hour)},
+		{found: true, finalState: "charging_active", endedAt: time.Now().Add(-31 * time.Minute)},
+		{found: true, finalState: "charging_active", source: "electrafi"},
+	} {
+		if code := patchPricing(t, f, `{"cost": 12.5}`); code != http.StatusNoContent {
+			t.Errorf("stale/non-live open row %+v = %d, want 204", *f, code)
+		}
+	}
+	// Just inside the window is still in progress.
+	if code := patchPricing(t, &fakePricer{found: true, finalState: "charging_ready", endedAt: time.Now().Add(-29 * time.Minute)}, `{"cost": 12.5}`); code != http.StatusConflict {
+		t.Errorf("29 min old open row = %d, want 409", code)
 	}
 	f := &fakePricer{}
 	if code := patchPricing(t, f, `{"cost": 12.5}`); code != http.StatusNotFound || len(f.calls) != 0 {
