@@ -29,6 +29,8 @@ type stubGateway struct {
 	// arm a transient session failure that the CSRF-refresh retry
 	// should heal.
 	userInfoAuthFails int32
+	// imagesByVersion answers getVehicleImages per versionVehicle ("3", "2").
+	imagesByVersion map[string][]any
 }
 
 type gatewayCall struct {
@@ -149,6 +151,14 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 		})
+	case "getVehicleImages":
+		vars, _ := body["variables"].(map[string]any)
+		ver, _ := vars["versionVehicle"].(string)
+		list := g.imagesByVersion[ver]
+		if list == nil {
+			list = []any{}
+		}
+		writeJSON(w, map[string]any{"data": map[string]any{"getVehicleMobileImages": list}})
 	case "GetVehicleState":
 		writeJSON(w, map[string]any{
 			"data": map[string]any{
@@ -568,5 +578,57 @@ func TestMockClientSurfacesLoginFailure(t *testing.T) {
 	c.LoginReturnErr = errors.New("boom")
 	if err := c.Login(context.Background(), Credentials{}); err == nil || err.Error() != "boom" {
 		t.Errorf("Login err = %v, want boom", err)
+	}
+}
+
+// The app's request (webp, density bucket, version "3") goes first; the old
+// one (png, "@2x", "2") is the fallback. vehicles.image_url was empty for
+// every vehicle with the old request alone.
+func TestVehicleImagesTriesVersion3ThenFallsBack(t *testing.T) {
+	img := func(id string) []any {
+		return []any{map[string]any{"vehicleId": id, "url": "https://img.example/" + id + ".webp", "placement": "side-exterior-3qfront-driver"}}
+	}
+	imageCalls := func(g *stubGateway) (vers []string) {
+		for _, call := range g.capturedReqs {
+			if call.Operation != "getVehicleImages" {
+				continue
+			}
+			v, _ := call.Body["variables"].(map[string]any)
+			vers = append(vers, v["versionVehicle"].(string)+"/"+v["extension"].(string)+"/"+v["resolution"].(string))
+		}
+		return vers
+	}
+	login := func(g *stubGateway) *LiveClient {
+		c := NewLive().WithEndpoint(g.srv.URL)
+		if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	g := newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"3": img("veh-a"), "2": img("old")}
+	got, err := login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 1 || got[0].VehicleID != "veh-a" {
+		t.Fatalf("v3 images = %+v, err %v", got, err)
+	}
+	if v := imageCalls(g); strings.Join(v, ",") != "3/webp/xxhdpi" {
+		t.Errorf("calls = %v, want only the v3 request", v)
+	}
+
+	g = newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"2": img("veh-a")}
+	got, err = login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 1 || got[0].VehicleID != "veh-a" {
+		t.Fatalf("fallback images = %+v, err %v", got, err)
+	}
+	if v := imageCalls(g); strings.Join(v, ",") != "3/webp/xxhdpi,2/png/@2x" {
+		t.Errorf("calls = %v, want v3 then the v2 fallback", v)
+	}
+
+	g = newStubGateway(t)
+	got, err = login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Errorf("no images = %+v, err %v, want an empty slice", got, err)
 	}
 }
