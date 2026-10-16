@@ -108,3 +108,38 @@ describe("whoami", () => {
     expect((await backend.whoami())?.user_id).toBe("u1");
   });
 });
+
+// The signed-out demo has no session: calling a session-only endpoint
+// would 401 into the console. liveDrive must stay local there.
+describe("liveDrive in the demo", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("makes no request on /demo and returns null", async () => {
+    Object.defineProperty(window, "location", {
+      value: { pathname: "/demo", search: "", assign: vi.fn() },
+      writable: true,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { backend } = await import("./api");
+    await expect(backend.liveDrive("demo-vin")).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still asks the server outside the demo", async () => {
+    Object.defineProperty(window, "location", {
+      value: { pathname: "/", search: "", assign: vi.fn() },
+      writable: true,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      headers: { get: () => "application/json" },
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { backend } = await import("./api");
+    await expect(backend.liveDrive("vin")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

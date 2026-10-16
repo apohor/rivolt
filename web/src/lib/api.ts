@@ -1000,6 +1000,9 @@ export const backend = {
   // (v5 rejects undefined as a query return value); callers can keep
   // treating null/undefined as "not driving" either way.
   liveDrive: async (vehicleID: string): Promise<LiveDrive | null> => {
+    // /api/live-drive needs a session; the signed-out demo isn't on its
+    // allowlist, so don't ask (it would 401 into the console).
+    if (inDemo()) return null;
     const r = await api.get<LiveDrive | undefined>(
       `/api/live-drive/${encodeURIComponent(vehicleID)}`,
     );
