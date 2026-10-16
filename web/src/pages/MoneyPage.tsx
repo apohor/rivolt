@@ -24,6 +24,7 @@ import {
   type LedgerMonth,
   type MonthSummary,
   type Receipt,
+  statementTotal,
 } from "../lib/ledger";
 import { isOpenNetworkState } from "../lib/autoNetwork";
 import { formatDateTime } from "../lib/format";
@@ -223,8 +224,11 @@ function Statement({
   // Nothing priced this month (no charging, or every session unpriced): a
   // "vs last month" delta (-100%) or a $/mi of $0 says nothing true, so both
   // stay hidden.
-  const hasCharging = m.spend.priced_sessions > 0 || m.spend.total > 0;
-  const delta = hasCharging && prev && prev.spend.total > 0 ? (m.spend.total - prev.spend.total) / prev.spend.total : null;
+  // With Rivian receipts the headline is billed + estimated, so it always equals the two
+  // lines under it; otherwise it is the statement total as before.
+  const headline = statementTotal(m);
+  const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
+  const delta = hasCharging && prev && prev.spend.total > 0 ? (headline - prev.spend.total) / prev.spend.total : null;
   // Partial month (MQ8): the first month with any data, where activity
   // starts well after the 1st.
   const earliest = months.find((x) => x.first_activity_at != null);
@@ -252,7 +256,7 @@ function Statement({
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
           <div className="ui-bignum text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
-            {formatMoney(m.spend.total, cur)}
+            <span data-money-headline>{formatMoney(headline, cur)}</span>
           </div>
           {delta != null && (
             <div className={`pb-1.5 text-sm tabular-nums ${delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>
@@ -280,7 +284,20 @@ function Statement({
           </button>
         )}
 
-        {estShare > 0 && (
+        {m.spend.billed_total != null && m.spend.estimated_total != null && (
+          <p data-billed-split className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+            <span className="text-emerald-300">
+              {formatMoney(m.spend.billed_total, cur)} billed by Rivian
+              {m.billed_sessions != null && <span className="text-neutral-500"> · {m.billed_sessions} {m.billed_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+            <span className="text-neutral-400">
+              {formatMoney(m.spend.estimated_total, cur)} estimated
+              {m.estimated_sessions != null && <span className="text-neutral-500"> · {m.estimated_sessions} {m.estimated_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+          </p>
+        )}
+
+        {estShare > 0 && m.spend.billed_total == null && (
           <p className="mt-0.5 text-xs text-neutral-500">
             Includes{" "}
             <span className="underline decoration-dotted underline-offset-4">{Math.round(estShare * 100)}% estimated</span>{" "}

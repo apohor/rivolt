@@ -68,6 +68,12 @@ export type ReceiptSession = {
   place?: Place;
   network?: string | null;
   network_state?: NetworkState | null;
+  // rivian_receipts (per-user flag): what Rivian billed for the matched session.
+  // Optional; absent on servers or users without the flag.
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -93,6 +99,13 @@ export type Receipt = {
   network?: string | null;
   // Set while the auto-detected network still needs the owner's eye.
   network_state?: NetworkState | null;
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
+  // Sessions with and without a matched Rivian receipt; present only with the flag.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -112,6 +125,14 @@ export type SpendBySource = {
   network_estimate: number;
   user: number;
 };
+
+// statementTotal is the month's headline figure. With Rivian receipts it is what Rivian
+// billed plus our estimate for the rest, so it always equals the two lines under the
+// headline; otherwise it is the statement total. The page and the share card both use it.
+export function statementTotal(m: Pick<MonthSummary, "spend">): number {
+  const { billed_total: b, estimated_total: e, total } = m.spend;
+  return b != null && e != null ? b + e : total;
+}
 
 export type MonthSummary = {
   version: number;
@@ -135,7 +156,13 @@ export type MonthSummary = {
     unpriced_home_rate_estimate: number | null;
     estimate_pending_sessions?: number;
     estimate_pending_kwh?: number;
+    // rivian_receipts: the total split into what Rivian billed and what we estimate.
+    billed_total?: number | null;
+    estimated_total?: number | null;
   };
+  // rivian_receipts: sessions with and without a matched Rivian receipt this month.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   energy: {
     sessions: number;
     kwh_added: number;
