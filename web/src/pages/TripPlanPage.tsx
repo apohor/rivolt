@@ -1675,6 +1675,7 @@ function DeparturePicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const next = useUiNext();
   const [date, time] = value.split("T");
   const setDate = (d: string) => onChange(d ? `${d}T${time || "08:00"}` : "");
   const setTime = (t: string) => onChange(date ? `${date}T${t}` : "");
@@ -1697,6 +1698,24 @@ function DeparturePicker({
       },
     },
   ];
+  if (next) {
+    // One compact chip row: Now, quick picks, then the exact date and time.
+    return (
+      <div data-plan-when-inner role="group" aria-label="Departure">
+        <span className="ui-label">Departure</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <button type="button" aria-pressed={!value} data-plan-chip onClick={() => onChange("")}>Now</button>
+          {presets.map((p) => (
+            <button key={p.label} type="button" data-plan-chip onClick={() => onChange(p.build())}>
+              {p.label}
+            </button>
+          ))}
+          <DatePopover value={date || ""} onChange={setDate} />
+          <TimePopover value={time || ""} onChange={setTime} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1 text-sm">
       <span className="text-neutral-400">Departure</span>
@@ -1989,6 +2008,46 @@ function LocationField({
   presets: { label: string; lat: number; lon: number }[];
   onSaveAsFavorite?: (s: { lat: number; lon: number; label: string }) => void;
 }) {
+  const next = useUiNext();
+  if (next) {
+    // One compact row: a coloured node, the place (or the search), presets below.
+    return (
+      <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
+        <span data-plan-dot aria-hidden />
+        <div data-plan-field-main>
+          {value ? (
+            <div className="flex items-center justify-between gap-2">
+              <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
+              <span className="flex shrink-0 items-center gap-3 text-xs">
+                {onSaveAsFavorite && value.label !== "Home" && (
+                  <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset">
+                    ☆ save
+                  </button>
+                )}
+                <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${heading}`} className="text-neutral-400 hover:text-neutral-200">
+                  clear
+                </button>
+              </span>
+            </div>
+          ) : (
+            <LocationSearch
+              placeholder={`${heading} — city or address`}
+              onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) })}
+            />
+          )}
+          {!value && presets.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
+                  {p.label === "Home" ? "🏠 " : ""}{p.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
       <div className="flex items-baseline justify-between gap-3">
