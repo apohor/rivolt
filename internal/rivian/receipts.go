@@ -99,10 +99,12 @@ func (c *LiveClient) CompletedSessionSummaries(ctx context.Context) ([]SessionSu
 		return nil, fmt.Errorf("GetCompletedSessionSummaries: %w", err)
 	}
 	out := make([]SessionSummary, 0, len(data.GetCompletedSessionSummaries))
+	dropped := 0
 	for _, r := range data.GetCompletedSessionSummaries {
 		start, e1 := parseInstant(r.StartInstant)
 		end, e2 := parseInstant(r.EndInstant)
 		if r.TransactionID == "" || e1 != nil || e2 != nil || !end.After(start) {
+			dropped++
 			continue
 		}
 		s := SessionSummary{
@@ -119,6 +121,11 @@ func (c *LiveClient) CompletedSessionSummaries(ctx context.Context) ([]SessionSu
 			s.City = strings.TrimSpace(*r.City)
 		}
 		out = append(out, s)
+	}
+	// A whole list that cannot be read is a format change, not an empty
+	// history: say so instead of syncing "0 receipts" forever.
+	if len(out) == 0 && dropped > 0 {
+		return nil, fmt.Errorf("GetCompletedSessionSummaries: none of %d rows readable (id or time format)", dropped)
 	}
 	return out, nil
 }
@@ -173,15 +180,29 @@ func (c *LiveClient) receiptsEndpoint() string {
 	return DefaultChargingEndpoint
 }
 
+// instantLayouts are the forms Rivian's charging gateway sends an instant in.
+// The owner app tells them apart by which of 'T', 'Z' and '.' the string has
+// and reads zone-less ones as UTC: ISO 8601 with a zone, microseconds without
+// one, whole seconds without one, and a space-separated form.
+var instantLayouts = []string{
+	time.RFC3339Nano,
+	"2006-01-02T15:04:05.999999999",
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02 15:04:05",
+}
+
 func parseInstant(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, errors.New("empty instant")
 	}
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Time{}, err
+	for _, layout := range instantLayouts {
+		if t, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
+			return t.UTC(), nil
+		}
 	}
-	return t.UTC(), nil
+	return time.Time{}, errors.New("unrecognised instant format")
 }
 
 // QSessionChargerForTest exposes the detail document to the privacy test in

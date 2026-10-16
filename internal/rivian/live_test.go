@@ -823,3 +823,51 @@ func TestSafeHTTPSURL(t *testing.T) {
 		}
 	}
 }
+
+// The gateway's instants are not always RFC 3339: the owner app also reads
+// zone-less microsecond, whole-second and space-separated forms, as UTC. A
+// parser that only knew RFC 3339 dropped every row and the first prod sync
+// reported 0 receipts.
+func TestParseInstantFormats(t *testing.T) {
+	want := time.Date(2026, 10, 1, 18, 30, 5, 0, time.UTC)
+	for _, in := range []string{
+		"2026-10-01T18:30:05Z",
+		"2026-10-01T18:30:05.000Z",
+		"2026-10-01T18:30:05+00:00",
+		"2026-10-01T18:30:05.000000",
+		"2026-10-01T18:30:05",
+		"2026-10-01 18:30:05.000000",
+		" 2026-10-01 18:30:05 ",
+	} {
+		got, err := parseInstant(in)
+		if err != nil || !got.Equal(want) {
+			t.Errorf("parseInstant(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if got, _ := parseInstant("2026-10-01T18:30:05.123456"); got.Nanosecond() != 123456000 {
+		t.Errorf("microseconds lost: %v", got)
+	}
+	for _, bad := range []string{"", "yesterday", "1792193424"} {
+		if _, err := parseInstant(bad); err == nil {
+			t.Errorf("parseInstant(%q) accepted", bad)
+		}
+	}
+}
+
+func TestCompletedSessionSummariesAllUnreadableIsAnError(t *testing.T) {
+	g := newStubGateway(t)
+	g.summaries = []any{map[string]any{"transactionId": "t-1", "startInstant": 1792193424, "endInstant": 1792197024, "totalCost": 3.0}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	c.chargingEndpoint = g.srv.URL
+	if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.CompletedSessionSummaries(context.Background()); err == nil {
+		t.Errorf("a list with no readable row = %+v, nil; want an error, not an empty history", got)
+	}
+	// A genuinely empty history is still empty, not an error.
+	g.summaries = []any{}
+	if got, err := c.CompletedSessionSummaries(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("empty history = %+v, %v", got, err)
+	}
+}
