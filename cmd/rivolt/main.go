@@ -877,6 +877,32 @@ func runServer() {
 			})
 			logger.Info("battery capacity persistence hook enabled")
 		}
+		// Persist vehicle metadata (trim, hero image) from the monitor's own
+		// RefreshVehicleInfo, which already fetched it: the vehicles.trim and
+		// image_url columns were empty for every vehicle but the one whose
+		// owner had opened /api/vehicles. COALESCE in the upsert means a
+		// blank never overwrites a stored value.
+		if pgPool != nil {
+			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
+				return func(vs []rivian.Vehicle) {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						for _, v := range vs {
+							if v.ID == "" {
+								continue
+							}
+							if err := db.UpsertVehicleFromSync(ctx, pgPool, uid, db.VehicleSync{
+								RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear,
+								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL,
+							}); err != nil {
+								logger.Warn("persist vehicle info", "user_id", uid.String(), "rivian_vehicle_id", v.ID, "err", err.Error())
+							}
+						}
+					}()
+				}
+			})
+		}
 		// Rivian charging receipts: what Rivian billed per session, stored
 		// next to our estimate (charges.receipt_*). Gated per user by the
 		// rivian_receipts flag; one summaries call per user a day plus one

@@ -262,6 +262,10 @@ type StateMonitor struct {
 	// pick an accurate pack size for the SoC-delta energy fallback.
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
+	// vehicleInfoHook receives each RefreshVehicleInfo result (trim, image,
+	// pack guess) so it can be persisted. Set before Start; called outside
+	// the monitor lock and must not block.
+	vehicleInfoHook func([]Vehicle)
 
 	// batteryCapacityHook fires from observeBatteryCapacity when the
 	// vehicle-reported usable pack kWh changes. Wired by the
@@ -3277,7 +3281,7 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		m.logger.Warn("vehicle images fetch failed", "err", ierr)
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	refreshed := make([]Vehicle, 0, len(vehicles))
 	for i := range vehicles {
 		v := vehicles[i]
 		if url, ok := heroByVehicle[v.ID]; ok {
@@ -3287,8 +3291,24 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 			v.Images = list
 		}
 		m.vehicleInfo[v.ID] = &v
+		refreshed = append(refreshed, v)
+	}
+	hook := m.vehicleInfoHook
+	m.mu.Unlock()
+	// Persist what was just fetched, outside the lock: no extra Rivian
+	// call, so vehicles.trim / image_url fill from the same two requests.
+	if hook != nil && len(refreshed) > 0 {
+		hook(refreshed)
 	}
 	return nil
+}
+
+// SetVehicleInfoHook wires the persister RefreshVehicleInfo calls with the
+// vehicles it just cached. nil disables. Safe to call before Start.
+func (m *StateMonitor) SetVehicleInfoHook(h func([]Vehicle)) {
+	m.mu.Lock()
+	m.vehicleInfoHook = h
+	m.mu.Unlock()
 }
 
 // pickHeroImage chooses the best image to use as the single
