@@ -32,3 +32,25 @@ func TestClearSubCancelLeavesTheSuccessor(t *testing.T) {
 		t.Error("a subscription's own exit didn't clear its handle")
 	}
 }
+
+// A subscription cancelled before it publishes its handle leaves the
+// current one in place.
+func TestSetSubCancelSkipsACancelledSubscription(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	liveCtx, liveCancel := context.WithCancelCause(context.Background())
+	m.setSubCancel("v", liveCtx, liveCancel)
+	deadCtx, deadCancel := context.WithCancelCause(context.Background())
+	deadCancel(nil)
+	m.setSubCancel("v", deadCtx, deadCancel)
+
+	m.kickResubscribe("v", "test")
+	if liveCtx.Err() == nil {
+		t.Fatal("a cancelled subscription's handle replaced the live one")
+	}
+	m.mu.RLock()
+	got := m.subCtx["v"]
+	m.mu.RUnlock()
+	if got != liveCtx {
+		t.Error("subCtx points at the cancelled subscription")
+	}
+}
