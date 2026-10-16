@@ -18,7 +18,7 @@ The app has five tabs: Now, Activity (Feed, Table and Map), Money, Plan and Truc
 - H1: What your Rivian actually costs.
 - Sub: Every charge and trip priced at your rates, or flagged when we can't price it, with the source of every number. Open source. Self-host it or let us run it.
 - Buttons: *Try the demo truck* · *Connect my Rivian*
-- Under buttons: Free while in beta. Invite-only.
+- Under buttons: Free while in beta. Sign up with Google, GitHub or email; no invite needed.
 
 **Claim 1: Every dollar has a source**
 Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. Charges we can't price are flagged, not guessed. You always see which one.
@@ -59,6 +59,7 @@ Landing is off in production today. These strings are ready for it; the demo the
 | Demo banner (exists) | Sample truck. Generated data, read-only. Connect your Rivian to see yours. |
 | Claim blocks (link text) | See it on the demo → |
 | Footer | Open source (MIT) · Self-host guide · Try the demo |
-| Beta state (signups closed) | Rivolt is invite-only for now. The demo is open to everyone. |
-| After demo, closed signups | Want your own truck here? Ask for an invite. |
-Use "Ask for an invite" while B9 (signups disabled) is on; switch to "Connect my Rivian" only when signups open.
+| Signups open | Sign up with Google, GitHub or email. No invite needed. |
+| After demo | Want your own truck here? Connect my Rivian. |
+| Beta at capacity | We're at capacity right now. Leave your email and we'll let you know when a seat opens. The demo is open to everyone. |
+Use "Connect my Rivian" while signups are open; switch to the at-capacity copy only when the beta is full (or signups are disabled by the operator).
