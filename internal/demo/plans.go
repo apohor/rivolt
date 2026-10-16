@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tripadvice"
@@ -26,6 +28,7 @@ const planLocation = "America/Los_Angeles"
 
 // SamplePlan is one saved trip as the planner stores it.
 type SamplePlan struct {
+	ID       uuid.UUID // fixed: SampleTripID(Name)
 	Name     string
 	SavedAt  time.Time
 	Inputs   json.RawMessage // the planner's SavedTripInputs
@@ -33,9 +36,21 @@ type SamplePlan struct {
 	DepartAt time.Time
 }
 
-// SampleTripNames are the names of the demo's saved plans; a preset
-// trip links to one by name (Preset.SavedTripName).
-func SampleTripNames() []string { return rivian.SampleTripPlanNames() }
+// SampleTripID is the saved trip id of the sample plan called name:
+// fixed, so the demo's preset trip for it (internal/demo/trips) carries
+// the same id on every install.
+func SampleTripID(name string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://rivolt.dev/demo/saved-trips/"+name))
+}
+
+// SampleTripIDs maps each sample plan's name to its saved trip id.
+func SampleTripIDs() map[string]uuid.UUID {
+	out := map[string]uuid.UUID{}
+	for _, name := range rivian.SampleTripPlanNames() {
+		out[name] = SampleTripID(name)
+	}
+	return out
+}
 
 // SamplePlans returns the demo's saved plans for the latest sample road
 // trip over by now that started at or after since (the demo truck's
@@ -53,7 +68,7 @@ func SamplePlans(now, since time.Time, cfg settings.ChargingConfig, nets []setti
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, SamplePlan{Name: p.Name, SavedAt: p.SavedAt, Inputs: ib, Plan: pb, DepartAt: p.DepartAt})
+		out = append(out, SamplePlan{ID: SampleTripID(p.Name), Name: p.Name, SavedAt: p.SavedAt, Inputs: ib, Plan: pb, DepartAt: p.DepartAt})
 	}
 	return out, nil
 }
@@ -131,14 +146,15 @@ func SeedPlans(ctx context.Context, d *sql.DB, sf *settings.Factory, now time.Ti
 	n := 0
 	for _, p := range plans {
 		res, err := d.ExecContext(ctx, `
-			INSERT INTO saved_trips (user_id, name, inputs, plan, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $5)
+			INSERT INTO saved_trips (id, user_id, name, inputs, plan, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)
 			ON CONFLICT (user_id, name) DO UPDATE
-			   SET inputs = EXCLUDED.inputs, plan = EXCLUDED.plan,
+			   SET id = EXCLUDED.id, inputs = EXCLUDED.inputs, plan = EXCLUDED.plan,
 			       created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at
-			 WHERE saved_trips.inputs IS DISTINCT FROM EXCLUDED.inputs
+			 WHERE saved_trips.id <> EXCLUDED.id
+			    OR saved_trips.inputs IS DISTINCT FROM EXCLUDED.inputs
 			    OR saved_trips.plan IS DISTINCT FROM EXCLUDED.plan`,
-			UserID(), p.Name, []byte(p.Inputs), []byte(p.Plan), p.SavedAt.UTC())
+			p.ID, UserID(), p.Name, []byte(p.Inputs), []byte(p.Plan), p.SavedAt.UTC())
 		if err != nil {
 			return n, fmt.Errorf("demo: saved trip %q: %w", p.Name, err)
 		}

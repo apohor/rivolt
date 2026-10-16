@@ -3,6 +3,7 @@ package demo
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,8 +18,9 @@ import (
 
 var presetID = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
-// presetMaxBytes caps each preset file.
-const presetMaxBytes = 16 << 10
+// presetMaxBytes caps each preset (index entry with its shape, plus
+// its plan) and each file.
+const presetMaxBytes = 64 << 10
 
 func readPresets(t *testing.T) PresetIndex {
 	t.Helper()
@@ -77,6 +79,29 @@ func TestPresetsFiles(t *testing.T) {
 		if s := p.Summary; s.ChargeStops != stops || s.ArrivalSoCPct != r.ArrivalSoC || s.DistanceMi <= 0 || s.DurationMin <= 0 {
 			t.Errorf("%s: summary %+v for %d stops, arrival %v", p.ID, s, stops, r.ArrivalSoC)
 		}
+		// The map's road shape runs from the origin through every stop
+		// to the destination.
+		shape := decodePolyline6(p.Shape)
+		near := func(lat, lon, km float64) bool {
+			for _, q := range shape {
+				if haversineM(q, [2]float64{lat, lon}) <= km*1000 {
+					return true
+				}
+			}
+			return false
+		}
+		if len(shape) < 10 || haversineM(shape[0], [2]float64{r.Waypoints[0].Latitude, r.Waypoints[0].Longitude}) > 500 ||
+			haversineM(shape[len(shape)-1], [2]float64{r.Waypoints[len(r.Waypoints)-1].Latitude, r.Waypoints[len(r.Waypoints)-1].Longitude}) > 500 {
+			t.Errorf("%s: shape of %d points doesn't run origin to destination", p.ID, len(shape))
+		}
+		for _, w := range r.Waypoints {
+			if !near(w.Latitude, w.Longitude, 1) {
+				t.Errorf("%s: shape misses %q", p.ID, w.Name)
+			}
+		}
+		if entry, _ := json.Marshal(p); len(entry)+len(b) > presetMaxBytes {
+			t.Errorf("%s: %d bytes with its plan, max %d", p.ID, len(entry)+len(b), presetMaxBytes)
+		}
 		// The planner can reopen it, and Plan vs Actual can read it.
 		if _, err := ledger.ParsePlan(p.Inputs, b, presetPlansAt); err != nil {
 			t.Errorf("%s: %v", p.ID, err)
@@ -84,10 +109,11 @@ func TestPresetsFiles(t *testing.T) {
 	}
 	got, _ := filepath.Glob(filepath.Join(PresetsDir, "*"))
 	for i := range got {
-		// Served anonymously: keep each response small.
+		// Served anonymously: keep each response small (the index holds
+		// every preset's shape).
 		if st, err := os.Stat(got[i]); err != nil {
 			t.Error(err)
-		} else if st.Size() > presetMaxBytes {
+		} else if lim := int64(presetMaxBytes); filepath.Base(got[i]) == "index.json" && st.Size() > lim*int64(len(idx.Trips)) || filepath.Base(got[i]) != "index.json" && st.Size() > lim {
 			t.Errorf("%s: %d bytes, max %d", got[i], st.Size(), presetMaxBytes)
 		}
 		got[i] = filepath.Base(got[i])
@@ -99,7 +125,7 @@ func TestPresetsFiles(t *testing.T) {
 	}
 }
 
-// The Las Vegas presets are the seeded saved trips (linked by name) and are
+// The Las Vegas presets are the seeded saved trips (same ids) and are
 // what the corpus builds now: a corpus change must regenerate them
 // (go test -tags demotripsgen, see presets_gen_test.go).
 func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
@@ -112,23 +138,14 @@ func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := map[string]bool{}
-	for _, n := range SampleTripNames() {
-		names[n] = true
-	}
-	linked := 0
-	for _, p := range idx.Trips {
-		if p.SavedTripName != "" {
-			linked++
-			if !names[p.SavedTripName] {
-				t.Errorf("%s links to %q, not a seeded saved trip", p.ID, p.SavedTripName)
-			}
-		}
-	}
-	if len(vegas) != len(names) || linked != len(names) {
-		t.Fatalf("%d Las Vegas presets, %d linked, for %d saved trips", len(vegas), linked, len(names))
+	ids := SampleTripIDs()
+	if len(vegas) != len(ids) {
+		t.Fatalf("%d Las Vegas presets for %d saved trips", len(vegas), len(ids))
 	}
 	for _, v := range vegas {
+		if v.ID != ids[v.Name].String() {
+			t.Errorf("%s: preset id %s, saved trip id %s", v.Name, v.ID, ids[v.Name])
+		}
 		p, ok := byID[v.ID]
 		if !ok {
 			t.Errorf("%s (%s) is not a preset", v.Name, v.ID)
@@ -138,7 +155,7 @@ func TestPresetsLasVegasAreTheSavedTrips(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if compact(b) != compact(v.Plan) || p.Name != v.Name || p.SavedTripName != v.SavedTripName || compact(p.Inputs) != compact(v.Inputs) || p.Summary != v.Summary {
+		if compact(b) != compact(v.Plan) || p.Name != v.Name || compact(p.Inputs) != compact(v.Inputs) || p.Summary != v.Summary {
 			t.Errorf("%s: the preset differs from what the corpus builds; regenerate", v.Name)
 		}
 	}
@@ -150,4 +167,42 @@ func compact(b []byte) string {
 		return "invalid: " + err.Error()
 	}
 	return buf.String()
+}
+
+// decodePolyline6 decodes Valhalla's precision-6 encoded polyline.
+func decodePolyline6(s string) [][2]float64 {
+	var out [][2]float64
+	var lat, lon int
+	for i := 0; i < len(s); {
+		var v [2]int
+		for k := 0; k < 2; k++ {
+			shift, res := 0, 0
+			for i < len(s) {
+				b := int(s[i]) - 63
+				i++
+				res |= (b & 0x1f) << shift
+				shift += 5
+				if b < 0x20 {
+					break
+				}
+			}
+			if res&1 != 0 {
+				v[k] = ^(res >> 1)
+			} else {
+				v[k] = res >> 1
+			}
+		}
+		lat += v[0]
+		lon += v[1]
+		out = append(out, [2]float64{float64(lat) / 1e6, float64(lon) / 1e6})
+	}
+	return out
+}
+
+func haversineM(a, b [2]float64) float64 {
+	const r = 6371000.0
+	la1, la2 := a[0]*math.Pi/180, b[0]*math.Pi/180
+	dla, dlo := la2-la1, (b[1]-a[1])*math.Pi/180
+	h := math.Sin(dla/2)*math.Sin(dla/2) + math.Cos(la1)*math.Cos(la2)*math.Sin(dlo/2)*math.Sin(dlo/2)
+	return 2 * r * math.Asin(math.Sqrt(h))
 }

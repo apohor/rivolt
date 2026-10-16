@@ -107,6 +107,11 @@ func TestGeneratePresets(t *testing.T) {
 		}
 		files = append(files, f)
 	}
+	for i := range files {
+		if files[i].Shape, err = genShape(vbase, files[i].Plan); err != nil {
+			t.Fatalf("%s: shape: %v", files[i].ID, err)
+		}
+	}
 	if err := writePresets(PresetsDir, files); err != nil {
 		t.Fatal(err)
 	}
@@ -290,9 +295,41 @@ func genStationName(p chargers.POI) string {
 	return fmt.Sprintf("%s [%s]", name, net)
 }
 
+// genShapeTolM: shape points closer than this to the simplified line
+// are dropped (Douglas–Peucker), keeping a preset small.
+const genShapeTolM = 25.0
+
+// genShape is the road shape through plan's waypoints (so through its
+// charging stops), simplified and encoded as a precision-6 polyline.
+func genShape(base string, planJSON json.RawMessage) (string, error) {
+	var plan rivian.TripPlan
+	if err := json.Unmarshal(planJSON, &plan); err != nil {
+		return "", err
+	}
+	var via []rivian.SamplePlace
+	for _, w := range plan.Routes[0].Waypoints {
+		via = append(via, rivian.SamplePlace{Lat: w.Latitude, Lon: w.Longitude})
+	}
+	shape, _, _, err := genRouteVia(base, via)
+	if err != nil {
+		return "", err
+	}
+	return encodePolyline6(simplify(shape, genShapeTolM)), nil
+}
+
 func genRoute(base string, from, to rivian.SamplePlace) ([][2]float64, float64, float64, error) {
+	return genRouteVia(base, []rivian.SamplePlace{from, to})
+}
+
+// genRouteVia routes through every point in order (one leg per pair)
+// and returns the joined shape, length (m) and time (s).
+func genRouteVia(base string, via []rivian.SamplePlace) ([][2]float64, float64, float64, error) {
+	locs := make([]map[string]float64, len(via))
+	for i, p := range via {
+		locs[i] = map[string]float64{"lat": p.Lat, "lon": p.Lon}
+	}
 	body, _ := json.Marshal(map[string]any{
-		"locations":       []map[string]float64{{"lat": from.Lat, "lon": from.Lon}, {"lat": to.Lat, "lon": to.Lon}},
+		"locations":       locs,
 		"costing":         "auto",
 		"directions_type": "none",
 	})
@@ -310,38 +347,89 @@ func genRoute(base string, from, to rivian.SamplePlace) ([][2]float64, float64, 
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, 0, 0, err
 	}
-	if resp.StatusCode != http.StatusOK || len(out.Trip.Legs) != 1 {
+	if resp.StatusCode != http.StatusOK || len(out.Trip.Legs) != len(via)-1 {
 		return nil, 0, 0, fmt.Errorf("valhalla: status %d", resp.StatusCode)
 	}
-	return decodePolyline6(out.Trip.Legs[0].Shape), out.Trip.Summary.Length * 1000, out.Trip.Summary.Time, nil
+	var shape [][2]float64
+	for i, l := range out.Trip.Legs {
+		pts := decodePolyline6(l.Shape)
+		if i > 0 && len(pts) > 0 {
+			pts = pts[1:] // the previous leg's last point
+		}
+		shape = append(shape, pts...)
+	}
+	return shape, out.Trip.Summary.Length * 1000, out.Trip.Summary.Time, nil
 }
 
-// decodePolyline6 decodes Valhalla's precision-6 encoded polyline.
-func decodePolyline6(s string) [][2]float64 {
-	var out [][2]float64
+// encodePolyline6 encodes p as a precision-6 polyline.
+func encodePolyline6(p [][2]float64) string {
+	var b strings.Builder
+	enc := func(v int) {
+		u := v << 1
+		if v < 0 {
+			u = ^u
+		}
+		for u >= 0x20 {
+			b.WriteByte(byte((0x20 | (u & 0x1f)) + 63))
+			u >>= 5
+		}
+		b.WriteByte(byte(u + 63))
+	}
 	var lat, lon int
-	for i := 0; i < len(s); {
-		var v [2]int
-		for k := 0; k < 2; k++ {
-			shift, res := 0, 0
-			for i < len(s) {
-				b := int(s[i]) - 63
-				i++
-				res |= (b & 0x1f) << shift
-				shift += 5
-				if b < 0x20 {
-					break
-				}
-			}
-			if res&1 != 0 {
-				v[k] = ^(res >> 1)
+	for _, q := range p {
+		la, lo := int(math.Round(q[0]*1e6)), int(math.Round(q[1]*1e6))
+		enc(la - lat)
+		enc(lo - lon)
+		lat, lon = la, lo
+	}
+	return b.String()
+}
+
+// simplify is Douglas–Peucker with tolerance tolM metres, on a local
+// equirectangular projection.
+func simplify(p [][2]float64, tolM float64) [][2]float64 {
+	if len(p) < 3 {
+		return p
+	}
+	keep := make([]bool, len(p))
+	keep[0], keep[len(p)-1] = true, true
+	kx := 111320 * math.Cos(p[0][0]*math.Pi/180)
+	const ky = 110540.0
+	var rec func(a, b int)
+	rec = func(a, b int) {
+		if b-a < 2 {
+			return
+		}
+		ax, ay := p[a][1]*kx, p[a][0]*ky
+		bx, by := p[b][1]*kx, p[b][0]*ky
+		dx, dy := bx-ax, by-ay
+		l2 := dx*dx + dy*dy
+		worst, at := 0.0, -1
+		for i := a + 1; i < b; i++ {
+			x, y := p[i][1]*kx-ax, p[i][0]*ky-ay
+			var d float64
+			if l2 == 0 {
+				d = math.Hypot(x, y)
 			} else {
-				v[k] = res >> 1
+				t := math.Max(0, math.Min(1, (x*dx+y*dy)/l2))
+				d = math.Hypot(x-t*dx, y-t*dy)
+			}
+			if d > worst {
+				worst, at = d, i
 			}
 		}
-		lat += v[0]
-		lon += v[1]
-		out = append(out, [2]float64{float64(lat) / 1e6, float64(lon) / 1e6})
+		if worst > tolM {
+			keep[at] = true
+			rec(a, at)
+			rec(at, b)
+		}
+	}
+	rec(0, len(p)-1)
+	var out [][2]float64
+	for i, k := range keep {
+		if k {
+			out = append(out, p[i])
+		}
 	}
 	return out
 }
@@ -364,14 +452,6 @@ func resample(path [][2]float64, step float64) [][2]float64 {
 		carry += d
 	}
 	return append(out, p[len(p)-1])
-}
-
-func haversineM(a, b [2]float64) float64 {
-	const r = 6371000.0
-	la1, la2 := a[0]*math.Pi/180, b[0]*math.Pi/180
-	dla, dlo := la2-la1, (b[1]-a[1])*math.Pi/180
-	h := math.Sin(dla/2)*math.Sin(dla/2) + math.Cos(la1)*math.Cos(la2)*math.Sin(dlo/2)*math.Sin(dlo/2)
-	return 2 * r * math.Asin(math.Sqrt(h))
 }
 
 // lookupWait blocks until the tile behind (lat, lon) is fetched.

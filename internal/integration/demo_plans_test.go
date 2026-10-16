@@ -16,7 +16,8 @@ import (
 // TestDemoSamplePlansSeed: the pass writes the two Las Vegas plans for
 // the demo user, rewrites nothing while the loop is unchanged, moves
 // the same rows (same ids) to the next loop's trip, and leaves other
-// saved trips alone.
+// saved trips alone. The rows carry the fixed ids the presets use: an
+// older row with a random id (preview before this change) moves to it.
 func TestDemoSamplePlansSeed(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "true")
 	t.Setenv("RIVIAN_CLIENT", "replay")
@@ -33,7 +34,7 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `INSERT INTO saved_trips (user_id, name, inputs) VALUES ($1, 'Other', '{}')`, uid); err != nil {
+	if _, err := pool.ExecContext(ctx, `INSERT INTO saved_trips (user_id, name, inputs) VALUES ($1, 'Other', '{}'), ($1, 'Las Vegas weekend', '{}')`, uid); err != nil {
 		t.Fatal(err)
 	}
 	sf := settings.NewFactory(pool)
@@ -82,13 +83,19 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 		t.Fatalf("first pass: n=%d err=%v", n, err)
 	}
 	first := read()
-	if len(first) != 3 || first["Las Vegas weekend"].id == "" || first["Las Vegas back home"].id == "" {
+	if len(first) != 3 {
 		t.Fatalf("rows = %+v", first)
+	}
+	for name, id := range demo.SampleTripIDs() {
+		if first[name].id != id.String() {
+			t.Errorf("%s: id %s, want %s", name, first[name].id, id)
+		}
 	}
 	var plan json.RawMessage
 	if err := pool.QueryRowContext(ctx, `SELECT plan FROM saved_trips WHERE user_id = $1 AND name = 'Las Vegas weekend'`, uid).Scan(&plan); err != nil || len(plan) == 0 {
 		t.Fatalf("plan %s err %v", plan, err)
 	}
+	// A restart (or a second replica) seeds again: no change.
 	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(time.Hour)); err != nil || n != 0 {
 		t.Fatalf("same loop: n=%d err=%v, want no rewrite", n, err)
 	}
