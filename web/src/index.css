@@ -442,7 +442,6 @@ html[data-ui='next'] .tabular-nums {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.012em;
 }
-html[data-ui='next'] [data-ui-hero] dd.tabular-nums,
 html[data-ui='next'] .ui-mono {
   font-family: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0;
@@ -451,9 +450,9 @@ html[data-ui='next'] .ui-mono {
 /* Glass, sparingly: only the top bar and the bottom tab bar. */
 html[data-ui='next']:not([data-theme='light']) header.sticky,
 html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
-  background-color: oklch(13.5% 0.009 262 / 0.72);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
+  background-color: oklch(13.5% 0.009 262 / 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
 }
 
 /* Charts: thinner gridlines. */
@@ -682,4 +681,95 @@ html[data-ui='next'] .ui-bignum {
     min-height: 0;
     overflow-y: auto;
   }
+}
+
+/* ---- ui_theme_next: light theme -------------------------------------------
+   Same cockpit, light surfaces: white cards on a cool off-white base with soft
+   shadows (no heavy glow), a faint top-edge sheen, the hero light pool in a
+   pale emerald, live glow kept subtle, glass bars in white. The light token
+   scale above (html[data-theme='light']) already sets text and border
+   contrast; this block only adds elevation, light pools and glass. */
+html[data-ui='next'][data-theme='light'] {
+  --ui-edge: oklch(100% 0 0 / 0.9);
+  --color-neutral-950: oklch(97.6% 0.004 262);
+  --color-neutral-900: oklch(99.4% 0.002 262);
+  --color-neutral-800: oklch(91.5% 0.006 262);
+}
+html[data-ui='next'][data-theme='light'] body {
+  background-image: radial-gradient(120% 60% at 50% -10%, oklch(90% 0.05 168 / 0.35), transparent 70%);
+  background-attachment: fixed;
+}
+html[data-ui='next'][data-theme='light'] :is(.rounded-xl, .rounded-lg)[class*='border-neutral-800'] {
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 1px 2px oklch(30% 0.02 262 / 0.07),
+    0 10px 28px -16px oklch(30% 0.03 262 / 0.22);
+  background-image: linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero] {
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(80% 0.12 168 / 0.2), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero][data-live='charging'] {
+  border-color: oklch(60% 0.14 168 / 0.5);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(60% 0.14 168 / 0.18),
+    0 0 32px -12px oklch(60% 0.14 168 / 0.45);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero][data-live='driving'] {
+  border-color: oklch(58% 0.12 235 / 0.5);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(58% 0.12 235 / 0.18),
+    0 0 32px -12px oklch(58% 0.12 235 / 0.45);
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(80% 0.1 235 / 0.2), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+}
+html[data-ui='next'][data-theme='light'] .ui-gauge[data-live='true'] .ui-gauge-fill {
+  filter: drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.5));
+}
+html[data-ui='next'][data-theme='light'] .ui-spark-line {
+  filter: drop-shadow(0 0 3px oklch(60% 0.14 168 / 0.45));
+}
+html[data-ui='next'][data-theme='light'] .ui-spark-dot {
+  filter: drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.7));
+}
+/* Glass bars in white. */
+html[data-ui='next'][data-theme='light'] header.sticky,
+html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed {
+  background-color: oklch(99% 0 0 / 0.93);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+/* Skeleton shimmer needs a dark sheen on light. */
+html[data-ui='next'][data-theme='light'] .animate-pulse {
+  background-image: linear-gradient(90deg, transparent 20%, oklch(0% 0 0 / 0.06) 50%, transparent 80%);
+}
+/* Maps keep their glow off in light (the basemap is bright). */
+html[data-ui='next'][data-theme='light'] svg line.text-neutral-800,
+html[data-ui='next'][data-theme='light'] svg line[class*='neutral-800'] {
+  opacity: 0.8;
+}
+/* Activity timeline nodes: the ring around each node matches the light page. */
+html[data-ui='next'][data-theme='light'] [data-ui-feed] li::before {
+  box-shadow: 0 0 0 3px oklch(97.6% 0.004 262), 0 0 8px 0 var(--node);
+}
+
+/* Glass must not be legible through: the sticky page header (from the scope
+   work) uses the same opaque-enough surface as the nav bars. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262 / 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(98.5% 0 0 / 0.93);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }

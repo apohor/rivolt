@@ -271,6 +271,7 @@ export default function NowCard({
               label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
               live={view.kind === "charging"}
               tone={offline ? "idle" : critical ? "critical" : "ok"}
+              limit={view.kind === "charging" || view.kind === "plugged" ? view.limitPct : null}
             >
               {(shown) => (
                 <span className={`font-semibold leading-none tabular-nums ${tone}`}>
@@ -286,6 +287,15 @@ export default function NowCard({
                   <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
                     {Math.round(view.speedMph)}
                     <span className="ml-1 text-sm font-normal text-neutral-400">mph</span>
+                  </p>
+                </div>
+              )}
+              {(view.kind === "charging" || view.kind === "plugged") && view.limitPct != null && (
+                <div>
+                  <p className="ui-label">Charge limit</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
+                    {Math.round(view.limitPct)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">%</span>
                   </p>
                 </div>
               )}
@@ -335,7 +345,7 @@ export default function NowCard({
           </div>
         )}
 
-        {(view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
+        {!next && (view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
           <LimitBar soc={view.soc} limit={view.limitPct} />
         )}
 
@@ -346,7 +356,8 @@ export default function NowCard({
             .map((d) => (
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
-              <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
+              {/* Mono only for short numeric readouts (a kW, a time left); text stays sans so it can wrap. */}
+              <dd className={`text-right tabular-nums text-neutral-200${/^[~$\d]/.test(d.v) && d.v.length <= 24 ? " ui-mono" : ""}`}>{d.v}</dd>
             </div>
           ))}
         </dl>

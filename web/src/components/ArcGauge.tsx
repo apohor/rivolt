@@ -8,6 +8,7 @@ export function ArcGauge({
   live = false,
   tone = "ok",
   size = 132,
+  limit = null,
   children,
 }: {
   value: number; // 0..100
@@ -15,6 +16,8 @@ export function ArcGauge({
   live?: boolean;
   tone?: "ok" | "critical" | "idle";
   size?: number;
+  // Charge limit (0..100): drawn as a tick on the arc.
+  limit?: number | null;
   // Rendered in the centre; receives the animated value.
   children?: (shown: number) => React.ReactNode;
 }) {
@@ -49,6 +52,26 @@ export function ArcGauge({
           </linearGradient>
         </defs>
         <path d={arc} fill="none" stroke="currentColor" strokeOpacity={0.14} strokeWidth={7} strokeLinecap="round" className="text-neutral-300" />
+        {limit != null && limit > 0 && limit <= 100 && (() => {
+          const a = ((start + (sweep * limit) / 100) * Math.PI) / 180;
+          const x1 = cx + (r - 8) * Math.cos(a);
+          const y1 = cy + (r - 8) * Math.sin(a);
+          const x2 = cx + (r + 7) * Math.cos(a);
+          const y2 = cy + (r + 7) * Math.sin(a);
+          return (
+            <line
+              data-testid="gauge-limit"
+              x1={x1.toFixed(2)}
+              y1={y1.toFixed(2)}
+              x2={x2.toFixed(2)}
+              y2={y2.toFixed(2)}
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              className="text-neutral-100"
+            />
+          );
+        })()}
         <path
           d={arc}
           fill="none"
