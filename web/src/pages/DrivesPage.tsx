@@ -5,17 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { backend, type Drive } from "../lib/api";
-import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { DriveTable } from "../components/ActivityTables";
 import { WindowPicker } from "../components/WindowPicker";
 import { DrivesOverviewMap } from "../components/DriveMap";
 import { filterByWindow, type WindowKey } from "../lib/analytics";
 import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { usePreferences } from "../lib/preferences";
 import {
-  formatDateTime,
   formatDuration,
   num,
-  pct,
 } from "../lib/format";
 
 export default function DrivesPage() {
@@ -120,70 +119,6 @@ function ViewToggle({
           {o.label}
         </button>
       ))}
-    </div>
-  );
-}
-
-function DriveTable({ drives }: { drives: Drive[] }) {
-  const navigate = useNavigate();
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
-            <th className="py-2 pr-4 font-medium">Start</th>
-            <th className="py-2 pr-4 font-medium">Duration</th>
-            <th className="py-2 pr-4 font-medium">Distance</th>
-            <th className="py-2 pr-4 font-medium">SoC</th>
-            <th className="py-2 pr-4 font-medium">Avg / Max</th>
-            <th className="py-2 pr-4 font-medium">Energy</th>
-            <th className="py-2 pr-4 font-medium">Cost</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-800">
-          {drives.map((d) => (
-            <tr
-              key={d.ID}
-              className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
-              {...clickableRowProps(() => navigate(appPath(`/drives/${d.ID}`)), {
-                role: "link",
-                label: `Open drive from ${formatDateTime(d.StartedAt)}`,
-              })}
-            >
-              <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
-                {formatDateTime(d.StartedAt)}
-              </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {formatDuration(driveDurationSeconds(d))}
-              </td>
-              <td className="py-2 pr-4 text-neutral-200 tabular-nums">
-                {num(d.DistanceMi, 1, "mi")}
-              </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {pct(d.StartSoCPct)} → {pct(d.EndSoCPct)}
-              </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {num(d.AvgSpeedMph, 0)} / {num(d.MaxSpeedMph, 0)} mph
-              </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
-                {d.EnergyUsedKWh > 0 ? num(d.EnergyUsedKWh, 1, "kWh") : "—"}
-              </td>
-              <td
-                className="py-2 pr-4 text-neutral-400 tabular-nums"
-                title={
-                  d.estimated_price_per_kwh
-                    ? `Estimated at ${d.estimated_price_per_kwh.toFixed(3)} ${d.estimated_currency ?? ""}/kWh — rate from the most recent charge before this drive`
-                    : undefined
-                }
-              >
-                {d.estimated_cost && d.estimated_cost > 0
-                  ? `~${formatMoney(d.estimated_cost, d.estimated_currency || "USD")}`
-                  : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

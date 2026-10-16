@@ -1,0 +1,203 @@
+import { formatMoney } from "../lib/ledger";
+import { appPath } from "../lib/demo";
+import { useNavigate } from "react-router-dom";
+import { clickableRowProps } from "./ui";
+import type { Charge, ChargeCluster, ChargeClusterLabel, Drive } from "../lib/api";
+import { driveDurationSeconds } from "../lib/drives";
+import {
+  durationSeconds,
+  formatChargeState,
+  formatDateTime,
+  formatDuration,
+  num,
+  pct,
+} from "../lib/format";
+
+// The drive and charge tables shared by the Drives and Charges pages and the
+// Activity page's Table view.
+
+export function DriveTable({ drives }: { drives: Drive[] }) {
+  const navigate = useNavigate();
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
+            <th className="py-2 pr-4 font-medium">Start</th>
+            <th className="py-2 pr-4 font-medium">Duration</th>
+            <th className="py-2 pr-4 font-medium">Distance</th>
+            <th className="py-2 pr-4 font-medium">SoC</th>
+            <th className="py-2 pr-4 font-medium">Avg / Max</th>
+            <th className="py-2 pr-4 font-medium">Energy</th>
+            <th className="py-2 pr-4 font-medium">Cost</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-800">
+          {drives.map((d) => (
+            <tr
+              key={d.ID}
+              className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
+              {...clickableRowProps(() => navigate(appPath(`/drives/${d.ID}`)), {
+                role: "link",
+                label: `Open drive from ${formatDateTime(d.StartedAt)}`,
+              })}
+            >
+              <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
+                {formatDateTime(d.StartedAt)}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {formatDuration(driveDurationSeconds(d))}
+              </td>
+              <td className="py-2 pr-4 text-neutral-200 tabular-nums">
+                {num(d.DistanceMi, 1, "mi")}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {pct(d.StartSoCPct)} → {pct(d.EndSoCPct)}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {num(d.AvgSpeedMph, 0)} / {num(d.MaxSpeedMph, 0)} mph
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {d.EnergyUsedKWh > 0 ? num(d.EnergyUsedKWh, 1, "kWh") : "—"}
+              </td>
+              <td
+                className="py-2 pr-4 text-neutral-400 tabular-nums"
+                title={
+                  d.estimated_price_per_kwh
+                    ? `Estimated at ${d.estimated_price_per_kwh.toFixed(3)} ${d.estimated_currency ?? ""}/kWh — rate from the most recent charge before this drive`
+                    : undefined
+                }
+              >
+                {d.estimated_cost && d.estimated_cost > 0
+                  ? `~${formatMoney(d.estimated_cost, d.estimated_currency || "USD")}`
+                  : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// chargingSeconds returns the time a session actually spent charging.
+// The recorder persists that as ActiveSeconds (charger power above the
+// idle floor); it excludes the post-target idle that inflates the raw
+// EndedAt-StartedAt span. Legacy rows, imports, and non-Parallax live
+// sessions have no ActiveSeconds, so fall back to the wall span there.
+export function chargingSeconds(c: Charge): number {
+  return c.ActiveSeconds && c.ActiveSeconds > 0
+    ? c.ActiveSeconds
+    : durationSeconds(c.StartedAt, c.EndedAt);
+}
+
+export function ChargeTable({
+  charges,
+  labelByID,
+}: {
+  charges: Charge[];
+  labelByID: Map<string, ChargeClusterLabel>;
+}) {
+  const navigate = useNavigate();
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
+            <th className="py-2 pr-4 font-medium">Start</th>
+            <th className="py-2 pr-4 font-medium">Location</th>
+            <th className="py-2 pr-4 font-medium">Duration</th>
+            <th className="py-2 pr-4 font-medium">SoC</th>
+            <th className="py-2 pr-4 font-medium">Energy</th>
+            <th className="py-2 pr-4 font-medium">Max kW</th>
+            <th className="py-2 pr-4 font-medium">Cost</th>
+            <th className="py-2 pr-4 font-medium">Final state</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-800">
+          {charges.map((c) => (
+            <tr
+              key={c.ID}
+              className="cursor-pointer hover:bg-neutral-900/60 focus:outline-hidden focus-visible:bg-neutral-800/80"
+              {...clickableRowProps(() => navigate(appPath(`/charges/${c.ID}`)), {
+                role: "link",
+                label: `Open charge from ${formatDateTime(c.StartedAt)}`,
+              })}
+            >
+              <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
+                {formatDateTime(c.StartedAt)}
+              </td>
+              <td className="py-2 pr-4 whitespace-nowrap">
+                <LocationBadge label={labelByID.get(c.ID) ?? ""} />
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {formatDuration(chargingSeconds(c))}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {pct(c.StartSoCPct)} → {pct(c.EndSoCPct)}
+              </td>
+              <td className="py-2 pr-4 text-neutral-200 tabular-nums">
+                {num(c.EnergyAddedKWh, 1, "kWh")}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {num(c.MaxPowerKW, 1)}
+              </td>
+              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+                {c.Cost > 0
+                  ? formatMoney(c.Cost, c.Currency || "USD")
+                  : c.estimated_cost && c.estimated_cost > 0
+                    ? `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`
+                    : "—"}
+              </td>
+              <td className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// labelMap projects the cluster response into a per-charge lookup the
+// table uses to colour rows. Unknown-bucket clusters contribute an
+// empty label so the UI renders a neutral dash.
+export function labelMap(clusters: ChargeCluster[]): Map<string, ChargeClusterLabel> {
+  const m = new Map<string, ChargeClusterLabel>();
+  for (const c of clusters) {
+    const label: ChargeClusterLabel =
+      c.label === "Home" || c.label === "Public" || c.label === "Fast"
+        ? c.label
+        : "";
+    for (const id of c.member_ids) m.set(id, label);
+  }
+  return m;
+}
+
+// LocationBadge renders the Home/Public/Fast tag. Styling follows the
+// convention of the rest of the app: Home leans emerald (positive /
+// matches the "ready" pill on Settings), Fast is amber (attention —
+// DCFC stops are the expensive ones), Public is plain neutral because
+// it's the default catch-all for non-home slow charging.
+function LocationBadge({ label }: { label: ChargeClusterLabel }) {
+  if (!label) {
+    return <span className="text-neutral-600">—</span>;
+  }
+  const tone =
+    label === "Home"
+      ? "border-emerald-600/40 text-emerald-300 bg-emerald-950/30"
+      : label === "Fast"
+        ? "border-amber-600/40 text-amber-300 bg-amber-950/30"
+        : "border-neutral-700 text-neutral-400";
+  return (
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full border ${tone}`}
+      title={
+        label === "Fast"
+          ? "Peak power ≥ 50 kW (DCFC)"
+          : "Clustered by charge location"
+      }
+    >
+      {label}
+    </span>
+  );
+}
