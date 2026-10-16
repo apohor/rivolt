@@ -53,6 +53,7 @@ type MonitorRegistry struct {
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
+	vehicleInfoFor     func(uid uuid.UUID) func([]Vehicle)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
@@ -147,6 +148,15 @@ func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) L
 func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UUID) func(vehicleID string, kwh float64)) {
 	r.mu.Lock()
 	r.batteryCapacityFor = factory
+	r.mu.Unlock()
+}
+
+// SetVehicleInfoHookFactory wires the per-user persister for the vehicle
+// metadata (trim, image, pack guess) each monitor fetches in
+// RefreshVehicleInfo.
+func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) func([]Vehicle)) {
+	r.mu.Lock()
+	r.vehicleInfoFor = factory
 	r.mu.Unlock()
 }
 
@@ -302,6 +312,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		}
 		if h := composeChargeClose(hooks); h != nil {
 			mon.SetChargeCloseHook(h)
+		}
+	}
+	if r.vehicleInfoFor != nil {
+		if h := r.vehicleInfoFor(uid); h != nil {
+			mon.SetVehicleInfoHook(h)
 		}
 	}
 	if r.batteryCapacityFor != nil {

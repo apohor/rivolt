@@ -140,10 +140,12 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 					"email":     "anton@example.com",
 					"vehicles": []any{
 						map[string]any{
-							"id":      "veh-a",
-							"name":    "R1T",
-							"vin":     "7FC000000000000A1",
-							"vehicle": map[string]any{"model": "R1T"},
+							"id":   "veh-a",
+							"name": "R1T",
+							"vin":  "7FC000000000000A1",
+							"vehicle": map[string]any{"model": "R1T", "mobileConfiguration": map[string]any{
+								"trimOption": map[string]any{"optionId": "PKG-LCH", "optionName": "Launch Package"},
+							}},
 						},
 						map[string]any{
 							"id":      "veh-b",
@@ -707,5 +709,48 @@ func TestCompletedSessionSummariesAndChargerDetail(t *testing.T) {
 		if strings.Contains(detailQueries[0], banned) {
 			t.Errorf("detail request selects %q: %s", banned, detailQueries[0])
 		}
+	}
+}
+
+// RefreshVehicleInfo hands what it just fetched (trim and hero image
+// included) to the persister, with no extra request: vehicles.trim and
+// image_url were empty for every vehicle whose owner hadn't opened
+// /api/vehicles.
+func TestRefreshVehicleInfoFeedsTheHook(t *testing.T) {
+	g := newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"3": {map[string]any{
+		"vehicleId": "veh-a", "url": "https://img.example/a.webp", "placement": "side-exterior-3qfront-driver",
+	}}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	mon := NewStateMonitor(c, nil)
+	var got []Vehicle
+	mon.SetVehicleInfoHook(func(vs []Vehicle) { got = vs })
+	before := len(g.capturedReqs)
+	if err := mon.RefreshVehicleInfo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("hook got %d vehicles, want 2", len(got))
+	}
+	byID := map[string]Vehicle{}
+	for _, v := range got {
+		byID[v.ID] = v
+	}
+	if a := byID["veh-a"]; a.TrimID != "PKG-LCH" || a.ImageURL != "https://img.example/a.webp" {
+		t.Errorf("veh-a = trim %q image %q", a.TrimID, a.ImageURL)
+	}
+	if b := byID["veh-b"]; b.TrimID != "" || b.ImageURL != "" {
+		t.Errorf("veh-b has no trim or image upstream, got trim %q image %q", b.TrimID, b.ImageURL)
+	}
+	// Only the requests RefreshVehicleInfo already made: user info and images.
+	var ops []string
+	for _, call := range g.capturedReqs[before:] {
+		ops = append(ops, call.Operation)
+	}
+	if strings.Join(ops, ",") != "getUserInfo,getVehicleImages" {
+		t.Errorf("requests = %v, want only getUserInfo and getVehicleImages", ops)
 	}
 }
