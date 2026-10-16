@@ -7,6 +7,7 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { hasOpenNetworkState, type NetworkState } from "./autoNetwork";
 import { DEMO_TZ, inDemo } from "./demo";
 import { cacheShellFlag } from "./theme";
 import { useEffect, useState } from "react";
@@ -65,6 +66,7 @@ export type ReceiptSession = {
   kind?: ChargeKind;
   place?: Place;
   network?: string | null;
+  network_state?: NetworkState | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -88,6 +90,8 @@ export type Receipt = {
   cost_source: ReceiptCostSource;
   rate: number | null;
   network?: string | null;
+  // Set while the auto-detected network still needs the owner's eye.
+  network_state?: NetworkState | null;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -175,6 +179,10 @@ export type LedgerSummary = {
   tz: string;
   currency: string;
   months: MonthSummary[];
+  // DCFC auto-network: charges awaiting confirm / needing attention.
+  // Null or absent until the dcfc_auto_network flag is on.
+  to_confirm_count?: number | null;
+  needs_attention_count?: number | null;
 };
 
 export type Sourced<T> = { data: T; source: "api" | "fixture" };
@@ -374,7 +382,15 @@ export function grammarFor(r: Priceable): CostGrammar {
 }
 
 export function sourceLabel(
-  r: { cost: number | null; cost_source: ReceiptCostSource; rate: number | null; network?: string | null; flags: ReceiptFlag[] },
+  r: {
+    cost: number | null;
+    cost_source: ReceiptCostSource;
+    rate: number | null;
+    network?: string | null;
+    flags: ReceiptFlag[];
+    network_state?: NetworkState | null;
+    sessions?: { network_state?: NetworkState | null }[];
+  },
   currency: string,
 ): string {
   const rate = r.rate != null && r.rate > 0 ? ` · ${formatMoney(r.rate, currency, 2)}/kWh` : "";
@@ -386,7 +402,7 @@ export function sourceLabel(
         ? `Home rate, but away from home${rate} · likely wrong`
         : `Home rate${rate}`;
     case "network_estimate":
-      return `Estimate${r.network ? ` · ${r.network}` : ""}${rate}`;
+      return `${hasOpenNetworkState(r) ? "Estimated, confirm" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
@@ -434,15 +450,40 @@ export function suspectSessionCount(m: LedgerMonth): number {
   return n;
 }
 
+// unidentifiedPending: with DCFC auto-network on, home-rate DCFC
+// sessions that now carry an estimate (network_state set) are folded into
+// "N charges to confirm"; only the ones the matcher couldn't price stay
+// "pending". Falls back to the server's counters when a month has no
+// per-session rows.
+export function unidentifiedPending(m: LedgerMonth): { sessions: number; kwh: number } {
+  let sessions = 0;
+  let kwh = 0;
+  let seen = false;
+  for (const r of m.receipts) {
+    for (const x of r.sessions) {
+      seen = true;
+      if (x.cost_source === "home_rate_misapplied" && !x.network_state) {
+        sessions += 1;
+        kwh += x.kwh ?? 0;
+      }
+    }
+  }
+  if (!seen) return { sessions: m.spend.estimate_pending_sessions ?? 0, kwh: m.spend.estimate_pending_kwh ?? 0 };
+  return { sessions, kwh };
+}
+
 // Plain-English quality notes from the server's counters (spec MQ*).
-export function dataQualityNotes(m: LedgerMonth): string[] {
+// `auto`: DCFC auto-network fields are present (to_confirm_count != null).
+export function dataQualityNotes(m: LedgerMonth, auto = false): string[] {
   const n: string[] = [];
   const dq = m.data_quality;
   const s = (k: number, one: string, many: string) => (k === 1 ? one : many);
-  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const pending = auto ? unidentifiedPending(m).sessions : (m.spend.estimate_pending_sessions ?? 0);
   if (pending > 0) {
     n.push(
-      `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until ${s(pending, "it's", "they're")} re-priced, or you add the price.`,
+      auto
+        ? `Couldn't identify the network for ${pending} fast-charging ${s(pending, "session", "sessions")}; ${s(pending, "it's", "they're")} left out of the total until you pick the network.`
+        : `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until you add the price.`,
     );
   }
   const suspect = suspectSessionCount(m);

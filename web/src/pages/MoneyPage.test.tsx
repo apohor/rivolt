@@ -137,4 +137,61 @@ describe("MoneyPage", () => {
     expect(screen.getByRole("img", { name: /^Where: Home .*, Away / })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /^How: AC .*, DCFC / })).toBeInTheDocument();
   });
+
+  it("To confirm lists every open charge across months and agrees with the all-time badge", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    const ch = (id: string, daysAgo: number, state: string | null) => ({
+      ID: id,
+      StartedAt: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+      EnergyAddedKWh: 40,
+      Cost: 16,
+      PricePerKWh: 0.4,
+      Currency: "USD",
+      network_state: state,
+      network_evidence: { candidates: [{ network: "Tesla Supercharger", dist_m: 30 }] },
+    });
+    const fetchMock = stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [], to_confirm_count: 3 } },
+      "/api/charges": {
+        body: [ch("a", 1, "estimated"), ch("b", 40, "needs_confirmation"), ch("c", 75, "estimated"), ch("d", 5, "confirmed")],
+      },
+    });
+    renderAt("/money?filter=confirm");
+
+    const list = await screen.findByTestId("to-confirm-list");
+    // Same number as the badge: confirmed charges are not listed.
+    expect(within(list).getAllByRole("link")).toHaveLength(3);
+    expect(await screen.findByRole("button", { name: /3 charges to confirm/ })).toBeInTheDocument();
+    // The list must ask for enough history: the default of 50 would drop older ones.
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => /\/api\/charges\?limit=5000/.test(u))).toBe(true);
+  });
+
+  it("keeps the legacy 'older version' wording when to_confirm_count is 0 and no row has a network_state", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [], to_confirm_count: 0 } },
+    });
+    renderAt("/money");
+    const statement = await screen.findByRole("region", { name: "Statement" });
+    expect(statement).toHaveTextContent(/Estimate pending:\s*2 fast-charging sessions/);
+    expect(statement).not.toHaveTextContent(/Couldn't identify the network/);
+  });
+
+  it("switches to the auto-network wording once a row carries network_state", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    m.receipts[0].sessions[0].network_state = "confirmed";
+    stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [], to_confirm_count: 0 } },
+    });
+    renderAt("/money");
+    const statement = await screen.findByRole("region", { name: "Statement" });
+    expect(statement).not.toHaveTextContent(/older version/);
+  });
 });

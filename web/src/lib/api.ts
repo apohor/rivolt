@@ -431,6 +431,10 @@ export type Charge = {
   // callers fall back to the stored fields.
   cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "user" | "home_rate_misapplied" | "unknown";
   cost_source_derived?: boolean;
+  // DCFC auto-network pricing; null until dcfc_auto_network is on.
+  network_state?: import("./autoNetwork").NetworkState | null;
+  network_confidence?: number | null;
+  network_evidence?: import("./autoNetwork").NetworkEvidence | null;
   kind?: "ac" | "dcfc";
   place?: "home" | "away" | "unknown";
   km_from_home?: number | null;
@@ -1267,9 +1271,20 @@ export const backend = {
     // free:true marks the session explicitly free (contract §12, cost 0,
     // source user). {} or cost 0 still clears the price, which is how
     // Free is undone. free + a non-zero cost is a 400.
-    body: { cost?: number; currency?: string; price_per_kwh?: number; free?: boolean },
+    body: {
+      cost?: number;
+      currency?: string;
+      price_per_kwh?: number;
+      free?: boolean;
+      // Change to a known network: re-priced at the user's rate there.
+      network_slug?: string;
+      network?: string;
+    },
   ) =>
     api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
+  // Confirm the auto-detected network as is (409 if nothing to confirm).
+  confirmChargePricing: (id: string) =>
+    api.post<void>(`/api/charges/${encodeURIComponent(id)}/pricing/confirm`, null),
   // `until` is required on purpose: the server downsamples explicit
   // windows only, so an open-ended request would thin an old session
   // across its whole span up to now.
