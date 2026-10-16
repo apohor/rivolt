@@ -1,8 +1,12 @@
 package rivian
 
 import (
+	"bytes"
 	"context"
+	"github.com/apohor/rivolt/internal/charges"
+	"log/slog"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -144,6 +148,39 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 		})
 	}
 
+	// Rivolt opened the charge late (a WS gap at plug-in, or an R2 that
+	// opens only once power flows): a 3 h session whose start is 20 min
+	// before the charge's is still its own; the start-time check has the
+	// elapsed check's slack (15 min + age/4).
+	t.Run("a long charge opened 20 min late keeps its session total", func(t *testing.T) {
+		r := NewReplayer("v")
+		for s := 0; s <= 3*3600; s += 60 {
+			r.Feed(frame(s, "charging_active", 7.2, 40+float64(s)/3600*7))
+			if s%300 == 0 {
+				startedAt(r, s, 2.4+7.0*float64(s)/3600, 7.2, t0.Add(-20*time.Minute))
+			}
+		}
+		if e, _, _ := openRow(r); e < 2.4+7.0*3-0.1 {
+			t.Errorf("energy %.2f kWh: the late-opened charge lost its own session's total", e)
+		}
+	})
+
+	// A StartTime without a zone doesn't parse as RFC3339: no evidence,
+	// so the total is credited.
+	t.Run("a zone-less StartTime is no evidence", func(t *testing.T) {
+		r := NewReplayer("v")
+		for s := 0; s <= 3600; s += 30 {
+			r.Feed(frame(s, "charging_active", 7.2, 60+float64(s)/3600*5.5))
+			if s%180 == 0 {
+				r.m.applyLiveSession(ctx, r.vehicle, &LiveSession{At: t0.Add(time.Duration(s) * time.Second), Active: true,
+					TotalChargedEnergyKWh: 0.8 + 7.0*float64(s)/3600, PowerKW: 7.2, StartTime: t0.Add(-2 * time.Hour).Format("2006-01-02T15:04:05")})
+			}
+		}
+		if e, _, _ := openRow(r); e < 7.5 {
+			t.Errorf("energy %.2f kWh: a zone-less StartTime was treated as stale", e)
+		}
+	})
+
 	t.Run("genuine DC fast: the session total is credited", func(t *testing.T) {
 		r := NewReplayer("v")
 		for s := 0; s <= 1200; s += 10 {
@@ -161,5 +198,21 @@ func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
 func TestScheduledIsNotCharging(t *testing.T) {
 	if isChargingCS("charging_scheduled") || !isChargingCS("charging_active") || !isChargingCS("charging_ready") {
 		t.Error("charging_scheduled must not count as charging; active and ready still do")
+	}
+}
+
+// The close log carries what the freshness rule saw.
+func TestLogChargeCloseStartDelta(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	start := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
+	c := &liveCharge{startedAt: start, endAt: start.Add(time.Hour)}
+	sess := &LiveSession{StartTime: start.Add(-2 * time.Minute).Format(time.RFC3339), TimeElapsedSeconds: 3720}
+	logChargeClose(logger, "v", charges.Charge{EnergyAddedKWh: 7, MaxPowerKW: 7.2}, sess, c)
+	got := buf.String()
+	for _, want := range []string{"ac session closed", "start_delta_s=-120", "elapsed_s=3720", "age_s=3600", "session_stale=false", "session_bonded=true"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %s in %s", want, got)
+		}
 	}
 }
