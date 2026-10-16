@@ -74,4 +74,42 @@ func TestGrantReadonly(t *testing.T) {
 	if colPriv("signup_token") {
 		t.Error("signup_requests.signup_token must not be readable")
 	}
+
+	// The connected-users view: readable as the reporting role, the
+	// boolean is right, and user_secrets itself stays closed.
+	connected, err := db.EnsureUser(ctx, pool, "ro-connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notConnected, err := db.EnsureUser(ctx, pool, "ro-not-connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext) VALUES ($1, 'rivian.session', '\x00')`, connected); err != nil {
+		t.Fatalf("seed secret: %v", err)
+	}
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `SET ROLE grafana_ro`); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+	has := func(uid any) bool {
+		t.Helper()
+		var b bool
+		if err := conn.QueryRowContext(ctx, `SELECT has_rivian_session FROM user_rivian_connected WHERE user_id = $1`, uid).Scan(&b); err != nil {
+			t.Fatalf("view as grafana_ro: %v", err)
+		}
+		return b
+	}
+	if !has(connected) || has(notConnected) {
+		t.Error("user_rivian_connected: wrong booleans")
+	}
+	var n int
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM user_secrets`).Scan(&n); err == nil {
+		t.Error("grafana_ro read user_secrets directly")
+	}
+	_, _ = conn.ExecContext(ctx, `RESET ROLE`)
 }
