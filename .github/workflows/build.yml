@@ -48,21 +48,64 @@ on:
           - linux/amd64
           - linux/amd64,linux/arm64
 
+# PRs cancel a superseded run (only the newest head matters). Pushes to
+# main/release/** and tags never cancel: during a merge burst, cancelling
+# meant no main build finished (31 of 40 cancelled on 2026-10-16), so
+# preview never got an image. Without cancel, the running build finishes
+# and GitHub keeps only the newest pending run, so there's a fresh image
+# at least every build-length even mid-burst.
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Which halves of the repo a PR touches. Pushes (main, release/**,
+  # dispatch) always run everything. A job skipped by `if:` reports
+  # success to required status checks, so web-only PRs don't wait on
+  # the Go/integration suites and Go-only PRs don't wait on web.
+  changes:
+    name: changes
+    if: "!startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      go: ${{ steps.f.outputs.go }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "$BASE"...HEAD)
+          echo "$files"
+          # web: anything under web/. go: anything else that isn't web/
+          # (Go code, go.mod, migrations, embedded data, the Dockerfile,
+          # this workflow). Workflow edits run both halves.
+          web=false; go=false
+          if echo "$files" | grep -q '^web/'; then web=true; fi
+          if echo "$files" | grep -v '^web/' | grep -q .; then go=true; fi
+          # The web suite also reads the shared charger-network vectors
+          # (chargerNetwork.vectors.test.ts), so a change there runs web too.
+          if echo "$files" | grep -q '^internal/dcfcrates/testdata/'; then web=true; fi
+          if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
+          echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"
+
   web:
     name: web
+    needs: changes
     # Skip on tag pushes — the retag job aliases an already-tested
     # main-built image, so the SPA bundle / Go vet / Go test results
     # would just repeat themselves. PRs + main pushes + workflow_dispatch
     # still run.
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -100,7 +143,8 @@ jobs:
 
   go:
     name: go
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -118,19 +162,24 @@ jobs:
           mkdir -p internal/web/dist
           touch internal/web/dist/.keep
 
-      - name: go vet
-        run: go vet ./...
-
       # -race because the data plane is goroutine-heavy (lease
       # coordinator, per-user monitors, atomic reauth state); the
       # detector turns latent races into hard failures here instead
       # of heisenbugs in prod.
-      - name: go test
-        run: go test -race ./...
+      # vet runs alongside the tests instead of before them; both
+      # must pass.
+      - name: go vet + go test
+        run: |
+          go vet ./... > vet.log 2>&1 & vet=$!
+          go test -race ./...; t=$?
+          wait $vet; v=$?
+          cat vet.log
+          exit $(( t != 0 || v != 0 ))
 
   integration:
     name: integration
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
     # talks to over the default unix socket — no extra service: block
@@ -157,7 +206,11 @@ jobs:
 
   publish:
     name: publish
-    needs: [web, go, integration]
+    # Builds in parallel with the tests (the Dockerfile compiles web and
+    # Go itself). Pushing sha-<short> before tests finish is safe:
+    # bump-preview waits for the tests, and tag-validate only accepts a
+    # SHA whose whole run succeeded, so a red commit can't reach preview
+    # or prod.
     # Build & push the image. Main pushes and workflow_dispatch only;
     # tag pushes take the retag-only path below (skipping tests, since
     # the code already shipped to preview).
@@ -245,7 +298,7 @@ jobs:
 
   bump-preview:
     name: bump-preview
-    needs: publish
+    needs: [publish, web, go, integration]
     # Only after a successful main-push image publish — tag pushes go to
     # prod manually, not via this auto-bump.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
