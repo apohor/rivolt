@@ -157,7 +157,7 @@ jobs:
   # the OS and do not match Linux. Three shards in parallel; each builds the SPA
   # itself so the shards never wait on each other. Not a required check yet.
   e2e:
-    name: e2e (${{ matrix.shard }}/3)
+    name: e2e (${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
     needs: changes
     if: "github.event_name == 'pull_request' && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
@@ -165,7 +165,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        include:
+          - { project: chromium, shard: 1, total: 3 }
+          - { project: chromium, shard: 2, total: 3 }
+          - { project: chromium, shard: 3, total: 3 }
+          # WebKit = the iPhone Safari engine: the phone specs only (see
+          # web/playwright.config.ts), one shard.
+          - { project: webkit, shard: 1, total: 1 }
     steps:
       - uses: actions/checkout@v6
 
@@ -187,32 +193,33 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
 
-      - name: Install Playwright browsers
+      - name: Install Playwright browser
         working-directory: web
         run: |
           if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
-            npx playwright install-deps chromium
+            npx playwright install-deps ${{ matrix.project }}
           else
-            npx playwright install --with-deps chromium
+            npx playwright install --with-deps ${{ matrix.project }}
           fi
 
       - name: Build web
         working-directory: web
         run: npm run build
 
-      - name: Playwright (ui-next-*)
+      - name: Playwright (ui-next-*, ${{ matrix.project }})
         working-directory: web
         env:
           CI: "true"
-        run: npx playwright test ui-next- --shard=${{ matrix.shard }}/3
+          E2E_WEBKIT: "1"
+        run: npx playwright test ui-next- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
 
       - name: Upload report and screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-${{ matrix.shard }}
+          name: e2e-${{ matrix.project }}-${{ matrix.shard }}
           path: |
             web/playwright-report
             web/e2e/__screenshots__
