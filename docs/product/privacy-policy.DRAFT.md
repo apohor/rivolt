@@ -7,6 +7,20 @@
 
 Last updated: DRAFT 2026-10-15
 
+## Open items before this can be published (read this first)
+**[LAWYER] (needs a qualified reviewer):**
+1. Rights by region (section 7): California CCPA/CPRA wording, especially the sensitive-data limitation; EU/UK GDPR rights, legal bases, representative and international transfers (data is processed in the US).
+2. Children and the age floor (the Terms draft says under-16s are excluded); COPPA / GDPR-K.
+3. Breach-notification commitment and legal minimums (section 6).
+4. Whether a one-time service-update email to existing account holders needs any further consent.
+5. Whether the policy can be published before the Terms, and the Rivian-identity disclosure wording (shared with the Terms).
+
+**[DECIDE] (owner):** operator identity and contact address; retention for history, logs and backups (no automatic history deletion exists today); backup retention period; hosting and backup provider names; change-of-ownership handling; how to announce material changes; response time for rights requests; EU/UK scope; whether to strip addresses from trip-advice LLM payloads (feature is off for all prod users).
+
+**[VERIFY] (team, on the deployed build, before publishing):** no email or password in any log line; Cloudflare logging/retention and TLS termination; the Cloudflare Web Analytics CSP entry (remove, or disclose); shared statement image has no coordinates; statement email template; export contents (saved places, receipts, price overrides; CSV export now exists as `GET /api/export`); account deletion clears the repair undo rows (#207, v0.33.0); waitlist-deletion wording against `internal/api/data.go`.
+
+---
+
 ## The short version
 - **What we do:** we read your Rivian's data through your Rivian account and turn it into drives, charges and costs.
 - **Your Rivian password is never stored.** We keep an encrypted sign-in session so we can keep reading your vehicle. Logging out of Rivian in Rivolt deletes it, and you can revoke access from the Rivian app (use an Authorized Driver account if you want a separate, revocable login).
@@ -33,7 +47,7 @@ Rivolt is operated by **[DECIDE: individual or entity, contact address]**. Indep
 | Push subscription (endpoint and keys) if you enable notifications | send alerts | `push_subscriptions` |
 | Monthly statement email preference (opt-in, default off) and send log (period, status, no content) | send your monthly statement | `statement_email_prefs`, `statement_email_sends` (migration 0048); gated by an operator flag **and** your opt-in (`internal/statement/job.go`, `internal/flags/flags.go`). Feature is off by default. |
 | Session cookie (opaque token; only an HMAC of it is stored) | keep you signed in | `sessions` (`internal/sessions`) |
-| Technical logs: IP address, request paths, errors, your user id; some lines include an email address (Rivian session restore at start-up, setup and sign-in emails, signup requests) | security and operations | Loki / cluster logs (`internal/logging`, `cmd/rivolt/main.go`, `internal/api/signup_requests.go`). Retention is 90 days (Loki 2160 h). **[FIX before publishing: stop logging email addresses, or disclose it here; it conflicts with our own no-PII-in-logs rule.]** |
+| Technical logs: IP address, request paths, errors, your user id | security and operations | Loki / cluster logs (`internal/logging`). Retention is 90 days (Loki 2160 h). Email addresses were removed from log lines in v0.32.2/v0.33.0 (#205, #206); older lines age out within 90 days. **[VERIFY on the deployed build that no log line carries an email, and re-check after each release.]** |
 | Operational logs about our own requests to Rivian: which subscriptions we opened, which calls we made, and what happened around a vehicle waking from sleep, keyed by vehicle id | fix battery-drain and reliability problems | "wake attribution" and wake-safety log lines (`internal/rivian/actions.go`, `wake_safety.go`). They carry Rivian's vehicle id (not the VIN) and action names, no coordinates. Retention is the same 90 days as other logs. |
 | Live-state cache: the in-progress drive/charge accumulator (including start coordinates) and the latest merged vehicle state | survive restarts and let any server instance answer | Redis, keys under `<prefix>:livestate` (`internal/rivian/livestate.go`). Accumulator expires 2 hours after last update; the shared state snapshot expires after 90 seconds. |
 | Product analytics events (if enabled): event name plus counts and enums such as referrer host and utm_source; no location, amounts or emails; no IP address or User-Agent | improve onboarding | `events` table (migration 0046), see `docs/product/instrumentation.md` **[VERIFY at publication]** |
@@ -72,7 +86,7 @@ Location is the most sensitive data we hold. It is stored per vehicle sample and
 ## 5. Retention, export and deletion
 - **Retention.** We keep vehicle samples, drives and charges until you delete them. There is currently **no automatic deletion** of history in the code; partition drops are manual. **[DECIDE: adopt a retention period, e.g. raw samples 24 months, and implement before promising it.]**
 - **Logs.** Retention is set by our log stack, not the app. **[VERIFY: Loki retention in days; DECIDE: state it here once confirmed.]**
-- **Export.** Signed-in users can download all their drives, charges and samples as one JSON bundle: `GET /api/data/backup` (`internal/api/data.go`). The bundle includes settings. **[VERIFY: saved places, receipts and price overrides; CSV export (#132) status.]**
+- **Export.** Signed-in users can download all their drives, charges and samples as one JSON bundle: `GET /api/data/backup` (`internal/api/data.go`), or a zip of CSVs (charges with effective cost source, drives, trips) plus settings from `GET /api/export` (Settings > Data > Export my data). The bundle includes settings. **[VERIFY: whether the exports include saved places, receipts and price overrides.]**
 - **Delete history only.** `DELETE /api/data/sessions` wipes samples, drives and charges, keeping your account and settings.
 - **Delete everything.** `DELETE /api/data/account` deletes your account and cascades through per-user tables (drives, charges, samples, settings, user_secrets, push subscriptions, statement email preferences and send log, sessions, events), then asks the identity provider to remove your record (if that step fails it is recorded and an administrator retries it, so it is not silently lost). Last admin accounts are protected.
   - **Waitlist request.** Deleting your account also deletes your signup request (email and request message), matched by email or username, in the same transaction (A6, #81). **[VERIFY wording against `internal/api/data.go` at publication.]**
@@ -97,4 +111,4 @@ You can, from inside the app: see and export your data, correct your settings an
 We will notify signed-in users of material changes before they take effect **[DECIDE: how, e.g. in-app banner plus email]**. Contact: **[DECIDE]**.
 
 ## 9. What is not decided or not yet true (so we do not overpromise)
-Open items the owner or a lawyer must close before publication: email addresses in logs (fix #205/#206; verify deployed); operator identity and contact; retention periods for history, logs and backups; breach-notification commitment; LLM trip-advice payload minimization; Cloudflare and hosting provider disclosure; EU/UK scope; change-of-ownership handling; age floor.
+Open items the owner or a lawyer must close before publication: email addresses in logs (fixed in #205/#206; verify deployed); operator identity and contact; retention periods for history, logs and backups; breach-notification commitment; LLM trip-advice payload minimization; Cloudflare and hosting provider disclosure; EU/UK scope; change-of-ownership handling; age floor.
