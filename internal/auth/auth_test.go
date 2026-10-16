@@ -387,3 +387,111 @@ func TestKratos_NoSessionSetsNoAuthErrorHeader(t *testing.T) {
 		t.Fatalf("header = %q, want none", got)
 	}
 }
+
+// A Kratos session cookie scoped to a parent domain reaches sibling hosts
+// (preview, demo). With KratosHost set, only requests for that host may
+// authenticate with it; the others never even call the resolver.
+func TestKratos_HostGuard(t *testing.T) {
+	want := fakeUserIDFor("kratos@example.com")
+	calls := 0
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosHost:   "https://Rivolt.dev/",
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			calls++
+			return want, true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	try := func(host string) (uuid.UUID, bool) {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.Host = host
+		r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "abc"})
+		r.RemoteAddr = "1.2.3.4:1"
+		var got uuid.UUID
+		s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got, _ = UserFromContext(r.Context())
+		})).ServeHTTP(httptest.NewRecorder(), r)
+		return got, s.HasCredentials(r)
+	}
+	for _, h := range []string{"rivolt.dev", "RIVOLT.DEV", "rivolt.dev:443", "rivolt.dev."} {
+		if got, has := try(h); got != want || !has {
+			t.Errorf("host %q: user %s credentials %v, want the Kratos user", h, got, has)
+		}
+	}
+	before := calls
+	for _, h := range []string{"preview.rivolt.dev", "demo.rivolt.dev", "evil.example", "rivolt.dev.evil.example", ""} {
+		if got, has := try(h); got != uuid.Nil || has {
+			t.Errorf("host %q authenticated with the Kratos cookie (user %s, credentials %v)", h, got, has)
+		}
+	}
+	if calls != before {
+		t.Errorf("resolver called %d times for foreign hosts", calls-before)
+	}
+}
+
+// An install that is NOT the cookie host (preview) is configured with the
+// same cookie host as prod; its own Host never matches, so a prod cookie
+// that reaches it through a parent-domain Domain is refused.
+func TestKratos_HostGuard_PreviewConfiguredWithTheCookieHost(t *testing.T) {
+	calls := 0
+	s, err := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosHost:   "rivolt.dev", // RIVOLT_KRATOS_COOKIE_HOST, not preview's own base URL
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			calls++
+			return fakeUserIDFor("prod-user@example.com"), true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "preview.rivolt.dev"
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "prod-cookie"})
+	r.RemoteAddr = "1.2.3.4:1"
+	var got uuid.UUID
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+	})).ServeHTTP(httptest.NewRecorder(), r)
+	if got != uuid.Nil || calls != 0 || s.HasCredentials(r) {
+		t.Errorf("preview accepted a prod Kratos cookie: user %s, resolver calls %d", got, calls)
+	}
+}
+
+// Without KratosHost the issuer works for any host, as before.
+func TestKratos_NoHostGuardByDefault(t *testing.T) {
+	want := fakeUserIDFor("kratos@example.com")
+	s, _ := New(Config{
+		CookieSecret: []byte("0123456789abcdef0123456789abcdef"),
+		UserIDFor:    fakeUserIDFor,
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) {
+			return want, true, nil
+		},
+	})
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Host = "anything.example"
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "abc"})
+	var got uuid.UUID
+	s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = UserFromContext(r.Context())
+	})).ServeHTTP(httptest.NewRecorder(), r)
+	if got != want {
+		t.Errorf("user = %s without a configured host, want %s", got, want)
+	}
+}
+
+func TestNormalizeHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"rivolt.dev": "rivolt.dev", "Rivolt.Dev:8443": "rivolt.dev", "https://rivolt.dev/x?y": "rivolt.dev",
+		"http://localhost:8080": "localhost", "rivolt.dev.": "rivolt.dev", "[::1]:80": "::1", "": "",
+	} {
+		if got := normalizeHost(in); got != want {
+			t.Errorf("normalizeHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
