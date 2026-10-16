@@ -24,6 +24,7 @@ import {
   type LedgerMonth,
   type MonthSummary,
   type Receipt,
+  statementTotal,
 } from "../lib/ledger";
 import { isOpenNetworkState } from "../lib/autoNetwork";
 import { formatDateTime } from "../lib/format";
@@ -225,8 +226,7 @@ function Statement({
   // stay hidden.
   // With Rivian receipts the headline is billed + estimated, so it always equals the two
   // lines under it; otherwise it is the statement total as before.
-  const split = m.spend.billed_total != null && m.spend.estimated_total != null;
-  const headline = split ? (m.spend.billed_total as number) + (m.spend.estimated_total as number) : m.spend.total;
+  const headline = statementTotal(m);
   const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
   const delta = hasCharging && prev && prev.spend.total > 0 ? (headline - prev.spend.total) / prev.spend.total : null;
   // Partial month (MQ8): the first month with any data, where activity

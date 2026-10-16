@@ -126,6 +126,14 @@ export type SpendBySource = {
   user: number;
 };
 
+// statementTotal is the month's headline figure. With Rivian receipts it is what Rivian
+// billed plus our estimate for the rest, so it always equals the two lines under the
+// headline; otherwise it is the statement total. The page and the share card both use it.
+export function statementTotal(m: Pick<MonthSummary, "spend">): number {
+  const { billed_total: b, estimated_total: e, total } = m.spend;
+  return b != null && e != null ? b + e : total;
+}
+
 export type MonthSummary = {
   version: number;
   period: string;
