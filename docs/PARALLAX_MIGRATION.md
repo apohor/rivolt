@@ -40,7 +40,7 @@ fallback), **applied** (decoded and written to the live state), **decode-log**
 | 4 | `dynamics.vehicle.gear` | authoritative to open a drive; P applied when fresh | 914 | Enum 1 P / 2 R / 3 N / 4 D. A fresh P also clears a stale R/D (since v0.33.1; R2s never send P on vehicleState, only here). Drive close still follows vehicleState |
 | 5 | `dynamics.vehicle.drive_mode` | applied | 3,936 | APK enum, mapped to vehicleState names |
 | 6 | `dynamics.vehicle.odometer` | applied (stall bridge) | 4,353 | Whole km; only advances the cache when higher |
-| 7 | `vehicle.power.state` | applied | 4,106 | 1 sleep, 2 standby, 3 ready, 4 go; 5 reset, 6 OTA update, 7 shutdown are unmapped (the R2's only power source - see R2 notes) |
+| 7 | `vehicle.power.state` | applied | 4,106 | 1 sleep, 2 standby, 3 ready, 4 go; 5 reset, 6 OTA update, 7 shutdown mapped on main (#323, next release; the R2's only power source - see R2 notes) |
 | 8 | `dynamics.vehicle.range` | applied | 5,326 | Whole km |
 | 9 | `dynamics.tires.state` | applied | 7,392 | Four pressures, bar |
 | 10 | `comfort.cabin.cabin_temperatures` | applied | 5,083 | Interior temperature |
@@ -80,8 +80,8 @@ that match live data.)
   live state, so a parked R2 reads parked. Before v0.33.1 the stale R/D stayed
   for hours; that history was re-segmented.
 - **Power state is Parallax-only.** R2s report power through
-  `vehicle.power.state`; enums 5-7 (vehicle reset, OTA update, shutdown) are not
-  mapped yet.
+  `vehicle.power.state`; enums 5-7 (vehicle reset, OTA update, shutdown) are mapped on
+  main (#323, ships in the next release).
 - **Plug state needs `charging.session.status`.** vehicleState `chargerStatus`
   is NULL on every R2 row, and none of the topics we subscribe to carries a
   plugged signal. The app reads `charging.session.status` (not subscribed
