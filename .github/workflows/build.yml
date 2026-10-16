@@ -213,7 +213,7 @@ jobs:
         env:
           CI: "true"
           E2E_WEBKIT: "1"
-        run: npx playwright test ui-next- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+        run: npx playwright test ${{ matrix.project == 'webkit' && 'ui-next-idle ui-next-light ui-next-pages' || 'ui-next-' }} --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
 
       - name: Upload report and screenshots
         if: always()
