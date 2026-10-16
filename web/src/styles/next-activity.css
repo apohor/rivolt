@@ -1,0 +1,32 @@
+/* ui_theme_next: Activity Table view. On a phone the secondary columns drop out so
+   the key ones (when, distance or energy, SoC change, cost) fit without wrapping;
+   everything is still on the detail page. */
+html[data-ui='next'] [data-activity-table] td,
+html[data-ui='next'] [data-activity-table] th {
+  white-space: nowrap;
+}
+html[data-ui='next'] [data-activity-table] :is(td, th) {
+  padding-right: 1rem;
+}
+@media (max-width: 639.98px) {
+  html[data-ui='next'] [data-activity-table] :is(td, th) {
+    padding-right: 0.5rem;
+  }
+  html[data-ui='next'] [data-activity-table] :is([data-col='duration'], [data-col='speed'], [data-col='energy'], [data-col='location'], [data-col='maxkw'], [data-col='state']) {
+    display: none;
+  }
+  /* Charges keep their energy, since it is what a charge is about. */
+  html[data-ui='next'] [data-activity-table]:has([data-col='location']) [data-col='energy'] {
+    display: table-cell;
+  }
+  html[data-ui='next'] [data-activity-table] :is(td, th):last-child {
+    padding-right: 0;
+    text-align: right;
+  }
+  html[data-ui='next'] [data-activity-table] :is(td, th):first-child {
+    padding-right: 0.5rem;
+  }
+  html[data-ui='next'] [data-activity-table] td {
+    font-size: 0.75rem;
+  }
+}
