@@ -1498,8 +1498,14 @@ var errStaleSubscription = errors.New("rivian ws stale, watchdog cancelled subsc
 var errResubscribeRequested = errors.New("rivian ws resubscribe requested by wakeup nudge")
 
 // setSubCancel publishes the current vehicleState subscription's
-// cancel handle (see kickResubscribe).
+// cancel handle (see kickResubscribe). A subscription already cancelled
+// (lease lost or monitor stopped before it published) publishes
+// nothing: it is about to return, and its handle would only replace a
+// successor's, leaving kickResubscribe pointed at a dead context.
 func (m *StateMonitor) setSubCancel(vehicleID string, ctx context.Context, cancel context.CancelCauseFunc) {
+	if ctx.Err() != nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.subCtx == nil {
