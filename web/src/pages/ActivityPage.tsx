@@ -49,6 +49,8 @@ export default function ActivityPage() {
   const range = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
   // Table and Map views are a ui_theme_next layer; flag off ignores ?view.
   const view: ActivityView = next ? parseActivityView(params.get("view")) : "feed";
+  // The All map shows one layer at a time (Drives or Charges), not two stacked maps.
+  const [mapLayer, setMapLayer] = useState<"drives" | "charges">("drives");
 
   const drivesQ = useQuery({ queryKey: ["drives", "all"], queryFn: () => backend.allDrives() });
   const chargesQ = useQuery({ queryKey: ["charges", "all"], queryFn: () => backend.allCharges() });
@@ -84,6 +86,8 @@ export default function ActivityPage() {
   const chargeRows = useMemo(() => filterByRange(chargesQ.data ?? [], range), [chargesQ.data, range]);
   const recordCount =
     (filter !== "charges" ? driveRows.length : 0) + (filter !== "drives" ? chargeRows.length : 0);
+  const layer: "drives" | "charges" =
+    filter === "drives" ? "drives" : filter === "charges" ? "charges" : driveRows.length === 0 ? "charges" : chargeRows.length === 0 ? "drives" : mapLayer;
 
   const days = useMemo(() => {
     const ds = filterByRange(drivesQ.data ?? [], range);
@@ -190,26 +194,41 @@ export default function ActivityPage() {
                 {drivesQ.isError ? "Drives" : "Charges"} couldn't be loaded, so this view is incomplete.
               </p>
             )}
-            {filter !== "charges" && driveRows.length > 0 && (
+            {view === "map" && filter === "all" && driveRows.length > 0 && chargeRows.length > 0 && (
+              <div role="group" aria-label="Map layer" data-activity-layers className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+                {([["drives", "Drives", driveRows.length], ["charges", "Charges", chargeRows.length]] as const).map(([k, l, n]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={layer === k}
+                    onClick={() => setMapLayer(k)}
+                    className={`rounded-md px-3 py-1.5 ${layer === k ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+                  >
+                    {l} <span className="text-neutral-500">{n}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {filter !== "charges" && driveRows.length > 0 && (view !== "map" || layer === "drives") && (
               <section aria-label="Drives">
                 {filter === "all" && <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Drives</h2>}
                 <Card>
                   {view === "map" ? (
                     <DrivesOverviewMap drives={driveRows} onSelect={(id) => navigate(detailPath("drives", id))} height={380} />
                   ) : (
-                    <DriveTable drives={driveRows} />
+                    <DriveTable drives={driveRows} compact />
                   )}
                 </Card>
               </section>
             )}
-            {filter !== "drives" && chargeRows.length > 0 && (
+            {filter !== "drives" && chargeRows.length > 0 && (view !== "map" || layer === "charges") && (
               <section aria-label="Charges">
                 {filter === "all" && <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Charges</h2>}
                 <Card>
                   {view === "map" ? (
                     <ChargesOverviewMap charges={chargeRows} onSelect={(id) => navigate(detailPath("charges", id))} height={380} />
                   ) : (
-                    <ChargeTable charges={chargeRows} labelByID={labelByID} />
+                    <ChargeTable charges={chargeRows} labelByID={labelByID} compact />
                   )}
                 </Card>
               </section>

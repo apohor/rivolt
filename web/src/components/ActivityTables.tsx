@@ -16,20 +16,20 @@ import {
 // The drive and charge tables shared by the Drives and Charges pages and the
 // Activity page's Table view.
 
-export function DriveTable({ drives }: { drives: Drive[] }) {
+export function DriveTable({ drives, compact = false }: { drives: Drive[]; compact?: boolean }) {
   const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" data-activity-table={compact ? "" : undefined}>
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
-            <th className="py-2 pr-4 font-medium">Start</th>
-            <th className="py-2 pr-4 font-medium">Duration</th>
-            <th className="py-2 pr-4 font-medium">Distance</th>
-            <th className="py-2 pr-4 font-medium">SoC</th>
-            <th className="py-2 pr-4 font-medium">Avg / Max</th>
-            <th className="py-2 pr-4 font-medium">Energy</th>
-            <th className="py-2 pr-4 font-medium">Cost</th>
+            <th data-col="start" className="py-2 pr-4 font-medium">Start</th>
+            <th data-col="duration" className="py-2 pr-4 font-medium">Duration</th>
+            <th data-col="distance" className="py-2 pr-4 font-medium">Distance</th>
+            <th data-col="soc" className="py-2 pr-4 font-medium">SoC</th>
+            <th data-col="speed" className="py-2 pr-4 font-medium">Avg / Max</th>
+            <th data-col="energy" className="py-2 pr-4 font-medium">Energy</th>
+            <th data-col="cost" className="py-2 pr-4 font-medium">Cost</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800">
@@ -42,25 +42,25 @@ export function DriveTable({ drives }: { drives: Drive[] }) {
                 label: `Open drive from ${formatDateTime(d.StartedAt)}`,
               })}
             >
-              <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
+              <td data-col="start" className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(d.StartedAt)}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="duration" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {formatDuration(driveDurationSeconds(d))}
               </td>
-              <td className="py-2 pr-4 text-neutral-200 tabular-nums">
+              <td data-col="distance" className="py-2 pr-4 text-neutral-200 tabular-nums">
                 {num(d.DistanceMi, 1, "mi")}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="soc" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {pct(d.StartSoCPct)} → {pct(d.EndSoCPct)}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="speed" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(d.AvgSpeedMph, 0)} / {num(d.MaxSpeedMph, 0)} mph
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="energy" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {d.EnergyUsedKWh > 0 ? num(d.EnergyUsedKWh, 1, "kWh") : "—"}
               </td>
-              <td
+              <td data-col="cost"
                 className="py-2 pr-4 text-neutral-400 tabular-nums"
                 title={
                   d.estimated_price_per_kwh
@@ -94,24 +94,27 @@ export function chargingSeconds(c: Charge): number {
 export function ChargeTable({
   charges,
   labelByID,
+  compact = false,
 }: {
   charges: Charge[];
   labelByID: Map<string, ChargeClusterLabel>;
+  // The Activity Table view (ui_theme_next): the secondary columns drop out on a phone.
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" data-activity-table={compact ? "" : undefined}>
         <thead>
           <tr className="text-left text-xs uppercase tracking-wide text-neutral-500">
-            <th className="py-2 pr-4 font-medium">Start</th>
-            <th className="py-2 pr-4 font-medium">Location</th>
-            <th className="py-2 pr-4 font-medium">Duration</th>
-            <th className="py-2 pr-4 font-medium">SoC</th>
-            <th className="py-2 pr-4 font-medium">Energy</th>
-            <th className="py-2 pr-4 font-medium">Max kW</th>
-            <th className="py-2 pr-4 font-medium">Cost</th>
-            <th className="py-2 pr-4 font-medium">Final state</th>
+            <th data-col="start" className="py-2 pr-4 font-medium">Start</th>
+            <th data-col="location" className="py-2 pr-4 font-medium">Location</th>
+            <th data-col="duration" className="py-2 pr-4 font-medium">Duration</th>
+            <th data-col="soc" className="py-2 pr-4 font-medium">SoC</th>
+            <th data-col="energy" className="py-2 pr-4 font-medium">Energy</th>
+            <th data-col="maxkw" className="py-2 pr-4 font-medium">Max kW</th>
+            <th data-col="cost" className="py-2 pr-4 font-medium">Cost</th>
+            <th data-col="state" className="py-2 pr-4 font-medium">Final state</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800">
@@ -124,32 +127,32 @@ export function ChargeTable({
                 label: `Open charge from ${formatDateTime(c.StartedAt)}`,
               })}
             >
-              <td className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
+              <td data-col="start" className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(c.StartedAt)}
               </td>
-              <td className="py-2 pr-4 whitespace-nowrap">
+              <td data-col="location" className="py-2 pr-4 whitespace-nowrap">
                 <LocationBadge label={labelByID.get(c.ID) ?? ""} />
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="duration" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {formatDuration(chargingSeconds(c))}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="soc" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {pct(c.StartSoCPct)} → {pct(c.EndSoCPct)}
               </td>
-              <td className="py-2 pr-4 text-neutral-200 tabular-nums">
+              <td data-col="energy" className="py-2 pr-4 text-neutral-200 tabular-nums">
                 {num(c.EnergyAddedKWh, 1, "kWh")}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="maxkw" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {num(c.MaxPowerKW, 1)}
               </td>
-              <td className="py-2 pr-4 text-neutral-400 tabular-nums">
+              <td data-col="cost" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {c.Cost > 0
                   ? formatMoney(c.Cost, c.Currency || "USD")
                   : c.estimated_cost && c.estimated_cost > 0
                     ? `~${formatMoney(c.estimated_cost, c.estimated_currency || "USD")}`
                     : "—"}
               </td>
-              <td className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
+              <td data-col="state" className="py-2 pr-4 text-neutral-500">{formatChargeState(c.FinalState)}</td>
             </tr>
           ))}
         </tbody>
