@@ -595,9 +595,9 @@ html[data-ui='next'] [data-plan-swap] {
   font-size: var(--pt-value, 0.875rem);
 }
 
-/* More options on a phone: one option per row, labels on one line in the 12px
-   label style, chips never wrap. (On wider screens the settings grid keeps its
-   columns inside the panel.) */
+/* More options: one option per row at every viewport (the panel is ~350px wide on
+   desktop too, so the viewport says nothing about the room), labels on one line in
+   the 12px label style, chips never wrap. */
 html[data-ui='next'] [data-plan-more-body] [data-plan-settings] {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -614,11 +614,6 @@ html[data-ui='next'] [data-plan-more-body] [data-plan-settings] > div > span:fir
 html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] [role='radio'] {
   white-space: nowrap;
 }
-@media (min-width: 1024px) {
-  html[data-ui='next'] [data-plan-more-body] [data-plan-settings] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 /* A stop card that expands is scrolled into view: keep it clear of the sticky
    bars and the tab bar when the page is the scroller. */
@@ -627,4 +622,47 @@ html[data-ui='next'] [data-plan-timeline] > li {
 }
 html[data-ui='next'] [data-plan-sheet-body] [data-plan-timeline] > li {
   scroll-margin-block: 0.5rem;
+}
+
+/* The start SoC slider: our own track (filled to the value) and thumb, so it reads
+   the same in both themes instead of the browser's dark remainder. */
+html[data-ui='next'] [data-plan-soc] input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 1.5rem;
+  accent-color: oklch(72% 0.15 165);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, oklch(72% 0.15 165) var(--fill, 50%), var(--color-neutral-700) var(--fill, 50%));
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-neutral-950);
+  background: oklch(78% 0.15 168);
+  box-shadow: 0 0 8px oklch(72% 0.15 165 / 0.6);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-neutral-700);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: oklch(72% 0.15 165);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-neutral-950);
+  background: oklch(78% 0.15 168);
 }

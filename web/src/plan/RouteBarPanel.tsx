@@ -79,6 +79,7 @@ export function RouteBar({
           value={shown ?? 80}
           onChange={(e) => soc.onChange(e.target.value)}
           className="ui-range"
+          style={{ "--fill": `${Math.max(0, Math.min(100, (((shown ?? 80) - 5) / 95) * 100))}%` } as React.CSSProperties}
         />
       </div>
       <div data-plan-more data-open={open ? "true" : undefined}>
