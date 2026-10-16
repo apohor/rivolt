@@ -51,8 +51,14 @@ on:
 # preview never got an image. Without cancel, the running build finishes
 # and GitHub keeps only the newest pending run, so there's a fresh image
 # at least every build-length even mid-burst.
+# PRs: one run per branch, a new push cancels the superseded run.
+# Pushes (main, release/**, tags): every run gets its own group, so builds
+# run side by side instead of queueing behind each other (a burst of five
+# merges no longer serialises into ~25 min before preview moves). Ordering
+# is enforced where it matters, in bump-preview (job-level concurrency plus
+# a newest-wins check), so a slower older build can't roll preview back.
 concurrency:
-  group: build-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.ref) || format('build-{0}-{1}', github.ref, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -204,6 +210,8 @@ jobs:
 
   publish:
     name: publish
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     # Builds in parallel with the tests (the Dockerfile compiles web and
     # Go itself). Pushing sha-<short> before tests finish is safe:
     # bump-preview waits for the tests, and tag-validate only accepts a
@@ -239,10 +247,21 @@ jobs:
       # take the retag path (separate job below) and don't reach here.
       - name: Compute VERSION stamp
         id: ver
+        # Semver pre-release for builds that aren't a release, so preview
+        # versions sort and read in order: main → next minor (v0.33.2 + 15
+        # commits = v0.34.0-dev.15), release/** → next patch
+        # (v0.33.3-dev.N). N = commits since the last tag, monotonic on a
+        # branch. The sha stays as build metadata; images also get the
+        # dev tag (no "+", which Docker tags don't allow).
         run: |
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)
+          last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo v0.0.0)
+          n=$(git rev-list --count "${last_tag}..HEAD" 2>/dev/null || echo 0)
+          IFS=. read -r ma mi pa <<< "${last_tag#v}"
+          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then next="${ma}.${mi}.$((pa+1))"; else next="${ma}.$((mi+1)).0"; fi
           short="sha-${GITHUB_SHA:0:7}"
-          echo "version=${last_tag}+${short}" >> "$GITHUB_OUTPUT"
+          echo "version=v${next}-dev.${n}+${short}" >> "$GITHUB_OUTPUT"
+          echo "devtag=${next}-dev.${n}" >> "$GITHUB_OUTPUT"
+          echo "VERSION v${next}-dev.${n}+${short}"
 
       # No QEMU needed: the Dockerfile runs web/go stages on $BUILDPLATFORM
       # and cross-compiles Go to linux/arm64 via GOOS/GOARCH. The runtime
@@ -270,6 +289,7 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.ver.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       - name: Build & push
         uses: docker/build-push-action@v7
@@ -301,6 +321,12 @@ jobs:
     # prod manually, not via this auto-bump.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # No job-level concurrency: a pending job superseded in a concurrency
+    # group is cancelled, which would mark that commit's run cancelled and
+    # make tag-validate refuse it. Instead the step below retries on a
+    # rejected push and re-checks newest-wins each attempt.
+    permissions:
+      contents: read
     steps:
       - name: Checkout rivolt-infra
         uses: actions/checkout@v6
@@ -310,23 +336,42 @@ jobs:
           # The default GITHUB_TOKEN only has access to this repo.
           token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
 
-      - name: Bump preview image.tag
+      - name: Bump preview image.tag (newest wins)
         env:
           SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VERSION_STAMP: ${{ needs.publish.outputs.version }}
         run: |
           short="sha-${SHA:0:7}"
           file=apps/platform/rivolt-preview/values.yaml
-          # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
-          sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
-          if git diff --quiet "$file"; then
-            echo "image.tag unchanged — nothing to commit."
-            exit 0
-          fi
           git config user.name "rivolt-ci"
           git config user.email "ci@rivolt.dev"
-          git add "$file"
-          git commit -m "rivolt-preview: bump image.tag to ${short}"
-          git push origin main
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            # Builds run in parallel, so an older commit's build can finish
+            # after a newer one's: only move preview forward.
+            prev=$(grep -E '^[[:space:]]+tag:[[:space:]]+sha-[0-9a-f]+' "$file" | head -1 | sed -E 's/.*sha-([0-9a-f]+).*/\1/')
+            if [ -n "$prev" ]; then
+              prev_full=$(gh api "repos/$REPO/commits/$prev" --jq .sha 2>/dev/null || true)
+              if [ -n "$prev_full" ]; then
+                rel=$(gh api "repos/$REPO/compare/$prev_full...$SHA" --jq .status 2>/dev/null || echo unknown)
+                echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
+                case "$rel" in
+                  behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
+                esac
+              fi
+            fi
+            # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
+            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
+            if git diff --quiet "$file"; then echo "image.tag unchanged; nothing to commit."; exit 0; fi
+            git add "$file"
+            git commit -q -m "rivolt-preview: bump image.tag to ${short} (${VERSION_STAMP})"
+            if git push -q origin main; then echo "bumped to ${short}"; exit 0; fi
+            echo "push rejected (another bump landed); retrying ($attempt)"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push the preview bump after 5 attempts"; exit 1
 
   tag-validate:
     name: tag-validate
