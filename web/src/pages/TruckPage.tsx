@@ -12,7 +12,7 @@ import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { lowestTire, sleepSummary, softwareInfo } from "../lib/truckHealth";
+import { lowestTire, safeNotesUrl, sleepSummary, softwareInfo } from "../lib/truckHealth";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
 // tires, software version. Gated by money_tab_enabled. Fields the
@@ -156,11 +156,17 @@ export default function TruckPage() {
             {software && (
               <>
                 <dt className="text-neutral-500">Software</dt>
-                <dd className="text-right tabular-nums text-neutral-200">{software.current}</dd>
+                <dd className="text-right tabular-nums text-neutral-200">
+                  {software.current}
+                  <NotesLink url={vehicle?.ota?.current?.release_notes_url} />
+                </dd>
                 {software.available && (
                   <>
                     <dt className="text-neutral-500">Update available</dt>
-                    <dd className="text-right tabular-nums text-neutral-200">{software.available}</dd>
+                    <dd className="text-right tabular-nums text-neutral-200">
+                      {software.available}
+                      <NotesLink url={vehicle?.ota?.available?.release_notes_url} />
+                    </dd>
                   </>
                 )}
               </>
@@ -169,5 +175,22 @@ export default function TruckPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// NotesLink: "Release notes" for an update, an outbound link only (never fetched by us).
+function NotesLink({ url }: { url?: string }) {
+  const href = safeNotesUrl(url);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-ota-notes
+      className="ml-2 whitespace-nowrap text-xs text-emerald-300 underline-offset-2 hover:underline"
+    >
+      Release notes<span aria-hidden> ↗</span>
+    </a>
   );
 }

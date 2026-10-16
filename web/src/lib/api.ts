@@ -176,6 +176,13 @@ export type Vehicle = {
   pack_kwh?: number;
   image_url?: string;
   images?: VehicleImage[];
+  // Release details for the installed and the pending update (omitted until fetched).
+  ota?: {
+    current?: { version?: string; release_notes_url?: string; locale?: string };
+    available?: { version?: string; release_notes_url?: string; locale?: string };
+    status?: string;
+    fetched_at?: string;
+  };
 };
 
 // OwnedVehicle is the DB-backed shape returned by /api/vehicles/owned.
