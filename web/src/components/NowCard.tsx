@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { displayTimeZone } from "../lib/format";
+import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
 import { ArcGauge } from "./ArcGauge";
 import { PowerSpark } from "./PowerSpark";
 import { useUiNext } from "../lib/uiNext";
@@ -229,6 +231,11 @@ export default function NowCard({
   });
   const currency = chargingQ.data?.home_currency || "USD";
   const offline = view.kind === "offline";
+  // Plugged in but not charging, and a schedule for today that applies here is still to
+  // start: say when ("charging starts 11:00 PM (schedule)"). Not when it is holding at its limit.
+  const schedStart =
+    view.kind === "plugged" && !view.atLimit ? nextScheduledStartMin(state?.charging_schedules, new Date(), displayTimeZone()) : null;
+  const scheduleText = schedStart != null ? `charging starts ${formatScheduleStart(schedStart)} (schedule)` : null;
   const pill = statusPill(view);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
@@ -248,6 +255,12 @@ export default function NowCard({
             <p className="text-xs uppercase tracking-wide text-neutral-500">{vehicleName}</p>
             <p className="mt-0.5 text-sm text-neutral-300" data-testid="now-headline">
               {headline(view, distanceUnit)}
+              {scheduleText && (
+                <span data-testid="now-schedule" className="text-neutral-400">
+                  {" · "}
+                  {scheduleText}
+                </span>
+              )}
             </p>
           </div>
           <span
