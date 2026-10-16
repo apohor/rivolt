@@ -44,6 +44,9 @@ type Sample struct {
 	// Feeds the sleep/activity aggregation.
 	PowerState     string `json:"power_state,omitempty"`
 	ChargerPowerKW float64
+	// ChargerStatus is Rivian's chargerStatus, the plug indicator
+	// (migration 0053); "" when not reported.
+	ChargerStatus  string `json:"charger_status,omitempty"`
 	ChargeLimitPct float64
 	InsideTempC    float64
 	OutsideTempC   float64
@@ -141,7 +144,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO vehicle_state (`+sampleColumns+`
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -174,7 +177,7 @@ func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 	if err != nil {
 		return err
 	}
-	const nCols = 26
+	const nCols = 27
 	for start := 0; start < len(batch); start += bulkInsertRows {
 		chunk := batch[start:min(start+bulkInsertRows, len(batch))]
 		var q strings.Builder
@@ -214,7 +217,7 @@ const sampleColumns = `
 			drive_number, charge_number, source,
 			altitude_m, tire_pressure_min_bar,
 			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c,
-			power_state`
+			power_state, charger_status`
 
 // prepareBatch ensures every month the batch touches has a partition
 // and resolves each distinct Rivian id to its vehicles.id.
@@ -287,7 +290,7 @@ func (s *Store) sampleArgs(vehicleID uuid.UUID, v Sample) []any {
 		v.DriveNumber, v.ChargeNumber, v.Source,
 		alt, tirePsi,
 		ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
-		nullStr(v.PowerState),
+		nullStr(v.PowerState), nullStr(v.ChargerStatus),
 	}
 }
 
