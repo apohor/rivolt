@@ -97,3 +97,27 @@ func TestWakeSafetyRestQuietJSON(t *testing.T) {
 		t.Errorf("experiment A selection decoded as %+v", w)
 	}
 }
+
+// ui_theme_next uses the money-tab shape: users, all, and off by default.
+func TestUIThemeNextShapeAndDefaultOff(t *testing.T) {
+	var none *Store
+	if none.UIThemeNext().Enabled("u1") {
+		t.Error("nil store: theme on")
+	}
+	if (&Store{}).UIThemeNext().Enabled("u1") {
+		t.Error("empty store: theme on")
+	}
+	var users, all, junk MoneyTabState
+	if err := json.Unmarshal([]byte(`{"users":["u1"]}`), &users); err != nil || !users.Enabled("u1") || users.Enabled("u2") {
+		t.Errorf("users shape: %+v %v", users, err)
+	}
+	if err := json.Unmarshal([]byte(`{"all":true}`), &all); err != nil || !all.Enabled("anyone") {
+		t.Errorf("all shape: %+v %v", all, err)
+	}
+	if json.Unmarshal([]byte(`"yes"`), &junk) == nil && junk.Enabled("u1") {
+		t.Error("a malformed value turned the theme on")
+	}
+	if UIThemeNextName != "ui_theme_next" {
+		t.Errorf("flag name = %q", UIThemeNextName)
+	}
+}
