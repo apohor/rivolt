@@ -1263,9 +1263,10 @@ export const backend = {
   recentCharges: (n: number) => api.get<Charge[]>(`/api/charges?limit=${n}`),
   // Per-day asleep/awake hours for the overview sleep graph. `since`
   // is RFC3339; `vehicle` scopes to one car (optional).
-  sleepActivity: (since: string, vehicleID?: string) =>
+  sleepActivity: (since: string, vehicleID?: string, until?: string) =>
     api.get<DayActivity[]>(
       `/api/sleep-activity?since=${encodeURIComponent(since)}` +
+        (until ? `&until=${encodeURIComponent(until)}` : "") +
         (vehicleID ? `&vehicle=${encodeURIComponent(vehicleID)}` : ""),
     ),
   packHealth: (vehicleID: string) =>

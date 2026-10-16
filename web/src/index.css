@@ -473,23 +473,29 @@ html[data-ui='next'] svg line[class*='neutral-800'] {
     grid-column: 1 / -1;
     margin: 0;
   }
+  /* Now: header row, then the hero card beside the KPI grid at the SAME
+     height (the KPI rows stretch to fill); the wake warning drops below both. */
   html[data-ui='next'] [data-ui-grid='now'] {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-rows: auto 1fr;
+    align-items: stretch;
   }
   html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] {
-    grid-column: 1;
-    grid-row: 1 / span 2;
+    display: contents;
   }
-  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='scope'] {
-    grid-column: 2;
-    grid-row: 1;
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] > [data-ui-hero] {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0; /* space-y margin would eat into the stretch */
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] > :not([data-ui-hero]) {
+    grid-column: 1 / -1;
+    grid-row: 3;
   }
   html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='kpi'] {
     grid-column: 2;
     grid-row: 2;
-    align-self: start;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 1fr);
   }
   html[data-ui='next'] [data-ui-grid='truck'] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -772,4 +778,37 @@ html[data-ui='next'][data-theme='light'] [data-ui-header] {
   background-color: oklch(98.5% 0 0 / 0.93);
   -webkit-backdrop-filter: blur(20px) saturate(1.2);
   backdrop-filter: blur(20px) saturate(1.2);
+}
+/* Sticky page header: the title row with the scope control stays under the top
+   nav on scroll, so the charts below always show which period they are for. */
+html[data-ui='next'] [data-ui-header] {
+  position: sticky;
+  top: calc(48px + env(safe-area-inset-top, 0px));
+  z-index: 1000;
+  margin-bottom: 1rem;
+  padding: 0.6rem 0;
+  align-items: center;
+  flex-wrap: nowrap;
+  border-bottom: 1px solid oklch(100% 0 0 / 0.05);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262 / 0.78);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(98.5% 0 0 / 0.85);
+  border-bottom-color: oklch(0% 0 0 / 0.07);
+}
+@media (max-width: 767.98px) {
+  html[data-ui='next'] [data-ui-header] {
+    padding: 0.4rem 0;
+    margin-bottom: 0.75rem;
+  }
+  html[data-ui='next'] [data-ui-header] h1 {
+    font-size: 1.25rem;
+  }
+  html[data-ui='next'] [data-ui-header] p {
+    display: none;
+  }
 }

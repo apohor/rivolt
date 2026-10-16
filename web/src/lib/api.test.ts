@@ -161,3 +161,17 @@ describe("backend.samples vehicle scope", () => {
     expect(String(fetchMock.mock.calls[1][0])).not.toContain("vehicle=");
   });
 });
+
+describe("backend.sleepActivity range", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("sends until only when given", async () => {
+    Object.defineProperty(window, "location", { value: { pathname: "/", search: "", assign: vi.fn() }, writable: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]" });
+    vi.stubGlobal("fetch", fetchMock);
+    const { backend } = await import("./api");
+    await backend.sleepActivity("2026-10-01T00:00:00Z", "veh", "2026-11-01T00:00:00Z");
+    await backend.sleepActivity("2026-10-01T00:00:00Z");
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/since=.*&until=.*&vehicle=veh/);
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain("until=");
+  });
+});
