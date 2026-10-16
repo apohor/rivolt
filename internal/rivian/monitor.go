@@ -267,6 +267,9 @@ type StateMonitor struct {
 	// client.ChargingSchedules; tests set it). Guarded by mu.
 	scheduleNudge  map[string]chan struct{}
 	scheduleReads  map[string]scheduleRead
+	// scheduleUnavailableUntil backs a vehicle's schedule reads off for a
+	// week after Rivian said the account can't read them. Guarded by mu.
+	scheduleUnavailableUntil map[string]time.Time
 	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// vehicleInfoHook receives each RefreshVehicleInfo result (trim, image,
 	// pack guess) so it can be persisted. Set before Start; called outside

@@ -138,6 +138,10 @@ const (
 	scheduleDaily         = 24 * time.Hour
 	scheduleConnectMinAge = time.Hour
 	scheduleNudgeMinAge   = 30 * time.Minute
+	// scheduleUnavailableBackoff is how long a vehicle whose schedules Rivian
+	// won't share (FORBIDDEN: a shared or authorized-driver account) is left
+	// alone before one more try.
+	scheduleUnavailableBackoff = 7 * 24 * time.Hour
 )
 
 type scheduleRead struct {
@@ -209,21 +213,44 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		fetch = m.client.ChargingSchedules
 	}
 	m.mu.RLock()
+	until := m.scheduleUnavailableUntil[vehicleID]
 	last := m.scheduleReads[vehicleID]
 	var lat, lon float64
 	if st := m.cache[vehicleID]; st != nil {
 		lat, lon = st.Latitude, st.Longitude
 	}
 	m.mu.RUnlock()
+	if time.Now().Before(until) {
+		return
+	}
 	if minAge > 0 && !last.at.IsZero() && time.Since(last.at) < minAge &&
 		haversineM(lat, lon, last.lat, last.lon) <= scheduleRadiusM {
 		return
 	}
 	list, err := fetch(ctx, vehicleID)
 	if err != nil {
-		if ctx.Err() == nil {
-			m.logger.Warn("charging schedules read failed", "vehicle", vehicleID, "err", err.Error())
+		if ctx.Err() != nil {
+			return
 		}
+		if IsNotAvailable(err) {
+			// Expected for shared and authorized-driver accounts: mark the
+			// vehicle "not available" and back off a week, at info level.
+			m.mu.Lock()
+			if m.scheduleUnavailableUntil == nil {
+				m.scheduleUnavailableUntil = map[string]time.Time{}
+			}
+			m.scheduleUnavailableUntil[vehicleID] = time.Now().Add(scheduleUnavailableBackoff)
+			if base := m.cache[vehicleID]; base != nil {
+				next := *base
+				next.ChargingSchedules = nil
+				next.ChargingSchedulesUnavailable = true
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+			m.logger.Info("charging schedules not available for this account", "vehicle", vehicleID, "code", ErrCode(err))
+			return
+		}
+		m.logger.Warn("charging schedules read failed", "vehicle", vehicleID, "err", Describe(err))
 		return
 	}
 	enabled := 0
@@ -241,6 +268,7 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		}
 		m.scheduleReads[vehicleID] = scheduleRead{at: time.Now(), lat: lat, lon: lon}
 		next := *base
+		next.ChargingSchedulesUnavailable = false
 		next.ChargingSchedules = withAppliesHere(list, base.Latitude, base.Longitude)
 		m.putCacheLocked(vehicleID, &next)
 	}

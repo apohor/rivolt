@@ -124,6 +124,54 @@ func (e *UpstreamError) Error() string {
 // similar continue to work through the UpstreamError wrapper.
 func (e *UpstreamError) Unwrap() error { return e.Cause }
 
+// ErrCode returns the GraphQL extensions.code of an upstream error (a short
+// identifier such as "FORBIDDEN"), or "". It is only ever the code, never the
+// error message, which can carry response text.
+func ErrCode(err error) string {
+	var ue *UpstreamError
+	if errors.As(err, &ue) {
+		return ue.ExtCode
+	}
+	return ""
+}
+
+// IsNotAvailable reports an upstream answer that says "not for this vehicle
+// or account": a FORBIDDEN or not-found/unsupported code, or HTTP 403, 404,
+// 405 or 501. It is an expected outcome (shared or authorized-driver
+// accounts, a model without the feature), not a failure to retry daily.
+func IsNotAvailable(err error) bool {
+	var ue *UpstreamError
+	if !errors.As(err, &ue) {
+		return false
+	}
+	switch strings.ToUpper(ue.ExtCode) {
+	case "FORBIDDEN", "NOT_FOUND", "NOT_IMPLEMENTED", "UNIMPLEMENTED", "UNSUPPORTED", "NOT_SUPPORTED":
+		return true
+	}
+	switch ue.HTTPStatus {
+	case 403, 404, 405, 501:
+		return true
+	}
+	return false
+}
+
+// Describe renders an error for a log line or a stored last_error: for an
+// upstream error only its classification (operation, HTTP status, class, the
+// GraphQL code, our reason phrase), never the cause, which can carry a slice
+// of a response body or Rivian's message text. Context and session errors
+// keep their text; anything else is "error".
+func Describe(err error) string {
+	var ue *UpstreamError
+	if errors.As(err, &ue) {
+		return fmt.Sprintf("upstream %s http=%d class=%v code=%q reason=%q", ue.Op, ue.HTTPStatus, ue.Class, ue.ExtCode, ue.Reason)
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, ErrNeedsReauth) || errors.Is(err, ErrNotAuthenticated) {
+		return err.Error()
+	}
+	return "error"
+}
+
 // IsUpstream reports whether err is an *UpstreamError with the
 // given class. Convenience for call sites that only care about
 // one class (e.g. "is this a user-action? flip needs_reauth").

@@ -79,3 +79,42 @@ func TestVehicleOTAStoreAndClaim(t *testing.T) {
 		t.Errorf("vehicle ids = %v, err %v", ids, err)
 	}
 }
+
+// A vehicle Rivian won't give OTA details for (FORBIDDEN or unsupported) is
+// marked, and no claim wins for a week even with a zero claim window; a week
+// on one more try is allowed, and storing details clears the mark.
+func TestVehicleOTAUnavailableBacksOff(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "ota-r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,'rv-r2','R2')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkOTAUnavailable(ctx, pool, uid, "rv-r2"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := db.ClaimOTAFetch(ctx, pool, uid, "rv-r2", 0); ok {
+		t.Error("claimed a vehicle inside its unavailable back-off")
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE vehicles SET metadata = jsonb_set(metadata, '{ota_unavailable_at}', to_jsonb((NOW() - interval '8 days')::text)) WHERE user_id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.ClaimOTAFetch(ctx, pool, uid, "rv-r2", 0); err != nil || !ok {
+		t.Fatalf("claim a week on = %v, err %v", ok, err)
+	}
+	if err := db.SetVehicleOTA(ctx, pool, uid, "rv-r2", []byte(`{"current":{"version":"1"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	var marked bool
+	if err := pool.QueryRowContext(ctx, `SELECT metadata ? 'ota_unavailable_at' FROM vehicles WHERE user_id = $1`, uid).Scan(&marked); err != nil || marked {
+		t.Errorf("the unavailable mark survived a successful fetch: %v, err %v", marked, err)
+	}
+}

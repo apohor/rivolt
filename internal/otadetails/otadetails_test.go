@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,8 @@ type fakeStore struct {
 	due     map[string]bool // claim result per vehicle
 	claimed []string
 	saved   []string
+	// unavailable records MarkUnavailable calls.
+	unavailable []string
 }
 
 func (f *fakeStore) Claim(_ context.Context, _ uuid.UUID, id string, _ time.Duration) (bool, error) {
@@ -26,6 +29,10 @@ func (f *fakeStore) Claim(_ context.Context, _ uuid.UUID, id string, _ time.Dura
 }
 func (f *fakeStore) Save(_ context.Context, _ uuid.UUID, id string, _ *rivian.OTAInfo) error {
 	f.saved = append(f.saved, id)
+	return nil
+}
+func (f *fakeStore) MarkUnavailable(_ context.Context, _ uuid.UUID, id string) error {
+	f.unavailable = append(f.unavailable, id)
 	return nil
 }
 func (f *fakeStore) Vehicles(context.Context, uuid.UUID) ([]string, error) { return f.ids, nil }
@@ -103,5 +110,34 @@ func TestDescribeKeepsResponseBodiesOut(t *testing.T) {
 	got := describe(err)
 	if strings.Contains(got, "2026.38.1") || strings.Contains(got, "https://x") || !strings.Contains(got, "http=502") {
 		t.Errorf("describe = %s", got)
+	}
+}
+
+// A FORBIDDEN, unsupported or GraphQL-level refusal for one vehicle (some R2s)
+// is expected: it is marked unavailable (a week's back-off in the claim), the
+// pass goes on with the user's other vehicles and returns no error. A
+// transport failure or an outage still stops the pass for a retry.
+func TestSyncUserBacksOffNotAvailableAndContinues(t *testing.T) {
+	forbidden := &rivian.UpstreamError{Class: rivian.ClassUserAction, Op: "getOTAUpdateDetails", ExtCode: "FORBIDDEN", Cause: errors.New("User is forbidden from accessing this resource")}
+	graphql := &rivian.UpstreamError{Class: rivian.ClassUnknown, Op: "getOTAUpdateDetails", Cause: errors.New("some graphql message")}
+	for name, e := range map[string]error{"forbidden": forbidden, "graphql-level refusal": graphql} {
+		st := &fakeStore{ids: []string{"r2", "r1"}, due: map[string]bool{"r2": true, "r1": true}}
+		acct := &fakeAcct{errOn: "r2", err: e}
+		s, _ := newTest(st, acct)
+		n, err := s.SyncUser(context.Background(), uuid.New())
+		if err != nil || n != 1 || strings.Join(st.unavailable, ",") != "r2" || strings.Join(st.saved, ",") != "r1" {
+			t.Errorf("%s: fetched %d err %v unavailable %v saved %v", name, n, err, st.unavailable, st.saved)
+		}
+	}
+	for name, e := range map[string]error{
+		"outage":    &rivian.UpstreamError{Class: rivian.ClassOutage, Op: "getOTAUpdateDetails", HTTPStatus: 502},
+		"transport": &rivian.UpstreamError{Class: rivian.ClassUnknown, Op: "getOTAUpdateDetails", Cause: &url.Error{Op: "Post", URL: "x", Err: errors.New("tls: handshake failure")}},
+	} {
+		st := &fakeStore{ids: []string{"a", "b"}, due: map[string]bool{"a": true, "b": true}}
+		acct := &fakeAcct{errOn: "a", err: e}
+		s, _ := newTest(st, acct)
+		if _, err := s.SyncUser(context.Background(), uuid.New()); err == nil || len(st.unavailable) != 0 || len(acct.calls) != 1 {
+			t.Errorf("%s: err %v unavailable %v calls %v; want a stop, no back-off", name, err, st.unavailable, acct.calls)
+		}
 	}
 }

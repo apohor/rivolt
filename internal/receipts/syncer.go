@@ -3,7 +3,6 @@ package receipts
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/rand"
 	"sync"
@@ -280,23 +279,9 @@ func (s *Syncer) sweep(ctx context.Context) {
 	}
 }
 
-// describe is how an error is logged and stored: for an upstream error
-// only its classification (operation, status, class, our reason phrase),
-// never the cause, which can carry a slice of Rivian's response body. No
-// raw response text reaches a log line or the database.
-func describe(err error) string {
-	var ue *rivian.UpstreamError
-	if errors.As(err, &ue) {
-		return fmt.Sprintf("upstream %s http=%d class=%v reason=%q", ue.Op, ue.HTTPStatus, ue.Class, ue.Reason)
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err.Error()
-	}
-	if errors.Is(err, rivian.ErrNeedsReauth) || errors.Is(err, rivian.ErrNotAuthenticated) {
-		return err.Error()
-	}
-	return "sync error"
-}
+// describe is how an error is logged and stored: classification only (see
+// rivian.Describe), never a response slice.
+func describe(err error) string { return rivian.Describe(err) }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
