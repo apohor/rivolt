@@ -12,6 +12,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/repair/r2"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // runRepairR2History rebuilds a vehicle's drives and charges in a
@@ -104,6 +105,17 @@ func runRepairR2History(args []string) int {
 		return 1
 	}
 	trips, chs := r2.Segment(rows)
+	// AC charges at home get the home rate, as the recorder stamps them;
+	// away (or no home/rate) stays unpriced.
+	ss := settings.NewFactory(pool).For(v.UserID)
+	pr := r2.Pricing{HomeRadiusM: rivian.HomeRadiusM, DCFCMinKW: rivian.DCFCMinKW}
+	if cfg, err := settings.GetChargingConfig(ctx, ss); err == nil {
+		pr.HomeRate, pr.Currency = cfg.HomePricePerKWh, cfg.HomeCurrency
+	}
+	if h, err := settings.GetHomeLocation(ctx, ss); err == nil && h.Set {
+		pr.HomeKnown, pr.HomeLat, pr.HomeLon = true, h.Latitude, h.Longitude
+	}
+	chs = r2.PriceCharges(chs, pr)
 	plan, err := r2.MakePlan(v, since, until, trips, chs, drives, stored)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-r2-history: refusing:", err)
@@ -164,8 +176,12 @@ func printR2Plan(w io.Writer, p r2.Plan, nRows int) {
 	fmt.Fprintf(w, "\nadd %d charge(s):\n", len(p.InsertCharges))
 	for _, c := range p.InsertCharges {
 		kwh += c.EnergyKWh
-		fmt.Fprintf(w, "  %s → %s  %5.1f kWh  peak %4.1f kW  SoC %.0f→%.0f%%\n",
-			c.Start.UTC().Format("2006-01-02 15:04"), c.End.UTC().Format("15:04"), c.EnergyKWh, c.PeakKW, c.StartSoC, c.EndSoC)
+		price := "unpriced"
+		if c.CostSource != "" {
+			price = fmt.Sprintf("$%.2f %s @ %.3f/kWh", c.Cost, c.CostSource, c.PricePerKWh)
+		}
+		fmt.Fprintf(w, "  %s → %s  %5.1f kWh  peak %4.1f kW  SoC %.0f→%.0f%%  place %-4s  %s\n",
+			c.Start.UTC().Format("2006-01-02 15:04"), c.End.UTC().Format("15:04"), c.EnergyKWh, c.PeakKW, c.StartSoC, c.EndSoC, c.Place, price)
 	}
 	for _, s := range p.Skipped {
 		fmt.Fprintf(w, "  skipped: %s\n", s)

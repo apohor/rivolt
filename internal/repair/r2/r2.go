@@ -8,6 +8,7 @@ package r2
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -79,6 +80,56 @@ type Charge struct {
 	PeakKW           float64
 	Lat, Lon         float64
 	ActiveSeconds    float64
+	// Pricing as the recorder would have stamped it (PriceCharges);
+	// zero/empty leaves the charge unpriced.
+	Cost, PricePerKWh    float64
+	Currency, CostSource string
+	Place                string // "home" | "away" | ""
+}
+
+// Pricing is what the recorder knows when it closes an AC charge.
+type Pricing struct {
+	HomeKnown        bool
+	HomeLat, HomeLon float64
+	HomeRate         float64
+	Currency         string
+	HomeRadiusM      float64
+	DCFCMinKW        float64
+}
+
+// PriceCharges stamps each charge the way the recorder does for AC
+// charging: at home (within HomeRadiusM of the saved home) at the home
+// rate (cost_source home_rate, place home); away, or with no home or
+// no rate, unpriced (place away / unknown). A DC fast charge stays
+// unpriced: the recorder prices those from the network, which a repair
+// doesn't guess.
+func PriceCharges(chs []Charge, p Pricing) []Charge {
+	out := make([]Charge, len(chs))
+	for i, c := range chs {
+		if p.HomeKnown && (c.Lat != 0 || c.Lon != 0) {
+			if haversineM(c.Lat, c.Lon, p.HomeLat, p.HomeLon) <= p.HomeRadiusM {
+				c.Place = "home"
+			} else {
+				c.Place = "away"
+			}
+		}
+		if c.Place == "home" && p.HomeRate > 0 && c.PeakKW < p.DCFCMinKW && c.EnergyKWh > 0 {
+			c.PricePerKWh = p.HomeRate
+			c.Cost = p.HomeRate * c.EnergyKWh
+			c.Currency = p.Currency
+			c.CostSource = "home_rate"
+		}
+		out[i] = c
+	}
+	return out
+}
+
+func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	rad := math.Pi / 180
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Sqrt(h))
 }
 
 // Segment splits time-ordered rows into trips and charges. A row with
@@ -100,7 +151,12 @@ func trips(rows []Row) []Trip {
 		}
 		cur = nil
 	}
-	for _, r := range rows {
+	var prev *Row
+	for i := range rows {
+		r := rows[i]
+		if i > 0 {
+			prev = &rows[i-1]
+		}
 		switch r.Power {
 		case "go":
 			going = true
@@ -111,6 +167,16 @@ func trips(rows []Row) []Trip {
 		}
 		if !going {
 			if cur != nil {
+				// The parking row carries the trip's final odometer
+				// (movement since the last driving row), as the
+				// recorder's close folds it in.
+				if r.OdoMi > cur.EndOdoMi && !stopped {
+					cur.EndOdoMi = r.OdoMi
+					cur.End = r.At
+					if r.SoC > 0 {
+						cur.EndSoC = r.SoC
+					}
+				}
 				stopped = true
 				if r.At.Sub(lastGo) >= TripBreak {
 					flush()
@@ -127,6 +193,14 @@ func trips(rows []Row) []Trip {
 		lastGo = r.At
 		if cur == nil {
 			cur = &Trip{Start: r.At, StartOdoMi: r.OdoMi, StartSoC: r.SoC, StartLat: r.Lat, StartLon: r.Lon}
+			// The car may already be moving at its first driving row:
+			// the last parked row holds the start odometer.
+			if prev != nil && prev.OdoMi > 0 && (r.OdoMi == 0 || prev.OdoMi < r.OdoMi) {
+				cur.StartOdoMi = prev.OdoMi
+				if prev.SoC > 0 {
+					cur.StartSoC = prev.SoC
+				}
+			}
 		}
 		// Extend: end state follows the last driving row; the odometer
 		// and SoC only ever take a real reading.

@@ -16,6 +16,7 @@ type Vehicle struct {
 	ID       uuid.UUID // vehicles.id
 	UserID   uuid.UUID
 	RivianID string
+	Model    string
 	PackKWh  float64
 }
 
@@ -23,13 +24,14 @@ type Vehicle struct {
 func LoadVehicle(ctx context.Context, d *sql.DB, rivianID string) (Vehicle, error) {
 	v := Vehicle{RivianID: rivianID}
 	var pack sql.NullFloat64
+	var model sql.NullString
 	err := d.QueryRowContext(ctx,
-		`SELECT id, user_id, pack_kwh FROM vehicles WHERE rivian_vehicle_id = $1`, rivianID).
-		Scan(&v.ID, &v.UserID, &pack)
+		`SELECT id, user_id, model, pack_kwh FROM vehicles WHERE rivian_vehicle_id = $1`, rivianID).
+		Scan(&v.ID, &v.UserID, &model, &pack)
 	if err != nil {
 		return v, fmt.Errorf("vehicle %s: %w", rivianID, err)
 	}
-	v.PackKWh = pack.Float64
+	v.Model, v.PackKWh = strings.TrimSpace(model.String), pack.Float64
 	return v, nil
 }
 
@@ -114,6 +116,9 @@ type Plan struct {
 	Skipped       []string // why something was left alone
 }
 
+// MakePlan refuses any vehicle but an R2: the segmentation rests on an
+// R2's power state; an R1's recorded gear is the better record.
+//
 // MakePlan replaces every live drive inside [since, until) with the
 // re-segmented trips and adds the recovered charges that don't overlap
 // a stored charge. It refuses (error) when a drive in the window isn't
@@ -121,6 +126,9 @@ type Plan struct {
 // those are a person's call, not a repair's.
 func MakePlan(v Vehicle, since, until time.Time, trips []Trip, chs []Charge, drives, stored []Existing) (Plan, error) {
 	p := Plan{Vehicle: v, Since: since, Until: until}
+	if !strings.EqualFold(v.Model, "R2") {
+		return p, fmt.Errorf("vehicle %s is a %q, not an R2: refusing", v.RivianID, v.Model)
+	}
 	for _, d := range drives {
 		switch {
 		case d.Source != "live":
@@ -255,11 +263,14 @@ func Apply(ctx context.Context, d *sql.DB, p Plan, encode func([][2]float64) str
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at,
 			       start_soc_pct, end_soc_pct, energy_added_kwh, max_power_kw, avg_power_kw,
-			       final_state, lat, lon, source, active_seconds)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'charging_complete',$11,$12,'live',$13)`,
+			       final_state, lat, lon, source, active_seconds,
+			       cost, price_per_kwh, currency, cost_source, place)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'charging_complete',$11,$12,'live',$13,
+			        $14,$15,NULLIF($16,''),NULLIF($17,''),NULLIF($18,''))`,
 			v.UserID, v.ID, id, c.Start.UTC(), c.End.UTC(),
 			nz(c.StartSoC), nz(c.EndSoC), c.EnergyKWh, nz(c.PeakKW), nz(avgKW(c)),
-			nz(c.Lat), nz(c.Lon), nz(c.ActiveSeconds)); err != nil {
+			nz(c.Lat), nz(c.Lon), nz(c.ActiveSeconds),
+			nz(c.Cost), nz(c.PricePerKWh), c.Currency, c.CostSource, c.Place); err != nil {
 			return fmt.Errorf("insert charge %s: %w", id, err)
 		}
 		inserted = append(inserted, marker("inserted_charge", id))
