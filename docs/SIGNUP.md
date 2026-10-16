@@ -61,7 +61,7 @@ Tip: connect a dedicated Authorized Driver account (see
 "Recommended" below) if you can; the steps here are the same.
 
 1. Right after signup Rivolt shows the Rivian sign-in form. (Later,
-   it's on the Overview until you're connected, and always under
+   it's on **Now** until you're connected, and always under
    **Settings → Account → Rivian account**.)
 2. Enter the email + password you use in the Rivian app.
 3. Click **Sign in**.
@@ -70,7 +70,7 @@ If Rivian prompts for a one-time code, copy it from your phone /
 email and submit it. Rivolt seals the resulting session token
 locally; the password itself is never stored.
 
-After ~30 seconds the live panel on the Overview page should start
+After ~30 seconds the live panel on **Now** should start
 showing your vehicle's current SoC, location, and gear. The first
 WebSocket connection also pulls the last few drives + charges into
 your history.
@@ -174,7 +174,7 @@ trip planner as soft hints.
 
 You're set up. Try the planner:
 
-1. Open **Plan** in the nav.
+1. Open the **Plan** tab.
 2. The departure picker defaults to "now". Pick a different
    day/time if you're planning ahead — the trip analysis will use
    the forecast for that hour, not today's weather.
@@ -240,12 +240,13 @@ before push works (Share → Add to Home Screen).
   auto-tags charging sessions started near it as `Home` (instead
   of waiting for clustering to converge) and the trip planner
   offers "Home" as a one-tap preset.
-- The **Drives** page lists every drive with energy used, cost,
+- **Activity** lists every drive with energy used, cost,
   speed averages, and a route preview. Click into one for the
   full timeline (speed / SoC / elevation / weather charts +
   road-snapped route).
-- The **Charges** page does the same for charging sessions —
-  per-session curve, peak kW, thermal split, cost.
+  Its Table and Map views show drives and charges as tables and on
+  maps. Charging sessions get the same detail — per-session curve, peak
+  kW, thermal split, cost.
 - **Settings → Display** controls units (mi/km, °C/°F) and your
   timezone.
 
