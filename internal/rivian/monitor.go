@@ -46,6 +46,12 @@ type StateMonitor struct {
 	// calls Rivian at most once per stateRefetchEvery.
 	fallbackMu sync.Mutex
 	fallbackAt map[string]time.Time
+	// remoteMu/remoteCache hold the owner's published State for a few
+	// seconds (RemoteLatest), so a replica serving /api/state polls
+	// doesn't make a Redis round trip per request.
+	remoteMu    sync.Mutex
+	remoteCache map[string]remoteEntry
+	remoteNow   func() time.Time // tests; nil means time.Now
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -2825,17 +2831,66 @@ var liveStateSnapshotInterval = 5 * time.Second
 // would omit every subscription-only field (pack temperature, numeric
 // tire pressures, charging context, driver chips, windows). Reading the
 // owner's published snapshot serves those fields pod-agnostically.
+//
+// A found snapshot is reused for remoteLatestTTL (the owner republishes
+// every liveStateSnapshotInterval), so a replica under /api/state polling
+// reads Redis about once per TTL per vehicle instead of once per request.
+// Misses and errors are not cached, so a freshly published snapshot is
+// seen at once. The returned State is shared: callers must not modify it.
 func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *State {
 	if m == nil || m.liveStateStore == nil {
 		return nil
 	}
+	now := time.Now
+	if m.remoteNow != nil {
+		now = m.remoteNow
+	}
+	m.remoteMu.Lock()
+	if e, ok := m.remoteCache[vehicleID]; ok && now().Before(e.expires) {
+		m.remoteMu.Unlock()
+		return e.st
+	}
+	m.remoteMu.Unlock()
 	st, err := m.liveStateStore.GetState(ctx, vehicleID)
 	if err != nil {
 		m.logger.Debug("remote live state get failed", "vehicle", vehicleID, "err", err.Error())
 		return nil
 	}
+	m.remoteMu.Lock()
+	defer m.remoteMu.Unlock()
+	if st == nil {
+		delete(m.remoteCache, vehicleID)
+		return nil
+	}
+	if m.remoteCache == nil {
+		m.remoteCache = map[string]remoteEntry{}
+	}
+	if len(m.remoteCache) >= remoteCacheMax {
+		t := now()
+		for k, e := range m.remoteCache {
+			if !t.Before(e.expires) {
+				delete(m.remoteCache, k)
+			}
+		}
+	}
+	if _, ok := m.remoteCache[vehicleID]; ok || len(m.remoteCache) < remoteCacheMax {
+		m.remoteCache[vehicleID] = remoteEntry{st: st, expires: now().Add(remoteLatestTTL)}
+	}
 	return st
 }
+
+type remoteEntry struct {
+	st      *State
+	expires time.Time
+}
+
+// remoteLatestTTL is how long RemoteLatest reuses a snapshot; well under
+// liveStateSnapshotInterval so a replica is never more than one extra
+// couple of seconds behind the owner. A var so tests can change it.
+var remoteLatestTTL = 2 * time.Second
+
+// remoteCacheMax bounds the per-vehicle cache.
+const remoteCacheMax = 1024
 
 // stateRefetchEvery bounds how often /api/state on a pod that doesn't
 // stream a vehicle may fetch it directly from Rivian when the owner's
