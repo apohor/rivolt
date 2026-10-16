@@ -41,6 +41,7 @@ export type LineSeries = {
 
 export function LineChart({
   series,
+  ariaLabel,
   height = 120,
   yDomain,
   xDomain,
@@ -58,6 +59,8 @@ export function LineChart({
   backdrop,
 }: {
   series: LineSeries[];
+  // Accessible name for the chart (what it plots).
+  ariaLabel?: string;
   height?: number;
   yDomain?: [number, number];
   xDomain?: [number, number];
@@ -295,6 +298,7 @@ export function LineChart({
       style={{ height }}
       preserveAspectRatio="none"
       role="img"
+      aria-label={ariaLabel ?? "Line chart"}
     >
       {/* grid + y axis labels */}
       {yTickValues.map((yv, i) => (
@@ -610,6 +614,7 @@ function monotonePath(pts: { x: number; y: number }[]): string {
 
 export function BarChart({
   data,
+  ariaLabel,
   height = 100,
   color = "#10b981",
   formatY,
@@ -619,6 +624,8 @@ export function BarChart({
   barGap = 2,
 }: {
   data: { label: string; value: number; x?: number }[];
+  // Accessible name for the chart (what it plots).
+  ariaLabel?: string;
   height?: number;
   color?: string;
   formatY?: (v: number) => string;
@@ -681,6 +688,7 @@ export function BarChart({
       style={{ height }}
       preserveAspectRatio="none"
       role="img"
+      aria-label={ariaLabel ?? "Bar chart"}
     >
       {yTickValues.map((yv, i) => (
         <g key={`y${i}`}>

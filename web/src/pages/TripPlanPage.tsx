@@ -2427,7 +2427,7 @@ function RouteCard({
             <>
               {" / "}
               <span
-                className="text-red-700 font-mono cursor-help"
+                className="text-rose-400 font-mono cursor-help"
                 title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
               >{fmtCurrency(gasEquiv)}</span>
             </>
@@ -2537,7 +2537,7 @@ function RouteCard({
         />
       </dl>
       {showTable && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Charging stops table">
           <table className="w-full text-sm">
             <thead className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr>
