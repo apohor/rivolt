@@ -227,19 +227,35 @@ func (b *sampleBuilder) add(s sampleSeg) {
 	b.t = s.end
 }
 
-// park until `until`: awake 20 min, asleep, awake 2 min before leaving.
-// flicker adds failed sleeps (asleep < 60 s) through the night.
+// How long a parked truck stays up before it sleeps, from the R1 fleet
+// (prod vehicle_state, 10 days to 2026-10-16): a "ready" run that ends
+// in sleep lasts p50 12.9 min, then "standby" p50 1.0 min. 20 min of
+// "ready" per park, at five to seven parks a day (top-ups each start
+// one), made the demo's idle-awake read high.
+const (
+	sampleParkReady   = 13 * time.Minute
+	sampleParkStandby = 1 * time.Minute
+)
+
+// park until `until`: up sampleParkReady, standby, asleep, awake 2 min
+// before leaving. flicker adds failed sleeps (asleep < 60 s) through the
+// night.
 func (b *sampleBuilder) park(until time.Time, flicker bool) {
 	if !until.After(b.t) {
 		return
 	}
 	base := sampleSeg{kind: segParked, socA: b.soc, socB: b.soc, odoA: b.odo, odoB: b.odo,
 		path: []samplePoint{b.at}, plugged: b.plugged}
-	awakeEnd := minTime(b.t.Add(20*time.Minute), until)
+	awakeEnd := minTime(b.t.Add(sampleParkReady), until)
 	wake := until.Add(-2 * time.Minute)
 	seg := base
 	seg.start, seg.end, seg.step, seg.power = b.t, awakeEnd, sampleAwakeStep, "ready"
 	b.add(seg)
+	if wake.After(b.t) {
+		seg = base
+		seg.start, seg.end, seg.step, seg.power = b.t, minTime(b.t.Add(sampleParkStandby), wake), sampleAwakeStep, "standby"
+		b.add(seg)
+	}
 	if wake.After(b.t) {
 		if flicker {
 			// Three failed sleeps (asleep ~30 s, then awake again for
