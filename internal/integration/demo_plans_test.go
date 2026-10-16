@@ -76,7 +76,11 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, $2) RETURNING id::text`, uid, demo.VehicleID()).Scan(&vid); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'replay')`, uid, vid, now.AddDate(0, -3, 0)); err != nil {
+	recorded := now.AddDate(0, -3, 0)
+	if _, err := pool.ExecContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, recorded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'replay')`, uid, vid, recorded); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 2 {
