@@ -605,7 +605,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 // m.sessMu held.
 func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx context.Context) {
 	driving := isDrivingGear(curr.Gear)
-	chargingNow := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	chargingNow := isChargingCS(curr.ChargerState) && s.plugged(curr)
 	// These closes finish a session like the normal close paths do: a
 	// last upsert that retries a rejected row once, then the close hook
 	// (charge notifications, drive weather) unless the row is a phantom
@@ -732,7 +732,7 @@ const switchMovedMi = 0.05
 //
 // Must be called with m.sessMu held.
 func (s *liveSessions) lifecycleView(curr *State, m *StateMonitor) *State {
-	if !isDrivingGear(curr.Gear) || !(isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)) {
+	if !isDrivingGear(curr.Gear) || !(isChargingCS(curr.ChargerState) && s.plugged(curr)) {
 		return curr
 	}
 	moving := curr.SpeedKph*kphToMi > driveCloseSpeedMph
@@ -1056,7 +1056,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// opens a phantom session that then absorbs stale 25 kWh from
 	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
 	// See v0.3.48 for the matching frontend gate.
-	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	charging := isChargingCS(curr.ChargerState) && s.plugged(curr)
 	// Some vehicles report charging_ready while driving and parked
 	// unplugged (R2). Where that's so, charging_ready doesn't open a
 	// charge; charging_active does. An open charge isn't affected.
@@ -1897,6 +1897,27 @@ func isChargingCS(s string) bool {
 		return false
 	}
 	return strings.HasPrefix(v, "charging_") || v == "waiting_on_charger"
+}
+
+// plugged reports whether the cable is connected for the lifecycle.
+// Rivian's chargerStatus says so when the vehicle reports it. An R2
+// never does (charger_status is empty on every R2 row), so there a
+// charging state that only exists with power flowing stands in:
+// charging_active or charging_connecting with power above zero, or
+// with a charge already open (a 0 kW pause mid-session doesn't split
+// it). charging_ready alone never counts: an R2 reports it while
+// driving and parked unplugged. Leaving those states (charging_complete,
+// charging_ready, disconnected) reads as unplugged, which closes the
+// charge as before. Must be called with m.sessMu held.
+func (s *liveSessions) plugged(curr *State) bool {
+	if strings.TrimSpace(curr.ChargerStatus) != "" {
+		return isPluggedCS(curr.ChargerStatus)
+	}
+	switch strings.ToLower(strings.TrimSpace(curr.ChargerState)) {
+	case "charging_active", "charging_connecting":
+		return curr.ChargerPowerKW > 0 || s.charge != nil
+	}
+	return false
 }
 
 // isPluggedCS reports whether Rivian's chargerStatus field indicates

@@ -183,26 +183,78 @@ func TestR2ChargeWithStaleGear(t *testing.T) {
 	r := newR2Run()
 	base := time.Date(2026, 10, 13, 3, 40, 53, 0, time.UTC)
 	sawDrive := false
+	var charge *liveCharge
+	var openedAt, closedAt float64 = -1, -1
+	var peakEnergy float64
 	r.onStep = func(i int, e r2Event) {
-		if d, _ := r.session(); d != nil {
+		d, c := r.session()
+		if d != nil {
 			sawDrive = true
+		}
+		if c != nil {
+			if charge == nil {
+				openedAt = e.T
+			}
+			charge = c
+			if row := r.m.liveChargeRow("r2", c); row.EnergyAddedKWh > peakEnergy {
+				peakEnergy = row.EnergyAddedKWh
+			}
+			if d != nil {
+				t.Errorf("t=%.0f: drive and charge open together", e.T)
+			}
+		}
+		if charge != nil && c == nil && closedAt < 0 {
+			closedAt = e.T
+		}
+		if charge != nil && c != nil && c != charge {
+			t.Errorf("t=%.0f: the charge split (a 0 kW pause must not end it)", e.T)
 		}
 	}
 	r.run(t, events, func(e r2Event) time.Time { return base.Add(time.Duration(e.T * float64(time.Second))) })
 
-	d, c := r.session()
 	if !sawDrive {
 		t.Error("the drive before the charge never opened")
 	}
-	if d != nil {
-		t.Error("the drive is still open while the car charges")
+	// No chargerStatus at all (an R2): charging_active at 0 kW doesn't
+	// open it (t=179); power does (t=184); charging_complete closes it.
+	if openedAt != 184 {
+		t.Errorf("charge opened at t=%.0f, want 184 (first power while charging_active)", openedAt)
 	}
-	if c == nil {
-		t.Fatal("no charge opened while charging_active with a stale R")
+	if closedAt != 900 {
+		t.Errorf("charge closed at t=%.0f, want 900 (charging_complete)", closedAt)
 	}
-	row := r.m.liveChargeRow("r2", c)
-	if row.EnergyAddedKWh <= 0 || row.MaxPowerKW < 7 {
-		t.Errorf("charge: %.2f kWh at %.1f kW peak, want energy at ~7.4 kW", row.EnergyAddedKWh, row.MaxPowerKW)
+	if peakEnergy <= 0 || charge == nil || charge.maxPower < 7 {
+		t.Errorf("charge: %.2f kWh, peak %.1f kW; want energy at ~7.4 kW", peakEnergy, charge.maxPower)
+	}
+}
+
+// Without chargerStatus (R2): charging_connecting at 0 kW (29 of them in
+// 5 days on 01-247739360, never followed by power) opens nothing; with a
+// status (R1) the status decides, as before.
+func TestPluggedWithoutChargerStatus(t *testing.T) {
+	s := &liveSessions{}
+	for _, c := range []struct {
+		cs, status string
+		kw         float64
+		open, want bool
+	}{
+		{"charging_active", "", 7.4, false, true},
+		{"charging_active", "", 0, false, false},
+		{"charging_active", "", 0, true, true}, // a pause inside an open charge
+		{"charging_connecting", "", 0, false, false},
+		{"charging_connecting", "", 2, false, true},
+		{"charging_ready", "", 0, true, false},
+		{"charging_complete", "", 0, true, false},
+		{"charging_active", "chrgr_sts_not_connected", 7.4, false, false}, // R1: status decides
+		{"charging_ready", "chrgr_sts_connected_charging", 0, false, true},
+	} {
+		s.charge = nil
+		if c.open {
+			s.charge = &liveCharge{}
+		}
+		if got := s.plugged(&State{ChargerState: c.cs, ChargerStatus: c.status, ChargerPowerKW: c.kw}); got != c.want {
+			t.Errorf("%s status=%q %.1f kW open=%v: plugged %v, want %v", c.cs, c.status, c.kw, c.open, got, c.want)
+		}
 	}
 }
 
