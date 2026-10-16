@@ -190,9 +190,11 @@ html[data-ui='next'] [data-plan-tabs] {
   padding: 2px;
   border: 1px solid oklch(30% 0.01 262);
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 html[data-ui='next'] [data-plan-tabs] [role='tab'] {
+  font-size: 0.8125rem;
   padding: 0.375rem 0.75rem;
   border-radius: 0.375rem;
   color: oklch(70% 0.01 262);
@@ -477,6 +479,88 @@ html[data-ui='next'] [data-plan-more-body] {
 }
 html[data-ui='next'] [data-plan-more-body][hidden] {
   display: none;
+
+/* ---- Planner typography ----------------------------------------------------
+   One family (Geist sans, tabular figures, no mono) and one type scale. Every
+   planner element maps to one of these sizes; the Tailwind size utilities used
+   inside the planner are folded onto the scale below (unlayered, so they win).
+
+     title   24px / 600   page title
+     hero    30px / 600   trip cost, arrival SoC
+     value   15px / 600   metrics, stop names, chip titles
+     sub     13px / 400   sub-lines, form text, hints
+     cap     11px / 500   section labels (uppercase), units, captions
+
+   Weights: labels 500, values 600, body 400. Units (mi, kW, %) are caption-sized
+   and neutral-400 everywhere (.pt-unit). */
+html[data-ui='next'] [data-plan-next] {
+  --pt-title: 1.5rem;
+  --pt-hero: 1.875rem;
+  --pt-value: 0.9375rem;
+  --pt-sub: 0.8125rem;
+  --pt-cap: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+html[data-ui='next'] [data-plan-next] *:not(.leaflet-container *):not(svg *) {
+  font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+html[data-ui='next'] [data-plan-next] .ui-mono,
+html[data-ui='next'] [data-plan-next] .font-mono {
+  font-family: inherit;
+}
+/* Sizes: fold the utilities onto the scale. */
+html[data-ui='next'] [data-plan-next] .text-3xl,
+html[data-ui='next'] [data-plan-next] .text-4xl {
+  font-size: var(--pt-hero);
+}
+html[data-ui='next'] [data-plan-next] .text-2xl {
+  font-size: var(--pt-title);
+}
+html[data-ui='next'] [data-plan-next] .text-xl,
+html[data-ui='next'] [data-plan-next] .text-lg,
+html[data-ui='next'] [data-plan-next] .text-base,
+html[data-ui='next'] [data-plan-next] .text-sm {
+  font-size: var(--pt-value);
+}
+html[data-ui='next'] [data-plan-next] .text-xs {
+  font-size: var(--pt-sub);
+}
+html[data-ui='next'] [data-plan-next] .text-\[10px\],
+html[data-ui='next'] [data-plan-next] .text-\[11px\],
+html[data-ui='next'] [data-plan-next] .ui-label,
+html[data-ui='next'] [data-plan-next] .pt-unit {
+  font-size: var(--pt-cap);
+}
+/* Weights. */
+html[data-ui='next'] [data-plan-next] .font-bold {
+  font-weight: 600;
+}
+html[data-ui='next'] [data-plan-next] .ui-label {
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+html[data-ui='next'] [data-plan-next] .pt-unit {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-neutral-400);
+  margin-inline-start: 0.2em;
+}
+html[data-ui='next'] [data-plan-next] .pt-sub {
+  font-size: var(--pt-sub);
+  font-weight: 400;
+}
+html[data-ui='next'] [data-plan-next] .pt-value {
+  font-size: var(--pt-value);
+  font-weight: 600;
+}
+html[data-ui='next'] [data-plan-next] .pt-hero {
+  font-size: var(--pt-hero);
+  font-weight: 600;
+  line-height: 1;
 }
 /* The Plan button. */
 html[data-ui='next'] [data-plan-submit] > button {
