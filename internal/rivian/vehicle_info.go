@@ -67,8 +67,11 @@ func InferPackKWh(model, trimID string, modelYear int) float64 {
 		}
 		return 131.0
 	case "R2":
-		// R2 ships with a single standard pack ~75 kWh (spec).
-		return 75.0
+		// R2: the two in the fleet (2027 MY, new) report 91.47 and
+		// 91.64 kWh; R1 Gen2 trucks report ~101% of their 141.5 spec,
+		// so the pack is ~91.5. (75 was a pre-launch guess: pack health
+		// read 122%.)
+		return 91.5
 	}
 	return DefaultPackKWh
 }

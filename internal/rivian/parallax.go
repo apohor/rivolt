@@ -695,10 +695,18 @@ func gearFromParallax(v uint64) string {
 // powerStateFromParallax maps the vehicle.power.state enum to the
 // powerState string contract vehicleState uses. 3=ready and 4=go are
 // confirmed from the 2026-07-14 drive (3→4 led drive-start, 4→3 led
-// drive-end); the sleep enum isn't captured yet. Returns "" for an
-// unmapped value so callers fall back to vehicleState.
+// drive-end). 1=sleep from the fleet (devils-advocate's R2 audit, Oct
+// 15): on R1s enum 1 coincides with vehicleState "sleep" (2,003 / 47
+// and 1,530 / 0 frames on two trucks). 2=standby is weaker evidence
+// (mixed vehicleState values on R1s) but sits between ready and sleep
+// as the car settles. Returns "" for an unmapped value so callers fall
+// back to vehicleState.
 func powerStateFromParallax(v uint64) string {
 	switch v {
+	case 1:
+		return "sleep"
+	case 2:
+		return "standby"
 	case 3:
 		return "ready"
 	case 4:

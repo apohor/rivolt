@@ -58,7 +58,7 @@ func TestInferPackKWh(t *testing.T) {
 		{"gen1_standard", "R1T", "STD-DM", 2023, 105.0},
 		{"pkg_adv_gen1_falls_back_to_large", "R1T", "PKG-ADV", 2023, 131.0},
 		{"pkg_adv_gen2_falls_back_to_large", "R1T", "PKG-ADV", 2025, 141.5},
-		{"r2", "R2", "", 2027, 75.0},
+		{"r2", "R2", "", 2027, 91.5},
 		{"unknown", "", "", 0, rivian.DefaultPackKWh},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

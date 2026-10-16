@@ -142,6 +142,12 @@ type StateMonitor struct {
 	// Guarded by mu.
 	lastPxGear   map[string]string
 	lastPxGearAt map[string]time.Time
+	// lastPxPower[vehicleID] is the last fresh Parallax power state
+	// (mapped, e.g. "sleep"). Some vehicles (R2) never report sleep in
+	// vehicleState, so the WS merge keeps a Parallax sleep against a
+	// vehicleState "ready" while Parallax is live (holdParallaxLocked).
+	// Guarded by mu.
+	lastPxPower map[string]string
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -374,6 +380,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastTopicTs:         make(map[string]int64),
 		lastPxGear:      make(map[string]string),
 		lastPxGearAt:    make(map[string]time.Time),
+		lastPxPower:     make(map[string]string),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
@@ -1211,30 +1218,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 
 		err := m.client.SubscribeVehicleStateHeld(subCtx, vehicleID, m.vehicleStateHold(vehicleID), func(st *State) {
 			atomic.AddInt64(&frameCount, 1)
-			// When Parallax GPS is authoritative, drop vehicleState's
-			// GPS before it reaches the cache so the gnss subscriber is
-			// the only writer of lat/lon/speed/heading/altitude.
-			m.noteVehStateGPS(vehicleID, st)
-			m.mu.Lock()
-			// Rivian pushes deltas — each frame contains only the
-			// fields that changed. Merge non-zero/non-empty values
-			// from the push over whatever we had cached so static
-			// fields (odometer, gear, charge limit, tire pressures)
-			// don't disappear between frames.
-			prev := m.cache[vehicleID]
-			merged := mergeState(prev, st)
-			m.cache[vehicleID] = merged
-			m.stamp[vehicleID] = time.Now()
-			// Cold-start guard: any real WS frame proves the
-			// subscription is delivering, so adaptiveRefreshInterval
-			// can return to PowerState-driven cadence.
-			m.wsSeen[vehicleID] = true
-			if m.lastVSFrame == nil {
-				m.lastVSFrame = map[string]time.Time{}
-			}
-			m.lastVSFrame[vehicleID] = time.Now()
-			m.mu.Unlock()
-			m.record(ctx, vehicleID, prev, merged)
+			m.applyVehicleStatePush(ctx, vehicleID, st)
 		})
 		cancelSub(nil)
 		m.mu.Lock()
@@ -2035,6 +2019,10 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		if m.parallaxDriveDynamics && m.applicable(f, fresh) {
 			if ps := powerStateFromParallax(f.Value); ps != "" {
 				m.mu.Lock()
+				if m.lastPxPower == nil {
+					m.lastPxPower = map[string]string{}
+				}
+				m.lastPxPower[vehicleID] = ps
 				if base := m.cache[vehicleID]; base != nil && base.PowerState != ps {
 					next := *base
 					next.At = time.Now()
@@ -2337,6 +2325,26 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 		m.logger.Debug("parallax gear frame ignored (replay)",
 			"vehicle", vehicleID, "px_enum", f.Value, "px_gear", g,
 			"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+		// One exception: a replayed P is the last gear the car reported,
+		// so a car standing still while the cache reads driving (a
+		// vehicleState that never reports park, after a restart or a
+		// missed park frame) is parked. It doesn't count as fresh: the
+		// close corroboration still needs a stop (speed) or time.
+		if g == "P" && m.parallaxDriveDynamics && f.TimestampMs > 0 {
+			m.mu.Lock()
+			base := m.cache[vehicleID]
+			if base != nil && isDrivingGear(base.Gear) && base.SpeedKph*kphToMi <= driveCloseSpeedMph {
+				m.lastPxGear[vehicleID] = "P"
+				next := *base
+				next.At = time.Now()
+				next.Gear = "P"
+				m.cache[vehicleID] = &next
+				m.mu.Unlock()
+				m.record(ctx, vehicleID, base, &next)
+				return
+			}
+			m.mu.Unlock()
+		}
 		return
 	}
 	m.logger.Info("parallax drive-dynamics shadow",
@@ -2356,11 +2364,19 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 	// seconds (tens of seconds when vehicleState stalls), so this
 	// captures the true start — and, because the cache still holds
 	// the pre-drive parked odometer/location, the correct start
-	// odometer and start point. P is intentionally not applied.
-	if m.parallaxDriveDynamics && isDrivingGear(g) {
+	// odometer and start point.
+	//
+	// A fresh P is applied too, when the cached gear still reads
+	// driving: some vehicles' vehicleState never reports park (R2: the
+	// gear stays at the last D/R for days), so without it the drive
+	// never closes and no charge opens. The close itself stays with the
+	// recorder's debounce (a fresh Parallax P corroborates it), and
+	// holdParallaxLocked keeps vehicleState replays of the stale gear
+	// from undoing it while the car stands still.
+	if m.parallaxDriveDynamics && (isDrivingGear(g) || g == "P") {
 		m.mu.Lock()
 		base := m.cache[vehicleID]
-		if base != nil {
+		if base != nil && (g != "P" || isDrivingGear(base.Gear)) {
 			next := *base
 			next.At = time.Now()
 			next.Gear = g
@@ -2370,6 +2386,65 @@ func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, 
 		} else {
 			m.mu.Unlock()
 		}
+	}
+}
+
+// applyVehicleStatePush merges one vehicleState subscription push into
+// the cache and runs the recorder on it.
+func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID string, st *State) {
+	// When Parallax GPS is authoritative, drop vehicleState's GPS
+	// before it reaches the cache so the gnss subscriber is the only
+	// writer of lat/lon/speed/heading/altitude.
+	m.noteVehStateGPS(vehicleID, st)
+	m.mu.Lock()
+	// Rivian pushes deltas — each frame contains only the fields that
+	// changed. Merge non-zero/non-empty values from the push over
+	// whatever we had cached so static fields (odometer, gear, charge
+	// limit, tire pressures) don't disappear between frames.
+	prev := m.cache[vehicleID]
+	merged := mergeState(prev, st)
+	m.holdParallaxLocked(vehicleID, prev, merged)
+	m.cache[vehicleID] = merged
+	m.stamp[vehicleID] = time.Now()
+	// Cold-start guard: any real WS frame proves the subscription is
+	// delivering, so adaptiveRefreshInterval can return to
+	// PowerState-driven cadence.
+	m.wsSeen[vehicleID] = true
+	if m.lastVSFrame == nil {
+		m.lastVSFrame = map[string]time.Time{}
+	}
+	m.lastVSFrame[vehicleID] = time.Now()
+	m.mu.Unlock()
+	m.record(ctx, vehicleID, prev, merged)
+}
+
+// parallaxLiveWindow: Parallax counts as live for holdParallaxLocked when
+// any of its topics delivered a frame this recently (replays included:
+// they prove the subscription is up, not that anything changed).
+const parallaxLiveWindow = 10 * time.Minute
+
+// holdParallaxLocked keeps what fresh Parallax frames established
+// against a vehicleState push that would undo it with a stale value
+// (every resubscribe replays vehicleState's last snapshot):
+//   - a Parallax P against a vehicleState driving gear, while the car
+//     stands still (speed at or under driveCloseSpeedMph). A real drive
+//     start shows as a fresh Parallax R/D first, or as speed;
+//   - a Parallax sleep against a vehicleState "ready" (an R2 reports
+//     only ready/go/blank), while Parallax is live; "go" always wins.
+//
+// prev is the cached state the push merged onto; merged is changed in
+// place. Caller holds mu.
+func (m *StateMonitor) holdParallaxLocked(vehicleID string, prev, merged *State) {
+	if !m.parallaxDriveDynamics || prev == nil || merged == nil {
+		return
+	}
+	if prev.Gear == "P" && isDrivingGear(merged.Gear) && m.lastPxGear[vehicleID] == "P" &&
+		merged.SpeedKph*kphToMi <= driveCloseSpeedMph {
+		merged.Gear = "P"
+	}
+	if prev.PowerState == "sleep" && merged.PowerState == "ready" && m.lastPxPower[vehicleID] == "sleep" &&
+		time.Since(m.lastParallaxAt[vehicleID]) < parallaxLiveWindow {
+		merged.PowerState, merged.PowerStateAt = prev.PowerState, prev.PowerStateAt
 	}
 }
 
