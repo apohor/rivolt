@@ -2,7 +2,8 @@
 
 Audience: segments A (home charger) and B (road-tripper) first, C (self-hoster) second. See the PM report for jobs-to-be-done.
 Constraint: no claim about Rivian's app (see claims-verification.md). No "battery-friendly" or "real-time" headline until the drain gate passes.
-Page lives at `/` for signed-out visitors, plus `/demo` (public, no login).
+Page lives at `/` for signed-out visitors. The public demo (no login) is [demo.rivolt.dev](https://demo.rivolt.dev), also reachable at `/demo` on the main site.
+The app has five tabs: Now, Activity (Feed, Table and Map), Money, Plan and Truck. Use those names in copy.
 
 ## Structure
 1. Hero: headline, one-line sub, two buttons (See the demo / Connect your Rivian), a Money statement screenshot.
@@ -21,11 +22,11 @@ Page lives at `/` for signed-out visitors, plus `/demo` (public, no login).
 
 **Claim 1: Every dollar has a source**
 Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. Charges we can't price are flagged, not guessed. You always see which one.
-*Screenshot: receipts with source labels.*
+*Screenshot: Money, receipts with source labels.*
 
 **Claim 2: Price the trip, then check yourself**
 See DCFC spend versus charging at home before you leave. After the trip, see planned versus actual.
-*Screenshot: Plan summary + Activity trip.* (Plan-vs-actual is slice 8: ship the claim only when live.)
+*Screenshot: Plan (route, summary and itinerary), and the Plan vs actual tab.* (Plan vs actual ships as a tab on Plan; keep the claim only while that tab is live.)
 
 **Claim 3: Yours to keep**
 MIT licensed. Download all your data as a JSON backup (CSV statement export is planned; don't claim it until shipped). Run it on your own server with docker compose and an OIDC provider (maps and planner need the optional tiles and Valhalla services), or use ours.
@@ -42,13 +43,13 @@ MIT licensed. Download all your data as a JSON backup (CSV statement export is p
 - Beta: fewer than ten vehicles today; expect rough edges. (Update the number at publish time; don't hard-code.)
 
 ## Live-demo idea
-`/demo` shows a generated truck ("Sample R1S") through the real Money, Now and Activity screens, read-only, no login, no Rivian call. Banner: "Sample data". Spec: sample-truck.md.
+[demo.rivolt.dev](https://demo.rivolt.dev) shows a generated truck ("Sample R1S") through the real Now, Activity, Money, Plan and Truck tabs, read-only, no login, no Rivian call. Plan has sample trips (LA to Las Vegas, LA to San Diego) to open instead of a route form. Banner: "Sample data". Spec: sample-truck.md.
 
 ## Metrics
 Visitor to demo view, demo view to connect click, connect click to connected vehicle. See instrumentation.md.
 
 ## CTA copy (for when the landing page is switched on)
-Landing is off in production today. These strings are ready for it; the demo they point to is live on preview (https://preview.rivolt.dev/demo, generated sample truck, read-only). Don't point the prod landing page at the preview URL: use a prod `/demo` once the owner enables it.
+Landing is off in production today. These strings are ready for it; the demo they point to is live at https://demo.rivolt.dev (stable, generated sample truck, read-only). Point the landing page's demo links there, not at the preview environment.
 
 | Where | Copy |
 |---|---|
