@@ -25,7 +25,7 @@ func ledgerRouter(enabled map[string]bool, la ledgerAPI) http.Handler {
 	r := chi.NewRouter()
 	r.Route("/api/ledger", func(r chi.Router) {
 		r.Use(requireMoneyTabMW(func(uid string) bool { return enabled[uid] }))
-		r.Get("/enabled", handleLedgerEnabled)
+		r.Get("/enabled", handleLedgerEnabled(nil))
 		r.Get("/monthly", withUser(la.monthly))
 		r.Get("/summary", withUser(la.summary))
 		r.Get("/trips", withUser(la.trips))
@@ -229,5 +229,41 @@ func TestLedger_TripsValidation(t *testing.T) {
 	// Rows are loaded with padding around the window.
 	if !data.gotFrom.Before(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) || !data.gotTo.After(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("load window %s – %s not padded", data.gotFrom, data.gotTo)
+	}
+}
+
+func TestLedgerEnabled_ReportsUIThemeNextPerUser(t *testing.T) {
+	on, off := uuid.New(), uuid.New()
+	flag := func(userID string) bool { return userID == on.String() }
+	get := func(h http.HandlerFunc, uid *uuid.UUID) map[string]bool {
+		req := httptest.NewRequest(http.MethodGet, "/api/ledger/enabled", nil)
+		if uid != nil {
+			req = req.WithContext(auth.WithUser(req.Context(), *uid))
+		}
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		var out map[string]bool
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+			t.Fatalf("status %d body %s: %v", rec.Code, rec.Body, err)
+		}
+		return out
+	}
+	h := handleLedgerEnabled(flag)
+	if got := get(h, &on); !got["enabled"] || !got["ui_theme_next"] {
+		t.Errorf("flagged user: %v", got)
+	}
+	if got := get(h, &off); !got["enabled"] || got["ui_theme_next"] {
+		t.Errorf("unflagged user: %v", got)
+	}
+	// No user in the context, or no flag source: off, never an error.
+	if got := get(h, nil); got["ui_theme_next"] {
+		t.Errorf("no user: %v", got)
+	}
+	if got := get(handleLedgerEnabled(nil), &on); !got["enabled"] || got["ui_theme_next"] {
+		t.Errorf("nil flag source: %v", got)
+	}
+	// A nil flags store keeps it off.
+	if uiThemeNextEnabled(nil)(on.String()) {
+		t.Error("nil store enabled the theme")
 	}
 }

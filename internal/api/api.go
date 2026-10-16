@@ -858,7 +858,7 @@ func New(d Deps) http.Handler {
 			r.Route("/ledger", func(r chi.Router) {
 				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
 				la := newLedgerAPI(d.DB, d.Settings)
-				r.Get("/enabled", handleLedgerEnabled)
+				r.Get("/enabled", handleLedgerEnabled(uiThemeNextEnabled(d.Flags)))
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))
 				r.Get("/trips", withUser(la.trips))
