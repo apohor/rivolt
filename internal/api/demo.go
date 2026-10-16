@@ -1,8 +1,8 @@
 package api
 
 import (
-	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +41,10 @@ var demoExactPaths = map[string]bool{
 	"/api/charges/clusters":       true,
 	"/api/settings/charging":      true, // GET only: home rate for the demo cost labels
 	"/api/settings/home-location": true,
+	// Demo parity: the price book (read only) and the seeded saved trip
+	// list. Both are scoped to the demo user by their stores.
+	"/api/settings/charging/networks": true,
+	"/api/trips/saved":                true,
 	// Curve data for the demo's drive/charge detail views. Results are
 	// scoped to the demo user by the store; the limit is clamped below.
 	"/api/samples": true,
@@ -64,11 +68,87 @@ const (
 	demoSamplesMaxLimit     = 5000
 )
 
-// demoTilesPath is the one anonymous tile resource: the public basemap
-// archive (read-only, byte-range GETs). chargers.pmtiles and anything
-// else under /api/maps/tiles stay behind sign-in, and so does the
-// Valhalla proxy (the demo draws stored polylines instead).
+// demoTilesPath is the anonymous basemap archive (read-only, byte-range
+// GETs). With demoChargersTilesPath it is one of two anonymous tile
+// resources; anything else under /api/maps/tiles stays behind sign-in,
+// and so does the Valhalla proxy (the demo draws stored polylines).
 const demoTilesPath = "/api/maps/tiles/us.pmtiles"
+
+// demoChargersTilesPath is the public charger archive (NREL data, no
+// user data), read-only byte ranges like the basemap, on the same tile
+// budgets. The corridor query (/api/maps/chargers-along) stays closed.
+const demoChargersTilesPath = "/api/maps/tiles/chargers.pmtiles"
+
+// demoTileMaxRange caps one anonymous tile read. The tile limiter counts
+// requests, not bytes, so a request with no Range (the whole archive) or
+// a huge one is refused instead.
+const demoTileMaxRange = 2 << 20
+
+// demoTileRangeOK validates a Range header for an anonymous tile read:
+// exactly one "bytes=a-b" (or suffix "bytes=-n") range of at most
+// demoTileMaxRange bytes. It returns the HTTP status to refuse with, or
+// 0 when the request may proceed.
+func demoTileRangeOK(h string) int {
+	spec, ok := strings.CutPrefix(strings.TrimSpace(h), "bytes=")
+	if !ok || spec == "" || strings.Contains(spec, ",") {
+		return http.StatusBadRequest
+	}
+	lo, hi, ok := strings.Cut(spec, "-")
+	if !ok {
+		return http.StatusBadRequest
+	}
+	if lo == "" { // suffix: the last n bytes
+		n, err := strconv.ParseInt(hi, 10, 64)
+		if err != nil || n <= 0 {
+			return http.StatusBadRequest
+		}
+		if n > demoTileMaxRange {
+			return http.StatusRequestedRangeNotSatisfiable
+		}
+		return 0
+	}
+	a, err1 := strconv.ParseInt(lo, 10, 64)
+	b, err2 := strconv.ParseInt(hi, 10, 64) // open-ended "a-" has no b: refused
+	if err1 != nil || err2 != nil || a < 0 || b < a {
+		return http.StatusBadRequest
+	}
+	if b-a+1 > demoTileMaxRange {
+		return http.StatusRequestedRangeNotSatisfiable
+	}
+	return 0
+}
+
+func isDemoTilePath(p string) bool { return p == demoTilesPath || p == demoChargersTilesPath }
+
+// demoHeavyTZ is the set of time zones an anonymous visitor may ask the
+// heavy reads for. Anything else is dropped, so the query string can't be
+// used to dodge the response cache.
+var demoHeavyTZ = map[string]bool{
+	"America/Los_Angeles": true, "America/Denver": true, "America/Phoenix": true,
+	"America/Chicago": true, "America/New_York": true, "America/Anchorage": true,
+	"Pacific/Honolulu": true, "UTC": true,
+}
+
+// demoHeavyQuery rewrites the query of a heavy anonymous read to the
+// only parameter it may carry (tz, from the fixed set), in place.
+func demoHeavyQuery(r *http.Request) {
+	tz := strings.TrimSpace(r.URL.Query().Get("tz"))
+	if !demoHeavyTZ[tz] {
+		r.URL.RawQuery = ""
+		return
+	}
+	r.URL.RawQuery = url.Values{"tz": {tz}}.Encode()
+}
+
+// The parked-drain read window-scans up to 30 days of vehicle_state and
+// plan-vs-actual joins drives and the ledger over a padded window, so
+// both get a small shared budget and a short response cache on top of
+// the general demo limits.
+const (
+	demoHeavyPerClientPerMin = 10
+	demoHeavyGlobalPerMin    = 60
+	demoHeavyCacheTTL        = 5 * time.Minute
+)
 
 // A map view issues dozens of range reads, so tiles get their own
 // per-client and install-wide budgets and do NOT draw on the general
@@ -113,6 +193,28 @@ func demoPerDrivePath(p string) bool {
 	return false
 }
 
+// demoHeavyPath reports whether p is one of the anonymous reads that
+// join or window-scan a lot of rows: parked drain and plan-vs-actual.
+func demoHeavyPath(p, vehicleID string) bool {
+	return p == "/api/vehicles/"+vehicleID+"/drain" || demoSavedTripActualPath(p)
+}
+
+// demoSavedTripActualPath reports whether p is
+// /api/trips/saved/{uuid}/actual. The id must parse as a uuid, so no
+// other shape (or traversal) reaches the handler.
+func demoSavedTripActualPath(p string) bool {
+	const prefix, suffix = "/api/trips/saved/", "/actual"
+	if !strings.HasPrefix(p, prefix) || !strings.HasSuffix(p, suffix) || len(p) <= len(prefix)+len(suffix) {
+		return false
+	}
+	id := p[len(prefix) : len(p)-len(suffix)]
+	if len(id) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(id)
+	return err == nil
+}
+
 // clampDemoSamplesLimit bounds the limit query param of an anonymous
 // /api/samples request in place.
 func clampDemoSamplesLimit(r *http.Request) {
@@ -145,10 +247,11 @@ func demoAllowed(method, path, vehicleID string) bool {
 		return false
 	}
 	p := strings.TrimSuffix(path, "/")
-	if demoExactPaths[p] || path == demoTilesPath {
+	if demoExactPaths[p] || isDemoTilePath(path) {
 		return true
 	}
-	return demoPerDrivePath(p) ||
+	return demoPerDrivePath(p) || demoSavedTripActualPath(p) ||
+		p == "/api/vehicles/"+vehicleID+"/drain" ||
 		p == "/api/state/"+vehicleID ||
 		p == "/api/vehicles/"+vehicleID+"/now" ||
 		p == "/api/vehicles/"+vehicleID+"/pack-health"
@@ -167,21 +270,46 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 	tiles.key = demoClientKey
 	tilesGlobal := newIPLimiter(demoTilesGlobalPerMin, time.Minute, time.Hour)
 	tilesGlobal.key = func(*http.Request) string { return "global-tiles" }
+	// The heavy reads (parked drain, plan-vs-actual) share one small
+	// budget and one response cache.
+	heavy := newIPLimiter(demoHeavyPerClientPerMin, time.Minute, time.Hour)
+	heavy.key = demoClientKey
+	heavyGlobal := newIPLimiter(demoHeavyGlobalPerMin, time.Minute, time.Hour)
+	heavyGlobal.key = func(*http.Request) string { return "global-heavy" }
+	heavyCache := newDemoResponseCache(demoHeavyCacheTTL, 32)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, signedIn := auth.UserFromContext(r.Context()); signedIn || !demoAllowed(r.Method, r.URL.Path, vehicleID) {
 				next.ServeHTTP(w, r)
 				return
 			}
+			p := strings.TrimSuffix(r.URL.Path, "/")
+			tile := isDemoTilePath(r.URL.Path)
+			if !tile {
+				// Demo-user data is served on the same URLs signed-in
+				// users call: no shared or browser cache may keep one
+				// side's response for the other.
+				h := w.Header()
+				h.Set("Cache-Control", "private, no-store")
+				h.Add("Vary", "Cookie")
+				h.Add("Vary", "Authorization")
+			}
 			serve := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(demoHeader, "1")
-				if strings.TrimSuffix(r.URL.Path, "/") == "/api/samples" {
+				if p == "/api/samples" {
 					clampDemoSamplesLimit(r)
 				}
 				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
 			}))
-			if r.URL.Path == demoTilesPath {
-				// Per-client before global (see below), own budgets.
+			if tile {
+				// A byte-range read of bounded size only; per-client
+				// before global (see below), own budgets.
+				// (HEAD has no body, so it needs no range.)
+				if code := demoTileRangeOK(r.Header.Get("Range")); code != 0 && r.Method != http.MethodHead {
+					w.Header().Set("Content-Range", "bytes */*")
+					http.Error(w, "range required (single bytes range, at most 2 MiB)", code)
+					return
+				}
 				tiles.Middleware(tilesGlobal.Middleware(serve)).ServeHTTP(w, r)
 				return
 			}
@@ -190,13 +318,25 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 			// install-wide one. Otherwise one noisy client (rejected by
 			// its own limit) would still drain the global budget and
 			// starve everyone else.
-			isSamples := strings.TrimSuffix(r.URL.Path, "/") == "/api/samples"
+			isSamples := p == "/api/samples"
+			isHeavy := demoHeavyPath(p, vehicleID)
+			if isHeavy {
+				demoHeavyQuery(r) // before the cache sees the key
+			}
 			if isSamples {
 				serve = samplesGlobal.Middleware(serve)
+			}
+			if isHeavy {
+				// Cache hits are served before the install-wide budget, so they
+				// never spend it; only misses (which hit the database) do.
+				serve = heavyCache.Middleware(heavyGlobal.Middleware(serve))
 			}
 			serve = global.Middleware(serve)
 			if isSamples {
 				serve = samples.Middleware(serve)
+			}
+			if isHeavy {
+				serve = heavy.Middleware(serve)
 			}
 			limiter.Middleware(serve).ServeHTTP(w, r)
 		})
@@ -230,22 +370,6 @@ func moneyTabEnabledOrDemo(store *flags.Store) func(string) bool {
 // client address, so a spoofed or rotating address can't evade the
 // per-client limit.
 const demoRateGlobalPerMin = 1200
-
-// demoClientKey keys the per-client bucket. Cloudflare sets
-// CF-Connecting-IP (overwriting any client-supplied value) in front of
-// every deployment; chi's RealIP trusts client-supplied X-Real-IP /
-// X-Forwarded-For, so those are not used. Without the header (direct
-// access, tests) it falls back to the connection address.
-func demoClientKey(r *http.Request) string {
-	if ip := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); ip != "" {
-		return ip
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
 
 // newDemoLimiter is the per-client limiter; newDemoGlobalLimiter the
 // install-wide one. demoAccessMW applies both.

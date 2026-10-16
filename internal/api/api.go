@@ -280,6 +280,9 @@ func New(d Deps) http.Handler {
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
+			if d.Metrics != nil {
+				demoClientKeyObserver = func(source string) { d.Metrics.DemoClientKeyTotal.WithLabelValues(source).Inc() }
+			}
 			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
 		}
 		// impersonationMW must run immediately after auth resolves
@@ -371,6 +374,11 @@ func New(d Deps) http.Handler {
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {
 			r.Get("/demo", handleDemoInfo)
+			// Preset trips for the demo planner: static GETs behind the
+			// same per-client then install-wide demo limits.
+			dl, dg := newDemoLimiter(), newDemoGlobalLimiter()
+			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips)
+			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips/{id}/plan", handleDemoTripPlan)
 		}
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user
