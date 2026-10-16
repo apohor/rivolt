@@ -98,12 +98,14 @@ type Metrics struct {
 	// replayed gear D once flapped a charging truck's sessions.
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
 
-	// Demo rate-limit bucket keys by source: "cf" when the direct peer
-	// is a Cloudflare edge address and CF-Connecting-IP was used, "lb"
-	// when it is our own private load-balancer hop and the header was
-	// used, "peer" when the peer address itself was the key. A high
-	// "peer" share on a Cloudflare-fronted install means visitors are
-	// sharing buckets.
+	// Demo rate-limit bucket keys by source: "cf" / "lb" when the direct
+	// peer is a Cloudflare edge / our private load-balancer hop and
+	// CF-Connecting-IP was used; "xff" when the key is the rightmost
+	// X-Forwarded-For entry itself (through the Cloudflare tunnel that is
+	// the visitor, appended by Cloudflare: a per-visitor key); "peer" when
+	// there was no forwarded address and the connection address is the key
+	// (a shared bucket behind an unforwarded proxy). Only a high "peer"
+	// share on a proxied install signals visitors sharing buckets.
 	DemoClientKeyTotal *prometheus.CounterVec
 
 	// Demo requests rejected by a rate limiter (HTTP 429), by route class
@@ -205,7 +207,7 @@ func New() *Metrics {
 		DemoClientKeyTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_demo_client_key_total",
-				Help: "Demo rate-limit client keys, by source (cf/lb = CF-Connecting-IP trusted from a Cloudflare/private peer, peer = the peer address).",
+				Help: "Demo rate-limit client keys, by source (cf/lb = CF-Connecting-IP trusted from a Cloudflare/private peer, xff = the rightmost X-Forwarded-For visitor address, peer = the connection address).",
 			},
 			[]string{"source"},
 		),

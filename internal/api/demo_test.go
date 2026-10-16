@@ -853,3 +853,50 @@ func TestDemoRateLimitedObserverCountsByClassAndScope(t *testing.T) {
 		t.Errorf("heavy/client = %d", got[k{"heavy", "client"}])
 	}
 }
+
+// Through the Cloudflare tunnel the rightmost X-Forwarded-For entry is the
+// visitor (public, outside Cloudflare's edge ranges): a per-visitor key
+// counted as "xff", not "peer".
+func TestDemoClientKeyObserverClassifiesTunnelVisitorsAsXFF(t *testing.T) {
+	var got []string
+	demoClientKeyObserver = func(s string) { got = append(got, s) }
+	t.Cleanup(func() { demoClientKeyObserver = nil })
+	key := func(remote, xff, cf string) string {
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.RemoteAddr = remote
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		if cf != "" {
+			req.Header.Set("CF-Connecting-IP", cf)
+		}
+		return demoClientKey(req)
+	}
+	// Tunnel: cloudflared (private) is the connection peer, the visitor is
+	// the rightmost XFF entry, and there may be no CF-Connecting-IP.
+	if k := key("10.42.0.9:1", "203.0.113.50", ""); k != "203.0.113.50" {
+		t.Errorf("tunnel visitor key = %q", k)
+	}
+	// A forged left entry changes nothing: still the rightmost one.
+	if k := key("10.42.0.9:1", "1.1.1.1, 203.0.113.51", ""); k != "203.0.113.51" {
+		t.Errorf("forged left XFF changed the key: %q", k)
+	}
+	// A public non-Cloudflare XFF peer with a spoofed CF header: still refused.
+	if k := key("10.42.0.9:1", "203.0.113.52", "198.51.100.1"); k != "203.0.113.52" {
+		t.Errorf("spoofed CF header honoured: %q", k)
+	}
+	// No XFF at all: the connection address, counted as peer.
+	if k := key("203.0.113.9:4000", "", ""); k != "203.0.113.9" {
+		t.Errorf("direct key = %q", k)
+	}
+	want := []string{"xff", "xff", "xff", "peer"}
+	if len(got) != len(want) {
+		t.Fatalf("sources = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("sources = %v, want %v", got, want)
+			break
+		}
+	}
+}

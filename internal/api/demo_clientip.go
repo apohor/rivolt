@@ -45,18 +45,25 @@ func inCloudflare(a netip.Addr) bool {
 // appended or set, so a client-supplied header cannot move it. Without
 // the header (direct access, tests) it is the connection address.
 func directPeer(r *http.Request) string {
+	peer, _ := directPeerFrom(r)
+	return peer
+}
+
+// directPeerFrom is directPeer plus whether the address came from the
+// rightmost X-Forwarded-For entry (true) or the connection address (false).
+func directPeerFrom(r *http.Request) (peer string, fromXFF bool) {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
 		last := strings.TrimSpace(parts[len(parts)-1])
 		if a, err := netip.ParseAddr(last); err == nil {
-			return a.Unmap().String()
+			return a.Unmap().String(), true
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return r.RemoteAddr, false
 	}
-	return host
+	return host, false
 }
 
 // demoClientKey keys the per-client rate-limit bucket. CF-Connecting-IP
@@ -73,7 +80,7 @@ func directPeer(r *http.Request) string {
 // everything else here. The real fix is outside the app (no SNAT, or
 // Cloudflare Authenticated Origin Pulls).
 func demoClientKey(r *http.Request) string {
-	peer := directPeer(r)
+	peer, fromXFF := directPeerFrom(r)
 	if pa, err := netip.ParseAddr(peer); err == nil {
 		source := ""
 		switch {
@@ -89,7 +96,16 @@ func demoClientKey(r *http.Request) string {
 			}
 		}
 	}
-	observeDemoClientKey("peer")
+	// The key is the peer address itself. Through the Cloudflare tunnel
+	// the rightmost X-Forwarded-For entry is the visitor, which Cloudflare
+	// appended (a public address outside its edge ranges): a per-visitor
+	// key, counted as "xff". Without the header it is the connection
+	// address ("peer"): behind an unforwarded proxy that is a shared key.
+	if fromXFF {
+		observeDemoClientKey("xff")
+	} else {
+		observeDemoClientKey("peer")
+	}
 	return peer
 }
 
