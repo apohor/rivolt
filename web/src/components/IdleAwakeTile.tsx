@@ -26,12 +26,11 @@ export function IdleAwakeTile({ days, loading }: { days: DayActivity[]; loading:
         <div className="mt-1 text-sm text-neutral-400">{loading ? "Loading…" : "Collecting data"}</div>
       ) : (
         <>
-          <div className="mt-1 text-xl font-semibold tabular-nums text-neutral-100">
+          <div className="mt-1 whitespace-nowrap text-xl font-semibold tabular-nums text-neutral-100">
             {today != null ? formatMinutes(today) : "—"}
-            <span className="ml-1 text-xs font-normal text-neutral-500">today</span>
           </div>
           <div className="mt-0.5 text-[11px] tabular-nums text-neutral-500">
-            {s.avgDays > 0 ? `avg ${formatMinutes(s.avgIdleMinutes)} a day` : "no full days yet"}
+            today{s.avgDays > 0 ? ` · avg ${formatMinutes(s.avgIdleMinutes)}` : ""}
           </div>
           <svg viewBox="0 0 70 18" className="mt-1.5 h-4 w-full" role="img" aria-label="Idle-awake time, last 7 days" preserveAspectRatio="none">
             {spark.map((b, i) => {
