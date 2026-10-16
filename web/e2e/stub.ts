@@ -181,6 +181,8 @@ export type StubOptions = {
   nowEndpoint?: boolean;
   // Serve GET /api/demo (public sample truck).
   demo?: boolean;
+  // Standalone demo deployment: features.demo_only + app_url in /api/config.
+  demoOnly?: boolean;
   scenario?: NowScenario;
   signedIn?: boolean;
   landing?: boolean;
@@ -188,7 +190,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent" } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -203,14 +205,14 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
         tiles: { url: noTiles ? "" : "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
       });
     }
     if (p === "/api/demo") {
-      return demo
+      return demo || demoOnly
         ? json(route, { enabled: true, vehicle_id: VEHICLE_ID, home_label: "Sample lot" })
         : json(route, { error: "not found" }, 404);
     }
@@ -336,7 +338,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, out);
     }
     if (p === "/api/demo/trips") {
-      return demo ? json(route, { trips: DEMO_PRESETS }) : json(route, { error: "not found" }, 404);
+      return demo || demoOnly ? json(route, { trips: DEMO_PRESETS }) : json(route, { error: "not found" }, 404);
     }
     const dp = p.match(/^\/api\/demo\/trips\/([a-z0-9-]+)\/plan$/);
     if (dp) {
