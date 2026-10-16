@@ -76,8 +76,12 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 	billedCols, billedJoin := `, NULL::float8, NULL::text, NULL::text, NULL::text, NULL::boolean`, ``
 	if haveReceipts {
 		// The receipt row carries the vendor, charger name and the home flag.
+		// Joined on the receipt's transaction id (unique per user) through the
+		// charge's own receipt_txn_id, never on rivian_receipts.charge_id: that
+		// column is not unique, and a second receipt pointing at the same
+		// charge would make the join return the charge twice.
 		billedCols = `, c.receipt_cost::float8, c.receipt_currency, rr.vendor, rr.charger_name, rr.is_home_charger`
-		billedJoin = ` LEFT JOIN rivian_receipts rr ON rr.charge_id = c.id AND rr.user_id = c.user_id`
+		billedJoin = ` LEFT JOIN rivian_receipts rr ON rr.user_id = c.user_id AND rr.transaction_id = c.receipt_txn_id`
 	}
 	rows, err := d.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
