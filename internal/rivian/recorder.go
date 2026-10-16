@@ -1198,7 +1198,13 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
 		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
 		if !phantom {
-			logDCFCClose(m.logger, curr.VehicleID, closedRow)
+			m.mu.RLock()
+			var sess *LiveSession
+			if m.lastSessionFor[curr.VehicleID] == s.charge.id {
+				sess = m.lastSession[curr.VehicleID]
+			}
+			m.mu.RUnlock()
+			logChargeClose(m.logger, curr.VehicleID, closedRow, sess, s.charge)
 		}
 		// Still rejected after the close retry: no duplicate push.
 		rejected := s.charge.rejected
@@ -1240,27 +1246,58 @@ func sessionPredatesCharge(sess *LiveSession, c *liveCharge) bool {
 	if sess.TimeElapsedSeconds > 0 && time.Duration(sess.TimeElapsedSeconds)*time.Second > age+15*time.Minute+age/4 {
 		return true
 	}
+	// The same slack for the start time: Rivolt can open a charge late
+	// (a WS gap at plug-in, or an R2's charge opening only once power
+	// flows), and a 3 h session opened 20 min late is still its own.
 	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime)); err == nil &&
-		t.Before(c.startedAt.Add(-15*time.Minute)) {
+		t.Before(c.startedAt.Add(-(15*time.Minute + age/4))) {
 		return true
 	}
 	return false
+}
+
+// sessionStartDelta is the bonded session's StartTime minus the
+// charge's start (negative: the session began first); ok=false with no
+// parsable StartTime. Logged at close to measure sessionPredatesCharge.
+func sessionStartDelta(sess *LiveSession, c *liveCharge) (time.Duration, bool) {
+	if sess == nil || c == nil {
+		return 0, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
+	if err != nil {
+		return 0, false
+	}
+	return t.Sub(c.startedAt), true
 }
 
 // NetworkRivianAdventure is the display name the ledger and the charge
 // map use for the Rivian Adventure Network.
 const NetworkRivianAdventure = "Rivian Adventure Network"
 
-// logDCFCClose logs one line per closed DC fast charge saying whether
-// Rivian reported isRivianCharger for it, so the coverage of the
-// network rule can be measured (rivian_charger_seen over all DC closes).
-func logDCFCClose(logger *slog.Logger, vehicleID string, row charges.Charge) {
-	if logger == nil || !IsDCFCSession(row.MaxPowerKW, row.EnergyAddedKWh, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+// logChargeClose logs one line per closed charge: "dcfc session closed"
+// (whether Rivian reported isRivianCharger, so the network rule's
+// coverage can be measured) or "ac session closed". Both carry the
+// bonded session's start_delta_s / elapsed_s and the
+// sessionPredatesCharge verdict, so how often the freshness rule fires
+// on real charges can be measured.
+func logChargeClose(logger *slog.Logger, vehicleID string, row charges.Charge, sess *LiveSession, c *liveCharge) {
+	if logger == nil {
 		return
 	}
-	seen, rivian := row.RivianCharger != nil, row.RivianCharger != nil && *row.RivianCharger
-	logger.Info("dcfc session closed", "vehicle", vehicleID, "rivian_charger_seen", seen, "rivian_charger", rivian,
-		"cost_source", row.CostSource, "network", row.Network)
+	attrs := []any{"vehicle", vehicleID, "kwh", row.EnergyAddedKWh, "cost_source", row.CostSource, "network", row.Network,
+		"session_bonded", sess != nil, "session_stale", sessionPredatesCharge(sess, c)}
+	if d, ok := sessionStartDelta(sess, c); ok {
+		attrs = append(attrs, "start_delta_s", int64(d.Seconds()))
+	}
+	if sess != nil && sess.TimeElapsedSeconds > 0 {
+		attrs = append(attrs, "elapsed_s", sess.TimeElapsedSeconds, "age_s", int64(c.endAt.Sub(c.startedAt).Seconds()))
+	}
+	if IsDCFCSession(row.MaxPowerKW, row.EnergyAddedKWh, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+		seen, rivian := row.RivianCharger != nil, row.RivianCharger != nil && *row.RivianCharger
+		logger.Info("dcfc session closed", append(attrs, "rivian_charger_seen", seen, "rivian_charger", rivian)...)
+		return
+	}
+	logger.Info("ac session closed", attrs...)
 }
 
 // maybeRehydrate is the lazy-init path for sessions[vehicleID]. The
@@ -1510,11 +1547,11 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		// cloud replays a finished session's snapshot (its total, marked
 		// active) on every resubscribe, and with nothing drawing a
 		// replayed 36.8 kWh used to land on a 0 kW plugged-in charge.
-		// Nor when the session says it has run far longer than this
-		// charge: Parallax's charge breakdown counts per plug-in, so a
-		// car left plugged in for days reports the whole plug-in's
-		// running total (69.9 kWh at 75 h, seeded into 2-s charges).
-		if maxPower > 0 && !sessionOutlivesCharge(liveSess, c) {
+		// Nor when the session began well before this charge:
+		// Parallax's charge breakdown counts per plug-in, so a car left
+		// plugged in for days reports the whole plug-in's running total
+		// (69.9 kWh at 75 h, seeded into 2-s charges).
+		if maxPower > 0 && !sessionPredatesCharge(liveSess, c) {
 			if liveSess.TotalChargedEnergyKWh > energy {
 				energy = liveSess.TotalChargedEnergyKWh
 			}
@@ -1835,19 +1872,6 @@ func isDrivingGear(g string) bool {
 		return true
 	}
 	return false
-}
-
-// sessionOutlivesCharge reports whether a live session claims to have
-// run well beyond the charge it's bonded to (by more than 15 min and a
-// quarter of the charge's age), so its total includes energy from
-// before the charge began.
-func sessionOutlivesCharge(sess *LiveSession, c *liveCharge) bool {
-	if sess == nil || sess.TimeElapsedSeconds <= 0 {
-		return false
-	}
-	age := c.endAt.Sub(c.startedAt)
-	slack := 15*time.Minute + age/4
-	return time.Duration(sess.TimeElapsedSeconds)*time.Second > age+slack
 }
 
 // isChargingCS reports whether a Rivian chargerState string indicates
