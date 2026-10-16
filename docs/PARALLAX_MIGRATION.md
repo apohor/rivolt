@@ -44,7 +44,7 @@ fallback), **applied** (decoded and written to the live state), **decode-log**
 | 8 | `dynamics.vehicle.range` | applied | 5,326 | Whole km |
 | 9 | `dynamics.tires.state` | applied | 7,392 | Four pressures, bar |
 | 10 | `comfort.cabin.cabin_temperatures` | applied | 5,083 | Interior temperature |
-| 11 | `body.closures.states` | applied | 5,107 | Doors, frunk, liftgate, side bins, tonneau, windows (instances 12-15, 16 = rear window on R2). See the closure enum below |
+| 11 | `body.closures.states` | applied | 5,107 | Applied: doors, frunk, liftgate, tailgate, tonneau and windows (instances 12-15). Not applied yet: side bins (8/9) and instance 16 (the R2's rear window). See the closure enum below |
 | 12 | `body.locks.states` | applied | 4,208 | Door locks |
 | 13 | `body.trailer.state` | decode-log | 3,928 | No State destination yet |
 | 14 | `energy.low_voltage.battery_state` | applied | 3,928 | 12V health |
@@ -112,10 +112,28 @@ persistence) first.
 
 ## App topics we do not subscribe to
 
-The app's `zff` topic table holds 75 names (decompile of Rivian Android 3.17.0,
-extracted by the lead into the team scratchpad). 21 are subscribed (above). The
-other 54 split into **22 command topics** and **32 state or settings topics**.
-Rivolt is read-only, so commands are out of scope.
+The app's Parallax topic table (`zff`, decompile of Rivian Android 3.17.0, listed
+by the architect with each entry's `isVehicleState` flag) has **63 topics**. We
+subscribe to 21 of them (above), so **42 are not subscribed**. Rivolt is
+read-only, so the one command-like entry in the table,
+`charging.session.remote_command`, is out of scope. (The app's separate command
+RVMs - `set_*`, `enable_*`, open/close, lock/unlock, start/stop, `install_now`,
+panic and video commands, about 21 names - are not in `zff`; they come from the
+app's string table and are likewise out of scope.)
+
+`isVehicleState=true` marks the topics the app uses to replace `vehicleState`
+(the set `PX_STATE_ALL` switches over). 36 topics carry it; we cover 18. The
+other **18 are the gap to close before Phase 5**:
+`body.windows.states` (never emits on the R1S), `dynamics.vehicle.location`,
+`energy.high_voltage.battery_characteristics`, `charging.session.status`,
+`charging.session.time_estimation`, `charging.session.notification`,
+`charging.session.soc_slider`, `charging.session.trip_target`,
+`charging.session.remote_command` (command, skip),
+`security.video_monitoring.state`, `security.access.btm`,
+`security.access.passive_entry_debug`, `security.access.vas_fault`,
+`comfort.user_modes.state`, `comfort.cabin.defrost_defog_status`,
+`comfort.cabin.seat_conditioning_status`, `comfort.cabin.hvac_settings_status`,
+`vehicle.network.state`.
 
 **Notable state topics (candidates, in priority order):**
 
@@ -128,29 +146,17 @@ Rivolt is read-only, so commands are out of scope.
 | `charging.smart_charging.settings` / `smart_charging_info` / `weighted_charging_forecast` | Smart/clean-energy charging state, which explains "plugged but not charging" |
 | `comfort.user_modes.state` | Camp/pet/car-wash mode, a good overnight-drain explainer |
 
-**Other state or settings topics (not subscribed):**
-`body.windows.states` (never emits on the R1S; windows ride on closures),
-`charging.schedule.time_window`, `charging.session.notification`,
-`charging.session.soc_slider`, `charging.session.trip_target`,
-`comfort.cabin.cabin_ventilation_setting`, `comfort.cabin.climate_hold_setting`,
-`comfort.cabin.defrost_defog_status`, `comfort.cabin.hvac_settings_status`,
-`comfort.cabin.seat_conditioning_status`, `dynamics.vehicle.location`,
+**Every other unsubscribed topic (not `isVehicleState`):**
 `energy_edge_compute.graphs.charging_graph_global`,
-`energy_edge_compute.graphs.cold_weather_soc`,
+`energy_edge_compute.graphs.cold_weather_soc`, `geofence.geofence_service.favoriteGeofences`,
+`ota.user_schedule.ota_config`, `gearguard_streaming.privacy.gearguard_streaming_in_vehicle_consent`,
+`gearguard_streaming.privacy.gearguard_streaming_daily_limit`, `vehicle.wheels.vehicle_wheels`,
 `navigation.navigation_service.trip_info`, `navigation.navigation_service.trip_progress`,
-`ota.user_schedule.ota_config`, `security.access.btm`,
-`security.access.passive_entry`, `security.access.passive_entry_debug`,
-`security.access.vas_fault`, `security.video_monitoring.state`,
-`vehicle.network.state`, `vehicle.profiles.active_user`,
-`vehicle.wheels.vehicle_wheels`.
-
-**Command topics (out of scope, 22):** `body.closures.{open,close}`,
-`body.locks.{lock,unlock}`, `charging.energy.{set_charge_limit,start_charging,stop_charging}`,
-`charging.session.remote_command`, `comfort.cabin.{enable,disable}_preconditioning`,
-`comfort.cabin.set_{cabin_surface,climate_hold,defrost_defog,pet_mode,preconditioning_temperature}`,
-`ota.install.install_now`, `security.alarm.{enable,disable}_panic`,
-`security.video_monitoring.{enable,disable}_video_monitoring`,
-`security.video_monitoring.start_{live_streaming,video_download}`.
+`comfort.cabin.climate_hold_setting`, `comfort.cabin.cabin_ventilation_setting`,
+`vehicle_access.passive_entry.passive_entry`, `vehicle_access.state.passive_entry`,
+`charging.schedule.time_window`, `device_table.vas_keyper.devices`,
+`secure_file_transfer.pet_snapshot.secure_file`, `vehicle.profiles.active_user`,
+`holiday_celebration.car_costume.{holiday_celebration_enabled,settings,state}`.
 
 ---
 
