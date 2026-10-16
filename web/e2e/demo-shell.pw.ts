@@ -128,3 +128,58 @@ for (const [vpName, vp, scheme] of [
     await ctx.close();
   });
 }
+
+test("demo planner: a missing Plan vs Actual (seed not run) shows no error and no page error", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.route("**/api/trips/saved/*/actual", (r) => r.fulfill({ status: 404, contentType: "application/json", body: '{"error":"not found"}' }));
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/demo/trips/plan");
+  await expect(page.getByTestId("demo-presets")).toBeVisible();
+  await page.waitForTimeout(1200);
+  // No Plan vs actual card content, no error copy.
+  await expect(page.getByText(/Couldn't update|Planner failed|Something went wrong/)).toHaveCount(0);
+  await expect(page.getByText("Was this your trip")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("demo planner: a preset with a stored polyline still renders (straight legs are the fallback)", async ({ page }) => {
+  await stubApi(page, { demo: true, signedIn: false });
+  // Encoded precision-6 geometry LA -> Barstow -> Las Vegas (a few points).
+  const enc = (v: number) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    let s = "";
+    while (n >= 0x20) {
+      s += String.fromCharCode((0x20 | (n & 0x1f)) + 63);
+      n >>= 5;
+    }
+    return s + String.fromCharCode(n + 63);
+  };
+  const pts: [number, number][] = [[34.05, -118.24], [34.9, -117.02], [36.17, -115.14]];
+  let pl = 0, po = 0, poly = "";
+  for (const [la, lo] of pts) {
+    const a = Math.round(la * 1e6), b = Math.round(lo * 1e6);
+    poly += enc(a - pl) + enc(b - po);
+    pl = a; po = b;
+  }
+  await page.route("**/api/demo/trips", (r) =>
+    r.fulfill({
+      json: {
+        trips: [
+          {
+            id: "la-vegas", name: "LA to Las Vegas", saved_trip_id: "00000000-0000-4000-8000-000000000001", route_polyline: poly,
+            inputs: { origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" }, destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" }, extra_stops: [] },
+            summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
+          },
+        ],
+      },
+    }),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/demo/trips/plan");
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  await page.waitForTimeout(800);
+  expect(errors).toEqual([]);
+});

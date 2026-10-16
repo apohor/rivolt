@@ -224,7 +224,15 @@ export function TripRouteMap({
       await ensureConfig();
       if (ac.signal.aborted) return;
       let path: [number, number][] = wpLatLngs;
-      if (valhallaBase() !== "") {
+      // A stored geometry (the demo's preset trips) beats straight legs.
+      const stored = route.route_polyline ? decodePolyline6(route.route_polyline) : [];
+      if (stored.length >= 2) {
+        placeholder.remove();
+        const line = L.polyline(stored, { color: "#34d399", weight: 3, opacity: 0.85 }).addTo(map);
+        fitBox = line.getBounds();
+        fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
+        path = stored;
+      } else if (valhallaBase() !== "") {
         const snapped = await valhallaMultiRoute(ws, ac.signal);
         if (snapped && snapped.length >= 2 && !ac.signal.aborted) {
           placeholder.remove();
@@ -814,7 +822,7 @@ async function valhallaMultiRoute(
 // decodePolyline6 mirrors the Valhalla branch of DriveMap's
 // decodePolyline. Inlined here to keep TripRouteMap self-contained;
 // if a third caller appears, hoist into lib/.
-function decodePolyline6(s: string | undefined | null): [number, number][] {
+export function decodePolyline6(s: string | undefined | null): [number, number][] {
   if (!s) return [];
   const factor = 1e-6;
   const out: [number, number][] = [];

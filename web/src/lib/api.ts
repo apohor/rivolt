@@ -1950,6 +1950,9 @@ export type TripWeatherAdjLeg = {
 };
 
 export type TripRoute = {
+  // Stored route geometry (encoded, precision 6); drawn instead of straight
+  // legs when the map has no routing service (the demo).
+  route_polyline?: string;
   DestinationReached: boolean;
   TotalChargingDurationSec: number;
   TotalDriveDurationSec: number;
@@ -2183,6 +2186,10 @@ export type DemoTripPreset = {
   name: string;
   inputs: SavedTripInputs;
   summary: { distance_mi: number; duration_min: number; charge_stops: number; arrival_soc_pct: number };
+  // The seeded saved trip whose Plan vs Actual belongs to this preset.
+  saved_trip_id?: string;
+  // Encoded route geometry (precision 6) to draw instead of straight legs.
+  route_polyline?: string;
 };
 
 export type SavedTrip = {

@@ -1248,7 +1248,11 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     setBusy(p.id);
     setErr(null);
     try {
-      const plan = await backend.demoTripPlan(p.id);
+      const fetched = await backend.demoTripPlan(p.id);
+      // The preset's geometry rides on the route unless the plan carries its own.
+      const plan: TripPlan = p.route_polyline
+        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: p.route_polyline } : r)) }
+        : fetched;
       const now = new Date().toISOString();
       onOpen({ id: p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
     } catch (e) {
