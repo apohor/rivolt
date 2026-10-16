@@ -44,7 +44,7 @@ fallback), **applied** (decoded and written to the live state), **decode-log**
 | 8 | `dynamics.vehicle.range` | applied | 5,326 | Whole km |
 | 9 | `dynamics.tires.state` | applied | 7,392 | Four pressures, bar |
 | 10 | `comfort.cabin.cabin_temperatures` | applied | 5,083 | Interior temperature |
-| 11 | `body.closures.states` | applied | 5,107 | Doors, frunk, liftgate, side bins, tonneau, windows (instances 12-15, 16 = rear window on R2). See the closure enum below |
+| 11 | `body.closures.states` | applied | 5,107 | Applied: doors, frunk, liftgate, tailgate, tonneau and windows (instances 12-15). Not applied yet: side bins (8/9) and instance 16 (the R2's rear window). See the closure enum below |
 | 12 | `body.locks.states` | applied | 4,208 | Door locks |
 | 13 | `body.trailer.state` | decode-log | 3,928 | No State destination yet |
 | 14 | `energy.low_voltage.battery_state` | applied | 3,928 | 12V health |
@@ -115,10 +115,11 @@ persistence) first.
 The app's Parallax topic table (`zff`, decompile of Rivian Android 3.17.0, listed
 by the architect with each entry's `isVehicleState` flag) has **63 topics**. We
 subscribe to 21 of them (above), so **42 are not subscribed**. Rivolt is
-read-only; the app's command RVMs (`set_*`, `enable_*`, `open`/`close`,
-`lock`/`unlock`, `start_*`/`stop_*`, `install_now`, panic and video commands,
-about 21 more names that appear in the app's strings but not in this table) are
-out of scope, and so is `charging.session.remote_command` from the table.
+read-only, so the one command-like entry in the table,
+`charging.session.remote_command`, is out of scope. (The app's separate command
+RVMs - `set_*`, `enable_*`, open/close, lock/unlock, start/stop, `install_now`,
+panic and video commands, about 21 names - are not in `zff`; they come from the
+app's string table and are likewise out of scope.)
 
 `isVehicleState=true` marks the topics the app uses to replace `vehicleState`
 (the set `PX_STATE_ALL` switches over). 36 topics carry it; we cover 18. The
