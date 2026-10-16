@@ -193,7 +193,7 @@ func (r *Replayer) Feed(f State) {
 	sess := cur.ReplaySession
 	cur.ReplaySession = nil
 	r.m.mu.Lock()
-	r.m.cache[r.vehicle] = &cur
+	r.m.putCacheLocked(r.vehicle, &cur)
 	r.m.mu.Unlock()
 	r.m.record(context.Background(), r.vehicle, r.prev, &cur)
 	r.m.applyReplaySession(context.Background(), r.vehicle, &cur, sess)
