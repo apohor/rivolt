@@ -112,7 +112,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 		// Sample window: trip +/- 3 min pad.
 		since := drv.StartedAt.Add(-3 * time.Minute)
 		end := drv.EndedAt.Add(3 * time.Minute)
-		allSamples, err := samplesStore.ListSince(r.Context(), since, 100_000)
+		allSamples, err := samplesStore.ListBetweenVehicle(r.Context(), drv.VehicleID, since, end, 100_000)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
