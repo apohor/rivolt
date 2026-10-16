@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barsEndDay, filterByRange, periodLabel, periodRange, rangeDays, stepPeriod, toYmd } from "./period";
+import { barsEndDay, filterByRange, periodLabel, periodRange, rangeDays, sleepWindow, stepPeriod, toYmd } from "./period";
 
 // Wed 2026-10-14 12:00 local.
 const NOW = new Date(2026, 9, 14, 12, 0, 0);
@@ -63,5 +63,33 @@ describe("labels, stepping, filtering", () => {
   it("bars end today for the current period and on the last day for past ones", () => {
     expect(ymd(barsEndDay(periodRange({ kind: "week", offset: 0 }, NOW), NOW))).toBe("2026-10-14");
     expect(ymd(barsEndDay(periodRange({ kind: "week", offset: -1 }, NOW), NOW))).toBe("2026-10-11");
+  });
+});
+
+describe("sleepWindow", () => {
+  const now = new Date("2026-10-16T15:30:00Z");
+  it("caps Year/All to 90 days and snaps to whole UTC days", () => {
+    const w = sleepWindow({ start: new Date("2026-01-01T00:00:00"), end: new Date("2027-01-01T00:00:00") }, now);
+    expect(w.capped).toBe(true);
+    expect(w.since).toBe("2026-07-18T00:00:00.000Z");
+    expect(w.until).toBe("2026-10-17T00:00:00.000Z");
+    const all = sleepWindow({ start: null, end: null }, now);
+    expect(all.capped).toBe(true);
+    expect(all.until).toBeUndefined();
+  });
+  it("leaves a week alone, snapped to UTC day edges", () => {
+    const w = sleepWindow({ start: new Date("2026-10-12T05:00:00Z"), end: new Date("2026-10-19T05:00:00Z") }, now);
+    expect(w.capped).toBe(false);
+    expect(w.since).toBe("2026-10-12T00:00:00.000Z");
+  });
+});
+
+describe("flag-off Now filtering", () => {
+  it("filterByRange({start: windowStart, end: null}) matches filterByWindow", async () => {
+    const { filterByWindow, windowStart } = await import("./analytics");
+    const items = Array.from({ length: 40 }, (_, i) => ({ StartedAt: new Date(Date.now() - i * 5 * 86_400_000).toISOString() }));
+    for (const k of ["7d", "30d", "90d", "365d", "all"] as const) {
+      expect(filterByRange(items, { start: windowStart(k), end: null })).toEqual(filterByWindow(items, k));
+    }
   });
 });

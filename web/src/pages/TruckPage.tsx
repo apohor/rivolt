@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { periodRange, usePeriod } from "../lib/period";
+import { periodRange, sleepWindow, usePeriod } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { useQuery } from "@tanstack/react-query";
@@ -49,11 +49,12 @@ export default function TruckPage() {
   const next = useUiNext();
   const [period, setPeriod] = usePeriod();
   const range = useMemo(() => periodRange(period), [period]);
+  const win = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
   const since = useMemo(
-    () => (next && range.start ? range.start : next ? new Date(Date.now() - 730 * 86_400_000) : new Date(Date.now() - 30 * 86_400_000)).toISOString(),
-    [next, range],
+    () => win?.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    [win],
   );
-  const until = next && range.end ? range.end.toISOString() : undefined;
+  const until = win?.until;
   const sleepQ = useQuery({
     queryKey: ["sleepActivity", "truck", selectedID ?? "", since, until ?? ""],
     queryFn: () => backend.sleepActivity(since, selectedID ?? undefined, until),
@@ -121,6 +122,7 @@ export default function TruckPage() {
                 <>, averaging {formatMinutes(sleep.avgIdleMinutes)} a day over the last {sleep.avgDays} full days</>
               )}
               . Today is still in progress. Driving and charging are excluded.
+              {win?.capped && <> Showing the last 90 days of this period.</>}
             </p>
           </>
         ) : sleepQ.isLoading ? (
