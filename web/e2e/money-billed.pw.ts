@@ -32,7 +32,8 @@ function withReceipts(on: boolean) {
   });
   const billed = 21.4;
   m.spend.billed_total = billed;
-  m.spend.estimated_total = Math.max(0, m.spend.total - billed);
+  // Differs from spend.total on purpose: the headline must follow the two lines.
+  m.spend.estimated_total = Math.max(0, m.spend.total - billed) + 3.25;
   m.billed_sessions = 1;
   m.estimated_sessions = m.receipts.reduce((a, r) => a + (r.estimated_sessions ?? 0), 0);
   return m;
@@ -54,6 +55,13 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
       await expect(page.locator("[data-billed-split]")).toContainText("billed by Rivian");
       await expect(page.locator("[data-billed-split]")).toContainText("estimated");
+      // The headline is billed + estimated, so it equals the two lines under it.
+      const cents = (t: string) => Math.round(parseFloat(t.replace(/[^0-9.]/g, "")) * 100);
+      const head = cents((await page.locator("[data-money-headline]").innerText()) || "");
+      const splitText = await page.locator("[data-billed-split]").innerText();
+      const amounts = [...splitText.matchAll(/\$([\d,]+\.\d{2})/g)].map((x) => cents(x[1]));
+      expect(amounts.length).toBe(2);
+      expect(head).toBe(amounts[0] + amounts[1]);
       const billed = page.locator("[data-price-label='billed']");
       await expect(billed).toHaveCount(1);
       await expect(page.locator("[data-price-label='estimated']").first()).toBeVisible();

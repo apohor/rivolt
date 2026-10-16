@@ -223,8 +223,12 @@ function Statement({
   // Nothing priced this month (no charging, or every session unpriced): a
   // "vs last month" delta (-100%) or a $/mi of $0 says nothing true, so both
   // stay hidden.
-  const hasCharging = m.spend.priced_sessions > 0 || m.spend.total > 0;
-  const delta = hasCharging && prev && prev.spend.total > 0 ? (m.spend.total - prev.spend.total) / prev.spend.total : null;
+  // With Rivian receipts the headline is billed + estimated, so it always equals the two
+  // lines under it; otherwise it is the statement total as before.
+  const split = m.spend.billed_total != null && m.spend.estimated_total != null;
+  const headline = split ? (m.spend.billed_total as number) + (m.spend.estimated_total as number) : m.spend.total;
+  const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
+  const delta = hasCharging && prev && prev.spend.total > 0 ? (headline - prev.spend.total) / prev.spend.total : null;
   // Partial month (MQ8): the first month with any data, where activity
   // starts well after the 1st.
   const earliest = months.find((x) => x.first_activity_at != null);
@@ -252,7 +256,7 @@ function Statement({
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
           <div className="ui-bignum text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
-            {formatMoney(m.spend.total, cur)}
+            <span data-money-headline>{formatMoney(headline, cur)}</span>
           </div>
           {delta != null && (
             <div className={`pb-1.5 text-sm tabular-nums ${delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>
