@@ -2192,8 +2192,7 @@ export type DemoTripPreset = {
   // The seeded saved trip whose Plan vs Actual belongs to this preset.
   saved_trip_id?: string;
   // Encoded route geometry (polyline6, origin to destination) to draw
-  // instead of straight legs. `route_polyline` is an accepted alias.
-  shape?: string;
+  // instead of straight legs.
   route_polyline?: string;
 };
 
