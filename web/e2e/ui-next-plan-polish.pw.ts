@@ -100,6 +100,14 @@ for (const theme of ["dark", "light"] as const) {
       await stubApi(page, { demo: true, signedIn: false });
       await page.goto("/demo/trips/plan");
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+      if (v.name === "iphone") {
+        // On a phone the itinerary is in the bottom sheet, inert at its peek
+        // (by design): open the sheet before touching a stop.
+        const sheet = page.locator("[data-plan-sheet]");
+        await expect(sheet).toHaveAttribute("data-snap", "peek");
+        await page.getByRole("button", { name: "Expand Trip details" }).click();
+        await expect(sheet).toHaveAttribute("data-snap", "half");
+      }
       const stop = page.getByRole("button", { name: /Sample Fast Charge, Barstow/ });
       await expect(stop).toBeVisible();
       await expect(stop).toHaveAttribute("aria-expanded", "false");
