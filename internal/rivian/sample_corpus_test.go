@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,26 +16,58 @@ import (
 
 // Same seed, same bytes (docs/product/sample-truck.md acceptance).
 func TestSampleCorpus_Deterministic(t *testing.T) {
+	t.Parallel()
+	// A fresh build against the shared one (built the same way): same
+	// seed, same bytes.
 	var a, b bytes.Buffer
 	if err := NewSampleCorpus(SampleSeed).WriteJSONL(&a); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewSampleCorpus(SampleSeed).WriteJSONL(&b); err != nil {
+	if err := sharedSampleCorpus().WriteJSONL(&b); err != nil {
 		t.Fatal(err)
 	}
 	if sha256.Sum256(a.Bytes()) != sha256.Sum256(b.Bytes()) {
 		t.Fatal("two runs with the same seed differ")
 	}
-	var c bytes.Buffer
-	_ = NewSampleCorpus(SampleSeed + 1).WriteJSONL(&c)
-	if bytes.Equal(a.Bytes(), c.Bytes()) {
+	// Another seed plans a different month (its summary alone differs;
+	// no need to render every frame).
+	x, y := NewSampleCorpus(SampleSeed+1).Summary(), sharedSampleCorpus().Summary()
+	if x.Frames == y.Frames && x.OdometerEndMi == y.OdometerEndMi {
 		t.Error("a different seed produced the same corpus")
 	}
 }
 
+// sharedSampleCorpus is the demo's corpus, built once per test binary.
+// Tests only read it (Frames, Summary, segs), so they can share it and run
+// in parallel; building it is most of each sample test's cost.
+func sharedSampleCorpus() *SampleCorpus {
+	c, _ := sampleShared()
+	return c
+}
+
+var (
+	sampleReplayOnce sync.Once
+	sampleReplay     *Replayer
+)
+
+// sharedSampleReplay is the whole shared corpus fed once through the real
+// recorder (the slowest step under -race); tests read its drives and
+// charges.
+func sharedSampleReplay() *Replayer {
+	sampleReplayOnce.Do(func() {
+		c := sharedSampleCorpus()
+		start, end := c.span()
+		frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
+		sampleReplay = NewReplayer("sample")
+		sampleReplay.FeedAll(frames)
+	})
+	return sampleReplay
+}
+
 // The corpus has what the spec asks for.
 func TestSampleCorpus_Shape(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	s := c.Summary()
 	t.Logf("summary: %+v", s)
 	if d := s.End.Sub(s.Start); d < 44*24*time.Hour || d > 46*24*time.Hour {
@@ -60,7 +93,8 @@ func TestSampleCorpus_Shape(t *testing.T) {
 // Frames are strictly ordered, the odometer never runs backwards, and
 // LastAtOrBefore agrees with Frames.
 func TestSampleCorpus_FramesConsistent(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	start, end := c.span()
 	all, err := c.Frames(context.Background(), start, end.Add(time.Second))
 	if err != nil {
@@ -89,11 +123,9 @@ func TestSampleCorpus_FramesConsistent(t *testing.T) {
 // Through the real recorder: every planned drive comes out as a drive,
 // with no phantom or runaway trips.
 func TestSampleCorpus_ThroughRecorder(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
-	start, end := c.span()
-	frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
-	r := NewReplayer("sample")
-	r.FeedAll(frames)
+	t.Parallel()
+	c := sharedSampleCorpus()
+	r := sharedSampleReplay()
 	drives := r.Drives()
 	want := c.Summary().Drives
 	if len(drives) < want*9/10 || len(drives) > want {
@@ -150,7 +182,8 @@ func TestSampleCorpus_ThroughRecorder(t *testing.T) {
 // three is used, and each prices as a known network (not "unmatched"),
 // so the demo's network estimates resolve.
 func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	used := map[int]int{}
 	for _, s := range c.segs {
 		if s.kind != segCharge || !s.dcfc {
@@ -183,11 +216,9 @@ func TestSampleCorpusDCFCAtRealStations(t *testing.T) {
 // wherever a loop of the replay puts it on the wall clock, and nothing
 // else.
 func TestSampleUserPrice(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
-	start, end := c.span()
-	frames, _ := c.Frames(context.Background(), start, end.Add(time.Second))
-	r := NewReplayer("sample")
-	r.FeedAll(frames)
+	t.Parallel()
+	c := sharedSampleCorpus()
+	r := sharedSampleReplay()
 	tl := sampleTimeline(c)
 	for _, loop := range []int64{0, 3, 17} {
 		shift := tl.loopStart(loop).Sub(tl.start)
@@ -214,7 +245,8 @@ func TestSampleUserPrice(t *testing.T) {
 // within 5 s while awake, parked, plugged in or charging, so the demo's
 // Now card never looks stale next to a live truck.
 func TestSampleCorpusCadence(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	start, end := c.span()
 	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
 	if err != nil {
@@ -240,7 +272,8 @@ func TestSampleCorpusCadence(t *testing.T) {
 // Central Valley runs straight for ~30 km, kept whole by the 20-m
 // simplification; the old waypoint diagonals ran 130-230 km.
 func TestSampleRoutesFollowRoads(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	for _, l := range c.legs {
 		if _, ok := sampleRouteShapes[routeKey(l[0], l[1])]; !ok {
 			t.Errorf("leg %s has no road shape; regenerate sample_routes_gen.go", routeKey(l[0], l[1]))
@@ -264,7 +297,8 @@ func TestSampleRoutesFollowRoads(t *testing.T) {
 // 90%, not 91%. (Unplugged it may: the limit drops back to 80 for the
 // next night after a 90% trip charge.)
 func TestSampleCorpusSoCWithinLimit(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	start, end := c.span()
 	frames, err := c.Frames(context.Background(), start, end.Add(time.Second))
 	if err != nil {
@@ -288,7 +322,8 @@ func TestSampleCorpusSoCWithinLimit(t *testing.T) {
 // The Truck tab shows the sample's software version, tires and sleep:
 // every frame reports a version (none pending) and the tire pressure.
 func TestSampleCorpus_TruckFields(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	s := c.Summary()
 	frames, err := c.Frames(context.Background(), s.Start, s.Start.Add(48*time.Hour))
 	if err != nil {
@@ -318,7 +353,8 @@ func TestSampleCorpus_TruckFields(t *testing.T) {
 // night's three retries stay up 20 min each by design (the "woke up N
 // times" story), which is most of the max.
 func TestSampleCorpus_IdleAwakePerDay(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	s := c.Summary()
 	fr, err := c.Frames(context.Background(), s.Start, s.End.Add(time.Second))
 	if err != nil {

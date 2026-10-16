@@ -15,6 +15,7 @@ import (
 // the charging-session feeds replay the previous session's snapshot,
 // its total marked active, on every resubscribe.
 func TestStaleSessionTotalsAreNotCredited(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 7, 13, 20, 7, 0, 0, time.UTC)
 	ctx := context.Background()
 	frame := func(sec int, cs string, kw, soc float64) State {

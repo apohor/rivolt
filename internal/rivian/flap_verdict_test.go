@@ -10,6 +10,7 @@ import (
 // (flap-debounce.md §0.2): stationary means charging, moving means
 // driving, and nothing closes and reopens on every frame.
 func TestDriveChargeContradiction(t *testing.T) {
+	t.Parallel()
 	t0 := time.Date(2026, 10, 10, 20, 20, 0, 0, time.UTC)
 	frame := func(sec int, gear string, charging bool, mph, odoMi float64) State {
 		st := State{At: t0.Add(time.Duration(sec) * time.Second), Gear: gear, SpeedKph: mph / kphToMi,
