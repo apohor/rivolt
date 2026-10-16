@@ -442,7 +442,6 @@ html[data-ui='next'] .tabular-nums {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.012em;
 }
-html[data-ui='next'] [data-ui-hero] dd.tabular-nums,
 html[data-ui='next'] .ui-mono {
   font-family: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
   letter-spacing: 0;
@@ -451,9 +450,9 @@ html[data-ui='next'] .ui-mono {
 /* Glass, sparingly: only the top bar and the bottom tab bar. */
 html[data-ui='next']:not([data-theme='light']) header.sticky,
 html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
-  background-color: oklch(13.5% 0.009 262 / 0.72);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
+  background-color: oklch(13.5% 0.009 262 / 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
 }
 
 /* Charts: thinner gridlines. */
@@ -682,6 +681,8 @@ html[data-ui='next'] .ui-bignum {
     min-height: 0;
     overflow-y: auto;
   }
+}
+
 /* ---- ui_theme_next: light theme -------------------------------------------
    Same cockpit, light surfaces: white cards on a cool off-white base with soft
    shadows (no heavy glow), a faint top-edge sheen, the hero light pool in a
@@ -742,9 +743,9 @@ html[data-ui='next'][data-theme='light'] .ui-spark-dot {
 /* Glass bars in white. */
 html[data-ui='next'][data-theme='light'] header.sticky,
 html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed {
-  background-color: oklch(99% 0 0 / 0.78);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
+  background-color: oklch(99% 0 0 / 0.93);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }
 /* Skeleton shimmer needs a dark sheen on light. */
 html[data-ui='next'][data-theme='light'] .animate-pulse {
@@ -758,4 +759,17 @@ html[data-ui='next'][data-theme='light'] svg line[class*='neutral-800'] {
 /* Activity timeline nodes: the ring around each node matches the light page. */
 html[data-ui='next'][data-theme='light'] [data-ui-feed] li::before {
   box-shadow: 0 0 0 3px oklch(97.6% 0.004 262), 0 0 8px 0 var(--node);
+}
+
+/* Glass must not be legible through: the sticky page header (from the scope
+   work) uses the same opaque-enough surface as the nav bars. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262 / 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(98.5% 0 0 / 0.93);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
 }
