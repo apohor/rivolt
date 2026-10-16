@@ -677,7 +677,7 @@ export default function TripPlanPage() {
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <PageHeader
         title="Trip planner"
-        subtitle="Plan a route with charging stops via Rivian's planner."
+        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
       />
 
       {inDemo() ? (
@@ -1259,7 +1259,7 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
   };
   const trips = list.data?.trips ?? [];
   return (
-    <Card title="Sample trips">
+    <Card title="Try a sample trip">
       {list.isLoading ? (
         <Spinner />
       ) : trips.length === 0 ? (
