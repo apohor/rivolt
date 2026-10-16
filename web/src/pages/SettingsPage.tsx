@@ -1580,7 +1580,7 @@ export function GPSAccuracyPanel() {
           type="button"
           onClick={apply}
           disabled={mut.isPending}
-          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:bg-neutral-800 disabled:text-neutral-500"
         >
           {mut.isPending ? "Saving…" : "Apply"}
         </button>
@@ -2011,7 +2011,7 @@ export function NotificationsPanel() {
             type="button"
             onClick={() => enable(prefs)}
             disabled={busy !== null}
-            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:bg-neutral-800 disabled:text-neutral-500"
           >
             {busy === "enable" ? "Enabling…" : "Enable on this device"}
           </button>
@@ -2690,7 +2690,7 @@ function PlannerPrefsPanel() {
           type="button"
           onClick={onSave}
           disabled={save.isPending}
-          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
         >
           Save defaults
         </button>

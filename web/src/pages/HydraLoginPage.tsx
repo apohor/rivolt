@@ -181,7 +181,7 @@ export default function HydraLoginPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-1 w-full rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-1 w-full rounded-md border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? "Signing in…" : "Sign in"}
             </button>

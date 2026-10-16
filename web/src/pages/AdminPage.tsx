@@ -1511,7 +1511,7 @@ function SignupRequestsTable({
                     type="button"
                     disabled={pending}
                     onClick={() => onApprove(r.id)}
-                    className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                    className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
                   >
                     Approve
                   </button>
