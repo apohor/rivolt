@@ -857,7 +857,7 @@ func New(d Deps) http.Handler {
 			// Read-only; 404s unless money_tab_enabled covers the user.
 			r.Route("/ledger", func(r chi.Router) {
 				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
-				la := newLedgerAPI(d.DB, d.Settings)
+				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags)
 				r.Get("/enabled", handleLedgerEnabled(uiThemeNextEnabled(d.Flags)))
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))

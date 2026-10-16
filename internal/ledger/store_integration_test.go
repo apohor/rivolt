@@ -209,3 +209,59 @@ func TestToConfirm_CountsAndIsolation(t *testing.T) {
 		t.Errorf("bob = %d, %v", n, err)
 	}
 }
+
+// The loader carries what Rivian billed (charges.receipt_* plus the vendor,
+// charger name and home flag of the matched rivian_receipts row), and a
+// charge without a receipt loads with none.
+func TestLoad_BilledFromReceipts(t *testing.T) {
+	pool := openPG(t)
+	ctx := context.Background()
+	alice, err := db.EnsureUser(ctx, pool, "billed-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := vehicle(t, pool, alice, "rv-1")
+	in := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	var matched, bare, home uuid.UUID
+	for _, row := range []struct {
+		ext string
+		id  *uuid.UUID
+		at  time.Time
+	}{{"c-matched", &matched, in}, {"c-bare", &bare, in.Add(24 * time.Hour)}, {"c-home", &home, in.Add(48 * time.Hour)}} {
+		if err := pool.QueryRow(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source, cost, currency, cost_source)
+			VALUES ($1,$2,$3,$4,$5,30,'live',12.5,'USD','network_estimate') RETURNING id`, alice, v, row.ext, row.at, row.at.Add(time.Hour)).Scan(row.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, charger_name, is_home_charger, charge_id)
+		VALUES ($1,'t1',$2,$3,14.25,'USD','Electrify America','EA Reno 12',false,$4)`, alice, in, in.Add(time.Hour), matched)
+	mustExec(t, pool, `UPDATE charges SET receipt_cost = 14.25, receipt_currency = 'USD', receipt_txn_id = 't1', receipt_source = 'rivian_receipt' WHERE id = $1`, matched)
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, is_home_charger, charge_id)
+		VALUES ($1,'t2',$2,$3,5.5,'USD','Rivian',true,$4)`, alice, in.Add(48*time.Hour), in.Add(49*time.Hour), home)
+	mustExec(t, pool, `UPDATE charges SET receipt_cost = 5.5, receipt_currency = 'USD', receipt_txn_id = 't2', receipt_source = 'rivian_receipt' WHERE id = $1`, home)
+
+	p, _ := ledger.ParsePeriod("2026-10", time.UTC)
+	from, to := ledger.LoadWindow(p)
+	cs, _, err := ledger.Load(ctx, pool, alice, "", from, to)
+	if err != nil || len(cs) != 3 {
+		t.Fatalf("Load = %d rows, err %v", len(cs), err)
+	}
+	by := map[string]ledger.Charge{}
+	for _, c := range cs {
+		by[c.ID] = c
+	}
+	if m := by["c-matched"]; m.BilledCost == nil || *m.BilledCost != 14.25 || m.BilledCurrency != "USD" || m.BilledVendor != "Electrify America" || m.BilledCharger != "EA Reno 12" || m.BilledHome {
+		t.Errorf("matched = %+v", m)
+	}
+	if b := by["c-bare"]; b.BilledCost != nil || b.BilledVendor != "" || b.BilledCurrency != "" {
+		t.Errorf("a charge without a receipt loaded billed fields: %+v", b)
+	}
+	if h := by["c-home"]; h.BilledCost == nil || *h.BilledCost != 5.5 || !h.BilledHome {
+		t.Errorf("home = %+v", h)
+	}
+	// And the statement built from them (flag on): billed beside the estimate.
+	m := ledger.Build(ledger.Input{Charges: cs, Config: ledger.Config{Currency: "USD", HomeRate: 0.11, Billed: true}, Now: in.Add(72 * time.Hour)}, p, true)
+	if m.Spend.BilledTotal == nil || *m.Spend.BilledTotal != 19.75 || *m.BilledSessions != 2 || *m.EstimatedSessions != 1 {
+		t.Errorf("statement billed total %v sessions %v/%v", m.Spend.BilledTotal, m.BilledSessions, m.EstimatedSessions)
+	}
+}

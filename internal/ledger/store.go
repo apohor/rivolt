@@ -47,6 +47,14 @@ const networkStateColumnsSQL = `SELECT count(*) = 3 FROM information_schema.colu
 	  AND table_name = 'charges'
 	  AND column_name IN ('network_state', 'network_confidence', 'network_evidence')`
 
+// receiptColumnsSQL reports whether migration 0055's charges.receipt_cost and
+// rivian_receipts exist, like the other optional pricing columns.
+const receiptColumnsSQL = `SELECT (SELECT count(*) = 2 FROM information_schema.columns
+	WHERE table_schema = current_schema() AND table_name = 'charges'
+	  AND column_name IN ('receipt_cost', 'receipt_currency'))
+	AND EXISTS (SELECT 1 FROM information_schema.tables
+	WHERE table_schema = current_schema() AND table_name = 'rivian_receipts')`
+
 func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID string, from, to time.Time) ([]Charge, error) {
 	var havePricing bool
 	if err := d.QueryRowContext(ctx, pricingColumnsSQL).Scan(&havePricing); err != nil {
@@ -61,6 +69,16 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		return nil, err
 	}
 	pricingCols += `, ` + networkStateCols(haveNetState)
+	var haveReceipts bool
+	if err := d.QueryRowContext(ctx, receiptColumnsSQL).Scan(&haveReceipts); err != nil {
+		return nil, err
+	}
+	billedCols, billedJoin := `, NULL::float8, NULL::text, NULL::text, NULL::text, NULL::boolean`, ``
+	if haveReceipts {
+		// The receipt row carries the vendor, charger name and the home flag.
+		billedCols = `, c.receipt_cost::float8, c.receipt_currency, rr.vendor, rr.charger_name, rr.is_home_charger`
+		billedJoin = ` LEFT JOIN rivian_receipts rr ON rr.charge_id = c.id AND rr.user_id = c.user_id`
+	}
 	rows, err := d.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -68,9 +86,9 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 		       c.energy_added_kwh, c.max_power_kw,
 		       c.cost::float8, COALESCE(c.currency, ''), c.price_per_kwh::float8,
 		       COALESCE(c.final_state, ''), c.source,
-		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+`
+		       c.lat, c.lon, c.created_at, c.active_seconds::float8, COALESCE(c.place, ''), `+pricingCols+billedCols+`
 		FROM charges c
-		JOIN vehicles v ON v.id = c.vehicle_id
+		JOIN vehicles v ON v.id = c.vehicle_id`+billedJoin+`
 		WHERE c.user_id = $1
 		  AND c.started_at < $3
 		  AND c.ended_at >= $2
@@ -92,6 +110,9 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 		var costSource, network, netState sql.NullString
 		var netConf sql.NullFloat64
 		var netEv []byte
+		var billed sql.NullFloat64
+		var billedCur, billedVendor, billedCharger sql.NullString
+		var billedHome sql.NullBool
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&startSoC, &endSoC,
@@ -101,9 +122,12 @@ func scanCharges(rows *sql.Rows) ([]Charge, error) {
 			&lat, &lon, &c.CreatedAt, &active, &c.Place,
 			&costSource, &network,
 			&netState, &netConf, &netEv,
+			&billed, &billedCur, &billedVendor, &billedCharger, &billedHome,
 		); err != nil {
 			return nil, err
 		}
+		c.BilledCost, c.BilledCurrency = ptr(billed), billedCur.String
+		c.BilledVendor, c.BilledCharger, c.BilledHome = billedVendor.String, billedCharger.String, billedHome.Valid && billedHome.Bool
 		c.NetworkState, c.NetworkConfidence, c.NetworkEvidence = netState.String, ptr(netConf), netEv
 		c.StartedAt, c.EndedAt, c.CreatedAt = c.StartedAt.UTC(), c.EndedAt.UTC(), c.CreatedAt.UTC()
 		c.StartSoC, c.EndSoC = ptr(startSoC), ptr(endSoC)
