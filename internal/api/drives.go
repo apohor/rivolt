@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
@@ -182,6 +183,9 @@ func computeBlendedRate(priced []pricedCharge, cfg settings.ChargingConfig) (flo
 // (default: 24h ago), capped at ?limit= (default 1000, max 10000).
 // Optional ?until=<rfc3339> bounds the upper end so callers like the
 // drive detail page don't pull every post-drive sample through now.
+// Optional ?vehicle=<rivian vehicle id> scopes to one truck (the one the
+// drive or charge belongs to); without it every vehicle of the user is
+// returned, as before. An id the user doesn't own yields an empty list.
 func handleSamples(store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
@@ -205,7 +209,7 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 		// kept) rather than truncated to the oldest rows. The body stays
 		// a plain array; the flag is in headers so existing clients keep
 		// working.
-		res, err := store.ListBetweenDownsampled(r.Context(), since, until, limit)
+		res, err := store.ListBetweenDownsampledVehicle(r.Context(), strings.TrimSpace(r.URL.Query().Get("vehicle")), since, until, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
