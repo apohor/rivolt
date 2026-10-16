@@ -440,3 +440,63 @@ func TestR2StickyChargingActiveClosesOnce(t *testing.T) {
 		t.Errorf("R1: %v then %v, want a stale close and a new charge while still connected", c1, c2)
 	}
 }
+
+// The stored and served gear follows Parallax park (qa2's R2 health
+// check): an R2's vehicleState keeps the last R for hours while it stands
+// and charges, or sends no gear at all. A Parallax P, fresh or a cloud
+// replay of the last one, parks the cached gear, and vehicleState's stale R
+// can't undo it while the truck stands still.
+func TestR2GearFollowsParallaxPark(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	vs := func(r *r2Run, gear string, mph float64) {
+		r.m.applyVehicleStatePush(ctx, "r2", &State{VehicleID: "r2", At: time.Now(), Gear: gear, SpeedKph: mph / kphToMi,
+			ChargerState: "charging_active", ChargerPowerKW: 7.4, BatteryLevelPct: 60, OdometerKm: 30000})
+	}
+	px := func(r *r2Run, enum uint64, at time.Time) {
+		r.m.onDriveDynamicsFrame(ctx, "r2", DriveDynamicsFrame{RVM: rvmDriveGear, Value: enum, ValueOK: true, TimestampMs: at.UnixMilli()})
+	}
+
+	t.Run("stuck R, replayed P", func(t *testing.T) {
+		r := newR2Run()
+		vs(r, "R", 0.2)
+		px(r, 1, now.Add(-17*time.Hour)) // the cloud's replay of the park, hours old
+		if g := r.cached().Gear; g != "P" {
+			t.Fatalf("after a replayed P: gear %q, want P", g)
+		}
+		vs(r, "R", 0.2) // vehicleState repeats the stale R
+		if g := r.cached().Gear; g != "P" {
+			t.Errorf("a stale vehicleState R undid the park: gear %q", g)
+		}
+	})
+
+	t.Run("blank gear, fresh P", func(t *testing.T) {
+		r := newR2Run()
+		vs(r, "", 0)
+		if g := r.cached().Gear; g != "" {
+			t.Fatalf("setup: gear %q, want blank", g)
+		}
+		px(r, 1, time.Now())
+		if g := r.cached().Gear; g != "P" {
+			t.Errorf("blank gear after a fresh P: %q, want P", g)
+		}
+	})
+
+	t.Run("blank gear, replayed P", func(t *testing.T) {
+		r := newR2Run()
+		vs(r, "", 0)
+		px(r, 1, now.Add(-time.Hour))
+		if g := r.cached().Gear; g != "P" {
+			t.Errorf("blank gear after a replayed P: %q, want P", g)
+		}
+	})
+
+	t.Run("a replayed P doesn't park a truck that is moving", func(t *testing.T) {
+		r := newR2Run()
+		vs(r, "", 30)
+		px(r, 1, now.Add(-time.Hour))
+		if g := r.cached().Gear; g == "P" {
+			t.Error("a replayed P parked a truck doing 30 mph")
+		}
+	})
+}
