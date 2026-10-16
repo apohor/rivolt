@@ -226,3 +226,89 @@ html[data-ui='next'][data-theme='light'] [data-plan-tabs] [role='tab'][data-tab-
   background: oklch(94% 0.005 262);
   color: oklch(20% 0 0);
 }
+
+/* Bottom sheet (plumbing defaults; the look is ux's). Phone only: at 1024px and
+   wider BottomSheet renders inline and none of this applies. */
+html[data-ui='next'] [data-plan-sheet] {
+  --plan-sheet-bottom: 0px;
+  position: fixed;
+  inset-inline: 0;
+  bottom: var(--plan-sheet-bottom);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem 1rem 0 0;
+  border: 1px solid oklch(30% 0.01 262);
+  border-bottom: 0;
+  background: oklch(13.5% 0.009 262);
+  box-shadow: 0 -8px 24px oklch(0% 0 0 / 0.35);
+  transition: height 0.22s ease;
+  overflow: hidden;
+}
+@media (max-width: 767.98px) {
+  /* Above the bottom tab bar. */
+  html[data-ui='next'] [data-plan-sheet] {
+    --plan-sheet-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+html[data-ui='next'][data-theme='light'] [data-plan-sheet] {
+  background: oklch(99% 0 0);
+  border-color: oklch(86% 0.005 262);
+}
+html[data-ui='next'] [data-plan-sheet][data-dragging='true'] {
+  transition: none;
+}
+html[data-ui='next'] [data-plan-sheet-handle] {
+  flex: none;
+  position: relative;
+  width: 100%;
+  height: 28px;
+  touch-action: none;
+  cursor: grab;
+}
+html[data-ui='next'] [data-plan-sheet-handle]::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: oklch(50% 0.01 262 / 0.7);
+}
+html[data-ui='next'] [data-plan-sheet-peek] {
+  flex: none;
+  padding: 0 1rem 0.75rem;
+}
+html[data-ui='next'] [data-plan-sheet-body] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem 1rem;
+}
+html[data-ui='next'] [data-plan-sheet][data-snap='peek'] [data-plan-sheet-body] {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui='next'] [data-plan-sheet] {
+    transition: none;
+  }
+}
+
+/* BottomSheet inline (1024px and up): it only groups its children, which stay
+   grid items of the split view like they were before the sheet existed. */
+html[data-ui='next'] [data-plan-sheet-inline] {
+  display: contents;
+}
+html[data-ui='next'] [data-plan-sheet-inline] > * {
+  grid-column: 1;
+  min-width: 0;
+}
+/* Phone: keep the map clear of the fixed sheet's peek. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-next]:has([data-plan-sheet]) {
+    padding-bottom: calc(240px + 1rem);
+  }
+}
