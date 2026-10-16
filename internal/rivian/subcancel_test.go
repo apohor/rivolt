@@ -32,3 +32,25 @@ func TestClearSubCancelLeavesTheSuccessor(t *testing.T) {
 		t.Error("a subscription's own exit didn't clear its handle")
 	}
 }
+
+func TestSetSubCancelSkipsADoneContext(t *testing.T) {
+	m := &StateMonitor{subCancel: map[string]context.CancelCauseFunc{}}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(nil) // the subscription died before it could be published
+	m.setSubCancel("v", ctx, cancel)
+	if _, ok := m.subCancel["v"]; ok {
+		t.Fatal("a done subscription's cancel handle was published")
+	}
+	if _, ok := m.subCtx["v"]; ok {
+		t.Fatal("a done subscription's context was published")
+	}
+	// A live one still publishes, and a later clear for the dead one
+	// leaves it alone.
+	live, liveCancel := context.WithCancelCause(context.Background())
+	defer liveCancel(nil)
+	m.setSubCancel("v", live, liveCancel)
+	m.clearSubCancel("v", ctx)
+	if _, ok := m.subCancel["v"]; !ok {
+		t.Fatal("clearing the dead subscription removed the live one's handle")
+	}
+}

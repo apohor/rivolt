@@ -1499,7 +1499,15 @@ var errResubscribeRequested = errors.New("rivian ws resubscribe requested by wak
 
 // setSubCancel publishes the current vehicleState subscription's
 // cancel handle (see kickResubscribe).
+//
+// A subscription whose context is already done is not published: by the
+// time it would be visible it can no longer be nudged, and its handle
+// would sit in the map until something replaced it (clearSubCancel
+// leaves a handle it didn't publish alone).
 func (m *StateMonitor) setSubCancel(vehicleID string, ctx context.Context, cancel context.CancelCauseFunc) {
+	if ctx.Err() != nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.subCtx == nil {
