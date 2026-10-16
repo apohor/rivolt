@@ -259,6 +259,16 @@ input[type="number"] {
   from tailwindcss/theme.css; with the flag off data-theme is never
   set, so none of this applies.
 */
+/* WCAG AA (axe on /demo): the stock neutral-500 is 4.0 to 4.2:1 on the dark
+   surfaces, and white on emerald-600 is 3.8:1. Lift the dark-theme secondary
+   text, and deepen emerald-600 (both themes) so white button text passes. */
+:root {
+  --color-emerald-600: oklch(52% 0.135 163.2);
+}
+html:not([data-theme='light']) {
+  --color-neutral-500: oklch(66% 0 0);
+}
+
 html[data-theme='light'] {
   color-scheme: light;
   --color-neutral-100: oklch(20.5% 0 0);
@@ -275,7 +285,7 @@ html[data-theme='light'] {
   --color-emerald-50: oklch(26.2% 0.051 172.552);
   --color-emerald-100: oklch(37.8% 0.077 168.94);
   --color-emerald-200: oklch(43.2% 0.095 166.913);
-  --color-emerald-300: oklch(50.8% 0.118 165.612);
+  --color-emerald-300: oklch(46% 0.108 165.612);
   --color-emerald-400: oklch(50.8% 0.118 165.612);
   --color-emerald-500: oklch(50.8% 0.118 165.612);
   --color-emerald-900: oklch(95% 0.052 163.051);

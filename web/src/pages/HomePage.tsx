@@ -340,6 +340,7 @@ export default function HomePage() {
             }`}
           >
             <BarChart
+              ariaLabel="Miles per day"
               data={dailyMiles}
               height={140}
               formatY={(v) => `${v.toFixed(0)}`}
@@ -349,6 +350,7 @@ export default function HomePage() {
 
           <Card title="Battery (SoC) trend">
             <LineChart
+              ariaLabel="Battery state of charge over time"
               series={[
                 {
                   points: trend,
@@ -416,6 +418,7 @@ export default function HomePage() {
             {sleepBars.length > 0 ? (
               <>
                 <BarChart
+                  ariaLabel="Idle-awake time per day"
                   data={sleepBars}
                   height={140}
                   color="#6366f1"

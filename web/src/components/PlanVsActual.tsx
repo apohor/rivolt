@@ -136,6 +136,14 @@ function Body({
   );
 }
 
+// matchLabel: plain words for how sure we are the drive was this trip.
+function matchLabel(band: string): string {
+  if (band === "high") return "Likely match";
+  if (band === "medium") return "Possible match";
+  if (band === "low") return "Weak match";
+  return "Match";
+}
+
 function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
   const [showStops, setShowStops] = useState(false);
   const c = d.comparison!;
@@ -146,9 +154,8 @@ function Compare({ d, preview = false }: { d: Pva; preview?: boolean }) {
     <div className="mt-2">
       <p className="text-xs text-neutral-500">
         {drivenText(c, cand?.miles)}
-        {preview ? " · preview" : ""}
         {c.plan_from === "snapshot" ? " · compared with the plan as saved" : ""}
-        {cand && preview ? ` · ${cand.band} match` : ""}
+        {cand && preview ? ` · ${matchLabel(cand.band)}` : ""}
       </p>
       {costHeader(c) && <p className="mt-2 text-sm font-medium text-neutral-100">{costHeader(c)}</p>}
       <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-2 text-sm">

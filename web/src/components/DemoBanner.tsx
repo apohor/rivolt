@@ -32,7 +32,7 @@ export function ConnectLink({ children, className, kind }: { children: ReactNode
 // The sample-truck banner shown across the whole /demo shell.
 export function DemoBanner() {
   return (
-    <div role="note" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
+    <div role="region" aria-label="Sample truck notice" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
         <span>
           <span className="font-medium">Sample truck.</span> Generated data, read-only. Connect your Rivian to see
@@ -51,7 +51,7 @@ export function DemoBanner() {
 export function ConnectHint({ what }: { what: string }) {
   return (
     <p className="text-xs text-neutral-500" data-testid="connect-hint">
-      <ConnectLink className="text-emerald-300 hover:underline">Connect your Rivian</ConnectLink> to {what}.
+      <ConnectLink className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">Connect your Rivian</ConnectLink> to {what}.
     </p>
   );
 }

@@ -90,6 +90,7 @@ export default function TruckPage() {
         {sleep.daysWithData > 0 ? (
           <>
             <BarChart
+              ariaLabel="Idle-awake time per day"
               data={sleep.bars}
               height={140}
               color="#6366f1"

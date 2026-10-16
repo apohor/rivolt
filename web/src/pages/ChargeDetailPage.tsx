@@ -467,6 +467,7 @@ export default function ChargeDetailPage() {
               ) : null}
             </div>
             <LineChart
+              ariaLabel="Charging power and battery level over time"
               series={[
                 ...(showBattery
                   ? [

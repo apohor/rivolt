@@ -898,7 +898,7 @@ export default function TripPlanPage() {
             <button
               type="submit"
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
-              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
               {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
@@ -1204,7 +1204,7 @@ function SnapshotBanner({
 }) {
   const ageMs = Date.now() - new Date(updatedAt).getTime();
   const ageH = ageMs / 3_600_000;
-  const stale = ageH > SAVED_SNAPSHOT_STALE_HOURS;
+  const stale = !inDemo() && ageH > SAVED_SNAPSHOT_STALE_HOURS;
   const human =
     ageH < 1
       ? `${Math.max(1, Math.round(ageMs / 60_000))} min ago`
@@ -1220,9 +1220,17 @@ function SnapshotBanner({
       }`}
     >
       <span>
-        Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
-        from {human}
-        {stale && " — charging stations, weather, and ETA may have drifted."}
+        {inDemo() ? (
+          <>
+            Sample plan <strong className="text-neutral-100">"{name}"</strong>
+          </>
+        ) : (
+          <>
+            Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+            from {human}
+            {stale && " — charging stations, weather, and ETA may have drifted."}
+          </>
+        )}
       </span>
       {!inDemo() && (
         <button
@@ -2427,7 +2435,7 @@ function RouteCard({
             <>
               {" / "}
               <span
-                className="text-red-700 font-mono cursor-help"
+                className="text-rose-400 font-mono cursor-help"
                 title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
               >{fmtCurrency(gasEquiv)}</span>
             </>
@@ -2537,7 +2545,7 @@ function RouteCard({
         />
       </dl>
       {showTable && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Charging stops table">
           <table className="w-full text-sm">
             <thead className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr>
