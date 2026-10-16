@@ -314,7 +314,9 @@ func TestSampleCorpus_TruckFields(t *testing.T) {
 // The Truck tab's idle-awake (samples.SleepActivity: parked, not
 // charging, not asleep; intervals capped at 20 min) stays in line with
 // a healthy R1's: the sample's parks go up ~13 min, standby 1 min, then
-// sleep (fleet p50s), so a typical day is about an hour.
+// sleep (fleet p50s), so a typical day is about an hour. The failed-sleep
+// night's three retries stay up 20 min each by design (the "woke up N
+// times" story), which is most of the max.
 func TestSampleCorpus_IdleAwakePerDay(t *testing.T) {
 	c := NewSampleCorpus(SampleSeed)
 	s := c.Summary()
@@ -344,7 +346,7 @@ func TestSampleCorpus_IdleAwakePerDay(t *testing.T) {
 		mins = append(mins, m)
 	}
 	sort.Float64s(mins)
-	if med, top := mins[len(mins)/2], mins[len(mins)-1]; med > 70 || top > 130 {
+	if med, top := mins[len(mins)/2], mins[len(mins)-1]; med < 30 || med > 70 || top > 130 {
 		t.Errorf("idle-awake per day: median %.0f min, max %.0f min; want about an hour, at most ~2 h", med, top)
 	}
 	// Every sleep but the failed-sleep night's retries comes after a
