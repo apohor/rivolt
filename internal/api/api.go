@@ -280,6 +280,9 @@ func New(d Deps) http.Handler {
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
+			if d.Metrics != nil {
+				demoClientKeyObserver = func(source string) { d.Metrics.DemoClientKeyTotal.WithLabelValues(source).Inc() }
+			}
 			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
 		}
 		// impersonationMW must run immediately after auth resolves
@@ -374,25 +377,7 @@ func New(d Deps) http.Handler {
 			// Preset trips for the demo planner: static GETs behind the
 			// same per-client then install-wide demo limits.
 			dl, dg := newDemoLimiter(), newDemoGlobalLimiter()
-			var savedIDs demoSavedTripIDs
-			if d.Trips != nil {
-				savedIDs = func(ctx context.Context) (map[string]uuid.UUID, error) {
-					st := d.Trips.For(demo.UserID())
-					if st == nil {
-						return nil, nil
-					}
-					list, err := st.List(ctx)
-					if err != nil {
-						return nil, err
-					}
-					out := make(map[string]uuid.UUID, len(list))
-					for _, t := range list {
-						out[t.Name] = t.ID
-					}
-					return out, nil
-				}
-			}
-			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips(savedIDs))
+			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips)
 			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips/{id}/plan", handleDemoTripPlan)
 		}
 		// Public sign-up: validate invite code and create account.

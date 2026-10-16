@@ -327,7 +327,9 @@ func demoAccessMW(uid uuid.UUID, vehicleID string, limiter, global *ipLimiter) f
 				serve = samplesGlobal.Middleware(serve)
 			}
 			if isHeavy {
-				serve = heavyGlobal.Middleware(heavyCache.Middleware(serve))
+				// Cache hits are served before the install-wide budget, so they
+				// never spend it; only misses (which hit the database) do.
+				serve = heavyCache.Middleware(heavyGlobal.Middleware(serve))
 			}
 			serve = global.Middleware(serve)
 			if isSamples {

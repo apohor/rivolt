@@ -68,8 +68,20 @@ func demoClientKey(r *http.Request) string {
 	peer := directPeer(r)
 	if pa, err := netip.ParseAddr(peer); err == nil && inCloudflare(pa) {
 		if ip, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); err == nil {
+			observeDemoClientKey("cf")
 			return ip.Unmap().String()
 		}
 	}
+	observeDemoClientKey("peer")
 	return peer
+}
+
+// demoClientKeyObserver, when set (once, at startup, before serving),
+// counts which source keyed each demo request. No addresses are recorded.
+var demoClientKeyObserver func(source string)
+
+func observeDemoClientKey(source string) {
+	if f := demoClientKeyObserver; f != nil {
+		f(source)
+	}
 }

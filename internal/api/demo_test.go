@@ -715,3 +715,50 @@ func TestDemoResponseCacheSingleflight(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoHeavyCacheHitsDoNotSpendTheSharedBudget(t *testing.T) {
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("{}"))
+	})
+	big := func() *ipLimiter { return newIPLimiter(100000, time.Minute, time.Hour) }
+	h := demoAccessMW(uuid.New(), demoVeh, big(), big())(inner)
+	path := "/api/vehicles/" + demoVeh + "/drain"
+	// 3 x the shared per-minute budget of requests, each from its own
+	// client (so no per-client limit binds): one miss, the rest cache hits.
+	n := demoHeavyGlobalPerMin * 3
+	for i := 0; i < n; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.RemoteAddr = "173.245.48.5:1" // Cloudflare edge
+		req.Header.Set("CF-Connecting-IP", "198.51."+strconv.Itoa(i/250)+"."+strconv.Itoa(i%250+1))
+		h.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("request %d = %d: cache hits spent the shared budget", i, rec.Code)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("handler ran %d times, want 1", calls)
+	}
+}
+
+func TestDemoClientKeyObserverCountsSource(t *testing.T) {
+	var got []string
+	demoClientKeyObserver = func(s string) { got = append(got, s) }
+	t.Cleanup(func() { demoClientKeyObserver = nil })
+	mk := func(remote, cf string) {
+		req := httptest.NewRequest("GET", "/api/charges", nil)
+		req.RemoteAddr = remote
+		if cf != "" {
+			req.Header.Set("CF-Connecting-IP", cf)
+		}
+		demoClientKey(req)
+	}
+	mk("173.245.48.5:1", "198.51.100.8")
+	mk("203.0.113.9:1", "198.51.100.8")
+	mk("173.245.48.5:1", "garbage")
+	if len(got) != 3 || got[0] != "cf" || got[1] != "peer" || got[2] != "peer" {
+		t.Errorf("sources = %v", got)
+	}
+}

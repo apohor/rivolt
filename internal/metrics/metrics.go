@@ -97,6 +97,13 @@ type Metrics struct {
 	// it with its original timestamp) and frames older than a minute. A
 	// replayed gear D once flapped a charging truck's sessions.
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
+
+	// Demo rate-limit bucket keys by source: "cf" when the direct peer
+	// is a Cloudflare edge address and CF-Connecting-IP was used, "peer"
+	// when the peer address itself was the key. A "peer" share on a
+	// Cloudflare-fronted install means the proxy hop is not seeing
+	// Cloudflare (every visitor would then share one bucket).
+	DemoClientKeyTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -188,6 +195,13 @@ func New() *Metrics {
 			},
 			[]string{"provider", "status"},
 		),
+		DemoClientKeyTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_demo_client_key_total",
+				Help: "Demo rate-limit client keys, by source (cf = CF-Connecting-IP from a Cloudflare peer, peer = the peer address).",
+			},
+			[]string{"source"},
+		),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -222,6 +236,7 @@ func New() *Metrics {
 		m.RivianRateLimitBlocked,
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
+		m.DemoClientKeyTotal,
 		m.FunnelEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,

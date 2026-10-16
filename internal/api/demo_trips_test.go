@@ -1,16 +1,12 @@
 package api
 
 import (
-	"context"
-	"errors"
-	"regexp"
-	"strings"
-
 	"bytes"
 	"encoding/json"
-	"github.com/google/uuid"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -20,7 +16,7 @@ import (
 
 func demoTripsRouter() http.Handler {
 	r := chi.NewRouter()
-	r.Get("/api/demo/trips", handleDemoTrips(nil))
+	r.Get("/api/demo/trips", handleDemoTrips)
 	r.Get("/api/demo/trips/{id}/plan", handleDemoTripPlan)
 	return r
 }
@@ -35,6 +31,8 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 			Name    string          `json:"name"`
 			Inputs  json.RawMessage `json:"inputs"`
 			Summary json.RawMessage `json:"summary"`
+			// Drawn by the planner map in place of a Valhalla route.
+			RoutePolyline string `json:"route_polyline"`
 		} `json:"trips"`
 	}
 	if err := json.Unmarshal(demo.PresetsIndex().Body, &idx); err != nil {
@@ -44,8 +42,8 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 		t.Fatalf("index has %d trips, loader has %d", len(idx.Trips), len(demo.PresetIDs()))
 	}
 	for _, tr := range idx.Trips {
-		if tr.Name == "" || len(tr.Inputs) == 0 || len(tr.Summary) == 0 {
-			t.Errorf("preset %s: name/inputs/summary missing", tr.ID)
+		if tr.Name == "" || len(tr.Inputs) == 0 || len(tr.Summary) == 0 || tr.RoutePolyline == "" {
+			t.Errorf("preset %s: name/inputs/summary/route_polyline missing", tr.ID)
 		}
 		b, ok := demo.PresetPlan(tr.ID)
 		if !ok {
@@ -90,42 +88,6 @@ func TestDemoTripsHandlers(t *testing.T) {
 		if rec := get("/api/demo/trips/"+id+"/plan", ""); rec.Code != 200 || !json.Valid(rec.Body.Bytes()) {
 			t.Errorf("plan %s = %d", id, rec.Code)
 		}
-	}
-}
-
-func TestResolveDemoIndexLinksSavedTripByName(t *testing.T) {
-	id := uuid.New()
-	base := demo.PresetBlob{Body: []byte(`{"trips":[
-		{"id":"las-vegas","name":"Vegas","saved_trip_name":"Las Vegas weekend","shape":"abc"},
-		{"id":"san-diego","name":"SD"},
-		{"id":"ghost","name":"G","saved_trip_name":"No such trip"}]}`)}
-	out := resolveDemoIndex(context.Background(), base, func(context.Context) (map[string]uuid.UUID, error) {
-		return map[string]uuid.UUID{"Las Vegas weekend": id, "Someone else's trip": uuid.New()}, nil
-	})
-	var doc struct {
-		Trips []map[string]any `json:"trips"`
-	}
-	if err := json.Unmarshal(out.Body, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.Trips[0]["saved_trip_id"] != id.String() || doc.Trips[0]["shape"] != "abc" {
-		t.Errorf("linked entry = %v", doc.Trips[0])
-	}
-	if _, ok := doc.Trips[1]["saved_trip_id"]; ok {
-		t.Error("entry without a name got an id")
-	}
-	if _, ok := doc.Trips[2]["saved_trip_id"]; ok {
-		t.Error("unknown name got an id")
-	}
-	if out.ETag == "" || out.ETag == base.ETag {
-		t.Errorf("etag = %q", out.ETag)
-	}
-	// A lookup error serves the index unchanged.
-	bad := resolveDemoIndex(context.Background(), base, func(context.Context) (map[string]uuid.UUID, error) {
-		return nil, errors.New("db down")
-	})
-	if string(bad.Body) != string(base.Body) {
-		t.Error("lookup failure altered the index")
 	}
 }
 
