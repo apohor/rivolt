@@ -1219,3 +1219,29 @@ func TestLiveChargeRow_DCFCDetector(t *testing.T) {
 		t.Error("a confident verdict was re-run")
 	}
 }
+
+// Rivian's isRivianCharger (this charge's own session) reaches the
+// detector, and a verdict made before it arrived is made again with it.
+func TestLiveChargeRow_DCFCDetectorGetsRivianCharger(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	var calls []bool
+	m.SetDCFCDetector(func(lat, lon float64, rivianCharger bool, peakKW float64) (DCFCVerdict, bool) {
+		calls = append(calls, rivianCharger)
+		return DCFCVerdict{Priced: true, Rate: 0.5, Currency: "USD", Network: "x", State: "estimated", Confidence: 0.9}, true
+	})
+	start := time.Date(2026, 10, 7, 14, 0, 0, 0, time.UTC)
+	c := &liveCharge{id: "dc", startedAt: start, endAt: start.Add(30 * time.Minute),
+		startSoC: 20, endSoC: 60, maxPower: 150, energyIntKWh: 50, lat: 30.9, lon: -102.9, finalState: "charging_complete"}
+	m.liveChargeRow("veh-1", c)
+	m.liveChargeRow("veh-1", c)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{RivianChargerKnown: true, IsRivianCharger: true,
+		StartTime: start.Format(time.RFC3339), TimeElapsedSeconds: 1800}
+	m.lastSessionFor["veh-1"] = c.id
+	m.mu.Unlock()
+	m.liveChargeRow("veh-1", c)
+	m.liveChargeRow("veh-1", c)
+	if len(calls) != 2 || calls[0] || !calls[1] {
+		t.Fatalf("detector calls %v, want [false true]: once without, once again with isRivianCharger", calls)
+	}
+}

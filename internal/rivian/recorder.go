@@ -241,8 +241,9 @@ type liveCharge struct {
 	// on for the user), with the peak it was made at: a co-located site
 	// is looked at again when the peak has grown, since a peak only one
 	// network could deliver can settle it.
-	dcfcVerdict *DCFCVerdict
-	dcfcPeakKW  float64
+	dcfcVerdict       *DCFCVerdict
+	dcfcPeakKW        float64
+	dcfcRivianCharger bool // the verdict saw isRivianCharger
 
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
@@ -1671,11 +1672,15 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		m.mu.RUnlock()
 		fast := (dcfc != nil || detect != nil) && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
 		// Network detection with a verify state, where it's on for the
-		// user. Rivian's isRivianCharger joins it with #194.
+		// user. Rivian's isRivianCharger (this charge's own session,
+		// see sessionPredatesCharge) is its strongest signal, so a
+		// verdict made without it is made again once it arrives.
+		ranCharger := row.RivianCharger != nil && *row.RivianCharger
 		if fast && detect != nil && (c.dcfcVerdict == nil ||
+			(ranCharger && !c.dcfcRivianCharger) ||
 			(c.dcfcVerdict.Confidence < dcfcrates.ConfidentAt && row.MaxPowerKW > c.dcfcPeakKW*1.1)) {
-			if v, on := detect(c.lat, c.lon, false, row.MaxPowerKW); on {
-				c.dcfcVerdict, c.dcfcPeakKW = &v, row.MaxPowerKW
+			if v, on := detect(c.lat, c.lon, ranCharger, row.MaxPowerKW); on {
+				c.dcfcVerdict, c.dcfcPeakKW, c.dcfcRivianCharger = &v, row.MaxPowerKW, ranCharger
 			}
 		}
 		if fast && c.dcfcVerdict != nil {
