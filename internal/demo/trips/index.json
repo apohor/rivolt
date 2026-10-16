@@ -1,1 +1,172 @@
-{"trips":[]}
+{
+  "trips": [
+    {
+      "id": "7041ba4f-947f-50d3-882d-e5f5f9d08b82",
+      "name": "Las Vegas weekend",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Las Vegas, NV",
+          "lat": 36.1699,
+          "lon": -115.1398
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 263.9,
+        "duration_min": 244,
+        "charge_stops": 1,
+        "arrival_soc_pct": 30.1
+      }
+    },
+    {
+      "id": "5d929483-6bf5-52b2-903d-672064da254a",
+      "name": "Las Vegas back home",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Las Vegas, NV",
+          "lat": 36.1699,
+          "lon": -115.1398
+        },
+        "starting_soc": "60.7",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 266,
+        "duration_min": 254,
+        "charge_stops": 1,
+        "arrival_soc_pct": 11.7
+      }
+    },
+    {
+      "id": "san-diego",
+      "name": "LA to San Diego",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Balboa Park, San Diego",
+          "lat": 32.7341,
+          "lon": -117.1446
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Union Station, Los Angeles",
+          "lat": 34.0562,
+          "lon": -118.2365
+        },
+        "starting_soc": "80",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 122.2,
+        "duration_min": 116,
+        "charge_stops": 0,
+        "arrival_soc_pct": 37.2
+      }
+    },
+    {
+      "id": "mammoth",
+      "name": "LA to Mammoth Lakes",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Mammoth Mountain Main Lodge",
+          "lat": 37.6511,
+          "lon": -119.0365
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Union Station, Los Angeles",
+          "lat": 34.0562,
+          "lon": -118.2365
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 313.9,
+        "duration_min": 338,
+        "charge_stops": 1,
+        "arrival_soc_pct": 15.5
+      }
+    },
+    {
+      "id": "kettleman-city",
+      "name": "Pasadena to Kettleman City",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Kettleman City, CA",
+          "lat": 35.9894,
+          "lon": -119.9603
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 174.3,
+        "duration_min": 157,
+        "charge_stops": 0,
+        "arrival_soc_pct": 26.2
+      }
+    },
+    {
+      "id": "san-francisco",
+      "name": "Pasadena to San Francisco",
+      "inputs": {
+        "departure_at": "",
+        "destination": {
+          "label": "Ferry Building, San Francisco",
+          "lat": 37.7955,
+          "lon": -122.3937
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [],
+        "has_adapter": true,
+        "origin": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 380.9,
+        "duration_min": 376,
+        "charge_stops": 1,
+        "arrival_soc_pct": 15.8
+      }
+    }
+  ]
+}

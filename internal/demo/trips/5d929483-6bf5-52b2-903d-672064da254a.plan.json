@@ -1,0 +1,102 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 1678,
+      "TotalDriveDurationSec": 13589,
+      "TotalTripDurationSec": 15267,
+      "TotalDriveDistanceMeters": 428124,
+      "ArrivalSoC": 11.7,
+      "ArrivalReachableMeters": 56845.6,
+      "EnergyConsumptionKWh": 107.6,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Las Vegas, NV",
+          "Latitude": 36.1699,
+          "Longitude": -115.1398,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 60.7,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 294519.3,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Primm, NV [Electrify America]",
+          "Latitude": 35.606006,
+          "Longitude": -115.38908,
+          "MaxPowerKW": 150,
+          "ChargeDurationSec": 1678,
+          "ArrivalSoC": 46.9,
+          "DepartureSoC": 80,
+          "ArrivalReachableMeters": 227434.4,
+          "DepartureReachableMeters": 387916.3,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T16:39:07Z",
+          "DepartureTimeUTC": "2026-11-14T17:07:05Z",
+          "DistanceFromOriginMeters": 72134
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Rose Bowl parking (sample)",
+          "Latitude": 34.1613,
+          "Longitude": -118.1676,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 11.7,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 56845.6,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T20:14:27Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 428124
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend": 20.813280000000002,
+      "dcfc_spend_user_member": 20.813280000000002,
+      "dcfc_spend_all_member": 15.609960000000001,
+      "home_equivalent": 17.216,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "dcfc_rate_used": 0.48,
+      "dcfc_rate_used_user_member": 0.48,
+      "dcfc_rate_used_all_member": 0.36,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "ea",
+          "network_name": "Electrify America",
+          "charger_name": "Primm, NV [Electrify America]",
+          "energy_kwh": 43.361000000000004,
+          "guest_rate": 0.48,
+          "user_rate": 0.48,
+          "all_member_rate": 0.36,
+          "member_plan": "Pass+ - $7/mo"
+        }
+      ]
+    }
+  ]
+}

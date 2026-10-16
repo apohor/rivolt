@@ -16,7 +16,7 @@ import (
 // TestDemoSamplePlansSeed: the pass writes the two Las Vegas plans for
 // the demo user, rewrites nothing while the loop is unchanged, moves
 // the same rows (same ids) to the next loop's trip, and leaves other
-// saved trips alone.
+// saved trips alone. The rows carry the fixed ids the demo's presets use.
 func TestDemoSamplePlansSeed(t *testing.T) {
 	t.Setenv("RIVOLT_DEMO", "true")
 	t.Setenv("RIVIAN_CLIENT", "replay")
@@ -86,7 +86,7 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	next := read()
 	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home"} {
 		a, b := first[name], next[name]
-		if a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
+		if a.id != demo.SampleTripID(name).String() || a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
 			t.Errorf("%s: %+v then %+v, want the same row on a later trip", name, a, b)
 		}
 	}

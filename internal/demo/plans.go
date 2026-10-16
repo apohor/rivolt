@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tripadvice"
@@ -26,6 +28,7 @@ const planLocation = "America/Los_Angeles"
 
 // SamplePlan is one saved trip as the planner stores it.
 type SamplePlan struct {
+	ID       uuid.UUID // stable: the same row on every loop and install
 	Name     string
 	SavedAt  time.Time
 	Inputs   json.RawMessage // the planner's SavedTripInputs
@@ -33,47 +36,77 @@ type SamplePlan struct {
 	DepartAt time.Time
 }
 
+// SampleTripID is the saved trip id of the sample plan called name:
+// fixed, so the demo's preset trip for it (internal/demo/trips) can
+// carry the same id.
+func SampleTripID(name string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://rivolt.dev/demo/saved-trips/"+name))
+}
+
+// SampleTripIDs maps each sample plan's name to its saved trip id.
+func SampleTripIDs() map[string]uuid.UUID {
+	out := map[string]uuid.UUID{}
+	for _, name := range rivian.SampleTripPlanNames() {
+		out[name] = SampleTripID(name)
+	}
+	return out
+}
+
 // SamplePlans returns the demo's saved plans for now, priced with the
 // demo user's charging settings (cfg, nets) as /api/trips/plan prices a
 // plan. Nil before the first sample road trip is over.
 func SamplePlans(now time.Time, cfg settings.ChargingConfig, nets []settings.ChargingNetwork) ([]SamplePlan, error) {
-	loc, err := time.LoadLocation(planLocation)
-	if err != nil {
-		return nil, fmt.Errorf("demo: plan location: %w", err)
-	}
 	var out []SamplePlan
 	for _, p := range rivian.SampleTripPlans(now) {
-		in := map[string]any{
-			"origin":       map[string]any{"lat": p.Origin.Lat, "lon": p.Origin.Lon, "label": p.Origin.Label},
-			"destination":  map[string]any{"lat": p.Destination.Lat, "lon": p.Destination.Lon, "label": p.Destination.Label},
-			"extra_stops":  []any{},
-			"target_soc":   strconv.FormatFloat(p.TargetSoC, 'f', -1, 64),
-			"starting_soc": strconv.FormatFloat(p.StartSoC, 'f', -1, 64),
-			"drive_mode":   "EVERYDAY",
-			"has_adapter":  true,
-			"departure_at": p.DepartAt.In(loc).Format("2006-01-02T15:04"),
-		}
-		tc := tripadvice.Context{PackKWh: p.PackKWh, HomePricePerKWh: cfg.HomePricePerKWh, HomeCurrency: cfg.HomeCurrency,
-			GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets)}
-		costs := make([]tripadvice.CostEstimate, len(p.Plan.Routes))
-		for i := range p.Plan.Routes {
-			costs[i] = tripadvice.EstimateRoute(&p.Plan.Routes[i], tc)
-		}
-		plan := struct {
-			*rivian.TripPlan
-			Costs []tripadvice.CostEstimate `json:"costs,omitempty"`
-		}{&p.Plan, costs}
-		ib, err := json.Marshal(in)
+		ib, err := plannerInputs(p.Origin, p.Destination, p.StartSoC, p.TargetSoC, p.DepartAt)
 		if err != nil {
 			return nil, err
 		}
-		pb, err := json.Marshal(plan)
+		pb, err := plannerResponse(p.Plan, p.PackKWh, cfg, nets)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, SamplePlan{Name: p.Name, SavedAt: p.SavedAt, Inputs: ib, Plan: pb, DepartAt: p.DepartAt})
+		out = append(out, SamplePlan{ID: SampleTripID(p.Name), Name: p.Name, SavedAt: p.SavedAt, Inputs: ib, Plan: pb, DepartAt: p.DepartAt})
 	}
 	return out, nil
+}
+
+// plannerInputs is the planner form (SavedTripInputs) for a trip; a
+// zero depart leaves the departure unset.
+func plannerInputs(from, to rivian.SamplePlace, startSoC, targetSoC float64, depart time.Time) (json.RawMessage, error) {
+	in := map[string]any{
+		"origin":       map[string]any{"lat": from.Lat, "lon": from.Lon, "label": from.Label},
+		"destination":  map[string]any{"lat": to.Lat, "lon": to.Lon, "label": to.Label},
+		"extra_stops":  []any{},
+		"target_soc":   strconv.FormatFloat(targetSoC, 'f', -1, 64),
+		"starting_soc": strconv.FormatFloat(startSoC, 'f', -1, 64),
+		"drive_mode":   "EVERYDAY",
+		"has_adapter":  true,
+		"departure_at": "",
+	}
+	if !depart.IsZero() {
+		loc, err := time.LoadLocation(planLocation)
+		if err != nil {
+			return nil, fmt.Errorf("demo: plan location: %w", err)
+		}
+		in["departure_at"] = depart.In(loc).Format("2006-01-02T15:04")
+	}
+	return json.Marshal(in)
+}
+
+// plannerResponse is plan as POST /api/trips/plan returns it: the
+// TripPlan plus its routes' costs, priced as that handler prices them.
+func plannerResponse(plan rivian.TripPlan, packKWh float64, cfg settings.ChargingConfig, nets []settings.ChargingNetwork) (json.RawMessage, error) {
+	tc := tripadvice.Context{PackKWh: packKWh, HomePricePerKWh: cfg.HomePricePerKWh, HomeCurrency: cfg.HomeCurrency,
+		GasPricePerGallon: cfg.GasPricePerGallon, ComparisonMPG: cfg.ComparisonMPG, DCFCNetworks: settings.AsOverrides(nets)}
+	costs := make([]tripadvice.CostEstimate, len(plan.Routes))
+	for i := range plan.Routes {
+		costs[i] = tripadvice.EstimateRoute(&plan.Routes[i], tc)
+	}
+	return json.Marshal(struct {
+		*rivian.TripPlan
+		Costs []tripadvice.CostEstimate `json:"costs,omitempty"`
+	}{&plan, costs})
 }
 
 // SeedPlans writes the demo's saved plans for now, and returns how
@@ -99,14 +132,15 @@ func SeedPlans(ctx context.Context, d *sql.DB, sf *settings.Factory, now time.Ti
 	n := 0
 	for _, p := range plans {
 		res, err := d.ExecContext(ctx, `
-			INSERT INTO saved_trips (user_id, name, inputs, plan, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $5)
+			INSERT INTO saved_trips (id, user_id, name, inputs, plan, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $6)
 			ON CONFLICT (user_id, name) DO UPDATE
-			   SET inputs = EXCLUDED.inputs, plan = EXCLUDED.plan,
+			   SET id = EXCLUDED.id, inputs = EXCLUDED.inputs, plan = EXCLUDED.plan,
 			       created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at
-			 WHERE saved_trips.inputs IS DISTINCT FROM EXCLUDED.inputs
+			 WHERE saved_trips.id <> EXCLUDED.id
+			    OR saved_trips.inputs IS DISTINCT FROM EXCLUDED.inputs
 			    OR saved_trips.plan IS DISTINCT FROM EXCLUDED.plan`,
-			UserID(), p.Name, []byte(p.Inputs), []byte(p.Plan), p.SavedAt.UTC())
+			p.ID, UserID(), p.Name, []byte(p.Inputs), []byte(p.Plan), p.SavedAt.UTC())
 		if err != nil {
 			return n, fmt.Errorf("demo: saved trip %q: %w", p.Name, err)
 		}

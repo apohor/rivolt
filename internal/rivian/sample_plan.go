@@ -70,6 +70,16 @@ type SampleTripPlan struct {
 	Plan                   TripPlan
 }
 
+// SampleTripPlanNames are the names of the sample owner's saved plans.
+func SampleTripPlanNames() []string {
+	c, _ := sampleShared()
+	out := make([]string, len(c.planned))
+	for i, p := range c.planned {
+		out[i] = p.name
+	}
+	return out
+}
+
 // SampleTripPlans returns the sample owner's saved plans for the latest
 // sample road trip that is over by now (its outing back home at or
 // before now), or nil before the first one ends. A trip's plans stay
