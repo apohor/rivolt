@@ -204,3 +204,7 @@ func parseInstant(s string) (time.Time, error) {
 	}
 	return time.Time{}, errors.New("unrecognised instant format")
 }
+
+// QSessionChargerForTest exposes the detail document to the privacy test in
+// internal/receipts.
+func QSessionChargerForTest() string { return qSessionCharger }
