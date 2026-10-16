@@ -540,10 +540,22 @@ function Stat({
   value: string;
   hint?: string;
 }) {
+  const next = useUiNext();
+  // ui_theme_next: "2.30 mi/kWh" keeps one line, the unit a 12px suffix.
+  const m = next ? value.match(/^(\S+) (\S+)$/) : null;
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums${m ? " whitespace-nowrap" : ""}`}>
+        {m ? (
+          <>
+            {m[1]}
+            <span className="ml-1 text-xs font-normal text-neutral-400">{m[2]}</span>
+          </>
+        ) : (
+          value
+        )}
+      </div>
       {hint ? (
         <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
       ) : null}
