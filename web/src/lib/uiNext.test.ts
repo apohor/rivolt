@@ -40,6 +40,7 @@ describe("ui_theme_next resolution", () => {
     expect(overrideAllowed("rivolt.dev")).toBe(false);
     expect(overrideAllowed("demo.rivolt.dev")).toBe(false);
     expect(overrideAllowed("evil-preview.rivolt.dev")).toBe(false);
+    expect(overrideAllowed("preview.example.com")).toBe(false); // a self-hoster's host
   });
 
   it("on prod, ?ui=next is ignored and a stored override is cleared; the server flag still works", () => {

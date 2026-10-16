@@ -674,13 +674,14 @@ export default function TripPlanPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-ui-grid="plan">
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <PageHeader
         title="Trip planner"
         subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
       />
 
+      <div className="space-y-6" data-ui-area="p-left">
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
@@ -932,7 +933,9 @@ export default function TripPlanPage() {
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={(saveTripMutation.error as Error | null)?.message}
       />
+      </div>
 
+      <div className="space-y-6" data-ui-area="p-result">
       {planMutation.error && (
         <ErrorBox
           title="Planner failed"
@@ -1181,6 +1184,7 @@ export default function TripPlanPage() {
           </ErrorBoundary>
         );
       })()}
+      </div>
     </div>
   );
 }

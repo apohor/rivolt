@@ -812,3 +812,23 @@ html[data-ui='next'][data-theme='light'] [data-ui-header] {
     display: none;
   }
 }
+/* Plan: the form, Plan vs actual and saved trips stack left; the result
+   (map, stops, cost) fills the right. With no result yet the left stack takes
+   the full width. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid='plan'] {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] {
+    grid-column: 1;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-result'] {
+    grid-column: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='plan'] > [data-ui-area='p-left'] > * + * {
+    margin-top: 1.5rem;
+  }
+  html[data-ui='next'] [data-ui-grid='plan']:not(:has(> [data-ui-area='p-result'] > *)) > [data-ui-area='p-left'] {
+    grid-column: 1 / -1;
+  }
+}
