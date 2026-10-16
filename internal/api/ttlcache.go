@@ -1,9 +1,13 @@
 package api
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// errTTLLoadPanicked is what waiters get when the load they shared panicked.
+var errTTLLoadPanicked = errors.New("cache load panicked")
 
 // ttlCache is a small per-process cache of computed values: entries live
 // for ttl, at most max are kept, and concurrent loads of one key share a
@@ -55,7 +59,21 @@ func (c *ttlCache[V]) get(key string, load func() (V, error)) (V, error) {
 	c.inflight[key] = call
 	c.mu.Unlock()
 
+	// Always release waiters and the in-flight slot, even if load panics
+	// (waiters then see an error instead of blocking forever).
+	finished := false
+	defer func() {
+		if finished {
+			return
+		}
+		c.mu.Lock()
+		delete(c.inflight, key)
+		c.mu.Unlock()
+		call.err = errTTLLoadPanicked
+		close(call.done)
+	}()
 	call.v, call.err = load()
+	finished = true
 
 	c.mu.Lock()
 	delete(c.inflight, key)

@@ -107,3 +107,41 @@ func TestSleepActivityKeyRoundsTheWindow(t *testing.T) {
 		t.Error("distinct users/vehicles/windows share a key")
 	}
 }
+
+func TestTTLCacheLoadPanicDoesNotWedgeTheKey(t *testing.T) {
+	c := newTTLCache[int](time.Minute, 4)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	waiterErr := make(chan error, 1)
+	leaderDone := make(chan any, 1)
+	go func() {
+		defer func() { leaderDone <- recover() }()
+		c.get("k", func() (int, error) {
+			close(started)
+			<-release
+			panic("boom")
+		})
+	}()
+	<-started
+	go func() {
+		_, err := c.get("k", func() (int, error) { return 1, nil })
+		waiterErr <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if p := <-leaderDone; p != "boom" {
+		t.Fatalf("panic not propagated to the leader: %v", p)
+	}
+	select {
+	case err := <-waiterErr:
+		if !errors.Is(err, errTTLLoadPanicked) {
+			t.Errorf("waiter err = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter blocked forever after the leader panicked")
+	}
+	// The key is usable again.
+	if v, err := c.get("k", func() (int, error) { return 7, nil }); err != nil || v != 7 {
+		t.Errorf("after panic: %d %v", v, err)
+	}
+}
