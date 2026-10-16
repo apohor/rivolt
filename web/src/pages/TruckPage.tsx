@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { periodRange, sleepWindow, usePeriod } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
@@ -64,6 +64,12 @@ export default function TruckPage() {
   });
 
   const sleep = useMemo(() => sleepSummary(sleepQ.data ?? []), [sleepQ.data]);
+  // Deep link from Now's idle-awake tile (#sleep): scroll once the card exists.
+  useEffect(() => {
+    if (window.location.hash === "#sleep" && selectedID) {
+      document.getElementById("sleep")?.scrollIntoView({ block: "start" });
+    }
+  }, [selectedID, sleepQ.isLoading]);
   const s = stateQ.data;
   const tire = s ? lowestTire(s) : null;
   const software = s ? softwareInfo(s) : null;
@@ -99,7 +105,7 @@ export default function TruckPage() {
         <PackHealthCard vehicleID={selectedID} />
       </Card>
 
-      <Card title="Sleep and idle-awake" span="full">
+      <Card id="sleep" title="Sleep and idle-awake" span="full">
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.

@@ -9,6 +9,7 @@ import Logo from "../components/Logo";
 import { ConnectLink, DemoBanner } from "../components/DemoBanner";
 import { Spinner } from "../components/ui";
 import { activeTab, buildTabs } from "./tabs";
+import { Footer } from "../components/Footer";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 
 // The public sample-truck demo: the same tab shell as the signed-in app
@@ -68,15 +69,7 @@ export default function DemoLayout() {
         </main>
       </div>
       <div className="pb-16 md:pb-0">
-        <footer className="border-t border-neutral-900 bg-neutral-950/80 text-xs text-neutral-500">
-          <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-3 text-center">
-            <a href="https://github.com/apohor/rivolt" target="_blank" rel="noopener noreferrer" className="hover:text-neutral-200">
-              GitHub
-            </a>
-            <span className="text-neutral-700">·</span>
-            <span>MIT licensed</span>
-          </div>
-        </footer>
+        <Footer />
       </div>
       <BottomTabBar tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
     </div>

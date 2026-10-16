@@ -14,6 +14,8 @@ import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
 import { Card, ErrorBox, PageHeader } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
+import { IdleAwakeTile } from "../components/IdleAwakeTile";
+import { appPath } from "../lib/demo";
 import { PackHealthStat } from "../components/PackHealthCard";
 import {
   num,
@@ -380,11 +382,26 @@ export default function HomePage() {
                     : "no priced charges yet"
               }
             />
-            {activeVehicleID && (
-              <PackHealthStat vehicleID={activeVehicleID} />
+            {next ? (
+              <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
+            ) : (
+              activeVehicleID && <PackHealthStat vehicleID={activeVehicleID} />
             )}
           </div>
 
+          {next && sleepTrouble && (
+            <div role="status">
+            <Link
+              to={`${appPath("/truck")}#sleep`}
+              className="block rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100/90"
+            >
+              <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
+              {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two days ended
+              within a minute. Something keeps waking the car.{" "}
+              <span className="underline">See sleep on Truck</span>
+            </Link>
+            </div>
+          )}
           {locSplit.total > 0 && (
             <Card title="Charging locations">
               <LocationSplit split={locSplit} />
@@ -473,6 +490,7 @@ export default function HomePage() {
             ) : null}
           </Card>
 
+          {!next && (
           <Card title="Idle-awake time per day">
             {sleepTrouble && (
               <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
@@ -506,6 +524,7 @@ export default function HomePage() {
               </p>
             )}
           </Card>
+          )}
         </>
       )}
     </div>
