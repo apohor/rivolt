@@ -26,7 +26,9 @@ export function softwareInfo(s: Pick<VehicleState, "ota_current_version" | "ota_
   const cur = (s.ota_current_version || "").trim();
   if (!cur) return null;
   const avail = (s.ota_available_version || "").trim();
-  return { current: cur, available: avail && avail !== cur ? avail : null };
+  // The feed reports "0.0.0" (or zeros) when no update is pending.
+  const none = avail === "" || /^0+(\.0+)*$/.test(avail);
+  return { current: cur, available: !none && avail !== cur ? avail : null };
 }
 
 export type SleepSummary = {

@@ -105,14 +105,28 @@ export function formatChargeState(s: string): string {
 // True when the charge session is still in progress. The backend
 // keeps `EndedAt` updated to the last-seen sample timestamp on open
 // live sessions, so callers must NOT treat EndedAt as the real end
-// for these — show "in progress" instead. A session is active when
-// FinalState is a non-terminal `charging_*` value (the same rule
-// the Go store uses to find LatestOpenLive).
-export function isActiveCharge(c: { FinalState: string; Source?: string }): boolean {
-  const s = c.FinalState;
-  if (!s) return false;
-  if (!s.startsWith("charging_")) return false;
-  return s !== "charging_complete" && s !== "charging_station_err";
+// for these: show "in progress" instead.
+//
+// Two conditions, both required:
+//  - FinalState is one of the states the Go store treats as "still in
+//    the middle of a session" (LatestOpenLive's whitelist). The client
+//    used to blacklist two terminal states, so charging_user_stopped,
+//    charging_station_stopped, charging_scheduled and friends read as
+//    live on sessions that ended months ago.
+//  - the last-seen sample is recent. A session stuck in an open state
+//    whose recorder stopped hearing from it isn't "now".
+const OPEN_CHARGE_STATES = new Set(["charging_active", "charging_ready", "charging_connecting", "waiting_on_charger"]);
+const OPEN_CHARGE_MAX_SILENCE_MS = 30 * 60_000;
+
+export function isActiveCharge(
+  c: { FinalState: string; EndedAt?: string; Source?: string },
+  nowMs: number = Date.now(),
+): boolean {
+  if (!OPEN_CHARGE_STATES.has(c.FinalState)) return false;
+  if (!c.EndedAt) return true;
+  const end = new Date(c.EndedAt).getTime();
+  if (!Number.isFinite(end) || end <= 0) return true;
+  return nowMs - end <= OPEN_CHARGE_MAX_SILENCE_MS;
 }
 
 // The earlier ChargeMap staleness badge has been removed: it fired

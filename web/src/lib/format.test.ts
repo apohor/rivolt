@@ -64,13 +64,30 @@ describe("formatChargeState", () => {
 });
 
 describe("isActiveCharge", () => {
-  it("is true for a non-terminal charging_* state", () => {
-    expect(isActiveCharge({ FinalState: "charging_active" })).toBe(true);
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const iso = (minAgo: number) => new Date(now - minAgo * 60_000).toISOString();
+  it("is true for an open state with a recent last sample", () => {
+    expect(isActiveCharge({ FinalState: "charging_active", EndedAt: iso(1) }, now)).toBe(true);
+    expect(isActiveCharge({ FinalState: "charging_connecting", EndedAt: iso(20) }, now)).toBe(true);
+    expect(isActiveCharge({ FinalState: "charging_active" }, now)).toBe(true);
   });
-  it("is false for terminal charging states and non-charging states", () => {
-    expect(isActiveCharge({ FinalState: "charging_complete" })).toBe(false);
-    expect(isActiveCharge({ FinalState: "charging_station_err" })).toBe(false);
-    expect(isActiveCharge({ FinalState: "Complete" })).toBe(false);
-    expect(isActiveCharge({ FinalState: "" })).toBe(false);
+  it("is false for every ended state, not just two of them (prod has 97 charging_user_stopped rows)", () => {
+    for (const s of [
+      "charging_complete",
+      "charging_station_err",
+      "charging_station_error",
+      "charging_station_stopped",
+      "charging_user_stopped",
+      "charging_vehicle_error",
+      "charging_scheduled",
+      "Complete",
+      "",
+    ]) {
+      expect(isActiveCharge({ FinalState: s, EndedAt: iso(1) }, now)).toBe(false);
+    }
+  });
+  it("is false when the session is stuck open but the last sample is old", () => {
+    expect(isActiveCharge({ FinalState: "charging_active", EndedAt: iso(60) }, now)).toBe(false);
+    expect(isActiveCharge({ FinalState: "charging_ready", EndedAt: iso(3 * 24 * 60) }, now)).toBe(false);
   });
 });
