@@ -1106,3 +1106,39 @@ func TestNetworkStateSurvivesResaves(t *testing.T) {
 		t.Fatalf("confirmed then billed: source %q cost %.2f state %q", c.CostSource, c.Cost, c.NetworkState)
 	}
 }
+
+// TestSetNetworkPriceAndGet: the user's own network choice prices the
+// session (rate × energy), marks it confirmed, keeps the evidence, and
+// is scoped to the user; GetByExternalID sees the state fields.
+func TestSetNetworkPriceAndGet(t *testing.T) {
+	factory, uidA, uidB := setupEnv(t)
+	store := factory.For(uidA)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+
+	c := sampleCharge("p-1", "rv-A", start, "charging_complete")
+	c.EnergyAddedKWh = 40
+	c.CostSource, c.Network, c.NetworkState = "network_estimate", "Tesla Supercharger", "needs_confirmation"
+	c.NetworkConfidence, c.NetworkEvidence = f64p(0.5), []byte(`{"v":1}`)
+	if err := store.Upsert(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetByExternalID(ctx, "p-1")
+	if err != nil || got == nil || got.NetworkState != "needs_confirmation" || got.NetworkConfidence == nil || string(got.NetworkEvidence) == "" {
+		t.Fatalf("get = %+v, %v", got, err)
+	}
+	if other, err := factory.For(uidB).GetByExternalID(ctx, "p-1"); err != nil || other != nil {
+		t.Fatalf("another user got %+v (%v)", other, err)
+	}
+	if n, _ := factory.For(uidB).SetNetworkPrice(ctx, "p-1", "Electrify America", "USD", 0.48); n != 0 {
+		t.Fatalf("cross-user set affected %d", n)
+	}
+	if n, err := store.SetNetworkPrice(ctx, "p-1", "Electrify America", "USD", 0.48); err != nil || n != 1 {
+		t.Fatalf("set = %d (%v)", n, err)
+	}
+	got, _ = store.GetByExternalID(ctx, "p-1")
+	if got.CostSource != "user" || got.Network != "Electrify America" || got.NetworkState != "confirmed" ||
+		got.PricePerKWh != 0.48 || got.Cost < 19.19 || got.Cost > 19.21 || len(got.NetworkEvidence) == 0 {
+		t.Fatalf("after set: %+v", got)
+	}
+}

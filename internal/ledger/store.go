@@ -42,6 +42,11 @@ const pricingColumnsSQL = `
 	  AND table_name = 'charges'
 	  AND column_name IN ('cost_source', 'network')`
 
+const networkStateColumnsSQL = `SELECT count(*) = 3 FROM information_schema.columns
+	WHERE table_schema = current_schema()
+	  AND table_name = 'charges'
+	  AND column_name IN ('network_state', 'network_confidence', 'network_evidence')`
+
 func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID string, from, to time.Time) ([]Charge, error) {
 	var havePricing bool
 	if err := d.QueryRowContext(ctx, pricingColumnsSQL).Scan(&havePricing); err != nil {
@@ -51,6 +56,11 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 	if havePricing {
 		pricingCols = `c.cost_source, c.network`
 	}
+	var haveNetState bool
+	if err := d.QueryRowContext(ctx, networkStateColumnsSQL).Scan(&haveNetState); err != nil {
+		return nil, err
+	}
+	pricingCols += `, ` + networkStateCols(haveNetState)
 	rows, err := d.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -70,12 +80,18 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 	if err != nil {
 		return nil, err
 	}
+	return scanCharges(rows)
+}
+
+func scanCharges(rows *sql.Rows) ([]Charge, error) {
 	defer rows.Close()
 	var out []Charge
 	for rows.Next() {
 		var c Charge
 		var startSoC, endSoC, energy, peak, cost, ppk, lat, lon, active sql.NullFloat64
-		var costSource, network sql.NullString
+		var costSource, network, netState sql.NullString
+		var netConf sql.NullFloat64
+		var netEv []byte
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&startSoC, &endSoC,
@@ -84,9 +100,11 @@ func loadCharges(ctx context.Context, d *sql.DB, userID uuid.UUID, vehicleID str
 			&c.FinalState, &c.Source,
 			&lat, &lon, &c.CreatedAt, &active, &c.Place,
 			&costSource, &network,
+			&netState, &netConf, &netEv,
 		); err != nil {
 			return nil, err
 		}
+		c.NetworkState, c.NetworkConfidence, c.NetworkEvidence = netState.String, ptr(netConf), netEv
 		c.StartedAt, c.EndedAt, c.CreatedAt = c.StartedAt.UTC(), c.EndedAt.UTC(), c.CreatedAt.UTC()
 		c.StartSoC, c.EndSoC = ptr(startSoC), ptr(endSoC)
 		c.EnergyKWh, c.PeakKW = ptr(energy), ptr(peak)
@@ -141,4 +159,30 @@ func ptr(n sql.NullFloat64) *float64 {
 	}
 	v := n.Float64
 	return &v
+}
+
+// networkStateCols is the select list for the verify-state columns, or
+// typed NULLs on a database that hasn't applied migration 0051.
+func networkStateCols(have bool) string {
+	if have {
+		return `c.network_state, c.network_confidence::float8, c.network_evidence`
+	}
+	return `NULL::text, NULL::float8, NULL::jsonb`
+}
+
+// CountToConfirm counts the user's auto-detected charges still open
+// for verification, across all time and vehicles: open is both open
+// states, attention only needs_confirmation. Zero on a database
+// without migration 0051.
+func CountToConfirm(ctx context.Context, d *sql.DB, userID uuid.UUID) (open, attention int, err error) {
+	var have bool
+	if err := d.QueryRowContext(ctx, networkStateColumnsSQL).Scan(&have); err != nil || !have {
+		return 0, 0, err
+	}
+	err = d.QueryRowContext(ctx, `
+		SELECT count(*), count(*) FILTER (WHERE network_state = 'needs_confirmation')
+		FROM charges
+		WHERE user_id = $1 AND network_state IN ('estimated', 'needs_confirmation')`,
+		userID).Scan(&open, &attention)
+	return open, attention, err
 }

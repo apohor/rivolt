@@ -790,6 +790,22 @@ func runServer() {
 					if !c.EndedAt.After(c.StartedAt) {
 						return
 					}
+					// A DC fast charge auto-priced under dcfc_auto_network
+					// gets the confirm-or-change prompt instead of the
+					// generic "charging complete" push (one push per
+					// charge; rate limited per user).
+					if flagsStore != nil && flagsStore.DCFCAutoNetwork().Enabled(uid.String()) {
+						if e, ok := networkConfirmFor(c); ok {
+							pending := 0
+							if cs := chargesFactory.For(uid); cs != nil {
+								pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+								pending, _, _ = cs.NetworkToConfirm(pctx)
+								cancel()
+							}
+							pushSvc.NotifyNetworkConfirm(userStore, uid.String(), e, pending)
+							return
+						}
+					}
 					summary := fmt.Sprintf(
 						"Ended at %d%% · %.1f kWh added",
 						int(c.EndSoCPct), c.EnergyAddedKWh,

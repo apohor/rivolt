@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/analytics"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
@@ -28,34 +29,41 @@ func handleCharges(store *charges.Store, settingsStore *settings.Store) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)
-		home, _ := settings.GetHomeLocation(r.Context(), settingsStore)
-		homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
-		// Without the user's charging settings (home rate, home
-		// location) the classification would be wrong (home-rate rows
-		// read as billed, every place unknown), so leave it out.
-		lcfg, cerr := ledgerConfig(r.Context(), settingsStore)
-		var classes []ledger.Classification
-		if cerr == nil {
-			rows := make([]ledger.Charge, len(out))
-			for i, c := range out {
-				rows[i] = ledger.FromCharge(c)
-			}
-			classes = ledger.ClassifyAll(rows, lcfg)
-		}
-		decorated := make([]chargeResponse, 0, len(out))
-		for i, c := range out {
-			resp := decorateCharge(c, cfg, homeLookup)
-			if classes != nil {
-				cl := classes[i]
-				resp.Classification = &cl
-			} else {
-				resp.ClassificationUnavailable = true
-			}
-			decorated = append(decorated, resp)
-		}
+		decorated := decorateCharges(r.Context(), out, settingsStore)
 		writeJSON(w, http.StatusOK, decorated)
 	}
+}
+
+// decorateCharges turns stored charges into their wire shape: the
+// classification the Money tab uses plus the legacy local estimate.
+func decorateCharges(ctx context.Context, out []charges.Charge, settingsStore *settings.Store) []chargeResponse {
+	cfg, _ := settings.GetChargingConfig(ctx, settingsStore)
+	home, _ := settings.GetHomeLocation(ctx, settingsStore)
+	homeLookup := func() (float64, float64, bool) { return home.Latitude, home.Longitude, home.Set }
+	// Without the user's charging settings (home rate, home
+	// location) the classification would be wrong (home-rate rows
+	// read as billed, every place unknown), so leave it out.
+	lcfg, cerr := ledgerConfig(ctx, settingsStore)
+	var classes []ledger.Classification
+	if cerr == nil {
+		rows := make([]ledger.Charge, len(out))
+		for i, c := range out {
+			rows[i] = ledger.FromCharge(c)
+		}
+		classes = ledger.ClassifyAll(rows, lcfg)
+	}
+	decorated := make([]chargeResponse, 0, len(out))
+	for i, c := range out {
+		resp := decorateCharge(c, cfg, homeLookup)
+		if classes != nil {
+			cl := classes[i]
+			resp.Classification = &cl
+		} else {
+			resp.ClassificationUnavailable = true
+		}
+		decorated = append(decorated, resp)
+	}
+	return decorated
 }
 
 // handleDeleteCharge removes a single charge row by external ID,
@@ -91,6 +99,7 @@ func handleDeleteCharge(store *charges.Store) http.HandlerFunc {
 type chargePricer interface {
 	UpdatePricing(ctx context.Context, externalID string, cost float64, currency string, pricePerKWh float64) (int64, error)
 	MarkFree(ctx context.Context, externalID, currency string) (int64, error)
+	SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error)
 }
 
 // handlePatchChargePricing accepts {cost?, currency?, price_per_kwh?}
@@ -100,17 +109,33 @@ type chargePricer interface {
 // next read. {"free": true[, "currency"]} instead records an explicit
 // $0 price (cost_source=user), which a zero cost can't express because
 // zero means "clear". Returns 204/404/400/500.
-func handlePatchChargePricing(store *charges.Store) http.HandlerFunc {
+func handlePatchChargePricing(store *charges.Store, settingsStore *settings.Store) http.HandlerFunc {
 	if store == nil {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "charges disabled", http.StatusServiceUnavailable)
 		}
 	}
-	return patchChargePricing(store)
+	return patchChargePricing(store, func(ctx context.Context) []dcfcrates.NetworkOverride {
+		if settingsStore == nil {
+			return nil
+		}
+		nets, err := settings.GetChargingNetworks(ctx, settingsStore)
+		if err != nil {
+			return nil
+		}
+		return settings.AsOverrides(nets)
+	})
 }
 
-func patchChargePricing(store chargePricer) http.HandlerFunc {
+// networkCurrency is the currency network rates are quoted in (the
+// DCFC rate table is USD; same as the close-time pricer).
+const networkCurrency = "USD"
+
+func patchChargePricing(store chargePricer, overrides func(context.Context) []dcfcrates.NetworkOverride) http.HandlerFunc {
 	type body struct {
+		// NetworkSlug re-prices at the user's rate for that network
+		// (price book override, member rate if active, else guest).
+		NetworkSlug *string  `json:"network_slug"`
 		Cost        *float64 `json:"cost"`
 		Currency    *string  `json:"currency"`
 		PricePerKWh *float64 `json:"price_per_kwh"`
@@ -125,6 +150,32 @@ func patchChargePricing(store chargePricer) http.HandlerFunc {
 		var b body
 		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if b.NetworkSlug != nil {
+			if b.Cost != nil || b.PricePerKWh != nil || (b.Free != nil && *b.Free) {
+				http.Error(w, "network_slug cannot be combined with cost, price_per_kwh or free", http.StatusBadRequest)
+				return
+			}
+			var ov []dcfcrates.NetworkOverride
+			if overrides != nil {
+				ov = overrides(r.Context())
+			}
+			rr, ok := dcfcrates.ResolveRateBySlug(strings.TrimSpace(*b.NetworkSlug), ov)
+			if !ok || rr.UserRate <= 0 {
+				http.Error(w, "unknown network or no rate for it", http.StatusBadRequest)
+				return
+			}
+			n, err := store.SetNetworkPrice(r.Context(), id, rr.DisplayName, networkCurrency, rr.UserRate)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if n == 0 {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		var cost, ppk float64
@@ -167,6 +218,63 @@ func patchChargePricing(store chargePricer) http.HandlerFunc {
 	}
 }
 
+// networkConfirmer is the slice of *charges.Store the confirm handler
+// uses.
+type networkConfirmer interface {
+	ConfirmNetwork(ctx context.Context, externalID string) (int64, error)
+	GetByExternalID(ctx context.Context, externalID string) (*charges.Charge, error)
+}
+
+// handleConfirmChargeNetwork serves POST /api/charges/{id}/pricing/confirm:
+// the user agrees with the auto-detected network. 200 with the charge;
+// idempotent (an already-confirmed estimate answers 200 again); 409 when
+// there is no estimate to confirm (user-priced, Rivian-billed, or nothing
+// matched); 404 for an unknown charge.
+func handleConfirmChargeNetwork(store networkConfirmer, settingsStore *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(chi.URLParam(r, "id"))
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		n, err := store.ConfirmNetwork(r.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		c, err := store.GetByExternalID(r.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if c == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if n == 0 && c.NetworkState != "confirmed" {
+			http.Error(w, "no auto-detected network estimate to confirm", http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0])
+	}
+}
+
+// handleGetCharge serves GET /api/charges/{id}.
+func handleGetCharge(store networkConfirmer, settingsStore *settings.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := store.GetByExternalID(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if c == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore)[0])
+	}
+}
+
 // chargeResponse is the wire shape for /api/charges: the stored
 // charge row plus a locally-computed estimated cost when the
 // user has set a home $/kWh rate. Cost is only attached when
@@ -182,10 +290,24 @@ type chargeResponse struct {
 	ClassificationUnavailable bool    `json:"classification_unavailable,omitempty"`
 	EstimatedCost             float64 `json:"estimated_cost,omitempty"`
 	EstimatedCurrency         string  `json:"estimated_currency,omitempty"`
+	// DC fast charge auto-detection's verify record (contract v1):
+	// null unless the charge was auto-detected. Snake-case twins of
+	// the embedded Charge's NetworkState/-Confidence/-Evidence.
+	NetworkStateOut      *string         `json:"network_state"`
+	NetworkConfidenceOut *float64        `json:"network_confidence"`
+	NetworkEvidenceOut   json.RawMessage `json:"network_evidence"`
 }
 
 func decorateCharge(c charges.Charge, cfg settings.ChargingConfig, home rivian.HomeLookup) chargeResponse {
-	resp := chargeResponse{Charge: c}
+	resp := chargeResponse{Charge: c, NetworkEvidenceOut: json.RawMessage("null")}
+	if c.NetworkState != "" {
+		st := c.NetworkState
+		resp.NetworkStateOut = &st
+		resp.NetworkConfidenceOut = c.NetworkConfidence
+		if len(c.NetworkEvidence) > 0 {
+			resp.NetworkEvidenceOut = c.NetworkEvidence
+		}
+	}
 	// Persisted cost wins: it was snapshotted at the rate in effect
 	// when the session closed. Only fall back to the current rate
 	// for legacy rows (imports, pre-v0.3.29 live) that have no

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,10 +37,18 @@ func (f *fakePricer) MarkFree(_ context.Context, id, cur string) (int64, error) 
 	return 1, nil
 }
 
+func (f *fakePricer) SetNetworkPrice(_ context.Context, id, network, cur string, ppk float64) (int64, error) {
+	f.calls = append(f.calls, fmt.Sprintf("network:%s:%s:%s:%.2f", id, network, cur, ppk))
+	if !f.found {
+		return 0, nil
+	}
+	return 1, nil
+}
+
 func patchPricing(t *testing.T, p chargePricer, body string) int {
 	t.Helper()
 	r := chi.NewRouter()
-	r.Patch("/charges/{id}/pricing", patchChargePricing(p))
+	r.Patch("/charges/{id}/pricing", patchChargePricing(p, nil))
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/charges/c-1/pricing", strings.NewReader(body)))
 	return rec.Code
@@ -79,7 +88,7 @@ func TestPatchChargePricing_Free(t *testing.T) {
 func handlePatchChargePricingStatus(t *testing.T) int {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handlePatchChargePricing(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(`{}`)))
+	handlePatchChargePricing(nil, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/", strings.NewReader(`{}`)))
 	return rec.Code
 }
 

@@ -818,7 +818,23 @@ func New(d Deps) http.Handler {
 				handleUndoRestamp(restamperFor(d, uid))(w, r)
 			}))
 			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handlePatchChargePricing(d.Charges.For(uid))(w, r)
+				handlePatchChargePricing(d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
+			r.Post("/charges/{id}/pricing/confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				st := d.Charges.For(uid)
+				if st == nil {
+					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+					return
+				}
+				handleConfirmChargeNetwork(st, d.Settings.For(uid))(w, r)
+			}))
+			r.Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				st := d.Charges.For(uid)
+				if st == nil {
+					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+					return
+				}
+				handleGetCharge(st, d.Settings.For(uid))(w, r)
 			}))
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)

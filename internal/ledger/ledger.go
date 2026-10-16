@@ -18,6 +18,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -124,6 +125,12 @@ type Charge struct {
 	// Network is charges.network (e.g. "Electrify America") for
 	// network-estimated sessions; "" when unknown.
 	Network string
+	// NetworkState/-Confidence/-Evidence are DC fast charge
+	// auto-detection's verify record (migration 0051); empty/nil when
+	// the charge wasn't auto-detected.
+	NetworkState      string
+	NetworkConfidence *float64
+	NetworkEvidence   json.RawMessage
 }
 
 // Drive is the projection of a drives row the ledger needs.
@@ -301,27 +308,33 @@ type Driving struct {
 
 // Receipt is one plug-in: consecutive charges with no drive between.
 type Receipt struct {
-	ReceiptID        string           `json:"receipt_id"`
-	VehicleID        string           `json:"vehicle_id"`
-	Kind             string           `json:"kind"`
-	Place            string           `json:"place"`
-	KMFromHome       *float64         `json:"km_from_home"`
-	StartedAt        time.Time        `json:"started_at"`
-	EndedAt          time.Time        `json:"ended_at"`
-	LocalDate        string           `json:"local_date"`
-	SpansDays        int              `json:"spans_days"`
-	SoCStart         *float64         `json:"soc_start"`
-	SoCEnd           *float64         `json:"soc_end"`
-	KWh              float64          `json:"kwh"`
-	PeakKW           *float64         `json:"peak_kw"`
-	Cost             *float64         `json:"cost"`
-	CostSource       string           `json:"cost_source"`
-	Network          *string          `json:"network"`
-	Rate             *float64         `json:"rate"`
-	SessionCount     int              `json:"session_count"`
-	UnpricedSessions int              `json:"unpriced_sessions"`
-	Flags            []string         `json:"flags"`
-	Sessions         []ReceiptSession `json:"sessions"`
+	ReceiptID  string    `json:"receipt_id"`
+	VehicleID  string    `json:"vehicle_id"`
+	Kind       string    `json:"kind"`
+	Place      string    `json:"place"`
+	KMFromHome *float64  `json:"km_from_home"`
+	StartedAt  time.Time `json:"started_at"`
+	EndedAt    time.Time `json:"ended_at"`
+	LocalDate  string    `json:"local_date"`
+	SpansDays  int       `json:"spans_days"`
+	SoCStart   *float64  `json:"soc_start"`
+	SoCEnd     *float64  `json:"soc_end"`
+	KWh        float64   `json:"kwh"`
+	PeakKW     *float64  `json:"peak_kw"`
+	Cost       *float64  `json:"cost"`
+	CostSource string    `json:"cost_source"`
+	Network    *string   `json:"network"`
+	// NetworkState is the most urgent verify state among the receipt's
+	// sessions (needs_confirmation > estimated > confirmed); the
+	// confidence and evidence are that session's. null when none.
+	NetworkState      *string          `json:"network_state"`
+	NetworkConfidence *float64         `json:"network_confidence"`
+	NetworkEvidence   json.RawMessage  `json:"network_evidence"`
+	Rate              *float64         `json:"rate"`
+	SessionCount      int              `json:"session_count"`
+	UnpricedSessions  int              `json:"unpriced_sessions"`
+	Flags             []string         `json:"flags"`
+	Sessions          []ReceiptSession `json:"sessions"`
 }
 
 // ReceiptSession is one charge inside a receipt.
@@ -338,13 +351,16 @@ type ReceiptSession struct {
 	CostSource  string    `json:"cost_source"`
 	// CostSourceDerived is true when cost_source was derived at query
 	// time (legacy row) rather than persisted by the recorder.
-	CostSourceDerived bool     `json:"cost_source_derived"`
-	Network           *string  `json:"network"`
-	Kind              string   `json:"kind"`
-	Place             string   `json:"place"`
-	FinalState        string   `json:"final_state"`
-	Source            string   `json:"source"`
-	Flags             []string `json:"flags"`
+	CostSourceDerived bool            `json:"cost_source_derived"`
+	Network           *string         `json:"network"`
+	NetworkState      *string         `json:"network_state"`
+	NetworkConfidence *float64        `json:"network_confidence"`
+	NetworkEvidence   json.RawMessage `json:"network_evidence"`
+	Kind              string          `json:"kind"`
+	Place             string          `json:"place"`
+	FinalState        string          `json:"final_state"`
+	Source            string          `json:"source"`
+	Flags             []string        `json:"flags"`
 }
 
 // DataQuality carries the counts behind the Money tab's quality notes.
@@ -559,6 +575,43 @@ func networkOf(c Charge) *string {
 	return nil
 }
 
+func networkStateOf(c Charge) *string {
+	if c.NetworkState == "" {
+		return nil
+	}
+	st := c.NetworkState
+	return &st
+}
+
+// evidenceOf returns the charge's detection evidence, or JSON null so
+// the field is always present in receipts.
+func evidenceOf(c Charge) json.RawMessage {
+	if len(c.NetworkEvidence) == 0 {
+		return json.RawMessage("null")
+	}
+	return c.NetworkEvidence
+}
+
+func val2s(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// stateRank orders verify states by how much attention they need.
+func stateRank(s string) int {
+	switch s {
+	case "needs_confirmation":
+		return 3
+	case "estimated":
+		return 2
+	case "confirmed":
+		return 1
+	}
+	return 0
+}
+
 // isDCFC is the recorder's rule (rivian.IsDCFCSession): peak ≥ 50 kW AND
 // energy over active (else wall) time ≥ 20 kW, so one glitched peak
 // sample on a long home session doesn't make it a fast charge.
@@ -746,6 +799,7 @@ func FromCharge(c charges.Charge) Charge {
 		Lat: opt(c.Lat), Lon: opt(c.Lon),
 		ActiveSeconds: opt(c.ActiveSeconds),
 		Place:         c.Place, CostSource: c.CostSource, Network: c.Network,
+		NetworkState: c.NetworkState, NetworkConfidence: c.NetworkConfidence, NetworkEvidence: c.NetworkEvidence,
 	}
 	if strings.EqualFold(c.CostSource, SourceUser) {
 		cost := c.Cost
@@ -1049,6 +1103,9 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 		if r.Network == nil {
 			r.Network = networkOf(c)
 		}
+		if st := networkStateOf(c); st != nil && stateRank(*st) > stateRank(val2s(r.NetworkState)) {
+			r.NetworkState, r.NetworkConfidence, r.NetworkEvidence = st, c.NetworkConfidence, evidenceOf(c)
+		}
 		r.Sessions = append(r.Sessions, ReceiptSession{
 			ChargeID:          c.ID,
 			StartedAt:         c.StartedAt.UTC(),
@@ -1062,6 +1119,9 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			CostSource:        v.source,
 			CostSourceDerived: v.derived,
 			Network:           networkOf(c),
+			NetworkState:      networkStateOf(c),
+			NetworkConfidence: c.NetworkConfidence,
+			NetworkEvidence:   evidenceOf(c),
 			Kind:              v.kind,
 			Place:             v.place,
 			FinalState:        c.FinalState,

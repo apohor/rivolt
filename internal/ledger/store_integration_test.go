@@ -166,3 +166,46 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 		t.Errorf("built from DB rows: spend %+v energy %+v", m.Spend, m.Energy)
 	}
 }
+
+func TestToConfirm_CountsAndIsolation(t *testing.T) {
+	pool := openPG(t)
+	ctx := context.Background()
+	alice, err := db.EnsureUser(ctx, pool, "confirm-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := db.EnsureUser(ctx, pool, "confirm-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	va := vehicle(t, pool, alice, "rv-a")
+	vb := vehicle(t, pool, bob, "rv-b")
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	ins := func(uid, veh uuid.UUID, id string, at time.Time, state any, source any) {
+		mustExec(t, pool, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source,
+			energy_added_kwh, max_power_kw, cost, price_per_kwh, cost_source, network, network_state, network_confidence, network_evidence)
+			VALUES ($1,$2,$3,$4,$5,'live',40,150,16,0.4,$7,'Tesla Supercharger',$6,0.7,'{"v":1}')`,
+			uid, veh, id, at, at.Add(30*time.Minute), state, source)
+	}
+	// Months apart: the count and list are all-time.
+	ins(alice, va, "a-est", base, "estimated", "network_estimate")
+	ins(alice, va, "a-need", base.AddDate(0, 5, 0), "needs_confirmation", "network_estimate")
+	ins(alice, va, "a-conf", base.AddDate(0, 2, 0), "confirmed", "network_estimate")
+	ins(alice, va, "a-plain", base.AddDate(0, 3, 0), nil, "rivian")
+	ins(bob, vb, "b-need", base, "needs_confirmation", "network_estimate")
+
+	open, attention, err := ledger.CountToConfirm(ctx, pool, alice)
+	if err != nil || open != 2 || attention != 1 {
+		t.Errorf("counts = %d/%d, %v; want 2/1", open, attention, err)
+	}
+	// The window loader carries the same fields.
+	p, _ := ledger.ParsePeriod("2026-03", time.UTC)
+	from, to := ledger.LoadWindow(p)
+	win, _, err := ledger.Load(ctx, pool, alice, "", from, to)
+	if err != nil || len(win) != 1 || win[0].NetworkState != "estimated" {
+		t.Errorf("window = %+v, %v", win, err)
+	}
+	if n, _, err := ledger.CountToConfirm(ctx, pool, bob); err != nil || n != 1 {
+		t.Errorf("bob = %d, %v", n, err)
+	}
+}

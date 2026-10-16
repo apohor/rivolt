@@ -54,6 +54,9 @@ type ledgerAPI struct {
 	owns   func(ctx context.Context, uid uuid.UUID, vehicleID string) (bool, error)
 	config func(ctx context.Context, uid uuid.UUID) (ledger.Config, error)
 	now    func() time.Time
+	// toConfirmCount counts the user's open verify-state charges; nil
+	// leaves the summary counts at zero.
+	toConfirmCount func(ctx context.Context, uid uuid.UUID) (open, attention int, err error)
 }
 
 // newLedgerAPI wires the production seams: read-only queries on the
@@ -75,6 +78,9 @@ func newLedgerAPI(pool *sql.DB, settingsF *settings.Factory) ledgerAPI {
 			return ledgerConfig(ctx, store)
 		},
 		now: time.Now,
+		toConfirmCount: func(ctx context.Context, uid uuid.UUID) (int, int, error) {
+			return ledger.CountToConfirm(ctx, pool, uid)
+		},
 	}
 }
 
@@ -186,6 +192,11 @@ type ledgerSummaryResponse struct {
 	TZ       string                `json:"tz"`
 	Currency string                `json:"currency"`
 	Months   []ledger.MonthSummary `json:"months"`
+	// ToConfirmCount / NeedsAttentionCount are all-time and user-wide
+	// (not windowed by months or vehicle): charges whose auto-detected
+	// DC fast charge network is still open for verification.
+	ToConfirmCount      int `json:"to_confirm_count"`
+	NeedsAttentionCount int `json:"needs_attention_count"`
 }
 
 // summary serves GET /api/ledger/summary?months=N[&tz][&vehicle_id]:
@@ -215,6 +226,14 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		m := ledger.Build(in, period, false)
 		stamp(&m, p)
 		out.Months = append(out.Months, ledger.MonthSummary{Monthly: m})
+	}
+	if a.toConfirmCount != nil {
+		open, attention, err := a.toConfirmCount(r.Context(), uid)
+		if err != nil {
+			http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out.ToConfirmCount, out.NeedsAttentionCount = open, attention
 	}
 	writeJSON(w, http.StatusOK, out)
 }
