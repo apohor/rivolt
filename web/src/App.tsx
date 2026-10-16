@@ -1,9 +1,9 @@
 import { useLandingGate } from "./lib/landingGate";
 import { lazy, Suspense } from "react";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
-import { useTripPlannerEnabled } from "./lib/config";
+import { useDemoOnly, useTripPlannerEnabled } from "./lib/config";
 import { useMoneyTabEnabled } from "./lib/ledger";
 import { pageLoaders } from "./lib/pageLoaders";
 
@@ -63,10 +63,14 @@ function ActivityGuard() {
 
 export default function App() {
   const location = useLocation();
+  // The standalone demo deployment (features.demo_only): everything outside
+  // /demo (landing, login, signup, onboarding, the app routes) goes to /demo.
+  const demoOnly = useDemoOnly();
   // Signed-out visitors at "/" see the landing page when the install
   // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
-  const landing = useLandingGate(location.pathname);
-  if (landing === "loading") return <div className="p-4"><Spinner /></div>;
+  const landing = useLandingGate(demoOnly.only ? "/demo" : location.pathname);
+  if (demoOnly.loading || landing === "loading") return <div className="p-4"><Spinner /></div>;
+  if (demoOnly.only && !location.pathname.startsWith("/demo")) return <Navigate to="/demo" replace />;
   if (landing === "landing") {
     return (
       <Suspense fallback={<div className="p-4"><Spinner /></div>}>

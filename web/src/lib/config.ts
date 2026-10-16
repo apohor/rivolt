@@ -67,6 +67,13 @@ export type RuntimeConfig = {
     // eventsEnabled mirrors RIVOLT_EVENTS: track() sends nothing unless
     // true (first-party product events, instrumentation.md).
     eventsEnabled: boolean;
+    // demoOnly: this deployment is the public sample-truck demo (no
+    // sign-in, no Rivian): "/" lands on /demo, auth routes redirect there
+    // and every sign-in CTA points at appUrl.
+    demoOnly: boolean;
+    // appUrl: origin of the real app (e.g. "https://rivolt.dev") for demo
+    // CTAs. Empty means same-origin routes.
+    appUrl: string;
   };
   grafana: {
     // baseUrl is the operator's Grafana origin (e.g.
@@ -101,7 +108,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, appUrl: "" },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -120,7 +127,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; app_url?: string };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -139,6 +146,8 @@ async function loadConfig(): Promise<RuntimeConfig> {
         demoEnabled: !!j?.features?.demo_enabled,
         signupEnabled: j?.features?.signup_enabled !== false,
         eventsEnabled: j?.features?.events_enabled === true,
+        demoOnly: j?.features?.demo_only === true,
+        appUrl: (j?.features?.app_url ?? "").replace(/\/+$/, ""),
       },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
       booking: { affiliateId: j?.booking?.affiliate_id ?? "" },
@@ -352,3 +361,38 @@ export function useImpersonationDisabled(): boolean {
 // it's almost certainly resolved by the time any drive map tries
 // to call snapToRoads.
 void ensureConfig();
+
+// useDemoOnly resolves {loading, only}: whether this deployment is the
+// public demo (features.demo_only). Callers wait for loading to finish
+// before deciding where "/" goes.
+export function useDemoOnly(): { loading: boolean; only: boolean } {
+  const [state, setState] = useState<{ loading: boolean; only: boolean }>({
+    loading: cached === fallback,
+    only: cached.features.demoOnly,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setState({ loading: false, only: c.features.demoOnly });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
+// useAppUrl is the origin demo CTAs should send visitors to ("" = same origin).
+export function useAppUrl(): string {
+  const [url, setUrl] = useState<string>(cached.features.appUrl);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setUrl(c.features.appUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return url;
+}

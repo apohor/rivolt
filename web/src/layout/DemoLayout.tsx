@@ -5,7 +5,7 @@ import { backend } from "../lib/api";
 import { useSystemTheme } from "../lib/theme";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import Logo from "../components/Logo";
-import { DemoBanner } from "../components/DemoBanner";
+import { ConnectLink, DemoBanner } from "../components/DemoBanner";
 import { Spinner } from "../components/ui";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
@@ -36,9 +36,9 @@ export default function DemoLayout() {
     return (
       <div className="mx-auto max-w-md p-6 text-center">
         <p className="text-sm text-neutral-300">The demo isn&apos;t available on this server.</p>
-        <Link to="/login" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+        <ConnectLink kind="login" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
           Sign in
-        </Link>
+        </ConnectLink>
       </div>
     );
   }
