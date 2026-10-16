@@ -2567,7 +2567,7 @@ function RouteCard({
       <div className="min-w-0">
         <p className="ui-label">Trip cost</p>
         <p
-          className="ui-mono text-3xl font-semibold leading-none tabular-nums text-neutral-100"
+          className="text-3xl font-semibold leading-none tabular-nums text-neutral-100"
           title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
         >
           {totalGuest > 0 ? fmtCurrency(totalGuest) : "No fast charging"}
@@ -2576,12 +2576,12 @@ function RouteCard({
           <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs">
             {userSavings > 0.5 && (
               <span className="text-emerald-400" title="With your active memberships (Settings → Charging networks).">
-                <span className="ui-mono">{fmtCurrency(totalUser)}</span> with memberships
+                <span className="tabular-nums">{fmtCurrency(totalUser)}</span> with memberships
               </span>
             )}
             {gasEquiv > 0.5 && (
               <span className="text-neutral-400" title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal.`}>
-                <span className="ui-mono">{fmtCurrency(gasEquiv)}</span> in gas
+                <span className="tabular-nums">{fmtCurrency(gasEquiv)}</span> in gas
               </span>
             )}
           </p>
@@ -2590,19 +2590,19 @@ function RouteCard({
       <dl className="grid w-full grid-cols-2 gap-x-6 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
         <div>
           <dt className="ui-label">Time</dt>
-          <dd className="ui-mono text-base text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          <dd className="text-lg font-medium tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
-          <dd className="ui-mono text-base text-neutral-100">{arriveAt || "—"}</dd>
+          <dd className="text-lg font-medium tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="ui-mono text-base text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
+          <dd className="text-lg font-medium tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>
-          <dd className="ui-mono text-base text-neutral-100">
+          <dd className="text-lg font-medium tabular-nums text-neutral-100">
             {charging.length > 0 ? `${charging.length} · ${totalChargeMin} min` : "none"}
           </dd>
         </div>
@@ -2709,7 +2709,7 @@ function RouteCard({
       {expanded && (
       <>
       {next && hero}
-      <div className="mb-4">
+      <div className="mb-4" data-plan-map={next ? "" : undefined}>
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap
             route={route}

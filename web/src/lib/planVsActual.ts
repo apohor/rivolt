@@ -46,6 +46,9 @@ export type Row = {
   label: string;
   planned: string | null;
   actual: string | null;
+  // Raw numbers for bars; null when a side is unknown or the cost is incomplete.
+  plannedN: number | null;
+  actualN: number | null;
   deltaText: string | null;
   // "good" = cheaper/quicker is just fine; "watch" = more cost/time.
   // Stops and arrival battery are neutral: an extra stop isn't a fault.
@@ -181,6 +184,8 @@ export function rows(c: NonNullable<PlanVsActual["comparison"]>): Row[] {
       planned: fmt(m, m.planned, c.currency),
       // An incomplete cost is never shown as "the actual".
       actual: incomplete ? null : fmt(m, m.actual, c.currency),
+      plannedN: m.planned,
+      actualN: incomplete ? null : m.actual,
       deltaText: incomplete ? null : deltaText(m, c.currency),
       tone: incomplete ? "neutral" : toneOf(m),
       estimated,
