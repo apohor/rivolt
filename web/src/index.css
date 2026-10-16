@@ -937,3 +937,14 @@ html[data-ui='next'] [data-plan-map] .leaflet-container {
   border-radius: 0;
   border-inline-width: 0;
 }
+/* Glass bars: nearly solid, so nothing reads through behind the tab bar. */
+html[data-ui='next']:not([data-theme='light']) header.sticky,
+html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed,
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262 / 0.97);
+}
+html[data-ui='next'][data-theme='light'] header.sticky,
+html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed,
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(99% 0 0 / 0.97);
+}
