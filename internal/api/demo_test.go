@@ -573,6 +573,21 @@ func TestDemoClientKeyTrustsCFHeaderOnlyFromCloudflare(t *testing.T) {
 	if got := key("203.0.113.9:4000", "", "198.51.100.8"); got != "203.0.113.9" {
 		t.Errorf("direct: %q", got)
 	}
+	// Our own load balancer hop (private peer, as svclb/Traefik report
+	// it): the header is honoured, from XFF or the connection address.
+	if got := key("10.42.0.7:1", "10.42.0.172", "198.51.100.8"); got != "198.51.100.8" {
+		t.Errorf("private lb peer via xff: %q", got)
+	}
+	if got := key("10.42.0.172:1", "", "198.51.100.8"); got != "198.51.100.8" {
+		t.Errorf("private lb peer direct: %q", got)
+	}
+	if got := key("10.42.0.172:1", "", ""); got != "10.42.0.172" {
+		t.Errorf("private peer, no header: %q", got)
+	}
+	// A public non-Cloudflare peer is still not believed.
+	if got := key("10.42.0.172:1", "198.51.100.99", "198.51.100.8"); got != "198.51.100.99" {
+		t.Errorf("public non-cf peer: %q", got)
+	}
 	// Cloudflare peer but a garbage CF-Connecting-IP: fall back to the peer.
 	if got := key("10.42.0.7:1", "173.245.48.5", "not-an-ip"); got != "173.245.48.5" {
 		t.Errorf("bad cf header: %q", got)
@@ -758,7 +773,8 @@ func TestDemoClientKeyObserverCountsSource(t *testing.T) {
 	mk("173.245.48.5:1", "198.51.100.8")
 	mk("203.0.113.9:1", "198.51.100.8")
 	mk("173.245.48.5:1", "garbage")
-	if len(got) != 3 || got[0] != "cf" || got[1] != "peer" || got[2] != "peer" {
+	mk("10.42.0.172:1", "198.51.100.8")
+	if len(got) != 4 || got[0] != "cf" || got[1] != "peer" || got[2] != "peer" || got[3] != "lb" {
 		t.Errorf("sources = %v", got)
 	}
 }

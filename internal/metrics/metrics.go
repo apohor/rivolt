@@ -99,10 +99,11 @@ type Metrics struct {
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
 
 	// Demo rate-limit bucket keys by source: "cf" when the direct peer
-	// is a Cloudflare edge address and CF-Connecting-IP was used, "peer"
-	// when the peer address itself was the key. A "peer" share on a
-	// Cloudflare-fronted install means the proxy hop is not seeing
-	// Cloudflare (every visitor would then share one bucket).
+	// is a Cloudflare edge address and CF-Connecting-IP was used, "lb"
+	// when it is our own private load-balancer hop and the header was
+	// used, "peer" when the peer address itself was the key. A high
+	// "peer" share on a Cloudflare-fronted install means visitors are
+	// sharing buckets.
 	DemoClientKeyTotal *prometheus.CounterVec
 }
 
@@ -198,7 +199,7 @@ func New() *Metrics {
 		DemoClientKeyTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_demo_client_key_total",
-				Help: "Demo rate-limit client keys, by source (cf = CF-Connecting-IP from a Cloudflare peer, peer = the peer address).",
+				Help: "Demo rate-limit client keys, by source (cf/lb = CF-Connecting-IP trusted from a Cloudflare/private peer, peer = the peer address).",
 			},
 			[]string{"source"},
 		),

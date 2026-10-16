@@ -60,20 +60,44 @@ func directPeer(r *http.Request) string {
 }
 
 // demoClientKey keys the per-client rate-limit bucket. CF-Connecting-IP
-// is honoured only when the direct peer is a Cloudflare edge address:
-// the origin is not provably reachable only through Cloudflare, so
-// anyone else could set the header to dodge the limit. Anything else
-// is keyed on the peer address itself.
+// is honoured when the direct peer is a Cloudflare edge address, or a
+// private address: in our cluster the load balancer hop (klipper-lb /
+// Traefik) masquerades, so the peer Traefik reports is always our own
+// private LB address, never Cloudflare's. A PUBLIC non-Cloudflare peer
+// cannot vouch for the header, so it is ignored and the peer address is
+// the key.
+//
+// Residual risk, accepted: someone reaching the origin directly is
+// SNATed to the same private address and could set the header to pick
+// their own bucket. The install-wide budgets bound that, as they do for
+// everything else here. The real fix is outside the app (no SNAT, or
+// Cloudflare Authenticated Origin Pulls).
 func demoClientKey(r *http.Request) string {
 	peer := directPeer(r)
-	if pa, err := netip.ParseAddr(peer); err == nil && inCloudflare(pa) {
-		if ip, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); err == nil {
-			observeDemoClientKey("cf")
-			return ip.Unmap().String()
+	if pa, err := netip.ParseAddr(peer); err == nil {
+		source := ""
+		switch {
+		case inCloudflare(pa):
+			source = "cf"
+		case isPrivatePeer(pa):
+			source = "lb"
+		}
+		if source != "" {
+			if ip, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); err == nil {
+				observeDemoClientKey(source)
+				return ip.Unmap().String()
+			}
 		}
 	}
 	observeDemoClientKey("peer")
 	return peer
+}
+
+// isPrivatePeer reports whether a is a private-range or loopback
+// address: 10/8, 172.16/12, 192.168/16, fc00::/7, 127/8, ::1.
+func isPrivatePeer(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsPrivate() || a.IsLoopback()
 }
 
 // demoClientKeyObserver, when set (once, at startup, before serving),
