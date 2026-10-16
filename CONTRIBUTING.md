@@ -10,7 +10,16 @@ Thanks for your interest. Rivolt is early-stage and moving fast, so contributor 
 
 ## Local setup
 
-See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+Go: `go test ./internal/<package>/...` for the package you changed. Web: `cd web && npm ci && npm run dev` (Vite dev server), `npm run lint`, and `npx vitest run <files>`.
+
+## Web changes and e2e
+
+- **No stacked PRs.** One PR off `main`; CI only runs against `main`, so a stacked branch gets no checks.
+- Unit tests: `cd web && npx vitest run <the files you changed>`.
+- Playwright locally: build once (`npm run build`; the specs run against `vite preview`), then run only the spec you changed, one worker: `npx playwright test <spec> --project=chromium --workers=1`. Don't run the whole suite on a laptop; CI does.
+- CI (`e2e` job, web PRs only) runs the `ui-next-*` specs on three Chromium shards plus one WebKit shard (the iPhone Safari engine, phone specs), and a `legacy` suite (every other spec, flag off) on two shards. **`e2e-ok` is the required check**; it is green when the matrix passed or was skipped (a PR that touches no web code).
+- The visual-regression suite (`ui-next-visual`) is opt-in: it runs only with `E2E_VISUAL=1`, and baseline changes need a reviewer who is not the author.
+- A flaky or blocked spec goes in [`web/e2e/QUARANTINE.md`](web/e2e/QUARANTINE.md) (at most 3, each with an owner and a date) and is marked `test.fixme` with a comment pointing at that file. A test enforces the cap and the reference.
 
 ## Code style
 
