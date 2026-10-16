@@ -3,6 +3,7 @@ import { useUiNext } from "../lib/uiNext";
 import { StopCard } from "../plan/StopCard";
 import { SummaryStrip } from "../plan/SummaryStrip";
 import { formatDuration, formatWaypointTime } from "../plan/format";
+import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -683,7 +684,7 @@ export default function TripPlanPage() {
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
   const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data);
   const routeSummary = `${origin?.label ?? "…"} → ${destination?.label ?? "…"}${startingSoc.trim() ? ` · ${startingSoc}%` : ""}${departureAt ? ` · ${new Date(departureAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}`;
-  const [planTab, setPlanTab] = useState<"planner" | "saved" | "pva">("planner");
+  const [planTab, setPlanTab] = usePlanTab(moneyShell);
   const formEl = (
     <>
       {inDemo() ? (
@@ -1245,32 +1246,19 @@ export default function TripPlanPage() {
   );
 
   if (nextUi) {
-    const tabs = [
-      ["planner", "Planner"],
-      ["saved", "Saved"],
-      ...(moneyShell ? [["pva", "Plan vs actual"]] : []),
-    ] as const;
+    const tabs: PlanTabSpec[] = [
+      { id: "planner", label: "Planner" },
+      { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
+      ...(moneyShell ? [{ id: "pva" as const, label: "Plan vs actual" }] : []),
+    ];
     return (
       <div data-plan-next>
         <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
-          <div role="tablist" aria-label="Trip planner sections" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
-            {tabs.map(([k, l]) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={planTab === k}
-                onClick={() => setPlanTab(k as "planner" | "saved" | "pva")}
-                className={`rounded-md px-3 py-1.5 ${planTab === k ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
         </div>
-        {planTab === "planner" && (
+        <PlanTabPanel tab="planner" active={planTab === "planner"}>
           <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
             {formEl}
             {resultEl}
@@ -1282,9 +1270,13 @@ export default function TripPlanPage() {
               </div>
             )}
           </div>
-        )}
-        {planTab === "saved" && <div className="space-y-6">{savedEl}</div>}
-        {planTab === "pva" && <div className="space-y-6">{pvaEl}</div>}
+        </PlanTabPanel>
+        <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
+          {savedEl}
+        </PlanTabPanel>
+        <PlanTabPanel tab="pva" active={planTab === "pva"} className="space-y-6">
+          {pvaEl}
+        </PlanTabPanel>
       </div>
     );
   }
