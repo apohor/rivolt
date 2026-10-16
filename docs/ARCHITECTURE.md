@@ -609,6 +609,72 @@ pushed back on if they come up in code review or planning:
 - **JWTs**. See decision 4.
 
 ---
+## Web UI
+
+The SPA (`web/`, React + Vite + Tailwind) is embedded in the binary and
+served by the same process as the API.
+
+**Shell and tabs.** With `money_tab_enabled` on for the user (and always
+in the public demo, under `/demo/*`), the app is a five-tab shell, defined
+in ``web/src/layout/tabs.ts``:
+- **Now:** live state and the hero card.
+- **Activity:** drives and charges as a feed, a table or a map.
+- **Money:** the charging ledger.
+- **Plan:** the trip planner.
+- **Truck:** pack health, sleep and idle-awake, tires, software.
+
+Without the flag, the older navigation (Overview, Live, Drives, Charges)
+is shown. The demo reuses the same pages in a read-only mode, not forks.
+
+**`ui_theme_next`: the new look.**
+- **Server flag.** `flags.ui_theme_next` has the same shape as
+  `money_tab_enabled`: `{"all": true}` or `{"users": ["<uuid>", ...]}`. It
+  is off when the row is missing or malformed. Prod runs `{"all": true}`;
+  rolling back means writing a users-only list (or deleting the row), with
+  no deploy. The SPA reads it from `GET /api/ledger/enabled`
+  (`ui_theme_next`).
+- **Per-device override.** `?ui=next`, `?ui=off` and `?ui=reset` are
+  honoured only on `preview.rivolt.dev`, `localhost` and `127.0.0.1`. Any
+  other host ignores them and clears a stored override, so a shared link
+  can't change the look on prod or the demo (`web/src/lib/uiNext.ts`).
+- **Isolation.** The flag sets `html[data-ui="next"]`. Every next-look
+  rule lives under that selector in a per-area stylesheet:
+  `web/src/styles/next-plan.css`, `next-type.css` and `next-activity.css`
+  (add `next-<area>.css` for a new area and import it from `index.css`).
+  Components branch on `useUiNext()`, and with the flag off they render
+  exactly the old markup. Hooks are called before any `if (next) return`.
+
+**Planner (`web/src/plan/`).** These are the next-look building blocks:
+- `BottomSheet`: the phone sheet, with peek and half snaps and drag.
+- `RouteBar` / `RouteBarPanel`: from, to, departure, start SoC, and more
+  options.
+- `selection`: one selected stop, shared by the list and the map.
+- `PlanTabs`: the planner and saved-trips tabs.
+- `StopCard` / `SummaryStrip`: the itinerary.
+- `reveal`: scrolls an expanded stop into view.
+
+The map is `components/TripRouteMap`. Routing comes from Rivian's planner,
+or from the stored presets in the demo.
+
+**New-version bar.** `components/VersionBar`, mounted outside the app
+shell, polls `GET /api/health` every 60 s while the page is visible (and
+on focus or visibility change). It compares the result with the first
+version the tab saw after loading.
+- On prod and the demo it shows a "New version available · Reload" pill
+  and never reloads by itself.
+- On preview it reloads by itself once the tab is hidden.
+- Reload asks the service worker to update first, capped at 3 s.
+
+`/api/health` reports the deployed release tag when the pod runs one;
+otherwise it reports the build stamp.
+
+**Service worker (`web/public/sw.js`).** It stays deliberately minimal:
+- It caches an offline app shell (`CACHE_NAME`; bump it to invalidate).
+- Hashed `/assets/*` files are revalidated while serving the cached copy.
+- It never intercepts `/api/*`.
+- It handles Web Push.
+
+---
 ## Change control
 
 This doc is authoritative. Changes to it require a PR with a
