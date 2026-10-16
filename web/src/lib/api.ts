@@ -221,6 +221,8 @@ export type LiveSession = {
 // VehicleState matches internal/rivian.State. Units are SI at the wire:
 // battery in percent, distance in km, temps in C. The UI converts as
 // needed for display.
+import type { ChargingSchedule } from "./chargingSchedule";
+
 export type VehicleState = {
   at: string;
   vehicle_id: string;
@@ -262,6 +264,8 @@ export type VehicleState = {
   ota_available_version: string;
   ota_status: string;
   ota_install_progress: number;
+  // The truck's scheduled charging windows (omitted until read).
+  charging_schedules?: ChargingSchedule[];
   tire_pressure_fl_bar: number;
   tire_pressure_fr_bar: number;
   tire_pressure_rl_bar: number;
