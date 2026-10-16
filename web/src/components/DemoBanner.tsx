@@ -11,7 +11,10 @@ export function ConnectLink({ children, className, kind }: { children: ReactNode
   const appUrl = useAppUrl();
   // Sign-ups closed: "Connect" goes to sign in instead of a signup page
   // that would only say it's closed. null (loading) behaves as open.
-  const path = kind === "login" || signupEnabled === false ? "/login" : "/signup";
+  // On the standalone demo the server forces signup_enabled off (it has no
+  // sign-ups of its own), so that flag says nothing about the real app: go
+  // to its sign-up page, which handles a closed state itself.
+  const path = kind === "login" || (!appUrl && signupEnabled === false) ? "/login" : "/signup";
   if (appUrl) {
     return (
       <a href={`${appUrl}${path}`} className={className} rel="noopener">

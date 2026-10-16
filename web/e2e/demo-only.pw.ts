@@ -44,6 +44,12 @@ test("demo-only: every Connect CTA points at the real app", async ({ page }) => 
   await expect(page.getByTestId("connect-hint").first().getByRole("link")).toHaveAttribute("href", /^https:\/\/rivolt\.dev\//);
 });
 
+test("demo-only: the server's signup_enabled=false (forced there) still sends CTAs to the real app's /signup", async ({ page }) => {
+  await stubApi(page, { demoOnly: true, signedIn: false, signupDisabled: true });
+  await page.goto("/demo");
+  await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "https://rivolt.dev/signup");
+});
+
 test("normal deployment: /login is still the login page and the CTA stays in-app", async ({ page }) => {
   await stubApi(page, { demo: true, signedIn: false });
   await page.goto("/login");
