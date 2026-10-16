@@ -205,6 +205,9 @@ func runServer() {
 	// Standalone public demo (RIVOLT_DEMO_ONLY): refuse a half-configured
 	// install, then make sure no sign-in, mail, push or AI subsystem can
 	// come up from stray environment, before any flag default reads it.
+	if demo.StrayOnly() {
+		logger.Warn("RIVOLT_DEMO_ONLY is set but RIVOLT_DEMO is not: IGNORING it; this is not a demo install. Remove the variable.")
+	}
 	if demo.MisconfiguredOnly() {
 		logger.Error("RIVOLT_DEMO_ONLY needs the replay sample demo (RIVOLT_DEMO=true, RIVIAN_CLIENT=replay, RIVOLT_REPLAY_SOURCE=sample, no RIVOLT_REPLAY_SOURCE_VEHICLE)")
 		os.Exit(1)
@@ -402,15 +405,17 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
-	// /metrics on its own listener, off the public router. The Ingress
-	// routes every path to the main port, so a /metrics route there is
-	// public (counts, route names, rate-limit state). RIVOLT_METRICS_ADDR
-	// (e.g. ":9091") moves it; the standalone demo always does. Unset
-	// elsewhere keeps the old behaviour until the deployment's
-	// ServiceMonitor points at the new port.
+	// /metrics is served only on its own listener, never on the public
+	// router: the Ingress routes every path to the main port, so a
+	// /metrics route there is public (counts, route names, rate-limit
+	// state). RIVOLT_METRICS_ADDR sets the address (default :9090); "off"
+	// disables the listener.
 	metricsAddr := strings.TrimSpace(os.Getenv("RIVOLT_METRICS_ADDR"))
-	if metricsAddr == "" && demo.OnlyEnabled() {
-		metricsAddr = ":9091"
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+	if strings.EqualFold(metricsAddr, "off") {
+		metricsAddr = ""
 	}
 	// Resend email client. Both vars must be set for the client to
 	// actually send; otherwise the approve handler still returns the
@@ -1693,45 +1698,44 @@ func runServer() {
 		statementSigner = statement.NewSigner(cookieSecret)
 	}
 	handler := api.New(api.Deps{
-		StatementSigner:           statementSigner,
-		Rivian:                    rivianClient,
-		Accounts:                  accountRegistry,
-		PushService:               pushSvc,
-		Drives:                    drivesFactory,
-		Charges:                   chargesFactory,
-		Samples:                   samplesFactory,
-		Settings:                  settingsFactory,
-		Push:                      pushFactory,
-		Trips:                     tripsFactory,
-		PackHealth:                packhealth.NewStore(pgPool),
-		Monitors:                  monitorRegistry,
-		SettingsMgr:               settingsMgr,
-		Auth:                      authSvc,
-		AuthEnforced:              authEnforced,
-		ImpersonationDisabled:     impersonationDisabled,
-		OIDC:                      oidcSvc,
-		WebFS:                     webFS,
-		Version:                   version,
-		DB:                        pgPool,
-		Logger:                    logger,
-		Flags:                     flagsStore,
-		AIBudget:                  aibudget.New(pgPool),
-		Secrets:                   secretsStore,
-		Metrics:                   appMetrics,
-		MetricsOnSeparateListener: metricsAddr != "",
-		Users:                     userProvider,
-		SignupRequests:            signupRequestStore,
-		Email:                     mailer,
-		BaseURL:                   os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy:             valhallaProxy,
-		TilesProxy:                tilesProxy,
-		ChargersArchive:           chargersArchive,
-		Photon:                    photonClient,
-		WeatherClient:             weather.NewClient(),
-		WeatherCache:              weather.NewMemCache(15*time.Minute, 1024),
-		Hydra:                     hydraClient,
-		Kratos:                    kratosClient,
-		HydraRememberFor:          hydraRememberFor,
+		StatementSigner:       statementSigner,
+		Rivian:                rivianClient,
+		Accounts:              accountRegistry,
+		PushService:           pushSvc,
+		Drives:                drivesFactory,
+		Charges:               chargesFactory,
+		Samples:               samplesFactory,
+		Settings:              settingsFactory,
+		Push:                  pushFactory,
+		Trips:                 tripsFactory,
+		PackHealth:            packhealth.NewStore(pgPool),
+		Monitors:              monitorRegistry,
+		SettingsMgr:           settingsMgr,
+		Auth:                  authSvc,
+		AuthEnforced:          authEnforced,
+		ImpersonationDisabled: impersonationDisabled,
+		OIDC:                  oidcSvc,
+		WebFS:                 webFS,
+		Version:               version,
+		DB:                    pgPool,
+		Logger:                logger,
+		Flags:                 flagsStore,
+		AIBudget:              aibudget.New(pgPool),
+		Secrets:               secretsStore,
+		Metrics:               appMetrics,
+		Users:                 userProvider,
+		SignupRequests:        signupRequestStore,
+		Email:                 mailer,
+		BaseURL:               os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:         valhallaProxy,
+		TilesProxy:            tilesProxy,
+		ChargersArchive:       chargersArchive,
+		Photon:                photonClient,
+		WeatherClient:         weather.NewClient(),
+		WeatherCache:          weather.NewMemCache(15*time.Minute, 1024),
+		Hydra:                 hydraClient,
+		Kratos:                kratosClient,
+		HydraRememberFor:      hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span
