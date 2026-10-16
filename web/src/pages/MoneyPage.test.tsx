@@ -168,4 +168,30 @@ describe("MoneyPage", () => {
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => /\/api\/charges\?limit=5000/.test(u))).toBe(true);
   });
+
+  it("keeps the legacy 'older version' wording when to_confirm_count is 0 and no row has a network_state", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [], to_confirm_count: 0 } },
+    });
+    renderAt("/money");
+    const statement = await screen.findByRole("region", { name: "Statement" });
+    expect(statement).toHaveTextContent(/Estimate pending:\s*2 fast-charging sessions/);
+    expect(statement).not.toHaveTextContent(/Couldn't identify the network/);
+  });
+
+  it("switches to the auto-network wording once a row carries network_state", async () => {
+    const m = ledgerMonthFixture(currentMonth());
+    m.receipts[0].sessions[0].network_state = "confirmed";
+    stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [], to_confirm_count: 0 } },
+    });
+    renderAt("/money");
+    const statement = await screen.findByRole("region", { name: "Statement" });
+    expect(statement).not.toHaveTextContent(/older version/);
+  });
 });

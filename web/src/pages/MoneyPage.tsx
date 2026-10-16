@@ -204,7 +204,12 @@ function Statement({
     : null;
   const where = !combined && m.energy.by_place ? placeSegments(m.energy.by_place) : null;
   const how = combined ? null : kindSegments(m.energy.by_kind);
-  const auto = toConfirm != null;
+  // Auto-network is "in use" only when something actually carries it: the
+  // summary count is a plain int (0 for everyone, flag on or off), so
+  // 0 alone must keep the legacy wording.
+  const auto =
+    (toConfirm ?? 0) > 0 ||
+    m.receipts.some((r) => r.network_state != null || r.sessions.some((x) => x.network_state != null));
   const unid = unidentifiedPending(m);
   const pending = auto ? unid.sessions : (m.spend.estimate_pending_sessions ?? 0);
   const pendingKwh = auto ? unid.kwh : (m.spend.estimate_pending_kwh ?? 0);
