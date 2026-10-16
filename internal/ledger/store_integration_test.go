@@ -240,15 +240,24 @@ func TestLoad_BilledFromReceipts(t *testing.T) {
 		VALUES ($1,'t2',$2,$3,5.5,'USD','Rivian',true,$4)`, alice, in.Add(48*time.Hour), in.Add(49*time.Hour), home)
 	mustExec(t, pool, `UPDATE charges SET receipt_cost = 5.5, receipt_currency = 'USD', receipt_txn_id = 't2', receipt_source = 'rivian_receipt' WHERE id = $1`, home)
 
+	// A second receipt that also points at the matched charge (matching
+	// misbehaving, a manual fix, a replay). The charge must still load once,
+	// with the receipt its own receipt_txn_id names.
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, charger_name, is_home_charger, charge_id)
+		VALUES ($1,'t1-dup',$2,$3,99,'USD','Someone Else','Other Station',false,$4)`, alice, in, in.Add(time.Hour), matched)
+
 	p, _ := ledger.ParsePeriod("2026-10", time.UTC)
 	from, to := ledger.LoadWindow(p)
 	cs, _, err := ledger.Load(ctx, pool, alice, "", from, to)
 	if err != nil || len(cs) != 3 {
-		t.Fatalf("Load = %d rows, err %v", len(cs), err)
+		t.Fatalf("Load = %d rows, err %v; a second receipt on the same charge must not duplicate it", len(cs), err)
 	}
 	by := map[string]ledger.Charge{}
 	for _, c := range cs {
 		by[c.ID] = c
+	}
+	if m := by["c-matched"]; m.BilledVendor == "Someone Else" {
+		t.Errorf("the duplicate receipt was joined: %+v", m)
 	}
 	if m := by["c-matched"]; m.BilledCost == nil || *m.BilledCost != 14.25 || m.BilledCurrency != "USD" || m.BilledVendor != "Electrify America" || m.BilledCharger != "EA Reno 12" || m.BilledHome {
 		t.Errorf("matched = %+v", m)
