@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useUiNext } from "../lib/uiNext";
+import { ArcGauge } from "../components/ArcGauge";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -689,9 +690,9 @@ export default function TripPlanPage() {
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
           </p>
         )}
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-4" data-plan-form>
           <DeparturePicker value={departureAt} onChange={setDepartureAt} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
               <input
@@ -708,6 +709,18 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
+            {nextUi && (
+              <input
+                type="range"
+                min={5}
+                max={100}
+                step={1}
+                aria-label="Starting SoC slider"
+                value={Number(startingSoc) || Math.round(stateQuery.data?.battery_level_pct ?? 80)}
+                onChange={(e) => setStartingSoc(e.target.value)}
+                className="ui-range sm:col-span-4 sm:-mt-1"
+              />
+            )}
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Target arrival SoC %</span>
               <input
@@ -719,6 +732,25 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
+            {nextUi ? (
+              <div role="radiogroup" aria-label="Drive mode" className="flex flex-col gap-1 text-sm">
+                <span className="text-neutral-400">Drive mode</span>
+                <div className="flex gap-1.5">
+                  {([["EVERYDAY", "All-Purpose"], ["DISTANCE", "Conserve"]] as const).map(([v, l]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={driveMode === v}
+                      onClick={() => setDriveMode(v)}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${driveMode === v ? "border-emerald-600/60 bg-emerald-600/15 text-emerald-200" : "border-neutral-700 text-neutral-300 hover:border-neutral-500"}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Drive mode</span>
               <select
@@ -730,6 +762,7 @@ export default function TripPlanPage() {
                 <option value="DISTANCE">Conserve</option>
               </select>
             </label>
+            )}
             {vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) && (
               <div className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-400">Tesla NACS adapter</span>
@@ -893,7 +926,21 @@ export default function TripPlanPage() {
               })),
             ]}
           />
-          <div className="flex items-center gap-3">
+          {nextUi && (
+            <button
+              type="button"
+              data-plan-swap
+              onClick={() => {
+                const o = origin;
+                setOrigin(destination);
+                setDestination(o);
+              }}
+              className="self-start rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+            >
+              ⇅ Swap From and To
+            </button>
+          )}
+          <div className="flex items-center gap-3" data-plan-submit>
             <button
               type="submit"
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
@@ -2364,6 +2411,7 @@ function RouteCard({
   defaultCollapsed?: boolean;
 }) {
   const { distanceUnit } = usePreferences();
+  const next = useUiNext();
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -2485,8 +2533,148 @@ function RouteCard({
       )}
     </span>
   );
+  const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
+  const arriveAt = (() => {
+    let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
+    if (!t && route.TotalTripDurationSec > 0) {
+      const originDep = origin?.DepartureTimeUTC ? new Date(origin.DepartureTimeUTC).getTime() : Date.now();
+      t = new Date(originDep + route.TotalTripDurationSec * 1000 + timeShiftMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return t;
+  })();
+  const nextTitle = (
+    <span className="flex flex-wrap items-baseline gap-x-2">
+      <span>{label}</span>
+      {!route.DestinationReached && <span className="text-amber-400">· destination unreachable</span>}
+    </span>
+  );
+  // ui_theme_next: the result as a hero (cost, arrival arc, time) over the map and a route timeline.
+  const hero = (
+    <div data-plan-hero className="mb-4 flex flex-wrap items-center gap-x-7 gap-y-4">
+      <ArcGauge
+        value={arrSoCNext}
+        label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent` : "Arrival battery unknown"}
+        tone={arrSoCNext > 0 && arrSoCNext < 15 ? "critical" : "ok"}
+        size={116}
+      >
+        {(shown) => (
+          <span className="font-semibold leading-none tabular-nums text-neutral-100">
+            <span className="text-3xl">{arrSoCNext > 0 ? Math.round(shown) : "—"}</span>
+            <span className="ml-0.5 text-base font-normal text-neutral-400">%</span>
+          </span>
+        )}
+      </ArcGauge>
+      <div className="min-w-0">
+        <p className="ui-label">Trip cost</p>
+        <p
+          className="ui-mono text-3xl font-semibold leading-none tabular-nums text-neutral-100"
+          title="Walk-up DCFC cost: every fast-charging stop on this route at the network's guest rate."
+        >
+          {totalGuest > 0 ? fmtCurrency(totalGuest) : "No fast charging"}
+        </p>
+        {(userSavings > 0.5 || gasEquiv > 0.5) && (
+          <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs">
+            {userSavings > 0.5 && (
+              <span className="text-emerald-400" title="With your active memberships (Settings → Charging networks).">
+                <span className="ui-mono">{fmtCurrency(totalUser)}</span> with memberships
+              </span>
+            )}
+            {gasEquiv > 0.5 && (
+              <span className="text-neutral-400" title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal.`}>
+                <span className="ui-mono">{fmtCurrency(gasEquiv)}</span> in gas
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+      <dl className="grid w-full grid-cols-2 gap-x-6 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
+        <div>
+          <dt className="ui-label">Time</dt>
+          <dd className="ui-mono text-base text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+        </div>
+        <div>
+          <dt className="ui-label">Arrive</dt>
+          <dd className="ui-mono text-base text-neutral-100">{arriveAt || "—"}</dd>
+        </div>
+        <div>
+          <dt className="ui-label">Distance</dt>
+          <dd className="ui-mono text-base text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? `${(route.TotalDriveDistanceMeters / 1609.344).toFixed(0)} mi` : "—"}</dd>
+        </div>
+        <div>
+          <dt className="ui-label">Charging</dt>
+          <dd className="ui-mono text-base text-neutral-100">
+            {charging.length > 0 ? `${charging.length} · ${totalChargeMin} min` : "none"}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+  const timelineRow = (idx: number, kind: "start" | "stop" | "end", name: string, n?: number) => {
+    const w = route.Waypoints[idx];
+    const prev = idx > 0 ? route.Waypoints[idx - 1] : undefined;
+    const leg = haveDistances && prev ? (w.DistanceFromOriginMeters ?? 0) - (prev.DistanceFromOriginMeters ?? 0) : 0;
+    const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs);
+    const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs);
+    const sc = kind === "stop" && n != null ? stopBreakdown[n] : undefined;
+    const selected = selectedStop === idx;
+    return (
+      <li key={idx} data-kind={kind} data-selected={selected ? "true" : undefined}>
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => toggleStop(idx)}
+          className="block w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-neutral-900/50"
+        >
+          <span className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 text-sm font-medium text-neutral-100">
+              {name}
+              {w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name) && (
+                <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[10px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
+              )}
+            </span>
+            {leg > 0 && <span className="ui-mono shrink-0 text-xs text-neutral-500">+{mFmt(leg)}</span>}
+          </span>
+          <span className="mt-0.5 flex flex-wrap items-baseline gap-x-3 text-xs text-neutral-400">
+            {kind === "start" && (
+              <span>
+                {dep && <span className="ui-mono">{dep}</span>} depart{w.DepartureSoC > 0 && <> at <span className="ui-mono text-neutral-200">{w.DepartureSoC.toFixed(0)}%</span></>}
+              </span>
+            )}
+            {kind === "stop" && (
+              <>
+                <span>
+                  {arr && <span className="ui-mono">{arr}</span>} <span className="ui-mono text-neutral-200">{w.ArrivalSoC.toFixed(0)}% → {w.DepartureSoC.toFixed(0)}%</span>
+                </span>
+                <span className="ui-mono text-neutral-200">{Math.round(w.ChargeDurationSec / 60)} min</span>
+                {w.MaxPowerKW > 0 && <span className="ui-mono">{w.MaxPowerKW.toFixed(0)} kW</span>}
+                {sc && <span className="ui-mono">{sc.energy_kwh.toFixed(0)} kWh</span>}
+                {sc && (
+                  <span className="ui-mono text-neutral-200">
+                    {fmtCurrency(sc.energy_kwh * sc.guest_rate)}
+                    {sc.user_rate < sc.guest_rate && <span className="ml-1 text-emerald-400">{fmtCurrency(sc.energy_kwh * sc.user_rate)}</span>}
+                  </span>
+                )}
+              </>
+            )}
+            {kind === "end" && (
+              <span>
+                {arr && <span className="ui-mono">{arr}</span>} arrive{w.ArrivalSoC > 0 && <> at <span className="ui-mono text-neutral-200">{w.ArrivalSoC.toFixed(0)}%</span></>}
+              </span>
+            )}
+          </span>
+        </button>
+      </li>
+    );
+  };
+  const timeline = showTable && (
+    <ol data-plan-timeline aria-label="Route and charging stops" className="mt-4">
+      {origin && timelineRow(originIdx, "start", originLabel || origin.Name || "Origin")}
+      {chargingWithIdx.map(({ w, i: wpIdx }, j) => timelineRow(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, j))}
+      {dest && timelineRow(destIdx, "end", destLabel || dest.Name || "Destination")}
+    </ol>
+  );
   return (
-    <Card title={title}>
+    <Card title={next ? nextTitle : title}>
       {index > 0 && allRoutes.length > 1 && (() => {
         // Alternative comparison line. Renders below the title so the
         // user can see at a glance how this route diverges from
@@ -2520,6 +2708,7 @@ function RouteCard({
       )}
       {expanded && (
       <>
+      {next && hero}
       <div className="mb-4">
         <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
           <TripRouteMap
@@ -2533,6 +2722,7 @@ function RouteCard({
           />
         </Suspense>
       </div>
+      {!next && (
       <dl className="grid grid-cols-2 gap-y-2 gap-x-6 text-sm sm:grid-cols-4">
         <Stat
           label="Distance"
@@ -2582,7 +2772,9 @@ function RouteCard({
           }
         />
       </dl>
-      {showTable && (
+      )}
+      {next && timeline}
+      {!next && showTable && (
         <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Charging stops table">
           <table className="w-full text-sm">
             <thead className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
