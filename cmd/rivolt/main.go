@@ -89,6 +89,8 @@ func main() {
 			os.Exit(runRepairChargeFragments(os.Args[2:]))
 		case "repair-phantom-charges":
 			os.Exit(runRepairPhantoms(os.Args[2:]))
+		case "repair-r2-history":
+			os.Exit(runRepairR2History(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -109,6 +111,12 @@ Usage:
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE]
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-r2-history --vehicle ID --since T --until T [--apply --backup CSV]
+  rivolt repair-r2-history --vehicle ID --restore-csv FILE [--apply]
+                  Rebuild a vehicle's drives and charges in a window
+                  from its samples (R2s recorded before park/sleep came
+                  from Parallax). Dry run unless --apply; CSV backup
+                  first; one transaction; never migrates.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
                   Delete audited phantom live charges (dry run unless

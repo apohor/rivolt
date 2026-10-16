@@ -16,6 +16,10 @@ import "strings"
 // recorder frame). At ~1 frame / few seconds and 5-decimal varint
 // encoding this comes out to well under 10 KB even for multi-hour
 // drives.
+// EncodePolyline is encodePolyline for repair tools that rebuild a
+// drive's route from stored samples.
+func EncodePolyline(points [][2]float64) string { return encodePolyline(points) }
+
 func encodePolyline(points [][2]float64) string {
 	if len(points) == 0 {
 		return ""
