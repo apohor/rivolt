@@ -85,7 +85,7 @@ func TestGrantReadonly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext) VALUES ($1, 'rivian.session', '\x00')`, connected); err != nil {
+	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id) VALUES ($1, 'rivian.session', '\x00', 'test')`, connected); err != nil {
 		t.Fatalf("seed secret: %v", err)
 	}
 	conn, err := pool.Conn(ctx)
