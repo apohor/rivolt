@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { useApplyUiNext } from "../lib/uiNext";
+import { useMoneyTabEnabled } from "../lib/ledger";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
@@ -25,6 +26,9 @@ function prefetchRoute(to: string) {
 export default function DemoLayout() {
   useSystemTheme(true);
   useApplyUiNext();
+  // The new-look flag rides on /api/ledger/enabled: fetch it here so a deep link to any demo
+  // tab (not just Now) gets the look, instead of waiting for a page that happens to ask.
+  useMoneyTabEnabled();
   const location = useLocation();
   const demo = useQuery({ queryKey: ["demo", "info"], queryFn: () => backend.demoInfo(), retry: 0 });
 
