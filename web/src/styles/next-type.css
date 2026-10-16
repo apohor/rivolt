@@ -1,0 +1,17 @@
+/* ui_theme_next: the shared type scale on every page (the planner has its own
+   token block in next-plan.css with the same values).
+     caption 11 · sub-line 12 · value 14 · title/KPI 24 · hero 36
+   The Tailwind size utilities used on Now, Truck, Money and Activity fold onto
+   it (unlayered, so they win over the utilities). */
+html[data-ui='next'] main:not(:has([data-plan-next])) .text-\[10px\] {
+  font-size: 0.6875rem;
+}
+html[data-ui='next'] main:not(:has([data-plan-next])) :is(.text-base, .text-lg) {
+  font-size: 0.875rem;
+}
+html[data-ui='next'] main:not(:has([data-plan-next])) .text-xl {
+  font-size: 1.5rem;
+}
+html[data-ui='next'] main:not(:has([data-plan-next])) :is(.text-3xl, .text-4xl, .text-5xl, .sm\:text-5xl) {
+  font-size: 2.25rem;
+}
