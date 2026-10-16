@@ -75,6 +75,9 @@ type exportProfile struct {
 	RivianVehicleID string            `json:"rivian_vehicle_id"`
 	DisplayName     string            `json:"display_name,omitempty"`
 	Profile         db.VehicleProfile `json:"profile"`
+	// OTA is the stored software release details (versions and release-notes
+	// links Rivian publishes), when the OTA sync has fetched them.
+	OTA json.RawMessage `json:"ota,omitempty"`
 }
 
 // exportData is everything an export contains.
@@ -386,12 +389,13 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 			e.Receipts = rs
 		}
 		if vehs, verr := db.ListUserVehicles(ctx, d.DB, uid); verr == nil {
+			otas, _ := db.ListVehicleOTAs(ctx, d.DB, uid)
 			for _, v := range vehs {
 				p, perr := db.GetVehicleProfile(ctx, d.DB, uid, v.ID)
 				if perr != nil {
 					continue
 				}
-				e.Profiles = append(e.Profiles, exportProfile{RivianVehicleID: v.RivianVehicleID, DisplayName: v.DisplayName, Profile: p})
+				e.Profiles = append(e.Profiles, exportProfile{RivianVehicleID: v.RivianVehicleID, DisplayName: v.DisplayName, Profile: p, OTA: otas[v.RivianVehicleID]})
 			}
 		}
 		// Trips: the ledger's own detection over all history.

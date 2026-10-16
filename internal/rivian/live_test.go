@@ -35,6 +35,8 @@ type stubGateway struct {
 	// summaries / chargerByTxn answer the charging-history operations.
 	summaries    []any
 	chargerByTxn map[string]any
+	// otaByVehicle answers getOTAUpdateDetails: the getVehicle object.
+	otaByVehicle map[string]any
 }
 
 type gatewayCall struct {
@@ -167,6 +169,10 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 			detail = map[string]any{"charger": ch}
 		}
 		writeJSON(w, map[string]any{"data": map[string]any{"getDetailedSessionInfoByTxnId": detail}})
+	case "getOTAUpdateDetails":
+		vars, _ := body["variables"].(map[string]any)
+		id, _ := vars["vehicleId"].(string)
+		writeJSON(w, map[string]any{"data": map[string]any{"getVehicle": g.otaByVehicle[id]}})
 	case "getVehicleImages":
 		vars, _ := body["variables"].(map[string]any)
 		ver, _ := vars["versionVehicle"].(string)
@@ -752,5 +758,68 @@ func TestRefreshVehicleInfoFeedsTheHook(t *testing.T) {
 	}
 	if strings.Join(ops, ",") != "getUserInfo,getVehicleImages" {
 		t.Errorf("requests = %v, want only getUserInfo and getVehicleImages", ops)
+	}
+}
+
+func TestOTAUpdateDetailsParsesAndSanitises(t *testing.T) {
+	g := newStubGateway(t)
+	g.otaByVehicle = map[string]any{
+		"veh-a": map[string]any{
+			"currentOTAUpdateDetails":   map[string]any{"version": "2026.30.0", "url": "https://rivian.com/support/notes/2026-30", "locale": "en-US"},
+			"availableOTAUpdateDetails": map[string]any{"version": " 2026.38.1 ", "url": "javascript:alert(1)", "locale": "en-US"},
+		},
+		"veh-b": map[string]any{
+			// An empty version is no release; a credentialed URL is dropped.
+			"currentOTAUpdateDetails":   map[string]any{"version": "", "url": "https://rivian.com/x"},
+			"availableOTAUpdateDetails": map[string]any{"version": "2026.38.1", "url": "https://user:pw@rivian.com/notes", "locale": nil},
+		},
+		"veh-c": nil, // getVehicle null
+	}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.OTAUpdateDetails(ctx, "veh-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Current == nil || a.Current.Version != "2026.30.0" || a.Current.ReleaseNotesURL != "https://rivian.com/support/notes/2026-30" || a.Current.Locale != "en-US" {
+		t.Errorf("current = %+v", a.Current)
+	}
+	if a.Available == nil || a.Available.Version != "2026.38.1" || a.Available.ReleaseNotesURL != "" {
+		t.Errorf("available = %+v (version trimmed, javascript: URL dropped)", a.Available)
+	}
+	if a.FetchedAt.IsZero() {
+		t.Error("FetchedAt not set")
+	}
+	b, err := c.OTAUpdateDetails(ctx, "veh-b")
+	if err != nil || b.Current != nil || b.Available == nil || b.Available.ReleaseNotesURL != "" {
+		t.Errorf("veh-b = %+v, err %v", b, err)
+	}
+	n, err := c.OTAUpdateDetails(ctx, "veh-c")
+	if err != nil || n.Current != nil || n.Available != nil {
+		t.Errorf("null getVehicle = %+v, err %v", n, err)
+	}
+	if _, err := c.OTAUpdateDetails(ctx, " "); err == nil {
+		t.Error("a blank vehicle id was accepted")
+	}
+}
+
+func TestSafeHTTPSURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://rivian.com/a?b=c": "https://rivian.com/a?b=c",
+		" https://rivian.com/a ":   "https://rivian.com/a",
+		"http://rivian.com/a":      "",
+		"//rivian.com/a":           "",
+		"https:///a":               "",
+		"https://u:p@rivian.com/a": "",
+		"ftp://rivian.com/a":       "",
+		"":                         "",
+		"https://rivian.com/" + string(make([]byte, 0)) + strings.Repeat("a", 2100): "",
+	} {
+		if got := safeHTTPSURL(in); got != want {
+			t.Errorf("safeHTTPSURL(%.40q) = %q, want %q", in, got, want)
+		}
 	}
 }

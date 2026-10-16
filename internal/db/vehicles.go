@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -356,4 +357,84 @@ func SetVehicleImageURL(ctx context.Context, d *sql.DB, userID uuid.UUID, rivian
 		 WHERE user_id = $1 AND rivian_vehicle_id = $2 AND image_url IS DISTINCT FROM $3
 	`, userID, rivianID, url)
 	return err
+}
+
+// The OTA release details (current and available version with release-notes
+// links) live in vehicles.metadata under "ota", beside "profile": it is
+// per-vehicle data that dies with the row, so no new table. The sync also
+// records "ota_attempt_at" there as its once-a-day claim.
+
+// ClaimOTAFetch records an attempt to fetch the vehicle's OTA details and
+// reports whether this caller won it: no attempt in the last minInterval,
+// across pods and restarts. It matches only the user's own vehicle.
+func ClaimOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, minInterval time.Duration) (bool, error) {
+	var one int
+	err := d.QueryRowContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{ota_attempt_at}', to_jsonb(NOW()::text))
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2
+		   AND ( metadata->>'ota_attempt_at' IS NULL
+		      OR (metadata->>'ota_attempt_at')::timestamptz < NOW() - $3::interval )
+		RETURNING 1`,
+		userID, rivianVehicleID, fmt.Sprintf("%d microseconds", minInterval.Microseconds())).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// SetVehicleOTA stores the OTA details (a JSON object) for the user's
+// vehicle, keeping every other metadata key.
+func SetVehicleOTA(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, ota json.RawMessage) error {
+	res, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('ota', $3::jsonb), updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2`, userID, rivianVehicleID, string(ota))
+	if err != nil {
+		return fmt.Errorf("vehicle ota update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ListVehicleOTAs returns the stored OTA details by rivian_vehicle_id for
+// the user's vehicles that have any.
+func ListVehicleOTAs(ctx context.Context, d *sql.DB, userID uuid.UUID) (map[string]json.RawMessage, error) {
+	rows, err := d.QueryContext(ctx, `
+		SELECT rivian_vehicle_id, metadata->'ota' FROM vehicles
+		 WHERE user_id = $1 AND metadata ? 'ota'`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]json.RawMessage{}
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		out[id] = json.RawMessage(raw)
+	}
+	return out, rows.Err()
+}
+
+// ListUserRivianVehicleIDs returns the user's rivian_vehicle_id values.
+func ListUserRivianVehicleIDs(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]string, error) {
+	rows, err := d.QueryContext(ctx, `SELECT rivian_vehicle_id FROM vehicles WHERE user_id = $1 ORDER BY created_at`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
