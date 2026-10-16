@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -54,6 +55,10 @@ import (
 // keeps only rows detected at least that sure (0.85 = estimates only).
 // A row nothing matched is skipped. Undo as 0040's comment, plus
 // network_state, network_confidence and network_evidence = NULL.
+//
+// --restore-csv FILE undoes an apply from that backup (exact: price
+// columns, currency, source, network, legacy_*, the verify state and
+// updated_at).
 func runReprice(args []string) int {
 	fs := flag.NewFlagSet("reprice", flag.ContinueOnError)
 	apply := fs.Bool("apply", false, "write the changes (default: dry run)")
@@ -62,8 +67,12 @@ func runReprice(args []string) int {
 	backupPath := fs.String("backup", "", "with --apply: CSV of each row before the update (required)")
 	detect := fs.Bool("detect", false, "classify with network detection and write the verify state (needs migration 0051)")
 	minConf := fs.Float64("min-confidence", 0, "with --detect: only rows detected at least this confident (0.85 = estimates only)")
+	restorePath := fs.String("restore-csv", "", "undo: put back every row in this --backup CSV exactly as it was")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *restorePath != "" {
+		return runRepriceRestore(*restorePath, *apply)
 	}
 	if *apply && *backupPath == "" {
 		fmt.Fprintln(os.Stderr, "reprice: --apply needs --backup FILE")
@@ -269,7 +278,7 @@ func runReprice(args []string) int {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, c := range changes {
-		if _, err := tx.ExecContext(ctx, `
+		res, err := tx.ExecContext(ctx, `
 			UPDATE charges SET
 			       -- 0, not NULL, for a row that had no price: the undo
 			       -- selects on legacy_cost IS NOT NULL.
@@ -277,8 +286,15 @@ func runReprice(args []string) int {
 			       cost = $2, price_per_kwh = $3, currency = 'USD',
 			       cost_source = $4, network = NULLIF($5, ''), updated_at = NOW()
 			WHERE id = $1 AND cost_source IS NULL`,
-			c.id, c.newCost, c.rate, rivian.CostSourceNetworkEstimate, c.network); err != nil {
+			c.id, c.newCost, c.rate, rivian.CostSourceNetworkEstimate, c.network)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "reprice: update:", err)
+			return 1
+		}
+		// The guard (cost_source IS NULL) skips a row that changed since
+		// the dry run; that must abort, not count as applied.
+		if n, err := res.RowsAffected(); err != nil || n != 1 {
+			fmt.Fprintf(os.Stderr, "reprice: %s changed since the dry run (updated %d rows); nothing applied\n", c.id, n)
 			return 1
 		}
 		if c.state != "" {
@@ -384,4 +400,128 @@ func writeRepriceCSV(w io.Writer, rows []repriceBackupRow) error {
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+// readRepriceCSV reads a --backup file.
+func readRepriceCSV(r io.Reader) ([]repriceBackupRow, error) {
+	recs, err := csv.NewReader(r).ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(recs) == 0 || strings.Join(recs[0], ",") != "charge_id,user_id,row_json" {
+		return nil, fmt.Errorf("not a reprice backup (header %q)", recs)
+	}
+	out := make([]repriceBackupRow, 0, len(recs)-1)
+	for i, r := range recs[1:] {
+		if len(r) != 3 {
+			return nil, fmt.Errorf("line %d: %d fields", i+2, len(r))
+		}
+		if _, err := uuid.Parse(r[0]); err != nil {
+			return nil, fmt.Errorf("line %d: charge id %q", i+2, r[0])
+		}
+		if _, err := uuid.Parse(r[1]); err != nil {
+			return nil, fmt.Errorf("line %d: user id %q", i+2, r[1])
+		}
+		out = append(out, repriceBackupRow{ChargeID: r[0], UserID: r[1], Row: []byte(r[2])})
+	}
+	return out, nil
+}
+
+// runRepriceRestore puts every backed-up row's pricing back exactly as
+// it was, from its row_json, in one transaction. A row that is no
+// longer re-priced (the user edited it since, or it was already
+// restored) aborts the whole run: nothing is overwritten silently.
+func runRepriceRestore(path string, apply bool) int {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reprice: restore:", err)
+		return 1
+	}
+	rows, err := readRepriceCSV(f)
+	_ = f.Close()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reprice: restore:", err)
+		return 1
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(os.Stderr, "reprice: restore: no rows in", path)
+		return 1
+	}
+	ctx := context.Background()
+	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reprice: postgres:", err)
+		return 1
+	}
+	defer pool.Close()
+	if !apply {
+		// Dry run: each row as it is now → as the backup has it.
+		for _, r := range rows {
+			var was struct {
+				Cost       *float64 `json:"cost"`
+				CostSource *string  `json:"cost_source"`
+			}
+			_ = json.Unmarshal(r.Row, &was)
+			var nowCost sql.NullFloat64
+			var nowSource sql.NullString
+			err := pool.QueryRowContext(ctx, `SELECT cost::float8, cost_source FROM charges WHERE id = $1::uuid AND user_id = $2::uuid`,
+				r.ChargeID, r.UserID).Scan(&nowCost, &nowSource)
+			state := ""
+			if err != nil {
+				state = "  (not found)"
+			} else if nowSource.String != "network_estimate" {
+				state = "  (no longer re-priced: restore would refuse)"
+			}
+			fmt.Printf("%s  now $%.2f %s → $%s %s%s\n", r.ChargeID, nowCost.Float64, nowSource.String, fmtCost(was.Cost), deref(was.CostSource), state)
+		}
+		fmt.Printf("\ndry run: %d rows; pass --apply to restore\n", len(rows))
+		return 0
+	}
+	tx, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "reprice: begin:", err)
+		return 1
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, r := range rows {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE charges c SET
+			       cost = o.cost, price_per_kwh = o.price_per_kwh, currency = o.currency,
+			       cost_source = o.cost_source, network = o.network,
+			       legacy_cost = o.legacy_cost, legacy_price_per_kwh = o.legacy_price_per_kwh,
+			       network_state = o.network_state, network_confidence = o.network_confidence,
+			       network_evidence = o.network_evidence,
+			       updated_at = o.updated_at
+			FROM jsonb_populate_record(NULL::charges, $3::jsonb) o
+			WHERE c.id = $1::uuid AND c.user_id = $2::uuid AND o.id = c.id
+			  AND c.cost_source = 'network_estimate'`, r.ChargeID, r.UserID, string(r.Row))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "reprice: restore:", err)
+			return 1
+		}
+		if n, err := res.RowsAffected(); err != nil || n != 1 {
+			fmt.Fprintf(os.Stderr, "reprice: restore: %s is no longer re-priced (edited since, or already restored); nothing restored\n", r.ChargeID)
+			return 1
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		fmt.Fprintln(os.Stderr, "reprice: restore: commit:", err)
+		return 1
+	}
+	fmt.Printf("restored %d rows from %s\n", len(rows), path)
+	return 0
+}
+
+func fmtCost(p *float64) string {
+	if p == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f", *p)
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return "(none)"
+	}
+	return *p
 }

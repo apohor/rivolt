@@ -49,3 +49,27 @@ func TestRepriceBackupCSV(t *testing.T) {
 		}
 	}
 }
+
+// A --backup file reads back as written; anything else is refused.
+func TestReadRepriceCSV(t *testing.T) {
+	rows := []repriceBackupRow{
+		{ChargeID: "36e96529-40ad-49e2-b2e4-db42cefc9447", UserID: "206f57ae-1047-565a-a5f7-b49718836f74", Row: []byte(`{"cost": 8.338, "note": "a,b \"q\""}`)},
+	}
+	var buf bytes.Buffer
+	if err := writeRepriceCSV(&buf, rows); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readRepriceCSV(&buf)
+	if err != nil || len(got) != 1 || got[0].ChargeID != rows[0].ChargeID || string(got[0].Row) != string(rows[0].Row) {
+		t.Fatalf("round trip: %+v %v", got, err)
+	}
+	for _, bad := range []string{
+		"charge_id,user_id\n",
+		"a,b,c\n1,2,{}\n",
+		"charge_id,user_id,row_json\nnot-a-uuid,206f57ae-1047-565a-a5f7-b49718836f74,{}\n",
+	} {
+		if _, err := readRepriceCSV(strings.NewReader(bad)); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
