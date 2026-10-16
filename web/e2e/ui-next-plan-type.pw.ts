@@ -63,6 +63,11 @@ for (const theme of ["dark", "light"] as const) {
       await page.route(/\/api\/demo\/trips\/la-vegas\/plan$/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plan) }));
       await page.goto("/demo/trips/plan");
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+      // On a phone the itinerary sits in the bottom sheet, inert at its peek: open it first.
+      if (v.name === "iphone") {
+        await page.getByRole("button", { name: "Expand Trip details" }).click();
+        await expect(page.locator("[data-plan-sheet]")).toHaveAttribute("data-snap", "half");
+      }
       await page.getByRole("button", { name: /Sample Fast Charge, Barstow/ }).click();
       await page.waitForTimeout(600);
       await page.screenshot({ path: path.join(SHOTS, `plan-type-${v.name}-${theme}-after.png`), fullPage: v.name === "iphone" });

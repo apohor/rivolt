@@ -479,6 +479,7 @@ html[data-ui='next'] [data-plan-more-body] {
 }
 html[data-ui='next'] [data-plan-more-body][hidden] {
   display: none;
+}
 
 /* ---- Planner typography ----------------------------------------------------
    One family (Geist sans, tabular figures, no mono) and one type scale. Every
