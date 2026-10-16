@@ -19,8 +19,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Discord invite is valid and never expires
         run: |
-          code=$(grep -o 'discord.gg/[A-Za-z0-9]*' web/src/layout/AppLayout.tsx | head -1 | cut -d/ -f2)
-          [ -n "$code" ] || { echo "::error::no discord.gg invite found in the footer"; exit 1; }
+          code=$(grep -rhoE 'discord\.gg/[A-Za-z0-9]+' web/src | sort -u | head -1 | cut -d/ -f2)
+          [ -n "$code" ] || { echo "::error::no discord.gg invite found in web/src"; exit 1; }
           body=$(curl -fsS "https://discord.com/api/v10/invites/${code}?with_expiration=true") || { echo "::error::invite ${code} is invalid"; exit 1; }
           exp=$(echo "$body" | jq -r '.expires_at')
           [ "$exp" = "null" ] || { echo "::error::invite ${code} expires at ${exp}"; exit 1; }
