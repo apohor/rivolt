@@ -581,46 +581,6 @@ flip a flag to re-enable it; hosted deployment runs OIDC-only.
 
 ---
 
-## Web UI
-
-The web app (`web/`, React + Vite + Tailwind, served by the Go binary) is a
-five-tab shell: **Now · Activity · Money · Plan · Truck**
-(`web/src/layout/tabs.ts`). Activity groups drives and charges behind a
-Feed | Table | Map switcher (`?view=`); Plan appears when the trip planner
-is enabled; the public demo at `demo.rivolt.dev` serves the same tabs under
-`/demo` against the sample truck, read-only. Routes are unchanged underneath
-(`/drives/:id`, `/charges/:id`, ...), so deep links keep working.
-
-- **The new look is a flag, not a fork.** `ui_theme_next` lives in the
-  `flags` table with the same `{"all": bool, "users": [uuid, ...]}` shape as
-  `money_tab_enabled`, and reaches the client on `GET /api/ledger/enabled`.
-  It is `all: true` on prod since v0.36.0. **Rollback** is a psql update to
-  `{"users": [...]}` (an empty list turns it off for everyone). Everything
-  visual hangs off `html[data-ui='next']` or `useUiNext()`, so flag-off is the
-  old UI unchanged. A `?ui=next|off|reset` per-device override exists for
-  comparing looks, honoured only on `preview.rivolt.dev` and localhost, never
-  on prod or the demo (`web/src/lib/uiNext.ts`).
-- **Styles** are split per area under `web/src/styles/`: `next-type.css` (the
-  shared 11/12/14/24/36 type scale), `next-plan.css` (planner), `next-activity.css`
-  (Activity tables); the rest is in `index.css`.
-- **The planner** (`web/src/plan/`) is plumbing that `TripPlanPage` composes:
-  `PlanTabs` (`?tab=`), `selection` (`PlanSelectionProvider`/`useSelectedStop`,
-  one selected stop shared by map, list and sheet), `BottomSheet` (peek, half
-  and full on phones, inline from 1024 px; a WAI-ARIA button handle with drag
-  and keys), `RouteBar` and `routeBar.ts` (From/To, swap, departure, starting
-  SoC, collapsed More options, one state object), and `reveal.ts` (scrolls an
-  expanded stop card into view).
-- **Version check.** `VersionBar` polls `GET /api/health` every minute while the
-  tab is visible and on focus. A different version shows a "new version" bar on
-  prod; preview reloads itself once the tab is hidden.
-- **Service worker** (`web/public/sw.js`): an offline app shell plus Web Push
-  handling. It never caches `/api/*`; hashed assets are cached lazily. Bump
-  `CACHE_NAME` to invalidate. Because a controlling worker bypasses
-  Playwright's request routing on WebKit, the e2e stub disables registration
-  (`web/e2e/stub.ts`), so worker behaviour is checked by hand on preview.
-
----
-
 ## What we are explicitly *not* doing
 
 To keep the design honest, the following are non-goals and will be

@@ -1,6 +1,6 @@
 # Signing up for Rivolt
 
-This walks you from requesting beta access through your first
+This walks you from signing up for the beta through your first
 planned trip. It assumes you're using the hosted instance at
 [rivolt.dev](https://rivolt.dev); local-development setups skip
 the OIDC steps and use the docker-compose login instead.
@@ -9,7 +9,7 @@ the OIDC steps and use the docker-compose login instead.
 
 ## 1. Sign up
 
-Rivolt is in closed beta; total accounts are capped. There are two
+Rivolt is in public beta, no invite needed; total accounts are capped. There are two
 ways in:
 
 ### Option A — Continue with Google or GitHub (fastest)
