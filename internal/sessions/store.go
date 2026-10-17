@@ -310,8 +310,8 @@ func (s *Store) List(ctx context.Context, userID uuid.UUID) ([]Session, error) {
 func (s *Store) PurgeExpired(ctx context.Context, grace time.Duration) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM sessions
-		WHERE (expires_at < now() - $1::interval * INTERVAL '1 second')
-		   OR (revoked_at IS NOT NULL AND revoked_at < now() - $1::interval * INTERVAL '1 second')`,
+		WHERE (expires_at < now() - $1::float8 * INTERVAL '1 second')
+		   OR (revoked_at IS NOT NULL AND revoked_at < now() - $1::float8 * INTERVAL '1 second')`,
 		grace.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("sessions: purge: %w", err)

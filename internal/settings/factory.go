@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"database/sql"
 	"sync"
 
@@ -48,4 +49,10 @@ func (f *Factory) For(userID uuid.UUID) *Store {
 	}
 	f.cache[userID] = s
 	return s
+}
+
+// RivianReceiptsOptIn is the user's receipts opt-in by id, for callers
+// without a request context (the sync loop).
+func (f *Factory) RivianReceiptsOptIn(ctx context.Context, userID uuid.UUID) bool {
+	return RivianReceiptsOptIn(ctx, f.For(userID))
 }

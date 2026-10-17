@@ -280,3 +280,25 @@ func floatPtr(n sql.NullFloat64) *float64 {
 	v := n.Float64
 	return &v
 }
+
+// Purge removes everything the receipts sync stored for a user: the
+// receipts, the sync clock, and the receipt_* columns on their charges. The
+// estimate on the charge is untouched. Used when the user opts out.
+func (s *Store) Purge(ctx context.Context, uid uuid.UUID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	for _, q := range []string{
+		`UPDATE charges SET receipt_cost = NULL, receipt_currency = NULL, receipt_txn_id = NULL, receipt_source = NULL, updated_at = NOW()
+		  WHERE user_id = $1 AND receipt_source IS NOT NULL`,
+		`DELETE FROM rivian_receipts WHERE user_id = $1`,
+		`DELETE FROM rivian_receipt_sync WHERE user_id = $1`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, uid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

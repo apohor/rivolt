@@ -291,6 +291,31 @@ func (s *Store) ConsumeToken(ctx context.Context, token string) (Request, error)
 	return r, nil
 }
 
+// Retention of waitlist requests: one never approved is deleted after
+// NeverApprovedRetention; an approved one is deleted once its link was used
+// (the account exists) or, if never used, ApprovedUnusedGrace after the link
+// expired.
+const (
+	NeverApprovedRetention = 90 * 24 * time.Hour
+	ApprovedUnusedGrace    = 30 * 24 * time.Hour
+)
+
+// PurgeStale deletes the requests past retention and returns how many.
+func (s *Store) PurgeStale(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM signup_requests
+		 WHERE token_used_at IS NOT NULL
+		    OR (requested_at < NOW() - $1::interval AND status <> 'approved')
+		    OR (status = 'approved'
+		        AND COALESCE(token_expires_at, decided_at, requested_at) < NOW() - $2::interval)`,
+		fmt.Sprintf("%d microseconds", NeverApprovedRetention.Microseconds()),
+		fmt.Sprintf("%d microseconds", ApprovedUnusedGrace.Microseconds()))
+	if err != nil {
+		return 0, fmt.Errorf("signuprequests: purge: %w", err)
+	}
+	return res.RowsAffected()
+}
+
 // newSignupToken returns a 26-char URL-safe base32 string (130 bits
 // of randomness, well above the ~80-bit floor for unguessable tokens
 // served over public URLs).

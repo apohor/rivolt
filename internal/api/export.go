@@ -56,6 +56,7 @@ var exportedSettingKeys = map[string]bool{
 	"planner.default_drive_mode":    true,
 	"planner.has_adapter":           true,
 	"planner.favorites":             true,
+	"privacy.rivian_receipts":       true,
 	"recap.weather_enabled":         true,
 }
 
