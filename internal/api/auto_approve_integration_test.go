@@ -150,7 +150,7 @@ func TestSignupTokenCapRecheck(t *testing.T) {
 	call := func(tok string) int {
 		rec := httptest.NewRecorder()
 		handleSignup(pool, store, nil, nil, nil, nil, atCap)(rec, httptest.NewRequest("POST", "/api/signup",
-			strings.NewReader(`{"signup_token":"`+tok+`","password":"correct-horse-battery"}`)))
+			strings.NewReader(`{"signup_token":"`+tok+`","password":"Correct-Horse-9-Battery!"}`)))
 		return rec.Code
 	}
 	if code := call(autoTok); code != http.StatusConflict {
