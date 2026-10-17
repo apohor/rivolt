@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { Link, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
@@ -329,7 +329,7 @@ export default function SignupPage() {
               <li>• Every drive and charge against your own $/kWh</li>
               <li>• Road-trip planner with cost, weather, and efficiency analysis</li>
             </ul>
-            <p className="mb-5 text-[11px] leading-relaxed text-neutral-600">
+            <p className="mb-5 text-[11px] leading-relaxed text-neutral-400">
               Your Rivolt account is separate from your Rivian account - you
               connect the truck after signing in, no need to sign up with your
               Rivian email.
@@ -388,6 +388,12 @@ export default function SignupPage() {
                   <span className="text-emerald-100 font-mono">anton@rivolt.dev</span>{" "}
                   to your known recipients.
                 </p>
+                <p data-signup-have-account className="mt-2 text-xs text-emerald-200/70">
+                  Already have an account?{" "}
+                  <Link to="/login" className="text-emerald-100 underline underline-offset-2 hover:text-white">
+                    Sign in
+                  </Link>
+                </p>
               </div>
             )}
           </>
@@ -402,7 +408,7 @@ export default function SignupPage() {
               href="https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-emerald-500 hover:underline"
+              className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400"
             >
               signup walkthrough
             </a>
@@ -438,7 +444,7 @@ export default function SignupPage() {
           <div>
             <label className="mb-1.5 block text-xs font-medium text-neutral-400">
               Display name{" "}
-              <span className="text-neutral-600">(optional — defaults to email)</span>
+              <span className="text-neutral-400">(optional — defaults to email)</span>
             </label>
             <input
               type="text"
@@ -528,9 +534,9 @@ export default function SignupPage() {
         </form>
         )}
 
-        <p className="mt-4 text-center text-xs text-neutral-600">
+        <p className="mt-4 text-center text-xs text-neutral-400">
           Already have an account?{" "}
-          <a href="/login" className="text-emerald-500 hover:underline">
+          <a href="/login" className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400">
             Sign in
           </a>
         </p>
