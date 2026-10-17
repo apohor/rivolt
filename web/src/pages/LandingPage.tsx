@@ -145,6 +145,9 @@ export default function LandingPage() {
               can delete your data from Settings.
             </li>
           </ul>
+          <Link to="/safe-to-connect" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+            Is it safe to connect my Rivian account?
+          </Link>
         </section>
 
         <section aria-label="Limits" className="rounded-xl border border-neutral-800 p-6">

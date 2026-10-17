@@ -54,8 +54,9 @@ connects your truck.
 
 Rivolt uses your Rivian credentials to subscribe to the live
 telemetry WebSocket and read your drive / charge history. Calls
-are **read-only**; Rivolt has never sent a command to a Rivian
-endpoint and never will.
+are **read-only**; Rivolt has never sent a command to your
+vehicle. The only write-style requests it makes to Rivian are the
+sign-in steps.
 
 Tip: connect a dedicated Authorized Driver account (see
 "Recommended" below) if you can; the steps here are the same.
