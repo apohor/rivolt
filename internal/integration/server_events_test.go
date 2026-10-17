@@ -43,7 +43,18 @@ func TestServerFunnelEvents(t *testing.T) {
 		t.Fatalf("recorded with events off: %d", n)
 	}
 
+	// Product events alone are not enough: server events have their own switch.
 	t.Setenv("RIVOLT_EVENTS", "true")
+	t.Setenv("RIVOLT_SERVER_EVENTS", "")
+	only, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "oidc"), pool, "funnel-only", "only@x.test", "Only", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(only, db.EventSignupComplete); n != 0 {
+		t.Fatalf("recorded with RIVOLT_SERVER_EVENTS off: %d", n)
+	}
+
+	t.Setenv("RIVOLT_SERVER_EVENTS", "true")
 	uid, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "oidc"), pool, "funnel-user", "f@x.test", "F", true)
 	if err != nil {
 		t.Fatal(err)
