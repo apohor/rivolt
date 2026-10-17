@@ -55,7 +55,7 @@ export default function FirstDayCard({ vehicleID }: { vehicleID: string }) {
             done={rateDone}
             to="/settings?tab=charging#cost"
             label={rateDone ? `Home rate set: ${rateText}` : "Set your home rate"}
-            hint={rateDone ? "" : "So home charges are priced as they're recorded. Charges recorded before you set a rate show $0 until you re-price them."}
+            hint={rateDone ? "" : "So home charges are priced as they're recorded. Charges recorded before you set a rate stay unpriced; setting a rate doesn't change them, but you can add a price to each one."}
             cta="Set home rate"
             doneCta="Change"
           />
