@@ -10,8 +10,6 @@ import (
 func TestSPAHandler(t *testing.T) {
 	fsys := fstest.MapFS{
 		"index.html":           {Data: []byte("<html>shell</html>")},
-		"robots.txt":           {Data: []byte("User-agent: *\n")},
-		"sitemap.xml":          {Data: []byte("<urlset/>")},
 		"manifest.webmanifest": {Data: []byte("{}")},
 		"sw.js":                {Data: []byte("//sw")},
 		"assets/app-abc.js":    {Data: []byte("//js")},
@@ -23,8 +21,8 @@ func TestSPAHandler(t *testing.T) {
 		body   string
 	}{
 		// Real files resolve.
-		{"/robots.txt", 200, "User-agent: *\n"},
-		{"/sitemap.xml", 200, "<urlset/>"},
+		{"/robots.txt", 200, "User-agent: *\nDisallow: /\n"},
+		{"/sitemap.xml", 404, ""},
 		{"/manifest.webmanifest", 200, "{}"},
 		{"/sw.js", 200, "//sw"},
 		{"/assets/app-abc.js", 200, "//js"},
