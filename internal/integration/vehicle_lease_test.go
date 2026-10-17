@@ -38,7 +38,7 @@ func TestVehicleLeaseStoreAndCascade(t *testing.T) {
 		if _, err := pool.ExecContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, now.Add(-r.ago)); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (vehicle_id, user_id, at, odometer_mi) VALUES ($1,$2,$3,$4)`, vid, uid, now.Add(-r.ago), r.mi); err != nil {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (vehicle_id, user_id, at, source, odometer_mi) VALUES ($1,$2,$3,'live',$4)`, vid, uid, now.Add(-r.ago), r.mi); err != nil {
 			t.Fatal(err)
 		}
 	}
