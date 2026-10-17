@@ -55,6 +55,27 @@ for (const theme of ["dark", "light"] as const) {
       // The bars order the way the numbers do (taller is more efficient).
       const hs = await page.locator("[data-eff-chart]").nth(0).locator("[data-eff-bar]:not([data-thin])").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
       expect(hs[0]).toBeLessThan(hs[3]);
+      // No two text labels in a chart overlap (value labels, the average label, axis labels).
+      const overlaps = await page.evaluate(() => {
+        const out: string[] = [];
+        document.querySelectorAll("[data-eff-chart]").forEach((chart, ci) => {
+          const items: { t: string; r: DOMRect }[] = [];
+          chart.querySelectorAll("span, p, div").forEach((el) => {
+            if (el.children.length > 0 && !(el as HTMLElement).hasAttribute("data-eff-avg-label")) return;
+            const t = (el.textContent || "").trim();
+            if (!t || t === "—") return;
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) items.push({ t, r });
+          });
+          for (let i = 0; i < items.length; i++)
+            for (let j = i + 1; j < items.length; j++) {
+              const a = items[i].r, b = items[j].r;
+              if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) out.push(`chart ${ci}: "${items[i].t}" x "${items[j].t}"`);
+            }
+        });
+        return out;
+      });
+      expect(overlaps).toEqual([]);
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(SHOTS, `efficiency-${w}-${theme}.png`), fullPage: true });
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);

@@ -25,10 +25,15 @@ export function EfficiencyBars({
   const best = vals.reduce<number>((bi, v, i) => (v != null && !buckets[i].not_enough_data && (vals[bi] == null || buckets[bi].not_enough_data || v > (vals[bi] as number)) ? i : bi), 0);
   return (
     <div data-eff-chart>
+      {avg != null && (
+        <p data-eff-avg-label className="mb-2 flex items-center gap-1.5 text-[11px] tabular-nums text-neutral-400">
+          <span aria-hidden className="inline-block h-0 w-4 border-t border-dashed border-amber-500/80" />
+          Average {avg.toFixed(2)} {unit}
+        </p>
+      )}
       <div className="relative" style={{ height: 150 }}>
         {avg != null && (
           <div data-eff-avg className="absolute inset-x-0 border-t border-dashed border-amber-500/70" style={{ bottom: (avg / max) * S }}>
-            <span className="absolute -top-5 right-0 rounded-sm bg-neutral-900/80 px-1 text-[11px] tabular-nums text-amber-300">avg {avg.toFixed(2)}</span>
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 border-t border-neutral-700" aria-hidden />
