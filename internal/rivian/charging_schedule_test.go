@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -194,4 +195,68 @@ func TestChargingScheduleLoopReadsOnConnectAndNudge(t *testing.T) {
 	wait(2) // plug-in nudge
 	cancel()
 	<-done
+}
+
+// Rivian refuses the schedules of shared and authorized-driver accounts
+// (FORBIDDEN). That is not an error: the vehicle is marked "not available",
+// the read is not repeated for a week (not on connect, nudge or daily tick),
+// and a later success clears the mark.
+func TestChargingSchedulesForbiddenIsNotAvailableAndBacksOff(t *testing.T) {
+	ctx := context.Background()
+	m := NewStateMonitor(nil, nil)
+	var calls int
+	forbidden := &UpstreamError{Class: ClassUserAction, Op: "GetChargingSchedule", ExtCode: "FORBIDDEN", Cause: errors.New("User is forbidden from accessing this resource")}
+	var next error = forbidden
+	m.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		calls++
+		if next != nil {
+			return nil, next
+		}
+		return []ChargingSchedule{{StartMin: 60, DurationMin: 120, Enabled: true}}, nil
+	}
+	m.cache["v"] = &State{VehicleID: "v", ChargingSchedules: []ChargingSchedule{{StartMin: 1}}}
+
+	m.readChargingSchedules(ctx, "v", scheduleConnectMinAge)
+	if calls != 1 {
+		t.Fatalf("calls = %d", calls)
+	}
+	if st := m.cache["v"]; !st.ChargingSchedulesUnavailable || st.ChargingSchedules != nil {
+		t.Errorf("state = unavailable %v schedules %v; want marked unavailable and no stale list", st.ChargingSchedulesUnavailable, st.ChargingSchedules)
+	}
+	for _, age := range []time.Duration{0, scheduleNudgeMinAge, scheduleConnectMinAge} {
+		m.readChargingSchedules(ctx, "v", age)
+	}
+	if calls != 1 {
+		t.Errorf("read again inside the back-off: %d calls", calls)
+	}
+	// The mark survives a vehicleState push.
+	if got := mergeState(m.cache["v"], &State{ChargerState: "charging_ready"}); !got.ChargingSchedulesUnavailable {
+		t.Error("a push dropped the unavailable mark")
+	}
+	// A week on, one more try; a success clears the mark.
+	m.mu.Lock()
+	m.scheduleUnavailableUntil["v"] = time.Now().Add(-time.Minute)
+	m.mu.Unlock()
+	next = nil
+	m.readChargingSchedules(ctx, "v", 0)
+	if calls != 2 || m.cache["v"].ChargingSchedulesUnavailable || len(m.cache["v"].ChargingSchedules) != 1 {
+		t.Errorf("after the back-off: calls %d unavailable %v schedules %v", calls, m.cache["v"].ChargingSchedulesUnavailable, m.cache["v"].ChargingSchedules)
+	}
+}
+
+// Any other failure is still a warning and is retried as before.
+func TestChargingSchedulesOtherErrorsKeepRetrying(t *testing.T) {
+	ctx := context.Background()
+	m := NewStateMonitor(nil, nil)
+	var calls int
+	m.fetchSchedules = func(context.Context, string) ([]ChargingSchedule, error) {
+		calls++
+		return nil, &UpstreamError{Class: ClassOutage, Op: "GetChargingSchedule", HTTPStatus: 502}
+	}
+	m.cache["v"] = &State{VehicleID: "v"}
+	m.readChargingSchedules(ctx, "v", 0)
+	m.readChargingSchedules(ctx, "v", 0)
+	if calls != 2 || m.cache["v"].ChargingSchedulesUnavailable {
+		t.Errorf("calls %d unavailable %v; an outage must not back off or mark", calls, m.cache["v"].ChargingSchedulesUnavailable)
+	}
 }

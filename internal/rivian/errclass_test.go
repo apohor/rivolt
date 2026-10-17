@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -315,5 +316,50 @@ func TestNon401_4xxDoesNotPoisonReauth(t *testing.T) {
 	}
 	if sinkCalls != 0 {
 		t.Errorf("sink fired on non-auth 4xx: want 0, got %d", sinkCalls)
+	}
+}
+
+func TestErrCodeIsNotAvailableDescribe(t *testing.T) {
+	forbidden := fmt.Errorf("GetChargingSchedule: %w", &UpstreamError{Class: ClassUserAction, Op: "GetChargingSchedule", ExtCode: "FORBIDDEN", Cause: errors.New("User is forbidden from accessing this resource")})
+	if ErrCode(forbidden) != "FORBIDDEN" || !IsNotAvailable(forbidden) {
+		t.Errorf("forbidden: code %q notAvailable %v", ErrCode(forbidden), IsNotAvailable(forbidden))
+	}
+	for _, e := range []error{
+		&UpstreamError{ExtCode: "not_found"},
+		&UpstreamError{ExtCode: "UNSUPPORTED"},
+		&UpstreamError{HTTPStatus: 403},
+		&UpstreamError{HTTPStatus: 404},
+		&UpstreamError{HTTPStatus: 501},
+	} {
+		if !IsNotAvailable(e) {
+			t.Errorf("%+v should be not available", e)
+		}
+	}
+	for _, e := range []error{
+		&UpstreamError{ExtCode: "RATE_LIMITED", HTTPStatus: 429},
+		&UpstreamError{HTTPStatus: 500},
+		&UpstreamError{ExtCode: "INTERNAL_SERVER_ERROR"},
+		errors.New("plain"),
+		nil,
+	} {
+		if IsNotAvailable(e) {
+			t.Errorf("%v should not be not available", e)
+		}
+	}
+	if ErrCode(errors.New("x")) != "" {
+		t.Error("ErrCode of a non-upstream error must be empty")
+	}
+	// Describe: classification and the code, never the cause's text.
+	d := Describe(forbidden)
+	for _, leak := range []string{"forbidden from accessing", "User is"} {
+		if strings.Contains(d, leak) {
+			t.Errorf("Describe leaks the message text %q: %s", leak, d)
+		}
+	}
+	if !strings.Contains(d, `code="FORBIDDEN"`) || !strings.Contains(d, "GetChargingSchedule") {
+		t.Errorf("Describe = %s", d)
+	}
+	if got := Describe(errors.New("pq: secret value")); strings.Contains(got, "secret") {
+		t.Errorf("Describe echoed an unknown error: %s", got)
 	}
 }

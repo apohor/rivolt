@@ -364,6 +364,20 @@ func SetVehicleImageURL(ctx context.Context, d *sql.DB, userID uuid.UUID, rivian
 // per-vehicle data that dies with the row, so no new table. The sync also
 // records "ota_attempt_at" there as its once-a-day claim.
 
+// OTAUnavailableBackoff is how long a vehicle Rivian won't give OTA details
+// for (FORBIDDEN or unsupported, e.g. some R2s) is left alone.
+const OTAUnavailableBackoff = 7 * 24 * time.Hour
+
+// MarkOTAUnavailable records that Rivian said OTA details are not available
+// for the vehicle, which keeps ClaimOTAFetch from winning for a week.
+func MarkOTAUnavailable(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string) error {
+	_, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{ota_unavailable_at}', to_jsonb(NOW()::text))
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2`, userID, rivianVehicleID)
+	return err
+}
+
 // ClaimOTAFetch records an attempt to fetch the vehicle's OTA details and
 // reports whether this caller won it: no attempt in the last minInterval,
 // across pods and restarts. It matches only the user's own vehicle.
@@ -375,8 +389,11 @@ func ClaimOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehic
 		 WHERE user_id = $1 AND rivian_vehicle_id = $2
 		   AND ( metadata->>'ota_attempt_at' IS NULL
 		      OR (metadata->>'ota_attempt_at')::timestamptz < NOW() - $3::interval )
+		   AND ( metadata->>'ota_unavailable_at' IS NULL
+		      OR (metadata->>'ota_unavailable_at')::timestamptz < NOW() - $4::interval )
 		RETURNING 1`,
-		userID, rivianVehicleID, fmt.Sprintf("%d microseconds", minInterval.Microseconds())).Scan(&one)
+		userID, rivianVehicleID, fmt.Sprintf("%d microseconds", minInterval.Microseconds()),
+		fmt.Sprintf("%d microseconds", OTAUnavailableBackoff.Microseconds())).Scan(&one)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -388,7 +405,7 @@ func ClaimOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehic
 func SetVehicleOTA(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, ota json.RawMessage) error {
 	res, err := d.ExecContext(ctx, `
 		UPDATE vehicles
-		   SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('ota', $3::jsonb), updated_at = NOW()
+		   SET metadata = (COALESCE(metadata, '{}'::jsonb) - 'ota_unavailable_at') || jsonb_build_object('ota', $3::jsonb), updated_at = NOW()
 		 WHERE user_id = $1 AND rivian_vehicle_id = $2`, userID, rivianVehicleID, string(ota))
 	if err != nil {
 		return fmt.Errorf("vehicle ota update: %w", err)

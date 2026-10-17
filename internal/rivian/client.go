@@ -127,6 +127,11 @@ type State struct {
 	// until the first read. They explain a car that is plugged in and not
 	// charging.
 	ChargingSchedules []ChargingSchedule `json:"charging_schedules,omitempty"`
+	// ChargingSchedulesUnavailable is true when Rivian refuses to share this
+	// vehicle's schedules with the account (shared or authorized-driver
+	// accounts get FORBIDDEN). Not an error: the Now line just has nothing
+	// to say. Re-read after a week.
+	ChargingSchedulesUnavailable bool `json:"charging_schedules_unavailable,omitempty"`
 	// ChargerStatusPx marks a ChargerStatus taken from Parallax
 	// charging.session.status, on a vehicle whose vehicleState sends none
 	// (an R2). The recorder trusts it for "plugged" but keeps its power

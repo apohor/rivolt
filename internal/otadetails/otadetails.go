@@ -9,9 +9,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/rand"
+	"net"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ const (
 type store interface {
 	Claim(ctx context.Context, uid uuid.UUID, rivianID string, minInterval time.Duration) (bool, error)
 	Save(ctx context.Context, uid uuid.UUID, rivianID string, info *rivian.OTAInfo) error
+	MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID string) error
 	Vehicles(ctx context.Context, uid uuid.UUID) ([]string, error)
 }
 
@@ -52,6 +54,10 @@ func (p *pgStore) Save(ctx context.Context, uid uuid.UUID, rivianID string, info
 		return err
 	}
 	return db.SetVehicleOTA(ctx, p.d, uid, rivianID, raw)
+}
+
+func (p *pgStore) MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID string) error {
+	return db.MarkOTAUnavailable(ctx, p.d, uid, rivianID)
 }
 
 func (p *pgStore) Vehicles(ctx context.Context, uid uuid.UUID) ([]string, error) {
@@ -110,6 +116,17 @@ func (s *Syncer) SyncUser(ctx context.Context, uid uuid.UUID) (int, error) {
 		}
 		info, err := src.OTAUpdateDetails(ctx, id)
 		if err != nil {
+			if notAvailable(err) {
+				// Rivian won't give this vehicle's OTA details (FORBIDDEN or
+				// unsupported, e.g. some R2s): expected, not a failure. Back
+				// it off for a week and go on with the user's other vehicles.
+				if merr := s.st.MarkUnavailable(ctx, uid, id); merr != nil {
+					return fetched, merr
+				}
+				s.logger.Info("ota details: not available for this vehicle, backing off a week",
+					"user_id", uid.String(), "code", rivian.ErrCode(err), "err", describe(err))
+				continue
+			}
 			return fetched, err
 		}
 		if err := s.st.Save(ctx, uid, id, info); err != nil {
@@ -160,18 +177,26 @@ func (s *Syncer) Run(ctx context.Context) {
 	}
 }
 
-// describe logs an upstream error as its classification only: its cause can
-// carry a slice of a response body.
-func describe(err error) string {
+// describe logs an error as its classification only (see rivian.Describe).
+func describe(err error) string { return rivian.Describe(err) }
+
+// notAvailable is an answer that says "not for this vehicle": a FORBIDDEN or
+// unsupported code, or any GraphQL-level refusal (the gateway answered, with
+// no HTTP failure and no class we know). Network failures, rate limits and
+// outages are not, and stop the pass for a retry on the next one.
+func notAvailable(err error) bool {
+	if rivian.IsNotAvailable(err) {
+		return true
+	}
 	var ue *rivian.UpstreamError
-	if errors.As(err, &ue) {
-		return fmt.Sprintf("upstream %s http=%d class=%v reason=%q", ue.Op, ue.HTTPStatus, ue.Class, ue.Reason)
+	if !errors.As(err, &ue) || ue.HTTPStatus != 0 || ue.Class != rivian.ClassUnknown {
+		return false
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, rivian.ErrNeedsReauth) || errors.Is(err, rivian.ErrNotAuthenticated) {
-		return err.Error()
-	}
-	return "sync error"
+	// A transport failure the classifier did not recognise looks the same
+	// (status 0, unknown): it is not a refusal.
+	var netErr net.Error
+	var urlErr *url.Error
+	return !errors.As(err, &netErr) && !errors.As(err, &urlErr)
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
