@@ -153,8 +153,9 @@ or session IDs won't line up.
 ## 4. (Optional) Configure your home charging cost
 
 Rivolt prices every charging session against the rate you actually
-pay. Set it once and every future session reflects it; sessions
-recorded before this is set will show $0 until you re-price them.
+pay. Set it once and every future session reflects it. Charges
+recorded before you set a rate stay unpriced; setting a rate doesn't
+change them, but you can add a price to each one.
 
 1. **Settings → Charging → Home charging cost**.
 2. Enter your **$/kWh** rate (e.g. `0.12` for $0.12/kWh).
