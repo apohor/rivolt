@@ -9,15 +9,17 @@ Last updated: [PUBLICATION DATE]
 **Who it is for.** Adults (18 and over) in the United States who own or drive a Rivian. **[ATTORNEY TO CONFIRM]**
 
 **What we collect, and why**
-- **Your account:** email, display name and your sign-in provider's account id, to sign you in; for each sign-in, the IP address and browser it came from, to keep you signed in and spot stolen sessions. If you asked for access, your request (email and message).
+- **Your account:** email, display name and your sign-in provider's account id, to sign you in; for each sign-in, the IP address and browser it came from, to keep you signed in and spot stolen sessions; we delete these 30 days after the sign-in expires or you sign out. If you asked for access, your request (email and message): deleted after 90 days if it is not approved, and if it is approved, once you sign up or 30 days after the invite expires unused. **[CONFIRM #363 SHIPPED]**
 - **Your Rivian sign-in:** your Rivian email and the session tokens Rivian issues, stored encrypted, so we can keep reading your vehicle. **Your Rivian password is never stored**; it is used once to sign in to Rivian.
 - **Your vehicle's data**, read from Rivian: charge level, range, odometer, speed, temperatures, tire pressure, software version, trim and picture, and **GPS location**. We turn it into drives, charges and costs. Location is the most sensitive data we hold. It is never shown to other users. Rivolt records the vehicle, not the driver: if someone else drives it, their trips are recorded too.
-- **Rivian charging receipts**, only if receipts are turned on for your account: amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.
+- **Rivian charging receipts**, only if you turn them on in Settings (off by default; turning them off deletes the stored receipts) **[CONFIRM #363 SHIPPED]**: amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.
 - **Your settings:** electricity rates, saved places and trips, notification and email preferences.
+- **Notifications:** if you turn on notifications, your browser's push address and User-Agent.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
 
 **Who we share it with.** Only these, and only for the service:
+- **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt. **[VERIFY: providers enabled in prod]**
 - **Rivian**, to read your vehicle's data. Rivolt's requests present themselves as Rivian's own mobile app (see the Terms, section 2).
 - **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
@@ -25,7 +27,7 @@ Last updated: [PUBLICATION DATE]
 - **Open-Meteo**, for weather (trip coordinates rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
 - **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Trip recaps send no coordinates or addresses. Trip advice sends the start and destination you type (which can be an address), charger names or locations (to about 110 m) and tire pressures.
 
-We run our own servers in the United States, and our backups stay there. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **[ATTORNEY TO CONFIRM]** **We do not sell your data, and there is no advertising** and no third-party analytics script.
+We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. **[VERIFY: encryption at rest and physical location of the backup volume]** As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **[ATTORNEY TO CONFIRM]** **We do not sell your data, and there is no advertising** and no third-party analytics script.
 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
@@ -43,10 +45,10 @@ We run our own servers in the United States, and our backups stay there. As the 
 Internal notes (not for publication):
 - Mailing address: a USPS PO box, or a private mailbox at a commercial mail receiving agency (USPS Form 1583); not a home address. Both count as a "valid physical postal address" under 16 CFR 316.2(p). Resend's Acceptable Use Policy also asks senders to include a valid address and company name in emails.
 - Sources for each claim (main, plus PR #361 wording):
-  account/sign-in: users row, internal/oidc; sessions IP + User-Agent: migration 0006, internal/sessions/store.go (PurgeExpired has no caller, so rows stay until account deletion); access requests: signup_requests, migration 0028.
+  account/sign-in: users row, internal/oidc; sessions IP + User-Agent: migration 0006, internal/sessions/store.go; 30-day purge after expiry/revocation and waitlist sweep (90 days unapproved; approved: on signup or 30 days after invite expiry) via internal/retention (PR #363). access requests: signup_requests, migration 0028. push: push_subscriptions (endpoint, keys, user_agent), internal/push/store.go.
   Rivian session sealed, password not stored: internal/secrets/rivian.go, internal/crypto, internal/rivian/live.go (Session has no password field).
   vehicle data: vehicle_state, drives, charges; software version internal/otadetails; trim/image vehicles table.
-  receipts: rivian_receipts (migration 0055), internal/receipts, per-account flag rivian_receipts (internal/flags/flags.go).
+  receipts: rivian_receipts (migration 0055), internal/receipts; after PR #363 needs both the rivian_receipts operator flag (internal/flags/flags.go) and the user's opt-in (setting privacy.rivian_receipts, PUT /api/settings/rivian-receipts; opting out deletes stored receipts). backups: full draft section 4/5 (MinIO in-cluster, CNPG 365d).
   logs 90 days: Loki 2160 h; raw Parallax frames per full draft section 2.
   analytics: events table (migration 0046), DNT/GPC in internal/api/events.go, 90-day purge.
   sharing: full draft section 4; identity internal/rivian/live.go:25-52, ws_mux.go:114-121; Open-Meteo rounding 0.1 degree; AI: internal/ai, internal/recap, internal/tripadvice/advice.go.
