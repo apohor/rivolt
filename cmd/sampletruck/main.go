@@ -1,5 +1,5 @@
-// Command sampletruck writes the generated sample-truck corpus (A16,
-// docs/product/sample-truck.md) as replay-format JSONL, one frame per
+// Command sampletruck writes the generated sample-truck corpus (the
+// demo's truck) as replay-format JSONL, one frame per
 // line, and prints a summary to stderr. The same seed always produces
 // byte-identical output.
 //

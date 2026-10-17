@@ -14,7 +14,7 @@ import (
 	"github.com/apohor/rivolt/internal/dcfcrates"
 )
 
-// Same seed, same bytes (docs/product/sample-truck.md acceptance).
+// Same seed, same bytes.
 func TestSampleCorpus_Deterministic(t *testing.T) {
 	t.Parallel()
 	// A fresh build against the shared one (built the same way): same

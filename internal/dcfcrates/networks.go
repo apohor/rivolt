@@ -42,9 +42,8 @@ type Network struct {
 	// RivianIDs are the values passed to Rivian's planTrip2
 	// networkPreferences[].networkId field. Some networks span
 	// multiple operator IDs (RAN = Adventure + Wayfinder; FLO =
-	// FLOC + FLOU for Canada/US), so this is a list. Mapping is
-	// lifted from the Android app's InternalNetwork enum
-	// (apk decompile, 2026-05-18):
+	// FLOC + FLOU for Canada/US), so this is a list. Mapping of the
+	// network ids Rivian reports:
 	//
 	//   10001, 10002 → RAN (Adventure + Wayfinder, "RAN, RWN")
 	//   10025         → ChargePoint

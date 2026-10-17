@@ -1,4 +1,4 @@
-// First-party product events (docs/product/instrumentation.md). Counts
+// First-party product events. Counts
 // and enums only: no PII, no coordinates, no amounts. Off unless the
 // server says RIVOLT_EVENTS (features.events_enabled); also silent under
 // Do-Not-Track / Global Privacy Control. The visitor id is a random
