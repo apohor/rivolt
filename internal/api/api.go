@@ -871,6 +871,16 @@ func New(d Deps) http.Handler {
 			r.Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
+			// Efficiency breakdowns (Insights): mi/kWh by outside
+			// temperature, average speed and drive mode over a period,
+			// from the user's own drives and samples.
+			r.Get("/insights/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				var store driveConditionLister
+				if st := d.Samples.For(uid); st != nil {
+					store = st
+				}
+				handleEfficiencyInsights(store, d.Logger)(w, r)
+			}))
 			// Trip planner — pass-through to Rivian's
 			// planTripWithMultiStop. Caller supplies origin +
 			// destination + optional intermediate waypoints +

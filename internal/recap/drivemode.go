@@ -45,3 +45,7 @@ func humanizeDriveMode(raw string) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// HumanizeDriveMode is humanizeDriveMode for other packages (the
+// efficiency breakdown's drive-mode rows use the same labels).
+func HumanizeDriveMode(raw string) string { return humanizeDriveMode(raw) }
