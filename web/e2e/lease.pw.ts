@@ -46,6 +46,9 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.locator("[data-lease-projected-odo]")).toHaveText("39,732 mi");
       await expect(page.locator("[data-lease-overage]")).toContainText("$930");
       await expect(card).toContainText("(last 90 days)");
+      // The amber "total allowed" tick is explained in the legend.
+      await expect(page.locator("[data-lease-limit]")).toBeVisible();
+      await expect(page.locator("[data-lease-legend-limit]")).toContainText("Total allowed · 36,000 mi");
       await expect(page.locator("[data-lease-budget]")).toContainText("35.7 mi");
       const bar = page.getByRole("progressbar", { name: "Lease miles used" });
       await expect(bar).toHaveAttribute("aria-valuenow", "21850");
@@ -105,6 +108,8 @@ test("Settings: lease form validates, saves in miles, and removes", async ({ bro
   await page.goto("/settings?tab=vehicle");
   const form = page.locator("[data-lease-form]");
   await expect(form).toBeVisible();
+  // Placeholders read as examples, not as typed values.
+  await expect(form.getByLabel(/^Miles allowed/)).toHaveAttribute("placeholder", /^e\.g\. /);
   await form.getByRole("button", { name: "Add lease" }).click();
   await expect(form.getByRole("alert")).toHaveCount(5);
   await form.getByLabel(/^Lease start/).fill("2024-11-03");

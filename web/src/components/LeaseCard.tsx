@@ -69,6 +69,7 @@ export function LeaseBody({ st, allowed, currency, end, unit }: { st: LeaseStatu
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-neutral-500">
             <span><span aria-hidden className={`mr-1 inline-block h-2 w-2 rounded-sm align-middle ${fill}`} />Used</span>
             <span><span aria-hidden className="mr-1 inline-block h-2.5 w-0.5 bg-neutral-100 align-middle" />Allowed to date · {dist(st.allowed_to_date_mi, unit)}</span>
+            {bar.allowedPct < 100 && <span data-lease-legend-limit><span aria-hidden className="mr-1 inline-block h-2.5 w-0.5 bg-amber-400 align-middle" />Total allowed · {dist(allowed, unit)}</span>}
             {bar.projectedPct != null && <span><span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-sm bg-neutral-500/50 align-middle" />Projected at return</span>}
           </div>
         </div>
