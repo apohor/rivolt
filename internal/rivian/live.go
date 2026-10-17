@@ -82,6 +82,8 @@ type LiveClient struct {
 	// the breaker (failure-driven) compose without one needing to
 	// know about the other.
 	breaker *Breaker
+	// results, when set, counts every call's outcome (WithResultObserver).
+	results ResultObserver
 
 	// rateLimit, when non-nil, gates outbound calls on a global
 	// token bucket. Set via WithRateLimit. Built around an
@@ -251,6 +253,23 @@ var ErrNeedsReauth = errors.New("rivian: re-authentication required")
 // calls when it returns non-nil. Pass nil to remove.
 func (c *LiveClient) WithUpstreamGate(gate func(ctx context.Context) error) *LiveClient {
 	c.upstreamGate = gate
+	return c
+}
+
+// ResultObserver receives the outcome of every call that reached Rivian's
+// GraphQL gateway: op is the operation name (a fixed set), class is
+// "success" or the ErrorClass label (transient, outage, rate_limited,
+// user_action, unknown). main.go maps it onto rivolt_rivian_results_total,
+// which the auth-failure alert keys on. Calls stopped before the network
+// (kill switch, breaker open, rate limit) and our own cancellations are
+// not reported.
+type ResultObserver interface {
+	OnResult(op, class string)
+}
+
+// WithResultObserver attaches o (nil to remove).
+func (c *LiveClient) WithResultObserver(o ResultObserver) *LiveClient {
+	c.results = o
 	return c
 }
 
@@ -563,6 +582,24 @@ func retriedCSRF(ctx context.Context) bool {
 	return v
 }
 
+// resultClass is the ResultObserver label for a finished call; ok=false
+// for an outcome that isn't Rivian's (our own context cancelled).
+func resultClass(ctx context.Context, err error) (string, bool) {
+	if err == nil {
+		return "success", true
+	}
+	// First: a cancelled call surfaces as a transient UpstreamError too,
+	// and it says nothing about Rivian.
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return "", false
+	}
+	var ue *UpstreamError
+	if errors.As(err, &ue) {
+		return ue.Class.String(), true
+	}
+	return ClassUnknown.String(), true
+}
+
 // doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (result T, err error) {
 	var zero T
@@ -590,6 +627,11 @@ func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req grap
 		// Mark the span as errored when the call returns an
 		// *UpstreamError so Tempo highlights the failed branch and
 		// stamps the error class as a queryable attribute.
+		if c.results != nil {
+			if class, ok := resultClass(ctx, err); ok {
+				c.results.OnResult(req.OperationName, class)
+			}
+		}
 		if err != nil {
 			var ue *UpstreamError
 			if errors.As(err, &ue) {
