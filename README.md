@@ -5,7 +5,8 @@
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
  · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
- · **[Self-host it](docs/SIGNUP.md)** · [MIT license](LICENSE)
+ · **Self-host:** [docker compose](docker-compose.yml), [Helm chart](deploy/helm)
+ · [Sign-up guide](docs/SIGNUP.md) · [MIT license](LICENSE)
 
 ![Now tab on the demo truck](docs/screenshots/now.png)
 
