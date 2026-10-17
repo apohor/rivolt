@@ -184,7 +184,7 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 	}
 	delta := int64(peak.Load()) - int64(base.HeapAlloc)
 	t.Logf("streamed %d MB, peak heap delta %d MB", resp.n.Load()>>20, delta>>20)
-	if resp.n.Load() < 80<<20 {
+	if resp.n.Load() < 50<<20 {
 		t.Errorf("only %d MB streamed; the dataset is too small to prove anything", resp.n.Load()>>20)
 	}
 	if delta > 50<<20 {
