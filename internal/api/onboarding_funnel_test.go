@@ -148,9 +148,9 @@ func TestRivianRefreshVehicles_RequiresConnection(t *testing.T) {
 }
 
 // TestSetupNudge_TwoEmailsForAnyUnconnectedUser pins the sweep's
-// eligibility: every no-vehicle user (onboarded or not) gets a first
-// email once a day old and one follow-up after the gap, then nothing;
-// connected and brand-new users get none.
+// eligibility: every verified user with no data (onboarded or not) gets a
+// first email once three days old and one follow-up after the gap, then
+// nothing; connected-with-data, unverified and brand-new users get none.
 func TestSetupNudge_TwoEmailsForAnyUnconnectedUser(t *testing.T) {
 	ctx, pool := openFunnelDB(t)
 	mk := func(name string, age time.Duration) uuid.UUID {
@@ -160,21 +160,26 @@ func TestSetupNudge_TwoEmailsForAnyUnconnectedUser(t *testing.T) {
 			t.Fatalf("EnsureUserFull(%s): %v", name, err)
 		}
 		if _, err := pool.ExecContext(ctx,
-			`UPDATE users SET created_at = now() - $2::interval, onboarding_completed = FALSE WHERE id = $1`,
+			`UPDATE users SET created_at = now() - $2::interval, onboarding_completed = FALSE, email_verified = TRUE WHERE id = $1`,
 			uid, pgInterval(age)); err != nil {
 			t.Fatalf("age %s: %v", name, err)
 		}
 		return uid
 	}
-	stalled := mk("stalled", 48*time.Hour)
-	connected := mk("connected", 48*time.Hour)
+	stalled := mk("stalled", 96*time.Hour)
+	connected := mk("connected", 96*time.Hour)
 	mk("fresh", time.Hour)
 	if _, err := pool.ExecContext(ctx,
 		`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1, 'veh-c')`, connected); err != nil {
 		t.Fatalf("seed vehicle: %v", err)
 	}
+	// "connected" has a vehicle AND data (a drive), so it is not nudged.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source)
+		SELECT $1, id, 'd-c', now() - interval '3 hours', now() - interval '2 hours', 5, 'live' FROM vehicles WHERE user_id = $1`, connected); err != nil {
+		t.Fatalf("seed drive: %v", err)
+	}
 
-	const minAge, followUp = 24 * time.Hour, 6 * 24 * time.Hour
+	const minAge, followUp = 72 * time.Hour, 6 * 24 * time.Hour
 	due := func() []db.SetupNudge {
 		t.Helper()
 		out, err := db.ListUsersDueForSetupNudge(ctx, pool, minAge, followUp)

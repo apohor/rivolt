@@ -379,6 +379,11 @@ func New(d Deps) http.Handler {
 			unsubLimiter.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
 			r.With(unsubLimiter.Middleware).Get("/statement-email/unsubscribe", stm.unsubscribeGet)
 			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/statement-email/unsubscribe", stm.unsubscribePost)
+			// Welcome and setup emails: the same kind of signed one-click
+			// link, scoped by its purpose so the two never cross.
+			oe := &onboardingEmailAPI{db: d.DB, signer: d.StatementSigner, now: time.Now}
+			r.With(unsubLimiter.Middleware).Get("/onboarding-email/unsubscribe", oe.unsubscribeGet)
+			r.With(unsubLimiter.Middleware, maxBodyBytes(4096)).Post("/onboarding-email/unsubscribe", oe.unsubscribePost)
 		}
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {
@@ -655,6 +660,13 @@ func New(d Deps) http.Handler {
 					handleChargingNetworksReset(d.Settings.For(uid))(w, r)
 				}))
 			})
+
+			// Welcome and setup reminder emails: on/off (Settings toggle).
+			if d.DB != nil {
+				oe := &onboardingEmailAPI{db: d.DB, now: time.Now}
+				r.Get("/settings/onboarding-email", withUser(oe.getSettings))
+				r.Put("/settings/onboarding-email", withUser(oe.putSettings))
+			}
 
 			// User's saved home location, used by the trip planner
 			// for one-click Origin/Destination presets.

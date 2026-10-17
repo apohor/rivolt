@@ -229,7 +229,7 @@ func writeUnsubPage(w http.ResponseWriter, status int, body string) {
 // only GET never unsubscribe anyone by accident.
 func (a *statementAPI) unsubscribeGet(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("t")
-	if _, _, err := a.signer.Verify(tok, a.now()); err != nil {
+	if _, period, err := a.signer.Verify(tok, a.now()); err != nil || !periodRE.MatchString(period) {
 		writeUnsubPage(w, http.StatusBadRequest, `<h1>This link has expired</h1><p>Sign in to Rivolt and change monthly statements in Settings → Notifications.</p>`)
 		return
 	}
@@ -240,8 +240,8 @@ func (a *statementAPI) unsubscribeGet(w http.ResponseWriter, r *http.Request) {
 // POST performs it (RFC 8058 one-click posts here too). Idempotent:
 // an already-unsubscribed user gets the same success page.
 func (a *statementAPI) unsubscribePost(w http.ResponseWriter, r *http.Request) {
-	uid, _, err := a.signer.Verify(r.URL.Query().Get("t"), a.now())
-	if err != nil {
+	uid, period, err := a.signer.Verify(r.URL.Query().Get("t"), a.now())
+	if err != nil || !periodRE.MatchString(period) {
 		writeUnsubPage(w, http.StatusBadRequest, `<h1>This link has expired</h1><p>Sign in to Rivolt and change monthly statements in Settings → Notifications.</p>`)
 		return
 	}
