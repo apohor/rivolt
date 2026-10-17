@@ -214,6 +214,7 @@ function SettingsPageInner() {
             <NotificationsPanel />
           </Card>
           <StatementEmailCard />
+          <OnboardingEmailCard />
         </>
       )}
 
@@ -252,6 +253,49 @@ function browserZone(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// OnboardingEmailCard: the welcome email and up to two setup reminders (until the truck is
+// connected). On by default; separate from the monthly statement. Hidden when the endpoint is absent.
+function OnboardingEmailCard() {
+  const qc = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["settings", "onboarding-email"],
+    queryFn: () => backend.onboardingEmailGet(),
+    retry: 0,
+    staleTime: 60_000,
+  });
+  const put = useMutation({
+    mutationFn: (enabled: boolean) => backend.onboardingEmailPut(enabled),
+    onSuccess: (data) => qc.setQueryData(["settings", "onboarding-email"], data),
+  });
+  if (!settings.data) return null;
+  return (
+    <Card title="Setup emails" id="onboarding-email">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="onboarding-email-toggle" className="text-sm text-neutral-100">
+            Welcome and setup reminder emails
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            We send a welcome email and up to two setup reminders until your truck is connected. Turn them off here
+            or with the link in the email.
+          </p>
+        </div>
+        <Toggle
+          id="onboarding-email-toggle"
+          checked={settings.data.enabled}
+          disabled={put.isPending}
+          onChange={(v) => put.mutate(v)}
+        />
+      </div>
+      {put.isError && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          Couldn&apos;t save: {String(put.error)}
+        </p>
+      )}
+    </Card>
+  );
 }
 
 // StatementEmailCard: opt in to the monthly statement email, and preview

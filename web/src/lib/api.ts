@@ -1116,6 +1116,16 @@ export const backend = {
   },
   statementEmailPut: (enabled: boolean, timezone?: string) =>
     api.put<StatementEmailSettings>("/api/settings/statement-email", { enabled, timezone }),
+  // Welcome and setup-reminder emails (on by default). Null on 404/501: the Settings card hides.
+  onboardingEmailGet: async (): Promise<{ enabled: boolean } | null> => {
+    try {
+      return await api.get<{ enabled: boolean }>("/api/settings/onboarding-email");
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  onboardingEmailPut: (enabled: boolean) => api.put<{ enabled: boolean }>("/api/settings/onboarding-email", { enabled }),
   // No month: the server uses the previous month in the user's zone.
   statementEmailPreview: () => api.get<StatementEmailPreview>("/api/statement-email/preview"),
   liveSession: (vehicleID: string) =>
