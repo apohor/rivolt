@@ -24,7 +24,7 @@ for (const scheme of ["dark", "light"] as const) {
       }),
     );
     await page.goto("/truck");
-    const card = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Sleep and idle-awake" }) }).last();
+    const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Sleep and idle-awake" }) });
     await expect(card.getByText(/averaging \d+ h( \d+ min)? a day|averaging \d+ min a day/)).toBeVisible();
     const axis = (await card.locator("svg text").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).join(" ");
     expect(axis).toMatch(/\d+h|\d+m/);
@@ -41,7 +41,7 @@ for (const scheme of ["dark", "light"] as const) {
     }).toPass();
 
     await page.goto("/");
-    const now = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Idle-awake time per day" }) }).last();
+    const now = page.locator("section").filter({ has: page.getByRole("heading", { name: "Idle-awake time per day" }) });
     await expect(now).toBeVisible();
     await expect(now.locator("svg").first()).toBeVisible();
     await expect(async () => {
