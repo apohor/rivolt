@@ -247,6 +247,7 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 			"username":             username,
 			"role":                 role,
 			"onboarding_completed": onboardingDone,
+			"terms":                termsView(r.Context(), d, uid),
 		})
 	}
 }
