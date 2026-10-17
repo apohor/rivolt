@@ -7,7 +7,10 @@ import (
 )
 
 // spaHandler serves static assets from fsys; for non-asset paths (no dot in last
-// segment) it returns index.html so client-side routing works.
+// segment) it returns index.html so client-side routing works. A missing path
+// whose last segment has a file extension (/robots.txt, /og.png, /x.js) is a
+// real 404, not the app shell: crawlers and unfurlers would otherwise read
+// HTML as the file.
 //
 // Cache policy: index.html (and SPA route fallthroughs) get
 // "Cache-Control: no-cache" so the browser revalidates each load and
@@ -29,6 +32,10 @@ func spaHandler(fsys fs.FS) http.Handler {
 			p = "index.html"
 		}
 		if _, err := fs.Stat(fsys, p); err != nil {
+			if hasFileExtension(p) {
+				http.NotFound(w, r)
+				return
+			}
 			// Path not found — assume SPA route and serve index.html.
 			noCacheIndex(w)
 			r2 := r.Clone(r.Context())
@@ -42,4 +49,10 @@ func spaHandler(fsys fs.FS) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// hasFileExtension reports whether the last path segment contains a dot,
+// i.e. the request names a file rather than a client-side route.
+func hasFileExtension(p string) bool {
+	return strings.Contains(p[strings.LastIndex(p, "/")+1:], ".")
 }
