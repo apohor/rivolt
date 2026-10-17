@@ -46,6 +46,9 @@ func run(ctx context.Context, log *slog.Logger, jobs []Job, after func(time.Dura
 			return
 		case <-after(wait):
 		}
+		if ctx.Err() != nil {
+			return
+		}
 		RunOnce(ctx, log, jobs)
 		wait = 24 * time.Hour
 	}
