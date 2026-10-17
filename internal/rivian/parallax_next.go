@@ -32,11 +32,13 @@ type pxNextSpec struct {
 	// names are the top-level field names from the decompile; nil when the
 	// app's decoder for the topic isn't pinned (numbers only).
 	names map[int]string
-	// noStrings drops every string, at any depth (DA: enums and numbers
-	// only for location, network, notifications, trip target, user modes).
-	noStrings bool
-	// coarse rounds every float to 2 decimals (~1 km for a coordinate):
-	// the location topic never logs a precise position.
+	// strings lets the topic's strings into the log. Off for every topic:
+	// strings are dropped at any depth until a decode proves the topic
+	// holds no free text (DA; network carries the SSID, others could carry
+	// names, VINs or destinations).
+	strings bool
+	// coarse rounds every float to 2 decimals (~1 km for a coordinate),
+	// for the topics that may hold a position: location, smart charging.
 	coarse bool
 }
 
@@ -47,20 +49,20 @@ var pxNextTopics = map[string]pxNextSpec{
 	"energy_edge_compute.graphs.parked_energy_distributions": {log: "parked_energy"},
 	"charging.session.time_estimation": {log: "charge_time_estimation", // bbl
 		names: map[int]string{1: "validity_flag", 2: "remaining_minutes"}},
-	"charging.smart_charging.settings":                   {log: "smart_charging_settings"},
-	"charging.smart_charging.smart_charging_info":        {log: "smart_charging_info"},
-	"charging.smart_charging.weighted_charging_forecast": {log: "smart_charging_forecast"},
-	"comfort.user_modes.state":                           {log: "user_modes", noStrings: true},
-	// The Wi-Fi block carries the SSID: no strings from this topic, ever.
-	"vehicle.network.state":                       {log: "network", noStrings: true},
+	"charging.smart_charging.settings":                   {log: "smart_charging_settings", coarse: true},
+	"charging.smart_charging.smart_charging_info":        {log: "smart_charging_info", coarse: true},
+	"charging.smart_charging.weighted_charging_forecast": {log: "smart_charging_forecast", coarse: true},
+	"comfort.user_modes.state":                           {log: "user_modes"},
+	// The Wi-Fi block carries the SSID: never opt this topic into strings.
+	"vehicle.network.state":                       {log: "network"},
 	"energy_edge_compute.graphs.cold_weather_soc": {log: "cold_weather_soc"},
 	"vehicle.wheels.vehicle_wheels":               {log: "wheels"},
-	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}, noStrings: true, coarse: true}, // brc
+	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}, coarse: true}, // brc
 	// Tier 2: Phase 5 completeness.
-	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},                                         // zbi
-	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}, noStrings: true}, // c8m
+	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},                        // zbi
+	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}}, // c8m
 	"charging.session.notification": {log: "charge_notification", // dle
-		names: map[int]string{1: "unexpected_stop_reason", 2: "derate_status", 3: "fault_chime"}, noStrings: true},
+		names: map[int]string{1: "unexpected_stop_reason", 2: "derate_status", 3: "fault_chime"}},
 	"comfort.cabin.hvac_settings_status":     {log: "hvac_settings"},
 	"comfort.cabin.defrost_defog_status":     {log: "defrost_defog"},
 	"comfort.cabin.seat_conditioning_status": {log: "seat_conditioning", names: map[int]string{1: "levels"}},                                  // lyi
@@ -133,7 +135,7 @@ func pbTree(raw []byte, names map[int]string, spec pxNextSpec, depth int) (map[s
 			v = x
 		case 2:
 			if len(val) > 0 && utf8.Valid(val) && printable(val) {
-				if spec.noStrings {
+				if !spec.strings {
 					return
 				}
 				v = string(val)

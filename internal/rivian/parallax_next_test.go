@@ -31,7 +31,7 @@ func TestPbTree(t *testing.T) {
 	raw := append(pbVarint(1, 3), pbFloat(2, 1.5)...)
 	raw = append(raw, pbMsg(3, inner)...)
 	raw = append(raw, pbMsg(3, inner)...) // repeated
-	tree, ok := pbTree(raw, map[int]string{1: "status"}, pxNextSpec{}, 0)
+	tree, ok := pbTree(raw, map[int]string{1: "status"}, pxNextSpec{strings: true}, 0)
 	if !ok {
 		t.Fatal("not a message")
 	}
@@ -147,14 +147,18 @@ func TestPxNextTopicSet(t *testing.T) {
 	}
 }
 
-// DA: the location topic logs no coordinates beyond 2 decimals and no
-// strings; notifications, trip target, user modes and network log numbers
-// only.
+// DA: no topic logs strings (opt-in only after a decode proves no free
+// text), and the topics that may hold a position round floats to 2 decimals.
 func TestPxNextGuardrails(t *testing.T) {
-	for _, rvm := range []string{"dynamics.vehicle.location", "vehicle.network.state", "charging.session.notification",
-		"charging.session.trip_target", "comfort.user_modes.state"} {
-		if !pxNextTopics[rvm].noStrings {
-			t.Errorf("%s may log strings", rvm)
+	for rvm, spec := range pxNextTopics {
+		if spec.strings {
+			t.Errorf("%s logs strings; every topic is numbers-only until a decode proves otherwise", rvm)
+		}
+	}
+	for _, rvm := range []string{"dynamics.vehicle.location", "charging.smart_charging.settings",
+		"charging.smart_charging.smart_charging_info", "charging.smart_charging.weighted_charging_forecast"} {
+		if !pxNextTopics[rvm].coarse {
+			t.Errorf("%s may log a precise position", rvm)
 		}
 	}
 	var buf syncBuffer
