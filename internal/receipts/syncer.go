@@ -136,11 +136,19 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 	return res, runErr
 }
 
+// still reports whether the user is still opted in. A pass checks it again
+// after each slow Rivian call, so a user who opts out (which deletes their
+// receipts) while a pass is running does not get rows saved after the purge.
+func (s *Syncer) still(uid uuid.UUID) bool { return s.enabled == nil || s.enabled(uid) }
+
 func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSource, detailsOnly bool, res *Result) error {
 	if !detailsOnly {
 		sums, err := src.CompletedSessionSummaries(ctx)
 		if err != nil {
 			return err
+		}
+		if !s.still(uid) {
+			return nil
 		}
 		res.Fetched = len(sums)
 		if err := s.st.UpsertReceipts(ctx, uid, sums); err != nil {
@@ -176,6 +184,9 @@ func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSourc
 			// the rest waits for the next pass.
 			res.DetailsLeft = true
 			return err
+		}
+		if !s.still(uid) {
+			return nil
 		}
 		if err := s.st.SaveDetail(ctx, uid, txn, ch); err != nil {
 			return err
