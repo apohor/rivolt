@@ -119,4 +119,104 @@ func TestSEOInjection(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("content signal on indexable robots only", func(t *testing.T) {
+		for _, host := range []string{"rivolt.dev", "demo.rivolt.dev"} {
+			if !strings.Contains(seoGet(t, h, host, "/robots.txt").Body.String(), "Content-Signal: search=yes, ai-input=yes, ai-train=no\n") {
+				t.Errorf("%s: no content signal", host)
+			}
+		}
+		if strings.Contains(seoGet(t, h, "preview.rivolt.dev", "/robots.txt").Body.String(), "Content-Signal") {
+			t.Error("preview robots must stay plain Disallow")
+		}
+	})
+	t.Run("llms.txt per host, 404 elsewhere", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String()
+		for _, want := range []string{"# Rivolt", "https://rivolt.dev/privacy", "https://demo.rivolt.dev/", "not affiliated with, endorsed by or sponsored by Rivian"} {
+			if !strings.Contains(b, want) {
+				t.Errorf("llms.txt missing %q", want)
+			}
+		}
+		if strings.Contains(b, "/api") || strings.Contains(b, "/login") {
+			t.Error("llms.txt must list public pages only")
+		}
+		if d := seoGet(t, h, "demo.rivolt.dev", "/llms.txt").Body.String(); !strings.Contains(d, "https://demo.rivolt.dev/terms") {
+			t.Error("demo llms.txt should link its own host")
+		}
+		for _, host := range []string{"preview.rivolt.dev", "self.example.org"} {
+			if seoGet(t, h, host, "/llms.txt").Code != 404 {
+				t.Errorf("%s: llms.txt should 404", host)
+			}
+		}
+	})
+	t.Run("markdown negotiation", func(t *testing.T) {
+		get := func(host, path, accept string) *httptest.ResponseRecorder {
+			req := httptest.NewRequest(http.MethodGet, "http://"+host+path, nil)
+			req.Header.Set("Accept", accept)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			return rec
+		}
+		rec := get("rivolt.dev", "/", "text/markdown")
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
+			t.Fatalf("content-type %q", ct)
+		}
+		if !strings.Contains(rec.Header().Get("Vary"), "Accept") || !strings.Contains(rec.Body.String(), "# Rivolt: Rivian charging cost") ||
+			!strings.Contains(rec.Body.String(), "not affiliated with Rivian") {
+			t.Error("markdown body or Vary wrong")
+		}
+		if ct := get("rivolt.dev", "/privacy", "text/markdown, text/html;q=0.5").Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
+			t.Errorf("privacy: %q", ct)
+		}
+		for _, accept := range []string{"", "text/html,application/xhtml+xml,*/*;q=0.8", "text/markdown;q=0.5, text/html", "text/markdown;q=0"} {
+			if ct := get("rivolt.dev", "/", accept).Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+				t.Errorf("accept %q should get HTML, got %q", accept, ct)
+			}
+		}
+		// App routes and non-public hosts never get markdown.
+		for _, c := range [][2]string{{"rivolt.dev", "/login"}, {"rivolt.dev", "/drives/1"}, {"preview.rivolt.dev", "/"}} {
+			if ct := get(c[0], c[1], "text/markdown").Header().Get("Content-Type"); strings.HasPrefix(ct, "text/markdown") {
+				t.Errorf("%s%s must not serve markdown", c[0], c[1])
+			}
+		}
+	})
+	t.Run("link headers and JSON-LD on public pages only", func(t *testing.T) {
+		rec := seoGet(t, h, "rivolt.dev", "/")
+		l := rec.Header().Get("Link")
+		for _, want := range []string{`</sitemap.xml>; rel="sitemap"`, `</llms.txt>; rel="describedby"`} {
+			if !strings.Contains(l, want) {
+				t.Errorf("Link missing %s: %q", want, l)
+			}
+		}
+		if strings.Contains(l, "api-catalog") {
+			t.Error("must not advertise an api-catalog")
+		}
+		b := rec.Body.String()
+		if !strings.Contains(b, `<script type="application/ld+json">`) || !strings.Contains(b, `"@type":"SoftwareApplication"`) ||
+			!strings.Contains(b, `"isAccessibleForFree":true`) {
+			t.Error("JSON-LD missing")
+		}
+		if strings.Contains(b, "aggregateRating") || strings.Contains(b, `"review"`) {
+			t.Error("no ratings or reviews")
+		}
+		if strings.Contains(seoGet(t, h, "rivolt.dev", "/privacy").Body.String(), "ld+json") {
+			t.Error("JSON-LD is for the home page only")
+		}
+		if seoGet(t, h, "rivolt.dev", "/login").Header().Get("Link") != "" {
+			t.Error("no Link header on app routes")
+		}
+		if strings.Contains(seoGet(t, h, "preview.rivolt.dev", "/").Body.String(), "ld+json") {
+			t.Error("no JSON-LD on non-public hosts")
+		}
+	})
+	t.Run("unknown /.well-known paths are 404, not the shell", func(t *testing.T) {
+		for _, p := range []string{"/.well-known/api-catalog", "/.well-known/oauth-authorization-server", "/.well-known/mcp/server-card.json", "/.well-known/http-message-signatures-directory"} {
+			for _, host := range []string{"rivolt.dev", "demo.rivolt.dev", "preview.rivolt.dev"} {
+				rec := seoGet(t, h, host, p)
+				if rec.Code != 404 || strings.Contains(rec.Body.String(), "<html") {
+					t.Errorf("%s%s: %d", host, p, rec.Code)
+				}
+			}
+		}
+	})
 }

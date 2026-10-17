@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"html"
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -97,7 +99,116 @@ func robotsTxt(host string) string {
 	if _, ok := seoPages[host]; !ok {
 		return "User-agent: *\nDisallow: /\n"
 	}
-	return "User-agent: *\nDisallow: /api/\n\nSitemap: https://" + host + "/sitemap.xml\n"
+	// Content Signals (contentsignals.org): public pages may be searched and
+	// used as input for answers; training on them is not allowed.
+	return "User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nDisallow: /api/\n\nSitemap: https://" + host + "/sitemap.xml\n"
+}
+
+const repoURL = "https://github.com/apohor/rivolt"
+
+// llmsTxt is the reading list for LLM tools (llmstxt.org): public pages only.
+func llmsTxt(host string) (string, bool) {
+	pages, ok := seoPages[host]
+	if !ok {
+		return "", false
+	}
+	home := pages["/"]
+	base := "https://" + host
+	var b strings.Builder
+	b.WriteString("# Rivolt\n\n> " + home.desc + "\n\n")
+	b.WriteString("Rivolt records a Rivian's drives and charges, prices charging at the owner's own rate, shows efficiency, and projects lease miles. ")
+	b.WriteString("It is free, open source (MIT) and run by an individual.\n\n## Pages\n\n")
+	b.WriteString("- [Home](" + base + "/): what Rivolt does\n")
+	if host == hostApp {
+		b.WriteString("- [Demo](https://" + hostDemo + "/): a generated sample truck, no sign-in\n")
+	}
+	b.WriteString("- [Privacy policy](" + base + "/privacy): what is recorded, retention and deletion\n")
+	b.WriteString("- [Terms of service](" + base + "/terms)\n\n## Source\n\n")
+	b.WriteString("- [GitHub](" + repoURL + "): source code and self-hosting\n")
+	b.WriteString("- [Sign-up and import guide](" + repoURL + "/blob/main/docs/SIGNUP.md)\n\n")
+	b.WriteString("Rivolt is unofficial and not affiliated with, endorsed by or sponsored by Rivian. Rivian is a trademark of Rivian Automotive, LLC.\n")
+	return b.String(), true
+}
+
+// linkHeader advertises machine-readable resources (RFC 8288).
+func linkHeader(canon string) string {
+	l := `</sitemap.xml>; rel="sitemap", </llms.txt>; rel="describedby"; type="text/plain"`
+	if canon == "/" {
+		l += `, </privacy>; rel="privacy-policy", </terms>; rel="terms-of-service"`
+	}
+	return l
+}
+
+// wantsMarkdown reports whether the Accept header asks for text/markdown at
+// least as strongly as text/html. Browsers never send text/markdown.
+func wantsMarkdown(accept string) bool {
+	md, ht := -1.0, -1.0
+	for _, part := range strings.Split(accept, ",") {
+		fields := strings.Split(strings.TrimSpace(part), ";")
+		typ := strings.ToLower(strings.TrimSpace(fields[0]))
+		q := 1.0
+		for _, f := range fields[1:] {
+			f = strings.TrimSpace(f)
+			if strings.HasPrefix(f, "q=") {
+				if v, err := strconv.ParseFloat(f[2:], 64); err == nil {
+					q = v
+				}
+			}
+		}
+		switch typ {
+		case "text/markdown":
+			md = q
+		case "text/html":
+			ht = q
+		}
+	}
+	return md > 0 && md >= ht
+}
+
+// markdownPage is a short Markdown rendering of a public page. The full
+// privacy and terms text stay on their HTML pages (linked).
+func markdownPage(host string, page seoPage, canon string) string {
+	url := "https://" + host + canon
+	var b strings.Builder
+	b.WriteString("---\ntitle: " + strconv.Quote(page.title) + "\ndescription: " + strconv.Quote(page.desc) + "\nurl: " + url + "\n---\n\n")
+	b.WriteString("# " + page.title + "\n\n" + page.summary + "\n\n")
+	switch canon {
+	case "/":
+		b.WriteString("- [Privacy policy](https://" + host + "/privacy)\n- [Terms of service](https://" + host + "/terms)\n")
+		if host == hostApp {
+			b.WriteString("- [Demo with a sample truck](https://" + hostDemo + "/)\n")
+		}
+		b.WriteString("- [Source on GitHub](" + repoURL + ")\n- [Reading list for LLMs](https://" + host + "/llms.txt)\n")
+	default:
+		b.WriteString("Full text: " + url + "\n")
+	}
+	return b.String()
+}
+
+// jsonLD is schema.org data for the home page: a free web application and
+// its site. No ratings, reviews or offers beyond price 0. A non-executed
+// data block, so the script-src CSP does not apply to it.
+func jsonLD(host string) string {
+	url := "https://" + host + "/"
+	home := seoPages[host]["/"]
+	doc := map[string]any{
+		"@context": "https://schema.org",
+		"@graph": []any{
+			map[string]any{"@type": "WebSite", "@id": url + "#website", "url": url, "name": "Rivolt"},
+			map[string]any{
+				"@type": "SoftwareApplication", "@id": url + "#app", "name": "Rivolt", "url": url,
+				"description":         home.desc,
+				"applicationCategory": "UtilitiesApplication",
+				"operatingSystem":     "Web",
+				"isAccessibleForFree": true,
+				"license":             "https://opensource.org/licenses/MIT",
+				"offers":              map[string]any{"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+				"sameAs":              []string{repoURL},
+			},
+		},
+	}
+	b, _ := json.Marshal(doc) // escapes <, > and & as \u003c etc.
+	return `<script type="application/ld+json">` + string(b) + `</script>`
 }
 
 func sitemapXML(host string) (string, bool) {
@@ -143,8 +254,12 @@ func injectSEO(shell []byte, host string, page seoPage, canon string) []byte {
 	rep(reOGDesc, `<meta property="og:description" content="`+e(page.desc)+`" />`)
 	rep(reTwTitle, `<meta name="twitter:title" content="`+e(page.title)+`" />`)
 	rep(reTwDesc, `<meta name="twitter:description" content="`+e(page.desc)+`" />`)
+	extra := ""
+	if canon == "/" {
+		extra = "    " + jsonLD(host) + "\n"
+	}
 	rep(reHeadClose, `<link rel="canonical" href="`+e(url)+`" />`+"\n"+
-		`    <meta property="og:url" content="`+e(url)+`" />`+"\n  </head>")
+		`    <meta property="og:url" content="`+e(url)+`" />`+"\n"+extra+"  </head>")
 	rep(reRootDiv, `<div id="root"></div>`+"\n    <noscript><h1>Rivolt</h1><p>"+e(page.summary)+"</p></noscript>")
 	return []byte(out)
 }

@@ -37,6 +37,15 @@ func spaHandler(fsys fs.FS) http.Handler {
 			w.Header().Set("X-Robots-Tag", "noindex")
 		}
 		if ok && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			w.Header().Add("Vary", "Accept")
+			w.Header().Set("Link", linkHeader(canon))
+			if wantsMarkdown(r.Header.Get("Accept")) {
+				w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+				if r.Method == http.MethodGet {
+					_, _ = w.Write([]byte(markdownPage(host, page, canon)))
+				}
+				return
+			}
 			if b, err := fs.ReadFile(fsys, "index.html"); err == nil {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if r.Method == http.MethodGet {
@@ -68,13 +77,26 @@ func spaHandler(fsys fs.FS) http.Handler {
 			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 			_, _ = w.Write([]byte(body))
 			return
+		case "/llms.txt":
+			body, ok := llmsTxt(requestHost(r))
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "public, max-age=300")
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte(body))
+			return
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
 			p = "index.html"
 		}
 		if _, err := fs.Stat(fsys, p); err != nil {
-			if hasFileExtension(p) {
+			// Missing files and missing /.well-known/ documents are real 404s.
+			// Discovery documents (api-catalog, OAuth metadata, MCP cards...)
+			// must not be answered with the app shell.
+			if hasFileExtension(p) || strings.HasPrefix(p, ".well-known/") {
 				http.NotFound(w, r)
 				return
 			}
