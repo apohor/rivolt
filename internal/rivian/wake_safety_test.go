@@ -344,10 +344,12 @@ func TestSubscribeLoopWithoutHold(t *testing.T) {
 }
 
 func TestCaptureTopics(t *testing.T) {
-	// The time-boxed battery_characteristics capture is covered by
-	// TestBatteryCharsTimeBoxed; this one is about the switch.
+	// The time-boxed captures are covered by TestBatteryCharsTimeBoxed and
+	// TestPxNextTimeBox; this one is about the switch.
 	defer func(u time.Time) { pxChargeCaptureUntil = u }(pxChargeCaptureUntil)
 	pxChargeCaptureUntil = time.Time{}
+	defer func(u time.Time) { pxNextCaptureUntil = u }(pxNextCaptureUntil)
+	pxNextCaptureUntil = time.Time{}
 	logs := &syncBuffer{}
 	m := &StateMonitor{logger: slog.New(slog.NewTextHandler(logs, nil)), parallaxCapture: true}
 	off := false
