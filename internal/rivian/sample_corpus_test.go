@@ -386,3 +386,65 @@ func TestSampleCorpus_IdleAwakePerDay(t *testing.T) {
 		t.Errorf("%d of %d sleeps came straight from ready", sleeps-viaStandby, sleeps)
 	}
 }
+
+// Every charge the demo records is internally consistent: the energy it
+// reports matches the SoC it moved (to within 10% of the pack math, at least
+// 1 kWh of slack) and the power the car drew over its window. A 12 h charge
+// once read 8.7 kWh for 31 to 90% (it should be ~77): the recorder's resume
+// after a restart (TestResumedChargeKeepsItsEnergy); this pins that the
+// corpus itself is consistent end to end so a future change can't reopen it.
+func TestSampleCorpusChargeEnergyMatchesSoCAndPower(t *testing.T) {
+	t.Parallel()
+	frames := sharedSampleFrames()
+	for _, ch := range sharedSampleReplay().Charges() {
+		bySoC := (ch.EndSoCPct - ch.StartSoCPct) / 100 * samplePackKWh
+		if math.Abs(ch.EnergyAddedKWh-bySoC) > math.Max(1, 0.10*bySoC) {
+			t.Errorf("charge %s %s (%.1f h): %.1f kWh recorded, but %.0f -> %.0f%% on a %.0f kWh pack is %.1f kWh",
+				ch.ID, ch.StartedAt.Format("01-02 15:04"), ch.EndedAt.Sub(ch.StartedAt).Hours(),
+				ch.EnergyAddedKWh, ch.StartSoCPct, ch.EndSoCPct, samplePackKWh, bySoC)
+		}
+		// The power the car drew over the charge's own window (trapezoid over
+		// the corpus's charger_power_kw), independent of how it was recorded.
+		var byPower float64
+		var prev *State
+		for i := range frames {
+			f := &frames[i]
+			if f.At.Before(ch.StartedAt) || f.At.After(ch.EndedAt) {
+				prev = nil
+				continue
+			}
+			if prev != nil && f.ChargerPowerKW >= chargingPowerFloorKW && prev.ChargerPowerKW >= chargingPowerFloorKW {
+				byPower += f.At.Sub(prev.At).Hours() * (f.ChargerPowerKW + prev.ChargerPowerKW) / 2
+			}
+			prev = f
+		}
+		if math.Abs(ch.EnergyAddedKWh-byPower) > math.Max(1, 0.10*byPower) {
+			t.Errorf("charge %s %s: %.1f kWh recorded, but the power drawn over its %.1f h is %.1f kWh",
+				ch.ID, ch.StartedAt.Format("01-02 15:04"), ch.EnergyAddedKWh, ch.EndedAt.Sub(ch.StartedAt).Hours(), byPower)
+		}
+	}
+}
+
+// The corpus balances: over the whole span the energy added by charging equals
+// the energy the drives used plus the change in stored energy, plus what a
+// parked car loses to drain, which is small and never negative.
+func TestSampleCorpusEnergyBalance(t *testing.T) {
+	t.Parallel()
+	r := sharedSampleReplay()
+	frames := sharedSampleFrames()
+	var added, used float64
+	for _, ch := range r.Charges() {
+		added += ch.EnergyAddedKWh
+	}
+	for _, d := range r.Drives() {
+		used += d.EnergyUsedKWh
+	}
+	stored := (frames[len(frames)-1].BatteryLevelPct - frames[0].BatteryLevelPct) / 100 * samplePackKWh
+	drain := added - used - stored
+	days := frames[len(frames)-1].At.Sub(frames[0].At).Hours() / 24
+	// ~0.8 kWh/day of parked drain in the demo; allow generously, never negative beyond rounding.
+	if drain < -0.02*added || drain > 1.5*days {
+		t.Errorf("energy balance: added %.1f - used %.1f - stored %.1f = %.1f kWh drain over %.0f days (want 0 to ~%.0f)",
+			added, used, stored, drain, days, 1.5*days)
+	}
+}
