@@ -1,5 +1,10 @@
 import { useLandingGate } from "./lib/landingGate";
 import { lazy, Suspense } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { backend } from "./lib/api";
+import { inDemo } from "./lib/demo";
+import { termsGateActive } from "./lib/terms";
+import { TermsGate } from "./components/TermsGate";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
@@ -71,8 +76,18 @@ export default function App() {
   // Signed-out visitors at "/" see the landing page when the install
   // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
   const landing = useLandingGate(demoOnly.only ? "/demo" : location.pathname);
+  // Signed-in users who have not accepted the current Terms see the "I agree" step first.
+  // The demo-only deployment never calls /api/auth/me, so ask only once we know it is not that host.
+  const me = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: () => backend.whoami(),
+    staleTime: 5 * 60_000,
+    enabled: !demoOnly.loading && !demoOnly.only && !inDemo(),
+  });
+  const gate = termsGateActive(me.data, location.pathname);
   if (demoOnly.loading || landing === "loading") return <div className="p-4"><Spinner /></div>;
   if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy" && location.pathname !== "/terms") return <Navigate to="/demo" replace />;
+  if (gate && me.data?.terms) return <TermsGate terms={me.data.terms} />;
   if (landing === "landing") {
     return (
       <Suspense fallback={<div className="p-4"><Spinner /></div>}>
