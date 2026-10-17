@@ -452,7 +452,7 @@ function Statement({
                       : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
                   }`}
                 >
-                  {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "DCFC" : "To confirm"}
+                  {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "Fast" : "To confirm"}
                 </button>
               ))}
             </div>

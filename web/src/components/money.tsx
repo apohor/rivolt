@@ -96,7 +96,7 @@ const SPLIT_META: Record<SplitKey, { label: string; bar: string; dot: string }> 
   public: { label: "Away", bar: "bg-sky-500", dot: "bg-sky-400" },
   unknown: { label: "Unknown place", bar: "bg-neutral-500", dot: "bg-neutral-400" },
   ac: { label: "AC", bar: "bg-emerald-500", dot: "bg-emerald-400" },
-  dcfc: { label: "DCFC", bar: "bg-amber-500", dot: "bg-amber-400" },
+  dcfc: { label: "Fast", bar: "bg-amber-500", dot: "bg-amber-400" },
 };
 
 export type SplitSegments = { key: SplitKey; totals: KindTotals }[];
@@ -200,7 +200,7 @@ const FLAG_TEXT: Partial<Record<ReceiptFlag, string>> = {
 };
 
 function kindChip(r: Receipt): { label: string; dot: string; chip: string } {
-  if (r.kind === "dcfc") return { label: "DCFC", dot: "bg-amber-400", chip: "border-amber-500/40 text-amber-300" };
+  if (r.kind === "dcfc") return { label: "Fast", dot: "bg-amber-400", chip: "border-amber-500/40 text-amber-300" };
   if (r.place === "home") return { label: "Home", dot: "bg-emerald-400", chip: "border-emerald-500/40 text-emerald-300" };
   if (r.place === "away") return { label: "Away", dot: "bg-sky-400", chip: "border-sky-500/40 text-sky-300" };
   return { label: "AC", dot: "bg-neutral-400", chip: "border-neutral-600 text-neutral-300" };
@@ -315,7 +315,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
                 <li key={x.charge_id} className="flex justify-between gap-3 tabular-nums">
                   <Link to={detailPath("charges", x.charge_id)} className="hover:text-neutral-200">
                     {formatDateTime(x.started_at)} · {x.kwh != null ? `${x.kwh.toFixed(1)} kWh` : "— kWh"}
-                    {x.kind === "dcfc" ? " · DCFC" : ""}
+                    {x.kind === "dcfc" ? " · Fast" : ""}
                   </Link>
                   <MoneyValue r={x} currency={currency} />
                 </li>
