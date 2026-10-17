@@ -27,7 +27,7 @@ const computeTimeout = 2 * time.Minute
 // Every replica computes and exports the same fleet-wide series (prod
 // runs two pods), so they differ only in the scrape's instance label.
 // Query them aggregated, max by (vehicle, window), as the dashboard in
-// deploy/grafana/vehicle-drain.json does; never sum them.
+// the parked-drain Grafana dashboard does; never sum them.
 //
 // The vehicle label is the Rivian vehicle id. That's fine for the
 // admin-only Grafana these feed, but keep these series off any public
