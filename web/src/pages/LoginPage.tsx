@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { backend, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
 import { useSignupEnabled } from "../lib/config";
@@ -36,6 +37,7 @@ function signInErrorMessage(code: string, description: string): string {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const nextPath = params.get("next") || "/";
   // null until /api/config loads; the "Create an account" link only
@@ -63,8 +65,11 @@ export default function LoginPage() {
   // accident, or the browser restored a tab), skip straight to next.
   useEffect(() => {
     let cancelled = false;
-    backend.whoami().then((me) => {
-      if (!cancelled && me) navigate(nextPath, { replace: true });
+    backend.whoami().then(async (me) => {
+      if (cancelled || !me) return;
+      // The app's cached "who am I" was taken signed out: refresh it so the terms gate applies.
+      await queryClient.resetQueries({ queryKey: ["auth", "me"] });
+      if (!cancelled) navigate(nextPath, { replace: true });
     });
     backend.oidcProviders().then((p) => {
       if (!cancelled) setProviders(p);
@@ -72,7 +77,7 @@ export default function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate, nextPath]);
+  }, [navigate, nextPath, queryClient]);
 
   // OIDC start URLs are GET endpoints that 302 to the IdP; we
   // intentionally use full-page navigation rather than fetch +

@@ -88,7 +88,9 @@ export default function App() {
     enabled: !demoOnly.loading && !demoOnly.only && !inDemo(),
   });
   const gate = termsGateActive(me.data, location.pathname);
-  if (demoOnly.loading || landing === "loading") return <div className="p-4"><Spinner /></div>;
+  // The Rivian connect step must not show before the gate has had its say.
+  const meLoading = location.pathname.startsWith("/onboarding") && me.isPending && me.fetchStatus !== "idle";
+  if (demoOnly.loading || landing === "loading" || meLoading) return <div className="p-4"><Spinner /></div>;
   if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy" && location.pathname !== "/terms") return <Navigate to="/demo" replace />;
   if (gate && me.data?.terms) return <TermsGate terms={me.data.terms} />;
   if (landing === "landing") {

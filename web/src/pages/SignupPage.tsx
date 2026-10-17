@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
 import { useSignupEnabled } from "../lib/config";
@@ -23,6 +24,7 @@ const rules = [
 ];
 
 export default function SignupPage() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [search] = useSearchParams();
   const location = useLocation();
@@ -143,6 +145,9 @@ export default function SignupPage() {
       // to the Rivian connect step, no second sign-in. Its cookie
       // replaces any session that was already in this browser.
       if (res.signed_in) {
+        // The app's cached "who am I" still says signed out (it was asked on this page): refresh it
+        // first, so the terms gate decides before the Rivian connect step shows.
+        await queryClient.resetQueries({ queryKey: ["auth", "me"] });
         navigate("/onboarding", { replace: true });
         return;
       }
@@ -298,8 +303,8 @@ export default function SignupPage() {
               {fullMode
                 ? " "
                 : oauthProviders && oauthProviders.length > 0
-                ? " Sign up instantly with Google or GitHub, or leave your email below for a manual approval link."
-                : " Drop your email below — you'll get a one-click signup link once approved."}
+                ? " Sign up instantly with Google or GitHub, or enter your email and we'll send you a signup link."
+                : " Enter your email and we'll send you a signup link."}
             </p>
 
             {!fullMode && oauthProviders && oauthProviders.length > 0 && (
@@ -315,7 +320,7 @@ export default function SignupPage() {
                   </button>
                 ))}
                 <p className="text-center text-[11px] text-neutral-500">
-                  or request access by email
+                  or sign up by email
                 </p>
               </div>
             )}
@@ -359,7 +364,7 @@ export default function SignupPage() {
                   disabled={reqSubmitting || !reqEmail.trim()}
                   className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {reqSubmitting ? "Sending…" : "Request access"}
+                  {reqSubmitting ? "Sending…" : "Send signup link"}
                 </button>
                 <p className="text-center text-xs text-neutral-500">
                   Already have a signup link?{" "}
@@ -376,7 +381,7 @@ export default function SignupPage() {
                   <span className="text-emerald-100 font-mono">{reqEmail}</span>
                   {reqAuto
                     ? ". Open it to finish creating your account."
-                    : " when you're approved — usually within the same day."}
+                    : " as soon as there's room. We let people in as room frees up."}
                 </p>
                 <p className="mt-2 text-xs text-emerald-200/70">
                   Check your spam folder or add{" "}
