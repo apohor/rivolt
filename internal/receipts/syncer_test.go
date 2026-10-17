@@ -25,6 +25,7 @@ type fakeStore struct {
 	needDetail  []string
 	saved       []string
 	savedCharge []*rivian.SessionCharger
+	upsertErr   error
 }
 
 func (f *fakeStore) ClaimSummaries(context.Context, uuid.UUID, time.Duration) (bool, error) {
@@ -40,6 +41,9 @@ func (f *fakeStore) MarkResult(_ context.Context, _ uuid.UUID, err error) error 
 	return nil
 }
 func (f *fakeStore) UpsertReceipts(_ context.Context, _ uuid.UUID, in []rivian.SessionSummary) error {
+	if f.upsertErr != nil {
+		return f.upsertErr
+	}
 	f.upserted = append(f.upserted, in...)
 	return nil
 }
@@ -267,5 +271,34 @@ func TestDescribeKeepsResponseBodiesOut(t *testing.T) {
 	_, _ = s.Sync(context.Background(), uuid.New(), time.Hour, false)
 	if len(st.results) != 1 || st.results[0] == nil || strings.Contains(st.results[0].Error(), "Reno") {
 		t.Errorf("stored result = %v", st.results)
+	}
+}
+
+// An opt-out while the summaries call is in flight: the sync re-checks the
+// gate before saving and writes nothing, not even a result.
+func TestSyncStopsWhenOptedOutMidRun(t *testing.T) {
+	st := &fakeStore{claimOK: true, needDetail: []string{"txn"}}
+	a := &fakeAcct{sums: []rivian.SessionSummary{{TransactionID: "t1"}}}
+	s, _ := newTestSyncer(st, a, true)
+	calls := 0
+	s.enabled = func(uuid.UUID) bool { calls++; return calls == 1 } // on at start, off after the fetch
+	res, err := s.Sync(context.Background(), uuid.New(), time.Hour, false)
+	if err != nil || !res.Skipped {
+		t.Fatalf("res %+v err %v, want skipped", res, err)
+	}
+	if a.sumCalls != 1 || len(st.upserted) != 0 || len(st.saved) != 0 || len(st.results) != 0 {
+		t.Errorf("fetched %d, upserted %d, details %d, results %v; want a fetch and no writes", a.sumCalls, len(st.upserted), len(st.saved), st.results)
+	}
+}
+
+// The store's own check (the opt-in under a lock in the write's
+// transaction) refusing a write ends the run the same way.
+func TestSyncStopsWhenStoreSaysOptedOut(t *testing.T) {
+	st := &fakeStore{claimOK: true, upsertErr: ErrOptedOut, needDetail: []string{"txn"}}
+	a := &fakeAcct{sums: []rivian.SessionSummary{{TransactionID: "t1"}}}
+	s, _ := newTestSyncer(st, a, true)
+	res, err := s.Sync(context.Background(), uuid.New(), time.Hour, false)
+	if err != nil || !res.Skipped || len(st.saved) != 0 || len(st.results) != 0 || len(a.detailCalls) != 0 {
+		t.Errorf("res %+v err %v saved %d results %v details %d", res, err, len(st.saved), st.results, len(a.detailCalls))
 	}
 }

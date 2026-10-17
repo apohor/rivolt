@@ -3,12 +3,14 @@ package receipts
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // Store is the Postgres side: rivian_receipts, rivian_receipt_sync and the
@@ -18,6 +20,33 @@ type Store struct{ db *sql.DB }
 
 // NewStore wraps a pool.
 func NewStore(d *sql.DB) *Store { return &Store{db: d} }
+
+// ErrOptedOut: the user isn't (or is no longer) opted in to receipts, so
+// nothing was written.
+var ErrOptedOut = errors.New("receipts: user not opted in")
+
+// optedIn runs fn in a transaction that first checks, and share-locks, the
+// user's opt-in (settings.RivianReceiptsOptInLocked). Every write of the
+// sync goes through it, so a sync already running when the user opts out
+// can't write after the opt-out's Purge.
+func (s *Store) optedIn(ctx context.Context, uid uuid.UUID, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	on, err := settings.RivianReceiptsOptInLocked(ctx, tx, uid)
+	if err != nil {
+		return err
+	}
+	if !on {
+		return ErrOptedOut
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 // ClaimSummaries records an attempt to fetch the user's summaries and
 // reports whether this caller won it: no attempt in the last minInterval,
@@ -47,39 +76,48 @@ func (s *Store) claim(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 		 WHERE rivian_receipt_sync.%s IS NULL
 		    OR rivian_receipt_sync.%s < NOW() - $2::interval
 		RETURNING 1`, col, col)
-	var one int
-	err := s.db.QueryRowContext(ctx, q, uid, fmt.Sprintf("%d microseconds", minInterval.Microseconds()), summaries).Scan(&one)
-	if err == sql.ErrNoRows {
+	won := false
+	err := s.optedIn(ctx, uid, func(tx *sql.Tx) error {
+		var one int
+		err := tx.QueryRowContext(ctx, q, uid, fmt.Sprintf("%d microseconds", minInterval.Microseconds()), summaries).Scan(&one)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		won = err == nil
+		return err
+	})
+	if errors.Is(err, ErrOptedOut) {
 		return false, nil
 	}
-	return err == nil, err
+	return won, err
 }
 
 // MarkResult stores the outcome of a claimed attempt. The error text is
 // kept short and is only ever our own classification, never a response
 // body.
 func (s *Store) MarkResult(ctx context.Context, uid uuid.UUID, runErr error) error {
-	if runErr == nil {
-		_, err := s.db.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_success_at = NOW(), last_error = NULL WHERE user_id = $1`, uid)
+	return s.optedIn(ctx, uid, func(tx *sql.Tx) error {
+		if runErr == nil {
+			_, err := tx.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_success_at = NOW(), last_error = NULL WHERE user_id = $1`, uid)
+			return err
+		}
+		msg := runErr.Error()
+		if len(msg) > 200 {
+			msg = msg[:200]
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_error = $2 WHERE user_id = $1`, uid, msg)
 		return err
-	}
-	msg := runErr.Error()
-	if len(msg) > 200 {
-		msg = msg[:200]
-	}
-	_, err := s.db.ExecContext(ctx, `UPDATE rivian_receipt_sync SET last_error = $2 WHERE user_id = $1`, uid, msg)
-	return err
+	})
 }
 
 // UpsertReceipts stores the summaries, refreshing amounts of rows we
 // already have (a receipt can finalize later) and keeping detail and
 // match state.
 func (s *Store) UpsertReceipts(ctx context.Context, uid uuid.UUID, in []rivian.SessionSummary) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
+	return s.optedIn(ctx, uid, func(tx *sql.Tx) error { return upsertReceipts(ctx, tx, uid, in) })
+}
+
+func upsertReceipts(ctx context.Context, tx *sql.Tx, uid uuid.UUID, in []rivian.SessionSummary) error {
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, energy_kwh, range_added_km, vendor, city)
 		VALUES ($1, $2, $3, $4, $5, NULLIF($6,''), $7, $8, NULLIF($9,''), NULLIF($10,''))
@@ -98,7 +136,7 @@ func (s *Store) UpsertReceipts(ctx context.Context, uid uuid.UUID, in []rivian.S
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // Unmatched lists the user's receipts that no charge claims yet.
@@ -141,11 +179,10 @@ func (s *Store) Apply(ctx context.Context, uid uuid.UUID, pairs []Pair) error {
 	if len(pairs) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
+	return s.optedIn(ctx, uid, func(tx *sql.Tx) error { return applyPairs(ctx, tx, uid, pairs) })
+}
+
+func applyPairs(ctx context.Context, tx *sql.Tx, uid uuid.UUID, pairs []Pair) error {
 	for _, p := range pairs {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE rivian_receipts SET charge_id = $3, matched_at = NOW()
@@ -162,19 +199,21 @@ func (s *Store) Apply(ctx context.Context, uid uuid.UUID, pairs []Pair) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // RefreshMatched copies a changed amount or currency from a receipt to the
 // charge it is linked to.
 func (s *Store) RefreshMatched(ctx context.Context, uid uuid.UUID) error {
-	_, err := s.db.ExecContext(ctx, `
+	return s.optedIn(ctx, uid, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
 		UPDATE charges c
 		   SET receipt_cost = r.total_cost, receipt_currency = r.currency, updated_at = NOW()
 		  FROM rivian_receipts r
 		 WHERE r.user_id = $1 AND r.charge_id = c.id AND c.user_id = $1
 		   AND (c.receipt_cost IS DISTINCT FROM r.total_cost OR c.receipt_currency IS DISTINCT FROM r.currency)`, uid)
-	return err
+		return err
+	})
 }
 
 // NeedDetail returns up to limit transaction ids of matched receipts whose
@@ -217,11 +256,13 @@ func (s *Store) SaveDetail(ctx context.Context, uid uuid.UUID, txn string, c *ri
 	if c != nil && c.Vendor != "" {
 		vendor = sql.NullString{String: c.Vendor, Valid: true}
 	}
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE rivian_receipts
-		   SET charger_name = $3, is_home_charger = $4, vendor = COALESCE($5, vendor), detail_fetched_at = NOW()
-		 WHERE user_id = $1 AND transaction_id = $2`, uid, txn, name, home, vendor)
-	return err
+	return s.optedIn(ctx, uid, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE rivian_receipts
+			   SET charger_name = $3, is_home_charger = $4, vendor = COALESCE($5, vendor), detail_fetched_at = NOW()
+			 WHERE user_id = $1 AND transaction_id = $2`, uid, txn, name, home, vendor)
+		return err
+	})
 }
 
 // ListAll is every receipt of the user, for the data export.
@@ -301,4 +342,32 @@ func (s *Store) Purge(ctx context.Context, uid uuid.UUID) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// PurgeNotOptedIn is the retention backstop: it deletes everything the
+// receipts sync stored for every user who isn't opted in (the opt-out
+// handler purges at once; this catches anything that slipped past, e.g. a
+// failed purge). The operator flag isn't consulted: switching it off
+// pauses the sync but leaves an opted-in user's data. It returns how many
+// receipts it deleted.
+func (s *Store) PurgeNotOptedIn(ctx context.Context) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE charges SET receipt_cost = NULL, receipt_currency = NULL, receipt_txn_id = NULL, receipt_source = NULL, updated_at = NOW()
+		 WHERE receipt_source IS NOT NULL AND `+"NOT "+settings.RivianReceiptsOptInSQL("charges.user_id")); err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM rivian_receipts r WHERE `+"NOT "+settings.RivianReceiptsOptInSQL("r.user_id"))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM rivian_receipt_sync rs WHERE `+"NOT "+settings.RivianReceiptsOptInSQL("rs.user_id")); err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
 }

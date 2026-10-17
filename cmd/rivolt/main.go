@@ -1777,8 +1777,9 @@ func runServer() {
 	}
 
 	// Daily retention sweeps: expired sessions (IP and User-Agent) 30 days
-	// after expiry, and waitlist requests (never approved: 90 days;
-	// approved: until the account exists).
+	// after expiry, waitlist requests (never approved: 90 days; approved:
+	// until the account exists), and Rivian receipts of any user who isn't
+	// opted in (a backstop to the purge on opt-out).
 	if pgPool != nil {
 		jobs := []retention.Job{
 			{Name: "sessions", Run: func(ctx context.Context) (int64, error) {
@@ -1787,6 +1788,7 @@ func runServer() {
 				}
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
+			{Name: "rivian_receipts_not_opted_in", Run: receipts.NewStore(pgPool).PurgeNotOptedIn},
 		}
 		if signupRequestStore != nil {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})

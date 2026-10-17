@@ -126,6 +126,12 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 		return res, nil
 	}
 	runErr := s.run(ctx, uid, src, detailsOnly, &res)
+	// Opted out (or switched off) mid-run: nothing more was written, and
+	// there's no result to record.
+	if errors.Is(runErr, ErrOptedOut) {
+		res.Skipped = true
+		return res, nil
+	}
 	var recorded error
 	if runErr != nil {
 		recorded = errors.New(describe(runErr))
@@ -143,6 +149,12 @@ func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSourc
 			return err
 		}
 		res.Fetched = len(sums)
+		// The Rivian call takes a while: check the flag and the opt-in
+		// again before saving. The store re-checks the opt-in under a lock
+		// in the write's own transaction, which closes the rest of the race.
+		if !s.stillEnabled(uid) {
+			return ErrOptedOut
+		}
 		if err := s.st.UpsertReceipts(ctx, uid, sums); err != nil {
 			return err
 		}
@@ -177,12 +189,20 @@ func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSourc
 			res.DetailsLeft = true
 			return err
 		}
+		if !s.stillEnabled(uid) {
+			return ErrOptedOut
+		}
 		if err := s.st.SaveDetail(ctx, uid, txn, ch); err != nil {
 			return err
 		}
 		res.Details++
 	}
 	return nil
+}
+
+// stillEnabled re-reads the gate (operator flag and the user's opt-in).
+func (s *Syncer) stillEnabled(uid uuid.UUID) bool {
+	return s.enabled == nil || s.enabled(uid)
 }
 
 func (s *Syncer) match(ctx context.Context, uid uuid.UUID) (int, error) {
