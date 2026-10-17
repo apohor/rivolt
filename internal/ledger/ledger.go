@@ -18,6 +18,7 @@
 package ledger
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -124,6 +125,23 @@ type Charge struct {
 	// Network is charges.network (e.g. "Electrify America") for
 	// network-estimated sessions; "" when unknown.
 	Network string
+	// NetworkState/-Confidence/-Evidence are DC fast charge
+	// auto-detection's verify record (migration 0051); empty/nil when
+	// the charge wasn't auto-detected.
+	NetworkState      string
+	NetworkConfidence *float64
+	NetworkEvidence   json.RawMessage
+	// Billed* is what Rivian billed for the session (its charging-history
+	// receipt, matched by the receipts sync; migration 0055), beside Cost,
+	// which stays our own figure. BilledCost is nil without a match.
+	// BilledVendor / BilledCharger are the network and charger name;
+	// BilledHome is Rivian's isHomeCharger (vendor and charger are then
+	// never surfaced).
+	BilledCost     *float64
+	BilledCurrency string
+	BilledVendor   string
+	BilledCharger  string
+	BilledHome     bool
 }
 
 // Drive is the projection of a drives row the ledger needs.
@@ -157,6 +175,9 @@ type Config struct {
 	HomeRate float64
 	// Home is the saved home location; nil = not set.
 	Home *LatLon
+	// Billed turns on the billed_* fields (Rivian receipts) for this user:
+	// the rivian_receipts flag. Off, none of them appear.
+	Billed bool
 }
 
 // Period is one statement month in a location.
@@ -231,6 +252,12 @@ type Monthly struct {
 	FirstActivityAt *time.Time `json:"first_activity_at"`
 	LastActivityAt  *time.Time `json:"last_activity_at"`
 
+	// BilledSessions / EstimatedSessions split the month's sessions (with
+	// energy) into those with a Rivian receipt and those without. Present
+	// only when Config.Billed.
+	BilledSessions    *int `json:"billed_sessions,omitempty"`
+	EstimatedSessions *int `json:"estimated_sessions,omitempty"`
+
 	Spend       Spend       `json:"spend"`
 	Energy      Energy      `json:"energy"`
 	Driving     Driving     `json:"driving"`
@@ -263,6 +290,14 @@ type Spend struct {
 	UnpricedHomeRateEstimate *float64           `json:"unpriced_home_rate_estimate"`
 	EstimatePendingSessions  int                `json:"estimate_pending_sessions"`
 	EstimatePendingKWh       float64            `json:"estimate_pending_kwh"`
+	// BilledTotal is what Rivian billed over the month's sessions that have
+	// a receipt in the statement currency; EstimatedTotal is our own cost
+	// over the other sessions counted in Total. With Config.Billed each
+	// session counts once, as its receipt when it has one, so
+	// Total == BilledTotal + EstimatedTotal. Present only when Config.Billed;
+	// off, Total is our own cost per session as before.
+	BilledTotal    *float64 `json:"billed_total,omitempty"`
+	EstimatedTotal *float64 `json:"estimated_total,omitempty"`
 }
 
 // Energy is energy added by charging.
@@ -301,27 +336,44 @@ type Driving struct {
 
 // Receipt is one plug-in: consecutive charges with no drive between.
 type Receipt struct {
-	ReceiptID        string           `json:"receipt_id"`
-	VehicleID        string           `json:"vehicle_id"`
-	Kind             string           `json:"kind"`
-	Place            string           `json:"place"`
-	KMFromHome       *float64         `json:"km_from_home"`
-	StartedAt        time.Time        `json:"started_at"`
-	EndedAt          time.Time        `json:"ended_at"`
-	LocalDate        string           `json:"local_date"`
-	SpansDays        int              `json:"spans_days"`
-	SoCStart         *float64         `json:"soc_start"`
-	SoCEnd           *float64         `json:"soc_end"`
-	KWh              float64          `json:"kwh"`
-	PeakKW           *float64         `json:"peak_kw"`
-	Cost             *float64         `json:"cost"`
-	CostSource       string           `json:"cost_source"`
-	Network          *string          `json:"network"`
-	Rate             *float64         `json:"rate"`
-	SessionCount     int              `json:"session_count"`
-	UnpricedSessions int              `json:"unpriced_sessions"`
-	Flags            []string         `json:"flags"`
-	Sessions         []ReceiptSession `json:"sessions"`
+	ReceiptID  string    `json:"receipt_id"`
+	VehicleID  string    `json:"vehicle_id"`
+	Kind       string    `json:"kind"`
+	Place      string    `json:"place"`
+	KMFromHome *float64  `json:"km_from_home"`
+	StartedAt  time.Time `json:"started_at"`
+	EndedAt    time.Time `json:"ended_at"`
+	LocalDate  string    `json:"local_date"`
+	SpansDays  int       `json:"spans_days"`
+	SoCStart   *float64  `json:"soc_start"`
+	SoCEnd     *float64  `json:"soc_end"`
+	KWh        float64   `json:"kwh"`
+	PeakKW     *float64  `json:"peak_kw"`
+	Cost       *float64  `json:"cost"`
+	CostSource string    `json:"cost_source"`
+	Network    *string   `json:"network"`
+	// NetworkState is the most urgent verify state among the receipt's
+	// sessions (needs_confirmation > estimated > confirmed); the
+	// confidence and evidence are that session's. null when none.
+	NetworkState      *string          `json:"network_state"`
+	NetworkConfidence *float64         `json:"network_confidence"`
+	NetworkEvidence   json.RawMessage  `json:"network_evidence"`
+	Rate              *float64         `json:"rate"`
+	SessionCount      int              `json:"session_count"`
+	UnpricedSessions  int              `json:"unpriced_sessions"`
+	Flags             []string         `json:"flags"`
+	Sessions          []ReceiptSession `json:"sessions"`
+
+	// Billed*: what Rivian billed for the plug-in (Config.Billed only).
+	// BilledCost is the sum of the sessions' billed amounts and is set only
+	// when every session with energy has one; vendor and charger come from
+	// the first session that has them and are never set for a home charger.
+	BilledCost        *float64 `json:"billed_cost,omitempty"`
+	BilledCurrency    *string  `json:"billed_currency,omitempty"`
+	BilledVendor      *string  `json:"billed_vendor,omitempty"`
+	BilledCharger     *string  `json:"billed_charger,omitempty"`
+	BilledSessions    *int     `json:"billed_sessions,omitempty"`
+	EstimatedSessions *int     `json:"estimated_sessions,omitempty"`
 }
 
 // ReceiptSession is one charge inside a receipt.
@@ -338,13 +390,23 @@ type ReceiptSession struct {
 	CostSource  string    `json:"cost_source"`
 	// CostSourceDerived is true when cost_source was derived at query
 	// time (legacy row) rather than persisted by the recorder.
-	CostSourceDerived bool     `json:"cost_source_derived"`
-	Network           *string  `json:"network"`
-	Kind              string   `json:"kind"`
-	Place             string   `json:"place"`
-	FinalState        string   `json:"final_state"`
-	Source            string   `json:"source"`
-	Flags             []string `json:"flags"`
+	CostSourceDerived bool            `json:"cost_source_derived"`
+	Network           *string         `json:"network"`
+	NetworkState      *string         `json:"network_state"`
+	NetworkConfidence *float64        `json:"network_confidence"`
+	NetworkEvidence   json.RawMessage `json:"network_evidence"`
+	Kind              string          `json:"kind"`
+	Place             string          `json:"place"`
+	FinalState        string          `json:"final_state"`
+	Source            string          `json:"source"`
+	Flags             []string        `json:"flags"`
+
+	// Billed*: Rivian's receipt for this session (Config.Billed and a
+	// match only); vendor and charger are never set for a home charger.
+	BilledCost     *float64 `json:"billed_cost,omitempty"`
+	BilledCurrency *string  `json:"billed_currency,omitempty"`
+	BilledVendor   *string  `json:"billed_vendor,omitempty"`
+	BilledCharger  *string  `json:"billed_charger,omitempty"`
 }
 
 // DataQuality carries the counts behind the Money tab's quality notes.
@@ -559,6 +621,43 @@ func networkOf(c Charge) *string {
 	return nil
 }
 
+func networkStateOf(c Charge) *string {
+	if c.NetworkState == "" {
+		return nil
+	}
+	st := c.NetworkState
+	return &st
+}
+
+// evidenceOf returns the charge's detection evidence, or JSON null so
+// the field is always present in receipts.
+func evidenceOf(c Charge) json.RawMessage {
+	if len(c.NetworkEvidence) == 0 {
+		return json.RawMessage("null")
+	}
+	return c.NetworkEvidence
+}
+
+func val2s(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// stateRank orders verify states by how much attention they need.
+func stateRank(s string) int {
+	switch s {
+	case "needs_confirmation":
+		return 3
+	case "estimated":
+		return 2
+	case "confirmed":
+		return 1
+	}
+	return 0
+}
+
 // isDCFC is the recorder's rule (rivian.IsDCFCSession): peak ≥ 50 kW AND
 // energy over active (else wall) time ≥ 20 kW, so one glitched peak
 // sample on a long home session doesn't make it a fast charge.
@@ -621,6 +720,63 @@ func isOpen(finalState string) bool {
 
 func currencyMatches(c Charge, cfg Config) bool {
 	return c.Currency == "" || cfg.Currency == "" || strings.EqualFold(c.Currency, cfg.Currency)
+}
+
+// billedCost is the session's Rivian-billed amount when the user has the
+// feature on and the receipt is in the statement currency (an empty receipt
+// currency is unknown, so not counted).
+func billedCost(c Charge, cfg Config) (float64, bool) {
+	if !cfg.Billed || c.BilledCost == nil || c.BilledCurrency == "" {
+		return 0, false
+	}
+	if cfg.Currency != "" && !strings.EqualFold(c.BilledCurrency, cfg.Currency) {
+		return 0, false
+	}
+	return *c.BilledCost, true
+}
+
+// applyBilled makes Rivian's receipt the session's cost when the user has
+// the feature on: the billed amount is what was actually charged, so it
+// replaces our estimate in the statement (cost, source "rivian", the rate
+// implied by the energy, no pending verify state). Sessions without a usable
+// receipt are untouched. The stored estimate is not modified; this works on
+// a copy. With the feature off the input is returned as is.
+func applyBilled(cs []Charge, cfg Config) []Charge {
+	if !cfg.Billed {
+		return cs
+	}
+	var out []Charge
+	for i, c := range cs {
+		b, ok := billedCost(c, cfg)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = append([]Charge(nil), cs...)
+		}
+		cost := b
+		c.Cost = &cost
+		c.Currency = strings.ToUpper(c.BilledCurrency)
+		c.CostSource = SourceRivian
+		c.PricePerKWh = nil
+		if kwh := val(c.EnergyKWh); kwh > 0 {
+			rate := b / kwh
+			c.PricePerKWh = &rate
+		}
+		c.NetworkState, c.NetworkConfidence, c.NetworkEvidence = "", nil, nil
+		out[i] = c
+	}
+	if out == nil {
+		return cs
+	}
+	return out
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // sessionView is a charge with everything Build derives for it.
@@ -746,6 +902,8 @@ func FromCharge(c charges.Charge) Charge {
 		Lat: opt(c.Lat), Lon: opt(c.Lon),
 		ActiveSeconds: opt(c.ActiveSeconds),
 		Place:         c.Place, CostSource: c.CostSource, Network: c.Network,
+		NetworkState: c.NetworkState, NetworkConfidence: c.NetworkConfidence, NetworkEvidence: c.NetworkEvidence,
+		BilledCost: c.ReceiptCost, BilledCurrency: c.ReceiptCurrency,
 	}
 	if strings.EqualFold(c.CostSource, SourceUser) {
 		cost := c.Cost
@@ -768,6 +926,7 @@ type Input struct {
 // Build produces the statement for p. withReceipts=false yields the
 // month summary shape (no receipts, no superseded list).
 func Build(in Input, p Period, withReceipts bool) Monthly {
+	in.Charges = applyBilled(in.Charges, in.Config)
 	effCharges, lost := EffectiveCharges(in.Charges)
 	drives, lostDrives := EffectiveDrives(in.Drives)
 
@@ -809,6 +968,8 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 
 	// Charges: totals.
 	var unpricedEstimate float64
+	var billedTotal, estimatedTotal float64
+	var billedSessions, estimatedSessions int
 	for _, c := range effCharges {
 		if !inMonth(c.StartedAt) {
 			continue
@@ -845,6 +1006,17 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 				unpricedEstimate += kwh * in.Config.HomeRate
 			}
 		}
+		if in.Config.Billed {
+			if b, ok := billedCost(c, in.Config); ok {
+				billedTotal += b
+				billedSessions++
+			} else if hasEnergy(c) {
+				estimatedSessions++
+				if v.spendOK {
+					estimatedTotal += *c.Cost
+				}
+			}
+		}
 		addLine(out.Energy.ByKind, v.kind, c, kwh, cost)
 		addLine(out.Energy.ByPlace, v.place, c, kwh, cost)
 		addLine(out.Energy.ByPlaceKind[v.place], v.kind, c, kwh, cost)
@@ -862,6 +1034,14 @@ func Build(in Input, p Period, withReceipts bool) Monthly {
 		if hasFlag(v.flags, FlagHomeRateAway) {
 			out.DataQuality.HomeRateAway++
 		}
+	}
+	if in.Config.Billed {
+		bt, et := round4(billedTotal), round4(estimatedTotal)
+		// Every counted session is in exactly one bucket (its receipt when it
+		// has one, otherwise our estimate), so the headline is their sum.
+		out.Spend.Total = round4(bt + et)
+		out.Spend.BilledTotal, out.Spend.EstimatedTotal = &bt, &et
+		out.BilledSessions, out.EstimatedSessions = &billedSessions, &estimatedSessions
 	}
 	if in.Config.HomeRate > 0 {
 		est := round4(unpricedEstimate)
@@ -1017,6 +1197,8 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 	sources := map[string]bool{}
 	var cost, pricedKWh float64
 	priced := false
+	var billedSum float64
+	var billedN, estimatedN int
 	end := first.EndedAt
 	for _, c := range in {
 		v := viewOf(c, cfg)
@@ -1049,6 +1231,9 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 		if r.Network == nil {
 			r.Network = networkOf(c)
 		}
+		if st := networkStateOf(c); st != nil && stateRank(*st) > stateRank(val2s(r.NetworkState)) {
+			r.NetworkState, r.NetworkConfidence, r.NetworkEvidence = st, c.NetworkConfidence, evidenceOf(c)
+		}
 		r.Sessions = append(r.Sessions, ReceiptSession{
 			ChargeID:          c.ID,
 			StartedAt:         c.StartedAt.UTC(),
@@ -1062,12 +1247,47 @@ func receiptFor(group []Charge, cfg Config, p Period) (Receipt, bool) {
 			CostSource:        v.source,
 			CostSourceDerived: v.derived,
 			Network:           networkOf(c),
+			NetworkState:      networkStateOf(c),
+			NetworkConfidence: c.NetworkConfidence,
+			NetworkEvidence:   evidenceOf(c),
 			Kind:              v.kind,
 			Place:             v.place,
 			FinalState:        c.FinalState,
 			Source:            c.Source,
 			Flags:             nonNil(v.flags),
 		})
+		if cfg.Billed {
+			sess := &r.Sessions[len(r.Sessions)-1]
+			if b, ok := billedCost(c, cfg); ok {
+				bb := round4(b)
+				sess.BilledCost = &bb
+				cur := strings.ToUpper(c.BilledCurrency)
+				sess.BilledCurrency = &cur
+				if !c.BilledHome {
+					sess.BilledVendor, sess.BilledCharger = strPtr(c.BilledVendor), strPtr(c.BilledCharger)
+				}
+				billedSum += b
+				billedN++
+				if r.BilledCurrency == nil {
+					r.BilledCurrency = &cur
+				}
+				if r.BilledVendor == nil && sess.BilledVendor != nil {
+					r.BilledVendor = sess.BilledVendor
+				}
+				if r.BilledCharger == nil && sess.BilledCharger != nil {
+					r.BilledCharger = sess.BilledCharger
+				}
+			} else if hasEnergy(c) {
+				estimatedN++
+			}
+		}
+	}
+	if cfg.Billed {
+		r.BilledSessions, r.EstimatedSessions = &billedN, &estimatedN
+		if billedN > 0 && estimatedN == 0 {
+			sum := round4(billedSum)
+			r.BilledCost = &sum
+		}
 	}
 	r.EndedAt = end.UTC()
 	if priced {

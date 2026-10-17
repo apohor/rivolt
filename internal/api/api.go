@@ -271,6 +271,12 @@ func New(d Deps) http.Handler {
 		MaxAge: 300,
 	}))
 
+	// Standalone public demo: nothing but the demo allowlist exists under
+	// /api, whoever asks. Runs before authentication.
+	if demo.OnlyEnabled() {
+		r.Use(demoOnlyGateMW(demo.VehicleID()))
+	}
+
 	// Authentication middleware runs on every request so handlers
 	// below can read auth.UserFromContext regardless of whether
 	// auth is enforced. With auth unconfigured (nil Service) the
@@ -280,6 +286,12 @@ func New(d Deps) http.Handler {
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
+			if d.Metrics != nil {
+				demoClientKeyObserver = func(source string) { d.Metrics.DemoClientKeyTotal.WithLabelValues(source).Inc() }
+				demoRateLimitedObserver = func(routeClass, scope string) {
+					d.Metrics.DemoRateLimitedTotal.WithLabelValues(routeClass, scope).Inc()
+				}
+			}
 			r.Use(demoAccessMW(demo.UserID(), demo.VehicleID(), newDemoLimiter(), newDemoGlobalLimiter()))
 		}
 		// impersonationMW must run immediately after auth resolves
@@ -294,13 +306,10 @@ func New(d Deps) http.Handler {
 		}, func() bool { return d.ImpersonationDisabled }))
 	}
 
-	// /metrics is intentionally mounted at the root, outside the
-	// /api tree, with no auth. The Prometheus scraper inside the
-	// cluster reaches it via the pod IP; the Ingress doesn't expose
-	// /metrics externally.
-	if d.Metrics != nil {
-		r.Handle("/metrics", d.Metrics.Handler())
-	}
+	// /metrics is deliberately NOT mounted on this router: the Ingress
+	// routes every path here, so a route here is public. Prometheus reads
+	// it from its own listener (RIVOLT_METRICS_ADDR, default :9090; see
+	// cmd/rivolt), which the Ingress does not reach.
 
 	// Same-domain redirect so email links stay aligned with the sender domain (DMARC/Resend warning).
 	r.Get("/discord", func(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +380,11 @@ func New(d Deps) http.Handler {
 		// Public demo discovery (preview only; 404 when off).
 		if demo.Enabled() {
 			r.Get("/demo", handleDemoInfo)
+			// Preset trips for the demo planner: static GETs behind the
+			// same per-client then install-wide demo limits.
+			dl, dg := newDemoLimiter(), newDemoGlobalLimiter()
+			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips)
+			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips/{id}/plan", handleDemoTripPlan)
 		}
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user
@@ -537,6 +551,9 @@ func New(d Deps) http.Handler {
 							}
 						}
 						return connectionState(envReplay(), paused, needs)
+					},
+					frameAt: func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time {
+						return monitorFor(d, uid).VehicleStateFrameAt(ctx, rivianID)
 					},
 					now: time.Now,
 				}
@@ -815,7 +832,23 @@ func New(d Deps) http.Handler {
 				handleUndoRestamp(restamperFor(d, uid))(w, r)
 			}))
 			r.Patch("/charges/{id}/pricing", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handlePatchChargePricing(d.Charges.For(uid))(w, r)
+				handlePatchChargePricing(d.Charges.For(uid), d.Settings.For(uid))(w, r)
+			}))
+			r.Post("/charges/{id}/pricing/confirm", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				st := d.Charges.For(uid)
+				if st == nil {
+					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+					return
+				}
+				handleConfirmChargeNetwork(st, d.Settings.For(uid))(w, r)
+			}))
+			r.Get("/charges/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				st := d.Charges.For(uid)
+				if st == nil {
+					http.Error(w, "charges disabled", http.StatusServiceUnavailable)
+					return
+				}
+				handleGetCharge(st, d.Settings.For(uid))(w, r)
 			}))
 			r.Get("/charges/clusters", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleChargeClusters(d.Charges.For(uid))(w, r)
@@ -824,8 +857,8 @@ func New(d Deps) http.Handler {
 			// Read-only; 404s unless money_tab_enabled covers the user.
 			r.Route("/ledger", func(r chi.Router) {
 				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
-				la := newLedgerAPI(d.DB, d.Settings)
-				r.Get("/enabled", handleLedgerEnabled)
+				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags)
+				r.Get("/enabled", handleLedgerEnabled(uiThemeNextEnabled(d.Flags)))
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))
 				r.Get("/trips", withUser(la.trips))
@@ -836,7 +869,7 @@ func New(d Deps) http.Handler {
 			// Per-day asleep/awake hours for the overview sleep graph,
 			// from the persisted power_state column (migration 0038).
 			r.Get("/sleep-activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleSleepActivity(d.Samples.For(uid))(w, r)
+				handleSleepActivity(uid, d.Samples.For(uid))(w, r)
 			}))
 			// Trip planner — pass-through to Rivian's
 			// planTripWithMultiStop. Caller supplies origin +

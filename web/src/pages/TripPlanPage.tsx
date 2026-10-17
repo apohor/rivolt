@@ -1,8 +1,21 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useUiNext } from "../lib/uiNext";
+import { StopCard } from "../plan/StopCard";
+import { SummaryStrip } from "../plan/SummaryStrip";
+import { formatDuration, formatWaypointTime } from "../plan/format";
+import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
+import { BottomSheet } from "../plan/BottomSheet";
+import { RouteBar } from "../plan/RouteBarPanel";
+import { countNonDefaultOptions, formatRouteSummary, useRouteBarCollapse, useRouteBarState } from "../plan/routeBar";
+import { PlanSelectionProvider, useSelectedStop } from "../plan/selection";
+import { ConnectHint } from "../components/DemoBanner";
+import { appPath, inDemo } from "../lib/demo";
+import { forVehicle } from "../lib/vehicleSamples";
+import { formatDistance, usePreferences } from "../lib/preferences";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
-import { backend, vehicleNeedsTeslaAdapter, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
+import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type PlannerFavorite, type SavedTrip, type SavedTripInputs, type TripAdvice, type TripCostEstimate, type TripPlan, type TripPlanMultidayResponse, type TripRoute } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { useAIEnabled } from "../lib/config";
@@ -160,9 +173,12 @@ function normalizeDriveMode(v: unknown): DriveMode {
 }
 
 export default function TripPlanPage() {
+  const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const [origin, setOrigin] = useState<Selection>(null);
-  const [destination, setDestination] = useState<Selection>(null);
+  // From, to, departure and starting SoC: one hook shared by the classic form
+  // and the map-first route bar.
+  const routeBar = useRouteBarState();
+  const { origin, destination, setOrigin, setDestination } = routeBar;
   const [extraStops, setExtraStops] = useState<NonNullable<Selection>[]>([]);
   // Parallel array to extraStops: true marks that stop as an overnight
   // (ends one day, starts the next). Any true value flips planning to
@@ -181,13 +197,13 @@ export default function TripPlanPage() {
   const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
-  const [startingSoc, setStartingSoc] = useState<string>("");
+  const { startingSoc, setStartingSoc } = routeBar;
   const [driveMode, setDriveMode] = useState<DriveMode>("EVERYDAY");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
   // departureAt is a datetime-local string (local time, no timezone).
   // Empty = depart now; Rivian's planner always plans from "now", so
   // we store this and shift displayed waypoint times client-side.
-  const [departureAt, setDepartureAt] = useState<string>("");
+  const { departureAt, setDepartureAt } = routeBar;
   const aiEnabled = useAIEnabled();
 
   const ownedQuery = useQuery({
@@ -222,13 +238,18 @@ export default function TripPlanPage() {
   // (0, 0) — the WS frame may not have carried GNSSLocation. Walk
   // newest → oldest to pick the most recent fix.
   const samplesQuery = useQuery({
-    queryKey: ["samplesLatestForPlanner"],
+    queryKey: ["samplesLatestForPlanner", firstVehicle?.rivian_vehicle_id],
+    // /api/samples is user-scoped: keep the planner vehicle's rows so a
+    // second truck's last fix is never used as the start position.
     queryFn: () =>
-      backend.samples(
-        new Date(Date.now() - 6 * 60 * 60 * 1000),
-        5000,
-        new Date(Date.now() + 60_000),
-      ),
+      backend
+        .samples(
+          new Date(Date.now() - 6 * 60 * 60 * 1000),
+          5000,
+          new Date(Date.now() + 60_000),
+          firstVehicle?.rivian_vehicle_id,
+        )
+        .then((r) => forVehicle(r, firstVehicle?.rivian_vehicle_id)),
     enabled: stateQuery.isFetched && !stateHasFix,
     staleTime: 30 * 1000,
   });
@@ -664,24 +685,40 @@ export default function TripPlanPage() {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
-      <PageHeader
-        title="Trip planner"
-        subtitle="Plan a route with charging stops via Rivian's planner."
-      />
-
-      <Card title="Plan a trip">
-        {firstVehicle && (
-          <p className="mb-3 text-xs text-neutral-500">
-            Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
-          </p>
-        )}
-        <form onSubmit={onSubmit} className="space-y-4">
-          <DeparturePicker value={departureAt} onChange={setDepartureAt} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <label className="flex flex-col gap-1 text-sm">
+  // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
+  // for everyone; in the ui_theme_next layer the result follows the form in the DOM
+  // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
+  const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data);
+  const routeSummary = formatRouteSummary(routeBar);
+  const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null;
+  const [planTab, setPlanTab] = usePlanTab(moneyShell);
+  // Phones: when a plan arrives, bring the map up under the top bar so it fills the
+  // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
+  // is not moved (the results announcement keeps it).
+  useEffect(() => {
+    if (!nextUi || !resultKey || planTab !== "planner" || window.innerWidth >= 1024) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        const el = document.querySelector("[data-plan-area='map']");
+        if (!el) return;
+        const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
+        const top = el.getBoundingClientRect().top + window.scrollY - bar - 8;
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        window.scrollTo({ top: Math.max(0, top), behavior: reduce ? "auto" : "smooth" });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [nextUi, resultKey, planTab]);
+  // The form's pieces. The classic form (flag off) lays them out in its
+  // original order; the map-first route bar (ui_theme_next) takes the same
+  // elements into RouteBar's structure, so both modes share one set of fields.
+  const departureEl = <DeparturePicker value={departureAt} onChange={setDepartureAt} />;
+  const socNumberEl = (
+<label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Starting SoC %</span>
               <input
                 type="number"
@@ -697,7 +734,9 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 placeholder-neutral-600 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm">
+  );
+  const targetSocEl = (
+<label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Target arrival SoC %</span>
               <input
                 type="number"
@@ -708,6 +747,26 @@ export default function TripPlanPage() {
                 className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
               />
             </label>
+  );
+  const driveModeEl = nextUi ? (
+              <div role="radiogroup" aria-label="Drive mode" className="flex flex-col gap-1 text-sm">
+                <span className="text-neutral-400">Drive mode</span>
+                <div className="flex gap-1.5">
+                  {([["EVERYDAY", "All-Purpose"], ["DISTANCE", "Conserve"]] as const).map(([v, l]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={driveMode === v}
+                      onClick={() => setDriveMode(v)}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${driveMode === v ? "border-emerald-600/60 bg-emerald-600/15 text-emerald-200" : "border-neutral-700 text-neutral-300 hover:border-neutral-500"}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-neutral-400">Drive mode</span>
               <select
@@ -719,7 +778,9 @@ export default function TripPlanPage() {
                 <option value="DISTANCE">Conserve</option>
               </select>
             </label>
-            {vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) && (
+            );
+  const adapterEl = vehicleNeedsTeslaAdapter(profileQuery.data, firstVehicle?.model_year) ? (
+
               <div className="flex flex-col gap-1 text-sm">
                 <span className="text-neutral-400">Tesla NACS adapter</span>
                 <button
@@ -741,9 +802,10 @@ export default function TripPlanPage() {
                   </span>
                 </button>
               </div>
-            )}
-          </div>
-          <LocationField
+            
+  ) : null;
+  const fromEl = (
+<LocationField
             heading="From"
             value={origin}
             onChange={(s) => setOrigin(s ? relabelIfHome(s, home) : null)}
@@ -766,7 +828,9 @@ export default function TripPlanPage() {
               })),
             ]}
           />
-          <ViaStopList
+  );
+  const viaEl = (
+<ViaStopList
             stops={extraStops}
             overnightFlags={overnightFlags}
             onRemove={(i) => {
@@ -795,7 +859,9 @@ export default function TripPlanPage() {
               setOvernightFlags((prev) => [...prev, false]);
             }}
           />
-          {hasOvernightStops && (
+  );
+  const overnightEl = hasOvernightStops ? (
+
             <div
               className="flex flex-wrap items-center gap-2 text-xs text-neutral-300"
               title="How to limit overnight L2 charging: cap the post-charge SoC, cap by hours plugged in, or cap by next-day departure time."
@@ -865,8 +931,10 @@ export default function TripPlanPage() {
                 </label>
               )}
             </div>
-          )}
-          <LocationField
+          
+  ) : null;
+  const toEl = (
+<LocationField
             heading="To"
             value={destination}
             onChange={(s) => setDestination(s ? relabelIfHome(s, home) : null)}
@@ -882,31 +950,110 @@ export default function TripPlanPage() {
               })),
             ]}
           />
-          <div className="flex items-center gap-3">
-            <button
+  );
+  const planButtonEl = (
+      <button
               type="submit"
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
-              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
               {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
-            {(planMutation.isPending || multidayMutation.isPending) && <Spinner />}
-            <span className="text-xs text-neutral-500">
+  );
+  const planSpinnerEl = (planMutation.isPending || multidayMutation.isPending) && <Spinner />;
+  const planTipEl = (
+      <span className="text-xs text-neutral-500">
               Tip: configure your charging settings in{" "}
               <a
-                href="/settings?tab=charging"
+                href={appPath("/settings?tab=charging")}
                 className="underline hover:text-neutral-300"
               >
                 Settings &rarr; Charging
               </a>{" "}
               to see accurate per-stop costs and membership savings.
             </span>
-          </div>
+  );
+  const moreCount = countNonDefaultOptions({
+    viaStops: extraStops.length,
+    targetSoc,
+    driveModeIsDefault: driveMode === "EVERYDAY",
+    hasAdapter,
+  });
+  const formEl = (
+    <>
+      {inDemo() ? (
+        <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
+      ) : (
+      <FormShell next={nextUi} hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
+        {firstVehicle && (
+          <p className="mb-3 text-xs text-neutral-500">
+            Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
+          </p>
+        )}
+        <form onSubmit={onSubmit} className="space-y-4" data-plan-form>
+          {nextUi ? (
+            <RouteBar
+              from={fromEl}
+              to={toEl}
+              onSwap={routeBar.swap}
+              when={departureEl}
+              soc={{
+                value: startingSoc,
+                live: typeof stateQuery.data?.battery_level_pct === "number" ? stateQuery.data.battery_level_pct : null,
+                onChange: setStartingSoc,
+              }}
+              moreCount={moreCount}
+              more={
+                <>
+                  {viaEl}
+                  {overnightEl}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
+                    {targetSocEl}
+                    {driveModeEl}
+                    {adapterEl}
+                  </div>
+                  {planTipEl}
+                </>
+              }
+              submit={
+                <div className="flex items-center gap-3" data-plan-submit>
+                  {planButtonEl}
+                  {planSpinnerEl}
+                </div>
+              }
+            />
+          ) : (
+            <>
+              {departureEl}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
+                {socNumberEl}
+                {targetSocEl}
+                {driveModeEl}
+                {adapterEl}
+              </div>
+              {fromEl}
+              {viaEl}
+              {overnightEl}
+              {toEl}
+              <div className="flex items-center gap-3" data-plan-submit>
+                {planButtonEl}
+                {planSpinnerEl}
+                {planTipEl}
+              </div>
+            </>
+          )}
         </form>
-      </Card>
-
-      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} />}
-
+      </FormShell>
+      )}
+    </>
+  );
+  const pvaEl = (
+    <>
+      {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
+    </>
+  );
+  const savedEl = (
+    <>
       <SavedTripsCard
         trips={savedTripsQuery.data ?? []}
         loading={savedTripsQuery.isLoading}
@@ -914,11 +1061,15 @@ export default function TripPlanPage() {
         canSave={!!origin && !!destination}
         saveDisabled={saveTripMutation.isPending}
         onLoad={loadSavedTrip}
+        readOnly={inDemo()}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={(saveTripMutation.error as Error | null)?.message}
       />
-
+    </>
+  );
+  const resultEl = (
+    <>
       {planMutation.error && (
         <ErrorBox
           title="Planner failed"
@@ -983,7 +1134,7 @@ export default function TripPlanPage() {
               </div>
             )}
           >
-            {loadedSnapshot && (
+            {loadedSnapshot && !(nextUi && inDemo()) && (
               <SnapshotBanner
                 name={loadedSnapshot.name}
                 updatedAt={loadedSnapshot.updatedAt}
@@ -1167,6 +1318,61 @@ export default function TripPlanPage() {
           </ErrorBoundary>
         );
       })()}
+    </>
+  );
+
+  if (nextUi) {
+    const tabs: PlanTabSpec[] = [
+      { id: "planner", label: "Planner" },
+      { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
+      ...(moneyShell ? [{ id: "pva" as const, label: "Plan vs actual" }] : []),
+    ];
+    return (
+      <div data-plan-next>
+        <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
+          <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
+        </div>
+        <PlanTabPanel tab="planner" active={planTab === "planner"}>
+          {/* One selected stop for the whole result: the itinerary, the map and
+              anything that follows the selection. A new plan clears it. */}
+          <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null}>
+          <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
+            {formEl}
+            {resultEl}
+            {!hasResult && (
+              <div data-plan-area="map" data-empty="true" aria-hidden>
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
+                  {planMutation.isPending || multidayMutation.isPending ? "Planning your route…" : "Your route and charging stops appear here."}
+                </div>
+              </div>
+            )}
+          </div>
+          </PlanSelectionProvider>
+        </PlanTabPanel>
+        <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
+          {savedEl}
+        </PlanTabPanel>
+        <PlanTabPanel tab="pva" active={planTab === "pva"} className="space-y-6">
+          {pvaEl}
+        </PlanTabPanel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6" data-ui-grid="plan">
+      <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
+      <PageHeader
+        title="Trip planner"
+        subtitle={inDemo() ? "Sample trips planned for the demo truck." : "Plan a route with charging stops via Rivian's planner."}
+      />
+
+      {formEl}
+      {pvaEl}
+      {savedEl}
+      {resultEl}
     </div>
   );
 }
@@ -1190,7 +1396,7 @@ function SnapshotBanner({
 }) {
   const ageMs = Date.now() - new Date(updatedAt).getTime();
   const ageH = ageMs / 3_600_000;
-  const stale = ageH > SAVED_SNAPSHOT_STALE_HOURS;
+  const stale = !inDemo() && ageH > SAVED_SNAPSHOT_STALE_HOURS;
   const human =
     ageH < 1
       ? `${Math.max(1, Math.round(ageMs / 60_000))} min ago`
@@ -1206,19 +1412,158 @@ function SnapshotBanner({
       }`}
     >
       <span>
-        Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
-        from {human}
-        {stale && " — charging stations, weather, and ETA may have drifted."}
+        {inDemo() ? (
+          <>
+            Sample plan <strong className="text-neutral-100">"{name}"</strong>
+          </>
+        ) : (
+          <>
+            Showing saved snapshot <strong className="text-neutral-100">"{name}"</strong>{" "}
+            from {human}
+            {stale && " — charging stations, weather, and ETA may have drifted."}
+          </>
+        )}
       </span>
-      <button
-        type="button"
-        onClick={onReplan}
-        disabled={replanPending}
-        className="shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
-      >
-        {replanPending ? "Re-planning…" : "Re-plan now"}
-      </button>
+      {!inDemo() && (
+        <button
+          type="button"
+          onClick={onReplan}
+          disabled={replanPending}
+          className="shrink-0 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 hover:border-neutral-500 disabled:opacity-50"
+        >
+          {replanPending ? "Re-planning…" : "Re-plan now"}
+        </button>
+      )}
     </div>
+  );
+}
+
+// DemoPresetPicker: the public demo's planner. A handful of stored trips
+// rendered by the real planner UI (route, stops, cost, arrival SoC); any
+// other trip needs the visitor's own Rivian.
+// FormShell: the classic card, or in ui_theme_next the compact route bar. On a
+// phone the bar collapses to a one-line summary once there is a plan.
+function FormShell({ next, hasResult, resultKey, summary, children }: { next: boolean; hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
+  const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);
+  if (!next) return <Card title="Plan a trip" area="p-form">{children}</Card>;
+  return (
+    <div data-plan-bar data-collapsed={collapsed ? "true" : undefined}>
+      {hasResult && (
+        <button
+          type="button"
+          data-plan-edit
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          onClick={toggle}
+          className="flex w-full items-center justify-between gap-3 text-left text-sm lg:hidden"
+        >
+          <span className="min-w-0 truncate text-neutral-100">{summary}</span>
+          <span className="shrink-0 text-xs text-emerald-300">{collapsed ? "Edit" : "Done"}</span>
+        </button>
+      )}
+      <div id={bodyId} data-plan-bar-body>{children}</div>
+    </div>
+  );
+}
+
+function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpen: (t: SavedTrip) => void }) {
+  const list = useQuery({ queryKey: ["demo", "trips"], queryFn: () => backend.demoTrips(), retry: 0, staleTime: 60 * 60_000 });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const open = async (p: DemoTripPreset) => {
+    setBusy(p.id);
+    setErr(null);
+    try {
+      const fetched = await backend.demoTripPlan(p.id);
+      // The preset's geometry rides on the route unless the plan carries its own.
+      const geometry = p.route_polyline;
+      const plan: TripPlan = geometry
+        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
+        : fetched;
+      const now = new Date().toISOString();
+      onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't load that trip.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const trips = list.data?.trips ?? [];
+  const next = useUiNext();
+  if (next) {
+    return (
+      <div data-plan-bar>
+        <p className="ui-label mb-2">Sample trips</p>
+        {list.isLoading ? (
+          <Spinner />
+        ) : (
+          <ul className="flex flex-wrap gap-2" data-testid="demo-presets">
+            {trips.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => open(p)}
+                  disabled={busy != null}
+                  aria-pressed={p.id === activeId}
+                  className={`rounded-lg border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                    p.id === activeId ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
+                  }`}
+                >
+                  <span className="block text-neutral-100">{p.name}</span>
+                  <span className="block text-xs text-neutral-500">
+                    {p.inputs.origin?.label} → {p.inputs.destination?.label} · {Math.round(p.summary.distance_mi)} mi
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+        <div className="mt-2">
+          <ConnectHint what="plan any trip, with your truck's pack and charge level" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <Card title="Try a sample trip" area="p-form">
+      {list.isLoading ? (
+        <Spinner />
+      ) : trips.length === 0 ? (
+        <p className="text-xs text-neutral-500">No sample trips available right now.</p>
+      ) : (
+        <ul className="space-y-1.5" data-testid="demo-presets">
+          {trips.map((p) => (
+            <li key={p.id}>
+              <button
+                type="button"
+                onClick={() => open(p)}
+                disabled={busy != null}
+                className={`flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                  p.id === activeId ? "border-emerald-700/60 bg-emerald-950/30" : "border-neutral-800 bg-neutral-950/40 hover:bg-neutral-900"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-neutral-100">{p.name}</span>
+                  <span className="block text-xs text-neutral-500">
+                    {p.inputs.origin?.label} → {p.inputs.destination?.label}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right text-xs tabular-nums text-neutral-400">
+                  {Math.round(p.summary.distance_mi)} mi · {p.summary.charge_stops} {p.summary.charge_stops === 1 ? "stop" : "stops"}
+                  <br />
+                  arrive {Math.round(p.summary.arrival_soc_pct)}%
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+      <div className="mt-3">
+        <ConnectHint what="plan any trip, with your truck's pack and charge level" />
+      </div>
+    </Card>
   );
 }
 
@@ -1232,7 +1577,9 @@ function SavedTripsCard({
   onDelete,
   onSave,
   saveError,
+  readOnly = false,
 }: {
+  readOnly?: boolean;
   trips: SavedTrip[];
   loading: boolean;
   activeId: string | null;
@@ -1259,13 +1606,14 @@ function SavedTripsCard({
     onSave(n, matched);
   };
   return (
-    <Card title="Saved trips">
+    <Card title="Saved trips" area="p-saved">
       {loading ? (
         <Spinner />
       ) : trips.length === 0 ? (
         <p className="text-xs text-neutral-500">
-          No saved trips yet. Plan a route, then save it below so you can
-          re-open or re-plan it later.
+          {readOnly
+            ? "No sample trips here."
+            : "No saved trips yet. Plan a route, then save it below so you can re-open or re-plan it later."}
         </p>
       ) : (
         <ul className="mb-4 space-y-1.5">
@@ -1290,20 +1638,25 @@ function SavedTripsCard({
                     {t.inputs.origin?.label} → {t.inputs.destination?.label}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
-                  }}
-                  className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
-                >
-                  delete
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
+                    }}
+                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                  >
+                    delete
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       )}
+      {readOnly ? (
+        <ConnectHint what="save your own trips" />
+      ) : (
       <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -1320,7 +1673,8 @@ function SavedTripsCard({
           {active && active.name === name.trim() ? "Update" : "Save"}
         </button>
       </form>
-      {!canSave && (
+      )}
+      {!readOnly && !canSave && (
         <p className="mt-2 text-xs text-neutral-600">
           Pick a From + To above (and optionally hit Plan trip) before saving.
         </p>
@@ -1342,6 +1696,7 @@ function DeparturePicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const next = useUiNext();
   const [date, time] = value.split("T");
   const setDate = (d: string) => onChange(d ? `${d}T${time || "08:00"}` : "");
   const setTime = (t: string) => onChange(date ? `${date}T${t}` : "");
@@ -1364,6 +1719,24 @@ function DeparturePicker({
       },
     },
   ];
+  if (next) {
+    // One compact chip row: Now, quick picks, then the exact date and time.
+    return (
+      <div data-plan-when-inner role="group" aria-label="Departure">
+        <span className="ui-label">Departure</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <button type="button" aria-pressed={!value} data-plan-chip onClick={() => onChange("")}>Now</button>
+          {presets.map((p) => (
+            <button key={p.label} type="button" data-plan-chip onClick={() => onChange(p.build())}>
+              {p.label}
+            </button>
+          ))}
+          <DatePopover value={date || ""} onChange={setDate} />
+          <TimePopover value={time || ""} onChange={setTime} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1 text-sm">
       <span className="text-neutral-400">Departure</span>
@@ -1656,6 +2029,46 @@ function LocationField({
   presets: { label: string; lat: number; lon: number }[];
   onSaveAsFavorite?: (s: { lat: number; lon: number; label: string }) => void;
 }) {
+  const next = useUiNext();
+  if (next) {
+    // One compact row: a coloured node, the place (or the search), presets below.
+    return (
+      <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
+        <span data-plan-dot aria-hidden />
+        <div data-plan-field-main>
+          {value ? (
+            <div className="flex items-center justify-between gap-2">
+              <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
+              <span className="flex shrink-0 items-center gap-3 text-xs">
+                {onSaveAsFavorite && value.label !== "Home" && (
+                  <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset">
+                    ☆ save
+                  </button>
+                )}
+                <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${heading}`} className="text-neutral-400 hover:text-neutral-200">
+                  clear
+                </button>
+              </span>
+            </div>
+          ) : (
+            <LocationSearch
+              placeholder={`${heading} — city or address`}
+              onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) })}
+            />
+          )}
+          {!value && presets.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
+                  {p.label === "Home" ? "🏠 " : ""}{p.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
       <div className="flex items-baseline justify-between gap-3">
@@ -1973,6 +2386,10 @@ function TripPlanResult({
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
+  const nextUi = useUiNext();
+  const [active, setActive] = useState(0);
+  const planKey = plan.Routes.length;
+  useEffect(() => setActive(0), [plan, planKey]);
   if (plan.Routes.length === 0) {
     return (
       <Card title="Result">
@@ -1985,10 +2402,40 @@ function TripPlanResult({
     );
   }
   return (
-    <div className="space-y-4">
-      <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />
+    <div className="space-y-4" data-plan-contents={nextUi ? "" : undefined}>
+      {/* AI analysis costs money: never offered in the public demo. */}
+      {!inDemo() && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={onAnalyze} />}
       <WeatherAdjustmentChip plan={plan} />
-      {plan.Routes.map((route, i) => (
+      {nextUi ? (
+        (() => {
+          const i = Math.min(active, plan.Routes.length - 1);
+          const route = plan.Routes[i];
+          return (
+            <RouteCard
+              key={i}
+              route={route}
+              index={i}
+              forceNext
+              allRoutes={plan.Routes}
+              originLabel={originLabel}
+              destLabel={destLabel}
+              onAddStop={onAddStop}
+              onAddOvernight={onAddOvernight}
+              onPreviewStop={onPreviewStop}
+              departureAt={departureAt}
+              cost={plan.costs?.[i]}
+              primaryCost={plan.costs?.[0]}
+              adjustment={i === 0 ? plan.weather_adjustment : undefined}
+              chooser={
+                plan.Routes.length > 1 ? (
+                  <RouteChooser routes={plan.Routes} costs={plan.costs} active={i} onChange={setActive} />
+                ) : undefined
+              }
+            />
+          );
+        })()
+      ) : (
+      plan.Routes.map((route, i) => (
         <RouteCard
           key={i}
           route={route}
@@ -2005,7 +2452,8 @@ function TripPlanResult({
           primaryCost={plan.costs?.[0]}
           adjustment={i === 0 ? plan.weather_adjustment : undefined}
         />
-      ))}
+      ))
+      )}
       {plan.SoCBelowLimit && (
         <ErrorBox
           title="SoC below limit"
@@ -2090,25 +2538,6 @@ function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
   );
 }
 
-// formatWaypointTime formats a UTC ISO string to local HH:MM, applying
-// an optional millisecond shift (user departure offset vs Rivian's "now").
-function formatWaypointTime(utcStr: string | undefined, shiftMs: number): string {
-  if (!utcStr) return "";
-  const d = new Date(new Date(utcStr).getTime() + shiftMs);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-// formatDuration turns a seconds count into "Hh Mm" / "Mm" suitable
-// for the route summary header.
-function formatDuration(seconds: number): string {
-  const m = Math.round(seconds / 60);
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  if (rem === 0) return `${h}h`;
-  return `${h}h ${rem}m`;
-}
-
 // planForTable trims a verbose plan label down to what fits the
 // narrow Cost column. "Pass+ - $7/mo" -> "Pass+". Tesla's "Supercharging
 // Membership" is the one outlier where the bare plan word is already
@@ -2126,6 +2555,50 @@ function planForTable(plan: string): string {
 // etc.) competed for screen space with the cost line and lost -
 // the user can see Distance / Total time / Arrival in the stat
 // grid right below the title.
+// RouteChooser: the ui_theme_next planner's compact route picker (Recommended and
+// alternatives as selectable chips with cost, time and stops).
+function RouteChooser({
+  routes,
+  costs,
+  active,
+  onChange,
+}: {
+  routes: TripRoute[];
+  costs?: TripCostEstimate[];
+  active: number;
+  onChange: (i: number) => void;
+}) {
+  const money = (v: number, cur?: string) =>
+    new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+  return (
+    <div role="radiogroup" aria-label="Route options" data-plan-routes className="mb-3 flex gap-2 overflow-x-auto pb-1">
+      {routes.map((r, i) => {
+        const c = costs?.[i];
+        const diff = i === active || i === 0 ? [] : routeDiff(r, c, routes[0], costs?.[0]);
+        return (
+          <button
+            key={i}
+            type="button"
+            role="radio"
+            aria-checked={i === active}
+            onClick={() => onChange(i)}
+            className={`min-w-32 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+              i === active ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
+            }`}
+          >
+            <span className="block text-sm font-medium text-neutral-100">{routeLabel(i, routes)}</span>
+            <span className="mt-0.5 block tabular-nums text-neutral-400">
+              {c && c.dcfc_spend > 0 ? `${money(c.dcfc_spend, c.currency)} · ` : ""}
+              {formatDuration(r.TotalTripDurationSec)} · {countChargingStops(r)} {countChargingStops(r) === 1 ? "stop" : "stops"}
+            </span>
+            {diff.length > 0 && <span className="mt-0.5 block text-[11px] text-neutral-500">{diff.slice(0, 2).join(" · ")}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function routeLabel(index: number, allRoutes: TripRoute[]): string {
   if (allRoutes.length <= 1) return "Recommended";
   if (index === 0) return "Recommended";
@@ -2203,6 +2676,8 @@ function RouteCard({
   primaryCost,
   adjustment,
   defaultCollapsed,
+  forceNext = false,
+  chooser,
 }: {
   route: TripRoute;
   index: number;
@@ -2222,7 +2697,15 @@ function RouteCard({
   // each other before the user signals interest. The Recommended
   // route stays expanded.
   defaultCollapsed?: boolean;
+  // ui_theme_next: render this (alternative) route in the map-first layout.
+  forceNext?: boolean;
+  // ui_theme_next: the route chooser, shown at the top of the summary.
+  chooser?: React.ReactNode;
 }) {
+  const { distanceUnit } = usePreferences();
+  const uiNext = useUiNext();
+  // Map-first layout is for the primary route; alternatives keep the classic card.
+  const next = uiNext && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
@@ -2280,10 +2763,18 @@ function RouteCard({
   // Holds the index in route.Waypoints of the highlighted stop, or
   // null for "nothing selected". Reset to null when the route prop
   // changes so an old selection doesn't leak across plans.
-  const [selectedStop, setSelectedStop] = useState<number | null>(null);
-  useEffect(() => { setSelectedStop(null); }, [route]);
-  const toggleStop = (idx: number) =>
-    setSelectedStop((prev) => (prev === idx ? null : idx));
+  // Shared with the rest of the map-first layout through
+  // PlanSelectionProvider; the classic cards keep their own (see useSelectedStop).
+  const stopSel = useSelectedStop(route, { shared: next });
+  const selectedStop = stopSel.selected;
+  const setSelectedStop = stopSel.select;
+  const toggleStop = stopSel.toggle;
+  // The route chooser swaps which route this card shows; the shared selection
+  // belongs to one route's stops, so a different route starts with none.
+  const clearStop = stopSel.clear;
+  useEffect(() => {
+    if (next) clearStop();
+  }, [route, next, clearStop]);
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
   // leg = current - previous. Hidden when Rivian didn't populate the
   // field (legacy plans). All values converted to miles for display.
@@ -2332,7 +2823,7 @@ function RouteCard({
             <>
               {" / "}
               <span
-                className="text-red-700 font-mono cursor-help"
+                className="text-rose-400 font-mono cursor-help"
                 title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
               >{fmtCurrency(gasEquiv)}</span>
             </>
@@ -2344,6 +2835,86 @@ function RouteCard({
       )}
     </span>
   );
+  const hero = (
+    <SummaryStrip
+      route={route}
+      cost={cost}
+      adjustment={adjustment}
+      origin={origin}
+      dest={dest}
+      timeShiftMs={timeShiftMs}
+      stopCount={charging.length}
+      chargeMinutes={totalChargeMin}
+      compact={next}
+    />
+  );
+  const row = (idx: number, kind: "start" | "stop" | "end", name: string, n?: number) => (
+    <StopCard
+      key={idx}
+      kind={kind}
+      name={name}
+      waypoint={route.Waypoints[idx]}
+      prev={idx > 0 ? route.Waypoints[idx - 1] : undefined}
+      showLeg={haveDistances}
+      stopCost={kind === "stop" && n != null ? stopBreakdown[n] : undefined}
+      currency={cost?.currency || "USD"}
+      timeShiftMs={timeShiftMs}
+      selected={selectedStop === idx}
+      onSelect={() => toggleStop(idx)}
+    />
+  );
+  const timeline = showTable && (
+    <ol data-plan-timeline aria-label="Route and charging stops" className="mt-4">
+      {origin && row(originIdx, "start", originLabel || origin.Name || "Origin")}
+      {chargingWithIdx.map(({ w, i: wpIdx }, j) => row(wpIdx, "stop", w.Name || `(${w.Latitude.toFixed(3)}, ${w.Longitude.toFixed(3)})`, j))}
+      {dest && row(destIdx, "end", destLabel || dest.Name || "Destination")}
+    </ol>
+  );
+  if (next) {
+    // Map-first: summary strip and itinerary in the left panel, the map beside it.
+    return (
+      <>
+        {/* On a phone the summary peeks over the map and the itinerary opens
+            with it; from 1024px up BottomSheet renders the two inline, as grid
+            items beside the map. */}
+        <BottomSheet
+          label="Trip details"
+          peekPx={240}
+          peek={
+            <section data-plan-area="summary" aria-label="Trip summary">
+              {chooser}
+              {!route.DestinationReached && (
+                <p className="mb-3 text-sm text-amber-400">
+                  Destination unreachable
+                  {route.BatteryEmptyToDestMeters > 0 && <> — battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short</>}
+                </p>
+              )}
+              {hero}
+            </section>
+          }
+        >
+          <section data-plan-area="itinerary" aria-label="Itinerary">
+            <h2 className="ui-label mb-1">Itinerary</h2>
+            {timeline}
+          </section>
+        </BottomSheet>
+        <div data-plan-area="map">
+          <Suspense fallback={<div className="h-full animate-pulse bg-neutral-900/50" />}>
+            <TripRouteMap
+              fill
+              route={route}
+              onAddStop={onAddStop}
+              onAddOvernight={onAddOvernight}
+              onPreviewStop={onPreviewStop}
+              selectedIdx={selectedStop}
+              onSelectStop={(idx) => setSelectedStop(idx)}
+              departureAt={departureAt}
+            />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
   return (
     <Card title={title}>
       {index > 0 && allRoutes.length > 1 && (() => {
@@ -2442,7 +3013,7 @@ function RouteCard({
         />
       </dl>
       {showTable && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" tabIndex={0} role="region" aria-label="Charging stops table">
           <table className="w-full text-sm">
             <thead className="border-b border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr>
@@ -2597,7 +3168,7 @@ function RouteCard({
       )}
       {!route.DestinationReached && route.BatteryEmptyToDestMeters > 0 && (
         <p className="mt-3 text-sm text-amber-400">
-          Battery empty {(route.BatteryEmptyToDestMeters / 1000).toFixed(1)} km short of destination
+          Battery empty {formatDistance(route.BatteryEmptyToDestMeters / 1000, distanceUnit, { fine: true })} short of destination
           {route.BatteryEmptyLat !== 0 && (
             <>
               {" "}at ({route.BatteryEmptyLat.toFixed(3)}, {route.BatteryEmptyLon.toFixed(3)})

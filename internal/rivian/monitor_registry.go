@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -50,8 +51,11 @@ type MonitorRegistry struct {
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
+	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
+	vehicleInfoFor     func(uid uuid.UUID) func([]Vehicle)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
+	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
 	rehydrate          func(ctx context.Context, uid uuid.UUID) bool
 	sleepSafe          func(vehicleID string) bool
 	sleepObserver      SleepObserver
@@ -147,6 +151,15 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 	r.mu.Unlock()
 }
 
+// SetVehicleInfoHookFactory wires the per-user persister for the vehicle
+// metadata (trim, image, pack guess) each monitor fetches in
+// RefreshVehicleInfo.
+func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) func([]Vehicle)) {
+	r.mu.Lock()
+	r.vehicleInfoFor = factory
+	r.mu.Unlock()
+}
+
 // SetDriveCloseHookFactory wires a per-user DriveCloseHook factory.
 // On each new monitor spawn, factory(uid) is called and the result
 // (may be nil) is handed to the StateMonitor so the recorder can
@@ -156,6 +169,16 @@ func (r *MonitorRegistry) SetBatteryCapacityHookFactory(factory func(uid uuid.UU
 func (r *MonitorRegistry) SetDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
 	r.mu.Lock()
 	r.driveCloseHook = factory
+	r.mu.Unlock()
+}
+
+// SetDCFCDetectorFactory wires per-user fast-charge network detection
+// (on only where the dcfc_auto_network flag covers the user; the
+// detector itself says when it's off). Safe to call at boot before any
+// Start.
+func (r *MonitorRegistry) SetDCFCDetectorFactory(factory func(uid uuid.UUID) DCFCDetector) {
+	r.mu.Lock()
+	r.dcfcDetectFor = factory
 	r.mu.Unlock()
 }
 
@@ -189,6 +212,16 @@ func (r *MonitorRegistry) SetSessionRehydrator(fn func(ctx context.Context, uid 
 func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
 	r.mu.Lock()
 	r.chargeCloseHook = factory
+	r.mu.Unlock()
+}
+
+// AddChargeCloseHookFactory registers a further charge-close side effect
+// next to the one SetChargeCloseHookFactory holds (push notifications), so
+// independent features can each react to a closed charge. Every registered
+// hook runs, in order registered, for each close.
+func (r *MonitorRegistry) AddChargeCloseHookFactory(factory func(uid uuid.UUID) ChargeCloseHook) {
+	r.mu.Lock()
+	r.extraChargeClose = append(r.extraChargeClose, factory)
 	r.mu.Unlock()
 }
 
@@ -265,9 +298,25 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 			mon.SetDriveCloseHook(h)
 		}
 	}
-	if r.chargeCloseHook != nil {
-		if h := r.chargeCloseHook(uid); h != nil {
+	{
+		var hooks []ChargeCloseHook
+		if r.chargeCloseHook != nil {
+			if h := r.chargeCloseHook(uid); h != nil {
+				hooks = append(hooks, h)
+			}
+		}
+		for _, f := range r.extraChargeClose {
+			if h := f(uid); h != nil {
+				hooks = append(hooks, h)
+			}
+		}
+		if h := composeChargeClose(hooks); h != nil {
 			mon.SetChargeCloseHook(h)
+		}
+	}
+	if r.vehicleInfoFor != nil {
+		if h := r.vehicleInfoFor(uid); h != nil {
+			mon.SetVehicleInfoHook(h)
 		}
 	}
 	if r.batteryCapacityFor != nil {
@@ -297,6 +346,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.dcfcPriceFor != nil {
 		if fn := r.dcfcPriceFor(uid); fn != nil {
 			mon.SetDCFCPriceLookup(fn)
+		}
+	}
+	if r.dcfcDetectFor != nil {
+		if fn := r.dcfcDetectFor(uid); fn != nil {
+			mon.SetDCFCDetector(fn)
 		}
 	}
 	mon.SetSleepSafe(r.sleepSafe)
@@ -421,28 +475,50 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 	mon.EnsureSubscribed(rivianVehicleID)
 }
 
-// Unsubscribe routes the same way as EnsureSubscribed.
+// Streaming reports whether this pod runs a subscription for the
+// vehicle on any of its monitors (including one parked waiting for
+// auth or re-auth). The lease coordinator re-subscribes a leased
+// vehicle that isn't streaming (SetStreamingCheck). Any monitor, not
+// just the current owner's: if the owner resolution changed (users
+// sharing a VIN), the old owner's run still counts, so the heal can't
+// start a second subscription beside it. No database lookup: it runs
+// inside every reconcile.
+func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m != nil && m.Subscribed(rivianVehicleID) {
+			return true
+		}
+	}
+	return false
+}
+
+// Unsubscribe tears the vehicle's subscription down on every monitor
+// that runs it, not only its current owner's. After an owner flip (users
+// sharing a VIN) the old owner's run is still the one streaming; routing
+// by owner cancelled the new owner's (a no-op) and left the old one
+// streaming on a pod that no longer holds the lease: a cross-pod
+// duplicate. Unsubscribe on a monitor that doesn't run it is a no-op.
+// No database lookup.
 func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 	if rivianVehicleID == "" {
 		return
 	}
-	uid, err := r.ownerOf(rivianVehicleID)
-	if err != nil {
-		// Best-effort: try every monitor. Ownership row may have
-		// been deleted; we still want the WS torn down.
-		r.mu.RLock()
-		mons := make([]*StateMonitor, 0, len(r.monitors))
-		for _, e := range r.monitors {
-			mons = append(mons, e.monitor)
-		}
-		r.mu.RUnlock()
-		for _, m := range mons {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m != nil {
 			m.Unsubscribe(rivianVehicleID)
 		}
-		return
-	}
-	if mon := r.For(uid); mon != nil {
-		mon.Unsubscribe(rivianVehicleID)
 	}
 }
 
@@ -462,6 +538,9 @@ func (r *MonitorRegistry) Unsubscribe(rivianVehicleID string) {
 // enabled over disabled, not-needing-reauth over needing it, has a
 // stored rivian session over none, freshest session, then a stable
 // created_at tiebreak. Single-owner vehicles are unaffected.
+// ownerLookupTimeout bounds ownerOf's query.
+const ownerLookupTimeout = 2 * time.Second
+
 func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 	if r.pool == nil {
 		return uuid.Nil, errors.New("no db pool")
@@ -480,10 +559,31 @@ func (r *MonitorRegistry) ownerOf(rivianVehicleID string) (uuid.UUID, error) {
 			s.updated_at DESC NULLS LAST,      -- freshest re-auth wins
 			v.created_at ASC                   -- stable, deterministic tiebreak
 		LIMIT 1`
+	// Bounded: it runs inside the lease reconcile (acquire, release and
+	// the not-streaming heal), and a hung connection there would stall
+	// lease renewals until a peer took the vehicles over.
+	ctx, cancel := context.WithTimeout(context.Background(), ownerLookupTimeout)
+	defer cancel()
 	var uid uuid.UUID
-	err := r.pool.QueryRowContext(context.Background(), q, rivianVehicleID).Scan(&uid)
+	err := r.pool.QueryRowContext(ctx, q, rivianVehicleID).Scan(&uid)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return uid, nil
+}
+
+// composeChargeClose runs every hook, in order, for one closed charge. No
+// hooks give nil; one is returned as is.
+func composeChargeClose(hooks []ChargeCloseHook) ChargeCloseHook {
+	switch len(hooks) {
+	case 0:
+		return nil
+	case 1:
+		return hooks[0]
+	}
+	return func(ctx context.Context, c charges.Charge) {
+		for _, h := range hooks {
+			h(ctx, c)
+		}
+	}
 }

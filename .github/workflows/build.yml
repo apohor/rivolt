@@ -3,6 +3,9 @@
 # Triggers / outputs:
 #   - Push to main        → tests + build 'sha-<short>' & 'main',
 #                          auto-bump rivolt-infra preview values
+#   - Push to release/**  → tests + build 'sha-<short>' only (hotfix line
+#                          cut from a release tag; no preview bump). Tag
+#                          the release-branch commit to ship it to prod.
 #   - Push of vX.Y.Z tag  → retag-only: attach 'vX.Y.Z' / 'X.Y' / 'latest'
 #                          to the existing 'sha-<short>' manifest at the
 #                          tagged commit. No tests, no rebuild — the same
@@ -16,7 +19,7 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     tags: ["v*.*.*"]
     paths-ignore:
       - "**.md"
@@ -25,15 +28,18 @@ on:
       - "docker-compose*.yml"
       - "LICENSE"
       - ".editorconfig"
+  # No paths-ignore on PRs: a workflow that never runs never reports the
+  # required checks (go, integration, web), so a docs-only PR could not
+  # merge. The `changes` job below skips the test jobs instead, and a
+  # skipped job counts as success for a required check.
+  # `edited` is here for ONE reason: retargeting a PR (changing its base)
+  # must re-run CI against the new base. It also fires on title/body edits,
+  # which simply re-run CI as well. They are deliberately NOT skipped: a
+  # skipped job reports success, and a skipped run's checks (same names as
+  # the required ones) could mask an earlier failure on the same commit.
   pull_request:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "deploy/**"
-      - "docker-compose*.yml"
-      - "LICENSE"
-      - ".editorconfig"
+    types: [opened, synchronize, reopened, edited]
+    branches: [main, "release/**"]
   workflow_dispatch:
     inputs:
       platforms:
@@ -45,21 +51,71 @@ on:
           - linux/amd64
           - linux/amd64,linux/arm64
 
+# PRs cancel a superseded run (only the newest head matters). Pushes to
+# main/release/** and tags never cancel: during a merge burst, cancelling
+# meant no main build finished (31 of 40 cancelled on 2026-10-16), so
+# preview never got an image. Without cancel, the running build finishes
+# and GitHub keeps only the newest pending run, so there's a fresh image
+# at least every build-length even mid-burst.
+# PRs: one run per branch, a new push cancels the superseded run.
+# Pushes (main, release/**, tags): every run gets its own group, so builds
+# run side by side instead of queueing behind each other (a burst of five
+# merges no longer serialises into ~25 min before preview moves). Ordering
+# is enforced where it matters, in bump-preview (a newest-wins check that
+# retries a rejected push), so a slower older build can't roll preview back.
 concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.ref) || format('build-{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  # Which halves of the repo a PR touches. Pushes (main, release/**,
+  # dispatch) always run everything. A job skipped by `if:` reports
+  # success to required status checks, so web-only PRs don't wait on
+  # the Go/integration suites and Go-only PRs don't wait on web.
+  changes:
+    name: changes
+    if: "!startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      go: ${{ steps.f.outputs.go }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Non-code paths (the ones push events ignore) trigger nothing.
+          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '\.md$|^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' || true)
+          echo "$files"
+          # web: anything under web/. go: anything else that isn't web/
+          # (Go code, go.mod, migrations, embedded data, the Dockerfile,
+          # this workflow). Workflow edits run both halves.
+          web=false; go=false
+          if echo "$files" | grep -q '^web/'; then web=true; fi
+          if echo "$files" | grep -v '^web/' | grep -q .; then go=true; fi
+          # The web suite also reads the shared charger-network vectors
+          # (chargerNetwork.vectors.test.ts), so a change there runs web too.
+          if echo "$files" | grep -q '^internal/dcfcrates/testdata/'; then web=true; fi
+          if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
+          echo "web=$web" >> "$GITHUB_OUTPUT"; echo "go=$go" >> "$GITHUB_OUTPUT"
+
   web:
     name: web
+    needs: changes
     # Skip on tag pushes — the retag job aliases an already-tested
     # main-built image, so the SPA bundle / Go vet / Go test results
     # would just repeat themselves. PRs + main pushes + workflow_dispatch
     # still run.
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.web == 'true'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -95,9 +151,154 @@ jobs:
         working-directory: web
         run: npm run build
 
+  # Functional Playwright specs (ui-next-*), against `vite preview` and the stub
+  # API (web/e2e/stub.ts): no backend, no real data. PRs that touch web only.
+  # The visual-regression spec stays opt-in (E2E_VISUAL): its baselines carry
+  # the OS and do not match Linux. Three shards in parallel; each builds the SPA
+  # itself so the shards never wait on each other. Not a required check yet.
+  e2e:
+    name: e2e (${{ matrix.suite }} ${{ matrix.project }} ${{ matrix.shard }}/${{ matrix.total }})
+    needs: changes
+    if: "github.event_name == 'pull_request' && needs.changes.outputs.web == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # next: the ui-next-* specs, flag on (and their flag-off twins).
+          - { suite: next, project: chromium, shard: 1, total: 3 }
+          - { suite: next, project: chromium, shard: 2, total: 3 }
+          - { suite: next, project: chromium, shard: 3, total: 3 }
+          # WebKit = the iPhone Safari engine: the phone specs only (see
+          # web/playwright.config.ts), one shard.
+          - { suite: next, project: webkit, shard: 1, total: 1 }
+          # legacy: every other spec (flag off, the pre-redesign pages and the
+          # demo), so a regression in the old UI shows up in CI too.
+          - { suite: legacy, project: chromium, shard: 1, total: 2 }
+          - { suite: legacy, project: chromium, shard: 2, total: 2 }
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      # The browser download is the slow part. The cache is saved only by the
+      # main-only `playwright-cache` job below (a PR's own cache is readable
+      # only from that PR, so per-PR copies never hit and filled the repo's
+      # Actions budget); PRs just restore main's. System libraries are not in
+      # the cache, so install-deps runs every time (a few seconds when present).
+      - name: Restore Playwright browsers
+        id: pw-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Install Playwright browser
+        working-directory: web
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps ${{ matrix.project }}
+          else
+            npx playwright install --with-deps ${{ matrix.project }}
+          fi
+
+      - name: Build web
+        working-directory: web
+        run: npm run build
+
+      - name: Playwright (${{ matrix.suite }}, ${{ matrix.project }})
+        working-directory: web
+        env:
+          CI: "true"
+          E2E_WEBKIT: "1"
+          SUITE: ${{ matrix.suite }}
+        run: |
+          # ui-next-*.pw.ts is the "next" suite; every other spec is "legacy"
+          # (ui-next.pw.ts, the prototype spec, has no dash after "next").
+          if [ "$SUITE" = "next" ]; then files="ui-next-"; else files=$(ls e2e/*.pw.ts | grep -v '^e2e/ui-next-'); fi
+          npx playwright test $files --project=${{ matrix.project }} --shard=${{ matrix.shard }}/${{ matrix.total }}
+
+      - name: Upload report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.suite }}-${{ matrix.project }}-${{ matrix.shard }}
+          path: |
+            web/playwright-report
+            web/e2e/__screenshots__
+            web/e2e/__results__
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Keeps main's Playwright browser cache current for the e2e job's PRs. Only
+  # does work when the lockfile (the Playwright version) changed.
+  playwright-cache:
+    name: playwright-cache
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true   # a warm-up must never turn main red
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, webkit]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.project }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Download the browser on a miss (saved by the cache post step)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: web
+        run: npx playwright install ${{ matrix.project }}
+
+  # The single required check for the e2e matrix. A matrix job skipped by its
+  # job-level `if` reports under the unexpanded template name, so requiring
+  # "e2e (chromium 1/3)" would never report on a backend-only PR. This one always
+  # runs: green when the matrix passed or was skipped, red otherwise.
+  e2e-ok:
+    name: e2e-ok
+    needs: [changes, e2e]
+    if: "always() && !startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Matrix result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RESULT: ${{ needs.e2e.result }}
+        run: |
+          echo "changes: $CHANGES, e2e: $RESULT"
+          # A failed `changes` skips e2e; that must not read as green.
+          [ "$CHANGES" = "success" ] || exit 1
+          [ "$RESULT" = "success" ] || [ "$RESULT" = "skipped" ]
+
   go:
     name: go
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -105,7 +306,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      # setup-go's own cache saves only when its key (go.sum) misses, so after
+      # the first run the build and test-result cache is never refreshed and
+      # every commit recompiles what changed. Restore the newest cache by
+      # prefix and save a fresh one from main pushes only (PRs read main's).
+      - name: Restore Go build and module cache
+        id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-unit-${{ runner.os }}-
 
       # Satisfy `//go:embed all:dist` without running the vite build.
       # Assets() returns nil at runtime when index.html is absent, so
@@ -115,19 +332,33 @@ jobs:
           mkdir -p internal/web/dist
           touch internal/web/dist/.keep
 
-      - name: go vet
-        run: go vet ./...
-
       # -race because the data plane is goroutine-heavy (lease
       # coordinator, per-user monitors, atomic reauth state); the
       # detector turns latent races into hard failures here instead
       # of heisenbugs in prod.
-      - name: go test
-        run: go test -race ./...
+      # vet runs alongside the tests instead of before them; both
+      # must pass.
+      - name: go vet + go test
+        run: |
+          go vet ./... > vet.log 2>&1 & vet=$!
+          go test -race ./...; t=$?
+          wait $vet; v=$?
+          cat vet.log
+          exit $(( t != 0 || v != 0 ))
+
+      - name: Save Go build and module cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
 
   integration:
     name: integration
-    if: "!startsWith(github.ref, 'refs/tags/v')"
+    needs: changes
+    if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
     # talks to over the default unix socket — no extra service: block
@@ -138,7 +369,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      # setup-go's own cache saves only when its key (go.sum) misses, so after
+      # the first run the build and test-result cache is never refreshed and
+      # every commit recompiles what changed. Restore the newest cache by
+      # prefix and save a fresh one from main pushes only (PRs read main's).
+      - name: Restore Go build and module cache
+        id: gocache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-integration-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-integration-${{ runner.os }}-
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
       # postgres image fetch. ~80MB, cached across runs by docker.
@@ -152,14 +399,30 @@ jobs:
         # contract over the real handlers.
         run: go test -tags=integration -count=1 -timeout=10m ./internal/integration/... ./internal/trips/... ./internal/drives/... ./internal/charges/... ./internal/signuprequests/... ./internal/leases/... ./internal/api/... ./internal/ledger/... ./internal/samples/... ./internal/drain/...
 
+      - name: Save Go build and module cache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.gocache.outputs.cache-primary-key }}
+
   publish:
     name: publish
-    needs: [web, go, integration]
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    # Builds in parallel with the tests (the Dockerfile compiles web and
+    # Go itself). Pushing sha-<short> before tests finish is safe:
+    # bump-preview waits for the tests, and tag-validate only accepts a
+    # SHA whose whole run succeeded, so a red commit can't reach preview
+    # or prod.
     # Build & push the image. Main pushes and workflow_dispatch only;
     # tag pushes take the retag-only path below (skipping tests, since
     # the code already shipped to preview).
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -184,10 +447,21 @@ jobs:
       # take the retag path (separate job below) and don't reach here.
       - name: Compute VERSION stamp
         id: ver
+        # Semver pre-release for builds that aren't a release, so preview
+        # versions sort and read in order: main → next minor (v0.33.2 + 15
+        # commits = v0.34.0-dev.15), release/** → next patch
+        # (v0.33.3-dev.N). N = commits since the last tag, monotonic on a
+        # branch. The sha stays as build metadata; images also get the
+        # dev tag (no "+", which Docker tags don't allow).
         run: |
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)
+          last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' 2>/dev/null || echo v0.0.0)
+          n=$(git rev-list --count "${last_tag}..HEAD" 2>/dev/null || echo 0)
+          IFS=. read -r ma mi pa <<< "${last_tag#v}"
+          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then next="${ma}.${mi}.$((pa+1))"; else next="${ma}.$((mi+1)).0"; fi
           short="sha-${GITHUB_SHA:0:7}"
-          echo "version=${last_tag}+${short}" >> "$GITHUB_OUTPUT"
+          echo "version=v${next}-dev.${n}+${short}" >> "$GITHUB_OUTPUT"
+          echo "devtag=${next}-dev.${n}" >> "$GITHUB_OUTPUT"
+          echo "VERSION v${next}-dev.${n}+${short}"
 
       # No QEMU needed: the Dockerfile runs web/go stages on $BUILDPLATFORM
       # and cross-compiles Go to linux/arm64 via GOOS/GOARCH. The runtime
@@ -213,8 +487,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+            type=raw,value=${{ steps.ver.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       - name: Build & push
         uses: docker/build-push-action@v7
@@ -241,11 +515,21 @@ jobs:
 
   bump-preview:
     name: bump-preview
-    needs: publish
+    # Waits for the image only. The tests already ran green on the PR; a red
+    # main still blocks the next tag via tag-validate. The one exception is a
+    # migration in the range being deployed: see the step below.
+    needs: [publish, changes]
     # Only after a successful main-push image publish — tag pushes go to
     # prod manually, not via this auto-bump.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # No job-level concurrency: a pending job superseded in a concurrency
+    # group is cancelled, which would mark that commit's run cancelled and
+    # make tag-validate refuse it. Instead the step below retries on a
+    # rejected push and re-checks newest-wins each attempt.
+    permissions:
+      contents: read
+      actions: read   # poll this run's go/integration jobs when a migration ships
     steps:
       - name: Checkout rivolt-infra
         uses: actions/checkout@v6
@@ -255,28 +539,68 @@ jobs:
           # The default GITHUB_TOKEN only has access to this repo.
           token: ${{ secrets.RIVOLT_INFRA_TOKEN }}
 
-      - name: Bump preview image.tag
+      - name: Bump preview image.tag (newest wins)
         env:
           SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          VERSION_STAMP: ${{ needs.publish.outputs.version }}
         run: |
           short="sha-${SHA:0:7}"
           file=apps/platform/rivolt-preview/values.yaml
-          # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
-          sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
-          if git diff --quiet "$file"; then
-            echo "image.tag unchanged — nothing to commit."
-            exit 0
-          fi
           git config user.name "rivolt-ci"
           git config user.email "ci@rivolt.dev"
-          git add "$file"
-          git commit -m "rivolt-preview: bump image.tag to ${short}"
-          git push origin main
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            # Builds run in parallel, so an older commit's build can finish
+            # after a newer one's: only move preview forward.
+            prev=$(grep -E '^[[:space:]]+tag:[[:space:]]+sha-[0-9a-f]+' "$file" | head -1 | sed -E 's/.*sha-([0-9a-f]+).*/\1/')
+            if [ -n "$prev" ]; then
+              prev_full=$(gh api "repos/$REPO/commits/$prev" --jq .sha 2>/dev/null || true)
+              rel=unknown
+              [ -n "$prev_full" ] && rel=$(gh api "repos/$REPO/compare/$prev_full...$SHA" --jq .status 2>/dev/null || echo unknown)
+              echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
+              case "$rel" in
+                behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
+                ahead|diverged)
+                  # A bad migration can't be undone on preview's DB, so when the
+                  # range being deployed (preview's commit..this one, which also
+                  # covers a migration merged just before this commit) touches
+                  # internal/db/migrations, wait for go + integration first.
+                  if gh api "repos/$REPO/compare/$prev_full...$SHA" --paginate --jq '.files[].filename' | grep -q '^internal/db/migrations/'; then
+                    echo "a migration is in this range; waiting for go and integration."
+                    for i in $(seq 1 100); do
+                      res=$(gh api "repos/$REPO/actions/runs/${{ github.run_id }}/jobs" --jq '[.jobs[]|select(.name=="go" or .name=="integration")|.conclusion // "pending"]|sort|join(" ")')
+                      case "$res" in
+                        *failure*|*cancelled*|*timed_out*) echo "::error::go/integration did not pass ($res); not deploying a migration to preview."; exit 1 ;;
+                      esac
+                      [ "$res" = "success success" ] && break
+                      sleep 15
+                    done
+                    [ "$res" = "success success" ] || { echo "::error::timed out waiting for go/integration ($res)"; exit 1; }
+                  fi
+                  ;;
+                # An API blip must not roll preview back mid-QA; the next
+                # merge's build bumps it. "diverged" (preview pinned by hand
+                # off main) falls through to the old always-bump behaviour.
+                unknown) echo "::warning::couldn't compare ${prev} with ${SHA:0:7}; not bumping."; exit 0 ;;
+              esac
+            fi
+            # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
+            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
+            if git diff --quiet "$file"; then echo "image.tag unchanged; nothing to commit."; exit 0; fi
+            git add "$file"
+            git commit -q -m "rivolt-preview: bump image.tag to ${short} (${VERSION_STAMP})"
+            if git push -q origin main; then echo "bumped to ${short}"; exit 0; fi
+            echo "push rejected (another bump landed); retrying ($attempt)"
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push the preview bump after 5 attempts"; exit 1
 
   tag-validate:
     name: tag-validate
-    # Refuses tags pointing at a SHA that never had a successful main-
-    # branch build. Without this, a tag at e.g. a docs-only commit
+    # Refuses tags pointing at a SHA that never had a successful main or
+    # release/** push build. Without this, a tag at e.g. a docs-only commit
     # (CI skipped due to paths-filter) makes retag fail late with a
     # cryptic ImageManifestUnknown error. Fail fast with a clear
     # message instead.
@@ -295,17 +619,19 @@ jobs:
           # The tagged commit must have at least one successful build
           # workflow run targeting it. Tagging a docs-only commit (or
           # a commit before its main build finished) returns no rows.
+          # A successful push build on main or on a release/** hotfix
+          # branch both publish 'sha-<short>', so either qualifies.
           count=$(gh run list \
             --repo "${{ github.repository }}" \
             --workflow build.yml \
-            --branch main \
+            --event push \
             --commit "$SHA" \
             --status success \
-            --limit 1 \
-            --json databaseId \
-            --jq 'length')
+            --limit 20 \
+            --json headBranch \
+            --jq '[.[] | select(.headBranch == "main" or (.headBranch | startswith("release/")))] | length')
           if [ "${count:-0}" -lt 1 ]; then
-            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main-branch build."
+            echo "::error::Tag ${{ github.ref_name }} points at $SHA which has no successful main or release/** build."
             echo "::error::Tag a commit that's already been built (and ideally soaked on preview)."
             exit 1
           fi

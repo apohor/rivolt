@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -252,19 +253,10 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 					if vs[i].ID == "" {
 						continue
 					}
-					_, uerr := sqlDB.ExecContext(r.Context(), `
-						INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, pack_kwh)
-						VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, 0)::double precision)
-						ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
-							vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
-							display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
-							model        = COALESCE(EXCLUDED.model,        vehicles.model),
-							model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
-							-- Preserve an observed vehicle-reported pack_kwh over
-							-- this sync's InferPackKWh guess; only seed when null.
-							pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
-							updated_at   = NOW()
-					`, userID, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
+					uerr := db.UpsertVehicleFromSync(r.Context(), sqlDB, userID, db.VehicleSync{
+						RivianID: vs[i].ID, VIN: vs[i].VIN, Name: vs[i].Name, Model: vs[i].Model,
+						ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh,
+					})
 					if uerr != nil && logger != nil {
 						logger.Warn("vehicles prime upsert failed",
 							"user_id", userID.String(),
@@ -344,6 +336,35 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				}
 			}
 		}
+		// The hero image arrives after the upsert (monitor cache), so store it
+		// now: vehicles.image_url was empty for every vehicle.
+		if sqlDB != nil {
+			if userID, ok := auth.UserFromContext(r.Context()); ok {
+				for i := range vs {
+					if vs[i].ID == "" || vs[i].ImageURL == "" {
+						continue
+					}
+					if ierr := db.SetVehicleImageURL(r.Context(), sqlDB, userID, vs[i].ID, vs[i].ImageURL); ierr != nil && logger != nil {
+						logger.Warn("vehicle image persist failed", "rivian_vehicle_id", vs[i].ID, "err", ierr.Error())
+					}
+				}
+			}
+		}
+		// OTA release details (current and available version, release-notes
+		// links) come from what the OTA sync stored; this never calls Rivian.
+		if sqlDB != nil {
+			if userID, ok := auth.UserFromContext(r.Context()); ok {
+				if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
+					attachOTA(vs, stored, func(id string) *rivian.State {
+						if mon == nil {
+							return nil
+						}
+						st, _ := mon.Latest(id)
+						return st
+					})
+				}
+			}
+		}
 		writeJSON(w, http.StatusOK, vs)
 	}
 }
@@ -368,26 +389,30 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor) http.HandlerF
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
+		// The owner's own cache, else the owner's published snapshot
+		// (subscription-only fields the REST fallback lacks), else the
+		// local entry, fetched from Rivian at most every few minutes and
+		// never while asleep. See StateMonitor.ServeState.
+		var have *rivian.State
 		if mon != nil {
-			// Local cache: populated on the pod that owns this vehicle's
-			// WS lease (and therefore runs the subscriptions).
-			if st, _ := mon.Latest(id); st != nil {
-				writeJSON(w, http.StatusOK, st)
+			cached, fetch := mon.ServeState(r.Context(), id)
+			if !fetch {
+				if cached == nil {
+					w.Header().Set("Retry-After", "60")
+					http.Error(w, "vehicle state not available yet", http.StatusServiceUnavailable)
+					return
+				}
+				writeJSON(w, http.StatusOK, cached)
 				return
 			}
-			// Peer snapshot: a replica that doesn't own the lease reads
-			// the live State the owner published to the shared store, so
-			// the response carries subscription-only / Parallax-only
-			// fields (pack temp, tire pressures, charging context, driver
-			// chips, windows) instead of the REST fallback below, which
-			// omits every field vehicleState doesn't expose over REST.
-			if st := mon.RemoteLatest(r.Context(), id); st != nil {
-				writeJSON(w, http.StatusOK, st)
-				return
-			}
+			have = cached
 		}
 		st, err := c.State(r.Context(), id)
 		if err != nil {
+			if have != nil {
+				writeJSON(w, http.StatusOK, have)
+				return
+			}
 			if errors.Is(err, rivian.ErrNotImplemented) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
@@ -447,5 +472,39 @@ func handleVehicleStateFresh(c rivian.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
+	}
+}
+
+// attachOTA sets each vehicle's OTA details from the stored JSON and adds
+// the live status. Where Rivian's getOTAUpdateDetails gave no version (it
+// fails for the R2s), the live state's versions stand in (vehicleState, or
+// Parallax ota.deployment.state), without release-notes links. A row that
+// does not decode is treated as absent.
+func attachOTA(vs []rivian.Vehicle, stored map[string]json.RawMessage, live func(id string) *rivian.State) {
+	for i := range vs {
+		var info rivian.OTAInfo
+		raw, have := stored[vs[i].ID]
+		if have && json.Unmarshal(raw, &info) != nil {
+			info, have = rivian.OTAInfo{}, false
+		}
+		var st *rivian.State
+		if live != nil {
+			st = live(vs[i].ID)
+		}
+		if st != nil {
+			if info.Current == nil || info.Current.Version == "" {
+				if v := strings.TrimSpace(st.OtaCurrentVersion); v != "" {
+					info.Current, have = &rivian.OTAVersion{Version: v}, true
+					if a := strings.TrimSpace(st.OtaAvailableVersion); a != "" && a != v && info.Available == nil {
+						info.Available = &rivian.OTAVersion{Version: a}
+					}
+				}
+			}
+			info.Status = st.OtaStatus
+		}
+		if !have {
+			continue
+		}
+		vs[i].OTA = &info
 	}
 }

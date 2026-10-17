@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentMonth, ledgerMonthFixture } from "./ledger";
+import { currentMonth, ledgerMonthFixture, statementTotal } from "./ledger";
 import { buildStatementCardModel } from "./statementCard";
 
 describe("buildStatementCardModel", () => {
@@ -8,6 +8,14 @@ describe("buildStatementCardModel", () => {
     const c = buildStatementCardModel(m);
     expect(c.buckets.map((b) => b.label).slice(0, 3)).toEqual(["Home", "Away", "Fast charging"]);
     expect(c.total).toContain(Math.floor(m.spend.total).toString());
+  });
+  it("shows billed + estimated as the total when Rivian receipts are present (the page headline too)", () => {
+    const r = structuredClone(m);
+    r.spend.billed_total = 21.4;
+    r.spend.estimated_total = 75.25;
+    expect(statementTotal(r)).toBeCloseTo(96.65, 2);
+    expect(buildStatementCardModel(r).total).toContain("96.65");
+    expect(statementTotal(m)).toBe(m.spend.total);
   });
   it("falls back to AC / Fast charging without by_place_kind", () => {
     const old = structuredClone(m);

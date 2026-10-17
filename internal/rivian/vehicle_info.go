@@ -67,16 +67,19 @@ func InferPackKWh(model, trimID string, modelYear int) float64 {
 		}
 		return 131.0
 	case "R2":
-		// R2 ships with a single standard pack ~75 kWh (spec).
-		return 75.0
+		// R2: the two in the fleet (2027 MY, new) report 91.47 and
+		// 91.64 kWh; R1 Gen2 trucks report ~101% of their 141.5 spec,
+		// so the pack is ~91.5. (75 was a pre-launch guess: pack health
+		// read 122%.)
+		return 91.5
 	}
 	return DefaultPackKWh
 }
 
 // qVehicleImages pulls pre-rendered mobile images for the vehicle the
-// user has configured. Rivian hosts a couple of versions ("1" = early
-// render, "2" = current configurator output). We request v2 PNGs at
-// @2x, which is what the owner app renders on a phone.
+// user has configured. Rivian hosts several render versions ("1" = early,
+// "2" = configurator output, "3" = what the app 3.17.0 requests); the
+// variables we send are in vehicleImageAttempts.
 const qVehicleImages = `query getVehicleImages($extension: String, $resolution: String, $versionVehicle: String) {
   getVehicleMobileImages(resolution: $resolution, extension: $extension, version: $versionVehicle) {
     __typename
@@ -122,6 +125,16 @@ type VehicleImage struct {
 	Placement  string `json:"placement,omitempty"`
 }
 
+// vehicleImageAttempts are the variable sets tried in order. The Rivian
+// Android app 3.17.0 asks for extension "webp", a density bucket
+// (hdpi/xhdpi/xxhdpi/xxxhdpi) and version "3"; we used png, "@2x" and "2",
+// and vehicles.image_url stayed empty for every vehicle. Try the app's
+// request first and keep the old one as a fallback.
+var vehicleImageAttempts = []vehicleImagesVars{
+	{Extension: "webp", Resolution: "xxhdpi", VersionVehicle: "3"},
+	{Extension: "png", Resolution: "@2x", VersionVehicle: "2"},
+}
+
 // VehicleImages returns the configurator-rendered mobile images for
 // every vehicle on the account. Filter on VehicleID client-side.
 // Returns an empty slice (not an error) if Rivian has no images yet.
@@ -131,30 +144,37 @@ func (c *LiveClient) VehicleImages(ctx context.Context) ([]VehicleImage, error) 
 	if c.userSessionToken == "" {
 		return nil, ErrNotAuthenticated
 	}
-	data, err := doGraphQL[vehicleImagesData](ctx, c, graphQLRequest{
-		OperationName: "getVehicleImages",
-		Query:         qVehicleImages,
-		Variables: vehicleImagesVars{
-			Extension:      "png",
-			Resolution:     "@2x",
-			VersionVehicle: "2",
-		},
-	}, c.authHeaders())
-	if err != nil {
-		return nil, fmt.Errorf("getVehicleImages: %w", err)
+	var lastErr error
+	for _, vars := range vehicleImageAttempts {
+		data, err := doGraphQL[vehicleImagesData](ctx, c, graphQLRequest{
+			OperationName: "getVehicleImages",
+			Query:         qVehicleImages,
+			Variables:     vars,
+		}, c.authHeaders())
+		if err != nil {
+			lastErr = fmt.Errorf("getVehicleImages: %w", err)
+			continue
+		}
+		if len(data.GetVehicleMobileImages) == 0 {
+			continue
+		}
+		out := make([]VehicleImage, 0, len(data.GetVehicleMobileImages))
+		for _, img := range data.GetVehicleMobileImages {
+			out = append(out, VehicleImage{
+				VehicleID:  img.VehicleID,
+				OrderID:    img.OrderID,
+				URL:        img.URL,
+				Extension:  img.Extension,
+				Resolution: img.Resolution,
+				Size:       img.Size,
+				Design:     img.Design,
+				Placement:  img.Placement,
+			})
+		}
+		return out, nil
 	}
-	out := make([]VehicleImage, 0, len(data.GetVehicleMobileImages))
-	for _, img := range data.GetVehicleMobileImages {
-		out = append(out, VehicleImage{
-			VehicleID:  img.VehicleID,
-			OrderID:    img.OrderID,
-			URL:        img.URL,
-			Extension:  img.Extension,
-			Resolution: img.Resolution,
-			Size:       img.Size,
-			Design:     img.Design,
-			Placement:  img.Placement,
-		})
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	return out, nil
+	return []VehicleImage{}, nil
 }

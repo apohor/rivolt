@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // stubGateway spins up an httptest server that speaks the tiny subset
@@ -29,6 +30,13 @@ type stubGateway struct {
 	// arm a transient session failure that the CSRF-refresh retry
 	// should heal.
 	userInfoAuthFails int32
+	// imagesByVersion answers getVehicleImages per versionVehicle ("3", "2").
+	imagesByVersion map[string][]any
+	// summaries / chargerByTxn answer the charging-history operations.
+	summaries    []any
+	chargerByTxn map[string]any
+	// otaByVehicle answers getOTAUpdateDetails: the getVehicle object.
+	otaByVehicle map[string]any
 }
 
 type gatewayCall struct {
@@ -134,10 +142,12 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 					"email":     "anton@example.com",
 					"vehicles": []any{
 						map[string]any{
-							"id":      "veh-a",
-							"name":    "R1T",
-							"vin":     "7FC000000000000A1",
-							"vehicle": map[string]any{"model": "R1T"},
+							"id":   "veh-a",
+							"name": "R1T",
+							"vin":  "7FC000000000000A1",
+							"vehicle": map[string]any{"model": "R1T", "mobileConfiguration": map[string]any{
+								"trimOption": map[string]any{"optionId": "PKG-LCH", "optionName": "Launch Package"},
+							}},
 						},
 						map[string]any{
 							"id":      "veh-b",
@@ -149,6 +159,28 @@ func (g *stubGateway) handle(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 		})
+	case "GetCompletedSessionSummaries":
+		writeJSON(w, map[string]any{"data": map[string]any{"getCompletedSessionSummaries": g.summaries}})
+	case "GetDetailedSessionInfoByTxnId":
+		vars, _ := body["variables"].(map[string]any)
+		txn, _ := vars["transactionId"].(string)
+		var detail any
+		if ch, ok := g.chargerByTxn[txn]; ok {
+			detail = map[string]any{"charger": ch}
+		}
+		writeJSON(w, map[string]any{"data": map[string]any{"getDetailedSessionInfoByTxnId": detail}})
+	case "getOTAUpdateDetails":
+		vars, _ := body["variables"].(map[string]any)
+		id, _ := vars["vehicleId"].(string)
+		writeJSON(w, map[string]any{"data": map[string]any{"getVehicle": g.otaByVehicle[id]}})
+	case "getVehicleImages":
+		vars, _ := body["variables"].(map[string]any)
+		ver, _ := vars["versionVehicle"].(string)
+		list := g.imagesByVersion[ver]
+		if list == nil {
+			list = []any{}
+		}
+		writeJSON(w, map[string]any{"data": map[string]any{"getVehicleMobileImages": list}})
 	case "GetVehicleState":
 		writeJSON(w, map[string]any{
 			"data": map[string]any{
@@ -568,5 +600,274 @@ func TestMockClientSurfacesLoginFailure(t *testing.T) {
 	c.LoginReturnErr = errors.New("boom")
 	if err := c.Login(context.Background(), Credentials{}); err == nil || err.Error() != "boom" {
 		t.Errorf("Login err = %v, want boom", err)
+	}
+}
+
+// The app's request (webp, density bucket, version "3") goes first; the old
+// one (png, "@2x", "2") is the fallback. vehicles.image_url was empty for
+// every vehicle with the old request alone.
+func TestVehicleImagesTriesVersion3ThenFallsBack(t *testing.T) {
+	img := func(id string) []any {
+		return []any{map[string]any{"vehicleId": id, "url": "https://img.example/" + id + ".webp", "placement": "side-exterior-3qfront-driver"}}
+	}
+	imageCalls := func(g *stubGateway) (vers []string) {
+		for _, call := range g.capturedReqs {
+			if call.Operation != "getVehicleImages" {
+				continue
+			}
+			v, _ := call.Body["variables"].(map[string]any)
+			vers = append(vers, v["versionVehicle"].(string)+"/"+v["extension"].(string)+"/"+v["resolution"].(string))
+		}
+		return vers
+	}
+	login := func(g *stubGateway) *LiveClient {
+		c := NewLive().WithEndpoint(g.srv.URL)
+		if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	g := newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"3": img("veh-a"), "2": img("old")}
+	got, err := login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 1 || got[0].VehicleID != "veh-a" {
+		t.Fatalf("v3 images = %+v, err %v", got, err)
+	}
+	if v := imageCalls(g); strings.Join(v, ",") != "3/webp/xxhdpi" {
+		t.Errorf("calls = %v, want only the v3 request", v)
+	}
+
+	g = newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"2": img("veh-a")}
+	got, err = login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 1 || got[0].VehicleID != "veh-a" {
+		t.Fatalf("fallback images = %+v, err %v", got, err)
+	}
+	if v := imageCalls(g); strings.Join(v, ",") != "3/webp/xxhdpi,2/png/@2x" {
+		t.Errorf("calls = %v, want v3 then the v2 fallback", v)
+	}
+
+	g = newStubGateway(t)
+	got, err = login(g).VehicleImages(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Errorf("no images = %+v, err %v, want an empty slice", got, err)
+	}
+}
+
+func TestCompletedSessionSummariesAndChargerDetail(t *testing.T) {
+	g := newStubGateway(t)
+	g.summaries = []any{
+		map[string]any{"transactionId": "t-1", "startInstant": "2026-10-01T18:00:00Z", "endInstant": "2026-10-01T19:00:00Z",
+			"totalCost": 12.34, "rangeAddedKm": 120.5, "totalEnergyKwh": 38.2, "vendor": "Rivian", "currencyCode": "usd", "city": "Reno"},
+		// No cost: the app shows nothing for it, so we keep nil, not 0.
+		map[string]any{"transactionId": "t-2", "startInstant": "2026-10-02T18:00:00Z", "endInstant": "2026-10-02T18:30:00Z",
+			"totalCost": nil, "totalEnergyKwh": 5.0, "vendor": nil, "currencyCode": nil, "city": nil},
+		// Unusable rows are dropped.
+		map[string]any{"transactionId": "", "startInstant": "2026-10-03T18:00:00Z", "endInstant": "2026-10-03T19:00:00Z"},
+		map[string]any{"transactionId": "t-bad", "startInstant": "not a time", "endInstant": "2026-10-03T19:00:00Z"},
+	}
+	g.chargerByTxn = map[string]any{"t-1": map[string]any{"name": "Reno Fast", "vendor": "Rivian", "isHomeCharger": false}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	// The charging gateway is the same stub.
+	c.chargingEndpoint = g.srv.URL
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+
+	sums, err := c.CompletedSessionSummaries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sums) != 2 {
+		t.Fatalf("got %d summaries, want 2 (blank id and bad time dropped)", len(sums))
+	}
+	if s := sums[0]; s.TransactionID != "t-1" || s.TotalCost == nil || *s.TotalCost != 12.34 || s.Currency != "USD" ||
+		s.EnergyKWh == nil || *s.EnergyKWh != 38.2 || s.Vendor != "Rivian" || s.City != "Reno" ||
+		!s.EndedAt.Equal(time.Date(2026, 10, 1, 19, 0, 0, 0, time.UTC)) {
+		t.Errorf("summary 0 = %+v", s)
+	}
+	if sums[1].TotalCost != nil || sums[1].Currency != "" {
+		t.Errorf("summary 1 should keep a nil cost: %+v", sums[1])
+	}
+
+	ch, err := c.SessionCharger(ctx, "t-1")
+	if err != nil || ch == nil || ch.Name != "Reno Fast" || ch.IsHome == nil || *ch.IsHome {
+		t.Fatalf("charger = %+v, err %v", ch, err)
+	}
+	if ch, err := c.SessionCharger(ctx, "t-unknown"); err != nil || ch != nil {
+		t.Errorf("unknown transaction = %+v, err %v; want nil, nil", ch, err)
+	}
+
+	// What went over the wire: the detail document asks for nothing private.
+	var detailQueries []string
+	for _, call := range g.capturedReqs {
+		if call.Operation == "GetDetailedSessionInfoByTxnId" {
+			q, _ := call.Body["query"].(string)
+			detailQueries = append(detailQueries, q)
+		}
+	}
+	if len(detailQueries) != 2 {
+		t.Fatalf("%d detail requests, want 2", len(detailQueries))
+	}
+	for _, banned := range []string{"paymentMethod", "card", "lastFour", "order", "paidTotal", "address", "postalCode", "line1"} {
+		if strings.Contains(detailQueries[0], banned) {
+			t.Errorf("detail request selects %q: %s", banned, detailQueries[0])
+		}
+	}
+}
+
+// RefreshVehicleInfo hands what it just fetched (trim and hero image
+// included) to the persister, with no extra request: vehicles.trim and
+// image_url were empty for every vehicle whose owner hadn't opened
+// /api/vehicles.
+func TestRefreshVehicleInfoFeedsTheHook(t *testing.T) {
+	g := newStubGateway(t)
+	g.imagesByVersion = map[string][]any{"3": {map[string]any{
+		"vehicleId": "veh-a", "url": "https://img.example/a.webp", "placement": "side-exterior-3qfront-driver",
+	}}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	mon := NewStateMonitor(c, nil)
+	var got []Vehicle
+	mon.SetVehicleInfoHook(func(vs []Vehicle) { got = vs })
+	before := len(g.capturedReqs)
+	if err := mon.RefreshVehicleInfo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("hook got %d vehicles, want 2", len(got))
+	}
+	byID := map[string]Vehicle{}
+	for _, v := range got {
+		byID[v.ID] = v
+	}
+	if a := byID["veh-a"]; a.TrimID != "PKG-LCH" || a.ImageURL != "https://img.example/a.webp" {
+		t.Errorf("veh-a = trim %q image %q", a.TrimID, a.ImageURL)
+	}
+	if b := byID["veh-b"]; b.TrimID != "" || b.ImageURL != "" {
+		t.Errorf("veh-b has no trim or image upstream, got trim %q image %q", b.TrimID, b.ImageURL)
+	}
+	// Only the requests RefreshVehicleInfo already made: user info and images.
+	var ops []string
+	for _, call := range g.capturedReqs[before:] {
+		ops = append(ops, call.Operation)
+	}
+	if strings.Join(ops, ",") != "getUserInfo,getVehicleImages" {
+		t.Errorf("requests = %v, want only getUserInfo and getVehicleImages", ops)
+	}
+}
+
+func TestOTAUpdateDetailsParsesAndSanitises(t *testing.T) {
+	g := newStubGateway(t)
+	g.otaByVehicle = map[string]any{
+		"veh-a": map[string]any{
+			"currentOTAUpdateDetails":   map[string]any{"version": "2026.30.0", "url": "https://rivian.com/support/notes/2026-30", "locale": "en-US"},
+			"availableOTAUpdateDetails": map[string]any{"version": " 2026.38.1 ", "url": "javascript:alert(1)", "locale": "en-US"},
+		},
+		"veh-b": map[string]any{
+			// An empty version is no release; a credentialed URL is dropped.
+			"currentOTAUpdateDetails":   map[string]any{"version": "", "url": "https://rivian.com/x"},
+			"availableOTAUpdateDetails": map[string]any{"version": "2026.38.1", "url": "https://user:pw@rivian.com/notes", "locale": nil},
+		},
+		"veh-c": nil, // getVehicle null
+	}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	ctx := context.Background()
+	if err := c.Login(ctx, Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.OTAUpdateDetails(ctx, "veh-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Current == nil || a.Current.Version != "2026.30.0" || a.Current.ReleaseNotesURL != "https://rivian.com/support/notes/2026-30" || a.Current.Locale != "en-US" {
+		t.Errorf("current = %+v", a.Current)
+	}
+	if a.Available == nil || a.Available.Version != "2026.38.1" || a.Available.ReleaseNotesURL != "" {
+		t.Errorf("available = %+v (version trimmed, javascript: URL dropped)", a.Available)
+	}
+	if a.FetchedAt.IsZero() {
+		t.Error("FetchedAt not set")
+	}
+	b, err := c.OTAUpdateDetails(ctx, "veh-b")
+	if err != nil || b.Current != nil || b.Available == nil || b.Available.ReleaseNotesURL != "" {
+		t.Errorf("veh-b = %+v, err %v", b, err)
+	}
+	n, err := c.OTAUpdateDetails(ctx, "veh-c")
+	if err != nil || n.Current != nil || n.Available != nil {
+		t.Errorf("null getVehicle = %+v, err %v", n, err)
+	}
+	if _, err := c.OTAUpdateDetails(ctx, " "); err == nil {
+		t.Error("a blank vehicle id was accepted")
+	}
+}
+
+func TestSafeHTTPSURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://rivian.com/a?b=c": "https://rivian.com/a?b=c",
+		" https://rivian.com/a ":   "https://rivian.com/a",
+		"http://rivian.com/a":      "",
+		"//rivian.com/a":           "",
+		"https:///a":               "",
+		"https://u:p@rivian.com/a": "",
+		"ftp://rivian.com/a":       "",
+		"":                         "",
+		"https://rivian.com/" + string(make([]byte, 0)) + strings.Repeat("a", 2100): "",
+	} {
+		if got := safeHTTPSURL(in); got != want {
+			t.Errorf("safeHTTPSURL(%.40q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The gateway's instants are not always RFC 3339: the owner app also reads
+// zone-less microsecond, whole-second and space-separated forms, as UTC. A
+// parser that only knew RFC 3339 dropped every row and the first prod sync
+// reported 0 receipts.
+func TestParseInstantFormats(t *testing.T) {
+	want := time.Date(2026, 10, 1, 18, 30, 5, 0, time.UTC)
+	for _, in := range []string{
+		"2026-10-01T18:30:05Z",
+		"2026-10-01T18:30:05.000Z",
+		"2026-10-01T18:30:05+00:00",
+		"2026-10-01T18:30:05.000000",
+		"2026-10-01T18:30:05",
+		"2026-10-01 18:30:05.000000",
+		" 2026-10-01 18:30:05 ",
+	} {
+		got, err := parseInstant(in)
+		if err != nil || !got.Equal(want) {
+			t.Errorf("parseInstant(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if got, _ := parseInstant("2026-10-01T18:30:05.123456"); got.Nanosecond() != 123456000 {
+		t.Errorf("microseconds lost: %v", got)
+	}
+	for _, bad := range []string{"", "yesterday", "1792193424"} {
+		if _, err := parseInstant(bad); err == nil {
+			t.Errorf("parseInstant(%q) accepted", bad)
+		}
+	}
+}
+
+func TestCompletedSessionSummariesAllUnreadableIsAnError(t *testing.T) {
+	g := newStubGateway(t)
+	g.summaries = []any{map[string]any{"transactionId": "t-1", "startInstant": 1792193424, "endInstant": 1792197024, "totalCost": 3.0}}
+	c := NewLive().WithEndpoint(g.srv.URL)
+	c.chargingEndpoint = g.srv.URL
+	if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.CompletedSessionSummaries(context.Background()); err == nil {
+		t.Errorf("a list with no readable row = %+v, nil; want an error, not an empty history", got)
+	}
+	// A genuinely empty history is still empty, not an error.
+	g.summaries = []any{}
+	if got, err := c.CompletedSessionSummaries(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("empty history = %+v, %v", got, err)
 	}
 }

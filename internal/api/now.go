@@ -54,14 +54,23 @@ type nowResponse struct {
 	SoCAtStateStart  *float64   `json:"soc_at_state_start"`
 	TirePressureMinB *float64   `json:"tire_pressure_min_bar"`
 	FailedSleeps6h   int        `json:"failed_sleeps_6h"`
-	Charge           *nowCharge `json:"charge"`
+	// VehicleStateFrameAt is when the vehicleState feed last delivered
+	// a frame; null when there's no live feed to judge (not streaming
+	// yet, held while asleep, paused, reauth). An asleep truck's feed
+	// still delivers every few minutes, so the client can hold it to
+	// a tighter limit than the age of `at`.
+	VehicleStateFrameAt *time.Time `json:"vehicle_state_frame_at"`
+	Charge              *nowCharge `json:"charge"`
 }
 
 // nowAPI holds the /now handler's seams so tests run without Postgres.
 type nowAPI struct {
 	snapshot   func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) (nowSnapshot, error)
 	connection func(uid uuid.UUID) string
-	now        func() time.Time
+	// frameAt reads the live feed's last vehicleState frame time
+	// (rivian.StateMonitor.VehicleStateFrameAt); nil leaves it null.
+	frameAt func(ctx context.Context, uid uuid.UUID, rivianID string) *time.Time
+	now     func() time.Time
 }
 
 // connectionState is not a freshness verdict (the client derives that
@@ -100,6 +109,9 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	if out.State == "" {
 		out.State = "unknown"
 	}
+	if a.frameAt != nil && (out.Connection == "live" || out.Connection == "replay") {
+		out.VehicleStateFrameAt = a.frameAt(r.Context(), uid, id)
+	}
 	if out.State == "charging" && snap.StateSince != nil {
 		out.Charge = &nowCharge{StartedAt: *snap.StateSince, SoCStart: snap.SoCAtStateStart, PeakKW: snap.ChargePeakKW}
 	}
@@ -116,9 +128,27 @@ func envReplay() bool {
 // driving (gear D/R only) > charging (charging_active) > plugged
 // (connected, not charging) > asleep (power_state) > parked. A plugged
 // truck that is also asleep reads "plugged" (agreed with ux).
+//
+// Plugged:
+//   - a row with a charger_status (R1s report it, migration 0053) is
+//     plugged when it starts with chrgr_sts_connected, whatever the
+//     charging_state says: an R1 reports charging_ready while parked
+//     unplugged;
+//   - a row without one on an R1 (older rows) keeps the charging_state
+//     rule (ready, complete or connecting);
+//   - an R2 never reports charger_status, and its charging_ready (and
+//     charging_complete) say nothing about the plug, so the only sign is
+//     the recorder's own: charging_connecting with power flowing. This is
+//     the rule the recorder uses to open a charge (liveSessions.plugged).
+//
+// The query's v CTE supplies r2 (vehicles.model).
 const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 	            WHEN %[1]s.charging_state = 'charging_active' THEN 'charging'
-	            WHEN %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN starts_with(COALESCE(%[1]s.charger_status, ''), 'chrgr_sts_connected') THEN 'plugged'
+	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND NOT COALESCE((SELECT r2 FROM v), false)
+	                 AND %[1]s.charging_state IN ('charging_ready','charging_complete','charging_connecting') THEN 'plugged'
+	            WHEN COALESCE(%[1]s.charger_status, '') = '' AND COALESCE((SELECT r2 FROM v), false)
+	                 AND %[1]s.charging_state = 'charging_connecting' AND COALESCE(%[1]s.charger_power_kw, 0) > 0 THEN 'plugged'
 	            WHEN %[1]s.power_state = 'sleep' THEN 'asleep'
 	            ELSE 'parked' END`
 
@@ -126,7 +156,7 @@ const nowStateCase = `CASE WHEN %[1]s.shift_state IN ('D','R') THEN 'driving'
 // pressure in the last 6 h: two LIMIT 1 index probes, cheap every poll.
 var nowCurSQL = fmt.Sprintf(`
 WITH v AS (
-	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), cur AS (
 	SELECT vs.at, vs.location_fix_at, `+nowStateCase+` AS st,
 	       (vs.power_state IS NOT DISTINCT FROM 'sleep') AS asleep
@@ -150,7 +180,7 @@ SELECT (SELECT at FROM cur),
 // than the window and the start is NULL (unknown), not the window edge.
 var nowRunSQL = fmt.Sprintf(`
 WITH v AS (
-	SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
+	SELECT id, (upper(COALESCE(model, '')) = 'R2') AS r2 FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2
 ), brk AS (
 	SELECT vs.at
 	FROM vehicle_state vs

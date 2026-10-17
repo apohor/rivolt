@@ -1,12 +1,21 @@
 import { formatMoney } from "../lib/ledger";
+import { SocTrendChart } from "../components/SocTrendChart";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, usePeriod, type Period } from "../lib/period";
+import { useUiNext } from "../lib/uiNext";
+import { formatMinutes, formatMinutesShort } from "../lib/minutes";
+import { isActiveCharge } from "../lib/format";
+import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
-import { Card, ErrorBox } from "../components/ui";
+import { Card, ErrorBox, PageHeader } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
+import { IdleAwakeTile } from "../components/IdleAwakeTile";
+import { appPath } from "../lib/demo";
 import { PackHealthStat } from "../components/PackHealthCard";
 import {
   num,
@@ -15,7 +24,6 @@ import {
 import {
   chargeStats,
   driveStats,
-  filterByWindow,
   milesPerDay,
   socTrend,
   windowStart,
@@ -33,6 +41,14 @@ import NowCard from "../components/NowCard";
 export default function HomePage() {
   const shellEnabled = useMoneyTabEnabled();
   const [win, setWin] = useState<WindowKey>("30d");
+  // ui_theme_next: calendar scope (Week/Month/Year/All/Custom) replaces the
+  // rolling windows; off keeps today's window picker exactly.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(
+    () => (next ? periodRange(period) : { start: windowStart(win), end: null }),
+    [next, period, win],
+  );
   const {
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -51,7 +67,7 @@ export default function HomePage() {
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);
   const winDrives = useMemo(() => {
-    const filtered = filterByWindow(all, win);
+    const filtered = filterByRange(all, range);
     return roundTripsEnabled
       ? collapseRoundTrips(
           filtered,
@@ -59,8 +75,8 @@ export default function HomePage() {
           roundTripMaxGapMinutes,
         )
       : filtered;
-  }, [all, win, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
-  const winCharges = useMemo(() => filterByWindow(allC, win), [allC, win]);
+  }, [all, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  const winCharges = useMemo(() => filterByRange(allC, range), [allC, range]);
   const ds = useMemo(() => driveStats(winDrives), [winDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
 
@@ -91,7 +107,7 @@ export default function HomePage() {
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
-    enabled: !!rivianStatus.data?.authenticated,
+    enabled: !!rivianStatus.data?.authenticated || inDemo(), // the demo lists its sample truck without a Rivian login
     staleTime: 5 * 60_000,
     retry: 1,
   });
@@ -112,6 +128,15 @@ export default function HomePage() {
   const sessionSoC = all[0]?.EndSoCPct ?? allC[0]?.EndSoCPct ?? 0;
   const liveSoC = liveState.data?.battery_level_pct ?? 0;
   const batteryValue = liveSoC > 0 ? liveSoC : sessionSoC;
+  // ui_theme_next: the hero gauge already shows the battery %, so the first KPI
+  // tile reads "Since last charge" (miles driven since the latest finished charge).
+  const sinceCharge = useMemo(() => {
+    const ends = allC.filter((c) => !isActiveCharge(c)).map((c) => new Date(c.EndedAt).getTime()).filter(Number.isFinite);
+    if (ends.length === 0) return null;
+    const last = Math.max(...ends);
+    const ds = all.filter((d) => new Date(d.StartedAt).getTime() > last);
+    return { miles: ds.reduce((n, d) => n + (d.DistanceMi || 0), 0), drives: ds.length, since: last };
+  }, [all, allC]);
   const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
   // Daily-bar count follows the window picker rather than pinning at 60.
@@ -119,6 +144,11 @@ export default function HomePage() {
   // record to today, capped at ~2y so a multi-year corpus doesn't render
   // thousands of hairline bars.
   const barDays = useMemo(() => {
+    if (next && range.start && range.end) {
+      // Calendar period: bars run from its first day to its last (or today).
+      const last = barsEndDay(range);
+      return Math.max(1, Math.round((last.getTime() - range.start.getTime()) / 86_400_000) + 1);
+    }
     if (win === "7d") return 7;
     if (win === "30d") return 30;
     if (win === "90d") return 90;
@@ -130,10 +160,10 @@ export default function HomePage() {
     const spanDays =
       Math.ceil((Date.now() - Math.min(...times)) / 86_400_000) + 1;
     return Math.min(Math.max(spanDays, 7), 730);
-  }, [win, winDrives, winCharges]);
+  }, [next, range, win, winDrives, winCharges]);
   const dailyMiles = useMemo(
-    () => milesPerDay(winDrives, barDays),
-    [winDrives, barDays],
+    () => milesPerDay(winDrives, barDays, next && range.end ? barsEndDay(range) : undefined),
+    [winDrives, barDays, next, range],
   );
   const trend = useMemo(
     () => socTrend(winDrives, winCharges),
@@ -163,14 +193,15 @@ export default function HomePage() {
   // power_state (migration 0038). Only has data from when recording
   // started, so it fills forward. `since` follows the window picker;
   // "all" falls back to a wide 2-year lookback.
+  const sleepWin = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
   const sleepSince = useMemo(
-    () =>
-      (windowStart(win) ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
-    [win],
+    () => sleepWin?.since ?? (range.start ?? new Date(Date.now() - 730 * 86_400_000)).toISOString(),
+    [sleepWin, range],
   );
+  const sleepUntil = sleepWin?.until;
   const sleepActivity = useQuery({
-    queryKey: ["sleepActivity", win, activeVehicleID ?? ""],
-    queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined),
+    queryKey: ["sleepActivity", sleepSince, sleepUntil ?? "", activeVehicleID ?? ""],
+    queryFn: () => backend.sleepActivity(sleepSince, activeVehicleID ?? undefined, sleepUntil),
     staleTime: 5 * 60_000,
   });
   // Track IDLE-AWAKE minutes/day: the car awake while parked and not
@@ -213,7 +244,7 @@ export default function HomePage() {
     (charges.data?.length ?? 0) === 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="now">
       <ConnectRivianPrompt
         inline
         context="Once connected, drives, charges, and live telemetry start streaming."
@@ -236,7 +267,23 @@ export default function HomePage() {
       />
       )}
 
-      {shellEnabled && <h1 className="sr-only">Now</h1>}
+      {shellEnabled && !next && <h1 className="sr-only">Now</h1>}
+      {shellEnabled && next && (
+        <PageHeader
+          title="Now"
+          actions={
+            <ScopeBar
+              win={win}
+              onWinChange={setWin}
+              period={period}
+              onPeriodChange={setPeriod}
+              vehicles={vehicles.data ?? []}
+              selectedVehicleID={activeVehicleID}
+              onSelectVehicle={selectVehicle}
+            />
+          }
+        />
+      )}
       {shellEnabled && activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
@@ -244,13 +291,17 @@ export default function HomePage() {
             vehicles.data?.find((v) => v.id === activeVehicleID)?.name || "Your truck"
           }
           packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
+          // /live needs a session: no dead link in the demo.
+          showTelemetryLink={!inDemo()}
         />
       )}
 
-      {shellEnabled && (
+      {shellEnabled && !next && (
         <ScopeBar
           win={win}
           onWinChange={setWin}
+          period={next ? period : null}
+          onPeriodChange={setPeriod}
           vehicles={vehicles.data ?? []}
           selectedVehicleID={activeVehicleID}
           onSelectVehicle={selectVehicle}
@@ -271,8 +322,20 @@ export default function HomePage() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
+          <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            {next ? (
+              <Stat
+                label="Since last charge"
+                value={sinceCharge ? num(sinceCharge.miles, 1, "mi") : "—"}
+                hint={
+                  sinceCharge
+                    ? `${sinceCharge.drives} ${sinceCharge.drives === 1 ? "drive" : "drives"} · since ${new Date(sinceCharge.since).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                    : "no finished charges yet"
+                }
+              />
+            ) : (
+              <Stat label={batteryLabel} value={pct(batteryValue, 0)} />
+            )}
             <Stat
               label="Miles"
               value={num(ds.miles, 1, "mi")}
@@ -319,11 +382,26 @@ export default function HomePage() {
                     : "no priced charges yet"
               }
             />
-            {activeVehicleID && (
-              <PackHealthStat vehicleID={activeVehicleID} />
+            {next ? (
+              <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
+            ) : (
+              activeVehicleID && <PackHealthStat vehicleID={activeVehicleID} />
             )}
           </div>
 
+          {next && sleepTrouble && (
+            <div role="status">
+            <Link
+              to={`${appPath("/truck")}#sleep`}
+              className="block rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100/90"
+            >
+              <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
+              {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two days ended
+              within a minute. Something keeps waking the car.{" "}
+              <span className="underline">See sleep on Truck</span>
+            </Link>
+            </div>
+          )}
           {locSplit.total > 0 && (
             <Card title="Charging locations">
               <LocationSplit split={locSplit} />
@@ -332,10 +410,11 @@ export default function HomePage() {
 
           <Card
             title={`Miles per day · ${
-              win === "all" ? "all time" : `last ${barDays} days`
+              next ? periodLabel(period) : win === "all" ? "all time" : `last ${barDays} days`
             }`}
           >
             <BarChart
+              ariaLabel="Miles per day"
               data={dailyMiles}
               height={140}
               formatY={(v) => `${v.toFixed(0)}`}
@@ -344,7 +423,17 @@ export default function HomePage() {
           </Card>
 
           <Card title="Battery (SoC) trend">
+            {next ? (
+              <SocTrendChart
+                trend={trend}
+                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime() }))}
+                drives={winDrives.map((d) => ({ x0: new Date(d.StartedAt).getTime(), x1: new Date(d.EndedAt).getTime() }))}
+                domain={range.start ? [range.start.getTime(), Math.min(range.end ? range.end.getTime() : Date.now(), Date.now())] : null}
+                limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
+              />
+            ) : (
             <LineChart
+              ariaLabel="Battery state of charge over time"
               series={[
                 {
                   points: trend,
@@ -388,6 +477,7 @@ export default function HomePage() {
                 })
               }
             />
+            )}
             {capacityPct > 0 ? (
               <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <span
@@ -400,7 +490,8 @@ export default function HomePage() {
             ) : null}
           </Card>
 
-          <Card title="Idle-awake · minutes/day">
+          {!next && (
+          <Card title="Idle-awake time per day">
             {sleepTrouble && (
               <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
                 <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
@@ -412,14 +503,16 @@ export default function HomePage() {
             {sleepBars.length > 0 ? (
               <>
                 <BarChart
+                  ariaLabel="Idle-awake time per day"
                   data={sleepBars}
                   height={140}
                   color="#6366f1"
-                  formatY={(v) => `${v.toFixed(0)}m`}
+                  formatY={formatMinutesShort}
+                  formatValue={formatMinutes}
                   formatX={(label) => String(label).slice(5)}
                 />
                 <p className="mt-2 text-[11px] text-neutral-500">
-                  Minutes/day the car was <span className="text-indigo-300">awake while
+                  Time per day the car was <span className="text-indigo-300">awake while
                   parked and not charging</span> — staying awake for no obvious reason.
                   This is the vampire-drain signal; driving and charging are excluded.
                 </p>
@@ -431,6 +524,7 @@ export default function HomePage() {
               </p>
             )}
           </Card>
+          )}
         </>
       )}
     </div>
@@ -446,10 +540,22 @@ function Stat({
   value: string;
   hint?: string;
 }) {
+  const next = useUiNext();
+  // ui_theme_next: "2.30 mi/kWh" keeps one line, the unit a 12px suffix.
+  const m = next ? value.match(/^(\S+) (\S+)$/) : null;
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
       <div className="text-xs text-neutral-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
+      <div className={`mt-1 text-xl font-semibold tabular-nums${m ? " whitespace-nowrap" : ""}`}>
+        {m ? (
+          <>
+            {m[1]}
+            <span className="ml-1 text-xs font-normal text-neutral-400">{m[2]}</span>
+          </>
+        ) : (
+          value
+        )}
+      </div>
       {hint ? (
         <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
       ) : null}
@@ -575,20 +681,25 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
 function ScopeBar({
   win,
   onWinChange,
+  period,
+  onPeriodChange,
   vehicles,
   selectedVehicleID,
   onSelectVehicle,
 }: {
   win: WindowKey;
   onWinChange: (w: WindowKey) => void;
+  // Set in the ui_theme_next layer: calendar scope instead of the windows.
+  period: Period | null;
+  onPeriodChange: (p: Period) => void;
   vehicles: import("../lib/api").Vehicle[];
   selectedVehicleID: string | undefined;
   onSelectVehicle: (id: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div data-ui-area="scope" className="flex flex-wrap items-center justify-end gap-2">
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
-      <WindowPicker value={win} onChange={onWinChange} />
+      {period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
   );
 }

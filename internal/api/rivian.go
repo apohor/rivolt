@@ -494,21 +494,10 @@ func primeUserVehicles(
 		if vs[i].ID == "" {
 			continue
 		}
-		_, uerr := sqlDB.ExecContext(ctx, `
-			INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, pack_kwh)
-			VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, 0)::double precision)
-			ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
-				vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
-				display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
-				model        = COALESCE(EXCLUDED.model,        vehicles.model),
-				model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
-				-- Keep an existing pack_kwh: it may be the vehicle-reported
-				-- capacity (write-through from observeBatteryCapacity), which
-				-- must not be clobbered by this sync's InferPackKWh guess.
-				-- Only seed when currently null.
-				pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
-				updated_at   = NOW()
-		`, uid, vs[i].ID, vs[i].VIN, vs[i].Name, vs[i].Model, vs[i].ModelYear, vs[i].PackKWh)
+		uerr := db.UpsertVehicleFromSync(ctx, sqlDB, uid, db.VehicleSync{
+			RivianID: vs[i].ID, VIN: vs[i].VIN, Name: vs[i].Name, Model: vs[i].Model,
+			ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh, ImageURL: vs[i].ImageURL,
+		})
 		if uerr != nil {
 			if logger != nil {
 				logger.Warn("rivian vehicles prime upsert failed",

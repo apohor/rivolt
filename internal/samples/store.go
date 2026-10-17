@@ -44,6 +44,9 @@ type Sample struct {
 	// Feeds the sleep/activity aggregation.
 	PowerState     string `json:"power_state,omitempty"`
 	ChargerPowerKW float64
+	// ChargerStatus is Rivian's chargerStatus, the plug indicator
+	// (migration 0053); "" when not reported.
+	ChargerStatus  string `json:"charger_status,omitempty"`
 	ChargeLimitPct float64
 	InsideTempC    float64
 	OutsideTempC   float64
@@ -141,7 +144,7 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO vehicle_state (`+sampleColumns+`
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 		ON CONFLICT (vehicle_id, at) DO NOTHING`)
 	if err != nil {
 		return err
@@ -155,8 +158,9 @@ func (s *Store) InsertBatch(ctx context.Context, batch []Sample) error {
 	return tx.Commit()
 }
 
-// bulkInsertRows bounds one multi-row INSERT: 500 rows × 26 params stays
-// far below Postgres's 65,535 bind-parameter limit.
+// bulkInsertRows bounds one multi-row INSERT: 500 rows × one param per
+// sampleColumns column (27) stays far below Postgres's 65,535
+// bind-parameter limit (store_params_test.go).
 const bulkInsertRows = 500
 
 // InsertBulk is InsertBatch for large batches: each chunk of up to
@@ -174,7 +178,7 @@ func (s *Store) InsertBulk(ctx context.Context, batch []Sample) error {
 	if err != nil {
 		return err
 	}
-	const nCols = 26
+	const nCols = 27
 	for start := 0; start < len(batch); start += bulkInsertRows {
 		chunk := batch[start:min(start+bulkInsertRows, len(batch))]
 		var q strings.Builder
@@ -214,7 +218,7 @@ const sampleColumns = `
 			drive_number, charge_number, source,
 			altitude_m, tire_pressure_min_bar,
 			pack_temp_avg_c, pack_temp_max_c, pack_temp_min_c,
-			power_state`
+			power_state, charger_status`
 
 // prepareBatch ensures every month the batch touches has a partition
 // and resolves each distinct Rivian id to its vehicles.id.
@@ -287,7 +291,7 @@ func (s *Store) sampleArgs(vehicleID uuid.UUID, v Sample) []any {
 		v.DriveNumber, v.ChargeNumber, v.Source,
 		alt, tirePsi,
 		ptr(v.PackTempAvgC), ptr(v.PackTempMaxC), ptr(v.PackTempMinC),
-		nullStr(v.PowerState),
+		nullStr(v.PowerState), nullStr(v.ChargerStatus),
 	}
 }
 
@@ -321,6 +325,14 @@ func (s *Store) ListSince(ctx context.Context, since time.Time, limit int) ([]Sa
 // any drive ages back pulls every sample from the drive's start
 // through now, which can be days of charging+parked rows.
 func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit int) ([]Sample, error) {
+	return s.ListBetweenVehicle(ctx, "", since, until, limit)
+}
+
+// ListBetweenVehicle is ListBetween scoped to one vehicle (Rivian vehicle
+// id). An empty vehicleID means every vehicle of the user; an id the user
+// doesn't own matches nothing, so the result is empty, never another
+// user's rows.
+func (s *Store) ListBetweenVehicle(ctx context.Context, vehicleID string, since, until time.Time, limit int) ([]Sample, error) {
 	const maxLimit = 50000
 	if limit <= 0 {
 		limit = 1000
@@ -345,10 +357,10 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		       vs.altitude_m, vs.tire_pressure_min_bar, vs.pack_temp_avg_c, vs.pack_temp_max_c, vs.pack_temp_min_c
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
-		WHERE vs.user_id = $1 AND vs.at > $2
+		WHERE vs.user_id = $1 AND vs.at > $2 AND ($4::text = '' OR v.rivian_vehicle_id = $4::text)
 		ORDER BY vs.at ASC
 		LIMIT $3`
-		args = []any{s.userID, since.UTC(), limit}
+		args = []any{s.userID, since.UTC(), limit, vehicleID}
 	} else {
 		query = `
 		SELECT v.rivian_vehicle_id, vs.at,
@@ -362,10 +374,10 @@ func (s *Store) ListBetween(ctx context.Context, since, until time.Time, limit i
 		       vs.altitude_m, vs.tire_pressure_min_bar, vs.pack_temp_avg_c, vs.pack_temp_max_c, vs.pack_temp_min_c
 		FROM vehicle_state vs
 		JOIN vehicles v ON v.id = vs.vehicle_id
-		WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
+		WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3 AND ($5::text = '' OR v.rivian_vehicle_id = $5::text)
 		ORDER BY vs.at ASC
 		LIMIT $4`
-		args = []any{s.userID, since.UTC(), until.UTC(), limit}
+		args = []any{s.userID, since.UTC(), until.UTC(), limit, vehicleID}
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -668,6 +680,13 @@ const MaxDownsampleSpan = 7 * 24 * time.Hour
 // row exactly as ListBetween does. Without an upper bound, or over
 // MaxDownsampleSpan, it IS ListBetween (never flagged Reduced).
 func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Time, limit int) (Downsampled, error) {
+	return s.ListBetweenDownsampledVehicle(ctx, "", since, until, limit)
+}
+
+// ListBetweenDownsampledVehicle is ListBetweenDownsampled scoped to one
+// vehicle (Rivian vehicle id); empty means every vehicle of the user. The
+// total and the bucketing count only that vehicle's rows.
+func (s *Store) ListBetweenDownsampledVehicle(ctx context.Context, vehicleID string, since, until time.Time, limit int) (Downsampled, error) {
 	const maxLimit = 50000
 	if limit <= 0 {
 		limit = 1000
@@ -676,20 +695,23 @@ func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Ti
 		limit = maxLimit
 	}
 	if until.IsZero() || until.Sub(since) > MaxDownsampleSpan {
-		out, err := s.ListBetween(ctx, since, until, limit)
+		out, err := s.ListBetweenVehicle(ctx, vehicleID, since, until, limit)
 		return Downsampled{Samples: out, Total: len(out)}, err
 	}
 	upper := until.UTC()
 	var total, vehicles int
 	var first, last sql.NullTime
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*), count(DISTINCT vehicle_id), min(at), max(at) FROM vehicle_state
-		 WHERE user_id = $1 AND at > $2 AND at <= $3`,
-		s.userID, since.UTC(), upper).Scan(&total, &vehicles, &first, &last); err != nil {
+		SELECT count(*), count(DISTINCT vs.vehicle_id), min(vs.at), max(vs.at)
+		  FROM vehicle_state vs
+		  JOIN vehicles v ON v.id = vs.vehicle_id
+		 WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
+		   AND ($4::text = '' OR v.rivian_vehicle_id = $4::text)`,
+		s.userID, since.UTC(), upper, vehicleID).Scan(&total, &vehicles, &first, &last); err != nil {
 		return Downsampled{}, err
 	}
 	if total <= limit || !first.Valid {
-		out, err := s.ListBetween(ctx, since, until, limit)
+		out, err := s.ListBetweenVehicle(ctx, vehicleID, since, until, limit)
 		return Downsampled{Samples: out, Total: total}, err
 	}
 	if vehicles < 1 {
@@ -713,6 +735,7 @@ func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Ti
 		      FROM vehicle_state vs
 		      JOIN vehicles v ON v.id = vs.vehicle_id
 		     WHERE vs.user_id = $1 AND vs.at > $2 AND vs.at <= $3
+		       AND ($8::text = '' OR v.rivian_vehicle_id = $8::text)
 		), r AS (
 		    SELECT w.*,
 		           row_number() OVER (PARTITION BY vehicle_id, bk ORDER BY at ASC)  AS r_first,
@@ -737,7 +760,7 @@ func (s *Store) ListBetweenDownsampled(ctx context.Context, since, until time.Ti
 		 WHERE r_first = 1 OR r_last = 1 OR r_pmax = 1 OR r_pmin = 1 OR r_bmax = 1 OR r_bmin = 1 OR r_smax = 1
 		 ORDER BY at ASC
 		 LIMIT $7`,
-		s.userID, since.UTC(), upper, first.Time.UTC(), width, buckets, limit)
+		s.userID, since.UTC(), upper, first.Time.UTC(), width, buckets, limit, vehicleID)
 	if err != nil {
 		return Downsampled{}, err
 	}

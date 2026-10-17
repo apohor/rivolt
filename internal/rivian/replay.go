@@ -52,6 +52,10 @@ type replayFrame struct {
 	SessionCurrency string  `json:"session_currency,omitempty"`
 	// SessionNetwork names the network billing that session.
 	SessionNetwork string `json:"session_network,omitempty"`
+
+	// OtaCurrentVersion is the installed software version. Only the
+	// sample corpus sets it (vehicle_state has no column for it).
+	OtaCurrentVersion string `json:"ota_current_version,omitempty"`
 }
 
 func (f replayFrame) toState() State {
@@ -80,6 +84,7 @@ func (f replayFrame) toState() State {
 		TirePressureFRBar: f.TirePressureBar,
 		TirePressureRLBar: f.TirePressureBar,
 		TirePressureRRBar: f.TirePressureBar,
+		OtaCurrentVersion: f.OtaCurrentVersion,
 	}
 	// chargerStatus (cable connected?) isn't a vehicle_state column, but
 	// the charge lifecycle requires it to open a session, so infer it.
@@ -106,7 +111,7 @@ func (f replayFrame) toState() State {
 	// mergeState, which replay bypasses, so clear it here too.
 	dropIdleChargerPower(&s)
 	if f.SessionPrice > 0 {
-		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true,
+		s.ReplaySession = &LiveSession{Active: true, IsRivianCharger: true, RivianChargerKnown: true,
 			CurrentPrice: strconv.FormatFloat(f.SessionPrice, 'f', 2, 64), CurrentCurrency: f.SessionCurrency,
 			Network: f.SessionNetwork}
 	}
@@ -188,7 +193,7 @@ func (r *Replayer) Feed(f State) {
 	sess := cur.ReplaySession
 	cur.ReplaySession = nil
 	r.m.mu.Lock()
-	r.m.cache[r.vehicle] = &cur
+	r.m.putCacheLocked(r.vehicle, &cur)
 	r.m.mu.Unlock()
 	r.m.record(context.Background(), r.vehicle, r.prev, &cur)
 	r.m.applyReplaySession(context.Background(), r.vehicle, &cur, sess)

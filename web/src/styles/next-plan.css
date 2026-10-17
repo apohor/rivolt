@@ -1,0 +1,676 @@
+/* ui_theme_next: map-first trip planner. Desktop is a split view (a left panel,
+   a sticky full-height map on the right); phone stacks the bar, a 40vh map, then
+   the itinerary as a sheet. Everything is scoped to html[data-ui='next']. */
+
+html[data-ui='next'] [data-plan-contents] {
+  display: contents;
+}
+html[data-ui='next'] [data-plan-split] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+html[data-ui='next'] [data-plan-split] > :not([data-plan-area='map']),
+html[data-ui='next'] [data-plan-contents] > :not([data-plan-area='map']) {
+  grid-column: 1;
+  min-width: 0;
+}
+
+/* The left-panel blocks share the card surface. */
+html[data-ui='next'] [data-plan-bar],
+html[data-ui='next'] [data-plan-area='summary'],
+html[data-ui='next'] [data-plan-area='itinerary'] {
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.9rem;
+  background: oklch(from var(--color-neutral-900) l c h / 0.55);
+  padding: 1rem;
+}
+html[data-ui='next'] [data-plan-bar] > [data-plan-edit] {
+  padding-block: 0.15rem;
+}
+html[data-ui='next'] [data-plan-bar][data-collapsed='true'] > [data-plan-bar-body] {
+  display: none;
+}
+
+/* The map. */
+html[data-ui='next'] [data-plan-area='map'] {
+  position: relative;
+  height: 40vh;
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.9rem;
+}
+html[data-ui='next'] [data-plan-area='map'][data-empty='true'] {
+  background:
+    radial-gradient(60% 50% at 50% 40%, oklch(78% 0.15 168 / 0.07), transparent 70%),
+    var(--color-neutral-900);
+}
+
+/* Phone: bar, map, then the itinerary sheet overlapping the map's lower edge. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
+    order: 1;
+  }
+  /* The summary and the itinerary live in BottomSheet on a phone: the sheet is
+     the card, so they carry no surface of their own there. (The old in-flow
+     sheet look, with a negative margin and a pseudo handle, sat on top of the
+     real handle and swallowed its taps.) */
+  html[data-ui='next'] [data-plan-sheet] [data-plan-area='summary'],
+  html[data-ui='next'] [data-plan-sheet] [data-plan-area='itinerary'] {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  html[data-ui='next'] [data-plan-sheet] [data-plan-area='itinerary'] {
+    padding-top: 0.5rem;
+  }
+  html[data-ui='next'] [data-plan-split] > :not([data-plan-area='map']):not([data-plan-bar]):not([data-plan-area='summary']):not([data-plan-area='itinerary']):not([data-plan-contents]),
+  html[data-ui='next'] [data-plan-contents] > :not([data-plan-area='map']):not([data-plan-area='summary']):not([data-plan-area='itinerary']) {
+    order: 3;
+  }
+}
+
+/* Desktop: split view. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-plan-split] {
+    grid-template-columns: minmax(380px, 4fr) minmax(0, 6fr);
+    column-gap: 1.25rem;
+    row-gap: 0.75rem;
+    align-items: start;
+  }
+  html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
+    grid-column: 2;
+    grid-row: 1 / span 30;
+    position: sticky;
+    top: calc(48px + 1rem);
+    height: calc(100vh - 48px - 2rem);
+    min-height: 420px;
+  }
+}
+
+/* Itinerary: the rail from Activity, a glowing node per stop. */
+html[data-ui='next'] [data-plan-area='itinerary'] [data-plan-timeline] {
+  margin-top: 0.25rem;
+}
+
+/* Light: the sheet and panels use the white surfaces. */
+html[data-ui='next'][data-theme='light'] [data-plan-bar],
+html[data-ui='next'][data-theme='light'] [data-plan-area='summary'],
+html[data-ui='next'][data-theme='light'] [data-plan-area='itinerary'] {
+  background: oklch(99% 0 0 / 0.9);
+}
+@media (max-width: 1023.98px) {
+  html[data-ui='next'][data-theme='light'] [data-plan-split] [data-plan-area='summary'],
+  html[data-ui='next'][data-theme='light'] [data-plan-split] [data-plan-area='itinerary'] {
+    background: oklch(99% 0 0);
+  }
+}
+
+/* ---- ui_theme_next: Plan result and form ----------------------------------- */
+
+/* Form: locations first, then the vehicle settings, then the action. */
+html[data-ui='next'] [data-plan-form] {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+html[data-ui='next'] [data-plan-form] > * {
+  margin: 0;
+}
+html[data-ui='next'] [data-plan-form] [data-plan-settings] {
+  order: 2;
+}
+html[data-ui='next'] [data-plan-form] [data-plan-submit] {
+  order: 3;
+}
+html[data-ui='next'] .ui-range {
+  width: 100%;
+  accent-color: oklch(70% 0.15 165);
+}
+
+/* Route timeline: a rail with a glowing node per stop (start sky, charge amber,
+   arrival emerald), selected row outlined. */
+html[data-ui='next'] [data-plan-timeline] {
+  position: relative;
+  padding-left: 1.25rem;
+}
+html[data-ui='next'] [data-plan-timeline]::before {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 1rem;
+  bottom: 1rem;
+  width: 1px;
+  background: linear-gradient(180deg, var(--color-neutral-700), var(--color-neutral-700));
+}
+html[data-ui='next'] [data-plan-timeline] > li {
+  position: relative;
+  --node: oklch(80% 0.15 75);
+}
+html[data-ui='next'] [data-plan-timeline] > li[data-kind='start'] {
+  --node: oklch(76% 0.12 235);
+}
+html[data-ui='next'] [data-plan-timeline] > li[data-kind='end'] {
+  --node: oklch(78% 0.15 168);
+}
+html[data-ui='next'] [data-plan-timeline] > li::before {
+  content: '';
+  position: absolute;
+  left: -1.2rem;
+  top: 1.05rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--node);
+  box-shadow: 0 0 0 3px oklch(13.5% 0.009 262), 0 0 10px 1px var(--node);
+}
+html[data-ui='next'] [data-plan-timeline] > li[data-selected='true'] > button {
+  background: oklch(78% 0.15 168 / 0.1);
+  box-shadow: inset 0 0 0 1px oklch(78% 0.15 168 / 0.35);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-timeline] > li::before {
+  box-shadow: 0 0 0 3px oklch(98% 0 0), 0 0 8px 1px var(--node);
+}
+html[data-ui='next'] [data-plan-form] [data-plan-submit] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+html[data-ui='next'] [data-plan-form] [data-plan-submit] > button {
+  padding-block: 0.65rem;
+}
+
+
+/* Plan tabs (plumbing defaults; the look is ux's): a segmented control. */
+html[data-ui='next'] [data-plan-tabs] {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid oklch(30% 0.01 262);
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab'] {
+  font-size: 0.875rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  color: oklch(70% 0.01 262);
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab']:hover {
+  color: oklch(97% 0 0);
+}
+html[data-ui='next'] [data-plan-tabs] [role='tab'][data-tab-active='true'] {
+  background: oklch(27% 0.012 262);
+  color: oklch(97% 0 0);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] {
+  border-color: oklch(86% 0.005 262);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] [role='tab'] {
+  color: oklch(45% 0.01 262);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-tabs] [role='tab'][data-tab-active='true'] {
+  background: oklch(94% 0.005 262);
+  color: oklch(20% 0 0);
+}
+
+/* Bottom sheet (plumbing defaults; the look is ux's). Phone only: at 1024px and
+   wider BottomSheet renders inline and none of this applies. */
+html[data-ui='next'] [data-plan-sheet] {
+  --plan-sheet-bottom: 0px;
+  position: fixed;
+  inset-inline: 0;
+  bottom: var(--plan-sheet-bottom);
+  z-index: 1050;
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem 1rem 0 0;
+  border: 1px solid oklch(30% 0.01 262);
+  border-bottom: 0;
+  background: oklch(13.5% 0.009 262);
+  box-shadow: 0 -8px 24px oklch(0% 0 0 / 0.35);
+  transition: height 0.22s ease;
+  overflow: hidden;
+}
+@media (max-width: 767.98px) {
+  /* Above the bottom tab bar. */
+  html[data-ui='next'] [data-plan-sheet] {
+    --plan-sheet-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+html[data-ui='next'][data-theme='light'] [data-plan-sheet] {
+  background: oklch(99% 0 0);
+  border-color: oklch(86% 0.005 262);
+}
+html[data-ui='next'] [data-plan-sheet][data-dragging='true'] {
+  transition: none;
+}
+html[data-ui='next'] [data-plan-sheet-handle] {
+  flex: none;
+  position: relative;
+  z-index: 2; /* always above the peek and the body: it must be hittable */
+  width: 100%;
+  height: 28px;
+  touch-action: none;
+  cursor: grab;
+}
+html[data-ui='next'] [data-plan-sheet-handle]::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: oklch(50% 0.01 262 / 0.7);
+}
+html[data-ui='next'] [data-plan-sheet-peek] {
+  flex: none;
+  position: relative;
+  z-index: 0;
+  padding: 0 1rem 0.75rem;
+}
+html[data-ui='next'] [data-plan-sheet][data-snap='peek'] [data-plan-sheet-peek] {
+  cursor: pointer;
+}
+html[data-ui='next'] [data-plan-sheet-body] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 1rem 1rem;
+}
+html[data-ui='next'] [data-plan-sheet][data-snap='peek'] [data-plan-sheet-body] {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui='next'] [data-plan-sheet] {
+    transition: none;
+  }
+}
+
+/* BottomSheet inline (1024px and up): it only groups its children, which stay
+   grid items of the split view like they were before the sheet existed. */
+html[data-ui='next'] [data-plan-sheet-inline] {
+  display: contents;
+}
+html[data-ui='next'] [data-plan-sheet-inline] > * {
+  grid-column: 1;
+  min-width: 0;
+}
+/* Phone: keep the map clear of the fixed sheet's peek. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-next]:has([data-plan-sheet]) {
+    padding-bottom: calc(240px + 1rem);
+  }
+}
+
+/* ---- Route bar ---------------------------------------------------------------
+   From and To as two rows with coloured nodes and a round swap button on the
+   right; departure as one chip row; the start SoC as a slider with its value;
+   everything else under "More options". */
+html[data-ui='next'] [data-plan-bar-body] > form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+html[data-ui='next'] [data-plan-endpoints] {
+  position: relative;
+  display: grid;
+  gap: 0.5rem;
+  padding-right: 2.75rem;
+}
+html[data-ui='next'] [data-plan-field] {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.75rem;
+  background: oklch(from var(--color-neutral-950) l c h / 0.5);
+}
+html[data-ui='next'] [data-plan-field]:focus-within {
+  border-color: oklch(70% 0.15 165 / 0.6);
+}
+html[data-ui='next'] [data-plan-field-main] {
+  flex: 1;
+  min-width: 0;
+}
+html[data-ui='next'] [data-plan-dot] {
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  margin-top: 0.55rem;
+  border-radius: 9999px;
+  background: oklch(76% 0.12 235);
+  box-shadow: 0 0 0 3px oklch(76% 0.12 235 / 0.18), 0 0 10px 1px oklch(76% 0.12 235 / 0.5);
+}
+html[data-ui='next'] [data-plan-field][data-heading='To'] [data-plan-dot] {
+  background: oklch(78% 0.15 168);
+  box-shadow: 0 0 0 3px oklch(78% 0.15 168 / 0.18), 0 0 10px 1px oklch(78% 0.15 168 / 0.5);
+}
+/* The search input loses its own box inside the row. */
+html[data-ui='next'] [data-plan-field] input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0;
+  outline: none;
+  box-shadow: none;
+  color: var(--color-neutral-100);
+}
+html[data-ui='next'] [data-plan-field] input::placeholder {
+  color: var(--color-neutral-500);
+}
+html[data-ui='next'] [data-plan-endpoints] [data-plan-swap] {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--color-neutral-700);
+  border-radius: 9999px;
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-200);
+}
+html[data-ui='next'] [data-plan-endpoints] [data-plan-swap]:hover {
+  border-color: oklch(70% 0.15 165 / 0.7);
+  color: var(--color-neutral-50);
+}
+
+/* Chips: presets, departure quick picks, the date and time buttons. */
+html[data-ui='next'] [data-plan-chip],
+html[data-ui='next'] [data-plan-when-inner] button:not([data-plan-chip]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--color-neutral-700);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--color-neutral-300);
+  font-size: var(--pt-sub, 0.75rem);
+  line-height: 1.2;
+}
+html[data-ui='next'] [data-plan-chip]:hover,
+html[data-ui='next'] [data-plan-when-inner] button:not([data-plan-chip]):hover {
+  border-color: var(--color-neutral-500);
+  color: var(--color-neutral-100);
+}
+html[data-ui='next'] [data-plan-chip][aria-pressed='true'] {
+  border-color: oklch(70% 0.15 165 / 0.6);
+  background: oklch(78% 0.15 168 / 0.12);
+  color: oklch(88% 0.1 168);
+}
+html[data-ui='next'] [data-plan-chip][data-home='true'] {
+  border-color: oklch(70% 0.15 165 / 0.5);
+  color: oklch(85% 0.1 168);
+}
+
+/* Start SoC. */
+html[data-ui='next'] [data-plan-soc-head] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+html[data-ui='next'] [data-plan-soc-head] > span:first-child {
+  font-size: var(--pt-cap, 0.6875rem);
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+html[data-ui='next'] [data-plan-soc-head] output {
+  margin-left: auto;
+  font-size: var(--pt-value, 0.875rem);
+  font-weight: 600;
+  color: var(--color-neutral-100);
+}
+html[data-ui='next'] [data-plan-soc-reset] {
+  font-size: var(--pt-sub, 0.75rem);
+  color: oklch(78% 0.15 168);
+  text-decoration: underline;
+}
+html[data-ui='next'] [data-plan-soc] input[type='range'] {
+  margin-top: 0.6rem;
+  height: 1.25rem;
+  accent-color: oklch(72% 0.15 165);
+}
+
+/* More options. */
+html[data-ui='next'] [data-plan-more-toggle] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--pt-sub, 0.75rem);
+  color: var(--color-neutral-300);
+}
+html[data-ui='next'] [data-plan-more-toggle]::after {
+  content: '▾';
+  font-size: 0.7rem;
+  transition: transform 150ms;
+}
+html[data-ui='next'] [data-plan-more-toggle][aria-expanded='true']::after {
+  transform: rotate(180deg);
+}
+html[data-ui='next'] [data-plan-more-count] {
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: oklch(78% 0.15 168 / 0.18);
+  color: oklch(88% 0.1 168);
+  font-size: var(--pt-cap, 0.6875rem);
+  font-weight: 600;
+  text-align: center;
+}
+html[data-ui='next'] [data-plan-more-body] {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-neutral-800);
+}
+html[data-ui='next'] [data-plan-more-body][hidden] {
+  display: none;
+}
+
+/* ---- Planner typography ----------------------------------------------------
+   One family (Geist sans, tabular figures, no mono) and one type scale. Every
+   planner element maps to one of these sizes; the Tailwind size utilities used
+   inside the planner are folded onto the scale below (unlayered, so they win).
+
+     title   24px / 600   page title            (Now/Truck/Activity titles: 24)
+     hero    36px / 600   trip cost, arrival SoC (Now's gauge number: 36)
+     value   14px / 600   metrics, stop names, chip titles (Now/Truck values: 14)
+     sub     12px / 400   sub-lines, form text, hints      (Now/Truck sub-lines: 12)
+     cap     11px / 500   section labels (uppercase), units, captions (Now/Truck: 11)
+
+   Weights: labels 500, values 600, body 400. Units (mi, kW, %) are caption-sized
+   and neutral-400 everywhere (.pt-unit). */
+html[data-ui='next'] [data-plan-next] {
+  --pt-title: 1.5rem;
+  --pt-hero: 2.25rem;
+  --pt-value: 0.875rem;
+  --pt-sub: 0.75rem;
+  --pt-cap: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+html[data-ui='next'] [data-plan-next] *:not(.leaflet-container *):not(svg *) {
+  font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+html[data-ui='next'] [data-plan-next] .ui-mono,
+html[data-ui='next'] [data-plan-next] .font-mono {
+  font-family: inherit;
+}
+/* Sizes: fold the utilities onto the scale. */
+html[data-ui='next'] [data-plan-next] .text-3xl,
+html[data-ui='next'] [data-plan-next] .text-4xl {
+  font-size: var(--pt-hero);
+}
+html[data-ui='next'] [data-plan-next] .text-2xl {
+  font-size: var(--pt-title);
+}
+html[data-ui='next'] [data-plan-next] .text-xl,
+html[data-ui='next'] [data-plan-next] .text-lg,
+html[data-ui='next'] [data-plan-next] .text-base,
+html[data-ui='next'] [data-plan-next] .text-sm {
+  font-size: var(--pt-value);
+}
+html[data-ui='next'] [data-plan-next] .text-xs {
+  font-size: var(--pt-sub);
+}
+html[data-ui='next'] [data-plan-next] .text-\[10px\],
+html[data-ui='next'] [data-plan-next] .text-\[11px\],
+html[data-ui='next'] [data-plan-next] .ui-label,
+html[data-ui='next'] [data-plan-next] .pt-unit {
+  font-size: var(--pt-cap);
+}
+/* Weights. */
+html[data-ui='next'] [data-plan-next] .font-bold {
+  font-weight: 600;
+}
+html[data-ui='next'] [data-plan-next] .ui-label {
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+html[data-ui='next'] [data-plan-next] .pt-unit {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-neutral-400);
+  margin-inline-start: 0.2em;
+}
+html[data-ui='next'] [data-plan-next] .pt-sub {
+  font-size: var(--pt-sub);
+  font-weight: 400;
+}
+html[data-ui='next'] [data-plan-next] .pt-value {
+  font-size: var(--pt-value);
+  font-weight: 600;
+}
+html[data-ui='next'] [data-plan-next] .pt-hero {
+  font-size: var(--pt-hero);
+  font-weight: 600;
+  line-height: 1;
+}
+/* The Plan button. */
+html[data-ui='next'] [data-plan-submit] > button {
+  border-radius: 0.75rem;
+  font-size: var(--pt-value, 0.875rem);
+  font-weight: 600;
+}
+/* Route bar in light. */
+html[data-ui='next'][data-theme='light'] [data-plan-chip][aria-pressed='true'],
+html[data-ui='next'][data-theme='light'] [data-plan-chip][data-home='true'] {
+  color: oklch(38% 0.09 168);
+  border-color: oklch(55% 0.12 168 / 0.6);
+  background: oklch(78% 0.15 168 / 0.14);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-more-count] {
+  color: oklch(38% 0.09 168);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-soc-reset] {
+  color: oklch(42% 0.1 168);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-soc] input[type='range'] {
+  color-scheme: light;
+}
+html[data-ui='next'][data-theme='light'] [data-plan-field] {
+  background: oklch(99% 0 0 / 0.8);
+}
+html[data-ui='next'][data-theme='light'] [data-plan-endpoints] [data-plan-swap] {
+  background: oklch(99% 0 0);
+}
+html[data-ui='next'] [data-plan-swap] {
+  font-size: var(--pt-value, 0.875rem);
+}
+
+/* More options: one option per row at every viewport (the panel is ~350px wide on
+   desktop too, so the viewport says nothing about the room), labels on one line in
+   the 12px label style, chips never wrap. */
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] label > span:first-child,
+html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] > span,
+html[data-ui='next'] [data-plan-more-body] [data-plan-settings] > div > span:first-child {
+  font-size: var(--pt-sub);
+  font-weight: 500;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+}
+html[data-ui='next'] [data-plan-more-body] [role='radiogroup'] [role='radio'] {
+  white-space: nowrap;
+}
+
+/* A stop card that expands is scrolled into view: keep it clear of the sticky
+   bars and the tab bar when the page is the scroller. */
+html[data-ui='next'] [data-plan-timeline] > li {
+  scroll-margin-block: calc(48px + 4.5rem) calc(3.5rem + 1rem);
+}
+html[data-ui='next'] [data-plan-sheet-body] [data-plan-timeline] > li {
+  scroll-margin-block: 0.5rem;
+}
+
+/* The start SoC slider: our own track (filled to the value) and thumb, so it reads
+   the same in both themes instead of the browser's dark remainder. */
+html[data-ui='next'] [data-plan-soc] input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 1.5rem;
+  accent-color: oklch(72% 0.15 165);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, oklch(72% 0.15 165) var(--fill, 50%), var(--color-neutral-700) var(--fill, 50%));
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-neutral-950);
+  background: oklch(78% 0.15 168);
+  box-shadow: 0 0 8px oklch(72% 0.15 165 / 0.6);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-neutral-700);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: oklch(72% 0.15 165);
+}
+html[data-ui='next'] [data-plan-soc] input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 2px solid var(--color-neutral-950);
+  background: oklch(78% 0.15 168);
+}
+
+/* Phone: the map fills the space between the top bar and the sheet's peek (the top
+   bar ~48px, the tab bar ~72px, the 240px peek, a little air). */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-area='map'] {
+    height: max(260px, calc(100dvh - 376px));
+  }
+}

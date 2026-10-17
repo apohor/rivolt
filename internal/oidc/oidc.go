@@ -81,6 +81,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/apohor/rivolt/internal/identity"
+	"github.com/apohor/rivolt/internal/logging"
 )
 
 // ProviderConfig is one IdP's static configuration, supplied by
@@ -615,7 +616,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("oidc: idp returned error",
 			"provider", name,
 			"error", errParam,
-			"description", q.Get("error_description"))
+			"description", logging.ScrubEmails(q.Get("error_description")))
 		// Surface the IdP's own description when it sent one (e.g.
 		// "access_denied" when the user clicks Cancel), else a generic
 		// line keyed off the error code.
@@ -641,7 +642,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		oauth2.SetAuthURLParam("code_verifier", st.Verifier),
 	)
 	if err != nil {
-		s.log.Warn("oidc: token exchange failed", "provider", name, "err", err)
+		s.log.Warn("oidc: token exchange failed", "provider", name, "err", logging.ScrubErr(err))
 		s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 		return
 	}
@@ -652,7 +653,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if p.cfg.Kind == "oauth2-github" {
 		gh, err := fetchGitHubIdentity(r.Context(), tok.AccessToken)
 		if err != nil {
-			s.log.Warn("oidc: github identity fetch failed", "provider", name, "err", err)
+			s.log.Warn("oidc: github identity fetch failed", "provider", name, "err", logging.ScrubErr(err))
 			s.failRedirect(w, r, "provider_error", "Couldn't complete sign-in with the provider. Please try again.")
 			return
 		}
@@ -672,7 +673,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		idTok, err := p.verifier.Verify(r.Context(), rawIDToken)
 		if err != nil {
-			s.log.Warn("oidc: id_token verify failed", "provider", name, "err", err)
+			s.log.Warn("oidc: id_token verify failed", "provider", name, "err", logging.ScrubErr(err))
 			s.failRedirect(w, r, "verification_failed", "We couldn't verify your sign-in. Please try again.")
 			return
 		}
@@ -713,7 +714,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 				var uerr error
 				exists, uerr = s.userExists(r.Context(), cand)
 				if uerr != nil {
-					s.log.Error("oidc: account lookup", "err", uerr)
+					s.log.Error("oidc: account lookup", "err", logging.ScrubErr(uerr))
 					s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 					return
 				}
@@ -747,7 +748,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 			}
 			if errors.Is(err, ErrCapExceeded) {
 				s.log.Info("oidc: signup cap exceeded, redirecting",
-					"provider", name, "email", email)
+					"provider", name, "email_hash", logging.IDHash(email))
 				s.clearStateCookie(w)
 				sep := "?"
 				if strings.Contains(s.capOverflowURL, "?") {
@@ -758,7 +759,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 					http.StatusFound)
 				return
 			}
-			s.log.Error("oidc: cap guard failed", "err", err)
+			s.log.Error("oidc: cap guard failed", "err", logging.ScrubErr(err))
 			s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 			return
 		}
@@ -771,16 +772,16 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// name into the error string. Anything else is treated
 		// as a transient infrastructure failure.
 		if errors.Is(err, ErrUserForbidden) {
-			s.log.Warn("oidc: sign-in refused", "username", username)
+			s.log.Warn("oidc: sign-in refused", "user_hash", logging.IDHash(username))
 			s.failRedirect(w, r, "account_disabled", "This account has been disabled. Contact the administrator if you think this is a mistake.")
 			return
 		}
-		s.log.Error("oidc: ensure user", "err", err)
+		s.log.Error("oidc: ensure user", "err", logging.ScrubErr(err))
 		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 		return
 	}
 	if err := s.issueSession(w, r, uid); err != nil {
-		s.log.Error("oidc: issue session", "err", err)
+		s.log.Error("oidc: issue session", "err", logging.ScrubErr(err))
 		s.failRedirect(w, r, "server_error", "Something went wrong on our end. Please try again.")
 		return
 	}

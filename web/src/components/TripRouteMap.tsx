@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { inDemo } from "../lib/demo";
 import L from "leaflet";
 import { safeFitBounds } from "../lib/mapFit";
 import { addTilesUnavailableNotice } from "../lib/mapNotice";
 import "leaflet/dist/leaflet.css";
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
+import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { valhallaBase, tilesPMTilesURL, ensureConfig, bookingAffiliateID } from "../lib/config";
 import { findChargersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import type { POI } from "../lib/poi";
@@ -43,6 +45,7 @@ type PreviewStop = (
 export function TripRouteMap({
   route,
   height = 320,
+  fill = false,
   onAddStop,
   onAddOvernight,
   onPreviewStop,
@@ -52,6 +55,8 @@ export function TripRouteMap({
 }: {
   route: TripRoute;
   height?: number;
+  // Fill the parent (ui_theme_next map-first layout): chips float over the map.
+  fill?: boolean;
   onAddStop?: AddStop;
   // Hotel-L2 popups get a dedicated "Add as overnight stop" button.
   // Same shape as onAddStop; the parent appends to extraStops AND
@@ -151,11 +156,17 @@ export function TripRouteMap({
     //      always catches up.
     // `fitted` stays false while the container had no size at fit time;
     // the next resize then refits (see safeFitBounds).
+    // In the fill layout the charger chips float over the top of the map: pad the fit so
+    // the route clears them.
+    const fitOpts = (maxZoom: number): L.FitBoundsOptions =>
+      fill
+        ? { paddingTopLeft: [24, window.innerWidth < 640 ? 96 : 64], paddingBottomRight: [24, window.innerWidth < 640 ? 40 : 24], maxZoom }
+        : { padding: [24, 24], maxZoom };
     let fitted = false;
     let fitBox: L.LatLngBounds | null = null;
     const refit = () => {
       if (!fitted && fitBox && mapRef.current === map) {
-        fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
+        fitted = safeFitBounds(map, fitBox, fitOpts(12));
       }
     };
     const raf = requestAnimationFrame(() => {
@@ -179,7 +190,7 @@ export function TripRouteMap({
 
     const wpLatLngs = ws.map((w) => [w.Latitude, w.Longitude] as [number, number]);
     fitBox = L.latLngBounds(wpLatLngs);
-    fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 12 });
+    fitted = safeFitBounds(map, fitBox, fitOpts(12));
 
     const placeholder = L.polyline(wpLatLngs, {
       color: "#34d399",
@@ -223,7 +234,17 @@ export function TripRouteMap({
       await ensureConfig();
       if (ac.signal.aborted) return;
       let path: [number, number][] = wpLatLngs;
-      if (valhallaBase() !== "") {
+      // A stored geometry (the demo's preset trips) beats straight legs.
+      const stored = route.route_polyline ? decodePolyline6(route.route_polyline) : [];
+      if (stored.length >= 2) {
+        placeholder.remove();
+        const line = L.polyline(stored, { color: "#34d399", weight: 3, opacity: 0.85 }).addTo(map);
+        fitBox = line.getBounds();
+        fitted = safeFitBounds(map, fitBox, fitOpts(13));
+        path = stored;
+      } else if (!inDemo() && valhallaBase() !== "") {
+        // (valhallaBase() is already "" in the demo; the explicit check keeps
+        // anonymous visitors off the routing proxy even if that changes.)
         const snapped = await valhallaMultiRoute(ws, ac.signal);
         if (snapped && snapped.length >= 2 && !ac.signal.aborted) {
           placeholder.remove();
@@ -233,7 +254,7 @@ export function TripRouteMap({
             opacity: 0.85,
           }).addTo(map);
           fitBox = line.getBounds();
-          fitted = safeFitBounds(map, fitBox, { padding: [24, 24], maxZoom: 13 });
+          fitted = safeFitBounds(map, fitBox, fitOpts(13));
           path = snapped;
         }
       }
@@ -251,7 +272,7 @@ export function TripRouteMap({
       setRoutePath([]);
       setChargerCount(null);
     };
-  }, [route]);
+  }, [route, fill]);
 
   // Effect: external selection. When the parent (e.g. a table-row
   // click) flips selectedIdx, swap the matched marker's icon to a
@@ -390,8 +411,8 @@ export function TripRouteMap({
   };
 
   return (
-    <div>
-      <div className="flex items-center gap-1 mb-1">
+    <div className={fill ? "relative h-full" : undefined}>
+      <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined}>
         <span className="text-xs text-neutral-500 mr-1">Chargers:</span>
         {(["dcfc", "l2", "hotels", "all"] as const).map((f) => (
           <button
@@ -424,8 +445,8 @@ export function TripRouteMap({
       </div>
       <div
         ref={ref}
-        className="rounded-lg overflow-hidden border border-neutral-800"
-        style={{ height }}
+        className={fill ? "h-full overflow-hidden" : "rounded-lg overflow-hidden border border-neutral-800"}
+        style={fill ? undefined : { height }}
       />
     </div>
   );
@@ -723,15 +744,17 @@ function addBasemap(map: L.Map) {
     addTilesUnavailableNotice(map);
     return;
   }
-  const flavor = namedFlavor("dark");
-  const make = () =>
-    leafletLayer({
+  const make = () => {
+    const flavor = namedFlavor(appMapFlavor());
+    map.getContainer().style.background = flavor.background;
+    return leafletLayer({
       url,
       paintRules: paintRules(flavor),
       labelRules: labelRules(flavor, "en"),
       backgroundColor: flavor.background,
       attribution: PROTOMAPS_ATTRIB,
     });
+  };
   let current = make();
   let lastRecreate = 0;
   let recreateCount = 0;
@@ -751,6 +774,14 @@ function addBasemap(map: L.Map) {
   };
   current.on("tileerror", handler);
   current.addTo(map);
+  // Follow the app theme live (Settings, or the OS under System).
+  const off = onAppMapFlavor(() => {
+    map.removeLayer(current as unknown as L.Layer);
+    current = make();
+    current.on("tileerror", handler);
+    current.addTo(map);
+  });
+  map.once("unload", off);
 }
 
 // valhallaMultiRoute POSTs every waypoint as a single trip and
@@ -803,7 +834,7 @@ async function valhallaMultiRoute(
 // decodePolyline6 mirrors the Valhalla branch of DriveMap's
 // decodePolyline. Inlined here to keep TripRouteMap self-contained;
 // if a third caller appears, hoist into lib/.
-function decodePolyline6(s: string | undefined | null): [number, number][] {
+export function decodePolyline6(s: string | undefined | null): [number, number][] {
   if (!s) return [];
   const factor = 1e-6;
   const out: [number, number][] = [];

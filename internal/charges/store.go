@@ -4,6 +4,7 @@ package charges
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -95,6 +96,29 @@ type Charge struct {
 	// when it was recorded: "home", "away", or "" (unknown: no saved
 	// home or no position). Migration 0044.
 	Place string
+	// NetworkState is DC fast charge auto-detection's verify state
+	// (migration 0051): "estimated", "needs_confirmation", "confirmed",
+	// or "" (not auto-detected: AC, Rivian-billed, user-priced, legacy).
+	NetworkState string
+	// NetworkConfidence is the detection's confidence, 0..1; nil when
+	// there was no detection.
+	NetworkConfidence *float64
+	// NetworkEvidence is what the detection saw (JSON, contract v1);
+	// nil when there was no detection.
+	NetworkEvidence json.RawMessage
+	// RivianCharger is Rivian's isRivianCharger for the session: nil
+	// when not reported. Written by the live recorder; a later upsert
+	// without it keeps the stored value. Not read back yet. Migration
+	// 0050.
+	RivianCharger *bool
+	// ReceiptCost is what Rivian billed for the session (its Charging
+	// history receipt), kept next to Cost (our estimate), which a receipt
+	// never overwrites. Nil when no receipt matched. ReceiptCurrency and
+	// ReceiptTxnID go with it. Migration 0055; written only by the
+	// receipts sync.
+	ReceiptCost     *float64
+	ReceiptCurrency string
+	ReceiptTxnID    string
 }
 
 // Store wraps the charges table.
@@ -160,6 +184,9 @@ func (s *Store) UpdatePricing(ctx context.Context, externalID string, cost float
 		    currency = NULLIF($4, ''),
 		    price_per_kwh = $5,
 		    cost_source = CASE WHEN $3::numeric IS NULL THEN NULL ELSE 'user' END,
+		    -- A user's price ends auto-detection's verify state (the
+		    -- confidence and evidence stay for audit).
+		    network_state = NULL,
 		    legacy_cost = NULL,
 		    legacy_price_per_kwh = NULL,
 		    updated_at = NOW()
@@ -186,6 +213,7 @@ func (s *Store) MarkFree(ctx context.Context, externalID, currency string) (int6
 		    currency = NULLIF($3, ''),
 		    cost_source = 'user',
 		    network = NULL,
+		    network_state = NULL,
 		    -- A user price ends any reprice undo window for this row:
 		    -- 0040's undo selects on legacy_cost IS NOT NULL and would
 		    -- otherwise revert the user's edit.
@@ -219,8 +247,10 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			cost, currency, price_per_kwh,
 			thermal_kwh,
 			active_seconds,
-			cost_source, network, place
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+			cost_source, network, place,
+			network_state, network_confidence, network_evidence,
+			rivian_charger
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27::boolean)
 		ON CONFLICT (vehicle_id, external_id) DO UPDATE SET
 			started_at       = EXCLUDED.started_at,
 			ended_at         = EXCLUDED.ended_at,
@@ -236,18 +266,29 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 			source           = EXCLUDED.source,
 			-- A price the user entered survives the recorder re-saving
 			-- the session (lifecycle upserts keep firing until close).
-			cost             = CASE WHEN charges.cost_source = 'user' THEN charges.cost ELSE EXCLUDED.cost END,
-			currency         = CASE WHEN charges.cost_source = 'user' THEN charges.currency ELSE EXCLUDED.currency END,
-			price_per_kwh    = CASE WHEN charges.cost_source = 'user' THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
+			cost             = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost ELSE EXCLUDED.cost END,
+			currency         = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.currency ELSE EXCLUDED.currency END,
+			price_per_kwh    = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
 			-- Only overwrite thermal_kwh when the new row actually
 			-- has one. A re-upsert from a path that doesn't track
 			-- this metric (REST poller, ElectraFi import) shouldn't
 			-- erase a value the Parallax stream already captured.
 			thermal_kwh      = COALESCE(EXCLUDED.thermal_kwh, charges.thermal_kwh),
 			active_seconds   = COALESCE(EXCLUDED.active_seconds, charges.active_seconds),
-			cost_source      = CASE WHEN charges.cost_source = 'user' THEN charges.cost_source ELSE EXCLUDED.cost_source END,
-			network          = CASE WHEN charges.cost_source = 'user' THEN charges.network ELSE EXCLUDED.network END,
+			cost_source      = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost_source ELSE EXCLUDED.cost_source END,
+			-- A network the user confirmed stays with its price, as a
+			-- user's own price does, until Rivian's bill arrives. The
+			-- detection record survives a re-save that carries none
+			-- (only the detector sets it); Rivian's bill ends the state.
+			network          = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.network ELSE EXCLUDED.network END,
+			network_state      = CASE WHEN charges.cost_source = 'user' THEN charges.network_state
+			                          WHEN EXCLUDED.cost_source = 'rivian' THEN NULL
+			                          WHEN charges.network_state = 'confirmed' THEN charges.network_state
+			                          ELSE COALESCE(EXCLUDED.network_state, charges.network_state) END,
+			network_confidence = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_confidence ELSE COALESCE(EXCLUDED.network_confidence, charges.network_confidence) END,
+			network_evidence   = CASE WHEN charges.cost_source = 'user' OR charges.network_state = 'confirmed' THEN charges.network_evidence ELSE COALESCE(EXCLUDED.network_evidence, charges.network_evidence) END,
 			place            = COALESCE(EXCLUDED.place, charges.place),
+			rivian_charger   = COALESCE(EXCLUDED.rivian_charger, charges.rivian_charger),
 			updated_at       = NOW()`,
 		s.userID, vid, c.ID,
 		c.StartedAt.UTC(), c.EndedAt.UTC(),
@@ -260,8 +301,18 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 		storedCost(c), nullIfEmpty(c.Currency), storedPricePerKWh(c),
 		nullableFloatPtr(c.ThermalKWh),
 		nullIfZero(c.ActiveSeconds),
-		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place))
+		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(c.Place),
+		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
+		nullableBool(c.RivianCharger))
 	return err
+}
+
+// nullableBool maps nil to SQL NULL.
+func nullableBool(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
 }
 
 // Count returns the total number of charges for this user.
@@ -291,7 +342,9 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -306,6 +359,9 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 	for rows.Next() {
 		var c Charge
 		var thermal sql.NullFloat64
+		var netConf sql.NullFloat64
+		var netEv []byte
+		var recCost sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -314,10 +370,14 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Charge, error) {
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 		); err != nil {
 			return nil, err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
+		c.NetworkConfidence = floatFromNull(netConf)
+		c.NetworkEvidence = netEv
+		c.ReceiptCost = floatFromNull(recCost)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -345,7 +405,9 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -364,6 +426,9 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		LIMIT 1`, s.userID, rivianVehicleID, vid)
 	var c Charge
 	var thermal sql.NullFloat64
+	var netConf sql.NullFloat64
+	var netEv []byte
+	var recCost sql.NullFloat64
 	if err := row.Scan(&c.ID, &c.VehicleID,
 		&c.StartedAt, &c.EndedAt,
 		&c.StartSoCPct, &c.EndSoCPct,
@@ -372,10 +437,14 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Lat, &c.Lon, &c.Source,
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 	); err != nil {
 		return nil, err
 	}
 	c.ThermalKWh = floatFromNull(thermal)
+	c.NetworkConfidence = floatFromNull(netConf)
+	c.NetworkEvidence = netEv
+	c.ReceiptCost = floatFromNull(recCost)
 	c.StartedAt = c.StartedAt.UTC()
 	c.EndedAt = c.EndedAt.UTC()
 	return &c, nil
@@ -541,7 +610,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
 		       COALESCE(c.price_per_kwh,0)::float8,
 		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
-		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,'')
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -555,6 +626,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 	for rows.Next() {
 		var c Charge
 		var thermal sql.NullFloat64
+		var netConf sql.NullFloat64
+		var netEv []byte
+		var recCost sql.NullFloat64
 		if err := rows.Scan(&c.ID, &c.VehicleID,
 			&c.StartedAt, &c.EndedAt,
 			&c.StartSoCPct, &c.EndSoCPct,
@@ -563,10 +637,14 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&c.Lat, &c.Lon, &c.Source,
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 		); err != nil {
 			return nil, err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
+		c.NetworkConfidence = floatFromNull(netConf)
+		c.NetworkEvidence = netEv
+		c.ReceiptCost = floatFromNull(recCost)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
 		out = append(out, c)
@@ -599,6 +677,14 @@ func floatFromNull(n sql.NullFloat64) *float64 {
 	return &v
 }
 
+// nullIfEmptyJSON maps an empty JSON value to SQL NULL.
+func nullIfEmptyJSON(b json.RawMessage) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return []byte(b)
+}
+
 // nullableFloatPtr is the inverse: a *float64 → sql.NullFloat64
 // suitable as a driver argument. nil pointer → SQL NULL.
 func nullableFloatPtr(p *float64) sql.NullFloat64 {
@@ -625,6 +711,167 @@ func storedPricePerKWh(c Charge) any {
 		return c.PricePerKWh
 	}
 	return nullIfZero(c.PricePerKWh)
+}
+
+// ConfirmNetwork records that the user agreed with an auto-detected DC
+// fast charge network: network_state becomes 'confirmed'; cost, network
+// and cost_source stay. Only an estimate can be confirmed (cost_source
+// 'network_estimate' in an open state); a charge nothing matched has no
+// estimate to confirm, so the user picks a network instead. Returns rows
+// affected: 0 means not found for this user or not confirmable.
+func (s *Store) ConfirmNetwork(ctx context.Context, externalID string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET network_state = 'confirmed',
+		    updated_at = NOW()
+		WHERE user_id = $1 AND external_id = $2
+		  AND cost_source = 'network_estimate'
+		  AND network_state IN ('estimated', 'needs_confirmation')
+	`, s.userID, externalID)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// SetNetworkPrice records the user's own choice of DC fast charge
+// network: cost = pricePerKWh × the session's energy, cost_source
+// 'user', network_state 'confirmed' (the user picked it; confidence and
+// evidence stay for audit). Returns rows affected (0: not found for this user, or the
+// session has no energy to price).
+func (s *Store) SetNetworkPrice(ctx context.Context, externalID, network, currency string, pricePerKWh float64) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE charges
+		SET price_per_kwh = $3,
+		    cost = round($3::numeric * energy_added_kwh::numeric, 4),
+		    currency = COALESCE(NULLIF($5, ''), currency),
+		    network = NULLIF($4, ''),
+		    cost_source = 'user',
+		    network_state = 'confirmed',
+		    legacy_cost = NULL,
+		    legacy_price_per_kwh = NULL,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND external_id = $2
+		  AND COALESCE(energy_added_kwh, 0) > 0
+	`, s.userID, externalID, pricePerKWh, network, currency)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// GetByExternalID returns one of this user's charges, or (nil, nil).
+func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.external_id, v.rivian_vehicle_id,
+		       c.started_at, c.ended_at,
+		       COALESCE(c.start_soc_pct,0), COALESCE(c.end_soc_pct,0),
+		       COALESCE(c.energy_added_kwh,0), COALESCE(c.miles_added,0),
+		       COALESCE(c.max_power_kw,0), COALESCE(c.avg_power_kw,0),
+		       COALESCE(c.final_state,''),
+		       COALESCE(c.lat,0), COALESCE(c.lon,0),
+		       c.source,
+		       COALESCE(c.cost,0)::float8, COALESCE(c.currency,''),
+		       COALESCE(c.price_per_kwh,0)::float8,
+		       c.thermal_kwh, COALESCE(c.active_seconds,0)::float8,
+		       CASE WHEN c.cost_source = 'user' AND c.cost IS NULL THEN '' ELSE COALESCE(c.cost_source,'') END, COALESCE(c.network,''), COALESCE(c.place,''),
+		       COALESCE(c.network_state,''), c.network_confidence, c.network_evidence,
+		       c.receipt_cost::float8, COALESCE(c.receipt_currency,''), COALESCE(c.receipt_txn_id,'')
+		FROM charges c
+		JOIN vehicles v ON v.id = c.vehicle_id
+		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	var c Charge
+	var thermal, netConf sql.NullFloat64
+	var netEv []byte
+	var recCost sql.NullFloat64
+	if err := rows.Scan(&c.ID, &c.VehicleID,
+		&c.StartedAt, &c.EndedAt,
+		&c.StartSoCPct, &c.EndSoCPct,
+		&c.EnergyAddedKWh, &c.MilesAdded,
+		&c.MaxPowerKW, &c.AvgPowerKW, &c.FinalState,
+		&c.Lat, &c.Lon, &c.Source,
+		&c.Cost, &c.Currency, &c.PricePerKWh,
+		&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
+		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
+	); err != nil {
+		return nil, err
+	}
+	c.ThermalKWh = floatFromNull(thermal)
+	c.NetworkConfidence = floatFromNull(netConf)
+	c.NetworkEvidence = netEv
+	c.ReceiptCost = floatFromNull(recCost)
+	c.StartedAt, c.EndedAt = c.StartedAt.UTC(), c.EndedAt.UTC()
+	return &c, rows.Err()
+}
+
+// NetworkToConfirm counts this user's auto-detected charges still open
+// for verification: toConfirm covers both open states, needsAttention
+// only 'needs_confirmation'.
+func (s *Store) NetworkToConfirm(ctx context.Context) (toConfirm, needsAttention int, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT count(*),
+		       count(*) FILTER (WHERE network_state = 'needs_confirmation')
+		FROM charges
+		WHERE user_id = $1 AND network_state IN ('estimated', 'needs_confirmation')
+	`, s.userID).Scan(&toConfirm, &needsAttention)
+	return toConfirm, needsAttention, err
+}
+
+// VerifiedNetwork is a DC fast charge of the user's own whose network
+// they confirmed or set themselves, and how far it is from a point.
+type VerifiedNetwork struct {
+	Network string
+	DistM   float64
+}
+
+// NearestVerifiedNetwork returns the user's nearest DC fast charge within
+// radiusM of (lat, lon) whose network is settled: confirmed, or a user
+// price that names a network. It is auto-detection's site memory, so a
+// co-located site the user already resolved isn't asked about again.
+// ok=false when there is none (or no position).
+func (s *Store) NearestVerifiedNetwork(ctx context.Context, lat, lon, radiusM float64) (VerifiedNetwork, bool, error) {
+	if (lat == 0 && lon == 0) || radiusM <= 0 {
+		return VerifiedNetwork{}, false, nil
+	}
+	// A bounding box on the index-friendly columns, then exact distance.
+	dLat := radiusM / 111_320.0
+	dLon := dLat / math.Max(math.Cos(lat*math.Pi/180), 0.01)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT network, lat, lon
+		FROM charges
+		WHERE user_id = $1
+		  AND COALESCE(network, '') <> ''
+		  AND (network_state = 'confirmed' OR cost_source = 'user')
+		  AND COALESCE(max_power_kw, 0) >= 50
+		  AND lat BETWEEN $2::float8 AND $3::float8
+		  AND lon BETWEEN $4::float8 AND $5::float8
+		ORDER BY ended_at DESC
+		LIMIT 50`, s.userID, lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	if err != nil {
+		return VerifiedNetwork{}, false, err
+	}
+	defer rows.Close()
+	best, found := VerifiedNetwork{}, false
+	for rows.Next() {
+		var n string
+		var la, lo float64
+		if err := rows.Scan(&n, &la, &lo); err != nil {
+			return VerifiedNetwork{}, false, err
+		}
+		if d := haversineM(lat, lon, la, lo); d <= radiusM && (!found || d < best.DistM) {
+			best, found = VerifiedNetwork{Network: n, DistM: d}, true
+		}
+	}
+	return best, found, rows.Err()
 }
 
 // LiveOverlap describes the live session another recorder wrote over

@@ -63,10 +63,13 @@ type LiveClient struct {
 	// wake attribution (actions.go).
 	actions actionLog
 
-	httpClient    *http.Client
-	endpoint      string
-	clientName    string
-	clientVersion string
+	httpClient *http.Client
+	endpoint   string
+	// chargingEndpoint overrides DefaultChargingEndpoint for the receipts
+	// calls (tests point it at a stub gateway).
+	chargingEndpoint string
+	clientName       string
+	clientVersion    string
 	// rivoltVersion is stamped into X-Rivolt-Version. Defaults to "dev".
 	rivoltVersion string
 
@@ -1373,6 +1376,7 @@ func (c *LiveClient) LiveSession(ctx context.Context, vehicleID string) (*LiveSe
 	}
 	if d.IsRivianCharger != nil {
 		out.IsRivianCharger = *d.IsRivianCharger
+		out.RivianChargerKnown = true
 	}
 	return out, nil
 }

@@ -54,6 +54,19 @@ type ledgerAPI struct {
 	owns   func(ctx context.Context, uid uuid.UUID, vehicleID string) (bool, error)
 	config func(ctx context.Context, uid uuid.UUID) (ledger.Config, error)
 	now    func() time.Time
+	// toConfirmCount counts the user's open verify-state charges; nil
+	// leaves the summary counts at zero.
+	toConfirmCount func(ctx context.Context, uid uuid.UUID) (open, attention int, err error)
+	// billed reports the rivian_receipts flag for a user: when on, the
+	// statement carries Rivian's billed amounts (billed_* fields). nil = off.
+	billed func(uid uuid.UUID) bool
+}
+
+// withBilled returns a copy that adds the billed_* fields for users the
+// rivian_receipts flag covers. Only the Money endpoints use it.
+func (a ledgerAPI) withBilled(f *flags.Store) ledgerAPI {
+	a.billed = func(uid uuid.UUID) bool { return f != nil && f.RivianReceipts().Enabled(uid.String()) }
+	return a
 }
 
 // newLedgerAPI wires the production seams: read-only queries on the
@@ -75,6 +88,9 @@ func newLedgerAPI(pool *sql.DB, settingsF *settings.Factory) ledgerAPI {
 			return ledgerConfig(ctx, store)
 		},
 		now: time.Now,
+		toConfirmCount: func(ctx context.Context, uid uuid.UUID) (int, int, error) {
+			return ledger.CountToConfirm(ctx, pool, uid)
+		},
 	}
 }
 
@@ -132,6 +148,7 @@ func (a ledgerAPI) input(ctx context.Context, uid uuid.UUID, p ledgerParams, per
 	if err != nil {
 		return ledger.Input{}, err
 	}
+	cfg.Billed = a.billed != nil && a.billed(uid)
 	from, to := ledger.LoadWindow(periods...)
 	cs, ds, err := a.load(ctx, uid, p.vehicleID, from, to)
 	if err != nil {
@@ -149,9 +166,26 @@ func stamp(m *ledger.Monthly, p ledgerParams) {
 }
 
 // handleLedgerEnabled answers the SPA's "show the Money tab?" probe.
-// Reached only when requireMoneyTabMW let the request through.
-func handleLedgerEnabled(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": true})
+// Reached only when requireMoneyTabMW let the request through. The
+// reply also carries the user's other per-user UI flags that ride on this
+// probe: ui_theme_next says whether the "next" theme is on for them
+// (false when the flag store is absent or the flag is off).
+func handleLedgerEnabled(uiThemeNext func(userID string) bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		next := false
+		if uid, ok := auth.UserFromContext(r.Context()); ok && uiThemeNext != nil {
+			next = uiThemeNext(uid.String())
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"enabled": true, "ui_theme_next": next})
+	}
+}
+
+// uiThemeNextEnabled adapts the flags store for handleLedgerEnabled. A
+// nil store (no DB) keeps the theme off.
+func uiThemeNextEnabled(store *flags.Store) func(string) bool {
+	return func(userID string) bool {
+		return store != nil && store.UIThemeNext().Enabled(userID)
+	}
 }
 
 // monthly serves GET /api/ledger/monthly?month=YYYY-MM[&tz][&vehicle_id].
@@ -186,6 +220,11 @@ type ledgerSummaryResponse struct {
 	TZ       string                `json:"tz"`
 	Currency string                `json:"currency"`
 	Months   []ledger.MonthSummary `json:"months"`
+	// ToConfirmCount / NeedsAttentionCount are all-time and user-wide
+	// (not windowed by months or vehicle): charges whose auto-detected
+	// DC fast charge network is still open for verification.
+	ToConfirmCount      int `json:"to_confirm_count"`
+	NeedsAttentionCount int `json:"needs_attention_count"`
 }
 
 // summary serves GET /api/ledger/summary?months=N[&tz][&vehicle_id]:
@@ -215,6 +254,14 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		m := ledger.Build(in, period, false)
 		stamp(&m, p)
 		out.Months = append(out.Months, ledger.MonthSummary{Monthly: m})
+	}
+	if a.toConfirmCount != nil {
+		open, attention, err := a.toConfirmCount(r.Context(), uid)
+		if err != nil {
+			http.Error(w, "ledger: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out.ToConfirmCount, out.NeedsAttentionCount = open, attention
 	}
 	writeJSON(w, http.StatusOK, out)
 }

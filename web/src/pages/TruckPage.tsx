@@ -1,13 +1,18 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { periodRange, sleepWindow, usePeriod } from "../lib/period";
+import { useUiNext } from "../lib/uiNext";
+import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
+import { inDemo } from "../lib/demo";
 import { BarChart } from "../components/charts";
 import { PackHealthCard } from "../components/PackHealthCard";
 import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import { lowestTire, sleepSummary, softwareInfo } from "../lib/truckHealth";
+import { lowestTire, safeNotesUrl, sleepSummary, softwareInfo } from "../lib/truckHealth";
 
 // Truck tab v1 (ux-report S4): pack capacity, sleep and idle-awake,
 // tires, software version. Gated by money_tab_enabled. Fields the
@@ -24,7 +29,8 @@ export default function TruckPage() {
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
-    enabled: !!rivianStatus.data?.authenticated,
+    // The signed-out demo has no Rivian login; its sample truck is listed anyway.
+    enabled: !!rivianStatus.data?.authenticated || inDemo(),
     staleTime: 5 * 60_000,
     retry: 1,
   });
@@ -38,16 +44,32 @@ export default function TruckPage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  const since = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
+  // ui_theme_next: the shared calendar scope drives the sleep chart; off keeps
+  // the fixed last 30 days.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(() => periodRange(period), [period]);
+  const win = useMemo(() => (next ? sleepWindow(range) : null), [next, range]);
+  const since = useMemo(
+    () => win?.since ?? new Date(Date.now() - 30 * 86_400_000).toISOString(),
+    [win],
+  );
+  const until = win?.until;
   const sleepQ = useQuery({
-    queryKey: ["sleepActivity", "truck", selectedID ?? ""],
-    queryFn: () => backend.sleepActivity(since, selectedID ?? undefined),
+    queryKey: ["sleepActivity", "truck", selectedID ?? "", since, until ?? ""],
+    queryFn: () => backend.sleepActivity(since, selectedID ?? undefined, until),
     enabled: !!selectedID,
     staleTime: 5 * 60_000,
     retry: 1,
   });
 
   const sleep = useMemo(() => sleepSummary(sleepQ.data ?? []), [sleepQ.data]);
+  // Deep link from Now's idle-awake tile (#sleep): scroll once the card exists.
+  useEffect(() => {
+    if (window.location.hash === "#sleep" && selectedID) {
+      document.getElementById("sleep")?.scrollIntoView({ block: "start" });
+    }
+  }, [selectedID, sleepQ.isLoading]);
   const s = stateQ.data;
   const tire = s ? lowestTire(s) : null;
   const software = s ? softwareInfo(s) : null;
@@ -65,11 +87,16 @@ export default function TruckPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="truck">
       <PageHeader
         title="Truck"
         subtitle={name}
-        actions={<VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />}
+        actions={
+          <>
+            {next && <PeriodPicker value={period} onChange={setPeriod} />}
+            <VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />
+          </>
+        }
       />
 
       <DrainCard vehicleID={selectedID} />
@@ -78,7 +105,7 @@ export default function TruckPage() {
         <PackHealthCard vehicleID={selectedID} />
       </Card>
 
-      <Card title="Sleep and idle-awake">
+      <Card id="sleep" title="Sleep and idle-awake" span="full">
         {sleep.trouble && (
           <p role="status" className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             {name} woke up again within a minute {sleep.trouble.failed} of {sleep.trouble.sleeps} times in the last two days.
@@ -87,20 +114,27 @@ export default function TruckPage() {
         {sleep.daysWithData > 0 ? (
           <>
             <BarChart
+              ariaLabel="Idle-awake time per day"
               data={sleep.bars}
               height={140}
               color="#6366f1"
-              formatY={(v) => `${v.toFixed(0)}m`}
+              formatY={formatMinutesShort}
+              formatValue={formatMinutes}
               formatX={(label) => String(label).slice(5)}
             />
             <p className="mt-2 text-[11px] text-neutral-500">
-              Minutes per day awake while parked and not charging
+              Time per day awake while parked and not charging
               {sleep.avgDays > 0 && (
-                <>, averaging {Math.round(sleep.avgIdleMinutes)} min over the last {sleep.avgDays} full days</>
+                <>, averaging {formatMinutes(sleep.avgIdleMinutes)} a day over the last {sleep.avgDays} full days</>
               )}
               . Today is still in progress. Driving and charging are excluded.
+              {win?.capped && <> Showing the last 90 days of this period.</>}
             </p>
           </>
+        ) : sleepQ.isLoading ? (
+          <div className="h-24 animate-pulse rounded-sm bg-neutral-900/50" aria-label="Loading sleep data" />
+        ) : sleepQ.isError ? (
+          <p className="text-xs text-neutral-500">Couldn't load sleep data. Try again in a moment.</p>
         ) : (
           <p className="text-xs text-neutral-500">
             No sleep data yet. This fills in as power-state recording builds up history.
@@ -109,7 +143,7 @@ export default function TruckPage() {
       </Card>
 
       {(tire || software) && (
-        <Card title="Vehicle">
+        <Card title="Vehicle" span="full">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             {tire && (
               <>
@@ -122,11 +156,17 @@ export default function TruckPage() {
             {software && (
               <>
                 <dt className="text-neutral-500">Software</dt>
-                <dd className="text-right tabular-nums text-neutral-200">{software.current}</dd>
+                <dd className="text-right tabular-nums text-neutral-200">
+                  {software.current}
+                  <NotesLink url={vehicle?.ota?.current?.release_notes_url} />
+                </dd>
                 {software.available && (
                   <>
                     <dt className="text-neutral-500">Update available</dt>
-                    <dd className="text-right tabular-nums text-neutral-200">{software.available}</dd>
+                    <dd className="text-right tabular-nums text-neutral-200">
+                      {software.available}
+                      <NotesLink url={vehicle?.ota?.available?.release_notes_url} />
+                    </dd>
                   </>
                 )}
               </>
@@ -135,5 +175,22 @@ export default function TruckPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// NotesLink: "Release notes" for an update, an outbound link only (never fetched by us).
+function NotesLink({ url }: { url?: string }) {
+  const href = safeNotesUrl(url);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-ota-notes
+      className="ml-2 whitespace-nowrap text-xs text-emerald-300 underline-offset-2 hover:underline"
+    >
+      Release notes<span aria-hidden> ↗</span>
+    </a>
   );
 }

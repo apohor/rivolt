@@ -4,6 +4,168 @@ Plan to move Rivolt's telemetry from Rivian's legacy `vehicleState` JSON
 WebSocket to the modern **Parallax** RVM feed, topic by topic, measure-first
 and additive - never a big-bang cutover.
 
+> **Status refreshed 2026-10-16 (QA, read-only evidence).** The section below
+> is verified against `main` and 24 h of production logs. The design notes
+> further down (Why, Two modes, Topic map, Phases) are the original July plan
+> and are kept for the reasoning; where they disagree with this section, this
+> section wins.
+
+## Operator switch
+
+One flag: **`RIVOLT_PARALLAX`**. It turns on Parallax GPS, the drive-dynamics
+subscription and the capture set together (see `monitor.go`, "RIVOLT_PARALLAX
+is the single operator switch"). The older `RIVOLT_PARALLAX_GPS`,
+`RIVOLT_PARALLAX_DRIVE_DYNAMICS` and `RIVOLT_PARALLAX_CAPTURE` variables are
+still read and still work, but are retired from operations: set the single
+flag. Per vehicle, Parallax is used only when Rivian reports
+`VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE`.
+
+Production runs it on: every topic that only the capture set subscribes to
+(alarm, trailer, 12V, OTA, pet mode) logs frames in prod today.
+
+## What we subscribe to, and what each topic does today (21 topics)
+
+Status words: **authoritative** (the live state follows it; vehicleState is the
+fallback), **applied** (decoded and written to the live state), **decode-log**
+(decoded and logged, not applied), **raw** (payload logged for offline RE only),
+**silent** (subscribed, no frame arrived). "24 h frames" is the number of
+`parallax ...` log lines in production Loki over the last 24 h, all vehicles
+(9 vehicles, R1S/R1T/R2); it is a liveness check, not a data-quality check.
+
+| # | Topic (RVM) | Status | 24 h frames | Notes |
+|---|-------------|--------|-------------|-------|
+| 1 | `dynamics.vehicle.gnss` | authoritative (GPS backbone) | 1,090 `gps covering vehicleState stall` lines | Own subscriber. Fills vehicleState stalls; ~60 s cadence |
+| 2 | `energy.high_voltage.battery_state` | authoritative (SoC, pack kWh, pack temp) | 8,162 | Logs `px_soc` vs `vehicleState_soc`; also feeds pack health |
+| 3 | `energy_edge_compute.graphs.charge_session_breakdown` | applied (live charge data) | 4,098 (+82 first frames) | Own subscriber, per charging session |
+| 4 | `dynamics.vehicle.gear` | authoritative to open a drive; P applied when fresh | 914 | Enum 1 P / 2 R / 3 N / 4 D. A fresh P also clears a stale R/D (since v0.33.1; R2s never send P on vehicleState, only here). Drive close still follows vehicleState |
+| 5 | `dynamics.vehicle.drive_mode` | applied | 3,936 | APK enum, mapped to vehicleState names |
+| 6 | `dynamics.vehicle.odometer` | applied (stall bridge) | 4,353 | Whole km; only advances the cache when higher |
+| 7 | `vehicle.power.state` | applied | 4,106 | 1 sleep, 2 standby, 3 ready, 4 go; 5 reset, 6 OTA update, 7 shutdown mapped on main (#323, next release; the R2's only power source - see R2 notes) |
+| 8 | `dynamics.vehicle.range` | applied | 5,326 | Whole km |
+| 9 | `dynamics.tires.state` | applied | 7,392 | Four pressures, bar |
+| 10 | `comfort.cabin.cabin_temperatures` | applied | 5,083 | Interior temperature |
+| 11 | `body.closures.states` | applied | 5,107 | Applied: doors, frunk, liftgate, tailgate, tonneau and windows (instances 12-15). Not applied yet: side bins (8/9) and instance 16 (the R2's rear window). See the closure enum below |
+| 12 | `body.locks.states` | applied | 4,208 | Door locks |
+| 13 | `body.trailer.state` | decode-log | 3,928 | No State destination yet |
+| 14 | `energy.low_voltage.battery_state` | applied | 3,928 | 12V health |
+| 15 | `ota.ota_state.vehicle_ota_state` | raw | 3,928 | Not decoded |
+| 16 | `ota.deployment.state` | raw | 3,981 | Version strings in a nested message; not decoded |
+| 17 | `security.alarm.state` | applied | 3,928 | Alarm sound status |
+| 18 | `comfort.cabin.cabin_preconditioning_status` | decode-log | 241 | Field number unconfirmed; log only |
+| 19 | `comfort.cabin.pet_mode_status` | applied | 3,639 | |
+| 20 | `comfort.cabin.climate_hold_status` | raw | 4,660 | Captured, not decoded |
+| 21 | `security.access.immobilizer_state` | silent | 0 | Subscribed; no frame seen in 24 h on any vehicle |
+
+How this was checked: topic list and handling from `internal/rivian/parallax.go`
+and `StateMonitor.onDriveDynamicsFrame`; frame counts from Loki
+(`{namespace="rivolt", app="rivolt"} |= "parallax drive-dynamics shadow"`, grouped by `topic`,
+plus the `parallax battery_state charge`, `rivian parallax charge-breakdown frame`
+and `parallax gps covering vehicleState stall` messages), 2026-10-16.
+
+### Closure status enum (wire values)
+`0 UNSPECIFIED, 1 OPEN, 2 CLOSE, 3 AJAR, 4 OPENING, 5 CLOSING`. Instances:
+1-4 doors (row 1 L/R, row 2 L/R), 5 frunk, 6 tailgate, 7 liftgate, 8/9 side
+bins, 10 charge port (R1 only), 11 tonneau, 12-15 windows FL/FR/BL/BR, 16 rear
+window, 10000 the window group. Today anything that is not CLOSE reads as
+"open"; mapping AJAR to "vented" and OPENING/CLOSING to "moving" is a small
+open item (R2 gaps #3). (An earlier QA note read these values from the app's
+Kotlin enum, which has a different order; the wire values above are the ones
+that match live data.)
+
+## R2 notes
+
+- **Gear and park come from Parallax.** R2s never send a park gear on
+  vehicleState (the field is empty or stuck on the last R/D). Parallax
+  `dynamics.vehicle.gear` does send P (enum 1), and a fresh P is applied to the
+  live state, so a parked R2 reads parked. Before v0.33.1 the stale R/D stayed
+  for hours; that history was re-segmented.
+- **Power state is Parallax-only.** R2s report power through
+  `vehicle.power.state`; enums 5-7 (vehicle reset, OTA update, shutdown) are mapped on
+  main (#323, ships in the next release).
+- **Plug state needs `charging.session.status`.** vehicleState `chargerStatus`
+  is NULL on every R2 row, and none of the topics we subscribe to carries a
+  plugged signal. The app reads `charging.session.status` (not subscribed
+  today): field 1 `plug_connection_status` (0 INIT, 1 NOT_CONNECTED,
+  2 CONNECTED, 3 ERROR, 4 V2L_CONNECTED), field 2 `display_status` (ready,
+  connecting, active, complete, scheduled, errors...), field 3 `evse_type`.
+  Until it is implemented, R2 plugged is inferred from `charging_active` with
+  kW > 0, which cannot see a plugged-in car that is not charging.
+- **Pack capacity.** `energy.high_voltage.battery_characteristics` (not
+  subscribed) carries pack capacity and chemistry for every model; it is cleared
+  for a one-day capture.
+- **Closures arrive for R2s** (window and door events seen in prod) but are not
+  stored: `vehicle_state.raw` is NULL by design, so only the shadow log records
+  them.
+
+## Phase 5 / `PX_STATE_ALL` status
+
+Not started, and now has a real first candidate. `PX_STATE_ALL=AVAILABLE`
+(the gate for replacing legacy `vehicleState` wholesale) is reported by **both
+R2s** in prod today and is `absent` for every R1 (24 h of `supported features`
+log lines: 24 AVAILABLE, 72 absent, all vehicles
+`VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE`). `GET /api/supported-features` is
+the on-demand probe. We still use legacy `vehicleState` for every vehicle:
+drive close, the sleep watchdog, and the fallback for every field above. The
+preconditions in Phase 5 stand: a Parallax-liveness watchdog before the
+fallback is removed, and the missing topics below (plug state, closure
+persistence) first.
+
+## App topics we do not subscribe to
+
+The app's Parallax topic table (`zff`, decompile of Rivian Android 3.17.0, listed
+by the architect with each entry's `isVehicleState` flag) has **63 topics**. We
+subscribe to 21 of them (above), so **42 are not subscribed**. Rivolt is
+read-only, so the one command-like entry in the table,
+`charging.session.remote_command`, is out of scope. (The app's separate command
+RVMs - `set_*`, `enable_*`, open/close, lock/unlock, start/stop, `install_now`,
+panic and video commands, about 21 names - are not in `zff`; they come from the
+app's string table and are likewise out of scope.)
+
+`isVehicleState=true` marks the topics the app uses to replace `vehicleState`
+(the set `PX_STATE_ALL` switches over). 36 topics carry it; we cover 18. The
+other **18 are the gap to close before Phase 5**:
+`body.windows.states` (never emits on the R1S), `dynamics.vehicle.location`,
+`energy.high_voltage.battery_characteristics`, `charging.session.status`,
+`charging.session.time_estimation`, `charging.session.notification`,
+`charging.session.soc_slider`, `charging.session.trip_target`,
+`charging.session.remote_command` (command, skip),
+`security.video_monitoring.state`, `security.access.btm`,
+`security.access.passive_entry_debug`, `security.access.vas_fault`,
+`comfort.user_modes.state`, `comfort.cabin.defrost_defog_status`,
+`comfort.cabin.seat_conditioning_status`, `comfort.cabin.hvac_settings_status`,
+`vehicle.network.state`.
+
+**Notable state topics (candidates, in priority order):**
+
+| Topic | Why it matters |
+|-------|----------------|
+| `charging.session.status` | R2 plug state (above); also display status (scheduled, complete, errors) |
+| `energy.high_voltage.battery_characteristics` | Real pack capacity, chemistry and user energy limits for every model |
+| `energy_edge_compute.graphs.parked_energy_distributions` | Rivian's own breakdown of parked (vampire) energy: a direct comparison for our drain card |
+| `charging.session.time_estimation` | Rivian's time-to-full/limit estimate for a live charge |
+| `charging.smart_charging.settings` / `smart_charging_info` / `weighted_charging_forecast` | Smart/clean-energy charging state, which explains "plugged but not charging" |
+| `comfort.user_modes.state` | Camp/pet/car-wash mode, a good overnight-drain explainer |
+
+**Every other unsubscribed topic (not `isVehicleState`):**
+`energy_edge_compute.graphs.charging_graph_global`,
+`energy_edge_compute.graphs.cold_weather_soc`, `geofence.geofence_service.favoriteGeofences`,
+`ota.user_schedule.ota_config`, `gearguard_streaming.privacy.gearguard_streaming_in_vehicle_consent`,
+`gearguard_streaming.privacy.gearguard_streaming_daily_limit`, `vehicle.wheels.vehicle_wheels`,
+`navigation.navigation_service.trip_info`, `navigation.navigation_service.trip_progress`,
+`comfort.cabin.climate_hold_setting`, `comfort.cabin.cabin_ventilation_setting`,
+`vehicle_access.passive_entry.passive_entry`, `vehicle_access.state.passive_entry`,
+`charging.schedule.time_window`, `device_table.vas_keyper.devices`,
+`secure_file_transfer.pet_snapshot.secure_file`, `vehicle.profiles.active_user`,
+`holiday_celebration.car_costume.{holiday_celebration_enabled,settings,state}`.
+
+---
+
+## Original plan (July 2026, design notes)
+
+The sections below are the original reasoning and phase plan. Their status
+columns and flag names are from July; use the status section above for the
+current state.
+
 ## Why
 
 Legacy `vehicleState` is a single subscription pushing a ~50-field JSON delta.
@@ -72,7 +234,7 @@ Coverage is effectively complete - every legacy field has a Parallax home.
 ## Phases
 
 ### Phase 0 - foundation (done)
-Env master `RIVOLT_PARALLAX_GPS`, `SupportedFeatures` capability query +
+Env master `RIVOLT_PARALLAX_GPS` (now `RIVOLT_PARALLAX`), `SupportedFeatures` capability query +
 per-vehicle gating, GPS + pack-temp + charge-breakdown on Parallax, first-frame
 engage so an advertised-but-silent topic never blanks vehicleState.
 

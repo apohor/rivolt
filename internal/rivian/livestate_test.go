@@ -232,3 +232,19 @@ func TestMaybeRehydrate_NoStore(t *testing.T) {
 		t.Fatalf("nil store: want zero-value session, got %+v", got)
 	}
 }
+
+// A lease handoff keeps a charge's progress anchor, and an older
+// snapshot without one restores it from the meaningful-frame anchor.
+func TestLiveStateKeepsChargeProgressAnchor(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
+	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour),
+		lastMeaningfulAt: t0.Add(50 * time.Minute), lastProgressAt: t0.Add(20 * time.Minute)}}
+	if got := liveSessionsFromSnapshot(s.snapshot()).charge.lastProgressAt; !got.Equal(t0.Add(20 * time.Minute)) {
+		t.Errorf("progress anchor %v after a round trip", got)
+	}
+	old := s.snapshot()
+	old.Charge.LastProgressAt = time.Time{}
+	if got := liveSessionsFromSnapshot(old).charge.lastProgressAt; !got.Equal(t0.Add(50 * time.Minute)) {
+		t.Errorf("progress anchor %v from an older snapshot, want the meaningful-frame anchor", got)
+	}
+}

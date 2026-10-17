@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { displayTimeZone } from "../lib/format";
+import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
+import { ArcGauge } from "./ArcGauge";
+import { PowerSpark } from "./PowerSpark";
+import { useUiNext } from "../lib/uiNext";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -17,6 +22,7 @@ import {
   type OdoTrack,
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
+import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
 // selected vehicle. Composed from /api/state plus a few cached
@@ -81,6 +87,7 @@ export default function NowCard({
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
+  const { distanceUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
@@ -118,6 +125,15 @@ export default function NowCard({
   useEffect(() => {
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
+  // Charging power history for the ui_theme_next sparkline: one reading per
+  // successful poll while charging, cleared when the session ends.
+  const [powerHist, setPowerHist] = useState<number[]>([]);
+  useEffect(() => {
+    const kw = state?.charger_power_kw;
+    if (typeof kw === "number" && kw > 0) setPowerHist((h) => [...h.slice(-47), kw]);
+    else setPowerHist((h) => (h.length ? [] : h));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateQ.dataUpdatedAt]);
 
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (older server / flag off): fall back to the
@@ -179,6 +195,7 @@ export default function NowCard({
     });
   }, [state, nowMs, tracker, openCharge, server, packKwh, homeQ.data, chargingQ.data]);
 
+  const next = useUiNext(); // a hook: must run before the early returns below
   const driveQ = useQuery({
     queryKey: ["rivian", "live-drive", vehicleID],
     queryFn: () => backend.liveDrive(vehicleID),
@@ -214,13 +231,21 @@ export default function NowCard({
   });
   const currency = chargingQ.data?.home_currency || "USD";
   const offline = view.kind === "offline";
+  // Plugged in but not charging, and a schedule for today that applies here is still to
+  // start: say when ("charging starts 11:00 PM (schedule)"). Not when it is holding at its limit.
+  const schedStart =
+    view.kind === "plugged" && !view.atLimit ? nextScheduledStartMin(state?.charging_schedules, new Date(), displayTimeZone()) : null;
+  const scheduleText = schedStart != null ? `charging starts ${formatScheduleStart(schedStart)} (schedule)` : null;
   const pill = statusPill(view);
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
+  const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   return (
-    <section aria-label="Now" className="space-y-2">
+    <section aria-label="Now" data-ui-area="hero" className="space-y-2">
       <div
+        data-ui-hero="true"
+        data-live={liveKind}
         className={`rounded-xl border bg-neutral-900/60 p-5 ${
           critical ? "border-rose-500/50" : "border-neutral-800"
         }`}
@@ -229,7 +254,13 @@ export default function NowCard({
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-neutral-500">{vehicleName}</p>
             <p className="mt-0.5 text-sm text-neutral-300" data-testid="now-headline">
-              {headline(view)}
+              {headline(view, distanceUnit)}
+              {scheduleText && (
+                <span data-testid="now-schedule" className="text-neutral-400">
+                  {" · "}
+                  {scheduleText}
+                </span>
+              )}
             </p>
           </div>
           <span
@@ -246,6 +277,53 @@ export default function NowCard({
           </span>
         </div>
 
+        {next ? (
+          <div className="mt-3 flex items-center gap-5">
+            <ArcGauge
+              value={view.soc}
+              label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
+              live={view.kind === "charging"}
+              tone={offline ? "idle" : critical ? "critical" : "ok"}
+              limit={view.kind === "charging" || view.kind === "plugged" ? view.limitPct : null}
+            >
+              {(shown) => (
+                <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                  <span className="text-4xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                  <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
+                </span>
+              )}
+            </ArcGauge>
+            <div className="min-w-0 space-y-3">
+              {view.kind === "driving" && view.speedMph != null && (
+                <div>
+                  <p className="ui-label">Speed</p>
+                  <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
+                    {Math.round(view.speedMph)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mph</span>
+                  </p>
+                </div>
+              )}
+              {(view.kind === "charging" || view.kind === "plugged") && view.limitPct != null && (
+                <div>
+                  <p className="ui-label">Charge limit</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
+                    {Math.round(view.limitPct)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">%</span>
+                  </p>
+                </div>
+              )}
+              {view.rangeMi != null && (
+                <div>
+                  <p className="ui-label">Range</p>
+                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
+                    {Math.round(view.rangeMi)}
+                    <span className="ml-1 text-sm font-normal text-neutral-400">mi</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           {view.kind === "driving" && view.speedMph != null ? (
             <>
@@ -267,15 +345,31 @@ export default function NowCard({
             </>
           )}
         </div>
+        )}
 
-        {(view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
+        {next && view.kind === "charging" && powerHist.length >= 2 && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="ui-label shrink-0">Power</span>
+            <PowerSpark values={powerHist} />
+            <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
+              {Math.round(powerHist[powerHist.length - 1])}
+              <span className="ml-1 text-xs font-normal text-neutral-400">kW</span>
+            </span>
+          </div>
+        )}
+
+        {!next && (view.kind === "charging" || view.kind === "plugged") && view.soc > 0 && (
           <LimitBar soc={view.soc} limit={view.limitPct} />
         )}
 
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {details(view, tracker, driveQ.data ?? null, nowMs, currency).map((d) => (
+          {details(view, tracker, driveQ.data ?? null, nowMs, currency)
+            // the sparkline row already shows the live power
+            .filter((d) => !(next && view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
+            .map((d) => (
             <div key={d.k} className="contents">
               <dt className="text-neutral-500">{d.k}</dt>
+              {/* Mono only for short numeric readouts (a kW, a time left); text stays sans so it can wrap. */}
               <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
             </div>
           ))}
@@ -311,7 +405,7 @@ export default function NowCard({
   );
 }
 
-function headline(v: NowView): string {
+function headline(v: NowView, unit: DistanceUnit): string {
   switch (v.kind) {
     case "offline":
       return "Not heard from recently";
@@ -327,15 +421,14 @@ function headline(v: NowView): string {
     case "asleep":
       return "Asleep";
     default:
-      return placeLine(v) ?? "Parked";
+      return placeLine(v, unit) ?? "Parked";
   }
 }
 
-function placeLine(v: NowView): string | null {
+export function placeLine(v: NowView, unit: DistanceUnit): string | null {
   if (v.place === "home") return "Parked at home";
   if (v.place === "away" && v.kmFromHome != null) {
-    const km = v.kmFromHome;
-    return `Parked · ${km < 10 ? km.toFixed(1) : Math.round(km)} km from home`;
+    return `Parked · ${formatDistance(v.kmFromHome, unit, { fine: true })} from home`;
   }
   return null;
 }

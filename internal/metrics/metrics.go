@@ -48,6 +48,10 @@ type Metrics struct {
 	// Subscription leases owned by this pod. The lease layer
 	// increments/decrements as it claims and releases.
 	SubscriptionLeases prometheus.Gauge
+	// LeaseUnstreamed counts episodes of a lease this pod holds without
+	// a subscription behind it (the coordinator re-subscribes; alert on
+	// any increase).
+	LeaseUnstreamed prometheus.Counter
 
 	// Circuit breaker telemetry. State is a 0/1/2 gauge
 	// (closed/half_open/open) so Grafana can alert on
@@ -87,6 +91,28 @@ type Metrics struct {
 	// failed share is a car that can't stay asleep (vampire drain);
 	// the per-vehicle detail is in the "vehicle sleep ended" log line.
 	VehicleSleepsTotal *prometheus.CounterVec
+
+	// Parallax drive-dynamics values ignored instead of applied, by topic:
+	// cloud replays of a topic's last snapshot (every resubscribe re-sends
+	// it with its original timestamp) and frames older than a minute. A
+	// replayed gear D once flapped a charging truck's sessions.
+	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
+
+	// Demo rate-limit bucket keys by source: "cf" / "lb" when the direct
+	// peer is a Cloudflare edge / our private load-balancer hop and
+	// CF-Connecting-IP was used; "xff" when the key is the rightmost
+	// X-Forwarded-For entry itself (through the Cloudflare tunnel that is
+	// the visitor, appended by Cloudflare: a per-visitor key); "peer" when
+	// there was no forwarded address and the connection address is the key
+	// (a shared bucket behind an unforwarded proxy). Only a high "peer"
+	// share on a proxied install signals visitors sharing buckets.
+	DemoClientKeyTotal *prometheus.CounterVec
+
+	// Demo requests rejected by a rate limiter (HTTP 429), by route class
+	// (general, samples, heavy, tiles) and by which budget bound (client
+	// or global). A sustained global count is the signal to look at; no
+	// addresses are recorded.
+	DemoRateLimitedTotal *prometheus.CounterVec
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -138,6 +164,12 @@ func New() *Metrics {
 				Help: "Rivian websocket subscription leases currently owned by this pod.",
 			},
 		),
+		LeaseUnstreamed: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "rivolt_lease_unstreamed_total",
+				Help: "Episodes of a Rivian subscription lease held by this pod with no subscription running (re-subscribed by the lease coordinator).",
+			},
+		),
 		RivianBreakerState: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: "rivolt_rivian_breaker_state",
@@ -172,12 +204,33 @@ func New() *Metrics {
 			},
 			[]string{"provider", "status"},
 		),
+		DemoClientKeyTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_demo_client_key_total",
+				Help: "Demo rate-limit client keys, by source (cf/lb = CF-Connecting-IP trusted from a Cloudflare/private peer, xff = the rightmost X-Forwarded-For visitor address, peer = the connection address).",
+			},
+			[]string{"source"},
+		),
+		DemoRateLimitedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_demo_rate_limited_total",
+				Help: "Demo requests answered 429, by route class and which budget (client or global) bound.",
+			},
+			[]string{"route_class", "scope"},
+		),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
 				Help: "Signup-to-first-vehicle funnel steps reached, partitioned by event.",
 			},
 			[]string{"event"},
+		),
+		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_parallax_replays_ignored_total",
+				Help: "Parallax drive-dynamics values ignored as replays or stale, by topic.",
+			},
+			[]string{"topic"},
 		),
 		VehicleSleepsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -193,13 +246,17 @@ func New() *Metrics {
 		m.HTTPRequestDuration,
 		m.RivianResultsTotal,
 		m.SubscriptionLeases,
+		m.LeaseUnstreamed,
 		m.RivianBreakerState,
 		m.RivianBreakerTrips,
 		m.RivianRateLimitBlocked,
 		m.AIRequestsTotal,
 		m.EmailSendTotal,
+		m.DemoClientKeyTotal,
+		m.DemoRateLimitedTotal,
 		m.FunnelEventsTotal,
 		m.VehicleSleepsTotal,
+		m.ParallaxReplaysIgnoredTotal,
 	)
 	return m
 }

@@ -8,6 +8,7 @@ import {
   formatMoney,
   monthLabel,
   type LedgerMonth,
+  statementTotal,
 } from "./ledger";
 
 export type StatementCardModel = {
@@ -58,7 +59,7 @@ export function buildStatementCardModel(
   if (m.driving.cost_per_mile != null) parts.push(`${formatMoney(m.driving.cost_per_mile, cur, 3)}/mi`);
   return {
     title: monthLabel(m.period),
-    total: formatMoney(m.spend.total, cur),
+    total: formatMoney(statementTotal(m), cur),
     subtitle: parts.join(" · "),
     partial: m.is_current_month,
     partialFrom: opts.partialFrom ?? null,

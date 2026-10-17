@@ -27,9 +27,24 @@ export type TabContext = {
   isAdmin: boolean;
   // Live is hidden while impersonating (see AppLayout / LivePage).
   liveAvailable: boolean;
+  // Route prefix of the shell: "" for the app, "/demo" for the public demo.
+  base?: string;
 };
 
 export function buildTabs(ctx: TabContext): TabDef[] {
+  const base = ctx.base ?? "";
+  const p = (path: string) => (path === "/" ? base || "/" : `${base}${path}`);
+  const tabs = buildBaseTabs(ctx);
+  if (!base) return tabs;
+  return tabs.map((t) => ({
+    ...t,
+    to: p(t.to),
+    match: t.match.map(p),
+    subs: t.subs.map((x) => ({ ...x, to: p(x.to) })),
+  }));
+}
+
+function buildBaseTabs(ctx: TabContext): TabDef[] {
   const now: TabDef = {
     key: "now",
     label: "Now",
@@ -76,7 +91,8 @@ export function buildTabs(ctx: TabContext): TabDef[] {
 }
 
 function matches(prefix: string, pathname: string): boolean {
-  if (prefix === "/") return pathname === "/";
+  // The shell root ("/" or "/demo") only matches itself.
+  if (prefix === "/" || prefix === "/demo") return pathname === prefix;
   return pathname === prefix || pathname.startsWith(prefix + "/");
 }
 

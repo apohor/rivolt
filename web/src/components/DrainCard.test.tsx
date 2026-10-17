@@ -59,7 +59,17 @@ describe("DrainCard", () => {
   it("renders nothing when the endpoint is absent", async () => {
     stubFetchRoutes({}); // 404
     const { container } = renderCard();
-    await vi.waitFor(() => expect(container.querySelector('[aria-label="Parked drain"]')).toBeNull());
+    // While the request is in flight the titled skeleton shows; once the 404
+    // resolves it is gone and nothing is rendered.
+    await vi.waitFor(() => expect(container.querySelector('[data-testid="drain-skeleton"]')).toBeNull());
+    expect(container.querySelector('[aria-label="Parked drain"]')).toBeNull();
     expect(container.textContent).toBe("");
+  });
+
+  it("shows a titled skeleton while the request is pending", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    const { container } = renderCard();
+    expect(container.querySelector('[data-testid="drain-skeleton"]')).not.toBeNull();
+    expect(container.textContent).toContain("Parked drain");
   });
 });

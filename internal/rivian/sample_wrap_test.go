@@ -12,6 +12,7 @@ import (
 // wrap or anywhere inside a loop, and the wrap continues the scene
 // (same place, charge and plug state) rather than jumping.
 func TestSampleFeedNeverGoesSilent(t *testing.T) {
+	t.Parallel()
 	const maxSilence = 15 * time.Minute
 	f := NewSampleReplayFeed(nil, 0, nil)
 	ctx := context.Background()

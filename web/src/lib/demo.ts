@@ -20,8 +20,17 @@ export function detailPath(kind: DetailKind, id: string): string {
 }
 
 // listPath is the "back to all …" target: the demo's own page in the
-// demo (its tab is picked from the query string).
+// demo (charges live under Money, drives under Activity).
 export function listPath(kind: DetailKind): string {
   if (!inDemo()) return `/${kind}`;
-  return `/demo?tab=${kind === "charges" ? "money" : "activity"}`;
+  return kind === "charges" ? "/demo/money" : "/demo/activity";
+}
+
+// appPath maps an app route to where it lives right now: the same path
+// under /demo while in the demo shell. Use it for every in-app link and
+// navigate() that a demo visitor can reach, so they stay inside the demo.
+export function appPath(path: string): string {
+  if (!inDemo()) return path;
+  if (path === "/") return "/demo";
+  return path.startsWith("/demo") ? path : `/demo${path}`;
 }

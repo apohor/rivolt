@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -303,4 +304,154 @@ func SetVehicleProfile(ctx context.Context, d *sql.DB, userID, vehicleID uuid.UU
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// VehicleSync is what a Rivian sync knows about one vehicle. Zero values
+// mean "not known": they never overwrite a stored value.
+type VehicleSync struct {
+	RivianID  string
+	VIN       string
+	Name      string
+	Model     string
+	ModelYear int
+	// Trim is Rivian's trimOption.optionId (e.g. "PKG-ADV", "LRG-DM-PRFM"):
+	// InferPackKWh and the pack-health "documented" figure key on it.
+	Trim string
+	// PackKWh is the InferPackKWh guess; it only seeds a null pack_kwh,
+	// because the vehicle-reported capacity may already be stored.
+	PackKWh  float64
+	ImageURL string
+}
+
+// UpsertVehicleFromSync creates or refreshes the vehicles row for one
+// vehicle the user owns. Existing values are kept when the sync has none
+// (COALESCE), including trim and image_url, which the upsert used to drop.
+func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v VehicleSync) error {
+	_, err := d.ExecContext(ctx, `
+		INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, trim, pack_kwh, image_url)
+		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, 0)::int, NULLIF($7, ''), NULLIF($8, 0)::double precision, NULLIF($9, ''))
+		ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
+			vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
+			display_name = COALESCE(EXCLUDED.display_name, vehicles.display_name),
+			model        = COALESCE(EXCLUDED.model,        vehicles.model),
+			model_year   = COALESCE(EXCLUDED.model_year,   vehicles.model_year),
+			trim         = COALESCE(EXCLUDED.trim,         vehicles.trim),
+			image_url    = COALESCE(EXCLUDED.image_url,    vehicles.image_url),
+			-- Keep an existing pack_kwh: it may be the vehicle-reported
+			-- capacity (write-through from observeBatteryCapacity), which
+			-- must not be clobbered by InferPackKWh. Only seed when null.
+			pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
+			updated_at   = NOW()
+	`, userID, v.RivianID, v.VIN, v.Name, v.Model, v.ModelYear, v.Trim, v.PackKWh, v.ImageURL)
+	return err
+}
+
+// SetVehicleImageURL stores the hero image once the (slower) image lookup
+// has landed, only touching a row whose value differs.
+func SetVehicleImageURL(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID, url string) error {
+	if url == "" {
+		return nil
+	}
+	_, err := d.ExecContext(ctx, `
+		UPDATE vehicles SET image_url = $3, updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2 AND image_url IS DISTINCT FROM $3
+	`, userID, rivianID, url)
+	return err
+}
+
+// The OTA release details (current and available version with release-notes
+// links) live in vehicles.metadata under "ota", beside "profile": it is
+// per-vehicle data that dies with the row, so no new table. The sync also
+// records "ota_attempt_at" there as its once-a-day claim.
+
+// OTAUnavailableBackoff is how long a vehicle Rivian won't give OTA details
+// for (FORBIDDEN or unsupported, e.g. some R2s) is left alone.
+const OTAUnavailableBackoff = 7 * 24 * time.Hour
+
+// MarkOTAUnavailable records that Rivian said OTA details are not available
+// for the vehicle, which keeps ClaimOTAFetch from winning for a week.
+func MarkOTAUnavailable(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string) error {
+	_, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{ota_unavailable_at}', to_jsonb(NOW()::text))
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2`, userID, rivianVehicleID)
+	return err
+}
+
+// ClaimOTAFetch records an attempt to fetch the vehicle's OTA details and
+// reports whether this caller won it: no attempt in the last minInterval,
+// across pods and restarts. It matches only the user's own vehicle.
+func ClaimOTAFetch(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, minInterval time.Duration) (bool, error) {
+	var one int
+	err := d.QueryRowContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{ota_attempt_at}', to_jsonb(NOW()::text))
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2
+		   AND ( metadata->>'ota_attempt_at' IS NULL
+		      OR (metadata->>'ota_attempt_at')::timestamptz < NOW() - $3::interval )
+		   AND ( metadata->>'ota_unavailable_at' IS NULL
+		      OR (metadata->>'ota_unavailable_at')::timestamptz < NOW() - $4::interval )
+		RETURNING 1`,
+		userID, rivianVehicleID, fmt.Sprintf("%d microseconds", minInterval.Microseconds()),
+		fmt.Sprintf("%d microseconds", OTAUnavailableBackoff.Microseconds())).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// SetVehicleOTA stores the OTA details (a JSON object) for the user's
+// vehicle, keeping every other metadata key.
+func SetVehicleOTA(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianVehicleID string, ota json.RawMessage) error {
+	res, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET metadata = (COALESCE(metadata, '{}'::jsonb) - 'ota_unavailable_at') || jsonb_build_object('ota', $3::jsonb), updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2`, userID, rivianVehicleID, string(ota))
+	if err != nil {
+		return fmt.Errorf("vehicle ota update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ListVehicleOTAs returns the stored OTA details by rivian_vehicle_id for
+// the user's vehicles that have any.
+func ListVehicleOTAs(ctx context.Context, d *sql.DB, userID uuid.UUID) (map[string]json.RawMessage, error) {
+	rows, err := d.QueryContext(ctx, `
+		SELECT rivian_vehicle_id, metadata->'ota' FROM vehicles
+		 WHERE user_id = $1 AND metadata ? 'ota'`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]json.RawMessage{}
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		out[id] = json.RawMessage(raw)
+	}
+	return out, rows.Err()
+}
+
+// ListUserRivianVehicleIDs returns the user's rivian_vehicle_id values.
+func ListUserRivianVehicleIDs(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]string, error) {
+	rows, err := d.QueryContext(ctx, `SELECT rivian_vehicle_id FROM vehicles WHERE user_id = $1 ORDER BY created_at`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }

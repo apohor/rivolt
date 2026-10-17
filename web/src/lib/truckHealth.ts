@@ -26,7 +26,9 @@ export function softwareInfo(s: Pick<VehicleState, "ota_current_version" | "ota_
   const cur = (s.ota_current_version || "").trim();
   if (!cur) return null;
   const avail = (s.ota_available_version || "").trim();
-  return { current: cur, available: avail && avail !== cur ? avail : null };
+  // The feed reports "0.0.0" (or zeros) when no update is pending.
+  const none = avail === "" || /^0+(\.0+)*$/.test(avail);
+  return { current: cur, available: !none && avail !== cur ? avail : null };
 }
 
 export type SleepSummary = {
@@ -56,4 +58,17 @@ export function sleepSummary(days: DayActivity[], troubleThreshold = 3, now: Dat
     avgIdleMinutes: avg,
     avgDays: done.length,
   };
+}
+
+// safeNotesUrl: the release-notes link is an outbound link only. The server already keeps
+// plain https URLs, and this refuses anything else again before it reaches an href.
+export function safeNotesUrl(u: string | undefined | null): string | null {
+  if (!u) return null;
+  try {
+    const url = new URL(u);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }

@@ -1,9 +1,9 @@
-import { inDemo } from "../lib/demo";
+import { appPath, inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { track } from "../lib/track";
-import { backend } from "../lib/api";
+import { backend, type Charge } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { buildStatementCardModel, statementCardBlob } from "../lib/statementCard";
 import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
@@ -12,6 +12,7 @@ import { useSelectedVehicle } from "../lib/selectedVehicle";
 import {
   currentMonth,
   dataQualityNotes,
+  unidentifiedPending,
   estimatedShare,
   fetchLedgerMonth,
   fetchLedgerSummary,
@@ -23,17 +24,22 @@ import {
   type LedgerMonth,
   type MonthSummary,
   type Receipt,
+  statementTotal,
 } from "../lib/ledger";
+import { isOpenNetworkState } from "../lib/autoNetwork";
+import { formatDateTime } from "../lib/format";
+import { detailPath } from "../lib/demo";
 
 // Money: the monthly charging statement (ux-slice-spec §4, ledger
 // contract v1). Every total comes from the server; the page only
 // formats and explains. Gated by money_tab_enabled (see App.tsx).
 
-type ReceiptFilter = "all" | "home" | "away" | "dcfc";
+type ReceiptFilter = "all" | "home" | "away" | "dcfc" | "confirm";
 
 function receiptMatches(r: Receipt, f: ReceiptFilter): boolean {
   if (f === "all") return true;
   if (f === "dcfc") return r.kind === "dcfc";
+  if (f === "confirm") return false; // listed from charges, all months
   if (f === "home") return r.kind === "ac" && r.place === "home";
   return r.kind === "ac" && r.place === "away";
 }
@@ -57,7 +63,7 @@ export default function MoneyPage() {
     track("money_view", props);
   }, [month, thisMonth, params]);
   const [metric, setMetric] = useState<"cost" | "kwh">("cost");
-  const [filter, setFilter] = useState<ReceiptFilter>("all");
+  const [filter, setFilter] = useState<ReceiptFilter>(() => (params.get("filter") === "confirm" ? "confirm" : "all"));
 
   const setMonth = (m: string) => {
     const next = new URLSearchParams(params);
@@ -89,12 +95,23 @@ export default function MoneyPage() {
     retry: 1,
   });
 
+  const toConfirmN = summaryQ.data?.data.to_confirm_count ?? null;
+  // The "To confirm" view spans every month, so it comes from the charge
+  // list (the Money month only carries its own receipts).
+  const chargesQ = useQuery({
+    queryKey: ["charges", "all"],
+    queryFn: () => backend.allCharges(),
+    enabled: (toConfirmN ?? 0) > 0,
+    staleTime: 60_000,
+  });
+  const confirmCharges = (chargesQ.data ?? []).filter((c) => isOpenNetworkState(c.network_state));
+
   const m = monthQ.data?.data;
   const isSample = monthQ.data?.source === "fixture";
   const months = summaryQ.data?.data.months ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-ui-grid="money">
       <PageHeader
         title="Money"
         subtitle="What charging actually cost"
@@ -108,6 +125,7 @@ export default function MoneyPage() {
 
       {isSample && (
         <div
+          data-ui-area="m-banner"
           role="note"
           className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-2 text-xs text-sky-200"
         >
@@ -123,7 +141,7 @@ export default function MoneyPage() {
       ) : monthQ.isError ? (
         <ErrorBox title="Couldn't load this month" detail={String(monthQ.error)} />
       ) : m ? (
-        <Statement askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
+        <Statement toConfirm={summaryQ.data?.data.to_confirm_count ?? null} confirmCharges={confirmCharges} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
   );
@@ -163,6 +181,8 @@ function Statement({
   onMetric,
   filter,
   onFilter,
+  toConfirm,
+  confirmCharges,
 }: {
   askShare: boolean;
   sample: boolean;
@@ -172,6 +192,10 @@ function Statement({
   onMetric: (v: "cost" | "kwh") => void;
   filter: ReceiptFilter;
   onFilter: (f: ReceiptFilter) => void;
+  // charges awaiting confirmation of their auto-detected network (all
+  // months); null while DCFC auto-network is off
+  toConfirm: number | null;
+  confirmCharges: Charge[];
 }) {
   const cur = m.currency;
   // Server-owned splits only; by_place is absent on pre-§10 builds.
@@ -182,14 +206,29 @@ function Statement({
     : null;
   const where = !combined && m.energy.by_place ? placeSegments(m.energy.by_place) : null;
   const how = combined ? null : kindSegments(m.energy.by_kind);
-  const pending = m.spend.estimate_pending_sessions ?? 0;
+  // Auto-network is "in use" only when something actually carries it: the
+  // summary count is a plain int (0 for everyone, flag on or off), so
+  // 0 alone must keep the legacy wording.
+  const auto =
+    (toConfirm ?? 0) > 0 ||
+    m.receipts.some((r) => r.network_state != null || r.sessions.some((x) => x.network_state != null));
+  const unid = unidentifiedPending(m);
+  const pending = auto ? unid.sessions : (m.spend.estimate_pending_sessions ?? 0);
+  const pendingKwh = auto ? unid.kwh : (m.spend.estimate_pending_kwh ?? 0);
   const estShare = estimatedShare(m);
-  const notes = useMemo(() => dataQualityNotes(m), [m]);
+  const notes = useMemo(() => dataQualityNotes(m, auto), [m, auto]);
   const suspect = useMemo(() => suspectSessionCount(m), [m]);
   const shown = m.receipts.filter((r) => receiptMatches(r, filter));
 
   const prev = months.find((x) => x.period === shiftMonth(m.period, -1));
-  const delta = prev && prev.spend.total > 0 ? (m.spend.total - prev.spend.total) / prev.spend.total : null;
+  // Nothing priced this month (no charging, or every session unpriced): a
+  // "vs last month" delta (-100%) or a $/mi of $0 says nothing true, so both
+  // stay hidden.
+  // With Rivian receipts the headline is billed + estimated, so it always equals the two
+  // lines under it; otherwise it is the statement total as before.
+  const headline = statementTotal(m);
+  const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
+  const delta = hasCharging && prev && prev.spend.total > 0 ? (headline - prev.spend.total) / prev.spend.total : null;
   // Partial month (MQ8): the first month with any data, where activity
   // starts well after the 1st.
   const earliest = months.find((x) => x.first_activity_at != null);
@@ -203,7 +242,7 @@ function Statement({
 
   return (
     <>
-      <section className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
+      <section data-ui-area="m-hero" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-5" aria-label="Statement">
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {m.is_current_month && (
             <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-neutral-300">Month to date</span>
@@ -216,8 +255,8 @@ function Statement({
           )}
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
-          <div className="text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
-            {formatMoney(m.spend.total, cur)}
+          <div className="ui-bignum text-4xl font-semibold tracking-tight tabular-nums text-neutral-50 sm:text-5xl">
+            <span data-money-headline>{formatMoney(headline, cur)}</span>
           </div>
           {delta != null && (
             <div className={`pb-1.5 text-sm tabular-nums ${delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>
@@ -232,10 +271,33 @@ function Statement({
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging · {m.energy.kwh_added.toFixed(0)} kWh
           {m.driving.miles > 0 && <> · {m.driving.miles.toFixed(0)} mi</>}
-          {m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
+          {hasCharging && m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
 
-        {estShare > 0 && (
+        {toConfirm != null && toConfirm > 0 && (
+          <button
+            type="button"
+            onClick={() => onFilter("confirm")}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/20"
+          >
+            {toConfirm} {toConfirm === 1 ? "charge" : "charges"} to confirm →
+          </button>
+        )}
+
+        {m.spend.billed_total != null && m.spend.estimated_total != null && (
+          <p data-billed-split className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs tabular-nums">
+            <span className="text-emerald-300">
+              {formatMoney(m.spend.billed_total, cur)} billed by Rivian
+              {m.billed_sessions != null && <span className="text-neutral-500"> · {m.billed_sessions} {m.billed_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+            <span className="text-neutral-400">
+              {formatMoney(m.spend.estimated_total, cur)} estimated
+              {m.estimated_sessions != null && <span className="text-neutral-500"> · {m.estimated_sessions} {m.estimated_sessions === 1 ? "session" : "sessions"}</span>}
+            </span>
+          </p>
+        )}
+
+        {estShare > 0 && m.spend.billed_total == null && (
           <p className="mt-0.5 text-xs text-neutral-500">
             Includes{" "}
             <span className="underline decoration-dotted underline-offset-4">{Math.round(estShare * 100)}% estimated</span>{" "}
@@ -245,27 +307,53 @@ function Statement({
 
         {(pending > 0 || suspect > 0 || m.spend.unpriced_sessions > 0) && (
           <ul className="mt-3 space-y-1.5 text-xs">
-            {pending > 0 && (
+            {auto && pending + suspect > 0 && (
               <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
-                <span className="font-medium text-amber-200">Estimate pending:</span> {pending} fast-charging{" "}
-                {pending === 1 ? "session" : "sessions"} ({(m.spend.estimate_pending_kwh ?? 0).toFixed(1)} kWh){" "}
-                {pending === 1 ? "isn't" : "aren't"} in the total yet. An older version priced{" "}
-                {pending === 1 ? "it" : "them"} at your home rate. Add the price, or wait for the re-price.
+                <span className="font-medium text-amber-200">Couldn't identify the network</span> for{" "}
+                {pending + suspect} {pending + suspect === 1 ? "session" : "sessions"}
+                {pending > 0 && (
+                  <>
+                    {" "}
+                    ({pending} {pending === 1 ? "isn't" : "aren't"} in the total yet, {pendingKwh.toFixed(1)} kWh)
+                  </>
+                )}
+                . Pick the network to price {pending + suspect === 1 ? "it" : "them"}.
               </li>
             )}
-            {suspect > 0 && (
+            {!auto && pending > 0 && (
               <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
-                <span className="font-medium text-amber-200">Likely wrong:</span> {suspect}{" "}
-                {suspect === 1 ? "session" : "sessions"} away from home{" "}
+                {auto ? (
+                  <>
+                    <span className="font-medium text-amber-200">Couldn't identify the network:</span> {pending}{" "}
+                    fast-charging {pending === 1 ? "session" : "sessions"} ({pendingKwh.toFixed(1)} kWh){" "}
+                    {pending === 1 ? "isn't" : "aren't"} in the total yet. Pick the network to price{" "}
+                    {pending === 1 ? "it" : "them"}.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-amber-200">Estimate pending:</span> {pending} fast-charging{" "}
+                    {pending === 1 ? "session" : "sessions"} ({pendingKwh.toFixed(1)} kWh){" "}
+                    {pending === 1 ? "isn't" : "aren't"} in the total yet. An older version priced{" "}
+                    {pending === 1 ? "it" : "them"} at your home rate. Add the price.
+                  </>
+                )}
+              </li>
+            )}
+            {!auto && suspect > 0 && (
+              <li className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-100/90">
+                <span className="font-medium text-amber-200">
+                  {auto ? "Couldn't identify the network:" : "Likely wrong:"}
+                </span>{" "}
+                {suspect} {suspect === 1 ? "session" : "sessions"} away from home{" "}
                 {suspect === 1 ? "was" : "were"} priced at your home rate and {suspect === 1 ? "is" : "are"} in the
-                total.
+                total.{auto ? " Pick the network." : ""}
               </li>
             )}
             {m.spend.unpriced_sessions > 0 && (
               <li className="text-neutral-400">
                 Not included: {m.spend.unpriced_sessions} unpriced{" "}
                 {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh)
-                {m.spend.unpriced_home_rate_estimate != null && (
+                {m.spend.unpriced_home_rate_estimate != null && m.spend.unpriced_home_rate_estimate > 0 && (
                   <>
                     {" "}
                     ≈{" "}
@@ -273,6 +361,15 @@ function Statement({
                       {formatMoney(m.spend.unpriced_home_rate_estimate, cur)}
                     </span>{" "}
                     if charged at home
+                  </>
+                )}
+                {m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0 && (
+                  <>
+                    . No home rate is set;{" "}
+                    <Link to={appPath("/settings?tab=charging")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+                      set it in Settings
+                    </Link>{" "}
+                    to price home charging.
                   </>
                 )}
               </li>
@@ -290,6 +387,7 @@ function Statement({
       ) : (
         <>
           <Card
+            area="m-split"
             title="Where the energy came from"
             actions={
               <div className="inline-flex rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Split by">
@@ -314,29 +412,27 @@ function Statement({
             </div>
           </Card>
 
-          <Card
-            title="Receipts"
-            actions={
-              <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
-                {(["all", "home", "away", "dcfc"] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    aria-pressed={filter === f}
-                    onClick={() => onFilter(f)}
-                    className={`rounded-full border px-2 py-0.5 ${
-                      filter === f
-                        ? "border-emerald-600/60 bg-emerald-900/30 text-emerald-200"
-                        : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
-                    }`}
-                  >
-                    {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : "DCFC"}
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            {shown.length === 0 ? (
+          <Card title="Receipts" area="m-receipts">
+            <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
+              {(["all", "home", "away", "dcfc", ...(filter === "confirm" || (toConfirm ?? 0) > 0 ? (["confirm"] as const) : [])] as ReceiptFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={filter === f}
+                  onClick={() => onFilter(f)}
+                  className={`rounded-full border px-2 py-0.5 ${
+                    filter === f
+                      ? "border-emerald-600/60 bg-emerald-900/30 text-emerald-200"
+                      : "border-neutral-800 text-neutral-400 hover:text-neutral-100"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "home" ? "Home" : f === "away" ? "Away" : f === "dcfc" ? "DCFC" : "To confirm"}
+                </button>
+              ))}
+            </div>
+            {filter === "confirm" ? (
+              <ToConfirmList charges={confirmCharges} />
+            ) : shown.length === 0 ? (
               <p className="text-sm text-neutral-500">No receipts match this filter.</p>
             ) : (
               <ul className="-mx-2 divide-y divide-neutral-800/70">
@@ -433,6 +529,58 @@ function ShareStatementButton({
       )}
       {err && <span role="alert" className="text-xs text-rose-300">{err}</span>}
       {done && <span role="status" className="text-xs text-emerald-300">{done}</span>}
+    </div>
+  );
+}
+
+// ToConfirmList: every charge whose auto-detected network is awaiting a
+// look, across all months, newest first, grouped by month.
+function ToConfirmList({ charges }: { charges: Charge[] }) {
+  if (charges.length === 0) return <p className="text-sm text-neutral-500">Nothing to confirm.</p>;
+  const groups = new Map<string, Charge[]>();
+  for (const c of [...charges].sort((a, b) => b.StartedAt.localeCompare(a.StartedAt))) {
+    const key = new Date(c.StartedAt).toLocaleDateString("en-CA").slice(0, 7);
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  return (
+    <div className="space-y-4" data-testid="to-confirm-list">
+      {[...groups].map(([period, rows]) => (
+        <section key={period} aria-label={monthLabel(period)}>
+          <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">{monthLabel(period)}</h3>
+          <ul className="-mx-2 divide-y divide-neutral-800/70">
+            {rows.map((c) => {
+              const strong = c.network_state === "needs_confirmation";
+              const net = c.network_evidence?.candidates?.[0]?.network;
+              const priced = c.PricePerKWh > 0;
+              return (
+                <li key={c.ID}>
+                  <Link
+                    to={`${detailPath("charges", c.ID)}#pricing`}
+                    className="flex items-baseline justify-between gap-3 rounded-lg px-2 py-2 hover:bg-neutral-900/70"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-neutral-100">
+                        {formatDateTime(c.StartedAt)}
+                      </span>
+                      <span className="block text-xs text-neutral-400">
+                        {priced ? `${net ?? "Network"} · ${formatMoney(c.PricePerKWh, c.Currency || "USD", 3)}/kWh` : "Pick a network"}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-sm tabular-nums text-neutral-100">
+                        {priced ? formatMoney(c.Cost, c.Currency || "USD") : "Unpriced"}
+                      </span>
+                      <span className={`block text-[11px] ${strong ? "text-amber-300" : "text-neutral-500"}`}>
+                        {strong ? "Please confirm →" : "Estimated · confirm →"}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

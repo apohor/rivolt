@@ -15,7 +15,26 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
     staleTime: 5 * 60_000,
     retry: 0,
   });
-  if (q.isLoading) return <div className="h-32 animate-pulse rounded-xl border border-neutral-800 bg-neutral-900/50" />;
+  // A cold first load can take 3 to 6 s: show the card's own title over
+  // pulsing lines (never a bare bordered box, which read as an empty card),
+  // so the slot doesn't look missing. 404 or an error removes it.
+  if (q.isLoading) {
+    return (
+      <section
+        aria-label="Loading parked drain"
+        aria-busy="true"
+        data-testid="drain-skeleton"
+        className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4"
+      >
+        <h2 className="text-base font-semibold text-neutral-100">Parked drain</h2>
+        <div className="mt-3 space-y-2 animate-pulse" aria-hidden>
+          <div className="h-8 w-40 rounded-sm bg-neutral-800/70" />
+          <div className="h-3 w-3/4 rounded-sm bg-neutral-800/60" />
+          <div className="h-12 w-full rounded-sm bg-neutral-800/50" />
+        </div>
+      </section>
+    );
+  }
   if (!q.data) return null; // 404 or error: no card
   const d = q.data;
   const v = view(d.windows[win], win);

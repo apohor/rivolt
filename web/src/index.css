@@ -1,4 +1,7 @@
 @import 'tailwindcss';
+@import './styles/next-plan.css';
+@import './styles/next-type.css';
+@import './styles/next-activity.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
@@ -259,6 +262,16 @@ input[type="number"] {
   from tailwindcss/theme.css; with the flag off data-theme is never
   set, so none of this applies.
 */
+/* WCAG AA (axe on /demo): the stock neutral-500 is 4.0 to 4.2:1 on the dark
+   surfaces, and white on emerald-600 is 3.8:1. Lift the dark-theme secondary
+   text, and deepen emerald-600 (both themes) so white button text passes. */
+:root {
+  --color-emerald-600: oklch(52% 0.135 163.2);
+}
+html:not([data-theme='light']) {
+  --color-neutral-500: oklch(66% 0 0);
+}
+
 html[data-theme='light'] {
   color-scheme: light;
   --color-neutral-100: oklch(20.5% 0 0);
@@ -275,7 +288,7 @@ html[data-theme='light'] {
   --color-emerald-50: oklch(26.2% 0.051 172.552);
   --color-emerald-100: oklch(37.8% 0.077 168.94);
   --color-emerald-200: oklch(43.2% 0.095 166.913);
-  --color-emerald-300: oklch(50.8% 0.118 165.612);
+  --color-emerald-300: oklch(46% 0.108 165.612);
   --color-emerald-400: oklch(50.8% 0.118 165.612);
   --color-emerald-500: oklch(50.8% 0.118 165.612);
   --color-emerald-900: oklch(95% 0.052 163.051);
@@ -328,4 +341,489 @@ html[data-theme='light'] {
   --color-indigo-500: oklch(51.1% 0.262 276.966);
   --color-indigo-900: oklch(93% 0.034 272.788);
   --color-indigo-950: oklch(96.2% 0.018 272.314);
+}
+
+/* ---- ui_theme_next: the "cinematic cockpit" layer --------------------------
+   Everything here sits under html[data-ui='next'] (set by useApplyUiNext when
+   the flag or a ?ui=next override is on), so flag off is exactly today's UI.
+   Dark first: a cooler, near-black base with four elevation steps (token
+   overrides, so the whole app follows), a 1px top-edge highlight on cards, a
+   soft light pool behind the hero metric, glow only on live states, small-caps
+   labels, tabular mono numerals and 150-250 ms motion. Text keeps its
+   lightness (AA is checked by axe in the demo e2e); glows are decoration. */
+.ui-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+
+html[data-ui='next']:not([data-theme='light']) {
+  --color-neutral-950: oklch(13.5% 0.009 262);
+  --color-neutral-900: oklch(17.5% 0.011 262);
+  --color-neutral-800: oklch(24.5% 0.013 262);
+  --color-neutral-700: oklch(31.5% 0.014 262);
+  --ui-hero-tint: oklch(78% 0.15 168);
+  --ui-drive-tint: oklch(76% 0.12 235);
+  --ui-edge: oklch(100% 0 0 / 0.07);
+}
+
+html[data-ui='next']:not([data-theme='light']) body {
+  background-image: radial-gradient(120% 60% at 50% -10%, oklch(40% 0.05 250 / 0.18), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* Elevation: top-edge highlight and a faint vertical sheen on card surfaces. */
+html[data-ui='next']:not([data-theme='light']) :is(.rounded-xl, .rounded-lg)[class*='border-neutral-800'] {
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 1px 2px oklch(0% 0 0 / 0.45),
+    0 8px 24px -12px oklch(0% 0 0 / 0.5);
+  background-image: linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+
+/* Hero: a soft light pool behind the headline metric; glow only when live. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero] {
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(78% 0.15 168 / 0.13), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero][data-live='charging'] {
+  border-color: oklch(78% 0.15 168 / 0.42);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(78% 0.15 168 / 0.16),
+    0 0 44px -10px oklch(78% 0.15 168 / 0.4);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-hero][data-live='driving'] {
+  border-color: oklch(76% 0.12 235 / 0.42);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(76% 0.12 235 / 0.16),
+    0 0 44px -10px oklch(76% 0.12 235 / 0.4);
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(76% 0.12 235 / 0.13), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next'] .ui-gauge[data-live='true'] .ui-gauge-fill {
+  filter: drop-shadow(0 0 5px oklch(78% 0.15 168 / 0.6));
+}
+
+/* Type: tight small-caps labels, tabular mono numerals. */
+html[data-ui='next'] .uppercase.tracking-wide,
+html[data-ui='next'] .ui-label {
+  letter-spacing: 0.09em;
+  font-weight: 500;
+}
+/* Geist (sans, tabular figures) for the whole layer; Geist Mono only for the
+   hero readouts (Time left, the kW value); hint lines stay sans so they don't wrap. Both are
+   self-hosted woff2 (SIL OFL, src/assets/fonts), fetched only when the layer
+   is on, and allowed by font-src 'self'. */
+@font-face {
+  font-family: 'Geist UI';
+  src: url('./assets/fonts/geist-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Mono UI';
+  src: url('./assets/fonts/geist-mono-latin-wght-normal.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+html[data-ui='next'] body {
+  font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+html[data-ui='next'] .tabular-nums {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.012em;
+}
+html[data-ui='next'] .ui-mono {
+  font-family: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
+  letter-spacing: 0;
+}
+
+/* The top bar, the bottom tab bar and the sticky page header are fully solid:
+   anything translucent let page text read through them (qa2, iPhone). */
+html[data-ui='next']:not([data-theme='light']) header.sticky,
+html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed {
+  background-color: oklch(13.5% 0.009 262);
+}
+
+/* Charts: thinner gridlines. */
+html[data-ui='next'] svg line.text-neutral-800,
+html[data-ui='next'] svg line[class*='neutral-800'] {
+  opacity: 0.55;
+}
+
+/* Desktop cockpit: use the width. Now: hero beside the scope bar and the KPI
+   grid. Truck: drain and pack side by side, sleep and vehicle full width. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid] {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+  html[data-ui='next'] [data-ui-grid] > * {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  /* Now: header row, then the hero card beside the KPI grid at the SAME
+     height (the KPI rows stretch to fill); the wake warning drops below both. */
+  html[data-ui='next'] [data-ui-grid='now'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    align-items: stretch;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] {
+    display: contents;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] > [data-ui-hero] {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0; /* space-y margin would eat into the stretch */
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='hero'] > :not([data-ui-hero]) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='now'] > [data-ui-area='kpi'] {
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, 1fr);
+  }
+  html[data-ui='next'] [data-ui-grid='truck'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  html[data-ui='next'] [data-ui-grid='truck'] > :not([data-span='full']) {
+    grid-column: auto;
+  }
+}
+
+html[data-ui='next'] .ui-spark-line {
+  filter: drop-shadow(0 0 4px oklch(78% 0.15 168 / 0.7));
+}
+html[data-ui='next'] .ui-spark-dot {
+  filter: drop-shadow(0 0 5px oklch(84% 0.14 168 / 0.9));
+}
+
+/* Bars: a faint glow on the bar under the pointer or focus. */
+html[data-ui='next'] svg path[data-bar] {
+  transition: filter 160ms ease-out;
+}
+html[data-ui='next'] svg path[data-bar]:hover {
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+/* Maps: the route layers glow subtly. */
+html[data-ui='next']:not([data-theme='light']) .leaflet-overlay-pane canvas {
+  filter: drop-shadow(0 0 3px oklch(78% 0.15 168 / 0.55));
+}
+
+/* Skeletons shimmer instead of pulsing. */
+@keyframes ui-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+html[data-ui='next'] .animate-pulse {
+  animation: ui-shimmer 1.8s linear infinite;
+  background-image: linear-gradient(90deg, transparent 20%, oklch(100% 0 0 / 0.06) 50%, transparent 80%);
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui='next'] * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---- ui_theme_next: Activity and Money ------------------------------------ */
+
+/* Activity: a timeline rail with a glowing node per row (drive sky, charge
+   emerald, fast charge amber), day headers with a fading rule, and on
+   desktop two columns of days. */
+html[data-ui='next'] [data-ui-feed] > section > h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+html[data-ui='next'] [data-ui-feed] > section > h2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--color-neutral-800), transparent);
+}
+html[data-ui='next'] [data-ui-feed] ul {
+  position: relative;
+  padding-left: 1.25rem;
+}
+html[data-ui='next'] [data-ui-feed] ul::before {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 1px;
+  background: linear-gradient(180deg, var(--color-neutral-700), transparent);
+}
+html[data-ui='next'] [data-ui-feed] li {
+  position: relative;
+  --node: oklch(78% 0.15 168);
+}
+html[data-ui='next'] [data-ui-feed] li[data-kind='drive'] {
+  --node: oklch(76% 0.12 235);
+}
+html[data-ui='next'] [data-ui-feed] li[data-kind='fast'] {
+  --node: oklch(80% 0.15 75);
+}
+html[data-ui='next'] [data-ui-feed] li::before {
+  content: '';
+  position: absolute;
+  left: -1.2rem;
+  top: 1.1rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--node);
+  box-shadow: 0 0 0 3px oklch(13.5% 0.009 262), 0 0 10px 1px var(--node);
+}
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-feed] {
+    columns: 2;
+    column-gap: 2rem;
+  }
+  html[data-ui='next'] [data-ui-feed] > section {
+    break-inside: avoid;
+    margin: 0 0 1.25rem;
+  }
+  html[data-ui='next'] [data-ui-feed] > * + * {
+    margin-top: 0;
+  }
+}
+
+/* Money: a big statement numeral under a light pool; on desktop the statement
+   and the energy split sit left, the receipts right. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-area='m-hero'] {
+  background-image:
+    radial-gradient(60% 90% at 12% 0%, oklch(78% 0.15 168 / 0.13), transparent 70%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.03), transparent 45%);
+}
+html[data-ui='next'] .ui-bignum {
+  font-size: 3.25rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+@media (min-width: 1024px) {
+  /* Rows: header, statement, split (takes the slack beside the tall receipts). */
+  html[data-ui='next'] [data-ui-grid='money'] {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: auto auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-span='full']:first-child {
+    grid-row: 1;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-hero'] {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-split'] {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+  }
+  /* The "sample data" banner sits above the grid, full width, and pushes the
+     statement, split and receipts down one row. */
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-banner'] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
+    grid-template-rows: auto auto auto 1fr;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-hero'] {
+    grid-row: 3;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-split'] {
+    grid-row: 4;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-receipts'] {
+    grid-row: 3 / span 2;
+  }
+}
+
+/* Money: equal-height columns. The receipts card takes the height of the left
+   column (statement + energy split) and scrolls inside. */
+@media (min-width: 1024px) {
+  html[data-ui='next'] [data-ui-grid='money'] {
+    grid-template-rows: auto auto auto;
+  }
+  html[data-ui='next'] [data-ui-grid='money']:has(> [data-ui-area='m-banner']) {
+    grid-template-rows: auto auto auto auto;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] {
+    align-self: stretch;
+    height: 0;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  html[data-ui='next'] [data-ui-grid='money'] > [data-ui-area='m-receipts'] > div:last-child {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* ---- ui_theme_next: light theme -------------------------------------------
+   Same cockpit, light surfaces: white cards on a cool off-white base with soft
+   shadows (no heavy glow), a faint top-edge sheen, the hero light pool in a
+   pale emerald, live glow kept subtle, glass bars in white. The light token
+   scale above (html[data-theme='light']) already sets text and border
+   contrast; this block only adds elevation, light pools and glass. */
+html[data-ui='next'][data-theme='light'] {
+  --ui-edge: oklch(100% 0 0 / 0.9);
+  --color-neutral-950: oklch(97.6% 0.004 262);
+  --color-neutral-900: oklch(99.4% 0.002 262);
+  --color-neutral-800: oklch(91.5% 0.006 262);
+}
+html[data-ui='next'][data-theme='light'] body {
+  background-image: radial-gradient(120% 60% at 50% -10%, oklch(90% 0.05 168 / 0.35), transparent 70%);
+  background-attachment: fixed;
+}
+html[data-ui='next'][data-theme='light'] :is(.rounded-xl, .rounded-lg)[class*='border-neutral-800'] {
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 1px 2px oklch(30% 0.02 262 / 0.07),
+    0 10px 28px -16px oklch(30% 0.03 262 / 0.22);
+  background-image: linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out;
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero] {
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(80% 0.12 168 / 0.2), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero][data-live='charging'] {
+  border-color: oklch(60% 0.14 168 / 0.5);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(60% 0.14 168 / 0.18),
+    0 0 32px -12px oklch(60% 0.14 168 / 0.45);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-hero][data-live='driving'] {
+  border-color: oklch(58% 0.12 235 / 0.5);
+  box-shadow:
+    inset 0 1px 0 0 var(--ui-edge),
+    0 0 0 1px oklch(58% 0.12 235 / 0.18),
+    0 0 32px -12px oklch(58% 0.12 235 / 0.45);
+  background-image:
+    radial-gradient(70% 90% at 14% 0%, oklch(80% 0.1 235 / 0.2), transparent 72%),
+    linear-gradient(180deg, oklch(100% 0 0 / 0.7), transparent 55%);
+}
+html[data-ui='next'][data-theme='light'] .ui-gauge[data-live='true'] .ui-gauge-fill {
+  filter: drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.5));
+}
+html[data-ui='next'][data-theme='light'] .ui-spark-line {
+  filter: drop-shadow(0 0 3px oklch(60% 0.14 168 / 0.45));
+}
+html[data-ui='next'][data-theme='light'] .ui-spark-dot {
+  filter: drop-shadow(0 0 4px oklch(60% 0.14 168 / 0.7));
+}
+/* The bars in white, fully solid. */
+html[data-ui='next'][data-theme='light'] header.sticky,
+html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed {
+  background-color: oklch(99% 0 0);
+}
+/* Skeleton shimmer needs a dark sheen on light. */
+html[data-ui='next'][data-theme='light'] .animate-pulse {
+  background-image: linear-gradient(90deg, transparent 20%, oklch(0% 0 0 / 0.06) 50%, transparent 80%);
+}
+/* Maps keep their glow off in light (the basemap is bright). */
+html[data-ui='next'][data-theme='light'] svg line.text-neutral-800,
+html[data-ui='next'][data-theme='light'] svg line[class*='neutral-800'] {
+  opacity: 0.8;
+}
+/* Activity timeline nodes: the ring around each node matches the light page. */
+html[data-ui='next'][data-theme='light'] [data-ui-feed] li::before {
+  box-shadow: 0 0 0 3px oklch(97.6% 0.004 262), 0 0 8px 0 var(--node);
+}
+
+/* The sticky page header (from the scope work) is as solid as the nav bars. */
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(98.5% 0 0);
+}
+/* Sticky page header: the title row with the scope control stays under the top
+   nav on scroll, so the charts below always show which period they are for. */
+html[data-ui='next'] [data-ui-header] {
+  position: sticky;
+  top: calc(48px + env(safe-area-inset-top, 0px));
+  z-index: 1000;
+  margin-bottom: 1rem;
+  padding: 0.6rem 0;
+  align-items: center;
+  flex-wrap: nowrap;
+  border-bottom: 1px solid oklch(100% 0 0 / 0.05);
+  /* A soft shadow under the lower edge, so content slides cleanly under it. */
+  box-shadow: 0 8px 8px -8px oklch(0% 0 0 / 0.45);
+}
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262);
+}
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(98.5% 0 0);
+  border-bottom-color: oklch(0% 0 0 / 0.07);
+  box-shadow: 0 8px 8px -8px oklch(0% 0 0 / 0.14);
+}
+@media (max-width: 767.98px) {
+  html[data-ui='next'] [data-ui-header] {
+    padding: 0.4rem 0;
+    margin-bottom: 0.75rem;
+  }
+  html[data-ui='next'] [data-ui-header] h1 {
+    font-size: 1.5rem;
+  }
+  html[data-ui='next'] [data-ui-header] p {
+    display: none;
+  }
+}
+/* Bars: fully solid (alpha 1), nothing reads through behind the tab bar. The
+   Tailwind backdrop-blur-sm on the bars is dropped too: a blur behind an
+   opaque surface does nothing but cost a compositing layer. */
+html[data-ui='next'] header.sticky,
+html[data-ui='next'] .app-safe-bottom.fixed,
+html[data-ui='next'] [data-ui-header] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-ui='next']:not([data-theme='light']) header.sticky,
+html[data-ui='next']:not([data-theme='light']) .app-safe-bottom.fixed,
+html[data-ui='next']:not([data-theme='light']) [data-ui-header] {
+  background-color: oklch(13.5% 0.009 262);
+}
+html[data-ui='next'][data-theme='light'] header.sticky,
+html[data-ui='next'][data-theme='light'] .app-safe-bottom.fixed,
+html[data-ui='next'][data-theme='light'] [data-ui-header] {
+  background-color: oklch(99% 0 0);
 }

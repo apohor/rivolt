@@ -1,7 +1,7 @@
 # Sample-truck onboarding (P3)
 
 ## Goal
-A visitor sees the real product with realistic data before handing over Rivian credentials. Works for signed-out `/demo` and as a "Try with a sample truck" step in onboarding.
+A visitor sees the real product with realistic data before handing over Rivian credentials. Works for signed-out `/demo` (live at [demo.rivolt.dev](https://demo.rivolt.dev), a standalone read-only deployment, and on rivolt.dev once enabled) and as a "Try with a sample truck" step in onboarding.
 
 ## Hard rules
 - **Generated corpus only.** Never derive from the owner's truck or any real user. No real coordinates near anyone's home. Use public landmarks or synthetic places in one region.
@@ -31,7 +31,7 @@ Reuse `internal/rivian/replay.go` plumbing where possible; swap the source from 
 5. Optional "per-visitor" time shift is NOT needed: one shared sample is fine.
 
 ## UI contract (ux)
-1. `/demo` renders the same Now, Money, Activity, Plan screens against the sample vehicle id.
+1. `/demo` renders the same tabs (Now, Activity with its Feed, Table and Map views, Money, Plan, Truck) against the sample vehicle id; drive and charge detail pages open under `/demo` too.
 2. Persistent top banner: "Sample truck. Connect your Rivian to see yours" with a primary button to signup.
 3. In-app, when a signed-in user has no vehicle yet: a card "Try with a sample truck" next to "Connect Rivian".
 4. After connecting a real vehicle, the sample card disappears.

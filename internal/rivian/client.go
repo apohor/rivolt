@@ -50,6 +50,10 @@ type Vehicle struct {
 	// camera angle so the UI can build a gallery or swap the hero
 	// image on hover.
 	Images []VehicleImage `json:"images,omitempty"`
+	// OTA is the current and available software release with release-notes
+	// links (stored by the OTA sync, served by /api/vehicles); nil until the
+	// first fetch.
+	OTA *OTAInfo `json:"ota,omitempty"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at
@@ -105,8 +109,8 @@ type State struct {
 	OutsideTempC               float64 `json:"outside_temp_c"`
 	CabinPreconditioningStatus string  `json:"cabin_preconditioning_status"`
 	// PowerState is the vehicle's high-level power mode reported by the
-	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" | ""
-	// (unknown). Mirrors home-assistant-rivian's powerState sensor.
+	// gateway: "sleep" | "standby" | "ready" | "go" | "vehicle_reset" |
+	// "ota_update" | "shutdown" | "" (unknown). Mirrors home-assistant-rivian's powerState sensor.
 	PowerState string `json:"power_state"`
 	// ReplaySession is what Rivian's live charging session would report
 	// alongside this frame (the running billed price at a Rivian
@@ -118,6 +122,25 @@ type State struct {
 	// powerState.timeStamp, or the Parallax power.state frame time);
 	// zero when unknown. Anchors wake attribution (actions.go).
 	PowerStateAt time.Time `json:"-"`
+	// ChargingSchedules are the vehicle's scheduled charging windows
+	// (charging_schedule.go), read on connect, daily and at plug-in; nil
+	// until the first read. They explain a car that is plugged in and not
+	// charging.
+	ChargingSchedules []ChargingSchedule `json:"charging_schedules,omitempty"`
+	// ChargingSchedulesUnavailable is true when Rivian refuses to share this
+	// vehicle's schedules with the account (shared or authorized-driver
+	// accounts get FORBIDDEN). Not an error: the Now line just has nothing
+	// to say. Re-read after a week.
+	ChargingSchedulesUnavailable bool `json:"charging_schedules_unavailable,omitempty"`
+	// ChargerStatusPx marks a ChargerStatus taken from Parallax
+	// charging.session.status, on a vehicle whose vehicleState sends none
+	// (an R2). The recorder trusts it for "plugged" but keeps its power
+	// inference as the fallback.
+	ChargerStatusPx bool `json:"-"`
+	// VehicleStateFrameAt rides only on the snapshot the lease owner
+	// publishes for peer pods (liveStatePublisher), so they can serve
+	// /now's vehicle_state_frame_at; never set on the cache.
+	VehicleStateFrameAt *time.Time `json:"vehicle_state_frame_at,omitempty"`
 	// Safety / maintenance.
 	AlarmSoundStatus        string `json:"alarm_sound_status"`
 	TwelveVoltBatteryHealth string `json:"twelve_volt_battery_health"`
@@ -220,6 +243,10 @@ type LiveSession struct {
 	CurrentCurrency string  `json:"current_currency"`
 	IsFreeSession   bool    `json:"is_free_session"`
 	IsRivianCharger bool    `json:"is_rivian_charger"`
+	// RivianChargerKnown is true when a source reported isRivianCharger
+	// (only the REST getLiveSessionHistory fetch does), so a false
+	// IsRivianCharger means "another network", not "not reported".
+	RivianChargerKnown bool `json:"rivian_charger_known,omitempty"`
 	// Network is the display name of the charging network billing the
 	// session (e.g. "Rivian Adventure Network") when a source knows it.
 	// Rivian's live-session APIs carry no network name, so today only

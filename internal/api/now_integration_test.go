@@ -111,6 +111,53 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	if pa.State != "plugged" || pa.Asleep {
 		t.Fatalf("plugged+awake = %q asleep=%v, want plugged/false", pa.State, pa.Asleep)
 	}
+	// charger_status decides "plugged" when the row has one: an R2 reports
+	// charging_ready while parked unplugged.
+	for _, c := range []struct {
+		name, status, charge, want string
+		model                      string
+		kw                         float64
+	}{
+		{name: "rv-cs-unplugged", status: "chrgr_sts_not_connected", charge: "charging_ready", want: "parked"},
+		{name: "rv-cs-connected-idle", status: "chrgr_sts_connected_no_chrg", charge: "charging_ready", want: "plugged"},
+		{name: "rv-cs-connected-complete", status: "chrgr_sts_connected_no_chrg", charge: "charging_complete", want: "plugged"},
+		{name: "rv-cs-legacy-null", charge: "charging_ready", want: "plugged"}, // R1 without charger_status: old rule
+		{name: "rv-cs-unplugged-complete", status: "chrgr_sts_not_connected", charge: "charging_complete", want: "parked"},
+		// R2: never reports charger_status; charging_ready/complete say
+		// nothing about the plug, only charging_connecting with power does.
+		{name: "rv-r2-ready", model: "R2", charge: "charging_ready", want: "parked"},
+		{name: "rv-r2-ready-power", model: "R2", charge: "charging_ready", kw: 7, want: "parked"},
+		{name: "rv-r2-complete", model: "R2", charge: "charging_complete", want: "parked"},
+		{name: "rv-r2-connecting-idle", model: "R2", charge: "charging_connecting", want: "parked"},
+		{name: "rv-r2-connecting-power", model: "R2", charge: "charging_connecting", kw: 11, want: "plugged"},
+		{name: "rv-r2-status-connected", model: "R2", status: "chrgr_sts_connected_no_chrg", charge: "charging_ready", want: "plugged"},
+		// connected means plugged whatever the charging_state says
+		{name: "rv-cs-connected-waiting", status: "chrgr_sts_connected_no_chrg", charge: "charging_scheduled", want: "plugged"},
+		{name: "rv-cs-connected-waiting2", status: "chrgr_sts_connected_no_chrg", charge: "waiting_on_charger", want: "plugged"},
+		{name: "rv-cs-notconnected-waiting", status: "chrgr_sts_not_connected", charge: "waiting_on_charger", want: "parked"},
+		{name: "rv-r1-ready-model", model: "R1T", charge: "charging_ready", want: "plugged"},
+	} {
+		var vid string
+		if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,$2,NULLIF($3,'')) RETURNING id`, alice, c.name, c.model).Scan(&vid); err != nil {
+			t.Fatal(err)
+		}
+		var cs any
+		if c.status != "" {
+			cs = c.status
+		}
+		if _, err := pool.Exec(`INSERT INTO vehicle_state
+			(user_id, vehicle_id, at, source, power_state, shift_state, charging_state, charger_status, battery_level_pct, charger_power_kw, location_fix_at)
+			VALUES ($1,$2,$3,'live','ready','P',$4,$5,50,$6,$3)`, alice, vid, now.Add(-time.Minute), c.charge, cs, c.kw); err != nil {
+			t.Fatalf("seed %s: %v", c.name, err)
+		}
+		got, err := newNowSnapshotter(pool)(ctx, alice, c.name, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != c.want {
+			t.Errorf("%s: state = %q, want %q", c.name, got.State, c.want)
+		}
+	}
 	// Not Alice's vehicle: no data, state empty.
 	other, err := newNowSnapshotter(pool)(ctx, alice, "rv-bob", now)
 	if err != nil {

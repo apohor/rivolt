@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
@@ -182,6 +185,9 @@ func computeBlendedRate(priced []pricedCharge, cfg settings.ChargingConfig) (flo
 // (default: 24h ago), capped at ?limit= (default 1000, max 10000).
 // Optional ?until=<rfc3339> bounds the upper end so callers like the
 // drive detail page don't pull every post-drive sample through now.
+// Optional ?vehicle=<rivian vehicle id> scopes to one truck (the one the
+// drive or charge belongs to); without it every vehicle of the user is
+// returned, as before. An id the user doesn't own yields an empty list.
 func handleSamples(store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
@@ -205,7 +211,7 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 		// kept) rather than truncated to the oldest rows. The body stays
 		// a plain array; the flag is in headers so existing clients keep
 		// working.
-		res, err := store.ListBetweenDownsampled(r.Context(), since, until, limit)
+		res, err := store.ListBetweenDownsampledVehicle(r.Context(), strings.TrimSpace(r.URL.Query().Get("vehicle")), since, until, limit)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -222,12 +228,34 @@ func handleSamples(store *samples.Store) http.HandlerFunc {
 	}
 }
 
+// sleepActivityTTL is how long a computed sleep-activity series is
+// reused. The query window-scans up to 30 days of vehicle_state (prod
+// p95 was several seconds), and the series only changes as new samples
+// arrive, so a few minutes of staleness is invisible.
+const sleepActivityTTL = 5 * time.Minute
+
+var sleepActivityCache = newTTLCache[[]samples.DayActivity](sleepActivityTTL, 256)
+
+// sleepActivityKey is the cache key for one request: the window is
+// rounded down to the hour (since) and 5 minutes (until).
+func sleepActivityKey(uid uuid.UUID, vehicle string, since, until time.Time) string {
+	return strings.Join([]string{uid.String(), vehicle,
+		since.UTC().Truncate(time.Hour).Format(time.RFC3339),
+		until.UTC().Truncate(5 * time.Minute).Format(time.RFC3339)}, "|")
+}
+
 // handleSleepActivity returns per-day asleep/awake hours derived from the
 // persisted power_state column (migration 0038). Query params: `since`
 // (RFC3339, default 30d ago), `until` (optional), `vehicle` (optional
 // Rivian vehicle id to scope to one car). The series only has data from
 // the deploy that started recording power_state forward.
-func handleSleepActivity(store *samples.Store) http.HandlerFunc {
+//
+// Results are cached per (user, vehicle, window) for sleepActivityTTL,
+// per process. The window is part of the key rounded down to the hour
+// (since) and 5 minutes (until), because clients send "now minus N days"
+// and so never repeat an exact timestamp; the first caller in a bucket
+// computes with its exact bounds.
+func handleSleepActivity(uid uuid.UUID, store *samples.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusOK, []any{})
@@ -245,13 +273,22 @@ func handleSleepActivity(store *samples.Store) http.HandlerFunc {
 				until = t
 			}
 		}
-		out, err := store.SleepActivity(r.Context(), r.URL.Query().Get("vehicle"), since, until)
+		vehicle := r.URL.Query().Get("vehicle")
+		key := sleepActivityKey(uid, vehicle, since, until)
+		out, err := sleepActivityCache.get(key, func() ([]samples.DayActivity, error) {
+			// Shared with concurrent callers, so it must not die with
+			// this request's context.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 25*time.Second)
+			defer cancel()
+			res, err := store.SleepActivity(ctx, vehicle, since, until)
+			if res == nil {
+				res = []samples.DayActivity{}
+			}
+			return res, err
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		if out == nil {
-			out = []samples.DayActivity{}
 		}
 		writeJSON(w, http.StatusOK, out)
 	}

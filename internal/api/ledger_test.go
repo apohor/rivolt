@@ -25,7 +25,7 @@ func ledgerRouter(enabled map[string]bool, la ledgerAPI) http.Handler {
 	r := chi.NewRouter()
 	r.Route("/api/ledger", func(r chi.Router) {
 		r.Use(requireMoneyTabMW(func(uid string) bool { return enabled[uid] }))
-		r.Get("/enabled", handleLedgerEnabled)
+		r.Get("/enabled", handleLedgerEnabled(nil))
 		r.Get("/monthly", withUser(la.monthly))
 		r.Get("/summary", withUser(la.summary))
 		r.Get("/trips", withUser(la.trips))
@@ -229,5 +229,79 @@ func TestLedger_TripsValidation(t *testing.T) {
 	// Rows are loaded with padding around the window.
 	if !data.gotFrom.Before(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) || !data.gotTo.After(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("load window %s – %s not padded", data.gotFrom, data.gotTo)
+	}
+}
+
+func TestLedgerEnabled_ReportsUIThemeNextPerUser(t *testing.T) {
+	on, off := uuid.New(), uuid.New()
+	flag := func(userID string) bool { return userID == on.String() }
+	get := func(h http.HandlerFunc, uid *uuid.UUID) map[string]bool {
+		req := httptest.NewRequest(http.MethodGet, "/api/ledger/enabled", nil)
+		if uid != nil {
+			req = req.WithContext(auth.WithUser(req.Context(), *uid))
+		}
+		rec := httptest.NewRecorder()
+		h(rec, req)
+		var out map[string]bool
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+			t.Fatalf("status %d body %s: %v", rec.Code, rec.Body, err)
+		}
+		return out
+	}
+	h := handleLedgerEnabled(flag)
+	if got := get(h, &on); !got["enabled"] || !got["ui_theme_next"] {
+		t.Errorf("flagged user: %v", got)
+	}
+	if got := get(h, &off); !got["enabled"] || got["ui_theme_next"] {
+		t.Errorf("unflagged user: %v", got)
+	}
+	// No user in the context, or no flag source: off, never an error.
+	if got := get(h, nil); got["ui_theme_next"] {
+		t.Errorf("no user: %v", got)
+	}
+	if got := get(handleLedgerEnabled(nil), &on); !got["enabled"] || got["ui_theme_next"] {
+		t.Errorf("nil flag source: %v", got)
+	}
+	// A nil flags store keeps it off.
+	if uiThemeNextEnabled(nil)(on.String()) {
+		t.Error("nil store enabled the theme")
+	}
+}
+
+// The billed_* fields reach /api/ledger/monthly and /summary only for users
+// the rivian_receipts flag covers, and use the names the Money UI reads.
+func TestLedger_BilledFieldsFollowTheReceiptsFlag(t *testing.T) {
+	withReceipts, without := uuid.New(), uuid.New()
+	c := ledger.Charge{
+		ID: "c1", VehicleID: "veh-1",
+		StartedAt: time.Date(2026, 10, 9, 18, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 10, 9, 19, 0, 0, 0, time.UTC),
+		EnergyKWh: ledgerFloat(40), PeakKW: ledgerFloat(150), FinalState: "charging_complete", Source: "live",
+		Cost: ledgerFloat(16), Currency: "USD", PricePerKWh: ledgerFloat(0.4), CostSource: "network_estimate",
+		BilledCost: ledgerFloat(14.25), BilledCurrency: "USD", BilledVendor: "Electrify America", BilledCharger: "EA Reno",
+	}
+	data := &fakeLedgerData{charges: []ledger.Charge{c}}
+	la := data.api(time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC))
+	la.billed = func(uid uuid.UUID) bool { return uid == withReceipts }
+	h := ledgerRouter(map[string]bool{withReceipts.String(): true, without.String(): true}, la)
+
+	body := func(uid uuid.UUID, url string) string {
+		rec := ledgerGET(t, h, uid, url)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d %s", url, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	on := body(withReceipts, "/api/ledger/monthly?month=2026-10")
+	for _, key := range []string{`"billed_total":14.25`, `"estimated_total":0`, `"billed_sessions":1`, `"estimated_sessions":0`,
+		`"billed_cost":14.25`, `"billed_currency":"USD"`, `"billed_vendor":"Electrify America"`, `"billed_charger":"EA Reno"`} {
+		if !strings.Contains(on, key) {
+			t.Errorf("monthly with the flag on lacks %s:\n%s", key, on)
+		}
+	}
+	if sum := body(withReceipts, "/api/ledger/summary?months=1"); !strings.Contains(sum, `"billed_total":14.25`) || !strings.Contains(sum, `"billed_sessions":1`) || strings.Contains(sum, `"billed_vendor"`) {
+		t.Errorf("summary with the flag on: %s", sum)
+	}
+	if off := body(without, "/api/ledger/monthly?month=2026-10"); strings.Contains(off, "billed_") || strings.Contains(off, "estimated_total") {
+		t.Errorf("monthly with the flag off carries billed fields:\n%s", off)
 	}
 }

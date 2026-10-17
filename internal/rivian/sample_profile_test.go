@@ -52,7 +52,8 @@ func stops(fs []replayFrame) int {
 }
 
 func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	segs, all := driveFrames(c)
 	if len(segs) < 50 {
 		t.Fatalf("only %d drives", len(segs))
@@ -170,7 +171,8 @@ func TestDriveProfileRealisticAndPreservesTotals(t *testing.T) {
 // The speed is not a periodic function: two windows of one long drive
 // are not copies of each other, and the series has no dominant period.
 func TestDriveProfileNotPeriodic(t *testing.T) {
-	c := NewSampleCorpus(SampleSeed)
+	t.Parallel()
+	c := sharedSampleCorpus()
 	segs, all := driveFrames(c)
 	checked := 0
 	for k, s := range segs {
@@ -205,8 +207,9 @@ func TestDriveProfileNotPeriodic(t *testing.T) {
 }
 
 func TestDriveProfileDeterministic(t *testing.T) {
+	t.Parallel()
 	a, fa := driveFrames(NewSampleCorpus(SampleSeed))
-	b, fb := driveFrames(NewSampleCorpus(SampleSeed))
+	b, fb := driveFrames(sharedSampleCorpus())
 	if len(a) != len(b) {
 		t.Fatal("drive count differs")
 	}

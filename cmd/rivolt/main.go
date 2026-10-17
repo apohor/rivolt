@@ -50,9 +50,11 @@ import (
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -89,6 +91,10 @@ func main() {
 			os.Exit(runRepairChargeFragments(os.Args[2:]))
 		case "repair-phantom-charges":
 			os.Exit(runRepairPhantoms(os.Args[2:]))
+		case "repair-r2-history":
+			os.Exit(runRepairR2History(os.Args[2:]))
+		case "announce":
+			os.Exit(runAnnounce(os.Args[2:]))
 		}
 	}
 	runServer()
@@ -106,9 +112,22 @@ Usage:
                   carry a running energy total into one row. Dry run
                   unless --apply; --apply needs --user/--since/--until
                   and writes a CSV backup first.
-  rivolt reprice [--apply] [--user NAME]
+  rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-r2-history --vehicle ID --since T --until T [--apply --backup CSV]
+  rivolt repair-r2-history --vehicle ID --restore-csv FILE [--apply]
+                  Rebuild a vehicle's drives and charges in a window
+                  from its samples (R2s recorded before park/sleep came
+                  from Parallax). Dry run unless --apply; CSV backup
+                  first; one transaction; never migrates.
+  rivolt announce --subject S --body-file FILE [--apply] [--sent-log FILE]
+                  [--test-to USER_ID] [--exclude-user ID|NAME ...] [--rate 2]
+                  One-time service email to active users through the
+                  configured mailer, one message each. Dry run lists
+                  user id prefixes only; --apply sends and records each
+                  user id in --sent-log so a re-run resumes; --test-to
+                  sends to one user. Never migrates; never prints emails.
   rivolt repair-phantom-charges --ids FILE [--apply --backup CSV]
   rivolt repair-phantom-charges --restore BATCH | --restore-csv FILE [--apply]
                   Delete audited phantom live charges (dry run unless
@@ -147,6 +166,10 @@ Environment:
                                  nobody).
   RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
                                  client (preview: replay/mock/stub only).
+  RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN / _GLOBAL_PER_MIN
+                                 demo: anonymous map-tile budgets per
+                                 client and per install, requests/min
+                                 (default 1200 / 12000).
   RIVOLT_RESET_DATA=1            Wipe drives/charges/vehicle_state for the
                                  legacy "local" user on boot, then continue.
                                  Vehicles/settings/push are preserved.
@@ -180,6 +203,20 @@ func runServer() {
 	}
 	logger := slog.New(logging.NewContextHandler(inner))
 	slog.SetDefault(logger)
+
+	// Standalone public demo (RIVOLT_DEMO_ONLY): refuse a half-configured
+	// install, then make sure no sign-in, mail, push or AI subsystem can
+	// come up from stray environment, before any flag default reads it.
+	if demo.StrayOnly() {
+		logger.Warn("RIVOLT_DEMO_ONLY is set but RIVOLT_DEMO is not: IGNORING it; this is not a demo install. Remove the variable.")
+	}
+	if demo.MisconfiguredOnly() {
+		logger.Error("RIVOLT_DEMO_ONLY needs the replay sample demo (RIVOLT_DEMO=true, RIVIAN_CLIENT=replay, RIVOLT_REPLAY_SOURCE=sample, no RIVOLT_REPLAY_SOURCE_VEHICLE)")
+		os.Exit(1)
+	}
+	if demo.OnlyEnabled() {
+		demoOnlyScrubEnv(logger)
+	}
 
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
 	dataDir := flag.String("data-dir", envOr("DATA_DIR", "./data"), "directory for the SQLite database and caches")
@@ -336,7 +373,7 @@ func runServer() {
 	// VAPID without binding to a user. Per-user fan-out
 	// (digest sender) constructs its own service per request.
 	var pushSvc *push.Service
-	if pgPool != nil {
+	if pgPool != nil && !demo.OnlyEnabled() {
 		serverPushStore := push.NewServerStore(pgPool)
 		vapid, verr := push.LoadOrGenerateVAPID(ctx, serverPushStore, *vapidPub, *vapidPriv, *vapidSubject)
 		if verr != nil {
@@ -370,6 +407,18 @@ func runServer() {
 	// breaker gauge/counter) and the lease coordinator (which
 	// writes to the leases gauge) can both wire in at construction.
 	appMetrics := metrics.New()
+	// /metrics is served only on its own listener, never on the public
+	// router: the Ingress routes every path to the main port, so a
+	// /metrics route there is public (counts, route names, rate-limit
+	// state). RIVOLT_METRICS_ADDR sets the address (default :9090); "off"
+	// disables the listener.
+	metricsAddr := strings.TrimSpace(os.Getenv("RIVOLT_METRICS_ADDR"))
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+	if strings.EqualFold(metricsAddr, "off") {
+		metricsAddr = ""
+	}
 	// Resend email client. Both vars must be set for the client to
 	// actually send; otherwise the approve handler still returns the
 	// magic-link in the response so the admin can forward it manually.
@@ -685,6 +734,14 @@ func runServer() {
 		monitorRegistry.SetDCFCPriceLookupFactory(func(uid uuid.UUID) rivian.DCFCPriceLookup {
 			return newDCFCPricer(chargersArchive, settingsFactory.For(uid))
 		})
+		// Where dcfc_auto_network covers the user, detect the network
+		// with a confidence and a verify state instead (contract
+		// dcfc-auto-network v1); elsewhere the pricer above stands.
+		monitorRegistry.SetDCFCDetectorFactory(func(uid uuid.UUID) rivian.DCFCDetector {
+			return newDCFCDetector(chargersArchive, settingsFactory.For(uid), chargesFactory.For(uid), func() bool {
+				return flagsStore != nil && flagsStore.DCFCAutoNetwork().Enabled(uid.String())
+			})
+		})
 		// Live-session persistence: when Redis is wired, install a
 		// per-user LiveStateStore factory so each StateMonitor can
 		// rehydrate its in-flight drive/charge accumulators across
@@ -765,6 +822,22 @@ func runServer() {
 					if !c.EndedAt.After(c.StartedAt) {
 						return
 					}
+					// A DC fast charge auto-priced under dcfc_auto_network
+					// gets the confirm-or-change prompt instead of the
+					// generic "charging complete" push (one push per
+					// charge; rate limited per user).
+					if flagsStore != nil && flagsStore.DCFCAutoNetwork().Enabled(uid.String()) {
+						if e, ok := networkConfirmFor(c); ok {
+							pending := 0
+							if cs := chargesFactory.For(uid); cs != nil {
+								pctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+								pending, _, _ = cs.NetworkToConfirm(pctx)
+								cancel()
+							}
+							pushSvc.NotifyNetworkConfirm(userStore, uid.String(), e, pending)
+							return
+						}
+					}
 					summary := fmt.Sprintf(
 						"Ended at %d%% · %.1f kWh added",
 						int(c.EndSoCPct), c.EnergyAddedKWh,
@@ -804,6 +877,56 @@ func runServer() {
 				}
 			})
 			logger.Info("battery capacity persistence hook enabled")
+		}
+		// Persist vehicle metadata (trim, hero image) from the monitor's own
+		// RefreshVehicleInfo, which already fetched it: the vehicles.trim and
+		// image_url columns were empty for every vehicle but the one whose
+		// owner had opened /api/vehicles. COALESCE in the upsert means a
+		// blank never overwrites a stored value.
+		if pgPool != nil {
+			// OTA release details (version, release-notes link): once a day
+			// per vehicle and when a monitor connects (after the rows above
+			// exist), stored in vehicles.metadata and served by /api/vehicles.
+			otaSyncer := otadetails.New(pgPool, accountRegistry,
+				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) }, logger)
+			go otaSyncer.Run(ctx)
+			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
+				return func(vs []rivian.Vehicle) {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer cancel()
+						for _, v := range vs {
+							if v.ID == "" {
+								continue
+							}
+							if err := db.UpsertVehicleFromSync(ctx, pgPool, uid, db.VehicleSync{
+								RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear,
+								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL,
+							}); err != nil {
+								logger.Warn("persist vehicle info", "user_id", uid.String(), "rivian_vehicle_id", v.ID, "err", err.Error())
+							}
+						}
+						otaSyncer.OnConnect(uid)
+					}()
+				}
+			})
+		}
+		// Rivian charging receipts: what Rivian billed per session, stored
+		// next to our estimate (charges.receipt_*). Gated per user by the
+		// rivian_receipts flag; one summaries call per user a day plus one
+		// after a charge closes, details paced (internal/receipts).
+		if pgPool != nil && flagsStore != nil {
+			receiptSyncer := receipts.NewSyncer(
+				receipts.NewStore(pgPool), accountRegistry,
+				func(uid uuid.UUID) bool { return flagsStore.RivianReceipts().Enabled(uid.String()) },
+				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) },
+				logger,
+			)
+			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				return func(_ context.Context, _ charges.Charge) { receiptSyncer.OnChargeClose(uid) }
+			})
+			go receiptSyncer.Run(ctx)
+			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
 		// phones an off-LAN tile server unless the operator says so.
@@ -854,6 +977,9 @@ func runServer() {
 		// The replay backfill records sessions after boot, so the
 		// hand-priced hotel L2 gets its user price on a timer.
 		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		// The sample owner's saved Las Vegas plans follow the replay onto
+		// each loop's trip, for the demo's Plan vs Actual.
+		go demo.RunPlans(ctx, pgPool, settingsFactory, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every
@@ -901,7 +1027,7 @@ func runServer() {
 				}
 				restored++
 				logger.Info("rivian session restored",
-					"user_id", uid.String(), "email", sess.Email)
+					"user_id", uid.String())
 			}
 			logger.Info("rivian sessions hydrated", "mode", os.Getenv("RIVIAN_CLIENT"), "users_hydrated", restored)
 		}
@@ -1142,6 +1268,11 @@ func runServer() {
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
 		})
+		// Heal a lease held without a subscription (an exited run, a
+		// monitor that never started): reconcile re-subscribes it and
+		// counts the episode.
+		coord.SetStreamingCheck(monitorRegistry.Streaming)
+		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
 		// unsubscribed. This covers both account deletion (vehicles row
@@ -1265,7 +1396,7 @@ func runServer() {
 		}
 		if pgPool != nil {
 			if _, err := db.EnsureUser(ctx, pgPool, bypassUser); err != nil {
-				logger.Error("bypass user ensure", "username", bypassUser, "err", err.Error())
+				logger.Error("bypass user ensure", "user_hash", logging.IDHash(bypassUser), "err", logging.ScrubErr(err))
 				os.Exit(1)
 			}
 		}
@@ -1287,6 +1418,12 @@ func runServer() {
 	}
 
 	authSvc, err := auth.New(auth.Config{
+		// A parent-domain Kratos cookie reaches sibling hosts (preview,
+		// demo). RIVOLT_KRATOS_COOKIE_HOST names the one host where Kratos
+		// cookies are legitimately issued (rivolt.dev on prod AND preview:
+		// not each install's own host, or preview would accept prod's
+		// cookie). Unset leaves the guard off.
+		KratosHost:        os.Getenv("RIVOLT_KRATOS_COOKIE_HOST"),
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
 		TrustedProxyCIDRs: trustedNets,
@@ -1693,6 +1830,19 @@ func runServer() {
 		IdleTimeout: 90 * time.Second,
 	}
 
+	if metricsAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", appMetrics.Handler())
+		msrv := &http.Server{Addr: metricsAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			logger.Info("metrics listening", "addr", metricsAddr)
+			if err := msrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("metrics server error", "err", err.Error())
+			}
+		}()
+		defer func() { _ = msrv.Close() }()
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("http listening", "addr", *addr)
@@ -1967,10 +2117,16 @@ func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logg
 		Subject: subject,
 		Text:    body,
 	}); err != nil {
-		logger.Warn("setup email: send", "attempt", attempt, "err", err.Error())
+		// The provider's error text can echo the recipient; keep emails
+		// out of logs (the caller logs the user id).
+		msg := err.Error()
+		if to != "" {
+			msg = strings.ReplaceAll(msg, to, "<recipient>")
+		}
+		logger.Warn("setup email: send", "attempt", attempt, "err", msg)
 		return
 	}
-	logger.Info("setup email sent", "to", to, "attempt", attempt)
+	logger.Info("setup email sent", "attempt", attempt)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus
@@ -1991,6 +2147,15 @@ func (s *sleepMetrics) OnSleepEnded(_ string, _ time.Duration, failed bool) {
 		outcome = "failed"
 	}
 	s.m.VehicleSleepsTotal.WithLabelValues(outcome).Inc()
+}
+
+// OnParallaxReplayIgnored implements rivian.ParallaxReplayObserver.
+// topic is one of a few fixed Parallax RVM names (bounded cardinality).
+func (s *sleepMetrics) OnParallaxReplayIgnored(topic string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.ParallaxReplaysIgnoredTotal.WithLabelValues(topic).Inc()
 }
 
 type breakerMetrics struct{ m *metrics.Metrics }

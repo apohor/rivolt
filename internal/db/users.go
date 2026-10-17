@@ -328,6 +328,10 @@ func GetUserDetailForAdmin(ctx context.Context, d *sql.DB, uid uuid.UUID) (*Admi
 // indefinitely. Drop the leases in the same transaction, while the
 // vehicles rows still exist to resolve their ids, so the owning pod
 // sees them vanish on its next renew and tears the subscription down.
+//
+// charges_deleted_backup (repair-phantom-charges' undo copies) has no FK
+// either: it must outlive the charges it backs up. A deleted user's
+// copies go with them.
 func DeleteUser(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 	if d == nil || uid == uuid.Nil {
 		return nil
@@ -350,6 +354,9 @@ func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 		 WHERE vehicle_id IN (
 		     SELECT rivian_vehicle_id FROM vehicles WHERE user_id = $1
 		 )`, uid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM charges_deleted_backup WHERE user_id = $1`, uid); err != nil {
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)

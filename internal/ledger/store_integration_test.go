@@ -166,3 +166,115 @@ func TestLoad_NullsWindowVehicleAndIsolation(t *testing.T) {
 		t.Errorf("built from DB rows: spend %+v energy %+v", m.Spend, m.Energy)
 	}
 }
+
+func TestToConfirm_CountsAndIsolation(t *testing.T) {
+	pool := openPG(t)
+	ctx := context.Background()
+	alice, err := db.EnsureUser(ctx, pool, "confirm-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := db.EnsureUser(ctx, pool, "confirm-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	va := vehicle(t, pool, alice, "rv-a")
+	vb := vehicle(t, pool, bob, "rv-b")
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	ins := func(uid, veh uuid.UUID, id string, at time.Time, state any, source any) {
+		mustExec(t, pool, `INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source,
+			energy_added_kwh, max_power_kw, cost, price_per_kwh, cost_source, network, network_state, network_confidence, network_evidence)
+			VALUES ($1,$2,$3,$4,$5,'live',40,150,16,0.4,$7,'Tesla Supercharger',$6,0.7,'{"v":1}')`,
+			uid, veh, id, at, at.Add(30*time.Minute), state, source)
+	}
+	// Months apart: the count and list are all-time.
+	ins(alice, va, "a-est", base, "estimated", "network_estimate")
+	ins(alice, va, "a-need", base.AddDate(0, 5, 0), "needs_confirmation", "network_estimate")
+	ins(alice, va, "a-conf", base.AddDate(0, 2, 0), "confirmed", "network_estimate")
+	ins(alice, va, "a-plain", base.AddDate(0, 3, 0), nil, "rivian")
+	ins(bob, vb, "b-need", base, "needs_confirmation", "network_estimate")
+
+	open, attention, err := ledger.CountToConfirm(ctx, pool, alice)
+	if err != nil || open != 2 || attention != 1 {
+		t.Errorf("counts = %d/%d, %v; want 2/1", open, attention, err)
+	}
+	// The window loader carries the same fields.
+	p, _ := ledger.ParsePeriod("2026-03", time.UTC)
+	from, to := ledger.LoadWindow(p)
+	win, _, err := ledger.Load(ctx, pool, alice, "", from, to)
+	if err != nil || len(win) != 1 || win[0].NetworkState != "estimated" {
+		t.Errorf("window = %+v, %v", win, err)
+	}
+	if n, _, err := ledger.CountToConfirm(ctx, pool, bob); err != nil || n != 1 {
+		t.Errorf("bob = %d, %v", n, err)
+	}
+}
+
+// The loader carries what Rivian billed (charges.receipt_* plus the vendor,
+// charger name and home flag of the matched rivian_receipts row), and a
+// charge without a receipt loads with none.
+func TestLoad_BilledFromReceipts(t *testing.T) {
+	pool := openPG(t)
+	ctx := context.Background()
+	alice, err := db.EnsureUser(ctx, pool, "billed-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := vehicle(t, pool, alice, "rv-1")
+	in := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	var matched, bare, home uuid.UUID
+	for _, row := range []struct {
+		ext string
+		id  *uuid.UUID
+		at  time.Time
+	}{{"c-matched", &matched, in}, {"c-bare", &bare, in.Add(24 * time.Hour)}, {"c-home", &home, in.Add(48 * time.Hour)}} {
+		if err := pool.QueryRow(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source, cost, currency, cost_source)
+			VALUES ($1,$2,$3,$4,$5,30,'live',12.5,'USD','network_estimate') RETURNING id`, alice, v, row.ext, row.at, row.at.Add(time.Hour)).Scan(row.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, charger_name, is_home_charger, charge_id)
+		VALUES ($1,'t1',$2,$3,14.25,'USD','Electrify America','EA Reno 12',false,$4)`, alice, in, in.Add(time.Hour), matched)
+	mustExec(t, pool, `UPDATE charges SET receipt_cost = 14.25, receipt_currency = 'USD', receipt_txn_id = 't1', receipt_source = 'rivian_receipt' WHERE id = $1`, matched)
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, is_home_charger, charge_id)
+		VALUES ($1,'t2',$2,$3,5.5,'USD','Rivian',true,$4)`, alice, in.Add(48*time.Hour), in.Add(49*time.Hour), home)
+	mustExec(t, pool, `UPDATE charges SET receipt_cost = 5.5, receipt_currency = 'USD', receipt_txn_id = 't2', receipt_source = 'rivian_receipt' WHERE id = $1`, home)
+
+	// A second receipt that also points at the matched charge (matching
+	// misbehaving, a manual fix, a replay). The charge must still load once,
+	// with the receipt its own receipt_txn_id names.
+	mustExec(t, pool, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at, total_cost, currency, vendor, charger_name, is_home_charger, charge_id)
+		VALUES ($1,'t1-dup',$2,$3,99,'USD','Someone Else','Other Station',false,$4)`, alice, in, in.Add(time.Hour), matched)
+
+	p, _ := ledger.ParsePeriod("2026-10", time.UTC)
+	from, to := ledger.LoadWindow(p)
+	cs, _, err := ledger.Load(ctx, pool, alice, "", from, to)
+	if err != nil || len(cs) != 3 {
+		t.Fatalf("Load = %d rows, err %v; a second receipt on the same charge must not duplicate it", len(cs), err)
+	}
+	by := map[string]ledger.Charge{}
+	for _, c := range cs {
+		by[c.ID] = c
+	}
+	if m := by["c-matched"]; m.BilledVendor == "Someone Else" {
+		t.Errorf("the duplicate receipt was joined: %+v", m)
+	}
+	if m := by["c-matched"]; m.BilledCost == nil || *m.BilledCost != 14.25 || m.BilledCurrency != "USD" || m.BilledVendor != "Electrify America" || m.BilledCharger != "EA Reno 12" || m.BilledHome {
+		t.Errorf("matched = %+v", m)
+	}
+	if b := by["c-bare"]; b.BilledCost != nil || b.BilledVendor != "" || b.BilledCurrency != "" {
+		t.Errorf("a charge without a receipt loaded billed fields: %+v", b)
+	}
+	if h := by["c-home"]; h.BilledCost == nil || *h.BilledCost != 5.5 || !h.BilledHome {
+		t.Errorf("home = %+v", h)
+	}
+	// And the statement built from them (flag on): billed beside the estimate.
+	m := ledger.Build(ledger.Input{Charges: cs, Config: ledger.Config{Currency: "USD", HomeRate: 0.11, Billed: true}, Now: in.Add(72 * time.Hour)}, p, true)
+	if m.Spend.BilledTotal == nil || *m.Spend.BilledTotal != 19.75 || *m.BilledSessions != 2 || *m.EstimatedSessions != 1 {
+		t.Errorf("statement billed total %v sessions %v/%v", m.Spend.BilledTotal, m.BilledSessions, m.EstimatedSessions)
+	}
+	// Two billed sessions (19.75) plus the one estimated session (12.5): the headline is their sum.
+	if m.Spend.EstimatedTotal == nil || *m.Spend.EstimatedTotal != 12.5 || m.Spend.Total != 32.25 {
+		t.Errorf("estimated_total %v, spend.total %v; want 12.5 and 32.25", m.Spend.EstimatedTotal, m.Spend.Total)
+	}
+}

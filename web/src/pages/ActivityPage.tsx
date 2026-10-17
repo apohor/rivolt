@@ -1,12 +1,18 @@
 import { formatMoney } from "../lib/ledger";
+import { PeriodPicker } from "../components/PeriodPicker";
+import { filterByRange, periodRange, usePeriod } from "../lib/period";
+import { useUiNext } from "../lib/uiNext";
 import { displayTimeZone } from "../lib/format";
-import { detailPath, inDemo } from "../lib/demo";
+import { detailPath, inDemo, appPath } from "../lib/demo";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
-import { backend, type Charge } from "../lib/api";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { backend, type Charge, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { collapseRoundTrips } from "../lib/drives";
+import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView } from "../lib/activityView";
+import { ChargeTable, DriveTable, labelMap } from "../components/ActivityTables";
+import { ChargesOverviewMap, DrivesOverviewMap } from "../components/DriveMap";
 import { usePreferences } from "../lib/preferences";
 import { formatDuration, durationSeconds } from "../lib/format";
 import {
@@ -35,7 +41,16 @@ export default function ActivityPage() {
   const raw = params.get("f");
   const filter: Filter = raw === "drives" || raw === "charges" ? raw : "all";
   const [shown, setShown] = useState(PAGE);
+  const navigate = useNavigate();
   const { roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes } = usePreferences();
+  // ui_theme_next: the shared calendar scope filters the feed; off shows everything.
+  const next = useUiNext();
+  const [period, setPeriod] = usePeriod();
+  const range = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
+  // Table and Map views are a ui_theme_next layer; flag off ignores ?view.
+  const view: ActivityView = next ? parseActivityView(params.get("view")) : "feed";
+  // The All map shows one layer at a time (Drives or Charges), not two stacked maps.
+  const [mapLayer, setMapLayer] = useState<"drives" | "charges">("drives");
 
   const drivesQ = useQuery({ queryKey: ["drives", "all"], queryFn: () => backend.allDrives() });
   const chargesQ = useQuery({ queryKey: ["charges", "all"], queryFn: () => backend.allCharges() });
@@ -53,17 +68,37 @@ export default function ActivityPage() {
     retry: 1,
   });
   const homeRate = settingsQ.data?.home_price_per_kwh ?? null;
+  // Charge location badges for the table; absence just means no badge.
+  const clustersQ = useQuery({
+    queryKey: ["charges", "clusters"],
+    queryFn: () => backend.chargeClusters(),
+    staleTime: 60_000,
+    enabled: view === "table",
+  });
+  const labelByID = useMemo(() => labelMap(clustersQ.data ?? []), [clustersQ.data]);
+
+  // The rows behind the Table and Map views: the same period and round-trip
+  // collapse as the feed, before the All/Drives/Charges filter.
+  const driveRows = useMemo<Drive[]>(() => {
+    const ds = filterByRange(drivesQ.data ?? [], range);
+    return roundTripsEnabled ? collapseRoundTrips(ds, roundTripRadiusMeters, roundTripMaxGapMinutes) : ds;
+  }, [drivesQ.data, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  const chargeRows = useMemo(() => filterByRange(chargesQ.data ?? [], range), [chargesQ.data, range]);
+  const recordCount =
+    (filter !== "charges" ? driveRows.length : 0) + (filter !== "drives" ? chargeRows.length : 0);
+  const layer: "drives" | "charges" =
+    filter === "drives" ? "drives" : filter === "charges" ? "charges" : driveRows.length === 0 ? "charges" : chargeRows.length === 0 ? "drives" : mapLayer;
 
   const days = useMemo(() => {
-    const ds = drivesQ.data ?? [];
+    const ds = filterByRange(drivesQ.data ?? [], range);
     const merged = roundTripsEnabled
       ? collapseRoundTrips(ds, roundTripRadiusMeters, roundTripMaxGapMinutes)
       : ds;
-    return buildFeed(merged, chargesQ.data ?? [], {
+    return buildFeed(merged, filterByRange(chargesQ.data ?? [], range), {
       home: homeQ.data?.set ? homeQ.data : null,
       filter,
     });
-  }, [drivesQ.data, chargesQ.data, homeQ.data, filter, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  }, [drivesQ.data, chargesQ.data, homeQ.data, filter, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
 
   const total = days.reduce((n, d) => n + d.items.length, 0);
   let budget = shown;
@@ -82,53 +117,134 @@ export default function ActivityPage() {
         subtitle="Drives and charges, newest first"
         // The table pages are signed-in only: no links to them in the demo.
         actions={
-          inDemo() ? undefined : (
+          <>
+          {next && <PeriodPicker value={period} onChange={(p) => { setPeriod(p); setShown(PAGE); }} />}
+          {next || inDemo() ? undefined : (
           <span className="text-xs text-neutral-500">
             Tables:{" "}
-            <Link to="/drives" className="text-neutral-300 hover:text-emerald-300">
+            <Link to={appPath("/drives")} className="text-neutral-300 hover:text-emerald-300">
               Drives
             </Link>
             {" · "}
-            <Link to="/charges" className="text-neutral-300 hover:text-emerald-300">
+            <Link to={appPath("/charges")} className="text-neutral-300 hover:text-emerald-300">
               Charges
             </Link>
           </span>
-          )
+          )}
+          </>
         }
       />
-      <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            onClick={() => {
-              // Keep every other param: in the demo, `tab=activity` is what
-              // keeps this view open.
-              const next = new URLSearchParams(params);
-              if (f.key === "all") next.delete("f");
-              else next.set("f", f.key);
-              setParams(next, { replace: true });
-              setShown(PAGE);
-            }}
-            className={`rounded-md px-3 py-1.5 ${filter === f.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.key}
+              onClick={() => {
+                // Keep every other param: in the demo, `tab=activity` is what
+                // keeps this view open.
+                const next = new URLSearchParams(params);
+                if (f.key === "all") next.delete("f");
+                else next.set("f", f.key);
+                setParams(next, { replace: true });
+                setShown(PAGE);
+              }}
+              className={`rounded-md px-3 py-1.5 ${filter === f.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {next && (
+          <div role="group" aria-label="View" data-activity-views className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+            {ACTIVITY_VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                aria-pressed={view === v.key}
+                onClick={() => setParams(withActivityView(params, v.key), { replace: true })}
+                className={`rounded-md px-3 py-1.5 ${view === v.key ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {drivesQ.isLoading || chargesQ.isLoading ? (
         <Spinner />
       ) : drivesQ.isError && chargesQ.isError ? (
         <ErrorBox title="Couldn't load activity" detail={String(drivesQ.error)} />
+      ) : view !== "feed" ? (
+        recordCount === 0 ? (
+          <Card>
+            <p className="text-sm text-neutral-400">
+              {range.start || range.end
+                ? "Nothing recorded in this period. Step to another period or pick All."
+                : "Nothing recorded yet. Drives and charges appear here as they happen."}
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-5" data-activity-view={view}>
+            {(drivesQ.isError || chargesQ.isError) && (
+              <p role="status" className="text-xs text-amber-300">
+                {drivesQ.isError ? "Drives" : "Charges"} couldn't be loaded, so this view is incomplete.
+              </p>
+            )}
+            {view === "map" && filter === "all" && driveRows.length > 0 && chargeRows.length > 0 && (
+              <div role="group" aria-label="Map layer" data-activity-layers className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+                {([["drives", "Drives", driveRows.length], ["charges", "Charges", chargeRows.length]] as const).map(([k, l, n]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    aria-pressed={layer === k}
+                    onClick={() => setMapLayer(k)}
+                    className={`rounded-md px-3 py-1.5 ${layer === k ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+                  >
+                    {l} <span className="text-neutral-500">{n}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {filter !== "charges" && driveRows.length > 0 && (view !== "map" || layer === "drives") && (
+              <section aria-label="Drives">
+                {filter === "all" && <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Drives</h2>}
+                <Card>
+                  {view === "map" ? (
+                    <DrivesOverviewMap drives={driveRows} onSelect={(id) => navigate(detailPath("drives", id))} height={380} />
+                  ) : (
+                    <DriveTable drives={driveRows} compact />
+                  )}
+                </Card>
+              </section>
+            )}
+            {filter !== "drives" && chargeRows.length > 0 && (view !== "map" || layer === "charges") && (
+              <section aria-label="Charges">
+                {filter === "all" && <h2 className="mb-2 text-xs uppercase tracking-wide text-neutral-500">Charges</h2>}
+                <Card>
+                  {view === "map" ? (
+                    <ChargesOverviewMap charges={chargeRows} onSelect={(id) => navigate(detailPath("charges", id))} height={380} />
+                  ) : (
+                    <ChargeTable charges={chargeRows} labelByID={labelByID} compact />
+                  )}
+                </Card>
+              </section>
+            )}
+          </div>
+        )
       ) : total === 0 ? (
         <Card>
-          <p className="text-sm text-neutral-400">Nothing recorded yet. Drives and charges appear here as they happen.</p>
+          <p className="text-sm text-neutral-400">
+            {range.start || range.end
+              ? "Nothing recorded in this period. Step to another period or pick All."
+              : "Nothing recorded yet. Drives and charges appear here as they happen."}
+          </p>
         </Card>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-5" data-ui-feed>
           {(drivesQ.isError || chargesQ.isError) && (
             <p role="status" className="text-xs text-amber-300">
               {drivesQ.isError ? "Drives" : "Charges"} couldn't be loaded, so this feed is incomplete.
@@ -140,11 +256,11 @@ export default function ActivityPage() {
               <ul className="space-y-2">
                 {d.items.map((it) =>
                   it.kind === "drive" ? (
-                    <li key={it.drive.ID}><DriveCard item={it} /></li>
+                    <li key={it.drive.ID} data-kind="drive"><DriveCard item={it} /></li>
                   ) : it.kind === "charge" ? (
-                    <li key={it.charge.ID}><ChargeCard item={it} homeRate={homeRate} /></li>
+                    <li key={it.charge.ID} data-kind={it.fast ? "fast" : "charge"}><ChargeCard item={it} homeRate={homeRate} /></li>
                   ) : (
-                    <li key={it.drives[0].drive.ID}><ErrandsRow item={it} /></li>
+                    <li key={it.drives[0].drive.ID} data-kind="drive"><ErrandsRow item={it} /></li>
                   ),
                 )}
               </ul>

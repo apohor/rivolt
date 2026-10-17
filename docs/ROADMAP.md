@@ -20,8 +20,23 @@
 
 - ✅ **In production at [rivolt.dev](https://rivolt.dev)**, preview
   at [preview.rivolt.dev](https://preview.rivolt.dev) tracking `main`
-  via ArgoCD. v0.17.198 is the current prod release at time of
-  writing; preview rolls forward on every tag push.
+  via ArgoCD. v0.36.0 is the current prod release at time of
+  writing; preview rolls forward on every merge to `main`, and prod
+  moves on tag pushes. The public demo is standalone at
+  [demo.rivolt.dev](https://demo.rivolt.dev).
+- ✅ **v0.36.0: the new look is the default for everyone** — the
+  `ui_theme_next` flag is on for all users. The five-tab shell (Now,
+  Activity, Money, Plan, Truck) gets one type scale, solid bars, an SoC
+  trend chart and a compact idle tile on Now. **Plan was rebuilt
+  map-first** as composable plumbing (`web/src/plan/`: tabs, shared stop
+  selection, a phone bottom sheet, the route bar with collapsed options);
+  **Activity** gains Feed | Table | Map views over the same period scope.
+  See ARCHITECTURE.md → Web UI.
+- ✅ **CI e2e** — Playwright runs on every web PR (Chromium shards, a
+  WebKit iPhone shard, a flag-off legacy suite) behind one required
+  `e2e-ok` check, with a quarantine file and a cap test; preview deploys
+  right after the image is published (waiting for tests only when a
+  migration ships) and Go and browser caches are saved from `main`.
 - ✅ MVP shipped (v0.1 → v0.7) — Rivian client, live panel,
   drive/charge history, charge-location clustering (Home / Public /
   Fast), push notification scaffolding.

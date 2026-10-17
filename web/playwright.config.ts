@@ -11,10 +11,21 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.pw.ts",
   fullyParallel: true,
-  retries: 0,
-  reporter: [["list"]],
+  // CI: one retry (a flaky pass shows as "flaky" in the report), two workers
+  // per shard, and an HTML report to upload next to the screenshots.
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 2 : undefined,
+  reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]] : [["list"]],
   outputDir: "./e2e/__results__",
   use: { baseURL: `http://127.0.0.1:${PORT}` },
+  // Chromium runs everything. WebKit (the engine behind iPhone Safari, where
+  // users are) runs the phone specs only, and only where it is installed:
+  // CI sets E2E_WEBKIT=1; a laptop without the WebKit download is not asked
+  // to run it. Select one with --project=chromium|webkit.
+  projects: [
+    { name: "chromium", use: { browserName: "chromium" } },
+    ...(process.env.E2E_WEBKIT ? [{ name: "webkit", use: { browserName: "webkit" as const }, grep: /iphone|phone/i }] : []),
+  ],
   webServer: {
     command: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
     url: `http://127.0.0.1:${PORT}`,

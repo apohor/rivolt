@@ -107,6 +107,64 @@ const charge = (n: number, daysAgo: number, o: Record<string, unknown> = {}) => 
   ...o,
 });
 
+// Sample preset trips served by GET /api/demo/trips (synthetic, not real roads).
+export const DEMO_PRESETS = [
+  {
+    id: "la-vegas",
+    name: "LA to Las Vegas",
+    inputs: {
+      origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" },
+      destination: { lat: 36.17, lon: -115.14, label: "Las Vegas" },
+      extra_stops: [],
+      starting_soc: "90",
+      target_soc: "20",
+    },
+    summary: { distance_mi: 270, duration_min: 245, charge_stops: 1, arrival_soc_pct: 24 },
+  },
+  {
+    id: "la-san-diego",
+    name: "LA to San Diego",
+    inputs: {
+      origin: { lat: 34.05, lon: -118.24, label: "Los Angeles" },
+      destination: { lat: 32.72, lon: -117.16, label: "San Diego" },
+      extra_stops: [],
+      starting_soc: "80",
+      target_soc: "20",
+    },
+    summary: { distance_mi: 120, duration_min: 120, charge_stops: 0, arrival_soc_pct: 52 },
+  },
+];
+
+export const DEMO_PLAN = {
+  Status: "OK",
+  ChargeStationsAvailable: true,
+  SoCBelowLimit: false,
+  Routes: [
+    {
+      DestinationReached: true,
+      TotalChargingDurationSec: 1500,
+      TotalDriveDurationSec: 13200,
+      TotalTripDurationSec: 14700,
+      TotalDriveDistanceMeters: 434500,
+      ArrivalSoC: 24,
+      ArrivalReachableMeters: 90000,
+      EnergyConsumptionKWh: 118,
+      BatteryEmptyToDestMeters: 0,
+      BatteryEmptyLat: 0,
+      BatteryEmptyLon: 0,
+      RouteResponseRaw: null,
+      Waypoints: [
+        { WaypointType: "origin", EntityID: "", Name: "Los Angeles", Latitude: 34.05, Longitude: -118.24, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 90, DepartureSoC: 90, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 0 },
+        { WaypointType: "charger", EntityID: "demo-1", Name: "Sample Fast Charge, Barstow", Latitude: 34.9, Longitude: -117.02, MaxPowerKW: 200, ChargeDurationSec: 1500, ArrivalSoC: 38, DepartureSoC: 65, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 215000 },
+        { WaypointType: "destination", EntityID: "", Name: "Las Vegas", Latitude: 36.17, Longitude: -115.14, MaxPowerKW: 0, ChargeDurationSec: 0, ArrivalSoC: 24, DepartureSoC: 24, ArrivalReachableMeters: 0, DepartureReachableMeters: 0, AdapterRequired: false, DistanceFromOriginMeters: 434500 },
+      ],
+    },
+  ],
+  costs: [
+    { currency: "USD", dcfc_spend: 14.4, dcfc_spend_user_member: 11.2, dcfc_spend_all_member: 11.2, home_equivalent: 13, gas_equivalent: 52, gas_price_per_gallon: 4.5, gas_mpg: 25, dcfc_rate_used: 0.5, dcfc_rate_used_user_member: 0.4, dcfc_rate_used_all_member: 0.4, home_rate_used: 0.11 },
+  ],
+};
+
 export type RivianState = "ok" | "mfa" | "reauth" | "disconnected" | "backend-down" | "paused";
 
 export type DrainMode = "absent" | "ok" | "insufficient";
@@ -114,6 +172,8 @@ export type DrainMode = "absent" | "ok" | "insufficient";
 export type StubOptions = {
   // No basemap archive configured (tiles.url empty).
   noTiles?: boolean;
+  // Real basemap for design screenshots: an absolute pmtiles URL (e.g. preview's).
+  tilesUrl?: string;
   // features.signup_enabled=false (RIVOLT_SIGNUP_DISABLED).
   signupDisabled?: boolean;
   // GET /api/vehicles/{id}/drain: sufficient, thin data, or 404.
@@ -123,21 +183,44 @@ export type StubOptions = {
   nowEndpoint?: boolean;
   // Serve GET /api/demo (public sample truck).
   demo?: boolean;
+  // Standalone demo deployment: features.demo_only + app_url in /api/config.
+  demoOnly?: boolean;
   scenario?: NowScenario;
   signedIn?: boolean;
   landing?: boolean;
   admin?: boolean;
+  // The server-side new-look flag on /api/ledger/enabled (no localStorage override).
+  uiNext?: boolean;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", uiNext = false } = opts;
   const month = currentMonth();
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+  // No service worker in the harness: once it controls the page, requests the
+  // page makes go through it and WebKit does not hand them to page.route, so
+  // the stubbed API never answered ("checking…" forever). The app treats the
+  // worker as a progressive enhancement, so the specs lose nothing.
+  await page.addInitScript(() => {
+    try {
+      if (navigator.serviceWorker) navigator.serviceWorker.register = () => new Promise(() => {});
+    } catch {
+      /* no service worker support */
+    }
+  });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const p = url.pathname;
+    // Absolute remote URLs (the real basemap in design screenshots) pass through.
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      // preview sends duplicate CORS headers, so fetch it here and re-serve with one.
+      const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "range, if-match, if-none-match", "access-control-expose-headers": "content-range, content-length, etag" };
+      if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
+      const r = await route.fetch();
+      return route.fulfill({ status: r.status(), headers: { ...r.headers(), ...cors, "access-control-allow-origin": "*" }, body: await r.body() });
+    }
     if (p === "/api/auth/me") {
       return signedIn
         ? json(route, { user_id: "u-sample", username: "sample@example.com", role: admin ? "admin" : "user" })
@@ -145,14 +228,14 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo, signup_enabled: !signupDisabled },
-        tiles: { url: noTiles ? "" : "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
+        tiles: { url: noTiles ? "" : tilesUrl || "/api/maps/tiles/us.pmtiles", chargers_url: tilesUrl ? tilesUrl.replace("us.pmtiles", "chargers.pmtiles") : "/api/maps/tiles/chargers.pmtiles" },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
       });
     }
     if (p === "/api/demo") {
-      return demo
+      return demo || demoOnly
         ? json(route, { enabled: true, vehicle_id: VEHICLE_ID, home_label: "Sample lot" })
         : json(route, { error: "not found" }, 404);
     }
@@ -168,7 +251,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         reason: "not_opted_in",
       });
     }
-    if (p === "/api/ledger/enabled") return json(route, { enabled: true });
+    if (p === "/api/ledger/enabled") return json(route, { enabled: true, ...(uiNext ? { ui_theme_next: true } : {}) });
     if (p === "/api/ledger/monthly") return json(route, ledgerMonthFixture(url.searchParams.get("month") || month));
     if (p === "/api/ledger/summary") return json(route, ledgerSummaryFixture(12));
     if (p === "/api/health") {
@@ -276,6 +359,13 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         });
       }
       return json(route, out);
+    }
+    if (p === "/api/demo/trips") {
+      return demo || demoOnly ? json(route, { trips: DEMO_PRESETS }) : json(route, { error: "not found" }, 404);
+    }
+    const dp = p.match(/^\/api\/demo\/trips\/([a-z0-9-]+)\/plan$/);
+    if (dp) {
+      return demo && DEMO_PRESETS.some((x) => x.id === dp[1]) ? json(route, DEMO_PLAN) : json(route, { error: "not found" }, 404);
     }
     if (p === "/api/trips/saved") {
       const inputs = {

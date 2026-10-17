@@ -1,12 +1,12 @@
 # Rivolt
 
-> A real Rivian companion. Live telemetry, per-trip analytics, a real
-> charging cost ledger, and a route planner that tells you what a road
-> trip will actually cost.
+> A Rivian companion. Live status, per-trip analytics, a charging
+> cost ledger, and a map-first route planner that estimates what a road
+> trip will cost.
 
 **Rivolt** is an open-source companion app for Rivian vehicles. It
-streams live telemetry from your truck, records every drive and
-charging session against your *real* electricity rate, and plans road
+shows your truck's live state, records every drive and
+charging session against your own electricity rate, and plans road
 trips with cost / weather / efficiency analysis built in.
 
 Rivolt turns your Rivian's charging and driving into a priced ledger
@@ -14,132 +14,121 @@ you own, and a planner that accounts for what a trip will cost.
 
 ---
 
-## Try the live demo
+## Try the demo
 
-**[preview.rivolt.dev/demo](https://preview.rivolt.dev/demo)** is a read-only
-demo on a *generated* sample truck: no sign-in, no Rivian account, and
-no real vehicle data. Browse the Now card, the Money statement and the
-Activity feed the way you would on your own truck.
+**[demo.rivolt.dev](https://demo.rivolt.dev)** is a stable, read-only demo
+on a *generated* sample truck: no sign-in, no Rivian account, and no
+real vehicle data. Browse every tab below the way you would on your
+own truck, and open the planner's sample trips to see a route with
+charging stops.
 
-- It runs on the **preview** environment, so it can reset or be briefly
-  unavailable.
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
-- Connecting a real Rivian requires an invite while Rivolt is in beta;
-  see [`docs/SIGNUP.md`](docs/SIGNUP.md).
+- To use it with your own truck, sign up directly — no invite needed; see [`docs/SIGNUP.md`](docs/SIGNUP.md).
 
 ---
 
-## Overview — see your truck at a glance
+## Five tabs
 
-The home view stitches together what you actually care about right
-now: current SoC and range, where the truck is, whether it's
-plugged in, the most recent drive, the most recent charge, and the
-rolling weekly totals (miles, kWh, $).
+Rivolt is organised around five tabs: **Now**, **Activity**,
+**Money**, **Plan** and **Truck**. Now, Activity and
+Truck share one calendar scope (Week, Month, Year, All or a custom
+range), Money steps month by month, and the app follows your system
+light / dark setting (or the Appearance card in Settings).
 
-![Rivolt overview page](docs/screenshots/overview.png)
+### Now — the truck at a glance
 
----
+The current state on one card: battery as an arc with the charge limit
+marked on it, range, and whether the truck is parked, plugged in,
+charging or driving (live frames while it moves, slower when parked).
+Under it, the numbers for the scope you picked: miles since the last
+charge, miles, energy added, efficiency, cost, and an Idle awake tile
+that links to Truck. Below those, miles per day and a battery trend
+with charging and driving shaded behind the line, so you can see why
+the percentage moved.
 
-## Live — real-time telemetry
+![Now](docs/screenshots/now.png)
 
-The Live page subscribes to Rivian's WebSocket feed and renders
-1–5 s frames while you're driving (~30 s when parked). SoC, range,
-gear, drive mode, charger state, inside / outside temp, tire
-pressures, and the GPS dot all move in real time. Useful in the
-passenger seat to verify a route, or from the kitchen to see if
-the truck actually started charging when you plugged it in.
+### Activity — every drive and charge
 
-![Live panel](docs/screenshots/live.png)
+One day-grouped **Feed** of drives and charges, newest first, with
+**Table** and **Map** views of the same rows (the map shows Drives or
+Charges one layer at a time). Open any row for its detail page.
 
----
+**Drives.** Distance, duration, average speed, energy used and cost.
+The detail page draws the road-snapped route (self-hosted Valhalla over
+a Protomaps basemap) coloured by speed, with time-aligned charts for
+speed, SoC, elevation, temperature, headwind and precipitation, and
+weather context for the drive's start hour from Open-Meteo when
+enabled. A "Low GPS accuracy" pill appears when the modem returned
+stale fixes or implausible jumps; its thresholds are admin-tunable.
 
-## Drives — every trip explained
+**Charges.** Date, location, energy delivered, peak kW and cost. The
+detail page has the power curve, peak and average kW, session
+duration and, when the Parallax feed is available, the thermal split
+between energy into the pack and energy spent on battery conditioning.
+Sessions are bucketed Home / Public / Fast by clustering on coordinates
+and peak kW; home sessions price against your configured home rate,
+others against the cost Rivian reports.
 
-The Drives page lists every recorded drive with distance, duration,
-average speed, energy used, cost, and a route preview. Click in to
-land on the per-drive detail: the map is road-snapped via
-self-hosted Valhalla and coloured by speed — gray for parking-lot crawls,
-rose for interstate — over a Protomaps basemap. Below the map,
-time-aligned charts for speed, SoC, elevation, temperature,
-headwind, and precipitation; weather context for the drive's start
-hour pulled from Open-Meteo when enabled.
+![Activity](docs/screenshots/activity.png)
 
-A "Low GPS accuracy" pill surfaces when the Rivian modem returned
-stale fixes or implausible jumps during the drive, with thresholds
-that are admin-tunable so the warning doesn't fire on every parking
-garage.
+### Money — what charging actually cost
 
-![Drives list](docs/screenshots/drives.png)
+A monthly statement: spend for the month, how it compares with the
+last one, and where the energy came from (Home, Away, DCFC) in dollars
+or kWh. Receipts list every session with its price and where that price
+came from, and anything estimated or unpriced is flagged rather than
+guessed (with a one-tap way to add the price). "About these numbers"
+spells out what is and is not included in the total.
 
-![Drive detail page](docs/screenshots/drive-details.png)
+![Money](docs/screenshots/money.png)
 
----
+### Plan — a map-first trip planner
 
-## Charges — every kWh, every dollar
+This is the feature the app was built for. On a computer the map fills
+the right of the page and stays put while you work on the left; on a
+phone the map is on top and the trip sits in a sheet you drag up.
 
-The Charges page lists every charging session — date, location,
-energy delivered, peak kW, total cost. Click in for the full
-detail: power curve over time, peak and average kW, energy
-delivered, session duration, and — when the Parallax feed is
-available — the thermal split between energy going to the pack
-and energy spent on battery conditioning.
+- **Route bar.** From and To (with a swap button), departure, starting
+  SoC on a slider, and a Plan button. Via-stops, target arrival SoC,
+  drive mode and the adapter switch live under "More options".
+- **Result.** Rivolt asks Rivian's own planner for a route with
+  charging stops and shows arrival SoC, trip cost, time, distance and
+  charging time, with alternatives as a compact chooser.
+- **Itinerary.** Start, every charging stop and arrival as a vertical
+  timeline. Open a stop for the charger and network, SoC in and out,
+  charge time, energy and cost, and see it highlighted on the map (and
+  the reverse).
+- **Map.** Self-hosted Protomaps basemap with the route, plus a charger
+  overlay along the route corridor (distance to the polyline, not a
+  bounding box) with DCFC / L2 / Hotels filters from NREL AFDC data.
+- **Cost.** Dollar figures come from your home rate, stop SoC deltas
+  and each matched network's rate (your member rate where set), not
+  from an LLM. When the operator wires an AI provider, short
+  commentary on cost, efficiency, weather and the vehicle is added.
+- **Saved and Plan vs actual.** Planner, Saved and Plan vs actual are
+  tabs at the top; after you drive a saved trip the app compares plan
+  and reality (cost, energy, stops, arrival battery, duration).
 
-Sessions are automatically bucketed `Home` / `Public` / `DCFC` by
-DBSCAN clustering on coordinates and peak kW; sessions in your
-home cluster price against your configured home rate, sessions
-out in the wild price against the session's actual reported cost
-when Rivian provides it.
+![Plan](docs/screenshots/plan.png)
 
-![Charges list](docs/screenshots/charges.png)
+### Truck — health, sleep and drain
 
-![Charge detail page](docs/screenshots/charge-details.png)
+Parked drain, pack capacity and the lowest tire pressure and software
+version the truck reports. The sleep chart shows idle-awake time per
+day (the car awake while parked and not charging), with a warning when
+it keeps waking up again within a minute.
 
----
+![Truck](docs/screenshots/truck.png)
 
-## Trip planner — plan with cost in mind
+### On a phone, and in light
 
-This is the feature the app was built for. Pick origin, destination,
-optional via-stops, and a departure date/time on the calendar.
-Rivolt asks Rivian's own planner to lay out a route with charging
-stops, then layers on top of it:
+The same tabs work at phone width, and the main tabs have a light theme.
 
-- A self-hosted Protomaps basemap with the actual route drawn in.
-- A charger overlay along the route corridor — perpendicular
-  distance to the polyline, not bounding box, with arc-length
-  trimming near the endpoints so the destination metro doesn't
-  drag in dozens of irrelevant downtown stations.
-- DCFC / L2 / All toggle on the charger overlay, sourced from
-  NREL AFDC data with proper DCFC vs L2 discrimination (Tesla
-  Destination chargers no longer mis-classified as Supercharger).
-- Last-trip persistence — closing and reopening lands you back on
-  yesterday's setup.
-- Departure-time-aware arrival clock: the table shows arrival
-  HH:MM at every stop based on your chosen departure, not "now".
+![Plan on a phone](docs/screenshots/plan-phone.png) ![Now on a phone](docs/screenshots/now-phone.png)
 
-![Trip planner](docs/screenshots/trip-planner.png)
-
----
-
-## Trip analysis — what the trip actually costs
-
-After the route comes back, the **Trip analysis** card breaks it
-down. The dollar figures are computed deterministically in Go —
-not asked of an LLM — from your home rate, stop SoC deltas, and an
-industry-default DCFC rate:
-
-- **DCFC spend** — what you'll actually pay at fast chargers along
-  the way.
-- **Home-rate equivalent** — what the total energy used would have
-  cost if every kWh came from your home meter; useful as a
-  "what is this trip actually costing me" baseline.
-
-Around those numbers, when an AI provider is wired by the operator,
-the model writes short categorised commentary across **Cost**,
-**Efficiency** (drive mode, departure timing), **Weather** (only
-when there's something material — cold-snap, headwind > 15 kph,
-precipitation), and **Vehicle** (tire pressures, pack size, adapter
-dependency at any stop). Empty categories hide their headers.
+![Now in light](docs/screenshots/now-light.png)
 
 ---
 
@@ -161,7 +150,7 @@ A five-tab layout for the per-user controls:
 
 ---
 
-## Notifications — push that actually fires
+## Notifications — web push
 
 Web Push (VAPID), per-device subscribe. Enable once on each
 device you want pinged, pick which events you care about, and
@@ -176,8 +165,7 @@ anomaly alerts have the plumbing — event sources land next.
 
 See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
 of:
-- requesting beta access and finishing signup from the one-click
-  email link an admin sends,
+- signing up directly,
 - connecting your Rivian account (with the dedicated Authorized
   Driver account approach we recommend),
 - importing your history from ElectraFi,
@@ -215,7 +203,7 @@ of:
   Multi-tenant from day one: every data-plane store carries
   `user_id`, every query filters on it, every request pins
   `app.user_id` so RLS does the final enforcement at the DB.
-- **React 18 + TypeScript + Vite + Tailwind v3** for the SPA;
+- **React 19 + TypeScript + Vite + Tailwind v4** for the SPA;
   TanStack Query for the data layer; uPlot for time-series
   charts; Leaflet + protomaps-leaflet for maps.
 - **Optional AI providers** — OpenAI, Anthropic, or Google Gemini,
@@ -227,8 +215,10 @@ of:
 
 ## Status
 
-In production at [rivolt.dev](https://rivolt.dev). Preview at
-[preview.rivolt.dev](https://preview.rivolt.dev) tracks `main`.
+In production at [rivolt.dev](https://rivolt.dev). The demo at
+[demo.rivolt.dev](https://demo.rivolt.dev) runs on generated data, and
+a preview at [preview.rivolt.dev](https://preview.rivolt.dev) tracks
+`main`.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's queued and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the load-bearing

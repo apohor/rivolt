@@ -3,6 +3,7 @@ import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
+import { forVehicle } from "../lib/vehicleSamples";
 import { backend, ApiError, type DriveWeatherSeries, type Sample } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 // Lazy-load DriveMap so the Leaflet + Protomaps bundle only ships
@@ -108,7 +109,8 @@ export default function DriveDetailPage() {
       // drives that's hours/days of post-drive parked + charging
       // rows that the SPA throws away after a filter pass.
       const until = new Date(endMs + 10 * 60_000);
-      return backend.samples(since, 20_000, until);
+      // The endpoint isn't vehicle-scoped: keep this drive's truck only.
+      return backend.samples(since, 20_000, until, drive!.VehicleID).then((r) => forVehicle(r, drive!.VehicleID));
     },
   });
 

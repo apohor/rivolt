@@ -193,10 +193,21 @@ func (m *StateMonitor) logWakeAttribution(vehicleID string, sleptSeen, observed 
 	if st := m.cache[vehicleID]; st != nil {
 		carAt = st.PowerStateAt
 	}
+	frameAt := m.wokeAt[vehicleID]
 	m.mu.RUnlock()
 
+	// Anchor on when the first awake frame arrived, on our clock like
+	// the action log, so a request that frame triggered sorts after the
+	// wake (+), never before it. The gate's tick (observed) lags it by
+	// up to sleepGateTick; the car's own time is on another clock.
+	plausible := func(t time.Time) bool {
+		return !t.IsZero() && t.After(sleptSeen.Add(-wakeAnchorSlack)) && t.Before(observed.Add(wakeAnchorSlack))
+	}
 	anchor, source := observed, "observed"
-	if !carAt.IsZero() && carAt.After(sleptSeen.Add(-wakeAnchorSlack)) && carAt.Before(observed.Add(wakeAnchorSlack)) {
+	switch {
+	case plausible(frameAt) && !frameAt.Before(sleptSeen):
+		anchor, source = frameAt, "frame"
+	case plausible(carAt):
 		anchor, source = carAt, "car"
 	}
 	before := m.client.RecentActions(vehicleID, anchor.Add(-lastActionHorizon), anchor)
@@ -215,6 +226,9 @@ func (m *StateMonitor) logWakeAttribution(vehicleID string, sleptSeen, observed 
 		"wake_at", anchor.UTC().Format(time.RFC3339Nano), "wake_source", source,
 		"seen_after", observed.Sub(anchor).Round(100 * time.Millisecond).String(),
 		"actions_2m", strings.Join(parts, "; ")}
+	if source != "car" && plausible(carAt) {
+		attrs = append(attrs, "car_wake_at", carAt.UTC().Format(time.RFC3339Nano))
+	}
 	if n := len(before); n > 0 {
 		last := before[n-1]
 		attrs = append(attrs, "last_action", last.String(),

@@ -1,0 +1,102 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 1093,
+      "TotalDriveDurationSec": 13570,
+      "TotalTripDurationSec": 14663,
+      "TotalDriveDistanceMeters": 424701,
+      "ArrivalSoC": 30.1,
+      "ArrivalReachableMeters": 145935.1,
+      "EnergyConsumptionKWh": 106.7,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Rose Bowl parking (sample)",
+          "Latitude": 34.1613,
+          "Longitude": -118.1676,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "Barstow, CA [Rivian Adventure Network]",
+          "Latitude": 34.851348,
+          "Longitude": -117.082573,
+          "MaxPowerKW": 150,
+          "ChargeDurationSec": 1093,
+          "ArrivalSoC": 58.4,
+          "DepartureSoC": 80,
+          "ArrivalReachableMeters": 283414.7,
+          "DepartureReachableMeters": 387916.3,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T17:29:13Z",
+          "DepartureTimeUTC": "2026-11-14T17:47:26Z",
+          "DistanceFromOriginMeters": 164507
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Las Vegas, NV",
+          "Latitude": 36.1699,
+          "Longitude": -115.1398,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 30.1,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 145935.1,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T20:04:23Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 424701
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend": 16.977600000000002,
+      "dcfc_spend_user_member": 15.279840000000002,
+      "dcfc_spend_all_member": 15.279840000000002,
+      "home_equivalent": 17.072,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "dcfc_rate_used": 0.6,
+      "dcfc_rate_used_user_member": 0.54,
+      "dcfc_rate_used_all_member": 0.54,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "ran",
+          "network_name": "Rivian Adventure Network",
+          "charger_name": "Barstow, CA [Rivian Adventure Network]",
+          "energy_kwh": 28.296000000000003,
+          "guest_rate": 0.6,
+          "user_rate": 0.54,
+          "all_member_rate": 0.54,
+          "member_plan": "Rivian owner (10% off)"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package rivian
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"log/slog"
@@ -40,6 +41,16 @@ type StateMonitor struct {
 	// must not re-take a lock the hot path just dropped.
 	sampleMu     sync.Mutex
 	lastSampleAt map[string]time.Time
+	// fallbackAt is when /api/state on this pod last fetched a vehicle
+	// it doesn't stream straight from Rivian (ServeState), so that path
+	// calls Rivian at most once per stateRefetchEvery.
+	fallbackMu sync.Mutex
+	fallbackAt map[string]time.Time
+
+	// remoteLatest holds RemoteLatest's recent reads of the shared store
+	// (remoteLatestTTL).
+	remoteMu     sync.Mutex
+	remoteLatest map[string]remoteLatestEntry
 	// wsSeen[vehicleID] is true once we've received at least one WS
 	// frame for that vehicle in this process's lifetime. Until then
 	// adaptiveRefreshInterval polls REST aggressively (2 min) so a
@@ -49,7 +60,17 @@ type StateMonitor struct {
 	// Cleared on Unsubscribe; survives WS reconnects within a single
 	// process. Guarded by mu.
 	wsSeen map[string]bool
+	// wokeAt[vehicleID] is when this pod received the frame that took
+	// the cached PowerState out of sleep: the wake attribution anchor
+	// (our clock, like the action log's), which the sleep gate only
+	// sees on its next tick. Written by putCacheLocked; guarded by mu.
+	wokeAt map[string]time.Time
 	active map[string]context.CancelFunc
+	// activeCtx[vehicleID] is the context of the run goroutine that
+	// active[vehicleID] cancels, so a goroutine exiting after a quick
+	// release → re-acquire removes only its own entry, not its
+	// successor's (see releaseActive).
+	activeCtx map[string]context.Context
 	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
 	// to non-owning goroutines (notably periodicRefresh) so a REST
 	// observation that the car just woke up can poke the WS to
@@ -58,6 +79,10 @@ type StateMonitor struct {
 	// call and cleared on return; nil/missing entry means the
 	// supervisor is currently in backoff. Guarded by mu.
 	subCancel map[string]context.CancelCauseFunc
+	// subCtx[vehicleID] is the context subCancel[vehicleID] cancels, so a
+	// subscription that ends after its successor started clears only its
+	// own handle (clearSubCancel). Guarded by mu.
+	subCtx map[string]context.Context
 	// shortSubEnds[vehicleID] holds recent timestamps of abnormally
 	// short-lived WS sessions. A burst of them means the live feed is
 	// flapping — the classic signature of a *competing subscriber to the
@@ -132,6 +157,21 @@ type StateMonitor struct {
 	// Guarded by mu.
 	lastPxGear   map[string]string
 	lastPxGearAt map[string]time.Time
+	// lastPxPower[vehicleID] is the last fresh Parallax power state
+	// (mapped, e.g. "sleep"). Some vehicles (R2) never report sleep in
+	// vehicleState, so the WS merge keeps a Parallax sleep against a
+	// vehicleState "ready" while Parallax is live (holdParallaxLocked).
+	// Guarded by mu.
+	lastPxPower map[string]string
+	// vehChargerStatus[vehicleID] is set once vehicleState has delivered a
+	// chargerStatus (an R1). Parallax charging.session.status is applied
+	// only to vehicles without it (an R2); on the rest it's shadow-logged
+	// to validate the mapping. Guarded by mu.
+	vehChargerStatus map[string]bool
+	// vehOtaVersion[vehicleID] is set once vehicleState has delivered an
+	// otaCurrentVersion. Parallax ota.deployment.state fills the versions
+	// only for vehicles without it (an R2). Guarded by mu.
+	vehOtaVersion map[string]bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -192,6 +232,9 @@ type StateMonitor struct {
 	// should run as the drive is recorded rather than waiting for an
 	// SPA backfill click. Set via SetDriveCloseHook; nil disables.
 	driveCloseHook DriveCloseHook
+	// hooksFired records which sessions' close hooks have fired
+	// (hookOnce). Guarded by mu.
+	hooksFired map[string]time.Time
 
 	// chargeCloseHook mirrors driveCloseHook for charge sessions:
 	// invoked asynchronously after charge close with a copy of the
@@ -223,6 +266,19 @@ type StateMonitor struct {
 	// pick an accurate pack size for the SoC-delta energy fallback.
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
+	// Charging schedule reads (charging_schedule.go): a nudge channel per
+	// vehicle, the last read's time and position, and the fetch (nil =
+	// client.ChargingSchedules; tests set it). Guarded by mu.
+	scheduleNudge  map[string]chan struct{}
+	scheduleReads  map[string]scheduleRead
+	// scheduleUnavailableUntil backs a vehicle's schedule reads off for a
+	// week after Rivian said the account can't read them. Guarded by mu.
+	scheduleUnavailableUntil map[string]time.Time
+	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
+	// vehicleInfoHook receives each RefreshVehicleInfo result (trim, image,
+	// pack guess) so it can be persisted. Set before Start; called outside
+	// the monitor lock and must not block.
+	vehicleInfoHook func([]Vehicle)
 
 	// batteryCapacityHook fires from observeBatteryCapacity when the
 	// vehicle-reported usable pack kWh changes. Wired by the
@@ -252,6 +308,9 @@ type StateMonitor struct {
 	// from the network of the station at its location. Nil leaves
 	// such sessions on the home rate (the pre-0040 behaviour).
 	dcfcPrice DCFCPriceLookup
+	// dcfcDetect, when set and on for the user, replaces dcfcPrice with
+	// network detection plus a verify state (dcfc_auto_network flag).
+	dcfcDetect DCFCDetector
 	// homeLookup returns the user's saved home location. The recorder
 	// uses it to leave AC charging away from home unpriced instead of
 	// stamping the home rate on it. nil (or ok=false) = home unknown,
@@ -276,6 +335,14 @@ type StateMonitor struct {
 	// restSkips counts rest_quiet skips per vehicle since its last REST
 	// call. Guarded by mu.
 	restSkips map[string]int
+	// rest_quiet guardrail state (wake_safety.go), guarded by mu:
+	// lastVSFrame is when a vehicleState WS frame last arrived;
+	// restQuietSince when the current REST-quiet stretch began (reset
+	// on wake and by a safety poll); lastSafetyPoll the last safety
+	// poll.
+	lastVSFrame    map[string]time.Time
+	restQuietSince map[string]time.Time
+	lastSafetyPoll map[string]time.Time
 
 	// source, when set, replaces the live Rivian subscription: run()
 	// feeds its frames straight to the recorder (see NewSourceMonitor).
@@ -295,6 +362,27 @@ type StateMonitor struct {
 // display name ("" when no station matched and a fallback rate was
 // used). ok=false means no estimate is available.
 type DCFCPriceLookup func(lat, lon float64) (ratePerKWh float64, currency, network string, ok bool)
+
+// DCFCVerdict is a DC fast charge network detection, priced: the
+// network, its rate for this user, and the verify state the charge row
+// carries (contract dcfc-auto-network v1). Priced=false means nothing
+// matched: the charge stays unpriced and needs the user.
+type DCFCVerdict struct {
+	Priced     bool
+	Rate       float64
+	Currency   string
+	Network    string
+	State      string
+	Confidence float64
+	Evidence   json.RawMessage
+}
+
+// DCFCDetector detects and prices the network of a DC fast charge Rivian
+// didn't bill, at the charge's position (where it opened). on=false
+// means auto-detection is off for this user: the recorder falls back to
+// the DCFCPriceLookup. rivianCharger is Rivian's isRivianCharger for
+// this charge's own session; peakKW is the session's peak so far.
+type DCFCDetector func(lat, lon float64, rivianCharger bool, peakKW float64) (v DCFCVerdict, on bool)
 
 // HomeLookup returns the user's saved home location; ok=false when the
 // user hasn't set one.
@@ -353,11 +441,15 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastTopicTs:         make(map[string]int64),
 		lastPxGear:      make(map[string]string),
 		lastPxGearAt:    make(map[string]time.Time),
+		lastPxPower:     make(map[string]string),
+		vehChargerStatus: make(map[string]bool),
+		vehOtaVersion:    make(map[string]bool),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
 		wsSeen:          make(map[string]bool),
 		active:          make(map[string]context.CancelFunc),
+		activeCtx:       make(map[string]context.Context),
 		subCancel:       make(map[string]context.CancelCauseFunc),
 		shortSubEnds:    make(map[string][]time.Time),
 		lastFlapWarnAt:  make(map[string]time.Time),
@@ -397,11 +489,7 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 // snapshots, so each one becomes the cached state as-is (no delta
 // merge) and drives the recorder exactly as a live push would.
 func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
-	defer func() {
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
-	}()
+	defer m.releaseActive(ctx, vehicleID)
 	pubCtx, cancelPub := context.WithCancel(ctx)
 	defer cancelPub()
 	go m.liveStatePublisher(pubCtx, vehicleID)
@@ -423,8 +511,9 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		cur.ReplaySession = nil
 		m.mu.Lock()
 		prev := m.cache[vehicleID]
-		m.cache[vehicleID] = &cur
+		m.putCacheLocked(vehicleID, &cur)
 		m.stamp[vehicleID] = time.Now()
+		m.noteVehicleStateFrameLocked(vehicleID)
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
 		m.applyReplaySession(ctx, vehicleID, &cur, sess)
@@ -503,7 +592,14 @@ func (m *StateMonitor) lastParallaxGear(vehicleID string) (string, time.Time) {
 // frame. Called from every Parallax subscriber callback so
 // parallaxLivenessWatch can distinguish a live-but-quiet feed from a dead
 // one. Cheap: a single guarded map write.
-func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
+//
+// It reports whether the frame is FRESH: its event ts_ms is positive and
+// either the first seen for this vehicle+topic or strictly newer than the
+// last one. A frame with the same ts as before is a cloud replay of the
+// last snapshot (every resubscribe re-sends it with its original ts_ms),
+// not the vehicle emitting; callers that apply the value to live state
+// must skip replays (see applyParallaxGear).
+func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) (fresh bool) {
 	m.mu.Lock()
 	m.lastParallaxAt[vehicleID] = time.Now()
 	// Sleep hygiene: count only FRESH frames (event ts advancing past the
@@ -517,6 +613,7 @@ func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
 		key := vehicleID + "|" + topic
 		last, seen := m.lastTopicTs[key]
 		if !seen || tsMs > last {
+			fresh = true
 			m.lastTopicTs[key] = tsMs
 			// Only an advance past an established baseline is a new event;
 			// the first sighting just sets the baseline.
@@ -529,7 +626,16 @@ func (m *StateMonitor) noteParallaxFrame(vehicleID, topic string, tsMs int64) {
 		}
 	}
 	m.mu.Unlock()
+	return fresh
 }
+
+// parallaxGearMaxAge is how old a drive-dynamics frame's event time
+// (gear, drive mode, power state) may be and still be applied. A real gear change reaches us within seconds;
+// a replay after a resubscribe carries the timestamp of the last real
+// change, which can be minutes old. This also covers the first frame
+// seen after a restart (no baseline yet), which would otherwise count as
+// fresh.
+const parallaxGearMaxAge = 60 * time.Second
 
 // parallaxLivenessWatch is the periodic Parallax observability tick. Two
 // jobs:
@@ -689,6 +795,13 @@ func (m *StateMonitor) SetHomeLookup(fn HomeLookup) {
 	m.homeLookup = fn
 }
 
+// SetDCFCDetector wires fast-charge network detection (see dcfcDetect).
+func (m *StateMonitor) SetDCFCDetector(fn DCFCDetector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dcfcDetect = fn
+}
+
 // SetDCFCPriceLookup wires the fast-charge pricer (see dcfcPrice).
 func (m *StateMonitor) SetDCFCPriceLookup(fn DCFCPriceLookup) {
 	m.mu.Lock()
@@ -845,11 +958,12 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 	// only when the data is genuinely ambiguous.
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if m.restQuietAsleep(rivianVehicleID, "stale_charge_confirm") {
+	skip, why := m.restQuiet(rivianVehicleID, "stale_charge_confirm")
+	if skip {
 		// Asleep means not charging: the open row is stale.
 		return false, ""
 	}
-	st, err := m.restState(cctx, rivianVehicleID, "stale_charge_confirm")
+	st, err := m.restState(cctx, rivianVehicleID, why)
 	if err != nil || st == nil {
 		if err != nil && ctx.Err() == nil {
 			m.logger.Debug("stale charge REST confirm failed",
@@ -880,9 +994,21 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	}
 	ctx, cancel := context.WithCancel(m.parent)
 	m.active[vehicleID] = cancel
+	if m.activeCtx != nil {
+		m.activeCtx[vehicleID] = ctx
+	}
 	m.mu.Unlock()
 
 	go m.run(ctx, vehicleID)
+}
+
+// Subscribed reports whether a subscription goroutine is running for
+// vehicleID (EnsureSubscribed started it and it hasn't exited).
+func (m *StateMonitor) Subscribed(vehicleID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.active[vehicleID]
+	return ok
 }
 
 // Unsubscribe tears down the background subscription for vehicleID
@@ -890,12 +1016,10 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 // coordinator when this pod loses ownership of a vehicle to a peer.
 //
 // Cancellation is async — the run goroutine observes ctx.Done() the
-// next time it loops around. The cache entry is left intact so a
-// subsequent Latest() call returns the last known state for the
-// short window between Unsubscribe and the goroutine actually
-// exiting; once Unsubscribe is called we should not be the source
-// of new state, but stale-but-coherent is better than blanking the
-// UI mid-rebalance.
+// next time it loops around. Everything this pod knew about the
+// vehicle is forgotten (forgetVehicle): the new owner is the source
+// of state from here on, and /api/state on this pod follows its
+// published snapshot.
 func (m *StateMonitor) Unsubscribe(vehicleID string) {
 	m.mu.Lock()
 	cancel, ok := m.active[vehicleID]
@@ -904,24 +1028,73 @@ func (m *StateMonitor) Unsubscribe(vehicleID string) {
 		// re-acquired lease (acquired → released → reacquired in
 		// quick succession) doesn't see a stale cancel func.
 		delete(m.active, vehicleID)
-		// Reset cold-start tracking: a re-acquired lease starts
-		// fresh and should poll fast until its first WS frame.
-		delete(m.wsSeen, vehicleID)
+		delete(m.activeCtx, vehicleID)
 	}
 	m.mu.Unlock()
-	// A re-acquired lease should try the livestate rehydrate path
-	// again — in particular, if a peer pod was holding the vehicle
-	// and just released it (lease handoff in the other direction),
-	// the snapshot in Redis is the authoritative open-drive state.
-	m.sessMu.Lock()
-	delete(m.rehydrated, vehicleID)
-	m.sessMu.Unlock()
-	// Drop the sample-spacing cursor too: on re-subscribe the first
-	// frame should always be recorded rather than being gated by a
-	// timestamp from the previous ownership window.
-	m.forgetSampleSlot(vehicleID)
+	m.forgetVehicle(vehicleID)
 	if ok && cancel != nil {
 		cancel()
+	}
+}
+
+// forgetVehicle drops this pod's per-vehicle state when it stops
+// streaming the vehicle, so a later re-acquire starts from what the
+// peer owner left behind rather than from this pod's last frame hours
+// ago:
+//   - the merged State cache: the REST seed merges *under* it, so a
+//     stale gear, location or charger state would win over a fresh
+//     seed until Rivian happened to push that field again;
+//   - the live-session cache and its charge bond;
+//   - the open drive/charge accumulators, but only with a shared
+//     store: a re-acquire then rehydrates the peer's snapshot (the
+//     authoritative open-drive state) instead of extending or closing
+//     a session the peer already closed. Without a store there is no
+//     peer and nothing better to rebuild from, so they stay;
+//   - cold-start tracking (poll fast until the first WS frame) and the
+//     sample-spacing cursor (the first frame is always recorded).
+func (m *StateMonitor) forgetVehicle(vehicleID string) {
+	m.mu.Lock()
+	delete(m.cache, vehicleID)
+	delete(m.stamp, vehicleID)
+	delete(m.lastSession, vehicleID)
+	delete(m.chargeBond, vehicleID)
+	delete(m.lastSessionFor, vehicleID)
+	delete(m.wsSeen, vehicleID)
+	delete(m.wokeAt, vehicleID)
+	m.mu.Unlock()
+	m.sessMu.Lock()
+	if m.liveStateStore != nil {
+		delete(m.sessions, vehicleID)
+	}
+	delete(m.rehydrated, vehicleID)
+	m.sessMu.Unlock()
+	m.forgetSampleSlot(vehicleID)
+}
+
+// releaseActive is how a run goroutine gives up its active entry when
+// it exits. It removes the entry only if it is still this goroutine's
+// (a quick release → re-acquire may already have installed a
+// successor, which an unconditional delete would orphan: Unsubscribe
+// could then never cancel it). When the goroutine ends because it was
+// cancelled and nothing replaced it, the vehicle is forgotten again:
+// frames recorded during teardown, after Unsubscribe's forget, would
+// otherwise leave a stale accumulator behind.
+func (m *StateMonitor) releaseActive(ctx context.Context, vehicleID string) {
+	m.mu.Lock()
+	cur, tracked := m.activeCtx[vehicleID]
+	switch {
+	case tracked && cur == ctx:
+		delete(m.active, vehicleID)
+		delete(m.activeCtx, vehicleID)
+	case !tracked:
+		// Untracked (a monitor built without activeCtx): keep the old
+		// behavior.
+		delete(m.active, vehicleID)
+	}
+	_, successor := m.active[vehicleID]
+	m.mu.Unlock()
+	if ctx.Err() != nil && !successor {
+		m.forgetVehicle(vehicleID)
 	}
 }
 
@@ -937,9 +1110,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// Unsubscribe still returns promptly during a rebalance.
 	m.waitStaggerSlot(ctx)
 	if ctx.Err() != nil {
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
+		m.releaseActive(ctx, vehicleID)
 		return
 	}
 	if m.source != nil {
@@ -1029,7 +1200,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			// A push may have raced us here; fold REST under it.
 			merged = mergeState(st, prev)
 		}
-		m.cache[vehicleID] = merged
+		m.putCacheLocked(vehicleID, merged)
 		m.stamp[vehicleID] = time.Now()
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, merged)
@@ -1063,6 +1234,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	go m.sleepGate(refreshCtx, vehicleID, func(wctx context.Context) {
 		go m.periodicRefresh(wctx, vehicleID)
 		go m.chargingSessionMetadataFetcher(wctx, vehicleID)
+		go m.chargingScheduleLoop(wctx, vehicleID)
 		go m.chargingSessionSubscriber(wctx, vehicleID)
 		go m.batteryStateSubscriber(wctx, vehicleID)
 		if eligibleParallaxGPS {
@@ -1125,9 +1297,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// when REST detects the car just woke up (otherwise we'd
 		// wait up to wsStaleThreshold for the watchdog). Cleared
 		// below on return.
-		m.mu.Lock()
-		m.subCancel[vehicleID] = cancelSub
-		m.mu.Unlock()
+		m.setSubCancel(vehicleID, subCtx, cancelSub)
 		// Reset stamp cursor so the watchdog measures this attempt,
 		// not a stale value from a prior failed connection. Track
 		// connect time + frame count so we can distinguish three
@@ -1149,31 +1319,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 
 		err := m.client.SubscribeVehicleStateHeld(subCtx, vehicleID, m.vehicleStateHold(vehicleID), func(st *State) {
 			atomic.AddInt64(&frameCount, 1)
-			// When Parallax GPS is authoritative, drop vehicleState's
-			// GPS before it reaches the cache so the gnss subscriber is
-			// the only writer of lat/lon/speed/heading/altitude.
-			m.noteVehStateGPS(vehicleID, st)
-			m.mu.Lock()
-			// Rivian pushes deltas — each frame contains only the
-			// fields that changed. Merge non-zero/non-empty values
-			// from the push over whatever we had cached so static
-			// fields (odometer, gear, charge limit, tire pressures)
-			// don't disappear between frames.
-			prev := m.cache[vehicleID]
-			merged := mergeState(prev, st)
-			m.cache[vehicleID] = merged
-			m.stamp[vehicleID] = time.Now()
-			// Cold-start guard: any real WS frame proves the
-			// subscription is delivering, so adaptiveRefreshInterval
-			// can return to PowerState-driven cadence.
-			m.wsSeen[vehicleID] = true
-			m.mu.Unlock()
-			m.record(ctx, vehicleID, prev, merged)
+			m.applyVehicleStatePush(ctx, vehicleID, st)
 		})
 		cancelSub(nil)
-		m.mu.Lock()
-		delete(m.subCancel, vehicleID)
-		m.mu.Unlock()
+		m.clearSubCancel(vehicleID, subCtx)
 		if ctx.Err() != nil {
 			break
 		}
@@ -1268,9 +1417,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 			}
 		}
 	}
-	m.mu.Lock()
-	delete(m.active, vehicleID)
-	m.mu.Unlock()
+	m.releaseActive(ctx, vehicleID)
 }
 
 // wsStaleThreshold is how long we tolerate no WS pushes before
@@ -1380,6 +1527,38 @@ var errStaleSubscription = errors.New("rivian ws stale, watchdog cancelled subsc
 // watchdog to discover what we already know.
 var errResubscribeRequested = errors.New("rivian ws resubscribe requested by wakeup nudge")
 
+// setSubCancel publishes the current vehicleState subscription's
+// cancel handle (see kickResubscribe). A subscription already cancelled
+// (lease lost or monitor stopped before it published) publishes
+// nothing: it is about to return, and its handle would only replace a
+// successor's, leaving kickResubscribe pointed at a dead context.
+func (m *StateMonitor) setSubCancel(vehicleID string, ctx context.Context, cancel context.CancelCauseFunc) {
+	if ctx.Err() != nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subCtx == nil {
+		m.subCtx = map[string]context.Context{}
+	}
+	m.subCancel[vehicleID] = cancel
+	m.subCtx[vehicleID] = ctx
+}
+
+// clearSubCancel drops the subscription's cancel handle when it ends,
+// only if it is still that subscription's: after a quick release →
+// re-acquire the successor may already have published its own, which an
+// unconditional delete removed (kickResubscribe then couldn't nudge it).
+func (m *StateMonitor) clearSubCancel(vehicleID string, ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cur, ok := m.subCtx[vehicleID]; ok && cur != ctx {
+		return
+	}
+	delete(m.subCancel, vehicleID)
+	delete(m.subCtx, vehicleID)
+}
+
 // kickResubscribe cancels the active SubscribeVehicleState context
 // for vehicleID, if any, with errResubscribeRequested as the cause.
 // No-op if there is no active subscription (e.g. the supervisor is
@@ -1467,10 +1646,11 @@ func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
 	// Experiment A (wake_safety rest_quiet): no REST poll while the
 	// car reports asleep. The vehicleState subscription stays up and
 	// is how a wake is noticed; the next tick after it re-polls.
-	if m.restQuietAsleep(vehicleID, "periodic_refresh") {
+	skip, why := m.restQuiet(vehicleID, "periodic_refresh")
+	if skip {
 		return
 	}
-	st, err := m.restState(ctx, vehicleID, "periodic_refresh")
+	st, err := m.restState(ctx, vehicleID, why)
 	if err != nil {
 		if ctx.Err() == nil {
 			m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
@@ -1492,7 +1672,7 @@ func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
 		// are populated, REST fills in the zeros.
 		merged = mergeState(st, prev)
 	}
-	m.cache[vehicleID] = merged
+	m.putCacheLocked(vehicleID, merged)
 	m.stamp[vehicleID] = time.Now()
 	m.mu.Unlock()
 	// Resubscribe nudge: REST just observed an interesting
@@ -1861,7 +2041,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 		if g.TimestampMs > 0 {
 			next.LocationFixAt = time.UnixMilli(g.TimestampMs)
 		}
-		m.cache[vehicleID] = &next
+		m.putCacheLocked(vehicleID, &next)
 		m.mu.Unlock()
 		// Informational: how stale the vehicleState feed was when this
 		// gnss frame landed — the old "gap-fill" signal, now just a
@@ -1890,366 +2070,641 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // docs/PARALLAX_MIGRATION.md Phase 2.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
-		m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
-		m.mu.Lock()
-		prev := m.cache[vehicleID]
-		m.mu.Unlock()
-		var vehGear, vehPower string
-		var vehOdoMi float64
-		if prev != nil {
-			vehGear = prev.Gear
-			vehPower = prev.PowerState
-			vehOdoMi = prev.OdometerKm * kmToMi
-		}
-		switch f.RVM {
-		case rvmDriveGear:
-			g := gearFromParallax(f.Value)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "gear",
-				"px_enum", f.Value, "px_gear", g,
-				"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
-			// Feed the drive-close debounce: fresh Parallax P corroborates
-			// a close, fresh R/N/D vetoes a vehicleState P blip.
-			if g != "" {
-				m.mu.Lock()
-				m.lastPxGear[vehicleID] = g
-				m.lastPxGearAt[vehicleID] = time.Now()
-				m.mu.Unlock()
-			}
-			// Authoritative early-open: a Parallax driving gear (R/N/D)
-			// opens/sustains the drive now. Parallax leads vehicleState by
-			// seconds (tens of seconds when vehicleState stalls), so this
-			// captures the true start — and, because the cache still holds
-			// the pre-drive parked odometer/location, the correct start
-			// odometer and start point. P is intentionally not applied.
-			if m.parallaxDriveDynamics && isDrivingGear(g) {
-				m.mu.Lock()
-				base := m.cache[vehicleID]
-				if base != nil {
-					next := *base
-					next.At = time.Now()
-					next.Gear = g
-					m.cache[vehicleID] = &next
-					m.mu.Unlock()
-					m.record(ctx, vehicleID, base, &next)
-				} else {
-					m.mu.Unlock()
-				}
-			}
-		case rvmDriveMode:
-			dm := driveModeFromParallax(f.Value)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "drive_mode",
-				"px_enum", f.Value, "px_mode", dm, "ts_ms", f.TimestampMs)
-			// Apply the mapped drive mode (APK 3.14.0 enum) to the cache.
-			// Unmapped enums (unspecified/init/fault) fall back to vehicleState.
-			if m.parallaxDriveDynamics && dm != "" {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.DriveMode != dm {
-					next := *base
-					next.At = time.Now()
-					next.DriveMode = dm
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmOdometer:
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "odometer",
-				"px_km", f.Value, "px_mi", float64(f.Value)*kmToMi,
-				"vehicleState_mi", vehOdoMi, "ts_ms", f.TimestampMs)
-			// Monotonic stall-bridge: advance the cached odometer only when
-			// Parallax reads higher than the cache. Never lowers it, so
-			// vehicleState's finer 0.01-mi resolution wins in normal
-			// operation and Parallax only fills a stall where vehicleState
-			// has frozen.
-			if m.parallaxDriveDynamics && f.ValueOK {
-				km := float64(f.Value)
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && km > base.OdometerKm {
-					next := *base
-					next.At = time.Now()
-					next.OdometerKm = km
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmPowerState:
-			// px_raw_b64 kept in the log so the still-unmapped enums
-			// (sleep, …) can be RE'd from the shadow logs.
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "power_state",
-				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
-				"px_raw_b64", f.Payload, "px_power", powerStateFromParallax(f.Value),
-				"vehicleState_power", vehPower, "ts_ms", f.TimestampMs)
-			// Apply the mapped powerState to the cache (fresher than
-			// vehicleState's push). Unmapped enums are left to vehicleState.
-			if m.parallaxDriveDynamics {
-				if ps := powerStateFromParallax(f.Value); ps != "" {
-					m.mu.Lock()
-					if base := m.cache[vehicleID]; base != nil && base.PowerState != ps {
-						next := *base
-						next.At = time.Now()
-						next.PowerState = ps
-						next.PowerStateAt = time.Time{}
-						if f.TimestampMs > 0 {
-							next.PowerStateAt = time.UnixMilli(f.TimestampMs).UTC()
-						}
-						m.cache[vehicleID] = &next
-					}
-					m.mu.Unlock()
-				}
-			}
-		case rvmRange:
-			// distanceToEmpty in whole km (field 1) — State.DistanceToEmpty
-			// is already km, so apply directly. Confirmed live: 308 km =
-			// vehicleState 191.4 mi.
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "range",
-				"px_km", f.Value, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && f.ValueOK && f.Value > 0 {
-				km := float64(f.Value)
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.DistanceToEmpty != km {
-					next := *base
-					next.At = time.Now()
-					next.DistanceToEmpty = km
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmTires:
-			tires, ok := decodeTires(f.Payload)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "tires",
-				"px_ok", ok, "px_tires", tires, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ok {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil {
-					next := *base
-					next.At = time.Now()
-					for _, t := range tires {
-						switch t.Position {
-						case 1:
-							next.TirePressureFLBar = t.Bar
-						case 2:
-							next.TirePressureFRBar = t.Bar
-						case 3:
-							next.TirePressureRLBar = t.Bar
-						case 4:
-							next.TirePressureRRBar = t.Bar
-						}
-					}
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmCabinTemps:
-			// Interior cabin temp (field 3, °C) — field 3 = 26.0 matched
-			// vehicleState inside_temp_c. Applied to CabinTempC.
-			temp, ok := decodeCabinTemp(f.Payload)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "cabin_temp",
-				"px_c", temp, "px_ok", ok, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ok && temp > -50 && temp < 80 {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.CabinTempC != temp {
-					next := *base
-					next.At = time.Now()
-					next.CabinTempC = temp
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmClosures:
-			cl, ok := decodeInstanceStates(f.Payload)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "closures",
-				"px_ok", ok, "px_states", cl, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ok {
-				// known(inst) → (closed, present-with-known-status). status
-				// 0/absent means the vehicle lacks that closure — leave
-				// vehicleState.
-				known := func(inst int) (bool, bool) {
-					s, p := cl[inst]
-					if !p || s == 0 {
-						return false, false
-					}
-					return s == closureStatusClose, true
-				}
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil {
-					next := *base
-					next.At = time.Now()
-					d1, o1 := known(1)
-					d2, o2 := known(2)
-					d3, o3 := known(3)
-					d4, o4 := known(4)
-					if o1 && o2 && o3 && o4 {
-						next.DoorsClosed = d1 && d2 && d3 && d4
-					}
-					if v, o := known(closInstFrunk); o {
-						next.FrunkClosed = v
-					}
-					if v, o := known(closInstLiftgate); o {
-						next.LiftgateClosed = v
-					}
-					if v, o := known(closInstTailgate); o {
-						next.TailgateClosed = v
-					}
-					if v, o := known(closInstTonneau); o {
-						next.TonneauClosed = v
-					}
-					// Windows ride on the closures topic as instances 12-15
-					// (mapping confirmed live on the R1S — see the closInst*
-					// consts). Same "open"/"closed"/"" string shape the UI
-					// expects from vehicleState; only set when the instance
-					// is present with a known status.
-					win := func(inst int, field *string) {
-						if s, p := cl[inst]; p && s != 0 {
-							if s == closureStatusClose {
-								*field = "closed"
-							} else {
-								*field = "open"
-							}
-						}
-					}
-					win(closInstWindowFL, &next.WindowFrontLeftClosed)
-					win(closInstWindowFR, &next.WindowFrontRightClosed)
-					win(closInstWindowRL, &next.WindowRearLeftClosed)
-					win(closInstWindowRR, &next.WindowRearRightClosed)
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmLocks:
-			lk, ok := decodeInstanceStates(f.Payload)
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "locks",
-				"px_ok", ok, "px_states", lk, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ok {
-				// Locked = all four door locks present, known, and LOCKED.
-				allLocked, all4 := true, true
-				for inst := 1; inst <= 4; inst++ {
-					s, p := lk[inst]
-					if !p || s == 0 {
-						all4 = false
-						break
-					}
-					if s != lockStatusLocked {
-						allLocked = false
-					}
-				}
-				if all4 {
-					m.mu.Lock()
-					if base := m.cache[vehicleID]; base != nil {
-						next := *base
-						next.At = time.Now()
-						next.Locked = allLocked
-						m.cache[vehicleID] = &next
-					}
-					m.mu.Unlock()
-				}
-			}
-		case rvmAlarmState:
-			// security.alarm.state field 1 = sound_alarm (APK enum). Applied
-			// to AlarmSoundStatus; logs the concurrent vehicleState value so
-			// the mapping can be verified against the legacy feed.
-			ps := alarmSoundFromParallax(f.Value)
-			var veh string
-			if prev != nil {
-				veh = prev.AlarmSoundStatus
-			}
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "alarm",
-				"px_enum", f.Value, "px_alarm", ps,
-				"vehicleState_alarm", veh, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ps != "" {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.AlarmSoundStatus != ps {
-					next := *base
-					next.At = time.Now()
-					next.AlarmSoundStatus = ps
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmLowVoltBatt:
-			// energy.low_voltage.battery_state field 1 = 12V health (APK enum).
-			ps := lowVoltHealthFromParallax(f.Value)
-			var veh string
-			if prev != nil {
-				veh = prev.TwelveVoltBatteryHealth
-			}
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "low_voltage_battery",
-				"px_enum", f.Value, "px_health", ps,
-				"vehicleState_health", veh, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && ps != "" {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.TwelveVoltBatteryHealth != ps {
-					next := *base
-					next.At = time.Now()
-					next.TwelveVoltBatteryHealth = ps
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		case rvmTrailer:
-			// body.trailer.state field 1 = trailer_presence_status (APK enum).
-			// No State destination field yet — decode-and-log only.
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "trailer",
-				"px_enum", f.Value, "px_trailer", trailerPresenceFromParallax(f.Value),
-				"ts_ms", f.TimestampMs)
-		case rvmPreconStatus:
-			// comfort.cabin.cabin_preconditioning_status — decoded per the APK
-			// CABIN_PRECONDITIONING_STATE enum, but the topic's field number is
-			// unconfirmed (never emitted during RE), so log-only until a live
-			// preconditioning capture verifies it, then promote to apply.
-			var veh string
-			if prev != nil {
-				veh = prev.CabinPreconditioningStatus
-			}
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "cabin_precondition",
-				"px_enum", f.Value, "px_precon", cabinPreconStateFromParallax(f.Value),
-				"vehicleState_precon", veh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
-		case rvmPetMode:
-			// comfort.cabin.pet_mode_status field 1 = PET_MODE_STATE (APK enum;
-			// field 1 confirmed live: 08 02 = DISABLED). f.ValueOK gates it so
-			// an absent field isn't read as OFF (enum 0).
-			ps := petModeFromParallax(f.Value)
-			var veh string
-			if prev != nil {
-				veh = prev.PetModeStatus
-			}
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", "pet_mode",
-				"px_enum", f.Value, "px_pet", ps,
-				"vehicleState_pet", veh, "ts_ms", f.TimestampMs)
-			if m.parallaxDriveDynamics && f.ValueOK {
-				m.mu.Lock()
-				if base := m.cache[vehicleID]; base != nil && base.PetModeStatus != ps {
-					next := *base
-					next.At = time.Now()
-					next.PetModeStatus = ps
-					m.cache[vehicleID] = &next
-				}
-				m.mu.Unlock()
-			}
-		default:
-			// Any other not-yet-RE'd topic: log the raw payload + best-effort
-			// varint so its wire shape can be decoded offline from the logs,
-			// same as power.state/range/tires were. No cache apply.
-			m.logger.Info("parallax drive-dynamics shadow",
-				"vehicle", vehicleID, "topic", f.RVM,
-				"px_enum", f.Value, "px_enum_ok", f.ValueOK,
-				"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
-		}
+		m.onDriveDynamicsFrame(ctx, vehicleID, f)
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
 		m.logger.Warn("drive-dynamics shadow subscription ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// onDriveDynamicsFrame handles one frame of the drive-dynamics Parallax
+// subscription. Values reach the live state only from fresh frames
+// (applicable).
+func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID string, f DriveDynamicsFrame) {
+	fresh := m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
+	m.mu.Lock()
+	prev := m.cache[vehicleID]
+	m.mu.Unlock()
+	var vehGear, vehPower string
+	var vehOdoMi float64
+	if prev != nil {
+		vehGear = prev.Gear
+		vehPower = prev.PowerState
+		vehOdoMi = prev.OdometerKm * kmToMi
+	}
+	switch f.RVM {
+	case rvmDriveGear:
+		m.applyParallaxGear(ctx, vehicleID, f, fresh, vehGear)
+	case rvmDriveMode:
+		dm := driveModeFromParallax(f.Value)
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "drive_mode",
+			"px_enum", f.Value, "px_mode", dm, "ts_ms", f.TimestampMs)
+		// Apply the mapped drive mode (APK 3.14.0 enum) to the cache.
+		// Unmapped enums (unspecified/init/fault) fall back to vehicleState.
+		// Like the gear, only from a fresh frame: a replay re-sends the
+		// mode of the last change, however long ago.
+		if m.parallaxDriveDynamics && dm != "" && m.applicable(f, fresh) {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.DriveMode != dm {
+				next := *base
+				next.At = time.Now()
+				next.DriveMode = dm
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmOdometer:
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "odometer",
+			"px_km", f.Value, "px_mi", float64(f.Value)*kmToMi,
+			"vehicleState_mi", vehOdoMi, "ts_ms", f.TimestampMs)
+		// Monotonic stall-bridge: advance the cached odometer only when
+		// Parallax reads higher than the cache. Never lowers it, so
+		// vehicleState's finer 0.01-mi resolution wins in normal
+		// operation and Parallax only fills a stall where vehicleState
+		// has frozen.
+		if m.parallaxDriveDynamics && f.ValueOK {
+			km := float64(f.Value)
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && km > base.OdometerKm {
+				next := *base
+				next.At = time.Now()
+				next.OdometerKm = km
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmPowerState:
+		// px_raw_b64 kept in the log so the still-unmapped enums
+		// (sleep, …) can be RE'd from the shadow logs.
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "power_state",
+			"px_enum", f.Value, "px_enum_ok", f.ValueOK,
+			"px_raw_b64", f.Payload, "px_power", powerStateFromParallax(f.Value),
+			"vehicleState_power", vehPower, "ts_ms", f.TimestampMs)
+		// Apply the mapped powerState to the cache (fresher than
+		// vehicleState's push). Unmapped enums are left to vehicleState.
+		// Only from a fresh frame: a replayed "ready" while the car
+		// sleeps would read as a wake (sleep gate, rest_quiet).
+		if m.parallaxDriveDynamics && m.applicable(f, fresh) {
+			if ps := powerStateFromParallax(f.Value); ps != "" {
+				m.mu.Lock()
+				if m.lastPxPower == nil {
+					m.lastPxPower = map[string]string{}
+				}
+				m.lastPxPower[vehicleID] = ps
+				if base := m.cache[vehicleID]; base != nil && base.PowerState != ps {
+					next := *base
+					next.At = time.Now()
+					next.PowerState = ps
+					next.PowerStateAt = time.Time{}
+					if f.TimestampMs > 0 {
+						next.PowerStateAt = time.UnixMilli(f.TimestampMs).UTC()
+					}
+					m.putCacheLocked(vehicleID, &next)
+				}
+				m.mu.Unlock()
+			}
+		}
+	case rvmRange:
+		// distanceToEmpty in whole km (field 1) — State.DistanceToEmpty
+		// is already km, so apply directly. Confirmed live: 308 km =
+		// vehicleState 191.4 mi.
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "range",
+			"px_km", f.Value, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && f.ValueOK && f.Value > 0 {
+			km := float64(f.Value)
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.DistanceToEmpty != km {
+				next := *base
+				next.At = time.Now()
+				next.DistanceToEmpty = km
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmTires:
+		tires, ok := decodeTires(f.Payload)
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "tires",
+			"px_ok", ok, "px_tires", tires, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ok {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil {
+				next := *base
+				next.At = time.Now()
+				for _, t := range tires {
+					switch t.Position {
+					case 1:
+						next.TirePressureFLBar = t.Bar
+					case 2:
+						next.TirePressureFRBar = t.Bar
+					case 3:
+						next.TirePressureRLBar = t.Bar
+					case 4:
+						next.TirePressureRRBar = t.Bar
+					}
+				}
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmCabinTemps:
+		// Interior cabin temp (field 3, °C) — field 3 = 26.0 matched
+		// vehicleState inside_temp_c. Applied to CabinTempC.
+		temp, ok := decodeCabinTemp(f.Payload)
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "cabin_temp",
+			"px_c", temp, "px_ok", ok, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ok && temp > -50 && temp < 80 {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.CabinTempC != temp {
+				next := *base
+				next.At = time.Now()
+				next.CabinTempC = temp
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmClosures:
+		cl, ok := decodeInstanceStates(f.Payload)
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "closures",
+			"px_ok", ok, "px_states", cl, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ok {
+			// known(inst) → (closed, present-with-known-status). status
+			// 0/absent means the vehicle lacks that closure — leave
+			// vehicleState.
+			known := func(inst int) (bool, bool) {
+				s, p := cl[inst]
+				if !p || s == 0 {
+					return false, false
+				}
+				return s == closureStatusClose, true
+			}
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil {
+				next := *base
+				next.At = time.Now()
+				d1, o1 := known(1)
+				d2, o2 := known(2)
+				d3, o3 := known(3)
+				d4, o4 := known(4)
+				if o1 && o2 && o3 && o4 {
+					next.DoorsClosed = d1 && d2 && d3 && d4
+				}
+				if v, o := known(closInstFrunk); o {
+					next.FrunkClosed = v
+				}
+				if v, o := known(closInstLiftgate); o {
+					next.LiftgateClosed = v
+				}
+				if v, o := known(closInstTailgate); o {
+					next.TailgateClosed = v
+				}
+				if v, o := known(closInstTonneau); o {
+					next.TonneauClosed = v
+				}
+				// Windows ride on the closures topic as instances 12-15
+				// (mapping confirmed live on the R1S — see the closInst*
+				// consts). Same "open"/"closed"/"" string shape the UI
+				// expects from vehicleState; only set when the instance
+				// is present with a known status.
+				win := func(inst int, field *string) {
+					if s, p := cl[inst]; p && s != 0 {
+						if s == closureStatusClose {
+							*field = "closed"
+						} else {
+							*field = "open"
+						}
+					}
+				}
+				win(closInstWindowFL, &next.WindowFrontLeftClosed)
+				win(closInstWindowFR, &next.WindowFrontRightClosed)
+				win(closInstWindowRL, &next.WindowRearLeftClosed)
+				win(closInstWindowRR, &next.WindowRearRightClosed)
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmLocks:
+		lk, ok := decodeInstanceStates(f.Payload)
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "locks",
+			"px_ok", ok, "px_states", lk, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ok {
+			// Locked = all four door locks present, known, and LOCKED.
+			allLocked, all4 := true, true
+			for inst := 1; inst <= 4; inst++ {
+				s, p := lk[inst]
+				if !p || s == 0 {
+					all4 = false
+					break
+				}
+				if s != lockStatusLocked {
+					allLocked = false
+				}
+			}
+			if all4 {
+				m.mu.Lock()
+				if base := m.cache[vehicleID]; base != nil {
+					next := *base
+					next.At = time.Now()
+					next.Locked = allLocked
+					m.putCacheLocked(vehicleID, &next)
+				}
+				m.mu.Unlock()
+			}
+		}
+	case rvmAlarmState:
+		// security.alarm.state field 1 = sound_alarm (APK enum). Applied
+		// to AlarmSoundStatus; logs the concurrent vehicleState value so
+		// the mapping can be verified against the legacy feed.
+		ps := alarmSoundFromParallax(f.Value)
+		var veh string
+		if prev != nil {
+			veh = prev.AlarmSoundStatus
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "alarm",
+			"px_enum", f.Value, "px_alarm", ps,
+			"vehicleState_alarm", veh, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ps != "" {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.AlarmSoundStatus != ps {
+				next := *base
+				next.At = time.Now()
+				next.AlarmSoundStatus = ps
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmLowVoltBatt:
+		// energy.low_voltage.battery_state field 1 = 12V health (APK enum).
+		ps := lowVoltHealthFromParallax(f.Value)
+		var veh string
+		if prev != nil {
+			veh = prev.TwelveVoltBatteryHealth
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "low_voltage_battery",
+			"px_enum", f.Value, "px_health", ps,
+			"vehicleState_health", veh, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && ps != "" {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.TwelveVoltBatteryHealth != ps {
+				next := *base
+				next.At = time.Now()
+				next.TwelveVoltBatteryHealth = ps
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmTrailer:
+		// body.trailer.state field 1 = trailer_presence_status (APK enum).
+		// No State destination field yet — decode-and-log only.
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "trailer",
+			"px_enum", f.Value, "px_trailer", trailerPresenceFromParallax(f.Value),
+			"ts_ms", f.TimestampMs)
+	case rvmPreconStatus:
+		// comfort.cabin.cabin_preconditioning_status — decoded per the APK
+		// CABIN_PRECONDITIONING_STATE enum, but the topic's field number is
+		// unconfirmed (never emitted during RE), so log-only until a live
+		// preconditioning capture verifies it, then promote to apply.
+		var veh string
+		if prev != nil {
+			veh = prev.CabinPreconditioningStatus
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "cabin_precondition",
+			"px_enum", f.Value, "px_precon", cabinPreconStateFromParallax(f.Value),
+			"vehicleState_precon", veh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
+	case rvmPetMode:
+		// comfort.cabin.pet_mode_status field 1 = PET_MODE_STATE (APK enum;
+		// field 1 confirmed live: 08 02 = DISABLED). f.ValueOK gates it so
+		// an absent field isn't read as OFF (enum 0).
+		ps := petModeFromParallax(f.Value)
+		var veh string
+		if prev != nil {
+			veh = prev.PetModeStatus
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "pet_mode",
+			"px_enum", f.Value, "px_pet", ps,
+			"vehicleState_pet", veh, "ts_ms", f.TimestampMs)
+		if m.parallaxDriveDynamics && f.ValueOK {
+			m.mu.Lock()
+			if base := m.cache[vehicleID]; base != nil && base.PetModeStatus != ps {
+				next := *base
+				next.At = time.Now()
+				next.PetModeStatus = ps
+				m.putCacheLocked(vehicleID, &next)
+			}
+			m.mu.Unlock()
+		}
+	case rvmChargingStatus:
+		m.applyParallaxChargingStatus(ctx, vehicleID, f, prev)
+	case rvmOtaDeploy:
+		m.applyParallaxOTA(vehicleID, f, prev)
+	case rvmBatteryChars:
+		// Decode-log only, during the time-boxed capture: the pack's own
+		// capacity next to the one we infer (InferPackKWh) and the
+		// vehicleState figure.
+		if !pxChargeCapturing(time.Now()) {
+			return
+		}
+		bc, ok := decodeBatteryCharacteristics(f.Payload)
+		var vehKWh float64
+		if prev != nil {
+			vehKWh = prev.BatteryCapacityKWh
+		}
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", "battery_characteristics",
+			"px_ok", ok, "px_chemistry", bc.Chemistry, "px_cell_type", bc.CellType,
+			"px_module_type", bc.ModuleType, "px_pack_capacity", bc.PackCapacity,
+			"px_pack_kwh", packCapacityKWh(bc.PackCapacity),
+			"px_user_total_kwh", bc.UserTotalKWh, "px_user_max_kwh", bc.UserMaxKWh,
+			"vehicleState_capacity_kwh", vehKWh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
+	default:
+		// The time-boxed next-topics capture (parallax_next.go): a field
+		// tree, never the raw payload, and nothing once it has ended.
+		if spec, ok := pxNextTopics[f.RVM]; ok {
+			if pxNextCapturing(time.Now()) {
+				m.logPxNext(vehicleID, spec, f)
+			}
+			return
+		}
+		// Any other not-yet-RE'd topic: log the raw payload + best-effort
+		// varint so its wire shape can be decoded offline from the logs,
+		// same as power.state/range/tires were. No cache apply.
+		m.logger.Info("parallax drive-dynamics shadow",
+			"vehicle", vehicleID, "topic", f.RVM,
+			"px_enum", f.Value, "px_enum_ok", f.ValueOK,
+			"px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
+	}
+}
+
+// applyParallaxChargingStatus handles a charging.session.status frame. It
+// shadow-logs the decoded plug and display status next to vehicleState's
+// chargerStatus and chargerState (on an R1 that validates the mapping) and,
+// for a vehicle whose vehicleState sends no chargerStatus (an R2), applies
+// the plug status to the cache, marked ChargerStatusPx so the recorder keeps
+// the power inference as the fallback. A plug status is a state, not an
+// event: the cloud's replay of the latest frame applies too (after a restart
+// it's the only frame until the plug changes), but an out-of-order older
+// frame doesn't.
+func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleID string, f DriveDynamicsFrame, prev *State) {
+	cs, ok := decodeChargingStatus(f.Payload)
+	status := chargerStatusFromParallax(cs.Plug)
+	var vehStatus, vehState string
+	if prev != nil {
+		vehStatus, vehState = prev.ChargerStatus, prev.ChargerState
+	}
+	m.mu.RLock()
+	vehReports := m.vehChargerStatus[vehicleID]
+	latest := f.TimestampMs > 0 && m.lastTopicTs[vehicleID+"|"+f.RVM] == f.TimestampMs
+	m.mu.RUnlock()
+	args := []any{"vehicle", vehicleID, "topic", "charging_status",
+		"px_ok", ok, "px_plug", cs.Plug, "px_display", cs.Display, "px_evse", cs.EVSE,
+		"px_charger_status", status, "px_charger_state", chargerStateFromParallax(cs.Display),
+		"vehicleState_charger_status", vehStatus, "vehicleState_charger_state", vehState,
+		"vehicleState_has_status", vehReports, "ts_ms", f.TimestampMs}
+	// Raw payloads only from the R2s, only during the time-boxed capture.
+	if pxChargeCapturing(time.Now()) && m.readyUnreliable(vehicleID) {
+		args = append(args, "px_raw_b64", f.Payload)
+	}
+	m.logger.Info("parallax drive-dynamics shadow", args...)
+	if !m.parallaxDriveDynamics || !ok || status == "" || vehReports || !latest {
+		return
+	}
+	m.mu.Lock()
+	base := m.cache[vehicleID]
+	if base == nil || m.vehChargerStatus[vehicleID] || (base.ChargerStatus == status && base.ChargerStatusPx) {
+		m.mu.Unlock()
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.ChargerStatus = status
+	next.ChargerStatusPx = true
+	m.putCacheLocked(vehicleID, &next)
+	m.mu.Unlock()
+	m.record(ctx, vehicleID, base, &next)
+}
+
+// applyParallaxOTA handles an ota.deployment.state frame: it logs the
+// decoded installed and pending versions next to vehicleState's and, for a
+// vehicle whose vehicleState sends no otaCurrentVersion (an R2), sets them
+// on the cache. The R1s carry both, so the log validates the decode. Like
+// the plug status it's a state: the replay of the latest frame applies, an
+// out-of-order older one doesn't.
+func (m *StateMonitor) applyParallaxOTA(vehicleID string, f DriveDynamicsFrame, prev *State) {
+	cur, avail, ok := decodeOTADeployment(f.Payload)
+	var vehCur, vehAvail string
+	if prev != nil {
+		vehCur, vehAvail = prev.OtaCurrentVersion, prev.OtaAvailableVersion
+	}
+	m.mu.RLock()
+	vehReports := m.vehOtaVersion[vehicleID]
+	latest := f.TimestampMs > 0 && m.lastTopicTs[vehicleID+"|"+f.RVM] == f.TimestampMs
+	m.mu.RUnlock()
+	args := []any{"vehicle", vehicleID, "topic", "ota_deployment",
+		"px_ok", ok, "px_current", cur, "px_available", avail,
+		"vehicleState_current", vehCur, "vehicleState_available", vehAvail,
+		"vehicleState_has_version", vehReports, "ts_ms", f.TimestampMs}
+	if !ok {
+		args = append(args, "px_raw_b64", f.Payload)
+	}
+	m.logger.Info("parallax drive-dynamics shadow", args...)
+	if !m.parallaxDriveDynamics || !ok || cur == "" || vehReports || !latest {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	base := m.cache[vehicleID]
+	if base == nil || m.vehOtaVersion[vehicleID] || (base.OtaCurrentVersion == cur && base.OtaAvailableVersion == avail) {
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.OtaCurrentVersion, next.OtaAvailableVersion = cur, avail
+	m.putCacheLocked(vehicleID, &next)
+}
+
+// parkableGear reports whether a Parallax P should replace the cached gear:
+// a driving gear (vehicleState that never reports park, so the last D or R
+// sticks) or none at all (an R2's vehicleState sends the gear blank, and
+// after a restart the cache starts without one until a gear frame lands;
+// stored and served blank, it reads as "unknown" rather than parked).
+func parkableGear(g string) bool {
+	return isDrivingGear(g) || strings.TrimSpace(g) == ""
+}
+
+// applicable reports whether a drive-dynamics value may be applied to
+// the live state: a fresh frame (noteParallaxFrame) whose event time is
+// within parallaxGearMaxAge. A replay is counted for the replay metric.
+func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
+	ok := fresh && f.TimestampMs > 0 && time.Since(time.UnixMilli(f.TimestampMs)) <= parallaxGearMaxAge
+	if !ok {
+		m.mu.RLock()
+		obs := m.sleepObserver
+		m.mu.RUnlock()
+		if o, isObs := obs.(ParallaxReplayObserver); isObs {
+			o.OnParallaxReplayIgnored(f.RVM)
+		}
+	}
+	return ok
+}
+
+// ParallaxReplayObserver is optionally implemented by the SleepObserver
+// (main's metrics adapter): told each time a replayed or stale Parallax
+// value is ignored instead of applied, per topic.
+type ParallaxReplayObserver interface {
+	OnParallaxReplayIgnored(topic string)
+}
+
+// applyParallaxGear handles one dynamics.vehicle.gear frame.
+//
+// A replayed frame (same or older ts_ms than one already seen, or an
+// event time older than parallaxGearMaxAge) is IGNORED: it must not
+// refresh the "fresh Parallax gear" veto/corroboration, must not be
+// copied into the cached state and must not call record(). Without
+// this gate every Parallax resubscribe (~3 min) replayed the last real
+// gear (a D from repositioning before plugging in) into a car that was
+// fast-charging, and the recorder closed and reopened the charge and a
+// drive on every frame (2026-10-10, 01-2498255104: 462 forced closes,
+// 11 charge pieces with running energy totals).
+func (m *StateMonitor) applyParallaxGear(ctx context.Context, vehicleID string, f DriveDynamicsFrame, fresh bool, vehGear string) {
+	g := gearFromParallax(f.Value)
+	if !m.applicable(f, fresh) {
+		m.logger.Debug("parallax gear frame ignored (replay)",
+			"vehicle", vehicleID, "px_enum", f.Value, "px_gear", g,
+			"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+		// One exception: a replayed P is the last gear the car reported,
+		// so a car standing still while the cache reads driving or has no
+		// gear at all (a vehicleState that never reports park, after a restart or a
+		// missed park frame) is parked. It doesn't count as fresh: the
+		// close corroboration still needs a stop (speed) or time.
+		if g == "P" && m.parallaxDriveDynamics && f.TimestampMs > 0 {
+			m.mu.Lock()
+			base := m.cache[vehicleID]
+			if base != nil && parkableGear(base.Gear) && base.SpeedKph*kphToMi <= driveCloseSpeedMph {
+				m.lastPxGear[vehicleID] = "P"
+				next := *base
+				next.At = time.Now()
+				next.Gear = "P"
+				m.putCacheLocked(vehicleID, &next)
+				m.mu.Unlock()
+				m.record(ctx, vehicleID, base, &next)
+				return
+			}
+			m.mu.Unlock()
+		}
+		return
+	}
+	m.logger.Info("parallax drive-dynamics shadow",
+		"vehicle", vehicleID, "topic", "gear",
+		"px_enum", f.Value, "px_gear", g,
+		"vehicleState_gear", vehGear, "ts_ms", f.TimestampMs)
+	// Feed the drive-close debounce: fresh Parallax P corroborates
+	// a close, fresh R/N/D vetoes a vehicleState P blip.
+	if g != "" {
+		m.mu.Lock()
+		m.lastPxGear[vehicleID] = g
+		m.lastPxGearAt[vehicleID] = time.Now()
+		m.mu.Unlock()
+	}
+	// Authoritative early-open: a Parallax driving gear (R/N/D)
+	// opens/sustains the drive now. Parallax leads vehicleState by
+	// seconds (tens of seconds when vehicleState stalls), so this
+	// captures the true start — and, because the cache still holds
+	// the pre-drive parked odometer/location, the correct start
+	// odometer and start point.
+	//
+	// A fresh P is applied too, when the cached gear still reads
+	// driving: some vehicles' vehicleState never reports park (R2: the
+	// gear stays at the last D/R for days), so without it the drive
+	// never closes and no charge opens. The close itself stays with the
+	// recorder's debounce (a fresh Parallax P corroborates it), and
+	// holdParallaxLocked keeps vehicleState replays of the stale gear
+	// from undoing it while the car stands still.
+	if m.parallaxDriveDynamics && (isDrivingGear(g) || g == "P") {
+		m.mu.Lock()
+		base := m.cache[vehicleID]
+		if base != nil && (g != "P" || parkableGear(base.Gear)) {
+			next := *base
+			next.At = time.Now()
+			next.Gear = g
+			m.putCacheLocked(vehicleID, &next)
+			m.mu.Unlock()
+			m.record(ctx, vehicleID, base, &next)
+		} else {
+			m.mu.Unlock()
+		}
+	}
+}
+
+// applyVehicleStatePush merges one vehicleState subscription push into
+// the cache and runs the recorder on it.
+func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID string, st *State) {
+	// When Parallax GPS is authoritative, drop vehicleState's GPS
+	// before it reaches the cache so the gnss subscriber is the only
+	// writer of lat/lon/speed/heading/altitude.
+	m.noteVehStateGPS(vehicleID, st)
+	m.mu.Lock()
+	// Rivian pushes deltas — each frame contains only the fields that
+	// changed. Merge non-zero/non-empty values from the push over
+	// whatever we had cached so static fields (odometer, gear, charge
+	// limit, tire pressures) don't disappear between frames.
+	prev := m.cache[vehicleID]
+	if st != nil && strings.TrimSpace(st.ChargerStatus) != "" {
+		m.vehChargerStatus[vehicleID] = true
+	}
+	if st != nil && strings.TrimSpace(st.OtaCurrentVersion) != "" {
+		m.vehOtaVersion[vehicleID] = true
+	}
+	merged := mergeState(prev, st)
+	m.holdParallaxLocked(vehicleID, prev, merged)
+	m.putCacheLocked(vehicleID, merged)
+	m.stamp[vehicleID] = time.Now()
+	// Cold-start guard: any real WS frame proves the subscription is
+	// delivering, so adaptiveRefreshInterval can return to
+	// PowerState-driven cadence.
+	m.noteVehicleStateFrameLocked(vehicleID)
+	m.mu.Unlock()
+	m.record(ctx, vehicleID, prev, merged)
+}
+
+// parallaxLiveWindow: Parallax counts as live for holdParallaxLocked when
+// any of its topics delivered a frame this recently (replays included:
+// they prove the subscription is up, not that anything changed).
+const parallaxLiveWindow = 10 * time.Minute
+
+// holdParallaxLocked keeps what fresh Parallax frames established
+// against a vehicleState push that would undo it with a stale value
+// (every resubscribe replays vehicleState's last snapshot):
+//   - a Parallax P against a vehicleState driving gear, while the car
+//     stands still (speed at or under driveCloseSpeedMph). A real drive
+//     start shows as a fresh Parallax R/D first, or as speed;
+//   - a Parallax sleep against a vehicleState "ready" (an R2 reports
+//     only ready/go/blank), while Parallax is live; "go" always wins.
+//
+// prev is the cached state the push merged onto; merged is changed in
+// place. Caller holds mu.
+func (m *StateMonitor) holdParallaxLocked(vehicleID string, prev, merged *State) {
+	if !m.parallaxDriveDynamics || prev == nil || merged == nil {
+		return
+	}
+	if prev.Gear == "P" && isDrivingGear(merged.Gear) && m.lastPxGear[vehicleID] == "P" &&
+		merged.SpeedKph*kphToMi <= driveCloseSpeedMph {
+		merged.Gear = "P"
+	}
+	if prev.PowerState == "sleep" && merged.PowerState == "ready" && m.lastPxPower[vehicleID] == "sleep" &&
+		time.Since(m.lastParallaxAt[vehicleID]) < parallaxLiveWindow {
+		merged.PowerState, merged.PowerStateAt = prev.PowerState, prev.PowerStateAt
 	}
 }
 
@@ -2278,6 +2733,9 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		// leave it false, so we keep prev's true value across pushes.
 		if prev.IsRivianCharger {
 			sess.IsRivianCharger = true
+		}
+		if prev.RivianChargerKnown {
+			sess.RivianChargerKnown = true
 		}
 		// Preserve Active once any source has set it true. The REST
 		// one-shot reports Active=false for home-AC sessions; without
@@ -2362,7 +2820,7 @@ func (m *StateMonitor) applyLiveSession(ctx context.Context, vehicleID string, s
 		// power straight back. Only an actively charging car draws.
 		dropIdleChargerPower(&cp)
 		merged = &cp
-		m.cache[vehicleID] = merged
+		m.putCacheLocked(vehicleID, merged)
 		m.stamp[vehicleID] = time.Now()
 	}
 	m.mu.Unlock()
@@ -2427,6 +2885,12 @@ func mergeState(prev, next *State) *State {
 	mergeString(&out.DriveMode, next.DriveMode)
 	mergeString(&out.ChargerState, next.ChargerState)
 	mergeString(&out.ChargerStatus, next.ChargerStatus)
+	if next.ChargingSchedules != nil {
+		out.ChargingSchedules = next.ChargingSchedules
+	}
+	if next.ChargerStatus != "" {
+		out.ChargerStatusPx = next.ChargerStatusPx
+	}
 	mergeString(&out.ChargePortState, next.ChargePortState)
 	mergeString(&out.RemoteChargingAvailable, next.RemoteChargingAvailable)
 	mergeString(&out.CabinPreconditioningStatus, next.CabinPreconditioningStatus)
@@ -2521,7 +2985,8 @@ func (m *StateMonitor) Latest(vehicleID string) (*State, time.Time) {
 // republishes its merged live State to the shared store so peer replicas
 // can serve a complete /api/state. Kept well under LiveStateSnapshotTTL
 // so the snapshot never expires between refreshes on a healthy owner.
-const liveStateSnapshotInterval = 5 * time.Second
+// A var so tests can shrink it.
+var liveStateSnapshotInterval = 5 * time.Second
 
 // RemoteLatest returns the live State a peer pod published to the shared
 // store for this vehicle, or nil when none is available (no shared store
@@ -2531,16 +2996,100 @@ const liveStateSnapshotInterval = 5 * time.Second
 // would omit every subscription-only field (pack temperature, numeric
 // tire pressures, charging context, driver chips, windows). Reading the
 // owner's published snapshot serves those fields pod-agnostically.
+//
+// A snapshot read is reused for remoteLatestTTL: the owner republishes
+// only every liveStateSnapshotInterval, so /now and /api/state polls (the
+// public demo's visitors all poll the same vehicle) share one store read
+// instead of one each. Misses aren't cached.
 func (m *StateMonitor) RemoteLatest(ctx context.Context, vehicleID string) *State {
 	if m == nil || m.liveStateStore == nil {
 		return nil
 	}
+	m.remoteMu.Lock()
+	if e, ok := m.remoteLatest[vehicleID]; ok && time.Since(e.at) < remoteLatestTTL {
+		m.remoteMu.Unlock()
+		cp := *e.st
+		return &cp
+	}
+	m.remoteMu.Unlock()
 	st, err := m.liveStateStore.GetState(ctx, vehicleID)
 	if err != nil {
 		m.logger.Debug("remote live state get failed", "vehicle", vehicleID, "err", err.Error())
 		return nil
 	}
-	return st
+	if st == nil {
+		return nil
+	}
+	m.remoteMu.Lock()
+	if m.remoteLatest == nil {
+		m.remoteLatest = make(map[string]remoteLatestEntry)
+	}
+	m.remoteLatest[vehicleID] = remoteLatestEntry{st: st, at: time.Now()}
+	m.remoteMu.Unlock()
+	cp := *st
+	return &cp
+}
+
+// remoteLatestTTL is how long RemoteLatest reuses a snapshot it read:
+// well under liveStateSnapshotInterval, so it adds at most that much
+// staleness to a peer's view.
+var remoteLatestTTL = 2 * time.Second
+
+type remoteLatestEntry struct {
+	st *State
+	at time.Time
+}
+
+// stateRefetchEvery bounds how often /api/state on a pod that doesn't
+// stream a vehicle may fetch it directly from Rivian when the owner's
+// published snapshot is missing (no shared store, Redis down, a handover
+// gap). Between fetches it serves the entry it has, however old.
+const stateRefetchEvery = 5 * time.Minute
+
+// ServeState decides what /api/state serves for vehicleID. It returns
+// the state to serve and whether the caller should first fetch it
+// directly (then Prime the result, or on failure serve st if non-nil):
+//
+//  1. this pod streams the vehicle: its own cache, the freshest there is;
+//  2. otherwise the owner's published snapshot (RemoteLatest);
+//  3. otherwise the local entry (a past fetch, or the last frame before
+//     this pod lost the lease), with fetch=true at most once per
+//     stateRefetchEvery per vehicle on this pod, and never while that
+//     entry says the vehicle is asleep: this path has no sleep gate of
+//     its own, and a Redis outage must not fan out into Rivian calls;
+//  4. no entry: fetch=true under the same limit, else (nil, false).
+//
+// Serving the local entry first, as Latest-first did, froze /api/state
+// on a non-owner pod from its first fallback fetch until it restarted.
+func (m *StateMonitor) ServeState(ctx context.Context, vehicleID string) (st *State, fetch bool) {
+	if m == nil {
+		return nil, true
+	}
+	m.mu.RLock()
+	local := m.cache[vehicleID]
+	_, streaming := m.active[vehicleID]
+	m.mu.RUnlock()
+	if streaming && local != nil {
+		return local, false
+	}
+	if remote := m.RemoteLatest(ctx, vehicleID); remote != nil {
+		return remote, false
+	}
+	if local != nil && strings.EqualFold(strings.TrimSpace(local.PowerState), "sleep") {
+		return local, false
+	}
+	m.fallbackMu.Lock()
+	defer m.fallbackMu.Unlock()
+	if m.fallbackAt == nil {
+		m.fallbackAt = make(map[string]time.Time)
+	}
+	if last, ok := m.fallbackAt[vehicleID]; ok && time.Since(last) < stateRefetchEvery {
+		return local, false
+	}
+	// Claimed before the fetch, so concurrent polls serve local (or wait
+	// out the window) instead of fetching too.
+	m.fallbackAt[vehicleID] = time.Now()
+	return local, true
 }
 
 // liveStatePublisher periodically writes this vehicle's cached State to
@@ -2563,11 +3112,13 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 		case <-t.C:
 			m.mu.RLock()
 			cached := m.cache[vehicleID]
+			frameAt := m.vehicleStateFrameAtLocked(vehicleID)
 			m.mu.RUnlock()
 			if cached == nil {
 				continue
 			}
 			snap := *cached // value copy; publish outside the lock
+			snap.VehicleStateFrameAt = frameAt
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			if err := m.liveStateStore.PutState(pctx, vehicleID, &snap, LiveStateSnapshotTTL); err != nil {
 				m.logger.Debug("live state publish failed", "vehicle", vehicleID, "err", err.Error())
@@ -2575,6 +3126,61 @@ func (m *StateMonitor) liveStatePublisher(ctx context.Context, vehicleID string)
 			cancel()
 		}
 	}
+}
+
+// noteVehicleStateFrameLocked records that a vehicleState frame just
+// arrived: the feed is delivering (wsSeen) and when. Caller holds mu.
+func (m *StateMonitor) noteVehicleStateFrameLocked(vehicleID string) {
+	m.wsSeen[vehicleID] = true
+	if m.lastVSFrame == nil {
+		m.lastVSFrame = make(map[string]time.Time)
+	}
+	m.lastVSFrame[vehicleID] = time.Now()
+}
+
+// vehicleStateFrameAtLocked is VehicleStateFrameAt for a vehicle this
+// pod streams: nil while no live feed is expected (no frame yet, or
+// vehicleState held while asleep). "No frame yet" is this ownership's:
+// wsSeen is cleared when the vehicle is forgotten (lease lost), so a pod
+// that re-acquires it reports nil until its own first frame instead of
+// the previous ownership's time. lastVSFrame itself is kept (#129's
+// guard reads it). Caller holds mu (read or write).
+func (m *StateMonitor) vehicleStateFrameAtLocked(vehicleID string) *time.Time {
+	t, ok := m.lastVSFrame[vehicleID]
+	if !ok || t.IsZero() || !m.wsSeen[vehicleID] || m.holdingVS[vehicleID] {
+		return nil
+	}
+	t = t.UTC()
+	return &t
+}
+
+// VehicleStateFrameAt is when the vehicleState feed last delivered a
+// frame for the vehicle (GET /now's vehicle_state_frame_at), or nil
+// when there is no live feed to judge: this pod doesn't stream the
+// vehicle and the owner hasn't published one, the subscription hasn't
+// delivered yet, or it is held while the car sleeps (wake-safety
+// HoldAsleep). A non-nil time that's old means the feed is stuck. A pod
+// that doesn't stream the vehicle reads the owner's published snapshot
+// (refreshed every liveStateSnapshotInterval; gone after
+// LiveStateSnapshotTTL once the owner stops).
+func (m *StateMonitor) VehicleStateFrameAt(ctx context.Context, vehicleID string) *time.Time {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	_, streaming := m.active[vehicleID]
+	var at *time.Time
+	if streaming {
+		at = m.vehicleStateFrameAtLocked(vehicleID)
+	}
+	m.mu.RUnlock()
+	if streaming {
+		return at
+	}
+	if remote := m.RemoteLatest(ctx, vehicleID); remote != nil {
+		return remote.VehicleStateFrameAt
+	}
+	return nil
 }
 
 // LatestLiveSession returns the last charging-session snapshot
@@ -2674,6 +3280,22 @@ func (m *StateMonitor) ActiveDrive(vehicleID string) *LiveDrive {
 	}
 }
 
+// putCacheLocked replaces the cached State for vehicleID, stamping
+// wokeAt when it takes PowerState from sleep to anything else. Caller
+// holds mu.
+func (m *StateMonitor) putCacheLocked(vehicleID string, next *State) {
+	if prev := m.cache[vehicleID]; prev != nil && next != nil &&
+		isSleepPS(prev.PowerState) && !isSleepPS(next.PowerState) && strings.TrimSpace(next.PowerState) != "" {
+		if m.wokeAt == nil {
+			m.wokeAt = make(map[string]time.Time)
+		}
+		m.wokeAt[vehicleID] = time.Now()
+	}
+	m.cache[vehicleID] = next
+}
+
+func isSleepPS(ps string) bool { return strings.EqualFold(strings.TrimSpace(ps), "sleep") }
+
 // Prime stores a state from an out-of-band source (typically a REST
 // fallback on first request) so subsequent Latest() calls return it
 // immediately while the subscription is still spinning up.
@@ -2683,7 +3305,7 @@ func (m *StateMonitor) Prime(vehicleID string, st *State) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cache[vehicleID] = st
+	m.putCacheLocked(vehicleID, st)
 	m.stamp[vehicleID] = time.Now()
 }
 
@@ -2729,7 +3351,7 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		m.logger.Warn("vehicle images fetch failed", "err", ierr)
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	refreshed := make([]Vehicle, 0, len(vehicles))
 	for i := range vehicles {
 		v := vehicles[i]
 		if url, ok := heroByVehicle[v.ID]; ok {
@@ -2739,8 +3361,24 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 			v.Images = list
 		}
 		m.vehicleInfo[v.ID] = &v
+		refreshed = append(refreshed, v)
+	}
+	hook := m.vehicleInfoHook
+	m.mu.Unlock()
+	// Persist what was just fetched, outside the lock: no extra Rivian
+	// call, so vehicles.trim / image_url fill from the same two requests.
+	if hook != nil && len(refreshed) > 0 {
+		hook(refreshed)
 	}
 	return nil
+}
+
+// SetVehicleInfoHook wires the persister RefreshVehicleInfo calls with the
+// vehicles it just cached. nil disables. Safe to call before Start.
+func (m *StateMonitor) SetVehicleInfoHook(h func([]Vehicle)) {
+	m.mu.Lock()
+	m.vehicleInfoHook = h
+	m.mu.Unlock()
 }
 
 // pickHeroImage chooses the best image to use as the single
@@ -2898,9 +3536,7 @@ func (m *StateMonitor) waitAuthReady(ctx context.Context, vehicleID string) bool
 	m.logger.Info("rivian ws subscribe blocked: awaiting auth", "vehicle", vehicleID)
 	select {
 	case <-ctx.Done():
-		m.mu.Lock()
-		delete(m.active, vehicleID)
-		m.mu.Unlock()
+		m.releaseActive(ctx, vehicleID)
 		return false
 	case <-ready:
 		return true
@@ -2935,9 +3571,7 @@ func (m *StateMonitor) waitReauthClear(ctx context.Context, vehicleID string) bo
 	for {
 		select {
 		case <-ctx.Done():
-			m.mu.Lock()
-			delete(m.active, vehicleID)
-			m.mu.Unlock()
+			m.releaseActive(ctx, vehicleID)
 			return false
 		case <-t.C:
 			if needs, _ := m.client.NeedsReauth(); !needs {

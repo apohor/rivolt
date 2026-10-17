@@ -183,3 +183,18 @@ describe("fetchers and flag", () => {
     expect(await loadMoneyTabEnabled()).toBe(false);
   });
 });
+
+describe("confirmed network estimates", () => {
+  const base = { cost: 34.65, rate: 0.4, network: "Tesla Supercharger", flags: [] as never[], cost_source: "network_estimate" as const };
+  it("reads as an estimate until confirmed, then as a recorded price with a Confirmed label", () => {
+    expect(grammarFor({ ...base, network_state: "estimated" })).toBe("estimated");
+    expect(sourceLabel({ ...base, network_state: "estimated" }, "USD")).toMatch(/^Estimated, confirm/);
+    expect(grammarFor({ ...base, network_state: "confirmed" })).toBe("recorded");
+    expect(sourceLabel({ ...base, network_state: "confirmed" }, "USD")).toBe("Confirmed · Tesla Supercharger · $0.40/kWh");
+  });
+  it("a receipt is confirmed only when every network-estimate session is", () => {
+    const sess = (network_state: "confirmed" | "estimated") => ({ cost_source: "network_estimate" as const, flags: [] as never[], network_state });
+    expect(grammarFor({ ...base, sessions: [sess("confirmed"), sess("confirmed")] })).toBe("recorded");
+    expect(grammarFor({ ...base, sessions: [sess("confirmed"), sess("estimated")] })).toBe("estimated");
+  });
+});

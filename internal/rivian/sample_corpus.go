@@ -42,6 +42,10 @@ const (
 	sampleHotelKW   = 6.0
 )
 
+// sampleSoftwareVersion is the software the sample truck reports
+// (Truck tab). No update is ever pending.
+const sampleSoftwareVersion = "2026.34.1"
+
 // sampleFlickerDay is the night the truck fails to stay asleep.
 const sampleFlickerDay = 24
 
@@ -89,10 +93,13 @@ var sampleDCFCStations = []struct {
 	network, name string // as in the archive (EVNetwork, Name)
 	billed        float64
 	billedBy      string // the network name Rivian's billed session carries
+	// planned is the station's name in a Rivian trip plan ("City, ST
+	// [Network]"), for the sample owner's saved plans (sample_plan.go).
+	planned string
 }{
-	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48, "Rivian Adventure Network"},
-	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0, ""},
-	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0, ""},
+	{samplePoint{34.851348, -117.082573}, "RIVIAN_ADVENTURE", "Barstow, CA", 0.48, "Rivian Adventure Network", "Barstow, CA [Rivian Adventure Network]"},
+	{samplePoint{35.606006, -115.389080}, "Electrify America", "Prizm Outlets (Primm, NV)", 0, "", "Primm, NV [Electrify America]"},
+	{samplePoint{35.986104, -119.957772}, "Tesla", "Bravo Farms - Tesla Supercharger", 0, "", "Kettleman City, CA [Tesla]"},
 }
 
 type sampleSegKind int
@@ -141,8 +148,13 @@ type SampleCorpus struct {
 	segs       []sampleSeg
 	userPriced int              // segment the owner priced by hand; -1 when none
 	legs       [][2]samplePoint // waypoint legs driven (route generator)
+	trips      []sampleSpan     // road trips, home to home
+	planned    []samplePlanned  // trip legs the owner planned ahead (sample_plan.go)
 	stats      SampleSummary    // plan counts; frames and span filled by Summary
 }
+
+// sampleSpan is a range of segments, [from, to).
+type sampleSpan struct{ from, to int }
 
 // SampleSummary describes what a corpus contains, for tests and the CLI.
 type SampleSummary struct {
@@ -171,7 +183,7 @@ func NewSampleCorpus(seed int64) *SampleCorpus {
 		soc: sampleWrapSoC, odo: 12480, at: SampleHome, limit: 80, plugged: true}
 	b.userPriced = -1
 	b.plan()
-	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, legs: b.legs, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
+	return &SampleCorpus{segs: b.segs, userPriced: b.userPriced, legs: b.legs, trips: b.trips, planned: b.planned, stats: SampleSummary{HomeL2: b.homeL2, TopUps: b.topUps, DCFC: b.dcfc,
 		AwayAC: b.awayAC, FailedSleeps: b.flickers, RoadTripMiles: b.tripMiles}}
 }
 
@@ -190,6 +202,9 @@ type sampleBuilder struct {
 	tripMiles []float64
 	inTrip    bool
 	tripStart float64
+	tripSeg   int // first segment of the trip under way
+	trips     []sampleSpan
+	planned   []samplePlanned
 	homeL2    int
 	topUps    int
 	dcfc      int
@@ -212,19 +227,35 @@ func (b *sampleBuilder) add(s sampleSeg) {
 	b.t = s.end
 }
 
-// park until `until`: awake 20 min, asleep, awake 2 min before leaving.
-// flicker adds failed sleeps (asleep < 60 s) through the night.
+// How long a parked truck stays up before it sleeps, from the R1 fleet
+// (prod vehicle_state, 10 days to 2026-10-16): a "ready" run that ends
+// in sleep lasts p50 12.9 min, then "standby" p50 1.0 min. 20 min of
+// "ready" per park, at five to seven parks a day (top-ups each start
+// one), made the demo's idle-awake read high.
+const (
+	sampleParkReady   = 13 * time.Minute
+	sampleParkStandby = 1 * time.Minute
+)
+
+// park until `until`: up sampleParkReady, standby, asleep, awake 2 min
+// before leaving. flicker adds failed sleeps (asleep < 60 s) through the
+// night.
 func (b *sampleBuilder) park(until time.Time, flicker bool) {
 	if !until.After(b.t) {
 		return
 	}
 	base := sampleSeg{kind: segParked, socA: b.soc, socB: b.soc, odoA: b.odo, odoB: b.odo,
 		path: []samplePoint{b.at}, plugged: b.plugged}
-	awakeEnd := minTime(b.t.Add(20*time.Minute), until)
+	awakeEnd := minTime(b.t.Add(sampleParkReady), until)
 	wake := until.Add(-2 * time.Minute)
 	seg := base
 	seg.start, seg.end, seg.step, seg.power = b.t, awakeEnd, sampleAwakeStep, "ready"
 	b.add(seg)
+	if wake.After(b.t) {
+		seg = base
+		seg.start, seg.end, seg.step, seg.power = b.t, minTime(b.t.Add(sampleParkStandby), wake), sampleAwakeStep, "standby"
+		b.add(seg)
+	}
 	if wake.After(b.t) {
 		if flicker {
 			// Three failed sleeps (asleep ~30 s, then awake again for
@@ -359,10 +390,18 @@ func (b *sampleBuilder) eveningAtHome(day int, flicker bool, nextDeparture time.
 	b.limit = 80
 }
 
-func (b *sampleBuilder) startTrip() { b.inTrip, b.tripStart = true, b.odo }
+func (b *sampleBuilder) startTrip() { b.inTrip, b.tripStart, b.tripSeg = true, b.odo, len(b.segs) }
 func (b *sampleBuilder) endTrip() {
 	b.inTrip = false
 	b.tripMiles = append(b.tripMiles, b.odo-b.tripStart)
+	b.trips = append(b.trips, sampleSpan{b.tripSeg, len(b.segs)})
+}
+
+// planLeg records that the owner planned the leg driven since segment
+// from (in the trip under way) ahead of time, as name.
+func (b *sampleBuilder) planLeg(name string, from int, origin, dest samplePlace) {
+	b.planned = append(b.planned, samplePlanned{name: name, trip: len(b.trips), leg: sampleSpan{from, len(b.segs)},
+		origin: origin, dest: dest})
 }
 
 // dcfcStop parks, plugs in, fast-charges to t and unplugs before driving
@@ -401,9 +440,11 @@ func (b *sampleBuilder) plan() {
 			day++
 		case day == 18: // Trip 1: Las Vegas, Friday to Sunday.
 			b.startTrip()
+			out := len(b.segs)
 			b.drive(66, sampleBarstow)
 			b.dcfcStop(85)
 			b.drive(68, sampleVegas) // I-15, through Baker
+			b.planLeg(samplePlanVegas, out, samplePlaceHome, samplePlaceVegas)
 			b.park(b.t.Add(90*time.Minute), false)
 			b.charge(90, sampleHotelKW, false) // hotel L2: away AC
 			b.awayAC++
@@ -413,9 +454,11 @@ func (b *sampleBuilder) plan() {
 			b.park(b.clock(day+1, 19, 0), false)
 			b.drive(28, samplePoint{36.1147, -115.1728}, sampleVegas) // the Strip and back
 			b.park(b.clock(day+2, 9, 0), false)
+			back := len(b.segs)
 			b.drive(66, samplePrimm)
 			b.dcfcStop(85)
 			b.drive(68, sampleBarstow, SampleHome) // I-15, through Baker
+			b.planLeg(samplePlanVegasHome, back, samplePlaceVegas, samplePlaceHome)
 			b.endTrip()
 			b.eveningAtHome(day+2, false, b.clock(day+3, 7, 45).Add(b.jitter(10)), 80)
 			day += 3
@@ -508,6 +551,7 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 		RangeMi: round1(soc / 100 * samplePackKWh * sampleMiPerKWh), Lat: round5(pos.Lat), Lon: round5(pos.Lon),
 		ChargingState: "charger_disconnected", PowerState: s.power, LocationFixAt: &fix,
 		DriveMode: "everyday", ChargeLimitPct: s.limit, TirePressureBar: 2.9,
+		OtaCurrentVersion: sampleSoftwareVersion,
 	}
 	outside := 14 + 7*math.Sin(2*math.Pi*(float64(t.Hour())+float64(t.Minute())/60-9)/24)
 	fr.OutsideTempC = round1(outside)
@@ -652,6 +696,15 @@ var (
 	sampleTimelineMemo replayTimeline
 )
 
+// sampleShared is the demo's corpus and timeline, built once.
+func sampleShared() (*SampleCorpus, replayTimeline) {
+	sampleTimelineOnce.Do(func() {
+		sampleCorpusShared = NewSampleCorpus(SampleSeed)
+		sampleTimelineMemo = sampleTimeline(sampleCorpusShared)
+	})
+	return sampleCorpusShared, sampleTimelineMemo
+}
+
 // SampleUserPrice reports whether the sample truck's charge that started
 // at startedAt (wall clock, as the replay feed recorded it) is the one
 // its owner priced by hand (the Las Vegas hotel's L2, a flat $15), so the
@@ -660,11 +713,7 @@ var (
 // recorder must not invent. Deterministic: startedAt is mapped back onto
 // the looping corpus like the replay feed maps it forward.
 func SampleUserPrice(startedAt time.Time) (cost float64, currency string, ok bool) {
-	sampleTimelineOnce.Do(func() {
-		sampleCorpusShared = NewSampleCorpus(SampleSeed)
-		sampleTimelineMemo = sampleTimeline(sampleCorpusShared)
-	})
-	c, tl := sampleCorpusShared, sampleTimelineMemo
+	c, tl := sampleShared()
 	if c.userPriced < 0 {
 		return 0, "", false
 	}

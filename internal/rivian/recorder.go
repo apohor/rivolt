@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/samples"
 )
@@ -129,6 +131,17 @@ type liveSessions struct {
 	// electrafi-imported numbers (which are scoped per-export).
 	driveCounter  int64
 	chargeCounter int64
+
+	// stuck is the charging state a charge with no plug indicator was
+	// abandoned in by the stale guard, and the SoC since. The same state
+	// with no SoC gain is the stuck state still, not a new charge (its
+	// merged power sticks too, so it looks like one).
+	stuck *stuckCharge
+}
+
+type stuckCharge struct {
+	state string
+	soc   float64
 }
 
 type liveDrive struct {
@@ -203,6 +216,7 @@ type liveCharge struct {
 	startedAt  time.Time
 	number     int64
 	startSoC   float64
+	startOdoMi float64 // odometer when the charge opened; 0 if unknown
 	lat        float64
 	lon        float64
 	maxPower   float64 // kW
@@ -234,6 +248,13 @@ type liveCharge struct {
 	dcfcRate    float64
 	dcfcCur     string
 	dcfcNetwork string
+	// dcfcVerdict is network detection's verdict once made (auto-detect
+	// on for the user), with the peak it was made at: a co-located site
+	// is looked at again when the peak has grown, since a peak only one
+	// network could deliver can settle it.
+	dcfcVerdict       *DCFCVerdict
+	dcfcPeakKW        float64
+	dcfcRivianCharger bool // the verdict saw isRivianCharger
 
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
@@ -241,6 +262,20 @@ type liveCharge struct {
 	// its gap against this, not endAt, so a session can't be kept open
 	// indefinitely by Rivian replaying sticky "charging_ready" frames.
 	lastMeaningfulAt time.Time
+
+	// lastProgressAt is the last frame where SoC rose or chargerState
+	// changed, power aside. A vehicle with no plug indicator (an R2) can
+	// keep reporting charging_active after the cable is pulled, and its
+	// merged charger power sticks at the last value (zeros don't merge),
+	// so power can't show the charge is over; the stale guard measures
+	// such a charge against this instead.
+	lastProgressAt time.Time
+	// progressKWh and progressActiveSec are energyIntKWh and
+	// activeSeconds as of lastProgressAt: the stale guard rolls a stuck
+	// charge back to them, since the sticky power after the last
+	// progress kept integrating (noteProgress).
+	progressKWh       float64
+	progressActiveSec float64
 }
 
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
@@ -254,6 +289,17 @@ func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) 
 	stateChanged := state != "" && state != c.finalState
 	if socUp || active || stateChanged {
 		c.lastMeaningfulAt = t
+	}
+	if socUp || stateChanged {
+		c.lastProgressAt = t
+	}
+}
+
+// noteProgress records the energy integral and active time as of a
+// progress frame (t is lastProgressAt). Call after accumulateEnergy.
+func (c *liveCharge) noteProgress(t time.Time) {
+	if c.lastProgressAt.Equal(t) {
+		c.progressKWh, c.progressActiveSec = c.energyIntKWh, c.activeSeconds
 	}
 }
 
@@ -314,6 +360,7 @@ func accumulateEnergy(c *liveCharge, t time.Time, kw float64) {
 // All store writes are best-effort: errors are logged and swallowed
 // so recording failures never break the live-state HTTP path.
 func (m *StateMonitor) record(ctx context.Context, vehicleID string, prev, curr *State) {
+	m.noteScheduleNudge(vehicleID, prev, curr)
 	m.recordFrame(ctx, vehicleID, prev, curr, true /* lifecycle */)
 }
 
@@ -426,12 +473,19 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// Force-close it BEFORE the lifecycle handlers so the new
 		// gear/charge state opens a clean session instead of
 		// extending the wrong one.
-		sess.applyMutualExclusion(curr, m, wctx)
+		//
+		// The lifecycle sees lifecycleView(curr): a frame that says
+		// both driving and charging is resolved by motion to one of
+		// them, so a stale gear or stuck charger fields can't close and
+		// reopen both sessions on every frame. The sample row keeps the
+		// raw frame.
+		lc := sess.lifecycleView(curr, m)
+		sess.applyMutualExclusion(lc, m, wctx)
 
 		// Handle session lifecycle so the sample row carries the
 		// right drive_number / charge_number for this frame.
-		driveNum = sess.handleDriveLifecycle(curr, prev, m, wctx)
-		chargeNum = sess.handleChargeLifecycle(curr, prev, m, wctx)
+		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
+		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock
@@ -521,6 +575,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			ShiftState:      curr.Gear,
 			DriveMode:       curr.DriveMode,
 			ChargingState:   curr.ChargerState,
+			ChargerStatus:   curr.ChargerStatus,
 			PowerState:      curr.PowerState,
 			ChargerPowerKW:  curr.ChargerPowerKW,
 			ChargeLimitPct:  curr.ChargeTargetPct,
@@ -587,25 +642,151 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 // m.sessMu held.
 func (s *liveSessions) applyMutualExclusion(curr *State, m *StateMonitor, ctx context.Context) {
 	driving := isDrivingGear(curr.Gear)
-	chargingNow := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	chargingNow := isChargingCS(curr.ChargerState) && s.plugged(curr)
+	// These closes finish a session like the normal close paths do: a
+	// last upsert that retries a rejected row once, then the close hook
+	// (charge notifications, drive weather) unless the row is a phantom
+	// or another recorder's. They used to upsert and drop the session
+	// without the hook.
 	if driving && s.charge != nil {
 		m.logger.Info("closing live charge: gear is driving",
 			"vehicle", curr.VehicleID, "id", s.charge.id, "gear", curr.Gear)
 		s.charge.finalState = "abandoned"
+		s.charge.final = true
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
+		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		rejected := s.charge.rejected
 		s.charge = nil
 		m.mu.Lock()
 		delete(m.lastSession, curr.VehicleID)
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
+		// A charge abandoned with next to nothing in it isn't worth a
+		// "charge finished" notification.
+		if !phantom && !rejected && closedRow.EnergyAddedKWh >= mutexChargeHookMinKWh {
+			m.fireChargeCloseHook(closedRow)
+		}
 	}
 	if chargingNow && s.drive != nil {
 		m.logger.Info("closing live drive: car is charging",
 			"vehicle", curr.VehicleID, "id", s.drive.id, "charger_state", curr.ChargerState)
+		s.drive.final = true
 		m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
+		closedRow := m.liveDriveRow(curr.VehicleID, s.drive)
+		phantom := !s.drive.endAt.After(s.drive.startedAt) && s.drive.endSoC == s.drive.startSoC && s.drive.endOdoMi == s.drive.startOdoMi
+		rejected := s.drive.rejected
 		s.drive = nil
+		// A drive that ran straight into charging only gets the hook
+		// (weather) if it was a real drive.
+		if !phantom && !rejected && (closedRow.EndedAt.Sub(closedRow.StartedAt) >= mutexDriveHookMinDur ||
+			closedRow.DistanceMi >= mutexDriveHookMinMi) {
+			m.fireDriveCloseHook(closedRow)
+		}
 	}
+}
+
+// Thresholds for the close hooks of sessions closed by
+// applyMutualExclusion: a forced close is often a fragment (a stale
+// gear, stuck charger fields), and its hooks notify the user or fetch
+// weather.
+const (
+	mutexChargeHookMinKWh = 1.0
+	mutexDriveHookMinDur  = 60 * time.Second
+	mutexDriveHookMinMi   = 0.1
+)
+
+// hookOnceMax bounds the fired-hook set; past it, entries older than
+// hookOnceTTL are dropped (a session closes once, and a duplicate close
+// comes seconds or minutes later, not a day).
+const (
+	hookOnceMax = 1024
+	hookOnceTTL = 24 * time.Hour
+)
+
+// hookOnce reports whether the close hook for session id (kind "d" or
+// "c") may fire, recording it: every close path fires a session's hook
+// at most once, however many times it's closed (a flap closed the same
+// charge id hundreds of times).
+func (m *StateMonitor) hookOnce(kind, id string) bool {
+	now := time.Now()
+	key := kind + "|" + id
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.hooksFired == nil {
+		m.hooksFired = map[string]time.Time{}
+	}
+	if _, done := m.hooksFired[key]; done {
+		return false
+	}
+	if len(m.hooksFired) >= hookOnceMax {
+		for k, at := range m.hooksFired {
+			if now.Sub(at) > hookOnceTTL {
+				delete(m.hooksFired, k)
+			}
+		}
+		if len(m.hooksFired) >= hookOnceMax {
+			m.hooksFired = map[string]time.Time{}
+		}
+	}
+	m.hooksFired[key] = now
+	return true
+}
+
+// fireChargeCloseHook runs the charge close hook for row, once per
+// session, unless hooks are off (none set, or replay catch-up).
+func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
+	if m.chargeCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("c", row.ID) {
+		return
+	}
+	go m.runChargeCloseHook(row)
+}
+
+// fireDriveCloseHook is fireChargeCloseHook for drives.
+func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
+	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
+		return
+	}
+	go m.runDriveCloseHook(row)
+}
+
+// switchMovedMi: the odometer moving this far since the open charge
+// began means the car is driving, whatever the charger fields say.
+const switchMovedMi = 0.05
+
+// lifecycleView is the frame the session lifecycle acts on. A frame that
+// says both driving (gear D/R/N) and charging (plugged, charging_active)
+// is a contradiction: Rivian's charger fields stick after an unplug, and
+// a replayed gear can read D while the car charges (the 2026-10-10 flap,
+// where the recorder then closed and reopened both sessions on every
+// frame). Motion settles it: speed over driveCloseSpeedMph, the odometer
+// moving switchMovedMi since the open charge began, or a fresh Parallax
+// driving gear mean driving, and the lifecycle sees the charger fields
+// as unknown; otherwise the car is charging and it sees gear P. Frames
+// that don't contradict themselves pass through unchanged (an unplug
+// followed by D still closes the charge and opens the drive at once).
+//
+// Must be called with m.sessMu held.
+func (s *liveSessions) lifecycleView(curr *State, m *StateMonitor) *State {
+	if !isDrivingGear(curr.Gear) || !(isChargingCS(curr.ChargerState) && s.plugged(curr)) {
+		return curr
+	}
+	moving := curr.SpeedKph*kphToMi > driveCloseSpeedMph
+	if c := s.charge; c != nil && c.startOdoMi > 0 && curr.OdometerKm > 0 &&
+		curr.OdometerKm*kmToMi-c.startOdoMi >= switchMovedMi {
+		moving = true
+	}
+	if g, at := m.lastParallaxGear(curr.VehicleID); isDrivingGear(g) && !at.IsZero() && time.Since(at) < 30*time.Second {
+		moving = true
+	}
+	view := *curr
+	if moving {
+		view.ChargerState, view.ChargerStatus, view.ChargerPowerKW = "", "", 0
+	} else {
+		view.Gear = "P"
+	}
+	return &view
 }
 
 // handleDriveLifecycle manages the drive accumulator across a single
@@ -813,8 +994,8 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 		s.drive = nil
 		// Not for drives replayed during catch-up: a first connect
 		// backfills weeks of them, each fetching weather.
-		if !phantom && !rejected && m.driveCloseHook != nil && !m.quietHooks.Load() {
-			go m.runDriveCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireDriveCloseHook(closedRow)
 		}
 		return n
 	}
@@ -912,7 +1093,35 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// opens a phantom session that then absorbs stale 25 kWh from
 	// applyLiveSession's cache and runs for hours with a DROPPING SoC.
 	// See v0.3.48 for the matching frontend gate.
-	charging := isChargingCS(curr.ChargerState) && isPluggedCS(curr.ChargerStatus)
+	chargingNow := func() bool {
+		c := isChargingCS(curr.ChargerState) && s.plugged(curr)
+		// Some vehicles report charging_ready while driving and parked
+		// unplugged (R2). Where that's so, charging_ready doesn't open a
+		// charge; charging_active does. An open charge isn't affected.
+		if c && s.charge == nil && curr.ChargerPowerKW <= 0 &&
+			strings.EqualFold(strings.TrimSpace(curr.ChargerState), "charging_ready") && m.readyUnreliable(curr.VehicleID) {
+			c = false
+		}
+		if s.stuck != nil && s.charge == nil {
+			if strings.EqualFold(strings.TrimSpace(curr.ChargerState), s.stuck.state) && curr.BatteryLevelPct <= s.stuck.soc {
+				c = false
+				// Follow SoC down (it was driven, still stuck): the next
+				// rise from here is a charge.
+				s.stuck.soc = curr.BatteryLevelPct
+			} else {
+				s.stuck = nil // it moved on: a new charge may open
+			}
+		}
+		return c
+	}
+	charging := chargingNow()
+	// No plug indicator from vehicleState (an R2): an open charge counts
+	// as plugged while its charging state lasts, so only this guard ends a
+	// charge whose state stuck after the unplug, and it measures progress
+	// (SoC up or a state change), since the merged power sticks too. A
+	// Parallax plug status (ChargerStatusPx) doesn't lift that: if its
+	// "connected" outlives the unplug, the progress guard still ends it.
+	noPlugStatus := strings.TrimSpace(curr.ChargerStatus) == "" || curr.ChargerStatusPx
 
 	// Stale-session guard. Force-close if too long has passed since
 	// anything meaningful happened (SoC went up, power was above the
@@ -923,6 +1132,9 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 	// activity behind them.
 	if charging && s.charge != nil {
 		ref := s.charge.lastMeaningfulAt
+		if noPlugStatus && !s.charge.lastProgressAt.IsZero() {
+			ref = s.charge.lastProgressAt
+		}
 		if ref.IsZero() {
 			ref = s.charge.startedAt
 		}
@@ -933,15 +1145,35 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				"vehicle", curr.VehicleID,
 				"id", s.charge.id,
 				"gap", gap.Round(time.Second),
-				"soc_drop", socDrop)
+				"soc_drop", socDrop,
+				// No plug indicator (R2): the gap is since the last SoC
+				// rise or state change (lastProgressAt), not power.
+				"no_plug_status", noPlugStatus)
 			s.charge.finalState = "abandoned"
+			// Without a plug indicator the sticky frames since the last
+			// progress weren't charging: end the row there, and take back
+			// the energy and active time their sticky power integrated
+			// (it would be billed on Money).
+			if noPlugStatus && ref.After(s.charge.startedAt) && ref.Before(s.charge.endAt) {
+				s.charge.endAt = ref
+				s.charge.energyIntKWh, s.charge.activeSeconds = s.charge.progressKWh, s.charge.progressActiveSec
+				s.charge.lastPowerAt, s.charge.lastPowerKW = time.Time{}, 0
+			}
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
+			if noPlugStatus {
+				s.stuck = &stuckCharge{state: strings.TrimSpace(curr.ChargerState), soc: s.charge.endSoC}
+			}
 			s.charge = nil
 			m.mu.Lock()
 			delete(m.lastSession, curr.VehicleID)
 			delete(m.chargeBond, curr.VehicleID)
 			delete(m.lastSessionFor, curr.VehicleID)
 			m.mu.Unlock()
+			// Plugged-in-ness was judged with the charge open; judge it
+			// again, or an R2's sticky frame reopens an empty charge at
+			// once (with a plug indicator, as on an R1, nothing changes;
+			// without one, s.stuck now holds the state off).
+			charging = chargingNow()
 		}
 	}
 
@@ -970,6 +1202,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 				s.charge.maxPower = curr.ChargerPowerKW
 			}
 			accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+			s.charge.noteProgress(curr.At)
 			m.bondCharge(curr.VehicleID, s.charge.id)
 			m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 			m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -981,17 +1214,20 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			startedAt:        curr.At,
 			number:           s.chargeCounter,
 			startSoC:         curr.BatteryLevelPct,
+			startOdoMi:       curr.OdometerKm * kmToMi,
 			lat:              curr.Latitude,
 			lon:              curr.Longitude,
 			endAt:            curr.At,
 			endSoC:           curr.BatteryLevelPct,
 			finalState:       curr.ChargerState,
 			lastMeaningfulAt: curr.At,
+			lastProgressAt:   curr.At,
 		}
 		if curr.ChargerPowerKW > 0 && curr.ChargerPowerKW <= maxLivePowerKW {
 			s.charge.maxPower = curr.ChargerPowerKW
 		}
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		m.bondCharge(curr.VehicleID, s.charge.id)
 		m.upsertLiveCharge(ctx, curr.VehicleID, s.charge)
 		m.closeStaleOpenCharges(ctx, curr.VehicleID, s.charge.id)
@@ -1005,6 +1241,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 		accumulateEnergy(s.charge, curr.At, curr.ChargerPowerKW)
+		s.charge.noteProgress(curr.At)
 		// endAt is monotonic-forward only — see the drive-lifecycle
 		// branch above for the regressed-clock class this guards.
 		if curr.At.After(s.charge.endAt) {
@@ -1046,6 +1283,15 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		// phantom rows that upsertLiveCharge already filtered out.
 		closedRow := m.liveChargeRow(curr.VehicleID, s.charge)
 		phantom := !s.charge.endAt.After(s.charge.startedAt) && s.charge.endSoC == s.charge.startSoC
+		if !phantom {
+			m.mu.RLock()
+			var sess *LiveSession
+			if m.lastSessionFor[curr.VehicleID] == s.charge.id {
+				sess = m.lastSession[curr.VehicleID]
+			}
+			m.mu.RUnlock()
+			logChargeClose(m.logger, curr.VehicleID, closedRow, sess, s.charge)
+		}
 		// Still rejected after the close retry: no duplicate push.
 		rejected := s.charge.rejected
 		n := s.charge.number
@@ -1063,12 +1309,81 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		delete(m.chargeBond, curr.VehicleID)
 		delete(m.lastSessionFor, curr.VehicleID)
 		m.mu.Unlock()
-		if !phantom && !rejected && m.chargeCloseHook != nil && !m.quietHooks.Load() {
-			go m.runChargeCloseHook(closedRow)
+		if !phantom && !rejected {
+			m.fireChargeCloseHook(closedRow)
 		}
 		return n
 	}
 	return 0
+}
+
+// sessionPredatesCharge reports evidence that a bonded session began well
+// before the charge it's bonded to: it has run longer than the charge
+// by more than 15 min and a quarter of the charge's age, or its start
+// time is over 15 min before the charge's. Rivian's REST and replayed
+// snapshots can describe the previous session; its price and charger
+// flag must not land on this one. No evidence (no elapsed time, no
+// parsable start) is not staleness.
+func sessionPredatesCharge(sess *LiveSession, c *liveCharge) bool {
+	if sess == nil || c == nil {
+		return false
+	}
+	age := c.endAt.Sub(c.startedAt)
+	if sess.TimeElapsedSeconds > 0 && time.Duration(sess.TimeElapsedSeconds)*time.Second > age+15*time.Minute+age/4 {
+		return true
+	}
+	// The same slack for the start time: Rivolt can open a charge late
+	// (a WS gap at plug-in, or an R2's charge opening only once power
+	// flows), and a 3 h session opened 20 min late is still its own.
+	if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime)); err == nil &&
+		t.Before(c.startedAt.Add(-(15*time.Minute + age/4))) {
+		return true
+	}
+	return false
+}
+
+// sessionStartDelta is the bonded session's StartTime minus the
+// charge's start (negative: the session began first); ok=false with no
+// parsable StartTime. Logged at close to measure sessionPredatesCharge.
+func sessionStartDelta(sess *LiveSession, c *liveCharge) (time.Duration, bool) {
+	if sess == nil || c == nil {
+		return 0, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
+	if err != nil {
+		return 0, false
+	}
+	return t.Sub(c.startedAt), true
+}
+
+// NetworkRivianAdventure is the display name the ledger and the charge
+// map use for the Rivian Adventure Network.
+const NetworkRivianAdventure = "Rivian Adventure Network"
+
+// logChargeClose logs one line per closed charge: "dcfc session closed"
+// (whether Rivian reported isRivianCharger, so the network rule's
+// coverage can be measured) or "ac session closed". Both carry the
+// bonded session's start_delta_s / elapsed_s and the
+// sessionPredatesCharge verdict, so how often the freshness rule fires
+// on real charges can be measured.
+func logChargeClose(logger *slog.Logger, vehicleID string, row charges.Charge, sess *LiveSession, c *liveCharge) {
+	if logger == nil {
+		return
+	}
+	attrs := []any{"vehicle", vehicleID, "kwh", row.EnergyAddedKWh, "cost_source", row.CostSource, "network", row.Network,
+		"session_bonded", sess != nil, "session_stale", sessionPredatesCharge(sess, c)}
+	if d, ok := sessionStartDelta(sess, c); ok {
+		attrs = append(attrs, "start_delta_s", int64(d.Seconds()))
+	}
+	if sess != nil && sess.TimeElapsedSeconds > 0 {
+		attrs = append(attrs, "elapsed_s", sess.TimeElapsedSeconds, "age_s", int64(c.endAt.Sub(c.startedAt).Seconds()))
+	}
+	if IsDCFCSession(row.MaxPowerKW, row.EnergyAddedKWh, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+		seen, rivian := row.RivianCharger != nil, row.RivianCharger != nil && *row.RivianCharger
+		logger.Info("dcfc session closed", append(attrs, "rivian_charger_seen", seen, "rivian_charger", rivian)...)
+		return
+	}
+	logger.Info("ac session closed", attrs...)
 }
 
 // maybeRehydrate is the lazy-init path for sessions[vehicleID]. The
@@ -1311,14 +1626,24 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		maxPower = c.maxPower
 	}
 	if liveSess != nil && liveSess.Active {
-		if liveSess.TotalChargedEnergyKWh > energy {
-			energy = liveSess.TotalChargedEnergyKWh
-		}
-		if liveSess.RangeAddedKm > 0 {
-			milesAdded = liveSess.RangeAddedKm * kmToMi
-		}
 		if liveSess.PowerKW > maxPower && liveSess.PowerKW <= maxLivePowerKW {
 			maxPower = liveSess.PowerKW
+		}
+		// A session total is credited only with power behind it: the
+		// cloud replays a finished session's snapshot (its total, marked
+		// active) on every resubscribe, and with nothing drawing a
+		// replayed 36.8 kWh used to land on a 0 kW plugged-in charge.
+		// Nor when the session began well before this charge:
+		// Parallax's charge breakdown counts per plug-in, so a car left
+		// plugged in for days reports the whole plug-in's running total
+		// (69.9 kWh at 75 h, seeded into 2-s charges).
+		if maxPower > 0 && !sessionPredatesCharge(liveSess, c) {
+			if liveSess.TotalChargedEnergyKWh > energy {
+				energy = liveSess.TotalChargedEnergyKWh
+			}
+			if liveSess.RangeAddedKm > 0 {
+				milesAdded = liveSess.RangeAddedKm * kmToMi
+			}
 		}
 	}
 
@@ -1361,9 +1686,18 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	// rates), then the SoC-delta, then the ceiling. Scoped to L2 because
 	// at DCFC the integral undersamples (frame cadence) and the Parallax
 	// total is authoritative and per-stop, not fragmented.
-	if maxPower > 0 && maxPower < l2PowerThresholdKW {
+	//
+	// Every session is capped, not just L2: a stale or replayed total
+	// on any charge can't exceed what the observed peak could deliver.
+	// At DC fast the frame cadence undersamples the peak, hence the
+	// wider margin there.
+	if maxPower > 0 {
 		if hours := c.endAt.Sub(c.startedAt).Hours(); hours > 0 {
-			physCap := maxPower * hours * 1.15
+			margin := 1.15
+			if maxPower >= l2PowerThresholdKW {
+				margin = 1.5
+			}
+			physCap := maxPower * hours * margin
 			if energy > physCap {
 				socDeltaKWh := 0.0
 				if dSoC := c.endSoC - c.startSoC; dSoC > 0 {
@@ -1395,7 +1729,10 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			avg = maxLivePowerKW
 		}
 	}
-	if maxPower == 0 && avg > 0 {
+	// With no power observed, the average (from the SoC delta) stands
+	// in for the peak, but only at AC rates: a short session with a
+	// jumpy SoC must not come out looking like a DC fast charge.
+	if maxPower == 0 && avg > 0 && avg < l2PowerThresholdKW {
 		maxPower = avg
 	}
 
@@ -1423,13 +1760,21 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 		v := liveSess.ThermalKWh
 		row.ThermalKWh = &v
 	}
+	// What Rivian says about the session (its own charger, its price)
+	// belongs to this charge only if the session is this charge's:
+	// getLiveSessionHistory can still return the previous session.
+	stale := sessionPredatesCharge(liveSess, c)
+	if liveSess != nil && !stale && liveSess.RivianChargerKnown {
+		v := liveSess.IsRivianCharger
+		row.RivianCharger = &v
+	}
 	// Snapshot cost. Rivian-reported RAN / Wall Charger prices win
 	// (they're the real billed amount). A DC fast charge Rivian didn't
 	// bill (Tesla, Electrify America, ...) is priced at the network
 	// rate of the station it happened at; anything slower uses the
 	// user's home $/kWh rate. Persisting means future rate changes
 	// don't retroactively rewrite history; CostSource records which.
-	if liveSess != nil && liveSess.CurrentPrice != "" {
+	if liveSess != nil && !stale && liveSess.CurrentPrice != "" {
 		if cost, err := strconv.ParseFloat(liveSess.CurrentPrice, 64); err == nil && cost > 0 {
 			row.Cost = cost
 			row.Currency = liveSess.CurrentCurrency
@@ -1437,8 +1782,15 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 			// The billing network when the session names it, so the
 			// charge map labels a Rivian-billed stop by its network
 			// instead of the nearest charger's brand. Never guessed from
-			// "Rivian-billed": Rivian can bill other networks too.
+			// "Rivian-billed" alone: Rivian can bill other networks too.
+			// Rivian's own charger at DC fast speed is the Rivian
+			// Adventure Network; at AC it could be a Waypoints or Wall
+			// Charger, so that stays unnamed.
 			row.Network = strings.TrimSpace(liveSess.Network)
+			if row.Network == "" && liveSess.RivianChargerKnown && liveSess.IsRivianCharger &&
+				IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt)) {
+				row.Network = NetworkRivianAdventure
+			}
 			if energy > 0 {
 				row.PricePerKWh = cost / energy
 			}
@@ -1446,10 +1798,36 @@ func (m *StateMonitor) liveChargeRow(vehicleID string, c *liveCharge) charges.Ch
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup, dcfc, home := m.priceLookup, m.dcfcPrice, m.homeLookup
+		lookup, dcfc, home, detect := m.priceLookup, m.dcfcPrice, m.homeLookup, m.dcfcDetect
 		m.mu.RUnlock()
-		fast := dcfc != nil && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
-		if fast {
+		fast := (dcfc != nil || detect != nil) && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
+		// Network detection with a verify state, where it's on for the
+		// user. Rivian's isRivianCharger (this charge's own session,
+		// see sessionPredatesCharge) is its strongest signal, so a
+		// verdict made without it is made again once it arrives.
+		ranCharger := row.RivianCharger != nil && *row.RivianCharger
+		if fast && detect != nil && (c.dcfcVerdict == nil ||
+			(ranCharger && !c.dcfcRivianCharger) ||
+			(c.dcfcVerdict.Confidence < dcfcrates.ConfidentAt && row.MaxPowerKW > c.dcfcPeakKW*1.1)) {
+			if v, on := detect(c.lat, c.lon, ranCharger, row.MaxPowerKW); on {
+				c.dcfcVerdict, c.dcfcPeakKW, c.dcfcRivianCharger = &v, row.MaxPowerKW, ranCharger
+			}
+		}
+		if fast && c.dcfcVerdict != nil {
+			v := c.dcfcVerdict
+			row.NetworkState, row.NetworkEvidence = v.State, v.Evidence
+			conf := v.Confidence
+			row.NetworkConfidence = &conf
+			if v.Priced && v.Rate > 0 {
+				row.PricePerKWh = v.Rate
+				row.Currency = v.Currency
+				row.Cost = v.Rate * energy
+				row.CostSource = CostSourceNetworkEstimate
+				row.Network = v.Network
+			}
+			// Unpriced (nothing matched): the row waits for the user,
+			// network_state says so.
+		} else if fast && dcfc != nil {
 			if !c.dcfcPriced {
 				if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
 					c.dcfcPriced, c.dcfcRate, c.dcfcCur, c.dcfcNetwork = true, rate, cur, network
@@ -1594,10 +1972,42 @@ func isChargingCS(s string) bool {
 	}
 	switch v {
 	case "charger_disconnected", "charging_complete", "charging_user_stopped",
-		"charging_station_err", "charging_user_stoppe":
+		"charging_station_err", "charging_user_stoppe",
+		// Plugged in, waiting for a scheduled start: no energy flows.
+		// It used to open a live charge that the charging-session feed's
+		// replay of the previous session's total then filled (eleven
+		// 36.8 kWh copies at 0 kW in one night, 01-248088167 Jul 13);
+		// the real session opens on charging_active.
+		"charging_scheduled":
 		return false
 	}
 	return strings.HasPrefix(v, "charging_") || v == "waiting_on_charger"
+}
+
+// plugged reports whether the cable is connected for the lifecycle.
+// Rivian's chargerStatus says so when the vehicle reports it. An R2
+// never does (charger_status is empty on every R2 row), so there a
+// charging state that only exists with power flowing stands in:
+// charging_active or charging_connecting with power above zero, or
+// with a charge already open (a 0 kW pause mid-session doesn't split
+// it). charging_ready alone never counts: an R2 reports it while
+// driving and parked unplugged. Leaving those states (charging_complete,
+// charging_ready, disconnected) reads as unplugged, which closes the
+// charge as before. Must be called with m.sessMu held.
+func (s *liveSessions) plugged(curr *State) bool {
+	if strings.TrimSpace(curr.ChargerStatus) != "" {
+		// A Parallax status (R2) that says unplugged or fault doesn't
+		// overrule the power inference below: a wrong reading must not
+		// keep a charging car from recording.
+		if !curr.ChargerStatusPx || isPluggedCS(curr.ChargerStatus) {
+			return isPluggedCS(curr.ChargerStatus)
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(curr.ChargerState)) {
+	case "charging_active", "charging_connecting":
+		return curr.ChargerPowerKW > 0 || s.charge != nil
+	}
+	return false
 }
 
 // isPluggedCS reports whether Rivian's chargerStatus field indicates
@@ -1656,12 +2066,14 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		finalState: row.FinalState,
 		// Continue the active-charging-time accumulator from the
 		// persisted value so a mid-charge restart doesn't reset it.
-		activeSeconds: row.ActiveSeconds,
+		activeSeconds:     row.ActiveSeconds,
+		progressActiveSec: row.ActiveSeconds,
 		// Anchor the stale-session guard at the last advanced frame, not
 		// zero. A zero lastMeaningfulAt makes the guard fall back to
 		// startedAt and abandon any resumed charge older than the gap
 		// window on the first idle frame after a restart.
 		lastMeaningfulAt: row.EndedAt,
+		lastProgressAt:   row.EndedAt,
 	}
 	m.logger.Info("resumed open charge from DB",
 		"vehicle", curr.VehicleID,
@@ -1708,4 +2120,15 @@ func minNonZero4(a, b, c, d float64) float64 {
 		}
 	}
 	return min
+}
+
+// readyUnreliable reports a vehicle whose charging_ready doesn't mean
+// plugged in: an R2. R1s also report charging_ready while driving, but
+// their charge open/close already relies on it, so the rule stays
+// R2-only.
+func (m *StateMonitor) readyUnreliable(vehicleID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v := m.vehicleInfo[vehicleID]
+	return v != nil && strings.EqualFold(strings.TrimSpace(v.Model), "R2")
 }

@@ -104,3 +104,17 @@ describe("data-quality lines", () => {
     expect(days[0].items).toHaveLength(1);
   });
 });
+
+describe("chargeCostLine: Charging now", () => {
+  it("only for a genuinely open, recent session", () => {
+    const recent = new Date(Date.now() - 2 * 60_000).toISOString();
+    expect(chargeCostLine(charge("x", recent, { FinalState: "charging_active", EndedAt: recent })).text).toBe("Charging now");
+  });
+  it("not for finished charges whose final state is user/station stopped, or long-silent open ones", () => {
+    const old = "2026-10-09T10:00:00Z";
+    for (const FinalState of ["charging_user_stopped", "charging_station_stopped", "charging_station_error", "charging_scheduled", "charging_active"]) {
+      expect(chargeCostLine(charge("x", old, { FinalState, EndedAt: old, Cost: 12 })).text).not.toBe("Charging now");
+    }
+  });
+});
+

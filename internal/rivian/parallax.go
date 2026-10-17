@@ -563,19 +563,38 @@ const (
 	rvmPetMode     = "comfort.cabin.pet_mode_status"
 	rvmClimateHold = "comfort.cabin.climate_hold_status"
 	rvmImmobilizer = "security.access.immobilizer_state"
+	// rvmChargingStatus is charging.session.status (APK 3.17 RVM 35), the
+	// plug indicator an R2's vehicleState lacks: {1: plug_connection_status,
+	// 2: display_status, 3: evse_type}. The app writes it into its own
+	// vehicleState chargerStatus/chargerState (see chargerStatusFromParallax).
+	rvmChargingStatus = "charging.session.status"
+	// rvmBatteryChars is energy.high_voltage.battery_characteristics, the
+	// pack's own identity and usable capacity. Decode-logged only, and
+	// subscribed only until pxChargeCaptureUntil.
+	rvmBatteryChars = "energy.high_voltage.battery_characteristics"
 )
+
+// pxChargeCaptureUntil time-boxes the charging.session.status capture: until
+// then the R2s log its raw payload, and every vehicle subscribes to and logs
+// battery_characteristics (dropped at the first reconnect after it). One day
+// of frames to check the decode against the R1s' vehicleState chargerStatus
+// and their known packs.
+var pxChargeCaptureUntil = time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+
+// pxChargeCapturing reports whether the time-boxed capture is still on.
+func pxChargeCapturing(now time.Time) bool { return now.Before(pxChargeCaptureUntil) }
 
 // CaptureRVMs are the read topics carried on the drive-dynamics
 // subscription only under the preview capture flag, so prod isn't
 // subscribed to them yet. alarm + 12V health are decoded from the APK
 // enums and applied on preview (with the concurrent vehicleState value
 // logged for verification); trailer + precon are decode-logged only
-// (no State field / unconfirmed field number); OTA is a nested wrapper
-// still on the raw default case. Graduate each into the base list above
-// once the preview logs confirm the mapping.
+// (no State field / unconfirmed field number); ota_state is still on the
+// raw default case. Graduate each into the base list above once the logs
+// confirm the mapping (ota.deployment.state has: decodeOTADeployment).
 var CaptureRVMs = []string{
 	rvmTrailer,
-	rvmLowVoltBatt, rvmOtaState, rvmOtaDeploy, rvmAlarmState, rvmPreconStatus,
+	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
 	rvmPetMode, rvmClimateHold, rvmImmobilizer,
 }
 
@@ -695,14 +714,34 @@ func gearFromParallax(v uint64) string {
 // powerStateFromParallax maps the vehicle.power.state enum to the
 // powerState string contract vehicleState uses. 3=ready and 4=go are
 // confirmed from the 2026-07-14 drive (3→4 led drive-start, 4→3 led
-// drive-end); the sleep enum isn't captured yet. Returns "" for an
-// unmapped value so callers fall back to vehicleState.
+// drive-end). 1=sleep from the fleet (devils-advocate's R2 audit, Oct
+// 15): on R1s enum 1 coincides with vehicleState "sleep" (2,003 / 47
+// and 1,530 / 0 frames on two trucks). 2=standby is weaker evidence
+// (mixed vehicleState values on R1s) but sits between ready and sleep
+// as the car settles. 5=vehicle_reset, 6=ota_update and 7=shutdown follow
+// the proto declaration order (UNDEFINED, SLEEP, STANDBY, READY, GO,
+// VEHICLE_RESET, OTA_UPDATE, SHUTDOWN) and use the vehicleState vocabulary;
+// 6 is confirmed live (22 frames co-occurring with vehicleState ota_update
+// over 7 days), 5 is consistent (2 frames, with ready), 7 is unseen. An R2
+// has no vehicleState powerState, so without these a mid-OTA R2 kept its
+// last state, often "sleep". Returns "" for an unmapped value so callers
+// fall back to vehicleState.
 func powerStateFromParallax(v uint64) string {
 	switch v {
+	case 1:
+		return "sleep"
+	case 2:
+		return "standby"
 	case 3:
 		return "ready"
 	case 4:
 		return "go"
+	case 5:
+		return "vehicle_reset"
+	case 6:
+		return "ota_update"
+	case 7:
+		return "shutdown"
 	default:
 		return ""
 	}
@@ -926,6 +965,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		rvms := []string{
 			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
+			rvmChargingStatus, rvmOtaDeploy,
 		}
 		if extra != nil {
 			rvms = append(rvms, extra()...)
@@ -972,4 +1012,241 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		case <-time.After(wait):
 		}
 	}
+}
+
+// ChargingStatus is one charging.session.status frame (APK 3.17 proto
+// fields; enum values pinned from the decompile). Absent fields are 0, the
+// proto default: plug INIT, display SNA.
+type ChargingStatus struct {
+	Plug    uint64 // 1: 0 INIT, 1 NOT_CONNECTED, 2 CONNECTED, 3 ERROR, 4 V2L_CONNECTED
+	Display uint64 // 2: 0 SNA, 1 READY … 25 SMART_CHARGING_CHARGING (chargerStateFromParallax)
+	EVSE    uint64 // 3: evse_type, enum not pinned
+}
+
+// decodeChargingStatus parses a charging.session.status payload. ok=false
+// means the payload was malformed; an empty message is valid (all INIT).
+func decodeChargingStatus(b64 string) (ChargingStatus, bool) {
+	var cs ChargingStatus
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return cs, false
+	}
+	if err := pbScan(raw, func(f, w int, val []byte) {
+		if w != 0 {
+			return
+		}
+		v, n := binary.Uvarint(val)
+		if n <= 0 {
+			return
+		}
+		switch f {
+		case 1:
+			cs.Plug = v
+		case 2:
+			cs.Display = v
+		case 3:
+			cs.EVSE = v
+		}
+	}); err != nil {
+		return cs, false
+	}
+	return cs, true
+}
+
+// chargerStatusFromParallax maps plug_connection_status to the vehicleState
+// chargerStatus vocabulary the way the app does: CONNECTED is
+// connected_no_chrg (the app never derives connected_charging from it; the
+// session state says whether it charges), NOT_CONNECTED and V2L are
+// not_connected, ERROR is fault. INIT and unknown values return "", which
+// leaves the cached status alone.
+func chargerStatusFromParallax(plug uint64) string {
+	switch plug {
+	case 1, 4:
+		return "chrgr_sts_not_connected"
+	case 2:
+		return "chrgr_sts_connected_no_chrg"
+	case 3:
+		return "chrgr_sts_fault"
+	default:
+		return ""
+	}
+}
+
+// chargerStateFromParallax maps display_status to the vehicleState
+// chargerState vocabulary, as the app does. Logged next to vehicleState's
+// value only; vehicleState still owns ChargerState. SNA (0), the smart
+// charging states (24, 25) and unknown values return "".
+func chargerStateFromParallax(display uint64) string {
+	switch display {
+	case 1:
+		return "charging_ready"
+	case 2:
+		return "charging_connecting"
+	case 3:
+		return "charging_active"
+	case 4:
+		return "charging_complete"
+	case 5:
+		return "charging_scheduled"
+	case 6:
+		return "charging_vehicle_error"
+	case 7:
+		return "charging_station_error"
+	case 8, 19:
+		return "charging_user_stopped"
+	case 9:
+		return "charging_station_stopped"
+	case 10, 20:
+		return "charging_payment_error"
+	case 11, 12, 21, 22, 23:
+		return "charging_tls_error"
+	case 13:
+		return "charging_error_ac_adapter_used_on_dc"
+	case 14:
+		return "charging_error_dc_adapter_used_on_ac"
+	case 15:
+		return "charging_error_incompatible_charger"
+	case 16:
+		return "charging_sd_compensation"
+	case 17:
+		return "waiting_on_charger"
+	case 18:
+		return "charger_not_ready_or_incompatible"
+	default:
+		return ""
+	}
+}
+
+// BatteryCharacteristics is one energy.high_voltage.battery_characteristics
+// frame (APK 3.17 proto). The enums are logged raw; packCapacityKWh names
+// the capacity one.
+type BatteryCharacteristics struct {
+	Chemistry    uint64  // 1: 1 NCA, 2 LFP, 3 NMC
+	CellType     uint64  // 2: 1 50G, 2 53G, 3 G124, 4 LG_4695
+	ModuleType   uint64  // 3: 1 9M, 2 1M, 3 8M, 4 6M, 5 11M, 6 7M, 7 3M, 8 10M
+	PackCapacity uint64  // 4: see packCapacityKWh
+	UserTotalKWh float32 // 5
+	UserMaxKWh   float32 // 6
+}
+
+// decodeBatteryCharacteristics parses a battery_characteristics payload.
+func decodeBatteryCharacteristics(b64 string) (BatteryCharacteristics, bool) {
+	var bc BatteryCharacteristics
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return bc, false
+	}
+	if err := pbScan(raw, func(f, w int, val []byte) {
+		switch {
+		case w == 0 && f >= 1 && f <= 4:
+			v, n := binary.Uvarint(val)
+			if n <= 0 {
+				return
+			}
+			switch f {
+			case 1:
+				bc.Chemistry = v
+			case 2:
+				bc.CellType = v
+			case 3:
+				bc.ModuleType = v
+			case 4:
+				bc.PackCapacity = v
+			}
+		case w == 5 && f == 5:
+			bc.UserTotalKWh = math.Float32frombits(binary.LittleEndian.Uint32(val))
+		case w == 5 && f == 6:
+			bc.UserMaxKWh = math.Float32frombits(binary.LittleEndian.Uint32(val))
+		}
+	}); err != nil {
+		return bc, false
+	}
+	return bc, true
+}
+
+// packCapacityKWh names the battery_characteristics pack_capacity enum in
+// kWh; 0 for unspecified or unknown.
+func packCapacityKWh(v uint64) float64 {
+	switch v {
+	case 1:
+		return 135
+	case 2:
+		return 150
+	case 3:
+		return 100
+	case 4:
+		return 116
+	case 5:
+		return 108
+	case 6:
+		return 88
+	default:
+		return 0
+	}
+}
+
+// decodeOTADeployment parses ota.deployment.state (APK 3.17 proto) the way
+// the app does:
+//
+//	1: repeated Software { 1: category (1 = FIRMWARE), 2: Version,
+//	                       3: deployment_id, 4: AvailableOTA }
+//	Version      { 1: version "2026.36.41", 2: software_version_id,
+//	               3: year, 4: week, 5: number, 6: git_hash }
+//	AvailableOTA { 1: deployment_id, 2: Version, 3: ota_type, 4: context,
+//	               5: progress, 6: install_time_secs, 7: install_tod,
+//	               8: skip_count, 9: skip_allowed, 10: intent, 11: is_active }
+//
+// current is the FIRMWARE software's version; available is the version of
+// the last software whose AvailableOTA is active (""= none pending).
+// ok=false means the payload was malformed or carried no firmware entry.
+func decodeOTADeployment(b64 string) (current, available string, ok bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return "", "", false
+	}
+	version := func(msg []byte) (v string) {
+		_ = pbScan(msg, func(f, w int, val []byte) {
+			if f == 1 && w == 2 {
+				v = string(val)
+			}
+		})
+		return v
+	}
+	haveFirmware := false
+	err = pbScan(raw, func(f, w int, sw []byte) {
+		if f != 1 || w != 2 {
+			return
+		}
+		var category uint64
+		var ver, availVer string
+		active := false
+		_ = pbScan(sw, func(sf, sw2 int, val []byte) {
+			switch {
+			case sf == 1 && sw2 == 0:
+				category, _ = binary.Uvarint(val)
+			case sf == 2 && sw2 == 2:
+				ver = version(val)
+			case sf == 4 && sw2 == 2:
+				_ = pbScan(val, func(af, aw int, av []byte) {
+					switch {
+					case af == 2 && aw == 2:
+						availVer = version(av)
+					case af == 11 && aw == 0:
+						n, _ := binary.Uvarint(av)
+						active = n != 0
+					}
+				})
+			}
+		})
+		if category == 1 && !haveFirmware {
+			current, haveFirmware = ver, true
+		}
+		if active && availVer != "" {
+			available = availVer
+		}
+	})
+	if err != nil || !haveFirmware {
+		return "", "", false
+	}
+	return current, available, true
 }

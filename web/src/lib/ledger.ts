@@ -7,6 +7,8 @@
 // Money is the *charging* ledger (what was paid for energy). Driving
 // cost is shown only as the server's spend ÷ miles.
 
+import { setServerUiNext } from "./uiNext";
+import { hasOpenNetworkState, type NetworkState } from "./autoNetwork";
 import { DEMO_TZ, inDemo } from "./demo";
 import { cacheShellFlag } from "./theme";
 import { useEffect, useState } from "react";
@@ -65,6 +67,13 @@ export type ReceiptSession = {
   kind?: ChargeKind;
   place?: Place;
   network?: string | null;
+  network_state?: NetworkState | null;
+  // rivian_receipts (per-user flag): what Rivian billed for the matched session.
+  // Optional; absent on servers or users without the flag.
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
   final_state: string;
   source: string;
   flags: ReceiptFlag[];
@@ -88,6 +97,15 @@ export type Receipt = {
   cost_source: ReceiptCostSource;
   rate: number | null;
   network?: string | null;
+  // Set while the auto-detected network still needs the owner's eye.
+  network_state?: NetworkState | null;
+  billed_cost?: number | null;
+  billed_currency?: string | null;
+  billed_vendor?: string | null;
+  billed_charger?: string | null;
+  // Sessions with and without a matched Rivian receipt; present only with the flag.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   session_count: number;
   unpriced_sessions: number;
   flags: ReceiptFlag[];
@@ -107,6 +125,14 @@ export type SpendBySource = {
   network_estimate: number;
   user: number;
 };
+
+// statementTotal is the month's headline figure. With Rivian receipts it is what Rivian
+// billed plus our estimate for the rest, so it always equals the two lines under the
+// headline; otherwise it is the statement total. The page and the share card both use it.
+export function statementTotal(m: Pick<MonthSummary, "spend">): number {
+  const { billed_total: b, estimated_total: e, total } = m.spend;
+  return b != null && e != null ? b + e : total;
+}
 
 export type MonthSummary = {
   version: number;
@@ -130,7 +156,13 @@ export type MonthSummary = {
     unpriced_home_rate_estimate: number | null;
     estimate_pending_sessions?: number;
     estimate_pending_kwh?: number;
+    // rivian_receipts: the total split into what Rivian billed and what we estimate.
+    billed_total?: number | null;
+    estimated_total?: number | null;
   };
+  // rivian_receipts: sessions with and without a matched Rivian receipt this month.
+  billed_sessions?: number;
+  estimated_sessions?: number;
   energy: {
     sessions: number;
     kwh_added: number;
@@ -175,6 +207,10 @@ export type LedgerSummary = {
   tz: string;
   currency: string;
   months: MonthSummary[];
+  // DCFC auto-network: charges awaiting confirm / needing attention.
+  // Null or absent until the dcfc_auto_network flag is on.
+  to_confirm_count?: number | null;
+  needs_attention_count?: number | null;
 };
 
 export type Sourced<T> = { data: T; source: "api" | "fixture" };
@@ -192,8 +228,11 @@ let flagInflight: Promise<boolean> | null = null;
 export function loadMoneyTabEnabled(): Promise<boolean> {
   if (!flagInflight) {
     flagInflight = api
-      .get<{ enabled?: boolean }>("/api/ledger/enabled")
-      .then((r) => !!r?.enabled)
+      .get<{ enabled?: boolean; ui_theme_next?: boolean }>("/api/ledger/enabled")
+      .then((r) => {
+        setServerUiNext(!!r?.ui_theme_next);
+        return !!r?.enabled;
+      })
       .catch(() => false)
       .then((v) => {
         flagCache = v;
@@ -334,7 +373,8 @@ type Priceable = {
   cost: number | null;
   cost_source: ReceiptCostSource;
   flags: ReceiptFlag[];
-  sessions?: Pick<ReceiptSession, "cost_source" | "flags">[];
+  network_state?: NetworkState | null;
+  sessions?: Pick<ReceiptSession, "cost_source" | "flags" | "network_state">[];
 };
 
 // isSuspect: a session counted in the total at the home rate while
@@ -359,13 +399,25 @@ export function needsPrice(r: Pick<Receipt, "flags" | "sessions">): boolean {
   );
 }
 
+// isConfirmedNetwork: the owner confirmed (or picked) the auto-detected
+// network, so the price is no longer an estimate they should check.
+export function isConfirmedNetwork(r: {
+  cost_source: ReceiptCostSource;
+  network_state?: NetworkState | null;
+  sessions?: { cost_source?: string; network_state?: NetworkState | null }[];
+}): boolean {
+  if (r.network_state === "confirmed") return true;
+  const est = (r.sessions ?? []).filter((x) => x.cost_source === "network_estimate");
+  return r.cost_source === "network_estimate" && est.length > 0 && est.every((x) => x.network_state === "confirmed");
+}
+
 export function grammarFor(r: Priceable): CostGrammar {
   if (r.cost_source === "home_rate_misapplied") return "pending";
   if (r.cost == null || r.cost_source === "unknown") {
     return r.flags.includes("estimate_pending") ? "pending" : "unknown";
   }
   if (r.cost_source === "user" && r.cost === 0) return "free";
-  if (r.cost_source === "network_estimate") return "estimated";
+  if (r.cost_source === "network_estimate") return isConfirmedNetwork(r) ? "recorded" : "estimated";
   if (r.cost_source === "mixed" && r.sessions?.some((x) => x.cost_source === "network_estimate")) {
     return "estimated";
   }
@@ -374,7 +426,15 @@ export function grammarFor(r: Priceable): CostGrammar {
 }
 
 export function sourceLabel(
-  r: { cost: number | null; cost_source: ReceiptCostSource; rate: number | null; network?: string | null; flags: ReceiptFlag[] },
+  r: {
+    cost: number | null;
+    cost_source: ReceiptCostSource;
+    rate: number | null;
+    network?: string | null;
+    flags: ReceiptFlag[];
+    network_state?: NetworkState | null;
+    sessions?: { network_state?: NetworkState | null }[];
+  },
   currency: string,
 ): string {
   const rate = r.rate != null && r.rate > 0 ? ` · ${formatMoney(r.rate, currency, 2)}/kWh` : "";
@@ -386,7 +446,7 @@ export function sourceLabel(
         ? `Home rate, but away from home${rate} · likely wrong`
         : `Home rate${rate}`;
     case "network_estimate":
-      return `Estimate${r.network ? ` · ${r.network}` : ""}${rate}`;
+      return `${hasOpenNetworkState(r) ? "Estimated, confirm" : isConfirmedNetwork(r) ? "Confirmed" : "Estimate"}${r.network ? ` · ${r.network}` : ""}${rate}`;
     case "user":
       return r.cost === 0 ? "Free · entered by you" : `Entered by you${rate}`;
     case "home_rate_misapplied":
@@ -434,15 +494,40 @@ export function suspectSessionCount(m: LedgerMonth): number {
   return n;
 }
 
+// unidentifiedPending: with DCFC auto-network on, home-rate DCFC
+// sessions that now carry an estimate (network_state set) are folded into
+// "N charges to confirm"; only the ones the matcher couldn't price stay
+// "pending". Falls back to the server's counters when a month has no
+// per-session rows.
+export function unidentifiedPending(m: LedgerMonth): { sessions: number; kwh: number } {
+  let sessions = 0;
+  let kwh = 0;
+  let seen = false;
+  for (const r of m.receipts) {
+    for (const x of r.sessions) {
+      seen = true;
+      if (x.cost_source === "home_rate_misapplied" && !x.network_state) {
+        sessions += 1;
+        kwh += x.kwh ?? 0;
+      }
+    }
+  }
+  if (!seen) return { sessions: m.spend.estimate_pending_sessions ?? 0, kwh: m.spend.estimate_pending_kwh ?? 0 };
+  return { sessions, kwh };
+}
+
 // Plain-English quality notes from the server's counters (spec MQ*).
-export function dataQualityNotes(m: LedgerMonth): string[] {
+// `auto`: DCFC auto-network fields are present (to_confirm_count != null).
+export function dataQualityNotes(m: LedgerMonth, auto = false): string[] {
   const n: string[] = [];
   const dq = m.data_quality;
   const s = (k: number, one: string, many: string) => (k === 1 ? one : many);
-  const pending = m.spend.estimate_pending_sessions ?? 0;
+  const pending = auto ? unidentifiedPending(m).sessions : (m.spend.estimate_pending_sessions ?? 0);
   if (pending > 0) {
     n.push(
-      `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until ${s(pending, "it's", "they're")} re-priced, or you add the price.`,
+      auto
+        ? `Couldn't identify the network for ${pending} fast-charging ${s(pending, "session", "sessions")}; ${s(pending, "it's", "they're")} left out of the total until you pick the network.`
+        : `${pending} fast-charging ${s(pending, "session was", "sessions were")} priced at your home rate by an older version of Rivolt. ${s(pending, "It's", "They're")} left out of the total until you add the price.`,
     );
   }
   const suspect = suspectSessionCount(m);
@@ -503,7 +588,6 @@ export const DCFC_MIN_KW = 50;
 // names: places are home/away and distances are rounded.
 export function ledgerMonthFixture(month: string): LedgerMonth {
   const [y, mo] = month.split("-").map(Number);
-  const tz = "America/Chicago";
   // Local CDT wall clock → UTC (fixture only; fixed -5h offset).
   const at = (day: number, h: number, min = 0) =>
     new Date(Date.UTC(y, mo - 1, day, h + 5, min)).toISOString();
@@ -648,7 +732,23 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     ]),
   ];
   receipts.sort((a, b) => b.started_at.localeCompare(a.started_at));
+  return ledgerMonthFromReceipts(month, receipts, { homeRate, vid });
+}
 
+// ledgerMonthFromReceipts computes a month's totals from its receipts the way
+// the server does (per session, by kind/place/source). The fixture and the
+// edge-state fixtures (no charges, home-only, R2, ...) share it.
+export function ledgerMonthFromReceipts(
+  month: string,
+  receipts: Receipt[],
+  opts: { homeRate?: number; vid?: string; miles?: number; drives?: number } = {},
+): LedgerMonth {
+  const [y, mo] = month.split("-").map(Number);
+  const tz = "America/Chicago";
+  const homeRate = opts.homeRate ?? 0.11;
+  const vid = opts.vid ?? "01-000000000";
+  const inTotal = (x: ReceiptSession) =>
+    x.cost != null && x.cost_source !== "unknown" && x.cost_source !== "home_rate_misapplied";
   // Totals computed once here, per session, the way the server does.
   const empty = (): KindTotals => ({ sessions: 0, kwh: 0, cost: 0, peak_kw: null });
   const by_kind: Record<ChargeKind, KindTotals> = { ac: empty(), dcfc: empty() };
@@ -693,7 +793,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     }
   }
   const total = by_source.rivian + by_source.home_rate + by_source.network_estimate + by_source.user;
-  const miles = 1284.3;
+  const miles = opts.miles ?? 1284.3;
   return {
     version: LEDGER_CONTRACT_VERSION,
     period: month,
@@ -703,8 +803,8 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
     currency: "USD",
     vehicle_id: null,
     is_current_month: month === currentMonth(),
-    first_activity_at: at(2, 7, 31),
-    last_activity_at: at(30, 19, 50),
+    first_activity_at: receipts.length ? receipts[receipts.length - 1].started_at : null,
+    last_activity_at: receipts.length ? receipts[0].started_at : null,
     spend: {
       total,
       by_source,
@@ -712,7 +812,7 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       priced_sessions: priced,
       unpriced_sessions: unpriced,
       unpriced_kwh: unpricedKwh,
-      unpriced_home_rate_estimate: +(unpricedKwh * homeRate).toFixed(4),
+      unpriced_home_rate_estimate: homeRate > 0 ? +(unpricedKwh * homeRate).toFixed(4) : null,
       estimate_pending_sessions: pending,
       estimate_pending_kwh: pendingKwh,
     },
@@ -725,20 +825,20 @@ export function ledgerMonthFixture(month: string): LedgerMonth {
       by_place_kind,
     },
     driving: {
-      drives: 61,
+      drives: opts.drives ?? 61,
       miles,
-      miles_with_energy: 1278.0,
-      kwh_used_known: 560.1,
-      coverage: 1278.0 / miles,
-      cost_per_mile: total / miles,
+      miles_with_energy: miles ? miles * 0.995 : 0,
+      kwh_used_known: miles ? 560.1 : 0,
+      coverage: miles ? 0.995 : null,
+      cost_per_mile: miles ? total / miles : null,
       cost_per_mile_basis: "spend_over_miles",
     },
     receipts,
     data_quality: {
       cost_source_inferred: derived > 0,
       cost_source_derived_sessions: derived,
-      superseded_excluded: 1,
-      superseded: [{ charge_id: `live_${vid}_c_fx900`, superseded_by: `live_${vid}_c_fx002` }],
+      superseded_excluded: receipts.length ? 1 : 0,
+      ...(receipts.length ? { superseded: [{ charge_id: `live_${vid}_c_fx900`, superseded_by: `live_${vid}_c_fx002` }] } : {}),
       drives_superseded_excluded: 0,
       open_sessions: 0,
       home_rate_on_dcfc: onDcfc,

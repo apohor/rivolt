@@ -14,7 +14,7 @@ North star: **Activated vehicle = a connected vehicle whose owner views a priced
 | Event | When | Properties |
 |---|---|---|
 | `landing_view` | `/` loaded signed out | referrer host, utm_source |
-| `demo_view` | `/demo` first screen | tab |
+| `demo_view` | `/demo` first screen (demo.rivolt.dev lands here) | tab |
 | `demo_tab` | tab changed in demo | tab |
 | `signup_start` | signup form opened | method (oidc/email) |
 | `signup_done` | account created | method |

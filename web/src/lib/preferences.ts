@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from "react";
 
 export type TemperatureUnit = "c" | "f";
+export type DistanceUnit = "mi" | "km";
 
 // TimeZone preference: "auto" defers to the browser (Intl resolved
 // zone); otherwise an IANA identifier (e.g. "America/Chicago", "UTC").
@@ -14,6 +15,7 @@ export type TimeZonePref = "auto" | string;
 
 type Preferences = {
   temperatureUnit: TemperatureUnit;
+  distanceUnit: DistanceUnit;
   timeZone: TimeZonePref;
   // Round-trip collapsing: merge consecutive A→B and B→A drive rows
   // when B is within `roundTripRadiusMeters` of A's start *and* the
@@ -27,6 +29,7 @@ const STORAGE_KEY = "rivolt.preferences.v1";
 
 const DEFAULT_PREFERENCES: Preferences = {
   temperatureUnit: "c",
+  distanceUnit: "mi",
   timeZone: "auto",
   roundTripsEnabled: true,
   roundTripRadiusMeters: 200,
@@ -46,6 +49,7 @@ function readPreferences(): Preferences {
         parsed.temperatureUnit === "f" || parsed.temperatureUnit === "c"
           ? parsed.temperatureUnit
           : DEFAULT_PREFERENCES.temperatureUnit,
+      distanceUnit: parsed.distanceUnit === "km" ? "km" : "mi",
       timeZone:
         typeof parsed.timeZone === "string" && parsed.timeZone.length > 0
           ? parsed.timeZone
@@ -106,6 +110,17 @@ export function setTemperatureUnit(unit: TemperatureUnit): void {
   } catch {
     // quota exceeded / disabled — silently ignore, in-memory value
     // still applies for this tab.
+  }
+  emit();
+}
+
+export function setDistanceUnit(unit: DistanceUnit): void {
+  if (current.distanceUnit === unit) return;
+  current = { ...current, distanceUnit: unit };
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // see setTemperatureUnit
   }
   emit();
 }
@@ -191,4 +206,26 @@ export function formatTemperature(
     return `${f.toFixed(digits)} °F`;
   }
   return `${celsius.toFixed(digits)} °C`;
+}
+
+const MI_PER_KM = 0.6213711922;
+
+// formatDistance renders a distance the backend serves in km in the
+// user's chosen unit, rounded so it never reveals a precise position:
+// whole units, rounded to the nearest 10 km / 5 mi from 100 km / 60 mi
+// up. `fine` keeps one decimal under 10 for the owner's own live view.
+export function formatDistance(
+  km: number | null | undefined,
+  unit: DistanceUnit,
+  opts: { fine?: boolean } = {},
+): string {
+  if (km === null || km === undefined || Number.isNaN(km)) return "—";
+  const v = unit === "mi" ? km * MI_PER_KM : km;
+  const step = unit === "mi" ? 5 : 10;
+  const big = unit === "mi" ? 60 : 100;
+  let n: string;
+  if (v >= big) n = String(Math.round(v / step) * step);
+  else if (opts.fine && v < 10) n = v.toFixed(1);
+  else n = String(Math.round(v));
+  return `${n} ${unit}`;
 }

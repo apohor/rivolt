@@ -1,4 +1,6 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { inDemo } from "../lib/demo";
+import DemoSettings from "./DemoSettings";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
@@ -31,6 +33,8 @@ import { useImpersonationTarget } from "../lib/impersonation";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import {
   setTemperatureUnit,
+  setDistanceUnit,
+  type DistanceUnit,
   setTimeZone,
   setRoundTripsEnabled,
   setRoundTripRadiusMeters,
@@ -64,7 +68,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "data", label: "Data" },
 ];
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const location = useLocation();
   // In the tab-bar shell the header no longer carries Sign out.
   const shell = useMoneyTabEnabled();
@@ -361,9 +365,10 @@ export function ExportCard() {
 
 // DisplayPreferences surfaces the client-side display toggles
 // (units, etc.) backed by localStorage via usePreferences().
-function DisplayPreferences() {
+export function DisplayPreferences() {
   const {
     temperatureUnit,
+    distanceUnit,
     timeZone,
     roundTripsEnabled,
     roundTripRadiusMeters,
@@ -372,6 +377,10 @@ function DisplayPreferences() {
   const options: { value: TemperatureUnit; label: string }[] = [
     { value: "c", label: "Celsius (°C)" },
     { value: "f", label: "Fahrenheit (°F)" },
+  ];
+  const distanceOptions: { value: DistanceUnit; label: string }[] = [
+    { value: "mi", label: "Miles (mi)" },
+    { value: "km", label: "Kilometers (km)" },
   ];
   // Populate the time-zone select from the platform's IANA list when
   // available; fall back to a curated short list on older browsers
@@ -422,6 +431,33 @@ function DisplayPreferences() {
         <p className="mt-1 text-xs text-neutral-500">
           Backend always stores Celsius; this only affects how temperatures are
           displayed.
+        </p>
+      </div>
+
+      <div>
+        <div className="text-neutral-400 mb-1">Distance</div>
+        <div className="inline-flex rounded-md border border-neutral-700 overflow-hidden">
+          {distanceOptions.map((opt) => {
+            const active = opt.value === distanceUnit;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setDistanceUnit(opt.value)}
+                className={
+                  "px-3 py-1.5 text-xs transition-colors " +
+                  (active
+                    ? "bg-emerald-600/20 text-emerald-300"
+                    : "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800")
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Miles by default. Saved on this device only.
         </p>
       </div>
 
@@ -1544,7 +1580,7 @@ export function GPSAccuracyPanel() {
           type="button"
           onClick={apply}
           disabled={mut.isPending}
-          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:bg-neutral-800 disabled:text-neutral-500"
         >
           {mut.isPending ? "Saving…" : "Apply"}
         </button>
@@ -1975,7 +2011,7 @@ export function NotificationsPanel() {
             type="button"
             onClick={() => enable(prefs)}
             disabled={busy !== null}
-            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-50 hover:bg-emerald-600 disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:bg-neutral-800 disabled:text-neutral-500"
           >
             {busy === "enable" ? "Enabling…" : "Enable on this device"}
           </button>
@@ -2654,7 +2690,7 @@ function PlannerPrefsPanel() {
           type="button"
           onClick={onSave}
           disabled={save.isPending}
-          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
         >
           Save defaults
         </button>
@@ -2669,4 +2705,11 @@ function PlannerPrefsPanel() {
       </div>
     </div>
   );
+}
+
+// The signed-out demo shows a read-only settings page (see DemoSettings);
+// the real page, with its account, Rivian, push and data sections, is for
+// signed-in users.
+export default function SettingsPage() {
+  return inDemo() ? <DemoSettings /> : <SettingsPageInner />;
 }

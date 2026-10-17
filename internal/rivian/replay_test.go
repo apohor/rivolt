@@ -23,6 +23,7 @@ func frame(base time.Time, min int, gear string, odoKm, soc, kph float64) State 
 // A clean P → D…D → P sequence replays to exactly one drive, with the
 // distance and SoC delta the frames imply.
 func TestReplay_SingleCleanDrive(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	r := NewReplayer("veh-1")
 	r.FeedAll([]State{
@@ -50,6 +51,7 @@ func TestReplay_SingleCleanDrive(t *testing.T) {
 // must stay two drives — the merge-on-reopen only folds near-instant
 // D-P-D blips, not a genuine stop.
 func TestReplay_TwoDrivesWithParkBetween(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	r := NewReplayer("veh-1")
 	r.FeedAll([]State{
@@ -74,6 +76,7 @@ func TestReplay_TwoDrivesWithParkBetween(t *testing.T) {
 // with the right total distance. Proves the DB-export → replay pipeline
 // works on real data, and anchors the fixture as a regression baseline.
 func TestReplay_RealCleanDriveFixture(t *testing.T) {
+	t.Parallel()
 	f, err := os.Open("testdata/clean_drive.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +115,7 @@ func TestReplay_RealCleanDriveFixture(t *testing.T) {
 // no-movement / power_state close hardening: once that lands, flip the
 // want to 2 drives.
 func TestReplay_MissedParkFrameProducesPhantom(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	r := NewReplayer("veh-1")
 	r.FeedAll([]State{

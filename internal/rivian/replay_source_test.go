@@ -138,6 +138,9 @@ func TestReplayClient_SessionAndVehicleIsolation(t *testing.T) {
 // Stream backfills elapsed frames flagged catchingUp, then switches to
 // live frames, resuming after the last recorded sample.
 func TestReplayFeed_StreamCatchesUpThenGoesLive(t *testing.T) {
+	// Not parallel: it asserts a frame count inside a 3 s wall-clock
+	// window, which the CPU-heavy parallel corpus tests could starve
+	// under -race.
 	now := time.Now()
 	// Anchor so the corpus started 3h ago and runs 1h past now.
 	epoch := now.Add(-3 * time.Hour).Truncate(time.Minute)

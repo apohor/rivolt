@@ -1,4 +1,5 @@
 import { detailPath } from "../lib/demo";
+import { hasOpenNetworkState } from "../lib/autoNetwork";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -13,6 +14,7 @@ import {
   type ReceiptFlag,
 } from "../lib/ledger";
 import { formatDateTime } from "../lib/format";
+import { formatDistance, usePreferences } from "../lib/preferences";
 
 // Presentational pieces for the Money tab. The rule they share: every
 // figure says where its price came from (spec §4.2, contract §10):
@@ -28,10 +30,22 @@ export function MoneyValue({
   currency,
   className = "",
 }: {
-  r: Pick<Receipt, "cost" | "cost_source" | "flags"> & { sessions?: Receipt["sessions"] };
+  r: Pick<Receipt, "cost" | "cost_source" | "flags"> & {
+    sessions?: Receipt["sessions"];
+    billed_cost?: number | null;
+    billed_currency?: string | null;
+  };
   currency: string;
   className?: string;
 }) {
+  // A matched Rivian receipt wins: its amount, solid, never dotted-estimated.
+  if (r.billed_cost != null) {
+    return (
+      <span className={className} title="Billed by Rivian">
+        {formatMoney(r.billed_cost, r.billed_currency || currency)}
+      </span>
+    );
+  }
   const g = grammarFor(r);
   if (g === "pending") {
     return (
@@ -192,18 +206,20 @@ function kindChip(r: Receipt): { label: string; dot: string; chip: string } {
   return { label: "AC", dot: "bg-neutral-400", chip: "border-neutral-600 text-neutral-300" };
 }
 
-function km(v: number): string {
-  // Rounded so a receipt never reveals a precise distance from home.
-  return v >= 100 ? `${Math.round(v / 10) * 10} km` : `${Math.round(v)} km`;
-}
-
 // ReceiptRow is one plug-in session. Fragments and top-ups fold into
 // it (expandable). Price actions link to the existing charge detail
 // page, which carries the pricing editor (PATCH /api/charges/{id}/pricing).
 export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
+  const { distanceUnit } = usePreferences();
   const [open, setOpen] = useState(false);
   const chip = kindChip(r);
   const g = grammarFor(r);
+  // Rivian receipts are on for this user when the server sends the matched counts.
+  const billedMode = r.billed_sessions != null;
+  // Some sessions matched a receipt and some did not: the row total is still our estimate, with
+  // the billed part noted.
+  const billedPart = r.sessions.reduce((a, x) => a + (x.billed_cost ?? 0), 0);
+  const partly = billedMode && r.billed_cost == null && (r.billed_sessions ?? 0) > 0 && (r.estimated_sessions ?? 0) > 0 && billedPart > 0;
   const parentID = r.sessions[0]?.charge_id ?? r.receipt_id.replace(/^rcpt_/, "");
   const notes = r.flags.map((f) => FLAG_TEXT[f]).filter(Boolean) as string[];
   if (r.spans_days > 1) notes.unshift(`${r.spans_days} days`);
@@ -211,11 +227,12 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   // One action per row. A missing or pending price outranks a likely
   // wrong one; the link opens the first session with that problem.
   const addPrice = g === "unknown" || g === "pending" || needsPrice(r);
-  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : null;
+  const confirmPending = hasOpenNetworkState(r);
+  const action = addPrice ? "Add price →" : g === "suspect" ? "Fix price →" : confirmPending ? "Confirm →" : null;
   const target = addPrice
     ? r.sessions.find((x) => x.cost == null || x.cost_source === "unknown" || x.cost_source === "home_rate_misapplied")
     : r.sessions.find((x) => x.cost_source === "home_rate" && x.flags.includes("home_rate_away"));
-  const fixID = target?.charge_id ?? parentID;
+  const fixID = target?.charge_id ?? (confirmPending ? r.sessions.find((x) => hasOpenNetworkState(x))?.charge_id : undefined) ?? parentID;
   return (
     <li className="py-1">
       <div className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-900/70">
@@ -228,9 +245,6 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             >
               {formatDateTime(r.started_at)}
               <span className={`ml-2 rounded-full border px-1.5 py-px text-[10px] ${chip.chip}`}>{chip.label}</span>
-              {r.place === "away" && r.km_from_home != null && (
-                <span className="ml-1.5 text-[11px] text-neutral-500">{km(r.km_from_home)} from home</span>
-              )}
             </Link>
             <MoneyValue r={r} currency={currency} className="shrink-0 text-sm font-medium tabular-nums text-neutral-100" />
           </div>
@@ -244,6 +258,16 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             {r.peak_kw != null && (
               <span className="tabular-nums">{r.peak_kw.toFixed(r.peak_kw < 10 ? 1 : 0)} kW peak</span>
             )}
+            {r.place !== "home" && (r.billed_vendor || r.billed_charger) && (
+              <span data-billed-where className="text-neutral-300">
+                {[r.billed_vendor, r.billed_charger].filter(Boolean).join(" · ")}
+              </span>
+            )}
+            {r.place === "away" && r.km_from_home != null && (
+              <span className="whitespace-nowrap tabular-nums text-neutral-500">
+                {formatDistance(r.km_from_home, distanceUnit)} from home
+              </span>
+            )}
             {notes.map((n) => (
               <span key={n} className="text-neutral-500">
                 · {n}
@@ -251,11 +275,26 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
             ))}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px]">
-            <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
-              {sourceLabel(r, currency)}
-            </span>
+            {billedMode && r.billed_cost != null ? (
+              <span data-price-label="billed" className="font-medium text-emerald-300">Billed by Rivian</span>
+            ) : partly ? (
+              <span data-price-label="partly" className="font-medium text-neutral-300">
+                Partly billed
+                <span className="font-normal text-neutral-500">
+                  {" · "}
+                  {formatMoney(billedPart, r.sessions.find((x) => x.billed_cost != null)?.billed_currency || currency)} billed by Rivian
+                </span>
+              </span>
+            ) : (
+              <span className={g === "suspect" || g === "pending" ? "text-amber-300/90" : "text-neutral-500"}>
+                {billedMode && r.cost_source !== "rivian" && g !== "unknown" && g !== "pending" && g !== "free" && (
+                  <span data-price-label="estimated" className="font-medium text-neutral-300">Estimated · </span>
+                )}
+                {sourceLabel(r, currency)}
+              </span>
+            )}
             {action && (
-              <Link to={detailPath("charges", fixID)} className="font-medium text-amber-300 hover:text-amber-200">
+              <Link to={`${detailPath("charges", fixID)}${!addPrice && g !== "suspect" ? "#pricing" : ""}`} className="font-medium text-amber-300 hover:text-amber-200">
                 {action}
               </Link>
             )}

@@ -1,8 +1,8 @@
 package rivian
 
 import (
-	"math"
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -926,6 +926,68 @@ func TestLiveChargeRow_CostSource(t *testing.T) {
 		t.Errorf("Rivian-billed, named: source=%q cost=%.2f network=%q, want rivian/27.00/Rivian Adventure Network",
 			ran.CostSource, ran.Cost, ran.Network)
 	}
+
+	// Rivian's isRivianCharger names the network only for a Rivian-billed
+	// DC fast charge on Rivian's own charger; it is stored either way.
+	tru, fal := true, false
+	for _, tc := range []struct {
+		name         string
+		known, rivch bool
+		maxKW, kwh   float64
+		dur          time.Duration
+		wantNet      string
+		wantFlag     *bool
+	}{
+		{"RAN fast charge", true, true, 200, 60, 30 * time.Minute, NetworkRivianAdventure, &tru},
+		{"Rivian charger at AC (Waypoints / Wall Charger)", true, true, 11, 10, 2 * time.Hour, "", &tru},
+		{"another network billed by Rivian", true, false, 200, 60, 30 * time.Minute, "", &fal},
+		{"not reported (WS only)", false, false, 200, 60, 30 * time.Minute, "", nil},
+	} {
+		c := charge("rc-"+tc.name, tc.maxKW, tc.kwh, tc.dur)
+		m.mu.Lock()
+		m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD",
+			RivianChargerKnown: tc.known, IsRivianCharger: tc.rivch}
+		m.lastSessionFor["veh-1"] = c.id
+		m.mu.Unlock()
+		row := m.liveChargeRow("veh-1", c)
+		if row.CostSource != CostSourceRivian || row.Cost != 27 || row.Network != tc.wantNet ||
+			(row.RivianCharger == nil) != (tc.wantFlag == nil) ||
+			(row.RivianCharger != nil && *row.RivianCharger != *tc.wantFlag) {
+			t.Errorf("%s: source=%q cost=%.2f network=%q flag=%v, want rivian/27.00 network %q flag %v",
+				tc.name, row.CostSource, row.Cost, row.Network, row.RivianCharger, tc.wantNet, tc.wantFlag)
+		}
+	}
+
+	// The previous session, as getLiveSessionHistory can still return
+	// it: neither its price, nor its charger flag, nor the network land
+	// on this charge. By elapsed time, and by start time.
+	for _, st := range []*LiveSession{
+		{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true, IsRivianCharger: true,
+			TimeElapsedSeconds: int64((3 * time.Hour).Seconds())},
+		{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true, IsRivianCharger: true,
+			StartTime: start.Add(-2 * time.Hour).Format(time.RFC3339)},
+	} {
+		c := charge("stale", 200, 60, 30*time.Minute)
+		m.mu.Lock()
+		m.lastSession["veh-1"] = st
+		m.lastSessionFor["veh-1"] = c.id
+		m.mu.Unlock()
+		row := m.liveChargeRow("veh-1", c)
+		if row.Network == NetworkRivianAdventure || row.RivianCharger != nil || row.CostSource == CostSourceRivian {
+			t.Errorf("stale session (elapsed %ds, start %q): source=%q cost=%.2f network=%q flag=%v, want none of Rivian's",
+				st.TimeElapsedSeconds, st.StartTime, row.CostSource, row.Cost, row.Network, row.RivianCharger)
+		}
+	}
+	// Its own session (started with the charge, elapsed = its age) still counts.
+	c := charge("fresh", 200, 60, 30*time.Minute)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD", RivianChargerKnown: true,
+		IsRivianCharger: true, TimeElapsedSeconds: int64((30 * time.Minute).Seconds()), StartTime: start.Format(time.RFC3339)}
+	m.lastSessionFor["veh-1"] = c.id
+	m.mu.Unlock()
+	if row := m.liveChargeRow("veh-1", c); row.Network != NetworkRivianAdventure || row.CostSource != CostSourceRivian {
+		t.Errorf("own session: source=%q network=%q, want rivian / %s", row.CostSource, row.Network, NetworkRivianAdventure)
+	}
 }
 
 // A home L2 session with one glitched high-kW sample stays on the home
@@ -1060,5 +1122,126 @@ func TestLiveChargeRow_RecordsPlace(t *testing.T) {
 	}
 	if p := m.liveChargeRow("veh-1", c(0, 0)).Place; p != "" {
 		t.Errorf("no-position charge place = %q, want empty", p)
+	}
+}
+
+// Network detection with a verify state replaces the plain pricer where
+// it's on for the user: the row carries the state, confidence and
+// evidence; nothing matched leaves it unpriced but flagged; off falls
+// back to the pricer; a Rivian price still wins; and a co-located
+// verdict is looked at again once the peak has grown.
+func TestLiveChargeRow_DCFCDetector(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	m.SetPriceLookup(func() (float64, string) { return 0.11, "USD" })
+	m.SetDCFCPriceLookup(func(lat, lon float64) (float64, string, string, bool) {
+		return 0.48, "USD", "Electrify America", true
+	})
+	on := true
+	var verdict DCFCVerdict
+	calls := 0
+	var gotPeak float64
+	m.SetDCFCDetector(func(lat, lon float64, rivianCharger bool, peakKW float64) (DCFCVerdict, bool) {
+		calls++
+		gotPeak = peakKW
+		if lat != 30.9 || lon != -102.9 {
+			t.Errorf("detector at (%v, %v), want the charge's open position", lat, lon)
+		}
+		return verdict, on
+	})
+	start := time.Date(2026, 10, 7, 14, 0, 0, 0, time.UTC)
+	charge := func(id string, maxKW float64) *liveCharge {
+		return &liveCharge{id: id, startedAt: start, endAt: start.Add(40 * time.Minute),
+			startSoC: 20, endSoC: 60, maxPower: maxKW, energyIntKWh: 50,
+			lat: 30.9, lon: -102.9, finalState: "charging_complete"}
+	}
+
+	verdict = DCFCVerdict{Priced: true, Rate: 0.40, Currency: "USD", Network: "Tesla Supercharger",
+		State: "estimated", Confidence: 0.9, Evidence: []byte(`{"v":1,"source":"archive"}`)}
+	row := m.liveChargeRow("veh-1", charge("est", 150))
+	if row.CostSource != CostSourceNetworkEstimate || row.Network != "Tesla Supercharger" || row.PricePerKWh != 0.40 ||
+		row.NetworkState != "estimated" || row.NetworkConfidence == nil || *row.NetworkConfidence != 0.9 || len(row.NetworkEvidence) == 0 {
+		t.Errorf("estimated: %+v", row)
+	}
+
+	verdict = DCFCVerdict{State: "needs_confirmation", Confidence: 0, Evidence: []byte(`{"v":1,"source":"none"}`)}
+	row = m.liveChargeRow("veh-1", charge("none", 150))
+	if row.Cost != 0 || row.CostSource != "" || row.Network != "" || row.NetworkState != "needs_confirmation" {
+		t.Errorf("nothing matched: cost %.2f source %q network %q state %q, want unpriced and needs_confirmation",
+			row.Cost, row.CostSource, row.Network, row.NetworkState)
+	}
+
+	on = false
+	row = m.liveChargeRow("veh-1", charge("off", 150))
+	if row.CostSource != CostSourceNetworkEstimate || row.Network != "Electrify America" || row.NetworkState != "" || row.NetworkConfidence != nil {
+		t.Errorf("flag off: source %q network %q state %q, want the plain pricer and no state", row.CostSource, row.Network, row.NetworkState)
+	}
+	on = true
+
+	billed := charge("ran", 200)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{CurrentPrice: "27.00", CurrentCurrency: "USD"}
+	m.lastSessionFor["veh-1"] = billed.id
+	m.mu.Unlock()
+	row = m.liveChargeRow("veh-1", billed)
+	if row.CostSource != CostSourceRivian || row.NetworkState != "" {
+		t.Errorf("Rivian-billed: source %q state %q, want rivian and no state", row.CostSource, row.NetworkState)
+	}
+	m.mu.Lock()
+	delete(m.lastSession, "veh-1")
+	delete(m.lastSessionFor, "veh-1")
+	m.mu.Unlock()
+
+	// Co-located: asked again only when the peak has grown 10%.
+	verdict = DCFCVerdict{Priced: true, Rate: 0.40, Currency: "USD", Network: "Tesla Supercharger",
+		State: "needs_confirmation", Confidence: 0.4, Evidence: []byte(`{"v":1}`)}
+	c := charge("colo", 150)
+	m.liveChargeRow("veh-1", c)
+	n := calls
+	m.liveChargeRow("veh-1", c)
+	c.maxPower = 160
+	m.liveChargeRow("veh-1", c)
+	if calls != n {
+		t.Errorf("detector re-run %d times without the peak growing 10%%", calls-n)
+	}
+	c.maxPower = 300
+	m.liveChargeRow("veh-1", c)
+	if calls != n+1 || gotPeak != 300 {
+		t.Errorf("peak 150 → 300: detector calls %d (peak %v), want one more at 300", calls-n, gotPeak)
+	}
+	// A confident verdict is never re-run.
+	verdict.Confidence, verdict.State = 0.9, "estimated"
+	c2 := charge("sure", 150)
+	m.liveChargeRow("veh-1", c2)
+	n = calls
+	c2.maxPower = 300
+	m.liveChargeRow("veh-1", c2)
+	if calls != n {
+		t.Error("a confident verdict was re-run")
+	}
+}
+
+// Rivian's isRivianCharger (this charge's own session) reaches the
+// detector, and a verdict made before it arrived is made again with it.
+func TestLiveChargeRow_DCFCDetectorGetsRivianCharger(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	var calls []bool
+	m.SetDCFCDetector(func(lat, lon float64, rivianCharger bool, peakKW float64) (DCFCVerdict, bool) {
+		calls = append(calls, rivianCharger)
+		return DCFCVerdict{Priced: true, Rate: 0.5, Currency: "USD", Network: "x", State: "estimated", Confidence: 0.9}, true
+	})
+	start := time.Date(2026, 10, 7, 14, 0, 0, 0, time.UTC)
+	c := &liveCharge{id: "dc", startedAt: start, endAt: start.Add(30 * time.Minute),
+		startSoC: 20, endSoC: 60, maxPower: 150, energyIntKWh: 50, lat: 30.9, lon: -102.9, finalState: "charging_complete"}
+	m.liveChargeRow("veh-1", c)
+	m.liveChargeRow("veh-1", c)
+	m.mu.Lock()
+	m.lastSession["veh-1"] = &LiveSession{RivianChargerKnown: true, IsRivianCharger: true,
+		StartTime: start.Format(time.RFC3339), TimeElapsedSeconds: 1800}
+	m.lastSessionFor["veh-1"] = c.id
+	m.mu.Unlock()
+	m.liveChargeRow("veh-1", c)
+	m.liveChargeRow("veh-1", c)
+	if len(calls) != 2 || calls[0] || !calls[1] {
+		t.Fatalf("detector calls %v, want [false true]: once without, once again with isRivianCharger", calls)
 	}
 }

@@ -176,6 +176,13 @@ export type Vehicle = {
   pack_kwh?: number;
   image_url?: string;
   images?: VehicleImage[];
+  // Release details for the installed and the pending update (omitted until fetched).
+  ota?: {
+    current?: { version?: string; release_notes_url?: string; locale?: string };
+    available?: { version?: string; release_notes_url?: string; locale?: string };
+    status?: string;
+    fetched_at?: string;
+  };
 };
 
 // OwnedVehicle is the DB-backed shape returned by /api/vehicles/owned.
@@ -221,6 +228,8 @@ export type LiveSession = {
 // VehicleState matches internal/rivian.State. Units are SI at the wire:
 // battery in percent, distance in km, temps in C. The UI converts as
 // needed for display.
+import type { ChargingSchedule } from "./chargingSchedule";
+
 export type VehicleState = {
   at: string;
   vehicle_id: string;
@@ -262,6 +271,8 @@ export type VehicleState = {
   ota_available_version: string;
   ota_status: string;
   ota_install_progress: number;
+  // The truck's scheduled charging windows (omitted until read).
+  charging_schedules?: ChargingSchedule[];
   tire_pressure_fl_bar: number;
   tire_pressure_fr_bar: number;
   tire_pressure_rl_bar: number;
@@ -431,6 +442,10 @@ export type Charge = {
   // callers fall back to the stored fields.
   cost_source_effective?: "rivian" | "home_rate" | "network_estimate" | "user" | "home_rate_misapplied" | "unknown";
   cost_source_derived?: boolean;
+  // DCFC auto-network pricing; null until dcfc_auto_network is on.
+  network_state?: import("./autoNetwork").NetworkState | null;
+  network_confidence?: number | null;
+  network_evidence?: import("./autoNetwork").NetworkEvidence | null;
   kind?: "ac" | "dcfc";
   place?: "home" | "away" | "unknown";
   km_from_home?: number | null;
@@ -945,8 +960,25 @@ export const backend = {
   // picker. Always returns the calling user's vehicles, even when the
   // Rivian gateway is unreachable (unlike /api/vehicles which proxies
   // upstream). Excludes legacy electrafi-* synthetic rows.
-  listOwnedVehicles: () =>
-    api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned"),
+  listOwnedVehicles: async (): Promise<{ vehicles: OwnedVehicle[] }> => {
+    // /api/vehicles/owned needs a session; the demo lists its sample truck
+    // through the public /api/vehicles instead.
+    if (inDemo()) {
+      const vs = await api.get<Vehicle[]>("/api/vehicles");
+      return {
+        vehicles: (vs ?? []).map((v) => ({
+          id: v.id,
+          rivian_vehicle_id: v.id,
+          vin: v.vin,
+          display_name: v.name,
+          model: v.model,
+          model_year: v.model_year,
+          pack_kwh: v.pack_kwh,
+        })),
+      };
+    }
+    return api.get<{ vehicles: OwnedVehicle[] }>("/api/vehicles/owned");
+  },
   vehicleState: (vehicleID: string) =>
     api.get<VehicleState>(`/api/state/${encodeURIComponent(vehicleID)}`),
   // vehicleNow returns null when the endpoint is absent (404: flag off
@@ -1000,6 +1032,9 @@ export const backend = {
   // (v5 rejects undefined as a query return value); callers can keep
   // treating null/undefined as "not driving" either way.
   liveDrive: async (vehicleID: string): Promise<LiveDrive | null> => {
+    // /api/live-drive needs a session; the signed-out demo isn't on its
+    // allowlist, so don't ask (it would 401 into the console).
+    if (inDemo()) return null;
     const r = await api.get<LiveDrive | undefined>(
       `/api/live-drive/${encodeURIComponent(vehicleID)}`,
     );
@@ -1239,9 +1274,10 @@ export const backend = {
   recentCharges: (n: number) => api.get<Charge[]>(`/api/charges?limit=${n}`),
   // Per-day asleep/awake hours for the overview sleep graph. `since`
   // is RFC3339; `vehicle` scopes to one car (optional).
-  sleepActivity: (since: string, vehicleID?: string) =>
+  sleepActivity: (since: string, vehicleID?: string, until?: string) =>
     api.get<DayActivity[]>(
       `/api/sleep-activity?since=${encodeURIComponent(since)}` +
+        (until ? `&until=${encodeURIComponent(until)}` : "") +
         (vehicleID ? `&vehicle=${encodeURIComponent(vehicleID)}` : ""),
     ),
   packHealth: (vehicleID: string) =>
@@ -1264,18 +1300,32 @@ export const backend = {
     // free:true marks the session explicitly free (contract §12, cost 0,
     // source user). {} or cost 0 still clears the price, which is how
     // Free is undone. free + a non-zero cost is a 400.
-    body: { cost?: number; currency?: string; price_per_kwh?: number; free?: boolean },
+    body: {
+      cost?: number;
+      currency?: string;
+      price_per_kwh?: number;
+      free?: boolean;
+      // Change to a known network: re-priced at the user's rate there.
+      network_slug?: string;
+      network?: string;
+    },
   ) =>
     api.patch<void>(`/api/charges/${encodeURIComponent(id)}/pricing`, body),
+  // Confirm the auto-detected network as is (409 if nothing to confirm).
+  confirmChargePricing: (id: string) =>
+    api.post<void>(`/api/charges/${encodeURIComponent(id)}/pricing/confirm`, null),
   // `until` is required on purpose: the server downsamples explicit
   // windows only, so an open-ended request would thin an old session
   // across its whole span up to now.
-  samples: (since: Date, limit: number, until: Date) => {
+  // `vehicle` (Rivian vehicle id) scopes the window to one truck; without it
+  // the server returns every vehicle on the account interleaved by time.
+  samples: (since: Date, limit: number, until: Date, vehicle?: string | null) => {
     const params = new URLSearchParams({
       since: since.toISOString(),
       until: until.toISOString(),
       limit: String(limit),
     });
+    if (vehicle) params.set("vehicle", vehicle);
     return api.get<Sample[]>(`/api/samples?${params.toString()}`);
   },
   // Efficiency analysis: AI-driven breakdown of what drove efficiency
@@ -1314,10 +1364,11 @@ export const backend = {
   // extra load, frequently_tows). Persisted in vehicles.metadata.profile;
   // pulled into every efficiency analysis. The path param is the
   // Rivian gateway vehicle id.
-  vehicleProfileGet: (vehicleID: string) =>
-    api.get<VehicleProfile>(
-      `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
-    ),
+  vehicleProfileGet: async (vehicleID: string): Promise<VehicleProfile> => {
+    // Per-account tire/wheel profile: nothing to read for the sample truck.
+    if (inDemo()) return {};
+    return api.get<VehicleProfile>(`/api/vehicles/${encodeURIComponent(vehicleID)}/profile`);
+  },
   vehicleProfilePut: (vehicleID: string, profile: VehicleProfile) =>
     api.put<VehicleProfile>(
       `/api/vehicles/${encodeURIComponent(vehicleID)}/profile`,
@@ -1344,13 +1395,19 @@ export const backend = {
     api.put<HomeLocation>("/api/settings/home-location", h),
   // Trip-planner default drive mode + Tesla NACS adapter flag.
   // SPA pre-fills the per-trip form from these.
-  plannerFavoritesGet: () =>
-    api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
-  plannerFavoritesPut: (list: PlannerFavorite[]) =>
-    api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
-  plannerPrefsGet: () => api.get<PlannerPrefs>("/api/settings/planner"),
-  plannerPrefsPut: (p: PlannerPrefs) =>
-    api.put<PlannerPrefs>("/api/settings/planner", p),
+  // In the demo these live in browser memory only (no request, nothing saved).
+  // Public demo only: the preset trips (stored plans in the real planner's
+  // response shape). There is no demo planner compute.
+  demoTrips: () => api.get<{ trips: DemoTripPreset[] }>("/api/demo/trips"),
+  demoTripPlan: (id: string) => api.get<TripPlan>(`/api/demo/trips/${encodeURIComponent(id)}/plan`),
+  plannerFavoritesGet: async (): Promise<PlannerFavorite[]> =>
+    inDemo() ? [] : api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
+  plannerFavoritesPut: async (list: PlannerFavorite[]): Promise<PlannerFavorite[]> =>
+    inDemo() ? list : api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
+  plannerPrefsGet: async (): Promise<PlannerPrefs> =>
+    inDemo() ? { drive_mode: "EVERYDAY", has_adapter: false } : api.get<PlannerPrefs>("/api/settings/planner"),
+  plannerPrefsPut: async (p: PlannerPrefs): Promise<PlannerPrefs> =>
+    inDemo() ? p : api.put<PlannerPrefs>("/api/settings/planner", p),
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
@@ -1908,6 +1965,9 @@ export type TripWeatherAdjLeg = {
 };
 
 export type TripRoute = {
+  // Stored route geometry (encoded, precision 6); drawn instead of straight
+  // legs when the map has no routing service (the demo).
+  route_polyline?: string;
   DestinationReached: boolean;
   TotalChargingDurationSec: number;
   TotalDriveDurationSec: number;
@@ -2132,6 +2192,20 @@ export type PlanVsActual = {
   link: { trip_id: string; confidence: number; band: PvaBand; linked_at: string; link_stale?: boolean } | null;
   candidates: PvaCandidate[];
   comparison: PvaComparison | null;
+};
+
+// DemoTripPreset: one entry of GET /api/demo/trips. `inputs` has the shape of
+// SavedTrip.inputs, so a preset opens like a saved trip.
+export type DemoTripPreset = {
+  id: string;
+  name: string;
+  inputs: SavedTripInputs;
+  summary: { distance_mi: number; duration_min: number; charge_stops: number; arrival_soc_pct: number };
+  // The seeded saved trip whose Plan vs Actual belongs to this preset.
+  saved_trip_id?: string;
+  // Encoded route geometry (polyline6, origin to destination) to draw
+  // instead of straight legs.
+  route_polyline?: string;
 };
 
 export type SavedTrip = {
