@@ -265,6 +265,8 @@ function Statement({
       ? m.first_activity_at
       : null;
   const empty = m.receipts.length === 0 && m.spend.total === 0;
+  const chargingSettings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
+  const rateSet = (chargingSettings.data?.home_price_per_kwh ?? 0) > 0;
 
   return (
     <>
@@ -299,6 +301,23 @@ function Statement({
           {m.driving.miles > 0 && <> · {m.driving.miles.toFixed(0)} mi</>}
           {hasCharging && m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
+
+        {headline === 0 && m.spend.unpriced_sessions > 0 && (
+          <p data-money-zero className="mt-2 rounded-md border border-neutral-800 px-3 py-2 text-sm text-neutral-300">
+            $0 doesn&apos;t mean charging was free. {m.spend.unpriced_sessions} {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh) can&apos;t be priced yet
+            {m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0 && (
+              <>
+                {" "}
+                because no home rate is set.{" "}
+                <Link to={appPath("/settings?tab=charging#cost")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+                  Set your home rate
+                </Link>
+                .
+              </>
+            )}
+            {!(m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0) && "."}
+          </p>
+        )}
 
         {toConfirm != null && toConfirm > 0 && (
           <button
@@ -375,7 +394,7 @@ function Statement({
                 total.{auto ? " Pick the network." : ""}
               </li>
             )}
-            {m.spend.unpriced_sessions > 0 && (
+            {m.spend.unpriced_sessions > 0 && !(headline === 0 && m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0) && (
               <li className="text-neutral-400">
                 Not included: {m.spend.unpriced_sessions} unpriced{" "}
                 {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh)
@@ -406,9 +425,24 @@ function Statement({
 
       {empty ? (
         <Card>
-          <p className="text-sm text-neutral-400">
-            No charging recorded in {monthLabel(m.period)}. Sessions show up here once your truck charges.
+          <h2 className="text-base font-semibold text-neutral-100">{rateSet ? "No charges recorded yet" : "Nothing priced yet"}</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            {rateSet ? (
+              <>No charges recorded in {monthLabel(m.period)}. They appear here as you charge.</>
+            ) : (
+              <>
+                Charges show up here priced at your home rate once Rivolt has recorded one. Set your rate in Settings → Charging so new charges are priced as they arrive.
+              </>
+            )}
           </p>
+          {!rateSet && (
+            <Link
+              to={appPath("/settings?tab=charging#cost")}
+              className="mt-3 inline-block rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500"
+            >
+              Set home rate
+            </Link>
+          )}
         </Card>
       ) : (
         <>
