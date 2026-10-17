@@ -481,6 +481,10 @@ func New(d Deps) http.Handler {
 				handleOnboardingComplete(d.DB, d.Metrics)(uid, w, r)
 			}))
 
+			// Terms acceptance: records the version the user agreed to.
+			// Not on the demo allowlist (POST); nothing is blocked on it.
+			r.Post("/terms/accept", withUser(handleTermsAccept(d.DB)))
+
 			r.Route("/push", func(r chi.Router) {
 				r.Get("/vapid-key", handlePushVAPIDKey(d.PushService))
 				r.Get("/status", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
