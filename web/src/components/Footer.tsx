@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 
 export function Footer() {
@@ -29,6 +30,10 @@ export function Footer() {
         >
           Docs
         </a>
+        <span className="text-neutral-700">·</span>
+        <Link to="/privacy" className="hover:text-neutral-200">
+          Privacy
+        </Link>
         <span className="text-neutral-700">·</span>
         <a
           href="https://discord.gg/FGty2xmdeV"
