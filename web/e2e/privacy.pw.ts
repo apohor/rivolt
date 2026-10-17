@@ -21,13 +21,13 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.getByRole("heading", { name: "Rivolt Privacy Policy", level: 1 })).toBeVisible();
       await expect(doc).toContainText("What we collect, and why");
       await expect(doc).toContainText("We do not sell your data");
-      // The operator is named; only the publication date is still a placeholder; draft furniture and
+      // The operator and publication date are filled in; placeholders, draft furniture and
       // the unpublished Terms are gone.
       await expect(doc).toContainText("Anton Pohorilyi");
       await expect(doc).toContainText("Texas");
-      await expect(doc).toContainText("[PUBLICATION DATE]");
+      await expect(doc).toContainText("Last updated: October 17, 2026");
       const text = await doc.innerText();
-      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toEqual(["[PUBLICATION DATE]"]);
+      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
       for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]", "Terms"]) expect(text, gone).not.toContain(gone);
       await expect(doc.getByRole("link", { name: /terms/i })).toHaveCount(0);
       await expect(doc.getByText("anton@rivolt.dev").first()).toBeVisible();
