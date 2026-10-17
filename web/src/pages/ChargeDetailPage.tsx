@@ -336,7 +336,9 @@ export default function ChargeDetailPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Charge"
+        // The shared label up top (lib/chargePlace), as on Activity:
+        // Home / Away / Fast charge; the Session card has the distance.
+        title={headerTitle(charge)}
         subtitle={
           active
             ? `${formatDateTime(charge.StartedAt)} · charging now`
@@ -754,6 +756,20 @@ function chargeCostHint(c: import("../lib/api").Charge, readOnly = false): strin
     return `estimated at ${ppk.toFixed(3)}${c.estimated_currency ? ` ${c.estimated_currency}` : ""}/kWh (home rate)`;
   }
   return undefined;
+}
+
+// headerTitle names the charge page by the shared place label.
+function headerTitle(charge: import("../lib/api").Charge): string {
+  switch (chargePlaceLabel(charge)) {
+    case "Fast":
+      return "Fast charge";
+    case "Home":
+      return "Home charge";
+    case "Away":
+      return "Away charge";
+    default:
+      return "Charge";
+  }
 }
 
 function Row({ label, value }: { label: string; value: string }) {

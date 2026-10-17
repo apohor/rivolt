@@ -45,6 +45,11 @@ export function DriveTable({ drives, compact = false }: { drives: Drive[]; compa
             >
               <td data-col="start" className="py-2 pr-4 text-neutral-300 whitespace-nowrap">
                 {formatDateTime(d.StartedAt)}
+                {(d.round_trip_legs ?? 1) > 1 && (
+                  <span data-round-trip-legs className="ml-2 text-xs text-neutral-500">
+                    round trip, {d.round_trip_legs} drives
+                  </span>
+                )}
               </td>
               <td data-col="duration" className="py-2 pr-4 text-neutral-400 tabular-nums">
                 {formatDuration(driveDurationSeconds(d))}
