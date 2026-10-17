@@ -48,6 +48,12 @@ describe("LandingPage", () => {
     }
   });
 
+  it("explains the ElectraFi import and links the steps", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { name: "Coming from ElectraFi?" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Import steps" }).getAttribute("href")).toMatch(/docs\/SIGNUP\.md#3-optional-import-electrafi-history$/);
+  });
+
   it("links Privacy and Terms", () => {
     renderPage();
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
