@@ -43,7 +43,8 @@ for (const theme of ["dark", "light"] as const) {
       await expect(page.locator("[data-lease-used]")).toContainText("21,850");
       await expect(page.locator("[data-lease-used]")).toContainText("36,000 mi");
       await expect(page.locator("[data-lease-standing]")).toHaveText("1,720 mi over plan");
-      await expect(page.locator("[data-lease-projected-odo]")).toHaveText("39,732 mi");
+      await expect(page.locator("[data-lease-projected-total]")).toContainText("39,720 mi");
+      await expect(page.locator("[data-lease-projected-odo]")).toHaveText("odometer ~39,732 mi");
       await expect(page.locator("[data-lease-overage]")).toContainText("$930");
       await expect(card).toContainText("(last 90 days)");
       // The amber "total allowed" tick is explained in the legend.
@@ -159,7 +160,8 @@ test("a stale odometer pauses the figures and says why", async ({ browser }) => 
   await expect(page.locator("[data-lease-stale]")).toContainText("No recent odometer reading");
   await expect(page.locator("[data-lease-used]")).toContainText("—");
   await expect(page.locator("[data-lease-standing]")).toHaveCount(0);
-  await expect(page.locator("[data-lease-projected-odo]")).toHaveText("—");
+  await expect(page.locator("[data-lease-projected-total]")).toContainText("—");
+  await expect(page.locator("[data-lease-projected-odo]")).toHaveCount(0);
   // Paused figures never read as "none": no projection means no overage claim.
   await expect(page.locator("[data-lease-overage]")).toHaveText("—");
   await ctx.close();
@@ -218,3 +220,22 @@ for (const theme of ["dark", "light"] as const) {
     await ctx.close();
   });
 }
+
+test("km mode: the heading, the projection and the overage-rate hint follow the unit", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    localStorage.setItem("rivolt.ui.next", "on");
+    localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km", temperatureUnit: "c" }));
+  });
+  await mock(page, TERMS, STATUS);
+  await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
+  await page.goto("/truck");
+  await expect(page.locator("[data-lease-budget]").locator("xpath=preceding-sibling::dt")).toContainText("Kilometers a day");
+  await expect(page.locator("[data-lease-projected-total]")).toContainText("km");
+  await expect(page.locator("[data-lease-projected-odo]")).toContainText("km");
+  await page.goto("/settings?tab=vehicle");
+  await expect(page.locator("[data-lease-form]")).toContainText("each kilometer over");
+  await expect(page.locator("[data-lease-form]")).not.toContainText("each mile");
+  await ctx.close();
+});

@@ -117,7 +117,7 @@ export function LeasePanel() {
         {field("end_date", "Lease end", { type: "date" })}
         {field("allowed_miles_total", `Miles allowed over the whole lease (${unit})`, { type: "number", inputMode: "decimal", min: 0, step: "any", placeholder: unit === "km" ? "e.g. 57936" : "e.g. 36000" })}
         {field("start_odometer_mi", `Odometer at lease start (${unit})`, { type: "number", inputMode: "decimal", min: 0, step: "any", placeholder: "e.g. 12" })}
-        {field("overage_per_mile", `Overage per ${unit}`, { type: "number", inputMode: "decimal", min: 0, step: "any", placeholder: "e.g. 0.25" }, "What the lessor charges for each mile over; 0 if none.")}
+        {field("overage_per_mile", `Overage per ${unit}`, { type: "number", inputMode: "decimal", min: 0, step: "any", placeholder: "e.g. 0.25" }, `What the lessor charges for each ${unit === "km" ? "kilometer" : "mile"} over; 0 if none.`)}
         {field("currency", "Currency", { type: "text", maxLength: 3, placeholder: "e.g. USD", autoCapitalize: "characters" })}
       </div>
       {leaseQ.isError && <ErrorBox title="Couldn't load the lease" detail={String(leaseQ.error)} />}
