@@ -86,7 +86,7 @@ export default function OnboardingPage() {
             type="button"
             onClick={finish}
             disabled={completing}
-            className="mt-6 w-full text-center text-xs text-neutral-600 hover:text-neutral-400 disabled:opacity-50"
+            className="mt-6 w-full text-center text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
           >
             I'll connect later
           </button>
