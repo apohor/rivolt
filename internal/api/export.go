@@ -99,6 +99,8 @@ type exportData struct {
 	Profiles  []exportProfile
 	// Terms is the Terms version the user accepted and when (nil = never).
 	Terms db.Terms
+	// Onboarding is what we hold about the welcome and setup emails.
+	Onboarding db.OnboardingEmails
 }
 
 // exportSettings keeps only allowlisted keys.
@@ -273,7 +275,8 @@ drives.csv   every drive, including the encoded route polyline
 trips.csv    auto-detected multi-day trips (ledger), with cost and mix
 settings.json    your preferences (credentials are never included)
 vehicles.json    per-vehicle profile (pack capacity, tires, ...) and lease terms
-export.json      metadata: version, time, row counts, the Terms version you accepted
+export.json      metadata: version, time, row counts, the Terms version you accepted,
+                 and the welcome/setup emails we sent (and whether you turned them off)
 
 Times are UTC (RFC 3339). Empty cells mean "not recorded". Raw telemetry
 samples are not part of this export; Settings > Data > Backup has them.
@@ -285,6 +288,15 @@ func (e exportData) meta() map[string]any {
 		"tz": e.TZ, "currency": e.Currency,
 		"counts": map[string]int{"charges": len(e.Charges), "drives": len(e.Drives), "trips": len(e.Trips)},
 	}
+	ts := func(t *time.Time) any {
+		if t == nil {
+			return nil
+		}
+		return t.UTC().Format(time.RFC3339)
+	}
+	m["welcome_email_sent_at"] = ts(e.Onboarding.WelcomeSentAt)
+	m["setup_emails_sent"] = e.Onboarding.NudgesSent
+	m["welcome_and_setup_emails_off_at"] = ts(e.Onboarding.OffAt)
 	m["terms_accepted_version"], m["terms_accepted_at"] = nil, nil
 	if e.Terms.Version != nil {
 		m["terms_accepted_version"] = *e.Terms.Version
@@ -397,6 +409,7 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 	e.Classes = ledger.ClassifyAll(lc, cfg)
 
 	e.Terms, _ = db.TermsFor(ctx, d.DB, uid)
+	e.Onboarding, _ = db.OnboardingEmailsFor(ctx, d.DB, uid)
 	e.Profiles = []exportProfile{}
 	e.Receipts = []receipts.Receipt{}
 	if d.DB != nil {

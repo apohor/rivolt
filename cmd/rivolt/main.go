@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,6 +51,7 @@ import (
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/onboardmail"
 	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
@@ -1134,11 +1136,12 @@ func runServer() {
 	// meant for staging/preview environments that share a mailer and a
 	// copy of real user data, where a nudge pointing at the wrong
 	// domain (or a duplicate of prod's) is worse than none.
+	// onboardSigner is set once the cookie secret is known (below); the
+	// onboarding emails are not sent until then.
+	var onboardSigner atomic.Pointer[statement.Signer]
 	if pgPool != nil && mailer != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		nudgeBaseURL := os.Getenv("RIVOLT_BASE_URL")
 		const reauthNudgeCooldown = 7 * 24 * time.Hour
-		const setupNudgeMinAge = 24 * time.Hour
-		const setupNudgeFollowUp = 6 * 24 * time.Hour
 		go func() {
 			runReauth := func(sctx context.Context) {
 				due, err := db.ListUsersDueForReauthNudge(sctx, pgPool, reauthNudgeCooldown)
@@ -1164,31 +1167,19 @@ func runServer() {
 					logger.Info("reauth nudge sweep", "nudged", sent)
 				}
 			}
+			// Welcome email and setup reminders (internal/onboardmail): at
+			// most three per user, verified addresses only, one-click
+			// unsubscribe. Needs the signer (no way to opt out, no mail).
+			onboard := &onboardmail.Job{
+				DB: pgPool, Mail: mailer, Signer: onboardSigner.Load, BaseURL: nudgeBaseURL, Logger: logger,
+				OnSent: func(kind string, attempt int, uid uuid.UUID) {
+					appMetrics.FunnelEventsTotal.WithLabelValues(kind + "_sent").Inc()
+					logger.Info("funnel", "event", kind+"_sent", "user_id", uid.String(), "attempt", attempt)
+				},
+			}
 			runSetup := func(sctx context.Context) {
-				due, err := db.ListUsersDueForSetupNudge(sctx, pgPool, setupNudgeMinAge, setupNudgeFollowUp)
-				if err != nil {
-					logger.Warn("setup nudge sweep: list failed", "err", err.Error())
-					return
-				}
-				sent := 0
-				for _, n := range due {
-					claimed, cerr := db.ClaimSetupNudge(sctx, pgPool, n.UserID, n.Attempt)
-					if cerr != nil {
-						logger.Warn("setup nudge sweep: claim failed",
-							"user_id", n.UserID.String(), "err", cerr.Error())
-						continue
-					}
-					if !claimed {
-						continue // another replica took this one, or they just connected
-					}
-					sendSetupEmail(sctx, mailer, logger, n.Email, n.Attempt, nudgeBaseURL)
-					appMetrics.FunnelEventsTotal.WithLabelValues("setup_nudge_sent").Inc()
-					logger.Info("funnel", "event", "setup_nudge_sent",
-						"user_id", n.UserID.String(), "attempt", n.Attempt)
-					sent++
-				}
-				if sent > 0 {
-					logger.Info("setup nudge sweep", "nudged", sent)
+				if w, n := onboard.Sweep(sctx); w+n > 0 {
+					logger.Info("onboarding email sweep", "welcome", w, "setup_nudges", n)
 				}
 			}
 			run := func() {
@@ -1803,6 +1794,7 @@ func runServer() {
 	var statementSigner *statement.Signer
 	if len(cookieSecret) > 0 {
 		statementSigner = statement.NewSigner(cookieSecret)
+		onboardSigner.Store(statementSigner)
 	}
 	handler := api.New(api.Deps{
 		StatementSigner:       statementSigner,
@@ -2124,58 +2116,6 @@ func sendReauthEmail(ctx context.Context, mailer *email.Client, pool *sql.DB, lo
 		return
 	}
 	logger.Info("reauth email sent", "user_id", uid.String(), "reason", reason)
-}
-
-// sendSetupEmail nudges a user who never connected their Rivian
-// account. attempt is 1 for the first email and 2 for the follow-up;
-// the caller claims each via db.ClaimSetupNudge first. Best-effort: a
-// missing mailer or a send error is logged, never retried - the user
-// still has the in-app connect prompt whenever they return.
-//
-// The link goes to the app root: a user who never finished onboarding
-// is routed to the connect step, and everyone else lands on the
-// Overview, which shows the Rivian sign-in form until connected.
-func sendSetupEmail(ctx context.Context, mailer *email.Client, logger *slog.Logger, to string, attempt int, baseURL string) {
-	if mailer == nil || to == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	link := strings.TrimRight(baseURL, "/") + "/"
-	if baseURL == "" {
-		link = "your Rivolt account"
-	}
-	subject := "Finish setting up Rivolt - connect your Rivian"
-	intro := "Thanks for signing up for Rivolt. You're one step away from\n" +
-		"seeing your drives, charging, and efficiency - connecting your\n" +
-		"Rivian account takes about two minutes.\n\n"
-	if attempt > 1 {
-		subject = "Your Rivolt account is still waiting for your Rivian"
-		intro = "Quick reminder: your Rivolt account isn't connected to your\n" +
-			"Rivian yet, so nothing is being recorded. It's one sign-in -\n" +
-			"the same email and password you use in the Rivian app.\n\n"
-	}
-	body := intro +
-		"Connect it here:\n\n" +
-		"  " + link + "\n\n" +
-		"You'll sign in with your Rivian account (the same login you use\n" +
-		"in the Rivian app). Rivolt only reads your vehicle data - it\n" +
-		"never sends commands to your car.\n"
-	if err := mailer.Send(ctx, email.Message{
-		To:      to,
-		Subject: subject,
-		Text:    body,
-	}); err != nil {
-		// The provider's error text can echo the recipient; keep emails
-		// out of logs (the caller logs the user id).
-		msg := err.Error()
-		if to != "" {
-			msg = strings.ReplaceAll(msg, to, "<recipient>")
-		}
-		logger.Warn("setup email: send", "attempt", attempt, "err", msg)
-		return
-	}
-	logger.Info("setup email sent", "attempt", attempt)
 }
 
 // breakerMetrics adapts rivian.BreakerObserver onto the Prometheus
