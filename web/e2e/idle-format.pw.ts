@@ -33,14 +33,21 @@ for (const scheme of ["dark", "light"] as const) {
     const titles = await card.locator("svg rect title").evaluateAll((els) => els.map((e) => e.textContent ?? ""));
     expect(titles.some((t) => /22 h 17 min/.test(t))).toBe(true);
     expect(titles.some((t) => /45 min/.test(t))).toBe(true);
-    await card.scrollIntoViewIfNeeded();
-    await card.screenshot({ path: path.join(SHOTS, `idle-format-truck-${scheme}.png`) });
+    // The cards re-render as the page's queries settle, so the located element
+    // can be replaced between "visible" and the scroll: retry the pair together.
+    await expect(async () => {
+      await card.scrollIntoViewIfNeeded();
+      await card.screenshot({ path: path.join(SHOTS, `idle-format-truck-${scheme}.png`) });
+    }).toPass();
 
     await page.goto("/");
     const now = page.locator("section,div").filter({ has: page.getByRole("heading", { name: "Idle-awake time per day" }) }).last();
     await expect(now).toBeVisible();
-    await now.scrollIntoViewIfNeeded();
-    await now.screenshot({ path: path.join(SHOTS, `idle-format-now-${scheme}.png`) });
+    await expect(now.locator("svg").first()).toBeVisible();
+    await expect(async () => {
+      await now.scrollIntoViewIfNeeded();
+      await now.screenshot({ path: path.join(SHOTS, `idle-format-now-${scheme}.png`) });
+    }).toPass();
     await ctx.close();
   });
 }
