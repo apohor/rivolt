@@ -1,3 +1,4 @@
+import { useUiNext } from "../lib/uiNext";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { inDemo } from "../lib/demo";
 import DemoSettings from "./DemoSettings";
@@ -25,6 +26,7 @@ import {
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
+import { LeasePanel } from "../components/LeasePanel";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
@@ -72,6 +74,7 @@ function SettingsPageInner() {
   const location = useLocation();
   // In the tab-bar shell the header no longer carries Sign out.
   const shell = useMoneyTabEnabled();
+  const nextUi = useUiNext();
 
   // Tab state. Priority: ?tab=… query param > hash → owning tab >
   // default "account". Query param wins so a bookmark like
@@ -154,6 +157,11 @@ function SettingsPageInner() {
           <Card title="Vehicle profile" id="profile">
             <VehicleProfilePanel />
           </Card>
+          {nextUi && (
+            <Card title="Lease" id="lease">
+              <LeasePanel />
+            </Card>
+          )}
           <Card title="Display" id="display">
             <DisplayPreferences />
           </Card>
