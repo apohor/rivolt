@@ -8,8 +8,8 @@
 Last updated: DRAFT 2026-10-17
 
 ## Open items before this can be published (read this first)
-**Owner to fill in (section 1, and Terms sections 1 and 11):**
-1. **Operator identity:** Rivolt is run by an individual (owner decision, no company for now). Fill in **[OWNER LEGAL NAME]**, **[STATE]** and **[MAILING ADDRESS]** (a PO box or a commercial mail-receiving address is fine; it does not have to be a home address). Never publish with the placeholders still in.
+**Operator (section 1, and Terms sections 1 and 11):**
+1. **Operator identity:** Rivolt is run by an individual, Anton Pohorilyi, in Texas (owner decision, no company for now). Email is the only published contact; no postal address is published (owner decision, 2026-10-17). A PO box or a commercial mail-receiving address can be added later, for marketing email or an LLC. Venue in the Terms (section 11): Williamson County, Texas.
 
 **Former [LAWYER] items: proposed wording is now in place, each marked [ATTORNEY TO CONFIRM]:**
 - Rights by region (section 7): Rivolt is below the CCPA/CPRA and other state-law thresholds, so the section states the rights we give everyone instead of claiming compliance with a law; the service is for US residents, and export and deletion work for anyone.
@@ -37,7 +37,7 @@ Last updated: DRAFT 2026-10-17
 - **Who it is for:** adults (18 and over) in the United States who own or drive a Rivian.
 
 ## 1. Who we are
-Rivolt is run by **[OWNER LEGAL NAME]**, an individual (not a company), based in **[STATE]**, United States. In this policy "we", "us" and "our" mean that person. Mailing address: **[MAILING ADDRESS]**. Contact: anton@rivolt.dev (default, owner may change). Rivolt is an independent project; it is not affiliated with, endorsed by or approved by Rivian. **[ATTORNEY TO CONFIRM: whether using "Rivolt" as a trade name needs a fictitious-business-name (DBA) filing in [STATE], and that a PO box or commercial mail-receiving address is enough for the mailing address.]**
+Rivolt is run by Anton Pohorilyi, an individual (not a company), based in Texas, United States. In this policy "we", "us" and "our" mean that person. Contact: anton@rivolt.dev (default, owner may change). Rivolt is an independent project; it is not affiliated with, endorsed by or approved by Rivian. **[ATTORNEY TO CONFIRM: whether using "Rivolt" as a trade name needs an assumed-name certificate in Texas (Tex. Bus. & Com. Code ch. 71), and that an email-only contact is enough.]**
 
 ## 2. What we collect and why
 | Data | Why | Where it lives (code ground truth) |
@@ -137,7 +137,7 @@ You must be 18 or older to use Rivolt (Terms, section 3). Rivolt is not directed
 ## 8. Changes and contact
 We will tell you about material changes by email and with an in-app notice at least 30 days before they take effect (default, owner may change). If a change would let us use data we already hold in a materially different way, or share it with someone new, we will ask for your consent first and will not rely on notice alone. **[ATTORNEY TO CONFIRM]** The "Last updated" date at the top shows when this policy last changed.
 
-Contact: anton@rivolt.dev (default, owner may change). Mail: **[OWNER LEGAL NAME]**, **[MAILING ADDRESS]**.
+Contact: anton@rivolt.dev (default, owner may change).
 
 ## 9. What is not decided or not yet true (so we do not overpromise)
-Still needed from the owner: the operator's legal name, state and mailing address, and the attorney's confirmation of every [ATTORNEY TO CONFIRM] item (see the top of this page). Not yet true: addresses are not yet stripped from trip-advice payloads (build pending; feature off for all production users); there is no automatic deletion of history for accounts with a vehicle (owner decision), and the 120-day cleanup of accounts that never connected Rivian is built but switched off until this policy is published; the session and waitlist retention sweeps and the receipts opt-in ship in #363 (confirm before publishing); backups hold deleted data for up to 365 days; email addresses were removed from logs in #205/#206 (verify on the deployed build). Everything else marked "(default, owner may change)" is a recommended default.
+Still needed: the attorney's confirmation of every [ATTORNEY TO CONFIRM] item (see the top of this page). Not yet true: addresses are not yet stripped from trip-advice payloads (build pending; feature off for all production users); there is no automatic deletion of history for accounts with a vehicle (owner decision), and the 120-day cleanup of accounts that never connected Rivian is built but switched off until this policy is published; the session and waitlist retention sweeps and the receipts opt-in shipped in #363 (merged 2026-10-17); confirm the release containing it is deployed before publishing; backups hold deleted data for up to 365 days; email addresses were removed from logs in #205/#206 (verify on the deployed build). Everything else marked "(default, owner may change)" is a recommended default.
