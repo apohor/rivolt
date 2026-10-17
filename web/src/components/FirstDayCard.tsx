@@ -44,7 +44,7 @@ export default function FirstDayCard({ vehicleID }: { vehicleID: string }) {
           <div>
             <h2 className="text-base font-semibold text-neutral-100">Your first day with Rivolt</h2>
             <p className="mt-1 text-sm text-neutral-400">
-              Rivolt records drives and charges as you use the truck. Two quick settings make the first ones useful.
+              Rivolt records drives and charges as you use the truck. A few quick settings make the first ones useful.
             </p>
           </div>
           <button type="button" onClick={dismiss} className="shrink-0 text-xs text-neutral-400 hover:text-neutral-200">
