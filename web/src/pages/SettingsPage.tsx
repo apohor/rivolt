@@ -49,6 +49,9 @@ type TabId = "account" | "vehicle" | "charging" | "notifications" | "data";
 
 // Which tab "owns" a given section anchor id — used so a deep link
 // like /settings#rivian still auto-selects the right tab on mount.
+// Input that means the reader is scrolling on their own, so stop re-aligning.
+const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+
 const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
   display: "vehicle",
@@ -103,9 +106,28 @@ function SettingsPageInner() {
       setTab(owner);
       return; // next render will re-run this effect (tab is in deps)
     }
-    requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    // Cards above the target (the vehicle profile, the lease terms) fill in after the first frame
+    // and push it down, so keep it pinned to the top until the layout stops moving, the user takes
+    // over the scroll, or a few seconds pass.
+    const align = (behavior: ScrollBehavior) => document.getElementById(id)?.scrollIntoView({ behavior, block: "start" });
+    const raf = requestAnimationFrame(() => align("smooth"));
+    let ro: ResizeObserver | undefined;
+    const stop = () => {
+      ro?.disconnect();
+      for (const ev of USER_SCROLL_EVENTS) window.removeEventListener(ev, stop);
+    };
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => align("auto"));
+      const parent = document.getElementById(id)?.parentElement;
+      if (parent) ro.observe(parent);
+    }
+    for (const ev of USER_SCROLL_EVENTS) window.addEventListener(ev, stop, { passive: true });
+    const timer = window.setTimeout(stop, 4000);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      stop();
+    };
   }, [location.hash, tab]);
 
   // Reflect tab into ?tab= so reloads / back nav land on the same
