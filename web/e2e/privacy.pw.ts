@@ -17,19 +17,20 @@ for (const theme of ["dark", "light"] as const) {
       await page.addInitScript(([t]) => localStorage.setItem("rivolt.theme", t), [theme]);
       await stubApi(page, { signedIn: false });
       await page.goto("/privacy");
-      const doc = page.locator("[data-privacy]");
+      const doc = page.locator("[data-legal]");
       await expect(doc.getByRole("heading", { name: "Rivolt Privacy Policy", level: 1 })).toBeVisible();
       await expect(doc).toContainText("What we collect, and why");
       await expect(doc).toContainText("We do not sell your data");
-      // The operator and publication date are filled in; placeholders, draft furniture and
-      // the unpublished Terms are gone.
+      // The operator and publication date are filled in; placeholders and draft furniture are gone,
+      // and the Terms reference links to section 2.
       await expect(doc).toContainText("Anton Pohorilyi");
       await expect(doc).toContainText("Texas");
       await expect(doc).toContainText("Last updated: October 17, 2026");
       const text = await doc.innerText();
       expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
-      for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]", "Terms"]) expect(text, gone).not.toContain(gone);
-      await expect(doc.getByRole("link", { name: /terms/i })).toHaveCount(0);
+      for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]"]) expect(text, gone).not.toContain(gone);
+      // The Terms are published: the reference links to section 2.
+      await expect(doc.getByRole("link", { name: "Terms", exact: true })).toHaveAttribute("href", "/terms#2");
       await expect(doc.getByText("anton@rivolt.dev").first()).toBeVisible();
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `privacy-${w}-${theme}.png`), fullPage: true });
@@ -51,6 +52,7 @@ test("linked from the footer, and from the sign-in screen; works on the demo hos
   // The signed-in footer links to it too.
   await stubApi(page, { signedIn: true });
   await page.goto("/");
+  await expect(page.locator("footer").getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
   await page.locator("footer").getByRole("link", { name: "Privacy" }).click();
   await expect(page).toHaveURL(/\/privacy$/);
 });

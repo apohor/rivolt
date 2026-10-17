@@ -35,6 +35,10 @@ export function Footer() {
           Privacy
         </Link>
         <span className="text-neutral-700">·</span>
+        <Link to="/terms" className="hover:text-neutral-200">
+          Terms
+        </Link>
+        <span className="text-neutral-700">·</span>
         <a
           href="https://discord.gg/FGty2xmdeV"
           target="_blank"
