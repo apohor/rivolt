@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.27
+# syntax=docker/dockerfile:1.28
 
 # ---- web builder ----------------------------------------------------------
 # Always run on the build host's native platform — the output is static
