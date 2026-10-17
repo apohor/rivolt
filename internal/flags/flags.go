@@ -77,6 +77,34 @@ const UIThemeNextName = "ui_theme_next"
 //	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
 const RivianReceiptsName = "rivian_receipts"
 
+// InactiveAccountPurgeName gates the deletion of accounts that never
+// connected a vehicle (warned at day 90, deleted at day 120). Off when the
+// row is missing or malformed. Enable it only after the privacy policy that
+// promises the rule is published:
+//
+//	{"dry_run": true}        count candidates in the log, send and delete nothing
+//	{"users": ["<uuid>"]}    act on those accounts only (a rehearsal)
+//	{"all": true}            act on every eligible account
+const InactiveAccountPurgeName = "inactive_account_purge"
+
+// InactivePurgeState is the JSONB payload for InactiveAccountPurgeName.
+type InactivePurgeState struct {
+	// DryRun makes the job log candidate counts only: it sends no email and
+	// deletes nothing, whatever All and Users say.
+	DryRun bool     `json:"dry_run,omitempty"`
+	All    bool     `json:"all,omitempty"`
+	Users  []string `json:"users,omitempty"`
+}
+
+// Enabled reports whether the job may act (warn, delete) on userID: not in a
+// dry run, and the user is named or All is set.
+func (s InactivePurgeState) Enabled(userID string) bool {
+	if s.DryRun {
+		return false
+	}
+	return MoneyTabState{All: s.All, Users: s.Users}.Enabled(userID)
+}
+
 // TripPlannerEnabledName is the flags.name value gating the trip
 // planner UI + endpoints. Default-off: when the row is missing or
 // the JSON decodes to {enabled:false}, the planner stays hidden.
@@ -312,6 +340,7 @@ type Store struct {
 	dcfcAutoNet    atomic.Pointer[MoneyTabState]
 	uiThemeNext    atomic.Pointer[MoneyTabState]
 	rivianReceipts atomic.Pointer[MoneyTabState]
+	inactivePurge  atomic.Pointer[InactivePurgeState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
 
 	startOnce sync.Once
@@ -380,7 +409,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, UIThemeNextName, RivianReceiptsName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, MoneyTabName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, UIThemeNextName, RivianReceiptsName, InactiveAccountPurgeName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -395,6 +424,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	dcfcAutoNet := MoneyTabState{}
 	uiThemeNext := MoneyTabState{}
 	rivianReceipts := MoneyTabState{}
+	inactivePurge := InactivePurgeState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
 		var name string
@@ -445,6 +475,12 @@ func (s *Store) refresh(ctx context.Context) error {
 				s.logger.Warn("flags: ui_theme_next malformed, treating as off", "err", err.Error())
 				uiThemeNext = MoneyTabState{}
 			}
+		case InactiveAccountPurgeName:
+			// It deletes data: a malformed row reads as off, never as on.
+			if err := json.Unmarshal(raw, &inactivePurge); err != nil {
+				s.logger.Warn("flags: inactive_account_purge malformed, treating as off", "err", err.Error())
+				inactivePurge = InactivePurgeState{}
+			}
 		case RivianReceiptsName:
 			// Extra upstream calls: a malformed row reads as off.
 			if err := json.Unmarshal(raw, &rivianReceipts); err != nil {
@@ -473,6 +509,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.dcfcAutoNet.Store(&dcfcAutoNet)
 	s.uiThemeNext.Store(&uiThemeNext)
 	s.rivianReceipts.Store(&rivianReceipts)
+	s.inactivePurge.Store(&inactivePurge)
 	s.wakeSafety.Store(&wakeSafety)
 	return nil
 }
@@ -559,6 +596,19 @@ func (s *Store) RivianReceipts() MoneyTabState {
 	p := s.rivianReceipts.Load()
 	if p == nil {
 		return MoneyTabState{}
+	}
+	return *p
+}
+
+// InactiveAccountPurge returns the cached purge flag. Lock-free; off (not
+// even a dry run) when the row is missing.
+func (s *Store) InactiveAccountPurge() InactivePurgeState {
+	if s == nil {
+		return InactivePurgeState{}
+	}
+	p := s.inactivePurge.Load()
+	if p == nil {
+		return InactivePurgeState{}
 	}
 	return *p
 }
