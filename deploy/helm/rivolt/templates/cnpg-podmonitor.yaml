@@ -1,0 +1,23 @@
+{{- if and .Values.cnpg.enabled .Values.cnpg.monitoring.podMonitor.enabled }}
+# PodMonitor for the CNPG cluster's Postgres exporter (port "metrics",
+# 9187 on every instance pod), so kube-prometheus-stack scrapes cluster
+# health and backup age (cnpg_collector_*). See values: cnpg.monitoring.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "rivolt.cnpgClusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+    {{- with .Values.cnpg.monitoring.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: {{ include "rivolt.cnpgClusterName" . }}
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+      interval: {{ .Values.cnpg.monitoring.podMonitor.interval }}
+{{- end }}

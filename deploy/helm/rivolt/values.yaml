@@ -411,6 +411,20 @@ cnpg:
       # without a base backup until the next scheduled fire.
       immediate: true
 
+  # Scrape CNPG's Postgres exporter (the instance pods' "metrics" port,
+  # 9187) with a PodMonitor, so cluster health and backup age can be
+  # alerted on (cnpg_collector_up,
+  # cnpg_collector_last_available_backup_timestamp, ...). Needs the
+  # PodMonitor CRD (kube-prometheus-stack). The chart renders its own
+  # PodMonitor rather than CNPG's spec.monitoring.enablePodMonitor, which
+  # newer operators deprecate and which can't take labels.
+  monitoring:
+    podMonitor:
+      enabled: false
+      interval: 60s
+      # Extra labels, for a Prometheus that selects PodMonitors by label.
+      labels: {}
+
 # ---------------------------------------------------------------------------
 # External database
 # ---------------------------------------------------------------------------
