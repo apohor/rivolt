@@ -26,7 +26,45 @@ func spaHandler(fsys fs.FS) http.Handler {
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 	}
+	// shell serves index.html for an app route. On public pages of an
+	// indexable host the head is rewritten (see seo.go); every other
+	// route, and every other host, is marked noindex.
+	shell := func(w http.ResponseWriter, r *http.Request) {
+		noCacheIndex(w)
+		host := requestHost(r)
+		page, canon, ok := seoLookup(host, r.URL.Path)
+		if !ok {
+			w.Header().Set("X-Robots-Tag", "noindex")
+		}
+		if ok && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			if b, err := fs.ReadFile(fsys, "index.html"); err == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if r.Method == http.MethodGet {
+					_, _ = w.Write(injectSEO(b, host, page, canon))
+				}
+				return
+			}
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/"
+		fileServer.ServeHTTP(w, r2)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte(robotsTxt(requestHost(r))))
+			return
+		case "/sitemap.xml":
+			body, ok := sitemapXML(requestHost(r))
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+			_, _ = w.Write([]byte(body))
+			return
+		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
 			p = "index.html"
@@ -37,13 +75,14 @@ func spaHandler(fsys fs.FS) http.Handler {
 				return
 			}
 			// Path not found — assume SPA route and serve index.html.
-			noCacheIndex(w)
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/"
-			fileServer.ServeHTTP(w, r2)
+			shell(w, r)
 			return
 		}
-		// Set no-cache on the literal index.html too (root navigations).
+		// Root navigations get the shell (and its SEO head) too.
+		if r.URL.Path == "/" {
+			shell(w, r)
+			return
+		}
 		if p == "index.html" {
 			noCacheIndex(w)
 		}
