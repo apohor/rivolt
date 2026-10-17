@@ -1,18 +1,32 @@
 # Rivolt
 
-> A Rivian companion. Live status, per-trip analytics, a charging
-> cost ledger, and a map-first route planner that estimates what a road
-> trip will cost.
+> Free, open-source tracker for Rivian owners: what your Rivian actually
+> costs. Charging cost at your own rate, trips, efficiency and lease miles.
 
-**Rivolt** is an open-source companion app for Rivian vehicles. It
-shows your truck's live state, records every drive and
-charging session against your own electricity rate, and plans road
-trips with cost / weather / efficiency analysis built in.
+**[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
+ · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
+ · **Self-host:** [docker compose](docker-compose.yml), [Helm chart](deploy/helm)
+ · [Sign-up guide](docs/SIGNUP.md) · [MIT license](LICENSE)
 
-Rivolt turns your Rivian's charging and driving into a priced ledger
-you own, and a planner that accounts for what a trip will cost.
+![Now tab on the demo truck](docs/screenshots/now.png)
 
----
+Rivolt is an **unofficial** companion app for Rivian vehicles. It is not
+affiliated with, endorsed by or sponsored by Rivian.
+
+## What it does
+
+- **Every charge and trip priced at your rate**, with the source of each
+  number shown (billed, home rate, network estimate, or entered by you).
+- **Trip planner** that estimates what a road trip will cost, with weather
+  and efficiency analysis.
+- **Lease miles:** enter your allowance and term and see projected miles
+  at lease return and the overage cost.
+- **Efficiency** (mi/kWh) broken down by temperature, speed and drive mode.
+- **Software update alerts** by push notification, with release notes.
+- **Coming from ElectraFi?** Import your history from its CSV export; see
+  [how](https://rivolt.dev/moving-from-electrafi).
+- **Yours to keep:** export everything as a JSON backup, delete your data
+  from Settings, or run your own copy.
 
 ## Try the demo
 
@@ -24,7 +38,13 @@ charging stops.
 
 - The numbers are made up (a home-charging month at $0.16/kWh);
   yours will differ.
-- To use it with your own truck, sign up directly — no invite needed; see [`docs/SIGNUP.md`](docs/SIGNUP.md).
+- To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
+  with Google or GitHub (the beta has an account cap); see
+  [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
+  Driver account, so Rivolt never holds your primary Rivian login and you
+  can revoke access from the Rivian app at any time.
+- Rivolt uses Rivian's unofficial API, so it can break. It is read-only
+  (it can't control your truck) and in beta.
 
 ---
 
