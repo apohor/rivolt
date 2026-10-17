@@ -66,18 +66,19 @@ export default function HomePage() {
 
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);
-  const winDrives = useMemo(() => {
-    const filtered = filterByRange(all, range);
-    return roundTripsEnabled
-      ? collapseRoundTrips(
-          filtered,
-          roundTripRadiusMeters,
-          roundTripMaxGapMinutes,
-        )
-      : filtered;
-  }, [all, range, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes]);
+  // Recorded drives in the window. Counts and averages use these, like
+  // Money and the API; the round-trip collapse only groups rows for the
+  // charts below (the miles are the same either way).
+  const rangeDrives = useMemo(() => filterByRange(all, range), [all, range]);
+  const winDrives = useMemo(
+    () =>
+      roundTripsEnabled
+        ? collapseRoundTrips(rangeDrives, roundTripRadiusMeters, roundTripMaxGapMinutes)
+        : rangeDrives,
+    [rangeDrives, roundTripsEnabled, roundTripRadiusMeters, roundTripMaxGapMinutes],
+  );
   const winCharges = useMemo(() => filterByRange(allC, range), [allC, range]);
-  const ds = useMemo(() => driveStats(winDrives), [winDrives]);
+  const ds = useMemo(() => driveStats(rangeDrives), [rangeDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
 
   // Cluster labels are computed server-side over the full charge corpus

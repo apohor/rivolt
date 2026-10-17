@@ -307,7 +307,10 @@ function DriveCard({ item }: { item: DriveItem }) {
         <span className="tabular-nums text-sm text-neutral-200">{d.DistanceMi.toFixed(1)} mi</span>
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2 text-xs text-neutral-500">
-        <span>{timeRange(d.StartedAt, d.EndedAt)} · {formatDuration(dur)}</span>
+        <span>
+          {timeRange(d.StartedAt, d.EndedAt)} · {formatDuration(dur)}
+          {(d.round_trip_legs ?? 1) > 1 && <span data-round-trip-legs> · round trip, {d.round_trip_legs} drives</span>}
+        </span>
         {missing ? (
           <span className="text-amber-300">no energy recorded</span>
         ) : d.estimated_cost != null ? (

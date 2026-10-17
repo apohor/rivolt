@@ -345,6 +345,9 @@ export type Drive = {
   estimated_cost?: number;
   estimated_currency?: string;
   estimated_price_per_kwh?: number;
+  // Set by collapseRoundTrips on a row it merged: how many recorded drives
+  // it holds. Counts (Now, Money, the API) are of recorded drives.
+  round_trip_legs?: number;
 };
 
 // PackHealthSample is one derived effective-pack-capacity reading
