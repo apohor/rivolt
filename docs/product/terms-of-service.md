@@ -1,6 +1,6 @@
 # Rivolt Terms of Service
 
-Last updated: [PUBLICATION DATE]
+Last updated: October 17, 2026
 
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
@@ -51,7 +51,7 @@ Rivolt's source code is MIT licensed. If you self-host, these Terms and our Priv
 You can stop at any time by deleting your account. We may suspend or end the service or an account (for example to comply with a Rivian request, protect other users, or for abuse). Where practical we will give notice and let you export your data first. Accounts that never connect Rivian are deleted as described in the Privacy Policy ("Keeping, exporting and deleting": warning at day 90, deletion at day 120 and never less than 30 days after the warning). We may pause all Rivian access at any time using an operator kill switch.
 
 ## 11. Changes, contact, disputes and law
-- **Accepting these Terms.** New users agree to these Terms when they sign up. If your account was created before [PUBLICATION DATE], these Terms apply to your use of Rivolt from that date on; if you do not agree with them, stop using Rivolt and delete your account (Privacy Policy, "Keeping, exporting and deleting").
+- **Accepting these Terms.** New users agree to these Terms when they sign up. If your account was created before October 17, 2026, these Terms apply to your use of Rivolt from that date on; if you do not agree with them, stop using Rivolt and delete your account (Privacy Policy, "Keeping, exporting and deleting").
 - **Changes.** We may update these Terms. We will tell you about material changes by email and with an in-app notice at least 30 days before they take effect (the same as the Privacy Policy, "Changes"). If you keep using Rivolt after a change takes effect, the new Terms apply; if you do not agree, delete your account before then.
 - **Transfer.** We may transfer these Terms and the service to a company we control (for example, an LLC formed to run Rivolt) or to a new owner. We will email you at least 30 days beforehand, so you can export or delete your data first (Privacy Policy, "Changes").
 - **Contact.** anton@rivolt.dev.

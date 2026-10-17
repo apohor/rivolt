@@ -22,8 +22,9 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.getByRole("heading", { name: /^2\. Unofficial access to Rivian/ })).toHaveAttribute("id", "2");
       await expect(doc).toContainText("Anton Pohorilyi");
       const text = await doc.innerText();
-      // Only [PUBLICATION DATE] remains (Last updated, and the section 11 date), set at release.
-      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toEqual(["[PUBLICATION DATE]", "[PUBLICATION DATE]"]);
+      // The publication date is filled in (Last updated, and the section 11 date); no placeholders remain.
+      expect(text).toContain("Last updated: October 17, 2026");
+      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
       for (const gone of ["DRAFT", "[DECIDE", "[VERIFY", "[ATTORNEY", "[CONFIRM", "Not legal advice"]) expect(text, gone).not.toContain(gone);
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `terms-${w}-${theme}.png`), fullPage: true });
