@@ -4,7 +4,7 @@
 
 Last updated: [PUBLICATION DATE]
 
-**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **[OWNER LEGAL NAME], an individual** (not a company) in **[STATE]**, United States ("we"). Email: anton@rivolt.dev. Mail: **[MAILING ADDRESS]**. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves. **[ATTORNEY TO CONFIRM]**
+**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **[OWNER LEGAL NAME], an individual** (not a company) in **[STATE]**, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves. **[ATTORNEY TO CONFIRM]**
 
 **Who it is for.** Adults (18 and over) in the United States who own or drive a Rivian. **[ATTORNEY TO CONFIRM]**
 
@@ -19,7 +19,7 @@ Last updated: [PUBLICATION DATE]
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
 
 **Who we share it with.** Only these, and only for the service:
-- **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt. **[VERIFY: providers enabled in prod]**
+- **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt.
 - **Rivian**, to read your vehicle's data. Rivolt's requests present themselves as Rivian's own mobile app (see the Terms, section 2).
 - **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
@@ -27,7 +27,7 @@ Last updated: [PUBLICATION DATE]
 - **Open-Meteo**, for weather (trip coordinates rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
 - **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Trip recaps send no coordinates or addresses. Trip advice sends the start and destination you type (which can be an address), charger names or locations (to about 110 m) and tire pressures.
 
-We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. **[VERIFY: encryption at rest and physical location of the backup volume]** As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **[ATTORNEY TO CONFIRM]** **We do not sell your data, and there is no advertising** and no third-party analytics script.
+We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **[ATTORNEY TO CONFIRM]** **We do not sell your data, and there is no advertising** and no third-party analytics script.
 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
@@ -43,9 +43,9 @@ We run our own servers in the United States, and database backups go to storage 
 
 <!--
 Internal notes (not for publication):
-- Mailing address: a USPS PO box, or a private mailbox at a commercial mail receiving agency (USPS Form 1583); not a home address. Both count as a "valid physical postal address" under 16 CFR 316.2(p). Resend's Acceptable Use Policy also asks senders to include a valid address and company name in emails.
+- Mailing address: not published (owner decision, 2026-10-17); email is the only contact. No law found that requires a postal address in a privacy policy for a free US service run by an individual (CalOPPA, Delaware 6 Del. C. 1205C, Nevada NRS 603A.340, Google API Services User Data Policy). Optional later, when marketing email starts or an LLC is formed: a USPS PO box, or a private mailbox at a commercial mail receiving agency (USPS Form 1583); not a home address. Both count as a "valid physical postal address" under 16 CFR 316.2(p). Resend's Acceptable Use Policy also asks senders to include a valid address and company name in emails.
 - Sources for each claim (main, plus PR #361 wording):
-  account/sign-in: users row, internal/oidc; sessions IP + User-Agent: migration 0006, internal/sessions/store.go; 30-day purge after expiry/revocation and waitlist sweep (90 days unapproved; approved: on signup or 30 days after invite expiry) via internal/retention (PR #363). access requests: signup_requests, migration 0028. push: push_subscriptions (endpoint, keys, user_agent), internal/push/store.go.
+  account/sign-in: users row, internal/oidc; prod providers RIVOLT_OIDC_PROVIDERS=hydra,google,github (checked by team lead 2026-10-17; hydra is our own sign-in at auth.rivolt.dev, no third party); sessions IP + User-Agent: migration 0006, internal/sessions/store.go; 30-day purge after expiry/revocation and waitlist sweep (90 days unapproved; approved: on signup or 30 days after invite expiry) via internal/retention (PR #363). access requests: signup_requests, migration 0028. push: push_subscriptions (endpoint, keys, user_agent), internal/push/store.go.
   Rivian session sealed, password not stored: internal/secrets/rivian.go, internal/crypto, internal/rivian/live.go (Session has no password field).
   vehicle data: vehicle_state, drives, charges; software version internal/otadetails; trim/image vehicles table.
   receipts: rivian_receipts (migration 0055), internal/receipts; after PR #363 needs both the rivian_receipts operator flag (internal/flags/flags.go) and the user's opt-in (setting privacy.rivian_receipts, PUT /api/settings/rivian-receipts; opting out deletes stored receipts). backups: full draft section 4/5 (MinIO in-cluster, CNPG 365d).
@@ -53,6 +53,6 @@ Internal notes (not for publication):
   analytics: events table (migration 0046), DNT/GPC in internal/api/events.go, 90-day purge.
   sharing: full draft section 4; identity internal/rivian/live.go:25-52, ws_mux.go:114-121; Open-Meteo rounding 0.1 degree; AI: internal/ai, internal/recap, internal/tripadvice/advice.go.
   operator access: /api/admin/users routes, internal/api/api.go.
-  retention: inactive purge internal/db/inactive_purge.go (flag inactive_account_purge, off until publication); backups CNPG retentionPolicy 365d; logs survive deletion (full draft section 5, VERIFY).
+  retention: inactive purge internal/db/inactive_purge.go (flag inactive_account_purge, off until publication); backups CNPG retentionPolicy 365d, to in-cluster MinIO on an NFS-backed volume (checked by team lead 2026-10-17; encryption at rest not confirmed, so the text makes no encryption claim); logs survive deletion (full draft section 5, VERIFY).
   "except where the law requires": new in both drafts (PR #361), attorney to confirm.
 -->
