@@ -84,7 +84,7 @@ export function LeaseBody({ st, allowed, currency, end, unit }: { st: LeaseStatu
             <dt className="ui-label">Projected at return</dt>
             <dd data-lease-projected-total className="font-semibold tabular-nums text-neutral-100">
               {st.projected_total_mi != null ? dist(st.projected_total_mi, unit) : "—"}
-              <span className="ml-1 text-xs font-normal text-neutral-400">of lease miles</span>
+              <span className="ml-1 text-xs font-normal text-neutral-400">of lease {unit === "km" ? "kilometers" : "miles"}</span>
             </dd>
             {st.projected_return_odometer_mi != null && (
               <dd data-lease-projected-odo className="text-xs tabular-nums text-neutral-500">odometer ~{dist(st.projected_return_odometer_mi, unit)}</dd>

@@ -233,9 +233,27 @@ test("km mode: the heading, the projection and the overage-rate hint follow the 
   await page.goto("/truck");
   await expect(page.locator("[data-lease-budget]").locator("xpath=preceding-sibling::dt")).toContainText("Kilometers a day");
   await expect(page.locator("[data-lease-projected-total]")).toContainText("km");
+  await expect(page.locator("[data-lease-projected-total]")).toContainText("of lease kilometers");
+  await expect(page.locator("[data-lease-projected-total]")).not.toContainText("miles");
   await expect(page.locator("[data-lease-projected-odo]")).toContainText("km");
   await page.goto("/settings?tab=vehicle");
   await expect(page.locator("[data-lease-form]")).toContainText("each kilometer over");
   await expect(page.locator("[data-lease-form]")).not.toContainText("each mile");
+  await ctx.close();
+});
+
+test("/settings#lease opens the Vehicle tab and scrolls to the Lease card", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 700 } });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await mock(page, null, null);
+  await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
+  await page.goto("/settings#lease");
+  const card = page.locator("#lease");
+  await expect(card).toBeVisible();
+  // The hash opened the Vehicle tab (not Account): its profile card is there, the Rivian account card is not.
+  await expect(page.locator("#profile")).toHaveCount(1);
+  await expect(page.locator("#rivian")).toHaveCount(0);
+  await expect.poll(async () => (await card.boundingBox())!.y).toBeLessThan(200);
   await ctx.close();
 });

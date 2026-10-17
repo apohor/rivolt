@@ -54,6 +54,7 @@ const HASH_TO_TAB: Record<string, TabId> = {
   display: "vehicle",
   home: "vehicle",
   profile: "vehicle",
+  lease: "vehicle",
   cost: "charging",
   networks: "charging",
   planner: "charging",
