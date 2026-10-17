@@ -21,13 +21,18 @@ on:
   push:
     branches: [main, "release/**"]
     tags: ["v*.*.*"]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "deploy/**"
-      - "docker-compose*.yml"
-      - "LICENSE"
-      - ".editorconfig"
+    # Non-code paths build nothing, except Markdown under web/: that is
+    # shipped page content (web/src/content/privacy.md, terms.md). Later
+    # patterns override earlier ones. Tag pushes ignore path filters.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!deploy/**"
+      - "!docker-compose*.yml"
+      - "!LICENSE"
+      - "!.editorconfig"
+      - "web/**"
   # No paths-ignore on PRs: a workflow that never runs never reports the
   # required checks (go, integration, web), so a docs-only PR could not
   # merge. The `changes` job below skips the test jobs instead, and a
@@ -94,7 +99,8 @@ jobs:
             echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           # Non-code paths (the ones push events ignore) trigger nothing.
-          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '\.md$|^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' || true)
+          # Markdown under web/ is shipped page content, so it still counts.
+          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' | awk '!/\.md$/ || /^web\//' || true)
           echo "$files"
           # web: anything under web/. go: anything else that isn't web/
           # (Go code, go.mod, migrations, embedded data, the Dockerfile,
