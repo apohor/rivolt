@@ -96,6 +96,19 @@ func TestSEOInjection(t *testing.T) {
 			t.Error("markdown version missing")
 		}
 	})
+	t.Run("connect-safety page is public on the app host only", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/safe-to-connect").Body.String()
+		if !strings.Contains(b, "<title>Is it safe to connect my Rivian account to Rivolt?</title>") || !strings.Contains(b, `href="https://rivolt.dev/safe-to-connect"`) {
+			t.Error("head not injected")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "https://rivolt.dev/safe-to-connect") ||
+			!strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/safe-to-connect") {
+			t.Error("not in sitemap and llms.txt")
+		}
+		if seoGet(t, h, "demo.rivolt.dev", "/safe-to-connect").Header().Get("X-Robots-Tag") != "noindex" {
+			t.Error("demo host must not index it")
+		}
+	})
 	t.Run("app routes are noindex and keep the generic shell", func(t *testing.T) {
 		for _, p := range []string{"/login", "/signup", "/drives/abc", "/demo/activity"} {
 			rec := seoGet(t, h, "rivolt.dev", p)

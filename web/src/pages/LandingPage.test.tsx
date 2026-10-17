@@ -54,6 +54,11 @@ describe("LandingPage", () => {
     expect(screen.getByRole("link", { name: "Import steps" })).toHaveAttribute("href", "/moving-from-electrafi");
   });
 
+  it("links the connect-safety page", () => {
+    renderPage();
+    expect(screen.getByRole("link", { name: "Is it safe to connect my Rivian account?" })).toHaveAttribute("href", "/safe-to-connect");
+  });
+
   it("links Privacy and Terms", () => {
     renderPage();
     expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");

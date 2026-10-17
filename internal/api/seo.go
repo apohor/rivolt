@@ -18,7 +18,10 @@ import (
 // below are indexable. Anything else (preview.rivolt.dev, a self-host,
 // an IP) is treated as non-public: Disallow: / and X-Robots-Tag: noindex.
 
-const pathElectraFi = "/moving-from-electrafi"
+const (
+	pathElectraFi   = "/moving-from-electrafi"
+	pathSafeConnect = "/safe-to-connect"
+)
 
 const (
 	hostApp  = "rivolt.dev"
@@ -48,6 +51,12 @@ var seoPages = map[string]map[string]seoPage{
 			title:   "Terms of service | Rivolt",
 			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by an individual. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
+		},
+		pathSafeConnect: {
+			title: "Is it safe to connect my Rivian account to Rivolt?",
+			desc:  "What Rivolt keeps, what it does, how to undo it, and why a separate Authorized Driver account is the safest way to connect. " + notAffiliated,
+			summary: "Connect a separate Authorized Driver account if you can. Rivolt keeps your Rivian email and an encrypted session token, never your password. " +
+				"It is read-only and can't control your truck; sign out in Settings or remove the driver in the Rivian app to undo it. It is unofficial and can break. " + notAffiliated,
 		},
 		pathElectraFi: {
 			title: "Moving your history from ElectraFi to Rivolt",
@@ -132,6 +141,9 @@ func llmsTxt(host string) (string, bool) {
 	}
 	b.WriteString("- [Privacy policy](" + base + "/privacy): what is recorded, retention and deletion\n")
 	b.WriteString("- [Terms of service](" + base + "/terms)\n")
+	if _, ok := pages[pathSafeConnect]; ok {
+		b.WriteString("- [Is it safe to connect my Rivian account?](" + base + pathSafeConnect + "): what is kept and how to undo it\n")
+	}
 	if _, ok := pages[pathElectraFi]; ok {
 		b.WriteString("- [Moving from ElectraFi](" + base + pathElectraFi + "): import ElectraFi history\n")
 	}
@@ -230,7 +242,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range []string{"/", "/privacy", "/terms", pathElectraFi} {
+	for _, p := range []string{"/", "/privacy", "/terms", pathSafeConnect, pathElectraFi} {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}
