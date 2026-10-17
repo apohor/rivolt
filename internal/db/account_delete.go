@@ -28,6 +28,15 @@ func DeleteUserAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := deleteUserAccountTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// deleteUserAccountTx is DeleteUserAccount's body inside a caller's
+// transaction.
+func deleteUserAccountTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM signup_requests
 		 WHERE lower(email) IN (
@@ -37,10 +46,7 @@ func DeleteUserAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
 		 )`, uid); err != nil {
 		return err
 	}
-	if err := deleteUserTx(ctx, tx, uid); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return deleteUserTx(ctx, tx, uid)
 }
 
 // IdPDeleteFailure is a pending identity-provider deletion.

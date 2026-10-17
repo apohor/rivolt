@@ -162,6 +162,13 @@ func (s *Store) Create(ctx context.Context, userID uuid.UUID, ttl time.Duration,
 	if _, err := s.db.ExecContext(ctx, q, id, userID, hash, now, expires, ua, ip, label); err != nil {
 		return Session{}, "", fmt.Errorf("sessions: insert: %w", err)
 	}
+	// Signing in is the "still here" signal for the inactive-account purge
+	// (migration 0056): it resets that clock and cancels a pending warning.
+	if _, err := s.db.ExecContext(ctx, `UPDATE users
+		SET last_login_at = $2, inactive_warned_at = NULL, inactive_warn_claimed_at = NULL
+		WHERE id = $1`, userID, now); err != nil {
+		return Session{}, "", fmt.Errorf("sessions: record login: %w", err)
+	}
 	return Session{
 		ID:          id,
 		UserID:      userID,

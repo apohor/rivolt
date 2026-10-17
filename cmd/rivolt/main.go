@@ -1750,6 +1750,16 @@ func runServer() {
 	// deletion (recorded in idp_delete_failures), with per-row backoff.
 	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
 
+	// Inactive-account purge: accounts that never connected a vehicle are
+	// warned at day 90 and deleted at day 120. Off unless the
+	// inactive_account_purge flag says so ({"dry_run":true} counts only); the
+	// same RIVOLT_ENGAGEMENT_EMAILS=false opt-out as the nudge sweeps keeps a
+	// preview that shares a copy of real users from mailing or deleting them.
+	if pgPool != nil && flagsStore != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger)
+		go purge.Run(ctx)
+	}
+
 	// Signs the monthly statement email's one-click unsubscribe links.
 	var statementSigner *statement.Signer
 	if len(cookieSecret) > 0 {
