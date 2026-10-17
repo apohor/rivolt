@@ -2409,25 +2409,6 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		m.applyParallaxChargingStatus(ctx, vehicleID, f, prev)
 	case rvmOtaDeploy:
 		m.applyParallaxOTA(vehicleID, f, prev)
-	case rvmBatteryChars:
-		// Decode-log only, during the time-boxed capture: the pack's own
-		// capacity next to the one we infer (InferPackKWh) and the
-		// vehicleState figure.
-		if !pxChargeCapturing(time.Now()) {
-			return
-		}
-		bc, ok := decodeBatteryCharacteristics(f.Payload)
-		var vehKWh float64
-		if prev != nil {
-			vehKWh = prev.BatteryCapacityKWh
-		}
-		m.logger.Info("parallax drive-dynamics shadow",
-			"vehicle", vehicleID, "topic", "battery_characteristics",
-			"px_ok", ok, "px_chemistry", bc.Chemistry, "px_cell_type", bc.CellType,
-			"px_module_type", bc.ModuleType, "px_pack_capacity", bc.PackCapacity,
-			"px_pack_kwh", packCapacityKWh(bc.PackCapacity),
-			"px_user_total_kwh", bc.UserTotalKWh, "px_user_max_kwh", bc.UserMaxKWh,
-			"vehicleState_capacity_kwh", vehKWh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 	default:
 		// The time-boxed next-topics capture (parallax_next.go): a field
 		// tree, never the raw payload, and nothing once it has ended.
@@ -2472,10 +2453,6 @@ func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleI
 		"px_charger_status", status, "px_charger_state", chargerStateFromParallax(cs.Display),
 		"vehicleState_charger_status", vehStatus, "vehicleState_charger_state", vehState,
 		"vehicleState_has_status", vehReports, "ts_ms", f.TimestampMs}
-	// Raw payloads only from the R2s, only during the time-boxed capture.
-	if pxChargeCapturing(time.Now()) && m.readyUnreliable(vehicleID) {
-		args = append(args, "px_raw_b64", f.Payload)
-	}
 	m.logger.Info("parallax drive-dynamics shadow", args...)
 	if !m.parallaxDriveDynamics || !ok || status == "" || vehReports || !latest {
 		return

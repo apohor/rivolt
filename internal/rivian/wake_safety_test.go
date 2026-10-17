@@ -344,10 +344,8 @@ func TestSubscribeLoopWithoutHold(t *testing.T) {
 }
 
 func TestCaptureTopics(t *testing.T) {
-	// The time-boxed captures are covered by TestBatteryCharsTimeBoxed and
-	// TestPxNextTimeBox; this one is about the switch.
-	defer func(u time.Time) { pxChargeCaptureUntil = u }(pxChargeCaptureUntil)
-	pxChargeCaptureUntil = time.Time{}
+	// The time-boxed capture is covered by TestPxNextTimeBox; this one is
+	// about the switch.
 	defer func(u time.Time) { pxNextCaptureUntil = u }(pxNextCaptureUntil)
 	pxNextCaptureUntil = time.Time{}
 	logs := &syncBuffer{}
