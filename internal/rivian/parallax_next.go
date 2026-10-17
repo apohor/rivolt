@@ -32,8 +32,12 @@ type pxNextSpec struct {
 	// names are the top-level field names from the decompile; nil when the
 	// app's decoder for the topic isn't pinned (numbers only).
 	names map[int]string
-	// noStrings drops every string, at any depth.
+	// noStrings drops every string, at any depth (DA: enums and numbers
+	// only for location, network, notifications, trip target, user modes).
 	noStrings bool
+	// coarse rounds every float to 2 decimals (~1 km for a coordinate):
+	// the location topic never logs a precise position.
+	coarse bool
 }
 
 // pxNextTopics are the tier 1 and tier 2 topics. Proto classes are the
@@ -46,17 +50,17 @@ var pxNextTopics = map[string]pxNextSpec{
 	"charging.smart_charging.settings":                   {log: "smart_charging_settings"},
 	"charging.smart_charging.smart_charging_info":        {log: "smart_charging_info"},
 	"charging.smart_charging.weighted_charging_forecast": {log: "smart_charging_forecast"},
-	"comfort.user_modes.state":                           {log: "user_modes"},
+	"comfort.user_modes.state":                           {log: "user_modes", noStrings: true},
 	// The Wi-Fi block carries the SSID: no strings from this topic, ever.
 	"vehicle.network.state":                       {log: "network", noStrings: true},
 	"energy_edge_compute.graphs.cold_weather_soc": {log: "cold_weather_soc"},
 	"vehicle.wheels.vehicle_wheels":               {log: "wheels"},
-	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}}, // brc
+	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}, noStrings: true, coarse: true}, // brc
 	// Tier 2: Phase 5 completeness.
-	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},                        // zbi
-	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}}, // c8m
+	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},                                         // zbi
+	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}, noStrings: true}, // c8m
 	"charging.session.notification": {log: "charge_notification", // dle
-		names: map[int]string{1: "unexpected_stop_reason", 2: "derate_status", 3: "fault_chime"}},
+		names: map[int]string{1: "unexpected_stop_reason", 2: "derate_status", 3: "fault_chime"}, noStrings: true},
 	"comfort.cabin.hvac_settings_status":     {log: "hvac_settings"},
 	"comfort.cabin.defrost_defog_status":     {log: "defrost_defog"},
 	"comfort.cabin.seat_conditioning_status": {log: "seat_conditioning", names: map[int]string{1: "levels"}},                                  // lyi
@@ -104,7 +108,7 @@ const (
 // "N" or "N_name"; varints as numbers, 32/64-bit as floats, printable
 // UTF-8 as strings, other length-delimited values as nested trees (or a
 // byte count). A repeated field becomes a list. ok=false: not a message.
-func pbTree(raw []byte, names map[int]string, noStrings bool, depth int) (map[string]any, bool) {
+func pbTree(raw []byte, names map[int]string, spec pxNextSpec, depth int) (map[string]any, bool) {
 	out := map[string]any{}
 	err := pbScan(raw, func(f, w int, val []byte) {
 		key := strconv.Itoa(f)
@@ -116,18 +120,25 @@ func pbTree(raw []byte, names map[int]string, noStrings bool, depth int) (map[st
 		case 0:
 			n, _ := binary.Uvarint(val)
 			v = n
-		case 1:
-			v = math.Float64frombits(binary.LittleEndian.Uint64(val))
-		case 5:
-			v = float64(math.Float32frombits(binary.LittleEndian.Uint32(val)))
+		case 1, 5:
+			var x float64
+			if w == 1 {
+				x = math.Float64frombits(binary.LittleEndian.Uint64(val))
+			} else {
+				x = float64(math.Float32frombits(binary.LittleEndian.Uint32(val)))
+			}
+			if spec.coarse {
+				x = math.Round(x*100) / 100
+			}
+			v = x
 		case 2:
 			if len(val) > 0 && utf8.Valid(val) && printable(val) {
-				if noStrings {
+				if spec.noStrings {
 					return
 				}
 				v = string(val)
 			} else if depth < pbTreeMaxDepth {
-				if sub, ok := pbTree(val, nil, noStrings, depth+1); ok {
+				if sub, ok := pbTree(val, nil, spec, depth+1); ok {
 					v = sub
 				} else {
 					v = map[string]any{"bytes": len(val)}
@@ -166,7 +177,7 @@ func (m *StateMonitor) logPxNext(vehicleID string, spec pxNextSpec, f DriveDynam
 	raw, err := base64.StdEncoding.DecodeString(f.Payload)
 	tree, ok := map[string]any(nil), false
 	if err == nil {
-		tree, ok = pbTree(raw, spec.names, spec.noStrings, 0)
+		tree, ok = pbTree(raw, spec.names, spec, 0)
 	}
 	m.logger.Info("parallax drive-dynamics shadow",
 		"vehicle", vehicleID, "topic", spec.log, "rvm", f.RVM,

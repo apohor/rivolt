@@ -31,7 +31,7 @@ func TestPbTree(t *testing.T) {
 	raw := append(pbVarint(1, 3), pbFloat(2, 1.5)...)
 	raw = append(raw, pbMsg(3, inner)...)
 	raw = append(raw, pbMsg(3, inner)...) // repeated
-	tree, ok := pbTree(raw, map[int]string{1: "status"}, false, 0)
+	tree, ok := pbTree(raw, map[int]string{1: "status"}, pxNextSpec{}, 0)
 	if !ok {
 		t.Fatal("not a message")
 	}
@@ -40,14 +40,14 @@ func TestPbTree(t *testing.T) {
 	if string(b) != want {
 		t.Errorf("tree = %s\nwant   %s", b, want)
 	}
-	if _, ok := pbTree([]byte{0xff}, nil, false, 0); ok {
+	if _, ok := pbTree([]byte{0xff}, nil, pxNextSpec{}, 0); ok {
 		t.Error("garbage parsed as a message")
 	}
 	long := []byte{}
 	for i := 0; i < 40; i++ {
 		long = append(long, pbVarint(1, uint64(i))...)
 	}
-	tree, _ = pbTree(long, nil, false, 0)
+	tree, _ = pbTree(long, nil, pxNextSpec{}, 0)
 	if l := tree["1"].([]any); len(l) != pbTreeMaxRepeats+1 || l[pbTreeMaxRepeats] != "…" {
 		t.Errorf("a long repeat wasn't cut: %d entries", len(l))
 	}
@@ -143,6 +143,34 @@ func TestPxNextTopicSet(t *testing.T) {
 			if strings.Contains(r, banned) {
 				t.Errorf("%s is on the skip list", r)
 			}
+		}
+	}
+}
+
+// DA: the location topic logs no coordinates beyond 2 decimals and no
+// strings; notifications, trip target, user modes and network log numbers
+// only.
+func TestPxNextGuardrails(t *testing.T) {
+	for _, rvm := range []string{"dynamics.vehicle.location", "vehicle.network.state", "charging.session.notification",
+		"charging.session.trip_target", "comfort.user_modes.state"} {
+		if !pxNextTopics[rvm].noStrings {
+			t.Errorf("%s may log strings", rvm)
+		}
+	}
+	var buf syncBuffer
+	m := NewStateMonitor(nil, nil)
+	m.logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	coords := append(pbFloat(1, 34.147812), pbFloat(2, -118.144531)...)
+	raw := append(pbVarint(1, 2), pbMsg(2, append(coords, pbMsg(3, []byte("Home sweet home"))...))...)
+	m.onDriveDynamicsFrame(context.Background(), "v", DriveDynamicsFrame{RVM: "dynamics.vehicle.location",
+		Payload: base64.StdEncoding.EncodeToString(raw), TimestampMs: time.Now().UnixMilli()})
+	l := buf.String()
+	if !strings.Contains(l, `"1_known_location":2`) {
+		t.Fatalf("location not logged: %s", l)
+	}
+	for _, leak := range []string{"34.1478", "118.1445", "Home sweet home"} {
+		if strings.Contains(l, leak) {
+			t.Errorf("location log carries %q: %s", leak, l)
 		}
 	}
 }
