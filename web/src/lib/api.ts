@@ -910,6 +910,37 @@ export type EfficiencyInsights = {
   excluded?: { no_energy?: number; duplicates?: number; no_temperature?: number; no_drive_mode?: number };
 };
 
+// Lease tracker: the terms the owner enters and the figures the server computes from them and
+// the odometer. The status is absent (404) when no lease is set.
+export type LeaseTerms = {
+  start_date: string;
+  end_date: string;
+  start_odometer_mi: number;
+  allowed_miles_total: number;
+  overage_per_mile: number;
+  currency: string;
+};
+export type LeaseStatus = {
+  used_mi: number | null;
+  allowed_to_date_mi: number;
+  ahead_behind_mi: number | null;
+  days_total: number;
+  days_elapsed: number;
+  days_left: number;
+  projected_total_mi: number | null;
+  projected_return_odometer_mi: number | null;
+  projected_overage_mi: number | null;
+  projected_overage_cost: number | null;
+  miles_per_day_budget: number | null;
+  pace_mi_per_day: number | null;
+  // "last_90_days", or "lease_to_date" when the lease is young or the history thin.
+  pace_basis?: string;
+  // Latest odometer reading; when it is over 7 days old or missing, used_mi, ahead_behind_mi and every
+  // projected_* field are null.
+  odometer_mi?: number | null;
+  odometer_at?: string | null;
+};
+
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
@@ -1052,6 +1083,25 @@ export const backend = {
       throw e;
     }
   },
+  // Lease: null on 404 (no lease set, or an older server).
+  leaseGet: async (vehicleID: string): Promise<LeaseTerms | null> => {
+    try {
+      return await api.get<LeaseTerms>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  leaseStatus: async (vehicleID: string): Promise<LeaseStatus | null> => {
+    try {
+      return await api.get<LeaseStatus>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease/status`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  leasePut: (vehicleID: string, t: LeaseTerms) => api.put<LeaseTerms>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease`, t),
+  leaseDelete: (vehicleID: string) => api.del<unknown>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease`),
   // Null on 404 (feature off / not wired): the Settings card hides.
   statementEmailGet: async (): Promise<StatementEmailSettings | null> => {
     try {

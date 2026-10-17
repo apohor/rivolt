@@ -10,6 +10,7 @@ import { BarChart } from "../components/charts";
 import { PackHealthCard } from "../components/PackHealthCard";
 import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
+import { LeaseCard } from "../components/LeaseCard";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import { lowestTire, safeNotesUrl, sleepSummary, softwareInfo } from "../lib/truckHealth";
@@ -100,6 +101,8 @@ export default function TruckPage() {
       />
 
       <DrainCard vehicleID={selectedID} />
+
+      {next && <LeaseCard vehicleID={selectedID} />}
 
       <Card title="Pack capacity">
         <PackHealthCard vehicleID={selectedID} />
