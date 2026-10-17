@@ -768,3 +768,71 @@ func (s *Store) ListBetweenDownsampledVehicle(ctx context.Context, vehicleID str
 	out, err := scanSamples(rows)
 	return Downsampled{Samples: out, Reduced: true, Total: total}, err
 }
+
+// DriveCondition is a recorded drive with the conditions it was driven
+// in, from the drive's own samples: the median non-zero outside
+// temperature (zero is the live merge's "no reading" sentinel, as in the
+// drive recap) and the drive mode with the most samples.
+type DriveCondition struct {
+	ID           string
+	VehicleID    string
+	StartedAt    time.Time
+	EndedAt      time.Time
+	CreatedAt    time.Time
+	Source       string
+	DistanceMi   float64
+	EnergyKWh    float64
+	AvgSpeedMph  float64
+	OutsideTempC *float64
+	DriveMode    string
+}
+
+// DriveConditions lists the user's drives that started in [since, until)
+// (optionally one vehicle, by Rivian id) with their conditions. Drives
+// under a minute are left out, as in the drive list. Each drive reads
+// only its own window of vehicle_state (primary key vehicle_id, at).
+func (s *Store) DriveConditions(ctx context.Context, vehicleID string, since, until time.Time) ([]DriveCondition, error) {
+	args := []any{s.userID, since.UTC(), until.UTC()}
+	vfilter := ""
+	if vehicleID != "" {
+		vfilter = " AND v.rivian_vehicle_id = $4"
+		args = append(args, vehicleID)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.external_id, v.rivian_vehicle_id, d.started_at, d.ended_at, d.created_at, d.source,
+		       COALESCE(d.distance_mi,0), COALESCE(d.energy_used_kwh,0), COALESCE(d.avg_speed_mph,0),
+		       c.temp_c, COALESCE(c.mode,'')
+		FROM drives d
+		JOIN vehicles v ON v.id = d.vehicle_id
+		LEFT JOIN LATERAL (
+			SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY vs.outside_temp_c)
+			         FILTER (WHERE vs.outside_temp_c IS NOT NULL AND vs.outside_temp_c <> 0) AS temp_c,
+			       mode() WITHIN GROUP (ORDER BY vs.drive_mode)
+			         FILTER (WHERE COALESCE(vs.drive_mode,'') <> '') AS mode
+			FROM vehicle_state vs
+			WHERE vs.vehicle_id = d.vehicle_id AND vs.user_id = d.user_id
+			  AND vs.at >= d.started_at AND vs.at <= d.ended_at
+		) c ON true
+		WHERE d.user_id = $1 AND d.started_at >= $2 AND d.started_at < $3
+		  AND d.ended_at - d.started_at >= interval '1 minute'`+vfilter+`
+		ORDER BY d.started_at`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DriveCondition
+	for rows.Next() {
+		var d DriveCondition
+		var temp sql.NullFloat64
+		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt, &d.CreatedAt, &d.Source,
+			&d.DistanceMi, &d.EnergyKWh, &d.AvgSpeedMph, &temp, &d.DriveMode); err != nil {
+			return nil, err
+		}
+		if temp.Valid {
+			t := temp.Float64
+			d.OutsideTempC = &t
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
