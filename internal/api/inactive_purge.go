@@ -18,10 +18,9 @@ import (
 )
 
 // Inactive-account purge: an account that never connected a vehicle is warned
-// by email at day 90 and deleted at day 120 (owner rule, migration 0056). The
-// clock is the later of signup and the last sign-in, so signing in resets it
-// and connecting a vehicle takes the account out of scope. Admins and
-// disabled accounts are never touched. Off unless the inactive_account_purge
+// by email at day 90 and deleted at day 120 after signup (owner rule,
+// migration 0056). Only connecting a vehicle cancels it; signing in does not.
+// Admins and disabled accounts are never touched. Off unless the inactive_account_purge
 // flag says so: {"dry_run": true} logs counts only, {"users": [...]} acts on
 // those accounts, {"all": true} on everyone eligible.
 
@@ -123,7 +122,7 @@ func (j *InactivePurge) RunOnce(ctx context.Context) PurgeResult {
 		res.Off = true
 		return res
 	}
-	// Whichever mode, accounts that connected or signed in since their warning
+	// Whichever mode, accounts that connected a vehicle since their warning
 	// are released first.
 	if n, err := j.store.CancelWarnings(ctx); err != nil {
 		j.logger.Warn("inactive purge: cancel warnings failed", "err", describeSQL(err))
@@ -174,7 +173,7 @@ func (j *InactivePurge) warn(ctx context.Context, state flags.InactivePurgeState
 			continue
 		}
 		if !won {
-			continue // another replica, or they just connected or signed in
+			continue // another replica, or they just connected a vehicle
 		}
 		if err := j.sendWarning(ctx, w); err != nil {
 			// Not recorded as warned: the lease expires and a later run
@@ -211,7 +210,7 @@ func (j *InactivePurge) delete(ctx context.Context, state flags.InactivePurgeSta
 			continue
 		}
 		if !ok {
-			continue // connected or signed in since, or already gone
+			continue // connected a vehicle since, or already gone
 		}
 		deleted++
 		// The same IdP removal (and failure queue) as every account delete.
@@ -235,7 +234,7 @@ func (j *InactivePurge) sendWarning(ctx context.Context, w db.InactiveWarning) e
 		IdempotencyKey: "inactive-warning-" + w.UserID.String(),
 		Text: "Your Rivolt account has no Rivian connected, and has not been used for a while.\n\n" +
 			"We'll delete your account on " + date + " unless you connect your Rivian\n" +
-			"(or just sign in) before then.\n\n" +
+			"before then.\n\n" +
 			"Connect it here:\n\n  " + link + "\n\n" +
 			"Connecting takes about two minutes: you sign in with the same login you use in\n" +
 			"the Rivian app. Rivolt only reads your vehicle data and never sends commands to\n" +

@@ -9,10 +9,9 @@ import (
 )
 
 // Inactive-account purge (migration 0056). An account that never connected
-// a vehicle is warned at day 90 and deleted at day 120. The clock starts at
-// GREATEST(created_at, last_login_at): signing in resets it and cancels a
-// pending warning, connecting a vehicle takes the account out of scope
-// altogether. Admins and disabled accounts are never touched.
+// a vehicle is warned at day 90 and deleted at day 120 after signup. Only
+// connecting a vehicle cancels it (the account is then out of scope);
+// signing in does not. Admins and disabled accounts are never touched.
 const (
 	InactiveWarnAfter   = 90 * 24 * time.Hour
 	InactiveDeleteAfter = 120 * 24 * time.Hour
@@ -31,8 +30,8 @@ type InactiveWarning struct {
 	DeleteOn time.Time
 }
 
-// inactiveClock is the SQL for the activity anchor.
-const inactiveClock = `GREATEST(u.created_at, COALESCE(u.last_login_at, u.created_at))`
+// inactiveClock is the SQL for the age of the account: time since signup.
+const inactiveClock = `u.created_at`
 
 // inactiveScope is the common eligibility: no vehicle ever, not an admin, not
 // disabled.
@@ -40,16 +39,14 @@ const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE
 	AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)`
 
 // CancelInactiveWarnings clears the warning of accounts that connected a
-// vehicle or signed in after it was sent, so a later lapse starts a fresh
-// 90/120-day clock instead of inheriting a stale warning. It returns how many
+// vehicle since it was sent, so the record doesn't linger. It returns how many
 // were cancelled.
 func CancelInactiveWarnings(ctx context.Context, d *sql.DB) (int, error) {
 	res, err := d.ExecContext(ctx, `
 		UPDATE users u
 		   SET inactive_warned_at = NULL, inactive_warn_claimed_at = NULL
 		 WHERE u.inactive_warned_at IS NOT NULL
-		   AND ( EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)
-		      OR u.last_login_at > u.inactive_warned_at )`)
+		   AND EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)`)
 	if err != nil {
 		return 0, err
 	}
@@ -87,7 +84,7 @@ func ListInactiveWarnDue(ctx context.Context, d *sql.DB, limit int) ([]InactiveW
 
 // ClaimInactiveWarning takes the send lease for the account's warning and
 // reports whether this caller won it. It re-checks eligibility, so an account
-// that connected or signed in since the list was built is not claimed.
+// that connected a vehicle since the list was built is not claimed.
 func ClaimInactiveWarning(ctx context.Context, d *sql.DB, uid uuid.UUID) (bool, error) {
 	res, err := d.ExecContext(ctx, `
 		UPDATE users u SET inactive_warn_claimed_at = now()
@@ -141,8 +138,7 @@ func ListInactiveDeleteDue(ctx context.Context, d *sql.DB, limit int) ([]uuid.UU
 // DeleteInactiveAccount deletes the account through the account-delete path
 // (the same cascade and signup_requests cleanup as DeleteUserAccount), but only
 // if it is still eligible: the row is locked and every condition re-checked in
-// the transaction, so a vehicle connected or a sign-in that landed since the
-// list was built wins. It returns the username (for the identity-provider
+// the transaction, so a vehicle connected since the list was built wins. It returns the username (for the identity-provider
 // removal) and whether the account was deleted.
 func DeleteInactiveAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) (username string, deleted bool, err error) {
 	tx, err := d.BeginTx(ctx, nil)
