@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
-const cfg = { features: { landingEnabled: true, demoEnabled: false } };
+const cfg = { features: { landingEnabled: true, demoEnabled: false, signupEnabled: true } };
 vi.mock("../lib/config", () => ({ getConfig: () => cfg }));
 
 import LandingPage from "./LandingPage";
@@ -21,12 +21,37 @@ describe("LandingPage", () => {
   it("hides the demo CTA until demo_enabled, and always offers connect", () => {
     renderPage();
     expect(screen.queryByRole("link", { name: /demo/i })).toBeNull();
-    expect(screen.getByRole("link", { name: "Connect my Rivian" })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup");
     cleanup();
     cfg.features.demoEnabled = true;
     renderPage();
     expect(screen.getByRole("link", { name: "Try the demo truck" })).toHaveAttribute("href", "/demo");
     cfg.features.demoEnabled = false;
+  });
+
+  it("points sign-up at /login when signup is closed", () => {
+    cfg.features.signupEnabled = false;
+    renderPage();
+    expect(screen.getAllByRole("link", { name: "Sign in" }).length).toBe(2);
+    expect(screen.queryByRole("link", { name: "Create an account" })).toBeNull();
+    cfg.features.signupEnabled = true;
+  });
+
+  it("links the public demo host on rivolt.dev", () => {
+    const orig = window.location;
+    Object.defineProperty(window, "location", { value: { ...orig, hostname: "rivolt.dev", search: "" }, configurable: true });
+    try {
+      renderPage();
+      expect(screen.getByRole("link", { name: "Try the demo truck" })).toHaveAttribute("href", "https://demo.rivolt.dev");
+    } finally {
+      Object.defineProperty(window, "location", { value: orig, configurable: true });
+    }
+  });
+
+  it("links Privacy and Terms", () => {
+    renderPage();
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
   });
 
   it("stays inside the allowed claims", () => {
