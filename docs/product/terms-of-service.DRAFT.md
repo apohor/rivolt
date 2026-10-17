@@ -1,5 +1,7 @@
 # Rivolt Terms of Service (hosted service)
 
+> **Superseded.** The published text is `docs/product/terms-of-service.md` (v0.36.11). This draft is kept for history. Owner decisions, 2026-10-17: publish without attorney review; no arbitration; the aggregated-statistics sentence and the paid-plan note are removed; only new users click-accept at signup, and accounts created earlier get no gate or notice (see section 11 of the published text).
+
 > **DRAFT. Not legal advice. Needs review by a qualified lawyer before publication.**
 > Items marked **[DECIDE]** are owner decisions. Items marked **[VERIFY]** must be re-checked against the code at publication time. **[ATTORNEY TO CONFIRM]** marks wording proposed by the non-lawyer legal review (2026-10-17) that has legal consequences and must be confirmed by a licensed attorney.
 > Applies only to the hosted service at rivolt.dev. Self-hosted installs are governed by the MIT license alone (section 9).
