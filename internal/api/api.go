@@ -536,6 +536,12 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/profile", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleVehicleProfilePut(d.DB)(uid, w, r)
 			}))
+			// Lease tracker: terms CRUD and the computed standing. 404 when
+			// no lease is set.
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/lease", withUser(handleLeaseGet(d.DB)))
+			r.With(vehicleScoped).Put("/vehicles/{vehicleID}/lease", withUser(handleLeasePut(d.DB)))
+			r.With(vehicleScoped).Delete("/vehicles/{vehicleID}/lease", withUser(handleLeaseDelete(d.DB)))
+			r.With(vehicleScoped).Get("/vehicles/{vehicleID}/lease/status", withUser(handleLeaseStatus(d.DB, time.Now)))
 			// Now-card state fields (location_fix_at, connection,
 			// state_since, tire min). Read-only; 404s unless
 			// money_tab_enabled covers the user.
