@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
 // /signup copy now that email signup is instant, and the terms gate in front of /onboarding.
@@ -35,6 +36,12 @@ for (const [auto, heading, text] of [
     await page.getByRole("button", { name: "Send signup link" }).click();
     await expect(page.getByText(heading)).toBeVisible();
     await expect(page.getByText(text)).toBeVisible();
+    const sign = page.locator("[data-signup-have-account]");
+    await expect(sign).toContainText("Already have an account? Sign in");
+    await expect(sign.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+    const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+    const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+    expect(summary, summary.join("\n")).toEqual([]);
   });
 }
 
