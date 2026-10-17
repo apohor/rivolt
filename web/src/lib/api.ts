@@ -885,6 +885,31 @@ export type ChargeCluster = {
   member_ids: string[];
 };
 
+// Efficiency insights (architect's /api/insights/efficiency): efficiency by outside temperature,
+// speed and drive mode over a period, with labels and values already in the requested units.
+// not_enough_data marks a bucket under min_bucket_distance; efficiency is null only when it has
+// no drives at all.
+export type EfficiencyBucket = {
+  key: string;
+  label: string;
+  distance: number;
+  energy_kwh: number;
+  efficiency: number | null;
+  drives: number;
+  not_enough_data: boolean;
+};
+export type EfficiencyInsights = {
+  units: "imperial" | "metric";
+  distance_unit: string;
+  efficiency_unit: string;
+  min_bucket_distance: number;
+  total: EfficiencyBucket;
+  by_temperature: EfficiencyBucket[];
+  by_speed: EfficiencyBucket[];
+  by_drive_mode: EfficiencyBucket[];
+  excluded?: { no_energy?: number; duplicates?: number; no_temperature?: number; no_drive_mode?: number };
+};
+
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
@@ -1010,6 +1035,18 @@ export const backend = {
   vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
     try {
       return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // efficiency returns null when the endpoint is absent (404/501), so the view says so.
+  efficiency: async (rivianVehicleID: string, units: "imperial" | "metric", since?: string, until?: string): Promise<EfficiencyInsights | null> => {
+    const q = new URLSearchParams({ vehicle: rivianVehicleID, units });
+    if (since) q.set("since", since);
+    if (until) q.set("until", until);
+    try {
+      return await api.get<EfficiencyInsights>(`/api/insights/efficiency?${q}`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;

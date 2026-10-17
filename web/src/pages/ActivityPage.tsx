@@ -10,6 +10,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { backend, type Charge, type Drive } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { collapseRoundTrips } from "../lib/drives";
+import { EfficiencyView } from "../components/EfficiencyView";
+import { useSelectedVehicle } from "../lib/selectedVehicle";
 import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView } from "../lib/activityView";
 import { ChargeTable, DriveTable, labelMap } from "../components/ActivityTables";
 import { chargePlaceLabel } from "../lib/chargePlace";
@@ -50,6 +52,9 @@ export default function ActivityPage() {
   const range = useMemo(() => (next ? periodRange(period) : { start: null, end: null }), [next, period]);
   // Table and Map views are a ui_theme_next layer; flag off ignores ?view.
   const view: ActivityView = next ? parseActivityView(params.get("view")) : "feed";
+  // Efficiency view: the selected truck's breakdowns for the period.
+  const vehiclesQ = useQuery({ queryKey: ["vehicles"], queryFn: () => backend.vehicles(), enabled: view === "efficiency", staleTime: 5 * 60_000 });
+  const { selectedID: effVehicleID } = useSelectedVehicle(vehiclesQ.data);
   // The All map shows one layer at a time (Drives or Charges), not two stacked maps.
   const [mapLayer, setMapLayer] = useState<"drives" | "charges">("drives");
 
@@ -136,7 +141,7 @@ export default function ActivityPage() {
         }
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div role="tablist" aria-label="Filter" className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+        <div role="tablist" aria-label="Filter" className={`${view === "efficiency" ? "invisible " : ""}inline-flex rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm`}>
           {FILTERS.map((f) => (
             <button
               key={f.key}
@@ -175,7 +180,9 @@ export default function ActivityPage() {
         )}
       </div>
 
-      {drivesQ.isLoading || chargesQ.isLoading ? (
+      {view === "efficiency" ? (
+        <EfficiencyView rivianVehicleID={effVehicleID} since={range.start ? range.start.toISOString() : undefined} until={range.end ? range.end.toISOString() : undefined} />
+      ) : drivesQ.isLoading || chargesQ.isLoading ? (
         <Spinner />
       ) : drivesQ.isError && chargesQ.isError ? (
         <ErrorBox title="Couldn't load activity" detail={String(drivesQ.error)} />
