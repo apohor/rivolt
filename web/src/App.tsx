@@ -25,6 +25,7 @@ const SettingsPage = lazy(pageLoaders.settings);
 const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
 const HydraLoginPage = lazy(pageLoaders.hydraLogin);
 const SignupPage = lazy(pageLoaders.signup);
 const OnboardingPage = lazy(pageLoaders.onboarding);
@@ -71,7 +72,7 @@ export default function App() {
   // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
   const landing = useLandingGate(demoOnly.only ? "/demo" : location.pathname);
   if (demoOnly.loading || landing === "loading") return <div className="p-4"><Spinner /></div>;
-  if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy") return <Navigate to="/demo" replace />;
+  if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy" && location.pathname !== "/terms") return <Navigate to="/demo" replace />;
   if (landing === "landing") {
     return (
       <Suspense fallback={<div className="p-4"><Spinner /></div>}>
@@ -97,6 +98,7 @@ export default function App() {
       */}
       <Route path="login" element={<LoginPage />} />
       <Route path="privacy" element={<PrivacyPage />} />
+      <Route path="terms" element={<TermsPage />} />
       {/*
         /auth/hydra/login is the URL Hydra redirects the browser to
         after a third-party app initiates an OIDC code flow. It sits

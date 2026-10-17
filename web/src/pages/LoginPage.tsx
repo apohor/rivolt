@@ -174,6 +174,10 @@ export default function LoginPage() {
           <a href="/privacy" className="underline underline-offset-2 hover:text-neutral-200">
             Privacy policy
           </a>
+          {" · "}
+          <a href="/terms" className="underline underline-offset-2 hover:text-neutral-200">
+            Terms
+          </a>
         </p>
       </div>
     </div>
