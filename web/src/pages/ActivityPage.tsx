@@ -369,7 +369,8 @@ function ErrandsRow({ item }: { item: ErrandItem }) {
       >
         <span className="text-sm text-neutral-200">
           <span aria-hidden>{open ? "▾" : "▸"} </span>
-          {item.drives.length} short drives
+          {/* Recorded drives, not rows: a merged round trip counts as its legs. */}
+          {item.drives.reduce((n, d) => n + (d.drive.round_trip_legs ?? 1), 0)} short drives
         </span>
         <span className="tabular-nums text-xs text-neutral-400">
           {item.miles.toFixed(1)} mi{item.cost != null ? ` · ~${formatMoney(item.cost, item.currency || "USD")}` : ""}
