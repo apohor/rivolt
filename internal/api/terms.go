@@ -17,10 +17,23 @@ import (
 // client gates the UI on it; no API is blocked server-side.
 const currentTermsVersion = "2026-10-17"
 
+// termsEffectiveAt is when the Terms took effect. Only accounts created on or
+// after it are asked to accept; accounts that already existed are never gated
+// and never get an acceptance recorded on their behalf.
+var termsEffectiveAt = time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+
+// termsRequired is whether the client must show the "I agree" step: the
+// account is new (created on or after termsEffectiveAt) and has not accepted
+// the current version.
+func termsRequired(t db.Terms) bool {
+	accepted := t.Version != nil && *t.Version == currentTermsVersion
+	return !accepted && !t.CreatedAt.IsZero() && !t.CreatedAt.Before(termsEffectiveAt)
+}
+
 // termsView is the "terms" object of /api/me and the accept response.
 func termsView(ctx context.Context, d *sql.DB, uid uuid.UUID) map[string]any {
 	t, _ := db.TermsFor(ctx, d, uid)
-	out := map[string]any{"current": currentTermsVersion, "accepted": nil, "accepted_at": nil}
+	out := map[string]any{"current": currentTermsVersion, "accepted": nil, "accepted_at": nil, "required": termsRequired(t)}
 	if t.Version != nil {
 		out["accepted"] = *t.Version
 	}

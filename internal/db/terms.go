@@ -11,8 +11,9 @@ import (
 
 // Terms is what a user accepted: Version is nil when never.
 type Terms struct {
-	Version *string
-	At      *time.Time
+	Version   *string
+	At        *time.Time
+	CreatedAt time.Time // when the account was created
 }
 
 // TermsFor returns the user's recorded acceptance (zero value when none or
@@ -25,7 +26,7 @@ func TermsFor(ctx context.Context, d *sql.DB, uid uuid.UUID) (Terms, error) {
 	var v sql.NullString
 	var at sql.NullTime
 	err := d.QueryRowContext(ctx,
-		`SELECT terms_accepted_version, terms_accepted_at FROM users WHERE id = $1`, uid).Scan(&v, &at)
+		`SELECT terms_accepted_version, terms_accepted_at, created_at FROM users WHERE id = $1`, uid).Scan(&v, &at, &t.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, nil
 	}
