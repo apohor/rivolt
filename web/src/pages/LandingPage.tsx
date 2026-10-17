@@ -127,12 +127,9 @@ export default function LandingPage() {
             Bring your history with you. Download your data from ElectraFi, then upload the CSVs under Settings, Data,
             Import ElectraFi CSV. Rivolt skips anything it has already recorded.
           </p>
-          <a
-            href={`${REPO}/blob/main/docs/SIGNUP.md#3-optional-import-electrafi-history`}
-            className="mt-3 inline-block text-sm text-emerald-300 hover:underline"
-          >
+          <Link to="/moving-from-electrafi" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
             Import steps
-          </a>
+          </Link>
         </section>
 
         <section aria-label="Your Rivian login" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">

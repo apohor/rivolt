@@ -73,6 +73,29 @@ func TestSEOInjection(t *testing.T) {
 			}
 		}
 	})
+	t.Run("ElectraFi page is public on the app host only", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/moving-from-electrafi").Body.String()
+		if !strings.Contains(b, "<title>Moving your history from ElectraFi to Rivolt</title>") || !strings.Contains(b, `href="https://rivolt.dev/moving-from-electrafi"`) {
+			t.Error("head not injected")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "<loc>https://rivolt.dev/moving-from-electrafi</loc>") {
+			t.Error("not in the app sitemap")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/moving-from-electrafi") {
+			t.Error("not in llms.txt")
+		}
+		d := seoGet(t, h, "demo.rivolt.dev", "/moving-from-electrafi")
+		if d.Header().Get("X-Robots-Tag") != "noindex" || strings.Contains(seoGet(t, h, "demo.rivolt.dev", "/sitemap.xml").Body.String(), "electrafi") {
+			t.Error("demo host must not index or list it")
+		}
+		req := httptest.NewRequest(http.MethodGet, "http://rivolt.dev/moving-from-electrafi", nil)
+		req.Header.Set("Accept", "text/markdown")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/markdown") || !strings.Contains(rec.Body.String(), "Import ElectraFi CSV") {
+			t.Error("markdown version missing")
+		}
+	})
 	t.Run("app routes are noindex and keep the generic shell", func(t *testing.T) {
 		for _, p := range []string{"/login", "/signup", "/drives/abc", "/demo/activity"} {
 			rec := seoGet(t, h, "rivolt.dev", p)
