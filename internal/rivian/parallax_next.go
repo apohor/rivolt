@@ -37,7 +37,8 @@ type pxNextSpec struct {
 	// holds no free text (DA; network carries the SSID, others could carry
 	// names, VINs or destinations).
 	strings bool
-	// coarse rounds every float to 2 decimals (~1 km for a coordinate),
+	// coarse rounds every float to 2 decimals (~1 km for a coordinate) and
+	// replaces every varint of a million or more with "big" (E7 integers),
 	// for the topics that may hold a position: location, smart charging.
 	coarse bool
 }
@@ -122,6 +123,12 @@ func pbTree(raw []byte, names map[int]string, spec pxNextSpec, depth int) (map[s
 		case 0:
 			n, _ := binary.Uvarint(val)
 			v = n
+			// A coarse topic may carry a position as E7 integers
+			// (lat×1e7; a negative one is a 10-byte uvarint): any varint
+			// of a million or more is logged as "big", never its value.
+			if spec.coarse && n >= 1_000_000 {
+				v = "big"
+			}
 		case 1, 5:
 			var x float64
 			if w == 1 {

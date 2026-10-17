@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +166,10 @@ func TestPxNextGuardrails(t *testing.T) {
 	m := NewStateMonitor(nil, nil)
 	m.logger = slog.New(slog.NewJSONHandler(&buf, nil))
 	coords := append(pbFloat(1, 34.147812), pbFloat(2, -118.144531)...)
+	// The same position as E7 integers; a negative int32 is a 10-byte uvarint.
+	coords = append(coords, pbVarint(4, 341478120)...)
+	neg := int64(-1181445310)
+	coords = append(coords, pbVarint(5, uint64(neg))...)
 	raw := append(pbVarint(1, 2), pbMsg(2, append(coords, pbMsg(3, []byte("Home sweet home"))...))...)
 	m.onDriveDynamicsFrame(context.Background(), "v", DriveDynamicsFrame{RVM: "dynamics.vehicle.location",
 		Payload: base64.StdEncoding.EncodeToString(raw), TimestampMs: time.Now().UnixMilli()})
@@ -172,7 +177,10 @@ func TestPxNextGuardrails(t *testing.T) {
 	if !strings.Contains(l, `"1_known_location":2`) {
 		t.Fatalf("location not logged: %s", l)
 	}
-	for _, leak := range []string{"34.1478", "118.1445", "Home sweet home"} {
+	if !strings.Contains(l, `"4":"big"`) || !strings.Contains(l, `"5":"big"`) {
+		t.Errorf("E7 integers not replaced: %s", l)
+	}
+	for _, leak := range []string{"34.1478", "118.1445", "341478120", "1181445310", strconv.FormatUint(uint64(neg), 10), "Home sweet home"} {
 		if strings.Contains(l, leak) {
 			t.Errorf("location log carries %q: %s", leak, l)
 		}
