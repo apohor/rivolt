@@ -2429,6 +2429,14 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 			"px_user_total_kwh", bc.UserTotalKWh, "px_user_max_kwh", bc.UserMaxKWh,
 			"vehicleState_capacity_kwh", vehKWh, "px_raw_b64", f.Payload, "ts_ms", f.TimestampMs)
 	default:
+		// The time-boxed next-topics capture (parallax_next.go): a field
+		// tree, never the raw payload, and nothing once it has ended.
+		if spec, ok := pxNextTopics[f.RVM]; ok {
+			if pxNextCapturing(time.Now()) {
+				m.logPxNext(vehicleID, spec, f)
+			}
+			return
+		}
 		// Any other not-yet-RE'd topic: log the raw payload + best-effort
 		// varint so its wire shape can be decoded offline from the logs,
 		// same as power.state/range/tires were. No cache apply.

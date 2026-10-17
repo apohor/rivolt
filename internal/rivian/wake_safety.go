@@ -100,10 +100,18 @@ func (m *StateMonitor) captureTopics(vehicleID string) func() []string {
 		if off {
 			return nil
 		}
-		if pxChargeCapturing(time.Now()) {
-			return append(append([]string(nil), CaptureRVMs...), rvmBatteryChars)
+		now := time.Now()
+		if !pxChargeCapturing(now) && !pxNextCapturing(now) {
+			return CaptureRVMs
 		}
-		return CaptureRVMs
+		out := append([]string(nil), CaptureRVMs...)
+		if pxChargeCapturing(now) {
+			out = append(out, rvmBatteryChars)
+		}
+		if pxNextCapturing(now) {
+			out = append(out, pxNextRVMs...)
+		}
+		return out
 	}
 }
 
