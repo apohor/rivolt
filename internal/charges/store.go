@@ -597,7 +597,7 @@ func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
 
 // ListAll returns every charge for this user, newest first. Used by
 // the Settings → Backup endpoint.
-func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
+func (s *Store) EachAll(ctx context.Context, fn func(Charge) error) error {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.external_id, v.rivian_vehicle_id,
 		       c.started_at, c.ended_at,
@@ -619,10 +619,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		  AND ended_at - started_at >= interval '1 minute'
 		ORDER BY c.started_at DESC`, s.userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var out []Charge
 	for rows.Next() {
 		var c Charge
 		var thermal sql.NullFloat64
@@ -639,7 +638,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 			&thermal, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID,
 		); err != nil {
-			return nil, err
+			return err
 		}
 		c.ThermalKWh = floatFromNull(thermal)
 		c.NetworkConfidence = floatFromNull(netConf)
@@ -647,9 +646,21 @@ func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
 		c.ReceiptCost = floatFromNull(recCost)
 		c.StartedAt = c.StartedAt.UTC()
 		c.EndedAt = c.EndedAt.UTC()
-		out = append(out, c)
+		if err := fn(c); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
+}
+
+// ListAll returns every row; use EachAll for large result sets.
+func (s *Store) ListAll(ctx context.Context) ([]Charge, error) {
+	var out []Charge
+	err := s.EachAll(ctx, func(v Charge) error {
+		out = append(out, v)
+		return nil
+	})
+	return out, err
 }
 
 func nullIfZero(f float64) sql.NullFloat64 {

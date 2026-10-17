@@ -580,7 +580,7 @@ func (s *Store) countSleeps(ctx context.Context, vehicleID string, since, until 
 // the Settings → Backup endpoint. Unbounded — a year of 60 s polls
 // is on the order of 500k rows, ~100 MB JSON; acceptable for a
 // full backup but NOT suitable for UI consumption.
-func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
+func (s *Store) EachAll(ctx context.Context, fn func(Sample) error) error {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT v.rivian_vehicle_id, vs.at,
 		       COALESCE(vs.battery_level_pct,0), COALESCE(vs.range_mi,0), COALESCE(vs.odometer_mi,0),
@@ -596,10 +596,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 		WHERE vs.user_id = $1
 		ORDER BY vs.at ASC`, s.userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var out []Sample
 	for rows.Next() {
 		var v Sample
 		var fixAt sql.NullTime
@@ -615,7 +614,7 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			&v.DriveNumber, &v.ChargeNumber, &v.Source,
 			&alt, &tirePsi, &pAvg, &pMax, &pMin,
 		); err != nil {
-			return nil, err
+			return err
 		}
 		v.At = v.At.UTC()
 		if fixAt.Valid {
@@ -642,9 +641,21 @@ func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
 			f := pMin.Float64
 			v.PackTempMinC = &f
 		}
-		out = append(out, v)
+		if err := fn(v); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
+}
+
+// ListAll returns every row; use EachAll for large result sets.
+func (s *Store) ListAll(ctx context.Context) ([]Sample, error) {
+	var out []Sample
+	err := s.EachAll(ctx, func(v Sample) error {
+		out = append(out, v)
+		return nil
+	})
+	return out, err
 }
 
 // Downsampling: a window with more rows than the cap used to return the
