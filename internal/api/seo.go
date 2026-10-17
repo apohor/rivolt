@@ -21,6 +21,7 @@ import (
 const (
 	pathElectraFi   = "/moving-from-electrafi"
 	pathSafeConnect = "/safe-to-connect"
+	pathLeaseCalc   = "/lease-calculator"
 )
 
 const (
@@ -51,6 +52,12 @@ var seoPages = map[string]map[string]seoPage{
 			title:   "Terms of service | Rivolt",
 			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by an individual. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
+		},
+		pathLeaseCalc: {
+			title: "Rivian lease mileage calculator | Rivolt",
+			desc:  "Free lease mileage calculator: see if you're on pace for your allowance and what overage could cost. Runs in your browser. " + notAffiliated,
+			summary: "A free lease mileage calculator that runs in your browser. Enter your lease dates, allowance and odometer to see miles used, whether you are on pace, " +
+				"projected miles and overage at lease return, and the miles a day that keep you within the allowance. Nothing you type is sent or stored. " + notAffiliated,
 		},
 		pathSafeConnect: {
 			title: "Is it safe to connect my Rivian account to Rivolt?",
@@ -141,6 +148,9 @@ func llmsTxt(host string) (string, bool) {
 	}
 	b.WriteString("- [Privacy policy](" + base + "/privacy): what is recorded, retention and deletion\n")
 	b.WriteString("- [Terms of service](" + base + "/terms)\n")
+	if _, ok := pages[pathLeaseCalc]; ok {
+		b.WriteString("- [Rivian lease mileage calculator](" + base + pathLeaseCalc + "): runs in your browser\n")
+	}
 	if _, ok := pages[pathSafeConnect]; ok {
 		b.WriteString("- [Is it safe to connect my Rivian account?](" + base + pathSafeConnect + "): what is kept and how to undo it\n")
 	}
@@ -242,7 +252,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range []string{"/", "/privacy", "/terms", pathSafeConnect, pathElectraFi} {
+	for _, p := range []string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi} {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}
