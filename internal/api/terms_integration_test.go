@@ -28,8 +28,24 @@ func TestTermsAcceptEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := termsView(ctx, pool, uid); v["accepted"] != nil || v["accepted_at"] != nil || v["current"] != currentTermsVersion {
+	// Pin the account's age rather than rely on the clock: new = after the
+	// effective time.
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, uid, termsEffectiveAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// A brand-new account (created after the effective time) is asked;
+	// one created before it is not, and is not backfilled.
+	if v := termsView(ctx, pool, uid); v["accepted"] != nil || v["accepted_at"] != nil || v["current"] != currentTermsVersion || v["required"] != true {
 		t.Fatalf("before accepting: %v", v)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, uid, termsEffectiveAt.Add(-24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if v := termsView(ctx, pool, uid); v["required"] != false || v["accepted"] != nil {
+		t.Fatalf("an existing account must not be gated or backfilled: %v", v)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, uid, termsEffectiveAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
 	}
 	accept := func(version string) (int, map[string]any) {
 		rec := httptest.NewRecorder()
