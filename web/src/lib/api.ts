@@ -1102,6 +1102,9 @@ export const backend = {
   },
   leasePut: (vehicleID: string, t: LeaseTerms) => api.put<LeaseTerms>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease`, t),
   leaseDelete: (vehicleID: string) => api.del<unknown>(`/api/vehicles/${encodeURIComponent(vehicleID)}/lease`),
+  // Accept the current Terms of Service and Privacy Policy. 409 (version_not_current) when the
+  // version moved on: the caller refetches /api/auth/me and shows the new one.
+  acceptTerms: (version: string) => api.post<{ ok: boolean; terms: TermsState }>("/api/terms/accept", { version }),
   // Null on 404 (feature off / not wired): the Settings card hides.
   statementEmailGet: async (): Promise<StatementEmailSettings | null> => {
     try {
@@ -1761,7 +1764,12 @@ export type AuthUser = {
   username: string;
   role: "user" | "admin";
   onboarding_completed: boolean;
+  // The Terms version the user has accepted vs the current one; absent on older servers.
+  terms?: TermsState;
 };
+
+// required: only new accounts (created after the terms took effect) must accept; existing users never see the gate.
+export type TermsState = { current: string; accepted: string | null; accepted_at: string | null; required?: boolean };
 
 // AdminFlagsState is the response shape from GET /api/admin/kill-switch.
 // Carries every operational flag — currently the Rivian-upstream kill
