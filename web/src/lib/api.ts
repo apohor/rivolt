@@ -885,6 +885,28 @@ export type ChargeCluster = {
   member_ids: string[];
 };
 
+// Efficiency breakdowns (mi/kWh) over a period, by outside temperature, speed and drive mode.
+// A bucket under the server's min_drives floor has mi_per_kwh null.
+export type EfficiencyBucket = {
+  key: string;
+  label?: string;
+  lo_c?: number | null;
+  hi_c?: number | null;
+  lo_mph?: number | null;
+  hi_mph?: number | null;
+  mi_per_kwh: number | null;
+  drives: number;
+  miles: number;
+};
+export type EfficiencyBreakdown = {
+  enough_data: boolean;
+  min_drives?: number;
+  overall?: { mi_per_kwh: number | null; drives: number; miles: number; kwh: number };
+  by_temp?: EfficiencyBucket[];
+  by_speed?: EfficiencyBucket[];
+  by_mode?: EfficiencyBucket[];
+};
+
 export const backend = {
   health: () => api.get<Health>("/api/health"),
   // whoami returns the logged-in user, or null when auth is
@@ -1010,6 +1032,18 @@ export const backend = {
   vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
     try {
       return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // efficiency returns null when the endpoint is absent (404/501), so the view says so.
+  efficiency: async (vehicleID: string, since?: string, until?: string): Promise<EfficiencyBreakdown | null> => {
+    const q = new URLSearchParams();
+    if (since) q.set("since", since);
+    if (until) q.set("until", until);
+    try {
+      return await api.get<EfficiencyBreakdown>(`/api/vehicles/${encodeURIComponent(vehicleID)}/efficiency${q.size ? `?${q}` : ""}`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
