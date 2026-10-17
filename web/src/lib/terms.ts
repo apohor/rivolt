@@ -4,7 +4,7 @@ import type { AuthUser } from "./api";
 
 // Pages that must stay reachable without accepting: the legal pages themselves, sign-in and the
 // OIDC hand-off. (The demo host has no signed-in user, so it never gates.)
-const OPEN = ["/login", "/privacy", "/terms", "/moving-from-electrafi", "/safe-to-connect", "/auth/hydra/login", "/signup"];
+const OPEN = ["/login", "/privacy", "/terms", "/moving-from-electrafi", "/safe-to-connect", "/lease-calculator", "/auth/hydra/login", "/signup"];
 
 export function termsGateActive(me: Pick<AuthUser, "terms"> | null | undefined, pathname: string): boolean {
   if (me?.terms?.required !== true) return false;

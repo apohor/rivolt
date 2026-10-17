@@ -1,11 +1,11 @@
 // Applies the chosen theme before first paint, only for users whose
 // money_tab_enabled shell was on last time (cached by src/lib/theme.ts),
-// and on the public /demo, /privacy and /terms (public pages that follow the device theme).
+// and on the public /demo, /privacy, /terms and /lease-calculator (public pages that follow the device theme).
 // rivolt.theme is system (default) | light | dark. Anything else,
 // including blocked storage, stays dark. Kept as a static same-origin
 // file because the CSP forbids inline scripts.
 try {
-  var onDemo = location.pathname === "/demo" || location.pathname.indexOf("/demo/") === 0 || location.pathname === "/privacy" || location.pathname === "/terms";
+  var onDemo = location.pathname === "/demo" || location.pathname.indexOf("/demo/") === 0 || location.pathname === "/privacy" || location.pathname === "/terms" || location.pathname === "/lease-calculator";
   if (onDemo || localStorage.getItem("rivolt.money_tab_enabled") === "1") {
     var choice = localStorage.getItem("rivolt.theme");
     var light =
