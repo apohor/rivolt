@@ -415,6 +415,11 @@ func finishRivianConnect(
 		n = -1
 	}
 	recordFunnel(ctx, m, uid, funnelRivianConnected, "first_connect", firstConnect, "vehicles", n)
+	if n >= 0 {
+		db.RecordServerEvent(ctx, d, uid, db.EventRivianConnectOK, map[string]any{"vehicle_count": n})
+	} else {
+		db.RecordServerEvent(ctx, d, uid, db.EventRivianConnectOK, nil)
+	}
 	if n == 0 {
 		recordFunnel(ctx, m, uid, funnelRivianNoVehicles, "first_connect", firstConnect)
 	}

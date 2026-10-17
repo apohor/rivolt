@@ -148,7 +148,8 @@ func EnsureUserVerified(ctx context.Context, d *sql.DB, username, email, display
 	// verified flag can never outlive the address it vouched for.
 	// Mail (the monthly statement) is sent only to a verified address.
 	trimmed := strings.TrimSpace(email)
-	_, err := d.ExecContext(ctx, `
+	var inserted bool
+	err := d.QueryRowContext(ctx, `
 		INSERT INTO users (id, username, email, display_name, email_verified)
 		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5 AND $3 <> '')
 		ON CONFLICT (id) DO UPDATE SET
@@ -160,9 +161,14 @@ func EnsureUserVerified(ctx context.Context, d *sql.DB, username, email, display
 				WHEN lower(EXCLUDED.email) = lower(COALESCE(users.email, '')) THEN users.email_verified OR EXCLUDED.email_verified
 				ELSE EXCLUDED.email_verified
 			END
-	`, id, u, trimmed, strings.TrimSpace(displayName), emailVerified)
+		RETURNING (xmax = 0)
+	`, id, u, trimmed, strings.TrimSpace(displayName), emailVerified).Scan(&inserted)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if inserted {
+		// A brand-new account (the upsert inserted rather than updated).
+		RecordServerEvent(ctx, d, id, EventSignupComplete, map[string]any{"method": signupMethod(ctx)})
 	}
 	// Env-driven admin promotion: idempotent UPDATE that no-ops
 	// when the user is already admin or when the email doesn't

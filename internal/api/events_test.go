@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/db"
 )
 
 type fakeSink struct {
@@ -98,5 +100,28 @@ func TestEvents_FlagOffByDefault(t *testing.T) {
 	t.Setenv("RIVOLT_EVENTS", "true")
 	if !eventsEnabled() {
 		t.Fatal("RIVOLT_EVENTS=true should enable")
+	}
+}
+
+// The middleware carries DNT and GPC into the context; a plain request leaves
+// it clear.
+func TestDNTContextMiddleware(t *testing.T) {
+	for name, hdr := range map[string]map[string]string{
+		"dnt":    {"DNT": "1"},
+		"gpc":    {"Sec-GPC": "1"},
+		"normal": {},
+		"dnt=0":  {"DNT": "0"},
+	} {
+		var got bool
+		h := dntContextMW(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = db.DoNotTrack(r.Context()) }))
+		req := httptest.NewRequest("GET", "/", nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		want := name == "dnt" || name == "gpc"
+		if got != want {
+			t.Errorf("%s: DoNotTrack = %v, want %v", name, got, want)
+		}
 	}
 }

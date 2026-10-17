@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // Product events. First-party only,
@@ -140,12 +141,30 @@ type eventsSink interface {
 	Insert(ctx context.Context, anonID string, userID *uuid.UUID, evs []storedEvent) error
 }
 
+// dntRequested reports whether the browser sent Do Not Track or Global
+// Privacy Control.
+func dntRequested(r *http.Request) bool {
+	return r.Header.Get("DNT") == "1" || r.Header.Get("Sec-GPC") == "1"
+}
+
+// dntContextMW carries the browser's Do Not Track / Global Privacy Control
+// signal in the request context, so server events recorded deep in a request
+// (account creation, Rivian connect) honour it like the browser endpoint.
+func dntContextMW(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if dntRequested(r) {
+			r = r.WithContext(db.WithDoNotTrack(r.Context()))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // handleEvents serves POST /api/events. Public (session optional),
 // per-IP rate limited by the caller's middleware, body capped at 2 KB.
 // Honours Do-Not-Track by storing nothing.
 func handleEvents(sink eventsSink) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("DNT") == "1" || r.Header.Get("Sec-GPC") == "1" {
+		if dntRequested(r) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

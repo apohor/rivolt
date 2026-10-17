@@ -183,6 +183,7 @@ func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, iss
 		}
 
 		recordFunnel(r.Context(), m, userID, funnelSignupCreated)
+		db.RecordServerEvent(r.Context(), d, userID, db.EventSignupComplete, map[string]any{"method": "email"})
 
 		signedIn := false
 		if issueSession != nil {

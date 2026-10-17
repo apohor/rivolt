@@ -1504,7 +1504,7 @@ func runServer() {
 						return uuid.Nil, false, auth.ErrSignupClosed
 					}
 				}
-				uid, err := db.EnsureUserVerified(ctx, pgPool, email, email, id.Traits.DisplayName, firstPartyVerified)
+				uid, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "email"), pgPool, email, email, id.Traits.DisplayName, firstPartyVerified)
 				if err != nil {
 					return uuid.Nil, false, err
 				}
@@ -1556,7 +1556,7 @@ func runServer() {
 				return db.UserExistsByUsername(ctx, pgPool, username)
 			},
 			EnsureUser: func(ctx context.Context, username, email, displayName string, emailVerified bool) (uuid.UUID, error) {
-				uid, err := db.EnsureUserVerified(ctx, pgPool, username, email, displayName, emailVerified)
+				uid, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "oidc"), pgPool, username, email, displayName, emailVerified)
 				if err != nil {
 					return uuid.Nil, err
 				}
