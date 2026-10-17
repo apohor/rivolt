@@ -10,7 +10,7 @@ Last updated: DRAFT 2026-10-17
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
 
-These Terms are an agreement between you and **[OWNER LEGAL NAME]**, an individual (not a company) based in **[STATE]**, United States, who runs Rivolt ("we", "us"). By creating an account or using the hosted service, you agree to these Terms and confirm that you have read the Privacy Policy. **[ATTORNEY TO CONFIRM]**
+These Terms are an agreement between you and Anton Pohorilyi, an individual (not a company) based in Texas, United States, who runs Rivolt ("we", "us"). By creating an account or using the hosted service, you agree to these Terms and confirm that you have read the Privacy Policy. **[ATTORNEY TO CONFIRM]**
 
 ## 2. Unofficial access to Rivian: the main risk
 Rivolt reads your vehicle data through Rivian's unofficial, undocumented interfaces, the same ones Rivian's own app uses. Rivian does not offer these interfaces to third parties, has not approved Rivolt, and may change, limit or block access at any time. **[ATTORNEY TO CONFIRM: this wording replaces "Rivian has not authorised this"; same facts, no legal conclusion.]** You accept that:
@@ -59,7 +59,7 @@ You can stop at any time by deleting your account. We may suspend or end the ser
 ## 11. Changes, contact, disputes and law
 - **Changes.** We may update these Terms. We will tell you about material changes by email and with an in-app notice at least 30 days before they take effect (the same as the Privacy Policy, section 8). If you keep using Rivolt after a change takes effect, the new Terms apply; if you do not agree, delete your account before then. Existing users at the time these Terms are first published are asked to accept them at their next sign-in. **[ATTORNEY TO CONFIRM]**
 - **Transfer.** We may transfer these Terms and the service to a company we control (for example, an LLC formed to run Rivolt) or to a new owner. We will email you at least 30 days beforehand, so you can export or delete your data first (Privacy Policy, section 4, "Change of ownership"). **[ATTORNEY TO CONFIRM]**
-- **Contact.** anton@rivolt.dev (default, owner may change). Mail: **[OWNER LEGAL NAME]**, **[MAILING ADDRESS]**.
+- **Contact.** anton@rivolt.dev (default, owner may change).
 - **Disputes.** Before filing a claim, email us and give us 30 days to try to resolve it. Either of us may bring an individual claim in small-claims court. There is no arbitration clause. **[ATTORNEY TO CONFIRM: no arbitration; informal-resolution step]**
-- **Governing law and venue.** The laws of the State of **[STATE]**, without regard to its conflict-of-laws rules, govern these Terms. Any claim not brought in small-claims court must be brought in the state or federal courts for **[COUNTY]**, **[STATE]**, unless the law of the state where you live gives you the right to sue there. **[ATTORNEY TO CONFIRM]**
+- **Governing law and venue.** The laws of the State of Texas, without regard to its conflict-of-laws rules, govern these Terms. Any claim not brought in small-claims court must be brought in the state or federal courts for **[COUNTY]** County, Texas, unless the law of the state where you live gives you the right to sue there. **[ATTORNEY TO CONFIRM]**
 - **Whole agreement.** These Terms and the Privacy Policy are the whole agreement between you and us about the hosted service. If a court finds part of these Terms unenforceable, the rest still applies. **[ATTORNEY TO CONFIRM]**
