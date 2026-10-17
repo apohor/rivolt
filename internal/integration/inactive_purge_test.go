@@ -43,13 +43,17 @@ func TestInactiveAccountPurge(t *testing.T) {
 		return id
 	}
 	day := 24 * time.Hour
-	due := user("due", "due@example.com", 100*day)         // warn-eligible
-	young := user("young", "young@example.com", 40*day)    // too young
-	noMail := user("nomail", "", 100*day)                  // nothing to warn
-	withCar := user("withcar", "car@example.com", 200*day) // connected a vehicle
+	due := user("due", "due@example.com", 100*day)                // warn-eligible
+	young := user("young", "young@example.com", 40*day)           // too young
+	noMail := user("nomail", "", 100*day)                         // nothing to warn
+	withCar := user("withcar", "car@example.com", 200*day)        // connected a vehicle
+	sessionOnly := user("sessiononly", "so@example.com", 200*day) // connected Rivian, no vehicle row (a reservation holder, a failed prime)
 	admin := user("adm", "adm@example.com", 200*day)
 	disabled := user("dis", "dis@example.com", 200*day)
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-1')`, withCar); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id) VALUES ($1, 'rivian.session', '\x00', 'test')`, sessionOnly); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.ExecContext(ctx, `UPDATE users SET role = 'admin' WHERE id = $1`, admin); err != nil {
@@ -67,6 +71,19 @@ func TestInactiveAccountPurge(t *testing.T) {
 	}
 	if len(warn) != 1 || warn[0].UserID != due || warn[0].Email != "due@example.com" {
 		t.Fatalf("warn due = %+v, want only the 100-day account with an email", warn)
+	}
+	// The stored-session user is never warn-due however old, and a stale warning on one is cleared.
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET inactive_warned_at = now() - interval '40 days' WHERE id = $1`, sessionOnly); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := db.ListInactiveDeleteDue(ctx, pool, 10); len(ids) != 0 {
+		t.Fatalf("a user with a stored Rivian session is delete-due: %v", ids)
+	}
+	if _, ok, _ := db.DeleteInactiveAccount(ctx, pool, sessionOnly); ok {
+		t.Fatal("deleted a user with a stored Rivian session")
+	}
+	if n, err := db.CancelInactiveWarnings(ctx, pool); err != nil || n != 1 {
+		t.Fatalf("cancelled %d (err %v), want the stale warning of the session-only user", n, err)
 	}
 	if w, d, wait, err := db.CountInactiveCandidates(ctx, pool); err != nil || w != 1 || d != 0 || wait != 0 {
 		t.Errorf("counts = %d/%d/%d, err %v; want 1/0/0", w, d, wait, err)
@@ -172,13 +189,13 @@ func TestInactiveAccountPurge(t *testing.T) {
 		t.Errorf("the signup request outlived the account: %d, err %v", n, err)
 	}
 	// Everyone else is untouched: the admin, the disabled, the connected.
-	for name, id := range map[string]uuid.UUID{"admin": admin, "disabled": disabled, "with a vehicle": withCar, "young": young, "no email": noMail} {
+	for name, id := range map[string]uuid.UUID{"admin": admin, "disabled": disabled, "with a vehicle": withCar, "stored Rivian session and no vehicle": sessionOnly, "young": young, "no email": noMail} {
 		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = $1`, id).Scan(&n); err != nil || n != 1 {
 			t.Errorf("%s was deleted", name)
 		}
 	}
 	// And none of them is a candidate even once warned long ago.
-	if _, err := pool.ExecContext(ctx, `UPDATE users SET inactive_warned_at = now() - interval '200 days', created_at = now() - interval '400 days' WHERE id IN ($1,$2,$3)`, admin, disabled, withCar); err != nil {
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET inactive_warned_at = now() - interval '200 days', created_at = now() - interval '400 days' WHERE id IN ($1,$2,$3,$4)`, admin, disabled, withCar, sessionOnly); err != nil {
 		t.Fatal(err)
 	}
 	if ids, _ := db.ListInactiveDeleteDue(ctx, pool, 10); len(ids) != 0 {

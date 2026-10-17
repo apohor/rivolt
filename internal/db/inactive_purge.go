@@ -10,8 +10,8 @@ import (
 
 // Inactive-account purge (migration 0056). An account that never connected
 // a vehicle is warned at day 90 and deleted at day 120 after signup. Only
-// connecting a vehicle cancels it (the account is then out of scope);
-// signing in does not. Admins and disabled accounts are never touched.
+// connecting Rivian (a vehicle row or a stored Rivian session) cancels it, the
+// account is then out of scope; signing in does not. Admins and disabled accounts are never touched.
 const (
 	InactiveWarnAfter   = 90 * 24 * time.Hour
 	InactiveDeleteAfter = 120 * 24 * time.Hour
@@ -33,20 +33,28 @@ type InactiveWarning struct {
 // inactiveClock is the SQL for the age of the account: time since signup.
 const inactiveClock = `u.created_at`
 
-// inactiveScope is the common eligibility: no vehicle ever, not an admin, not
-// disabled.
-const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE
-	AND NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)`
+// rivianConnected is "this user has connected Rivian": a vehicle row, or a
+// stored Rivian session. The session counts on its own because a user can be
+// connected without a vehicle row (a reservation holder before delivery, a
+// connect whose vehicle prime failed): the warning promises deletion "unless
+// you connect your Rivian", so they must never be warned or deleted.
+const rivianConnected = `(EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)
+	OR EXISTS (SELECT 1 FROM user_secrets s WHERE s.user_id = u.id AND s.name = 'rivian.session'))`
 
-// CancelInactiveWarnings clears the warning of accounts that connected a
-// vehicle since it was sent, so the record doesn't linger. It returns how many
+// inactiveScope is the common eligibility: Rivian never connected, not an
+// admin, not disabled.
+const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE AND NOT ` + rivianConnected
+
+// CancelInactiveWarnings clears the warning of accounts that connected Rivian
+// (a vehicle or a stored session) since it was sent, so the record doesn't
+// linger. It returns how many
 // were cancelled.
 func CancelInactiveWarnings(ctx context.Context, d *sql.DB) (int, error) {
 	res, err := d.ExecContext(ctx, `
 		UPDATE users u
 		   SET inactive_warned_at = NULL, inactive_warn_claimed_at = NULL
 		 WHERE u.inactive_warned_at IS NOT NULL
-		   AND EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)`)
+		   AND `+rivianConnected)
 	if err != nil {
 		return 0, err
 	}
