@@ -9,17 +9,17 @@ Rivolt is a free, open-source companion for Rivian owners. It is unofficial and 
 - **Try it first, with no account.** The [demo](https://demo.rivolt.dev) uses a generated sample truck.
 - **Sign up** at [rivolt.dev/signup](/signup). Continue with Google or GitHub; it is immediate while there is room, because the beta has an account cap.
 - **Connect your truck.** We recommend an Authorized Driver account, so Rivolt never holds your primary login and you can revoke it from the Rivian app at any time.
-- **Set your timezone.** Settings, Display, Timezone must match the timezone the ElectraFi CSVs were exported under, or session IDs won't line up.
+- **Set your timezone.** Settings → Vehicle → Display → Timezone must match the timezone the ElectraFi CSVs were exported under, or session IDs won't line up.
 
 ## Import steps
 
-- In the ElectraFi app, go to **Settings, Account, Advanced, Download ElectraFi Data**. You get a set of CSV files: one `drives.csv` and one `charges.csv` per month.
-- In Rivolt, go to **Settings, Data, Import ElectraFi CSV**.
+- In the ElectraFi app, go to **Settings → Account → Advanced → Download ElectraFi Data**. You get a set of CSV files: one `drives.csv` and one `charges.csv` per month.
+- In Rivolt, go to **Settings → Data → Import ElectraFi CSV**.
 - Select all the CSVs at once and upload. Rivolt reads each file, skips anything it has already recorded live, and merges timestamps so imported history doesn't collide with live data.
 
 ## After importing
 
-- Your charges are priced at your home rate. Set it under Settings, Charging, Home charging cost. Rivolt records the rate as of the moment a session ends, so changing it later doesn't rewrite history. Sessions recorded before you set a rate show $0 until you re-price them.
+- Your charges are priced at your home rate. Set it under Settings → Charging → Home charging cost. Rivolt records the rate as of the moment a session ends, so changing it later doesn't rewrite history. Sessions recorded before you set a rate show $0 until you re-price them.
 - Activity shows a day-grouped feed of drives and charges, and Money shows the monthly ledger.
 - Your data stays yours: you can export everything as a JSON backup and delete your data from Settings.
 
