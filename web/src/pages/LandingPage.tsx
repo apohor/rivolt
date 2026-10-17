@@ -98,7 +98,7 @@ export default function LandingPage() {
           />
           <Claim
             title="Yours to keep"
-            body="MIT licensed. Download all your data as a JSON backup. Run it on your own server with docker compose and an OIDC provider (maps and the planner need the optional tiles and Valhalla services), or use ours."
+            body="MIT licensed. Export your data as a zip of CSVs, or download a full JSON backup. Run it on your own server with docker compose and an OIDC provider (maps and the planner need the optional tiles and Valhalla services), or use ours."
           >
             <a href={REPO} className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
               Source and self-host guide
