@@ -14,7 +14,10 @@ RUN mkdir -p /internal/web && npm run build
 # ---- go builder -----------------------------------------------------------
 # Also native — we cross-compile using GOOS/GOARCH from TARGET* args, which
 # is dramatically faster than running `go build` under QEMU.
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
+# Pinned to the exact Go in go.mod's `toolchain` line, so the weekly
+# govulncheck scan checks the same standard library the image ships with.
+# Bump both together.
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 # VERSION is stamped into main.version via -ldflags -X. The workflow
