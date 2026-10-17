@@ -25,7 +25,7 @@ Last updated: [PUBLICATION DATE]
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
 - **Your browser's push service**, if you turn on notifications.
 - **Open-Meteo**, for weather (trip coordinates rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
-- **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Trip recaps send no coordinates or addresses. Trip advice sends the start and destination you type (which can be an address), charger names or locations (to about 110 m) and tire pressures.
+- **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Trip recaps send no coordinates or addresses. Trip advice sends charger names, or locations rounded to about 11 km, and tire pressures; never the text you type.
 
 We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **[ATTORNEY TO CONFIRM]** **We do not sell your data, and there is no advertising** and no third-party analytics script.
 
