@@ -93,8 +93,11 @@ jobs:
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "web=true" >> "$GITHUB_OUTPUT"; echo "go=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # Non-code paths (the ones push events ignore) trigger nothing.
-          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '\.md$|^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' || true)
+          # Non-code paths (the ones push events ignore) trigger nothing,
+          # except Markdown under web/: web/src/content/*.md ships in the
+          # bundle (the privacy policy and terms pages), so a content edit
+          # must run web and e2e.
+          files=$(git diff --name-only "$BASE"...HEAD | grep -v -E '^docs/|^deploy/|^docker-compose[^/]*\.yml$|^LICENSE$|^\.editorconfig$' | awk '!/\.md$/ || /^web\//' || true)
           echo "$files"
           # web: anything under web/. go: anything else that isn't web/
           # (Go code, go.mod, migrations, embedded data, the Dockerfile,
