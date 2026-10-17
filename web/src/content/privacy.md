@@ -2,7 +2,7 @@
 
 Last updated: [PUBLICATION DATE]
 
-**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **[OWNER LEGAL NAME], an individual** (not a company) in **[STATE]**, United States ("we"). Email: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
+**Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
 **Who it is for.** Adults (18 and over) in the United States who own or drive a Rivian.
 
@@ -18,7 +18,7 @@ Last updated: [PUBLICATION DATE]
 
 **Who we share it with.** Only these, and only for the service:
 - **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt.
-- **Rivian**, to read your vehicle's data. Rivolt's requests present themselves as Rivian's own mobile app (see the Terms, section 2).
+- **Rivian**, to read your vehicle's data. Rivolt's requests present themselves as Rivian's own mobile app.
 - **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
 - **Your browser's push service**, if you turn on notifications.

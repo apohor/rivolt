@@ -21,12 +21,15 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.getByRole("heading", { name: "Rivolt Privacy Policy", level: 1 })).toBeVisible();
       await expect(doc).toContainText("What we collect, and why");
       await expect(doc).toContainText("We do not sell your data");
-      // Owner placeholders stay visible; draft furniture is gone.
-      await expect(doc).toContainText("[OWNER LEGAL NAME]");
-      await expect(doc).toContainText("[STATE]");
+      // The operator is named; only the publication date is still a placeholder; draft furniture and
+      // the unpublished Terms are gone.
+      await expect(doc).toContainText("Anton Pohorilyi");
+      await expect(doc).toContainText("Texas");
       await expect(doc).toContainText("[PUBLICATION DATE]");
       const text = await doc.innerText();
-      for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes"]) expect(text, gone).not.toContain(gone);
+      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toEqual(["[PUBLICATION DATE]"]);
+      for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]", "Terms"]) expect(text, gone).not.toContain(gone);
+      await expect(doc.getByRole("link", { name: /terms/i })).toHaveCount(0);
       await expect(doc.getByText("anton@rivolt.dev").first()).toBeVisible();
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `privacy-${w}-${theme}.png`), fullPage: true });
