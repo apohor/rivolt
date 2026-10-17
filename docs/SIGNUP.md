@@ -260,8 +260,10 @@ before push works (Share → Add to Home Screen).
 - **Settings → Display** controls units (mi/km, °C/°F) and your
   timezone.
 
-If something breaks, your data is yours: **Settings → Data →
-Danger zone → Backup** dumps everything as JSON; **Reset** wipes
+If something breaks, your data is yours. **Settings → Data → Export my
+data** gives a zip of CSVs (charges with cost source, drives, trips) plus
+your settings; **Settings → Data → Danger zone → Backup** dumps everything
+(including raw telemetry) as JSON; **Reset** wipes
 the data while keeping your account + vehicle credentials so
 you can re-import cleanly.
 
