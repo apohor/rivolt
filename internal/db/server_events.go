@@ -15,10 +15,14 @@ import (
 // events are never recorded for it.
 const DemoUsername = "rivolt-public-demo"
 
-// ServerEventsEnabled reports whether product events are on (the same
-// RIVOLT_EVENTS switch as the browser endpoint).
+// ServerEventsEnabled reports whether server events are on: product events
+// must be on (RIVOLT_EVENTS, the browser endpoint's switch) AND
+// RIVOLT_SERVER_EVENTS=true. The second switch is separate and defaults off
+// as a safety net, so these account-linked events start only when ops flips
+// it.
 func ServerEventsEnabled() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_EVENTS")), "true")
+	on := func(k string) bool { return strings.EqualFold(strings.TrimSpace(os.Getenv(k)), "true") }
+	return on("RIVOLT_EVENTS") && on("RIVOLT_SERVER_EVENTS")
 }
 
 type doNotTrackKey struct{}

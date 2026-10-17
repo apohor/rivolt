@@ -17,8 +17,16 @@ func TestServerEventsAreSkipped(t *testing.T) {
 		t.Error("enabled with RIVOLT_EVENTS unset")
 	}
 	t.Setenv("RIVOLT_EVENTS", "true")
+	if ServerEventsEnabled() {
+		t.Error("enabled by RIVOLT_EVENTS alone; server events need their own switch")
+	}
+	t.Setenv("RIVOLT_SERVER_EVENTS", "true")
 	if !ServerEventsEnabled() {
-		t.Error("not enabled with RIVOLT_EVENTS=true")
+		t.Error("not enabled with both switches on")
+	}
+	t.Setenv("RIVOLT_EVENTS", "")
+	if ServerEventsEnabled() {
+		t.Error("enabled with product events off")
 	}
 	if !skipServerEvent(nil, uuid.New()) {
 		t.Error("nil db not skipped")
@@ -27,6 +35,7 @@ func TestServerEventsAreSkipped(t *testing.T) {
 
 func TestSkipServerEventForDemoAndNilUsers(t *testing.T) {
 	t.Setenv("RIVOLT_EVENTS", "true")
+	t.Setenv("RIVOLT_SERVER_EVENTS", "true")
 	d := newFakeDB(t)
 	if !skipServerEvent(d, UserIDFor(DemoUsername)) || !skipServerEvent(d, uuid.Nil) {
 		t.Error("demo or nil user not skipped")
