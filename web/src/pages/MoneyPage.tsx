@@ -394,7 +394,7 @@ function Statement({
                 total.{auto ? " Pick the network." : ""}
               </li>
             )}
-            {m.spend.unpriced_sessions > 0 && (
+            {m.spend.unpriced_sessions > 0 && !(headline === 0 && m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0) && (
               <li className="text-neutral-400">
                 Not included: {m.spend.unpriced_sessions} unpriced{" "}
                 {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh)

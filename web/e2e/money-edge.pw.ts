@@ -76,7 +76,7 @@ const SCENARIOS: Scenario[] = [
     opts: { homeRate: 0 },
     charging: { home_price_per_kwh: 0, home_currency: "USD", gas_price_per_gallon: 0, comparison_mpg: 0 },
     absent: [/NaN|undefined|Infinity|\$0\.00 if charged at home|vs September|\$0\.000\/mi/],
-    text: [/set it in Settings/],
+    text: [/set it in Settings|Set your home rate/],
   },
   {
     name: "all-unpriced-zero",
@@ -92,7 +92,7 @@ const SCENARIOS: Scenario[] = [
       })),
     opts: { homeRate: 0 },
     charging: { home_price_per_kwh: 0, home_currency: "USD", gas_price_per_gallon: 0, comparison_mpg: 0 },
-    absent: [/NaN|undefined|Infinity/],
+    absent: [/NaN|undefined|Infinity|Not included: 23 unpriced/],
     text: [/\$0 doesn't mean charging was free/, /Set your home rate/],
   },
   {
