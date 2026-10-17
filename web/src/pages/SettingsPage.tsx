@@ -27,6 +27,7 @@ import {
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
+import { urlBase64ToUint8Array } from "../lib/push";
 import { RivianAccountPanel } from "../components/RivianAccountPanel";
 import { SignOutButton } from "../components/SignOutButton";
 import { track } from "../lib/track";
@@ -2127,18 +2128,6 @@ export function NotificationsPanel() {
       </p>
     </div>
   );
-}
-
-// urlBase64ToUint8Array converts the URL-safe base64 VAPID public key
-// the server returns into the raw byte array PushManager.subscribe
-// requires for applicationServerKey.
-function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const out = new Uint8Array(new ArrayBuffer(raw.length));
-  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-  return out;
 }
 
 // vehicles, settings, push subscriptions, and the user row are
