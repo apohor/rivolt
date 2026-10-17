@@ -12,9 +12,15 @@ import { track } from "../lib/track";
 // never real data or screenshots. No third-party assets.
 
 const REPO = "https://github.com/apohor/rivolt";
+// The public sample-truck demo lives on its own host. On the hosted
+// instance the landing links there; a self-host has no such host and
+// shows the in-app /demo link only when its operator enabled it.
+const DEMO_URL = "https://demo.rivolt.dev";
 
 export default function LandingPage() {
-  const demo = getConfig().features.demoEnabled;
+  const { demoEnabled, signupEnabled } = getConfig().features;
+  const hostedDemo = !demoEnabled && /(^|\.)rivolt\.dev$/.test(window.location.hostname);
+  const demo = demoEnabled || hostedDemo;
   useEffect(() => {
     // Referrer host and utm_source only (tokens, never a full URL).
     const tok = (v: string | null) => (v && /^[a-z0-9_.-]{1,40}$/.test(v.toLowerCase()) ? v.toLowerCase() : undefined);
@@ -51,23 +57,31 @@ export default function LandingPage() {
               every number. Open source. Self-host it or let us run it.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              {demo && (
+              {demoEnabled && (
                 <Link to="/demo" className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
                   Try the demo truck
                 </Link>
               )}
+              {hostedDemo && (
+                <a href={DEMO_URL} className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
+                  Try the demo truck
+                </a>
+              )}
               <Link
-                to="/login"
+                to={signupEnabled ? "/signup" : "/login"}
                 className={
                   demo
                     ? "rounded-md border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-900"
                     : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
                 }
               >
-                Connect my Rivian
+                {signupEnabled ? "Create an account" : "Sign in"}
               </Link>
             </div>
-            <p className="mt-3 text-xs text-neutral-500">Free while in beta. Invite-only.</p>
+            <p className="mt-3 text-xs text-neutral-500">
+              {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
+              Free while in beta. Sign up with Google or GitHub; no invite needed while there is room.
+            </p>
           </div>
           <StatementIllustration />
         </section>
@@ -91,6 +105,21 @@ export default function LandingPage() {
               Source and self-host guide
             </a>
           </Claim>
+        </section>
+
+        <section aria-label="More of what Rivolt does" className="grid gap-6 md:grid-cols-3">
+          <Claim
+            title="Lease miles, projected"
+            body="Enter your allowance and term. Rivolt projects your miles at lease return and what the overage would cost at your per-mile rate."
+          />
+          <Claim
+            title="Efficiency, explained"
+            body="mi/kWh broken down by outside temperature, speed and drive mode, so you can see what actually moves your number."
+          />
+          <Claim
+            title="Software update alerts"
+            body="A push notification when an update is offered or installs, and release notes linked from the Truck tab."
+          />
         </section>
 
         <section aria-label="Your Rivian login" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">
@@ -127,6 +156,14 @@ export default function LandingPage() {
             <a href={REPO} className="text-neutral-300 hover:underline">
               GitHub
             </a>
+            {" · "}
+            <Link to="/privacy" className="text-neutral-300 hover:underline">
+              Privacy
+            </Link>
+            {" · "}
+            <Link to="/terms" className="text-neutral-300 hover:underline">
+              Terms
+            </Link>
           </p>
           <p>
             Rivian is a trademark of Rivian Automotive, LLC. Rivolt is an independent project and is not affiliated
