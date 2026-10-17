@@ -51,7 +51,7 @@ test("/terms#2 lands on section 2; the privacy page links there", async ({ page 
 test("linked from the footer and the sign-in screen; works on the demo host", async ({ page }) => {
   await stubApi(page, { signedIn: false });
   await page.goto("/login");
-  await page.locator("[data-legal]").getByRole("link", { name: "Terms", exact: true }).click();
+  await page.getByRole("link", { name: "Terms", exact: true }).click();
   await expect(page).toHaveURL(/\/terms$/);
   await stubApi(page, { signedIn: true });
   await page.goto("/");
