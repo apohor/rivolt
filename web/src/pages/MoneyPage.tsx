@@ -300,6 +300,23 @@ function Statement({
           {hasCharging && m.driving.cost_per_mile != null && <> · {formatMoney(m.driving.cost_per_mile, cur, 3)}/mi</>}
         </p>
 
+        {headline === 0 && m.spend.unpriced_sessions > 0 && (
+          <p data-money-zero className="mt-2 rounded-md border border-neutral-800 px-3 py-2 text-sm text-neutral-300">
+            $0 doesn&apos;t mean charging was free. {m.spend.unpriced_sessions} {m.spend.unpriced_sessions === 1 ? "session" : "sessions"} ({m.spend.unpriced_kwh.toFixed(1)} kWh) can&apos;t be priced yet
+            {m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0 && (
+              <>
+                {" "}
+                because no home rate is set.{" "}
+                <Link to={appPath("/settings?tab=charging#cost")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+                  Set your home rate
+                </Link>{" "}
+                and they are priced.
+              </>
+            )}
+            {!(m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0) && "."}
+          </p>
+        )}
+
         {toConfirm != null && toConfirm > 0 && (
           <button
             type="button"
@@ -407,7 +424,13 @@ function Statement({
       {empty ? (
         <Card>
           <p className="text-sm text-neutral-400">
-            No charging recorded in {monthLabel(m.period)}. Sessions show up here once your truck charges.
+            No charging recorded in {monthLabel(m.period)}. Once your truck charges, each session appears here with its cost: billed by Rivian where it reports a price, otherwise estimated from your home rate and network prices.
+          </p>
+          <p className="mt-2 text-sm text-neutral-400">
+            <Link to={appPath("/settings?tab=charging#cost")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
+              Set your home rate
+            </Link>{" "}
+            now so home charging is priced from the first session.
           </p>
         </Card>
       ) : (
