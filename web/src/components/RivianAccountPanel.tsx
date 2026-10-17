@@ -236,27 +236,24 @@ export function RivianAccountPanel() {
         {whyOpen ? "▾" : "▸"} Why a driver account?
       </button>
       {whyOpen && <WhyDriverAccount />}
-      <div className="rounded-md border border-emerald-900/60 bg-emerald-950/30 px-3 py-2 text-xs leading-relaxed text-emerald-200/90">
-        <div className="mb-1 font-semibold text-emerald-200">
-          Your credentials, your control
-        </div>
-        <ul className="space-y-0.5 text-emerald-200/80">
+      <div data-connect-reassure className="rounded-md border border-emerald-900/60 bg-emerald-950/30 px-3 py-2 text-xs leading-relaxed text-emerald-200/90">
+        <div className="mb-1 font-semibold text-emerald-200">Connecting, in plain terms</div>
+        <ul className="space-y-1 text-emerald-200/80">
           <li>
-            • Your <strong>password is never stored</strong> — it's sent once
-            to Rivian to mint a session token, then dropped.
+            • <strong>Safest:</strong> connect a separate, free Authorized Driver account instead of your main login.{" "}
+            <a href={DRIVER_GUIDE} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-emerald-100">
+              How to set one up
+            </a>
+            .
           </li>
           <li>
-            • The session token is <strong>AES-GCM encrypted at rest</strong>{" "}
-            with a per-install key, bound to your account so no other user
-            can read it.
+            • <strong>What we keep:</strong> your Rivian email and encrypted session tokens. Your password is never stored; it is used once to sign in to Rivian.
           </li>
           <li>
-            • <strong>Read-only</strong> — Rivolt reads telemetry, drives,
-            and charging. It never sends commands to your vehicle.
+            • <strong>Read-only:</strong> Rivolt reads telemetry, drives and charging. It can&apos;t control your truck.
           </li>
           <li>
-            • <strong>Disconnect any time</strong> via the Sign out button —
-            the stored token is wiped immediately.
+            • <strong>Undo any time:</strong> sign out of Rivian here in Settings (the stored session is deleted), or remove the driver in the Rivian app.
           </li>
         </ul>
       </div>

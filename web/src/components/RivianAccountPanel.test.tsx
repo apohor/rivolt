@@ -43,8 +43,10 @@ describe("connect step: driver account first", () => {
     fireEvent.click(await screen.findByRole("radio", { name: /main Rivian account/ }));
     expect(screen.getByText("You can switch to a driver account later.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    // UI says "driver account", never "Authorized Driver" (docs only).
-    expect(document.body.textContent).not.toMatch(/Authorized Driver/);
+    // The helper and button say "driver account"; the plain-terms panel above the form is where
+    // "Authorized Driver" is explained.
+    expect(screen.getByText("You can switch to a driver account later.").textContent).not.toMatch(/Authorized Driver/);
+    expect(screen.getByRole("button", { name: "Sign in" }).textContent).not.toMatch(/Authorized Driver/);
   });
 
   it("uses the PM's copy for an account with no vehicles", async () => {
