@@ -26,7 +26,7 @@ import (
 // collide with a real (email-derived) sign-in, and nobody holds a
 // credential for it: it is only ever reached through the anonymous,
 // read-only allowlist.
-const Username = "rivolt-public-demo"
+const Username = db.DemoUsername
 
 // The demo truck's "home": the sample generator's public, non-
 // residential stadium parking lot (never anyone's address).
