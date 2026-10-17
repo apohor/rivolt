@@ -614,6 +614,7 @@ func runServer() {
 				})
 			}
 			lc.WithBreaker(breaker)
+			lc.WithResultObserver(&rivianResultMetrics{m: appMetrics})
 			if sharedLimiter != nil {
 				lc.WithRateLimit(&rateLimitMetrics{l: sharedLimiter, m: appMetrics})
 			}
@@ -2204,6 +2205,18 @@ func (s *sleepMetrics) OnParallaxReplayIgnored(topic string) {
 		return
 	}
 	s.m.ParallaxReplaysIgnoredTotal.WithLabelValues(topic).Inc()
+}
+
+// rivianResultMetrics counts each Rivian call's outcome by operation and
+// class (rivolt_rivian_results_total); same dependency direction as
+// breakerMetrics.
+type rivianResultMetrics struct{ m *metrics.Metrics }
+
+func (r *rivianResultMetrics) OnResult(op, class string) {
+	if r == nil || r.m == nil {
+		return
+	}
+	r.m.RivianResultsTotal.WithLabelValues(op, class).Inc()
 }
 
 type breakerMetrics struct{ m *metrics.Metrics }
