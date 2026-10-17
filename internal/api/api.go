@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/push"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -663,6 +664,11 @@ func New(d Deps) http.Handler {
 				}))
 			})
 
+			// Opt-in to reading Rivian charging receipts (off by default;
+			// opting out deletes what was stored).
+			r.Get("/settings/rivian-receipts", withUser(handleRivianReceiptsGet(d.Flags, d.Settings)))
+			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB))))
+
 			// Trip planner defaults — drive mode + Tesla NACS
 			// adapter. SPA pre-fills the per-trip form from these.
 			// Gated on the trip-planner feature flag: when disabled
@@ -857,7 +863,7 @@ func New(d Deps) http.Handler {
 			// Read-only; 404s unless money_tab_enabled covers the user.
 			r.Route("/ledger", func(r chi.Router) {
 				r.Use(requireMoneyTabMW(moneyTabEnabledOrDemo(d.Flags)))
-				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags)
+				la := newLedgerAPI(d.DB, d.Settings).withBilled(d.Flags, d.Settings)
 				r.Get("/enabled", handleLedgerEnabled(uiThemeNextEnabled(d.Flags)))
 				r.Get("/monthly", withUser(la.monthly))
 				r.Get("/summary", withUser(la.summary))

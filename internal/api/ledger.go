@@ -64,8 +64,10 @@ type ledgerAPI struct {
 
 // withBilled returns a copy that adds the billed_* fields for users the
 // rivian_receipts flag covers. Only the Money endpoints use it.
-func (a ledgerAPI) withBilled(f *flags.Store) ledgerAPI {
-	a.billed = func(uid uuid.UUID) bool { return f != nil && f.RivianReceipts().Enabled(uid.String()) }
+func (a ledgerAPI) withBilled(f *flags.Store, sf *settings.Factory) ledgerAPI {
+	a.billed = func(uid uuid.UUID) bool {
+		return f != nil && f.RivianReceipts().Enabled(uid.String()) && sf.RivianReceiptsOptIn(context.Background(), uid)
+	}
 	return a
 }
 

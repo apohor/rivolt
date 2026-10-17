@@ -55,6 +55,7 @@ import (
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
+	"github.com/apohor/rivolt/internal/retention"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -927,7 +928,11 @@ func runServer() {
 		if pgPool != nil && flagsStore != nil {
 			receiptSyncer := receipts.NewSyncer(
 				receipts.NewStore(pgPool), accountRegistry,
-				func(uid uuid.UUID) bool { return flagsStore.RivianReceipts().Enabled(uid.String()) },
+				// Operator flag AND the user's own opt-in (off by default).
+				func(uid uuid.UUID) bool {
+					return flagsStore.RivianReceipts().Enabled(uid.String()) &&
+						settingsFactory.RivianReceiptsOptIn(context.Background(), uid)
+				},
 				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) },
 				logger,
 			)
@@ -1519,12 +1524,14 @@ func runServer() {
 	// pepper — in production both sinks need the value to be
 	// stable (rotating either invalidates cookies, which is
 	// fine on a credentials bump but catastrophic otherwise).
+	var sessionStore *sessions.Store
 	if pgPool != nil {
 		sStore, serr := sessions.New(pgPool, cookieSecret)
 		if serr != nil {
 			logger.Error("sessions init", "err", serr.Error())
 			os.Exit(1)
 		}
+		sessionStore = sStore
 		authSvc.WithSessionStore(sessions.NewAuthAdapter(sStore))
 		logger.Info("sessions store ready — cookies are opaque, revocable")
 	}
@@ -1767,6 +1774,24 @@ func runServer() {
 	if pgPool != nil && flagsStore != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger)
 		go purge.Run(ctx)
+	}
+
+	// Daily retention sweeps: expired sessions (IP and User-Agent) 30 days
+	// after expiry, and waitlist requests (never approved: 90 days;
+	// approved: until the account exists).
+	if pgPool != nil {
+		jobs := []retention.Job{
+			{Name: "sessions", Run: func(ctx context.Context) (int64, error) {
+				if sessionStore == nil {
+					return 0, nil
+				}
+				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
+			}},
+		}
+		if signupRequestStore != nil {
+			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
+		}
+		go retention.Run(ctx, logger, jobs)
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.
