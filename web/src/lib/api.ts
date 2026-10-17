@@ -885,26 +885,29 @@ export type ChargeCluster = {
   member_ids: string[];
 };
 
-// Efficiency breakdowns (mi/kWh) over a period, by outside temperature, speed and drive mode.
-// A bucket under the server's min_drives floor has mi_per_kwh null.
+// Efficiency insights (architect's /api/insights/efficiency): efficiency by outside temperature,
+// speed and drive mode over a period, with labels and values already in the requested units.
+// not_enough_data marks a bucket under min_bucket_distance; efficiency is null only when it has
+// no drives at all.
 export type EfficiencyBucket = {
   key: string;
-  label?: string;
-  lo_c?: number | null;
-  hi_c?: number | null;
-  lo_mph?: number | null;
-  hi_mph?: number | null;
-  mi_per_kwh: number | null;
+  label: string;
+  distance: number;
+  energy_kwh: number;
+  efficiency: number | null;
   drives: number;
-  miles: number;
+  not_enough_data: boolean;
 };
-export type EfficiencyBreakdown = {
-  enough_data: boolean;
-  min_drives?: number;
-  overall?: { mi_per_kwh: number | null; drives: number; miles: number; kwh: number };
-  by_temp?: EfficiencyBucket[];
-  by_speed?: EfficiencyBucket[];
-  by_mode?: EfficiencyBucket[];
+export type EfficiencyInsights = {
+  units: "imperial" | "metric";
+  distance_unit: string;
+  efficiency_unit: string;
+  min_bucket_distance: number;
+  total: EfficiencyBucket;
+  by_temperature: EfficiencyBucket[];
+  by_speed: EfficiencyBucket[];
+  by_drive_mode: EfficiencyBucket[];
+  excluded?: { no_energy?: number; duplicates?: number; no_temperature?: number; no_drive_mode?: number };
 };
 
 export const backend = {
@@ -1038,12 +1041,12 @@ export const backend = {
     }
   },
   // efficiency returns null when the endpoint is absent (404/501), so the view says so.
-  efficiency: async (vehicleID: string, since?: string, until?: string): Promise<EfficiencyBreakdown | null> => {
-    const q = new URLSearchParams();
+  efficiency: async (rivianVehicleID: string, units: "imperial" | "metric", since?: string, until?: string): Promise<EfficiencyInsights | null> => {
+    const q = new URLSearchParams({ vehicle: rivianVehicleID, units });
     if (since) q.set("since", since);
     if (until) q.set("until", until);
     try {
-      return await api.get<EfficiencyBreakdown>(`/api/vehicles/${encodeURIComponent(vehicleID)}/efficiency${q.size ? `?${q}` : ""}`);
+      return await api.get<EfficiencyInsights>(`/api/insights/efficiency?${q}`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;

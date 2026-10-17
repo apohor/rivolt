@@ -181,7 +181,7 @@ export default function ActivityPage() {
       </div>
 
       {view === "efficiency" ? (
-        <EfficiencyView vehicleID={effVehicleID} since={range.start ? range.start.toISOString() : undefined} until={range.end ? range.end.toISOString() : undefined} />
+        <EfficiencyView rivianVehicleID={effVehicleID} since={range.start ? range.start.toISOString() : undefined} until={range.end ? range.end.toISOString() : undefined} />
       ) : drivesQ.isLoading || chargesQ.isLoading ? (
         <Spinner />
       ) : drivesQ.isError && chargesQ.isError ? (

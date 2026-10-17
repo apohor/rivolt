@@ -2,32 +2,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { stubApi, VEHICLE_ID } from "./stub";
+import { stubApi } from "./stub";
 
 // Activity → Efficiency (new look): mi/kWh by temperature, speed and drive mode as three
 // distribution charts under the period's average; "Not enough data" when there is nothing to chart.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const b = (key: string, v: number | null, drives: number, extra: Record<string, unknown> = {}) => ({ key, mi_per_kwh: v, drives, miles: drives * 18, ...extra });
+const b = (key: string, label: string, eff: number | null, drives: number, o: Record<string, unknown> = {}) => ({
+  key, label, distance: drives * 18, energy_kwh: eff ? (drives * 18) / eff : 0, efficiency: eff, drives, not_enough_data: drives * 18 < 25, ...o,
+});
 const FULL = {
-  enough_data: true,
-  min_drives: 5,
-  overall: { mi_per_kwh: 2.31, drives: 34, miles: 710.4, kwh: 307.5 },
-  by_temp: [
-    b("lt0", 1.62, 6, { hi_c: 0 }), b("0_10", 1.95, 8, { lo_c: 0, hi_c: 10 }), b("10_20", 2.28, 9, { lo_c: 10, hi_c: 20 }),
-    b("20_30", 2.52, 8, { lo_c: 20, hi_c: 30 }), b("30p", null, 3, { lo_c: 30 }),
-  ],
-  by_speed: [
-    b("lt35", 2.6, 7, { hi_mph: 35 }), b("35_55", 2.45, 10, { lo_mph: 35, hi_mph: 55 }), b("55_65", 2.15, 9, { lo_mph: 55, hi_mph: 65 }),
-    b("65_75", 1.9, 6, { lo_mph: 65, hi_mph: 75 }), b("75p", null, 2, { lo_mph: 75 }),
-  ],
-  by_mode: [b("everyday", 2.38, 20, { label: "All-Purpose" }), b("conserve", 2.62, 9, { label: "Conserve" }), b("sport", null, 3, { label: "Sport" })],
+  units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", min_bucket_distance: 25,
+  total: b("total", "All drives", 2.31, 34),
+  by_temperature: [b("lt32", "Below 32 °F", 1.62, 6), b("32_50", "32–50 °F", 1.95, 8), b("50_68", "50–68 °F", 2.28, 9), b("68_86", "68–86 °F", 2.52, 8), b("gt86", "Above 86 °F", 2.4, 1)],
+  by_speed: [b("city", "City (under 35 mph)", 2.6, 7), b("suburb", "Suburban (35–55 mph)", 2.45, 10), b("highway", "Highway (55–70 mph)", 2.15, 9), b("fast", "Fast (70+ mph)", null, 0)],
+  by_drive_mode: [b("everyday", "All-Purpose", 2.38, 20), b("conserve", "Conserve", 2.62, 9), b("sport", "Sport", 2.1, 1)],
+  excluded: { no_energy: 2, duplicates: 0, no_temperature: 1, no_drive_mode: 0 },
 };
 
 async function open(page: Page, body: unknown | null, status = 200) {
   await stubApi(page, { scenario: "parked" });
-  await page.route(`**/api/vehicles/${VEHICLE_ID}/efficiency*`, (r) =>
+  await page.route("**/api/insights/efficiency*", (r) =>
     status === 404 ? r.fulfill({ status: 404, json: { error: "not found" } }) : r.fulfill({ json: body }),
   );
   await page.goto("/activity?view=efficiency");
@@ -46,14 +42,18 @@ for (const theme of ["dark", "light"] as const) {
       await open(page, FULL);
       await expect(page.locator("[data-eff-state='ready']")).toBeVisible();
       await expect(page.locator("[data-eff-overall]")).toContainText("2.31");
-      for (const k of ["temp", "speed", "mode"]) await expect(page.locator(`[data-eff-chart='${k}']`)).toBeVisible();
-      // Bars for buckets with data, an empty slot for the one under the drive floor.
-      expect(await page.locator("[data-eff-chart='temp'] [data-eff-bar]").count()).toBe(4);
-      expect(await page.locator("[data-eff-chart='temp'] [data-eff-empty]").count()).toBe(1);
-      await expect(page.locator("[data-eff-chart='speed'] [data-eff-avg]")).toBeVisible();
-      await expect(page.locator("[data-eff-chart='temp'] li[aria-label^='<0°']")).toHaveAttribute("aria-label", /1\.62 mi\/kWh, 6 drives/);
+      await expect(page.locator("[data-eff-chart]")).toHaveCount(3);
+      // Bars for buckets with enough distance, hatched bars for thin ones, an empty slot for none.
+      expect(await page.locator("[data-eff-chart]").nth(0).locator("[data-eff-bar]:not([data-thin])").count()).toBe(4);
+      expect(await page.locator("[data-eff-chart]").nth(0).locator("[data-eff-bar][data-thin]").count()).toBe(1);
+      expect(await page.locator("[data-eff-chart]").nth(1).locator("[data-eff-empty]").count()).toBe(1);
+      await expect(page.locator("[data-eff-chart]").nth(1).locator("[data-eff-avg]")).toBeVisible();
+      await expect(page.locator("[data-eff-chart]").nth(0).locator("li").first()).toHaveAttribute("aria-label", /Below 32 °F: 1\.62 mi\/kWh, 6 drives/);
+      // Labels come from the server, split into a name and a range for the speed bands.
+      await expect(page.locator("[data-eff-chart]").nth(1)).toContainText("Highway");
+      await expect(page.locator("[data-eff-chart]").nth(1)).toContainText("55–70 mph");
       // The bars order the way the numbers do (taller is more efficient).
-      const hs = await page.locator("[data-eff-chart='temp'] [data-eff-bar]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+      const hs = await page.locator("[data-eff-chart]").nth(0).locator("[data-eff-bar]:not([data-thin])").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
       expect(hs[0]).toBeLessThan(hs[3]);
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(SHOTS, `efficiency-${w}-${theme}.png`), fullPage: true });
@@ -70,7 +70,7 @@ test("not enough data says so, and an older server says it isn't available", asy
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   let page = await ctx.newPage();
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
-  await open(page, { enough_data: false, min_drives: 5, overall: { mi_per_kwh: null, drives: 2, miles: 30, kwh: 14 } });
+  await open(page, { ...FULL, total: { ...FULL.total, efficiency: 2.2, not_enough_data: true, drives: 2 } });
   await expect(page.locator("[data-eff-state='not-enough']")).toContainText("Not enough data yet");
   await expect(page.locator("[data-eff-chart]")).toHaveCount(0);
   await page.close();
