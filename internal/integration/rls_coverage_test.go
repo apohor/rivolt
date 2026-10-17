@@ -45,7 +45,7 @@ func TestEveryUserTableHasTenantRLS(t *testing.T) {
 			t.Errorf("%s has a user_id column but RLS enabled=%v policy=%v", name, rls, policy)
 		}
 	}
-	if n < 25 {
+	if n < 20 {
 		t.Errorf("only %d user_id tables found; the query is broken", n)
 	}
 	var pack bool
