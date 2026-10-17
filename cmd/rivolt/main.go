@@ -1788,6 +1788,10 @@ func runServer() {
 				return sessionStore.PurgeExpired(ctx, 30*24*time.Hour)
 			}},
 		}
+		// Backstop for the receipts opt-out: delete the receipts of any user
+		// who is not opted in, in case a sync pass saved rows after they
+		// opted out.
+		jobs = append(jobs, retention.Job{Name: "rivian_receipts_not_opted_in", Run: receipts.NewStore(pgPool).PurgeNotOptedIn})
 		if signupRequestStore != nil {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
 		}

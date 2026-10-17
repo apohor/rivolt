@@ -285,20 +285,46 @@ func floatPtr(n sql.NullFloat64) *float64 {
 // receipts, the sync clock, and the receipt_* columns on their charges. The
 // estimate on the charge is untouched. Used when the user opts out.
 func (s *Store) Purge(ctx context.Context, uid uuid.UUID) error {
+	_, err := s.purge(ctx, func(col string) string { return col + " = $1" }, uid)
+	return err
+}
+
+// notOptedIn is true for a user who has not opted in to the receipts sync
+// (privacy.rivian_receipts is stored as "1" in user_settings); %s is the
+// user_id column to test.
+const notOptedIn = `NOT EXISTS (SELECT 1 FROM user_settings s
+	WHERE s.user_id = %s AND s.value->>'privacy.rivian_receipts' = '1')`
+
+// PurgeNotOptedIn is the daily backstop for Purge: it removes the receipts of
+// every user who is not opted in, catching a pass that saved rows after the
+// user opted out. It returns how many receipts it deleted.
+func (s *Store) PurgeNotOptedIn(ctx context.Context) (int64, error) {
+	return s.purge(ctx, func(col string) string { return fmt.Sprintf(notOptedIn, col) })
+}
+
+// purge deletes the receipts, sync rows and charge receipt_* columns of the
+// users that pred (given a user_id column) selects, in one transaction, and
+// returns the number of receipts deleted.
+func (s *Store) purge(ctx context.Context, pred func(col string) string, args ...any) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	for _, q := range []string{
+	var deleted int64
+	for i, q := range []string{
 		`UPDATE charges SET receipt_cost = NULL, receipt_currency = NULL, receipt_txn_id = NULL, receipt_source = NULL, updated_at = NOW()
-		  WHERE user_id = $1 AND receipt_source IS NOT NULL`,
-		`DELETE FROM rivian_receipts WHERE user_id = $1`,
-		`DELETE FROM rivian_receipt_sync WHERE user_id = $1`,
+		  WHERE receipt_source IS NOT NULL AND ` + pred("charges.user_id"),
+		`DELETE FROM rivian_receipts WHERE ` + pred("rivian_receipts.user_id"),
+		`DELETE FROM rivian_receipt_sync WHERE ` + pred("rivian_receipt_sync.user_id"),
 	} {
-		if _, err := tx.ExecContext(ctx, q, uid); err != nil {
-			return err
+		res, err := tx.ExecContext(ctx, q, args...)
+		if err != nil {
+			return 0, err
+		}
+		if i == 1 {
+			deleted, _ = res.RowsAffected()
 		}
 	}
-	return tx.Commit()
+	return deleted, tx.Commit()
 }
