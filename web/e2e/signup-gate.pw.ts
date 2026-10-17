@@ -87,3 +87,17 @@ test("a new user sees the terms gate before the Rivian connect step", async ({ p
   await expect(page.getByText("Connect your Rivian")).toBeVisible();
   await expect(page.locator("[data-terms-gate]")).toHaveCount(0);
 });
+
+test("one Sign in line: the page's own until the confirmation brings its own", async ({ page }) => {
+  await stubApi(page, { signedIn: false });
+  await page.route("**/api/auth/oidc/", (r) => r.fulfill({ json: [] }));
+  await page.route("**/api/signup/request", (r) => r.fulfill({ json: { ok: true, auto_approved: true } }));
+  await page.goto("/signup");
+  const lines = page.getByText("Already have an account?");
+  await expect(lines).toHaveCount(1);
+  await page.getByPlaceholder("you@example.com").fill("new@example.com");
+  await page.getByRole("button", { name: "Send signup link" }).click();
+  await expect(page.getByText("Check your inbox.")).toBeVisible();
+  await expect(lines).toHaveCount(1);
+  await expect(page.locator("[data-signup-have-account]")).toBeVisible();
+});
