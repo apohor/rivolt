@@ -1345,7 +1345,7 @@ export const backend = {
   // when the visitor has no invite code. Admin endpoints sit under
   // the same role gate as the rest of /api/admin.
   requestSignup: (body: { email: string; message?: string }) =>
-    api.post<{ ok: boolean; already_pending?: boolean }>("/api/signup/request", body),
+    api.post<{ ok: boolean; already_pending?: boolean; auto_approved?: boolean }>("/api/signup/request", body),
   // Magic-link prefill. Returns 410 when the token is invalid /
   // expired / used; the SPA branches on that to show a "request a
   // new invite" view.
