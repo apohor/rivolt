@@ -1,3 +1,4 @@
+import { useUiNext } from "../lib/uiNext";
 import { appPath, inDemo } from "../lib/demo";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -24,6 +25,7 @@ import {
   type LedgerMonth,
   type MonthSummary,
   type Receipt,
+  spendThroughDay,
   statementTotal,
 } from "../lib/ledger";
 import { isOpenNetworkState } from "../lib/autoNetwork";
@@ -228,7 +230,31 @@ function Statement({
   // lines under it; otherwise it is the statement total as before.
   const headline = statementTotal(m);
   const hasCharging = m.spend.priced_sessions > 0 || headline > 0;
-  const delta = hasCharging && prev && prev.spend.total > 0 ? (headline - prev.spend.total) / prev.spend.total : null;
+  // New look: a month in progress is compared with the same days of the previous month, and a
+  // previous month that only has part of its days of data is not compared at all.
+  const next = useUiNext();
+  const sameDay = next && m.is_current_month && !!prev;
+  const dayN = new Date().getDate();
+  const prevFullQ = useQuery({
+    queryKey: ["ledger", "monthly", prev?.period ?? "", "same-day"],
+    queryFn: ({ signal }) => fetchLedgerMonth(prev!.period, { signal }),
+    enabled: sameDay,
+    staleTime: 60_000,
+    retry: 0,
+  });
+  const prevPartial =
+    next && !!prev && prev.first_activity_at != null && new Date(prev.first_activity_at).getTime() - new Date(prev.range.start).getTime() > 2 * 86_400_000;
+  const prevBase = sameDay
+    ? prevFullQ.data?.source === "api"
+      ? spendThroughDay(prevFullQ.data.data, dayN)
+      : null
+    : prevPartial
+      ? null
+      : prev
+        ? prev.spend.total
+        : null;
+  const delta = hasCharging && prevBase != null && prevBase > 0 ? (headline - prevBase) / prevBase : null;
+  const deltaLabel = prev ? (sameDay ? `${monthLabel(prev.period).split(" ")[0]} 1–${dayN}` : monthLabel(prev.period).split(" ")[0]) : "";
   // Partial month (MQ8): the first month with any data, where activity
   // starts well after the 1st.
   const earliest = months.find((x) => x.first_activity_at != null);
@@ -261,7 +287,7 @@ function Statement({
           {delta != null && (
             <div className={`pb-1.5 text-sm tabular-nums ${delta > 0 ? "text-amber-300" : "text-emerald-300"}`}>
               {delta > 0 ? "▲" : "▼"} {Math.abs(delta * 100).toFixed(0)}% vs{" "}
-              {monthLabel(prev!.period).split(" ")[0]}
+              {deltaLabel}
             </div>
           )}
         </div>

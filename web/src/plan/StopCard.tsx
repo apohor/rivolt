@@ -36,8 +36,8 @@ export function StopCard({
   showLeg: boolean;
 }) {
   const money = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(v);
-  const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs);
-  const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs);
+  const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs, true);
+  const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs, true);
   const leg = showLeg && prev ? (w.DistanceFromOriginMeters ?? 0) - (prev.DistanceFromOriginMeters ?? 0) : 0;
   const adapter = w.AdapterRequired && /\bTesla\b|\[Tesla\]/i.test(w.Name);
   const guest = stopCost ? stopCost.energy_kwh * stopCost.guest_rate : null;

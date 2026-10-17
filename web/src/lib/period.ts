@@ -195,3 +195,12 @@ export function sleepWindow(
   const until = r.end ? new Date(utcDay(endMs) + day).toISOString() : undefined;
   return { since, until, capped };
 }
+
+// barDayCount: how many daily bars a calendar period shows, from its first day to its last
+// (or today) inclusive. Counted in calendar days, not 24h blocks, so a half-day "now" or a
+// DST shift doesn't add a phantom day before the period (the Year chart began on 12-31).
+export function barDayCount(start: Date, last: Date): number {
+  const a = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const b = new Date(last.getFullYear(), last.getMonth(), last.getDate()).getTime();
+  return Math.max(1, Math.round((b - a) / 86_400_000) + 1);
+}

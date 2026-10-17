@@ -221,3 +221,20 @@ function ymd(d: Date): string {
 function pad(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
+
+// shareByEnergy: each bucket's share of the total energy as whole percents that add up to
+// exactly 100 (largest remainder), so the percent next to a kWh figure is the kWh share.
+export function shareByEnergy(kwh: number[]): number[] {
+  const total = kwh.reduce((a, b) => a + Math.max(0, b), 0);
+  if (total <= 0) return kwh.map(() => 0);
+  const exact = kwh.map((k) => (Math.max(0, k) / total) * 100);
+  const floor = exact.map(Math.floor);
+  let left = 100 - floor.reduce((a, b) => a + b, 0);
+  const order = exact.map((e, i) => ({ i, r: e - Math.floor(e) })).sort((x, y) => y.r - x.r);
+  for (const o of order) {
+    if (left <= 0) break;
+    floor[o.i] += 1;
+    left -= 1;
+  }
+  return floor;
+}
