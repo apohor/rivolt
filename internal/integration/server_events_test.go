@@ -14,8 +14,8 @@ import (
 
 // Server-side funnel events in Postgres: signup_complete once per new
 // account (not on a repeat sign-in), rivian_connect_ok with only the allowed
-// property, first_drive_recorded once per user, nothing for the demo user, and
-// nothing at all with events off. Rows carry anon_id 'server' and the user id.
+// property, nothing for the demo user, nothing with events off, and nothing
+// for a request that sent Do Not Track or Global Privacy Control. Rows carry anon_id 'server' and the user id.
 func TestServerFunnelEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -43,18 +43,7 @@ func TestServerFunnelEvents(t *testing.T) {
 		t.Fatalf("recorded with events off: %d", n)
 	}
 
-	// Product events alone are not enough: server events have their own switch.
 	t.Setenv("RIVOLT_EVENTS", "true")
-	t.Setenv("RIVOLT_SERVER_EVENTS", "")
-	only, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "oidc"), pool, "funnel-only", "only@x.test", "Only", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := count(only, db.EventSignupComplete); n != 0 {
-		t.Fatalf("recorded with RIVOLT_SERVER_EVENTS off: %d", n)
-	}
-
-	t.Setenv("RIVOLT_SERVER_EVENTS", "true")
 	uid, err := db.EnsureUserVerified(db.WithSignupMethod(ctx, "oidc"), pool, "funnel-user", "f@x.test", "F", true)
 	if err != nil {
 		t.Fatal(err)
@@ -89,33 +78,24 @@ func TestServerFunnelEvents(t *testing.T) {
 		t.Errorf("props = %s", props)
 	}
 
-	// first_drive_recorded: only for the first drive, only once.
-	var vid uuid.UUID
-	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-f') RETURNING id`, uid).Scan(&vid); err != nil {
-		t.Fatal(err)
-	}
-	drive := func(ext string, ago time.Duration) {
-		t.Helper()
-		if _, err := pool.ExecContext(ctx, `INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source) VALUES ($1,$2,$3,$4,$5,5,'live')`,
-			uid, vid, ext, time.Now().Add(-ago), time.Now().Add(-ago+10*time.Minute)); err != nil {
+	// Do Not Track and Global Privacy Control: a request carrying either signal
+	// records no row; a normal request records one. (The api middleware sets
+	// the same context flag from the DNT and Sec-GPC headers.)
+	for name, c := range map[string]context.Context{"dnt/gpc": db.WithDoNotTrack(ctx), "normal": ctx} {
+		u, err := db.EnsureUserVerified(c, pool, "funnel-"+name, name+"@x.test", "X", false)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-	drive("d1", 3*time.Hour)
-	db.RecordFirstDrive(ctx, pool, uid)
-	db.RecordFirstDrive(ctx, pool, uid)
-	drive("d2", time.Hour)
-	db.RecordFirstDrive(ctx, pool, uid)
-	if n := count(uid, db.EventFirstDriveRecorded); n != 1 {
-		t.Errorf("first_drive_recorded = %d, want 1", n)
-	}
-	// After the 90-day purge removes the event, a later drive does not re-fire it.
-	if _, err := pool.ExecContext(ctx, `DELETE FROM events WHERE user_id = $1 AND name = $2`, uid, db.EventFirstDriveRecorded); err != nil {
-		t.Fatal(err)
-	}
-	drive("d3", 30*time.Minute)
-	db.RecordFirstDrive(ctx, pool, uid)
-	if n := count(uid, db.EventFirstDriveRecorded); n != 0 {
-		t.Errorf("fired again for a user with several drives: %d", n)
+		db.RecordServerEvent(c, pool, u, db.EventRivianConnectOK, map[string]any{"vehicle_count": 1})
+		want := 0
+		if name == "normal" {
+			want = 1
+		}
+		if got := count(u, db.EventSignupComplete); got != want {
+			t.Errorf("%s: signup_complete = %d, want %d", name, got, want)
+		}
+		if got := count(u, db.EventRivianConnectOK); got != want {
+			t.Errorf("%s: rivian_connect_ok = %d, want %d", name, got, want)
+		}
 	}
 }

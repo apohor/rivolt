@@ -248,6 +248,8 @@ func New(d Deps) http.Handler {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
+	// Carry DNT/GPC in the context for server-side product events.
+	r.Use(dntContextMW)
 	// NOTE: the global request timeout is applied per-group below,
 	// not here. CSV imports, backups, and restores can legitimately
 	// run for minutes on large exports, and a 30s ceiling cancels

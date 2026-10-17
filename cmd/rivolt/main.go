@@ -789,11 +789,6 @@ func runServer() {
 		// recently recorded drives showed up without weather data.
 		if pgPool != nil {
 			weatherCache := weather.NewCache(pgPool)
-			// first_drive_recorded: a product event for the funnel (when
-			// RIVOLT_EVENTS is on), once per user.
-			monitorRegistry.AddDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
-				return func(ctx context.Context, _ drives.Drive) { db.RecordFirstDrive(ctx, pgPool, uid) }
-			})
 			monitorRegistry.SetDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
 				return func(ctx context.Context, drv drives.Drive) {
 					if settingsMgr == nil || !settingsMgr.RecapWeatherEnabled() {
