@@ -9,6 +9,14 @@ name: vuln
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  # Dependency and toolchain changes are scanned before they merge, not on
+  # the next Monday.
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - Dockerfile
+      - .github/workflows/vuln.yml
   workflow_dispatch:
 
 permissions:
@@ -18,6 +26,9 @@ jobs:
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # to open an issue when the weekly scan fails
     steps:
       - uses: actions/checkout@v6
 
@@ -33,7 +44,37 @@ jobs:
           mkdir -p internal/web/dist
           touch internal/web/dist/.keep
 
+      # The tool, not our code, may need a newer Go than go.mod pins (x/vuln
+      # v1.9.0 needs go >= 1.26, which made this job fail to install from
+      # Oct 5 on). GOTOOLCHAIN=auto lets `go install` fetch that toolchain to
+      # BUILD the tool; the scan below runs with the repo's own toolchain
+      # (GOTOOLCHAIN=local), so stdlib findings are those of the toolchain
+      # go.mod pins.
+      - name: Install govulncheck
+        env:
+          GOTOOLCHAIN: auto
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
       - name: Run govulncheck
+        env:
+          GOTOOLCHAIN: local
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          go version
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      # A red scheduled run went unnoticed for ten weeks. Make it loud: open
+      # (or comment on) one issue per failing streak.
+      - name: Open an issue when the weekly scan fails
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="govulncheck weekly scan is failing"
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          body="The scheduled vuln scan failed: $RUN_URL"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
