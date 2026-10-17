@@ -218,8 +218,15 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       // preview sends duplicate CORS headers, so fetch it here and re-serve with one.
       const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "range, if-match, if-none-match", "access-control-expose-headers": "content-range, content-length, etag" };
       if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
-      const r = await route.fetch();
-      return route.fulfill({ status: r.status(), headers: { ...r.headers(), ...cors, "access-control-allow-origin": "*" }, body: await r.body() });
+      // The pass-through outlives a fast test: once the test (and its context) has ended,
+      // route.fetch/fulfill reject with "Test ended" and, unhandled, fail the shard after all
+      // specs passed. Nobody is waiting for the answer by then, so swallow that.
+      try {
+        const r = await route.fetch();
+        return await route.fulfill({ status: r.status(), headers: { ...r.headers(), ...cors, "access-control-allow-origin": "*" }, body: await r.body() });
+      } catch {
+        return route.abort().catch(() => {});
+      }
     }
     if (p === "/api/auth/me") {
       return signedIn
