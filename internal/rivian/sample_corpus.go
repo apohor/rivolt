@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Sample truck (A16, docs/product/sample-truck.md).
+// Sample truck: the demo's generated vehicle.
 //
 // A generated, deterministic 45-day corpus for demos and onboarding:
 // one R1S whose "home" is a public stadium parking lot (never anyone's

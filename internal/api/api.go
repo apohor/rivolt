@@ -414,7 +414,7 @@ func New(d Deps) http.Handler {
 			r.Get("/signup/token/{token}", handleSignupTokenLookup(d.SignupRequests))
 		}
 
-		// First-party product events (instrumentation.md). Public with
+		// First-party product events (counts and enums only). Public with
 		// an optional session; per-IP limited, 2 KB cap. Off unless
 		// RIVOLT_EVENTS=true.
 		if d.DB != nil {

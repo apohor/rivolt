@@ -9,7 +9,7 @@ import (
 )
 
 // The vehicle's charging schedules, as the owner app reads them
-// (GetChargingSchedule on the consumer gateway, APK 3.17.0). Read-only:
+// (GetChargingSchedule on the consumer gateway). Read-only:
 // SetChargingSchedule is never called. A schedule is a daily window
 // (startTime and duration in minutes after local midnight, on the listed
 // weekDays) at a location: the app stamps the truck's position when the

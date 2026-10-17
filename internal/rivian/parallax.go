@@ -153,8 +153,8 @@ func decodeDynamicsGNSS(b64 string) (*DynamicsGNSS, error) {
 // ParallaxRawFrame is one captured Parallax message: the RVM topic, its
 // server timestamp, and the raw base64 protobuf payload. Used to
 // reverse-engineer a topic's wire shape from live frames before writing
-// a decoder (the reliable path — the app's protobuf classes are
-// R8-obfuscated and the nested layouts don't read cleanly from smali).
+// a decoder (the reliable path: field layouts are confirmed against real
+// frames, not assumed).
 type ParallaxRawFrame struct {
 	RVM        string `json:"rvm"`
 	Timestamp  string `json:"timestamp"`
@@ -546,7 +546,7 @@ const (
 	rvmCabinTemps = "comfort.cabin.cabin_temperatures"
 	rvmClosures   = "body.closures.states"
 	rvmLocks      = "body.locks.states"
-	// Remaining Path-B read-state topics (exact names from APK 3.14.0),
+	// Remaining Path-B read-state topics,
 	// carried only under the capture flag for raw-payload shadow RE until
 	// each is decoded and promoted into the base list above. (Windows are
 	// NOT a separate topic — the R1S reports them on body.closures.states
@@ -563,7 +563,7 @@ const (
 	rvmPetMode     = "comfort.cabin.pet_mode_status"
 	rvmClimateHold = "comfort.cabin.climate_hold_status"
 	rvmImmobilizer = "security.access.immobilizer_state"
-	// rvmChargingStatus is charging.session.status (APK 3.17 RVM 35), the
+	// rvmChargingStatus is charging.session.status, the
 	// plug indicator an R2's vehicleState lacks: {1: plug_connection_status,
 	// 2: display_status, 3: evse_type}. The app writes it into its own
 	// vehicleState chargerStatus/chargerState (see chargerStatusFromParallax).
@@ -590,7 +590,7 @@ var CaptureRVMs = []string{
 	rvmPetMode, rvmClimateHold, rvmImmobilizer,
 }
 
-// body.closures.states / body.locks.states enum values (APK 3.14.0).
+// body.closures.states / body.locks.states enum values.
 // Both are repeated {1: instance, 2: status}. Closure instances: 1-4 doors
 // (row1 L/R, row2 L/R), 5 frunk, 6 tailgate, 7 liftgate, 11 tonneau, 12-15
 // windows. Lock instances: 1-4 doors. Status is meaningful only when
@@ -741,9 +741,8 @@ func powerStateFromParallax(v uint64) string {
 
 // driveModeFromParallax maps the dynamics.vehicle.drive_mode enum to the
 // lowercase driveMode string vehicleState reports (client.go: "everyday" |
-// "sport" | …). Numbers are from the Rivian APK 3.14.0 proto enum
-// (DRIVE_MODE_*_VALUE), anchored by the live capture (2 = EVERYDAY, the
-// default). UNSPECIFIED/INIT_MODE/FAULT (0/1/7) return "" so those
+// "sport" | …). Numbers follow the drive-mode enum, anchored by the live
+// capture (2 = EVERYDAY, the default). UNSPECIFIED/INIT_MODE/FAULT (0/1/7) return "" so those
 // non-display states fall back to vehicleState.
 func driveModeFromParallax(v uint64) string {
 	switch v {
@@ -780,9 +779,8 @@ func driveModeFromParallax(v uint64) string {
 
 // The following four map single-varint (field 1) Parallax status enums to
 // the lowercase strings the UI formatters already understand (see
-// LivePanel formatBoolish / formatTwelveVolt / formatPrecondition). All
-// numbers are from the Rivian APK 3.14.0 protobuf enums (extracted from
-// classes*.dex). 0 (UNSPECIFIED) and any unknown value return "" so the
+// LivePanel formatBoolish / formatTwelveVolt / formatPrecondition). The
+// numbers follow the topics' protobuf enums. 0 (UNSPECIFIED) and any unknown value return "" so the
 // field falls back to vehicleState.
 
 // alarmSoundFromParallax: security.alarm.state field 1 (sound_alarm).
@@ -1006,8 +1004,8 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 	}
 }
 
-// ChargingStatus is one charging.session.status frame (APK 3.17 proto
-// fields; enum values pinned from the decompile). Absent fields are 0, the
+// ChargingStatus is one charging.session.status frame, validated against
+// vehicleState's chargerStatus on live frames. Absent fields are 0, the
 // proto default: plug INIT, display SNA.
 type ChargingStatus struct {
 	Plug    uint64 // 1: 0 INIT, 1 NOT_CONNECTED, 2 CONNECTED, 3 ERROR, 4 V2L_CONNECTED
@@ -1110,7 +1108,7 @@ func chargerStateFromParallax(display uint64) string {
 }
 
 // BatteryCharacteristics is one energy.high_voltage.battery_characteristics
-// frame (APK 3.17 proto). The enums are logged raw; packCapacityKWh names
+// frame. The enums are logged raw; packCapacityKWh names
 // the capacity one.
 type BatteryCharacteristics struct {
 	Chemistry    uint64  // 1: 1 NCA, 2 LFP, 3 NMC
@@ -1177,8 +1175,8 @@ func packCapacityKWh(v uint64) float64 {
 	}
 }
 
-// decodeOTADeployment parses ota.deployment.state (APK 3.17 proto) the way
-// the app does:
+// decodeOTADeployment parses ota.deployment.state (validated against
+// getOTAUpdateDetails on live frames):
 //
 //	1: repeated Software { 1: category (1 = FIRMWARE), 2: Version,
 //	                       3: deployment_id, 4: AvailableOTA }

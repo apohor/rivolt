@@ -19,7 +19,7 @@ import (
 //     address, the order and the payment-method card (brand, last four);
 //     none of that is selected here, so none of it can reach us, be logged
 //     or be stored. Do not add fields to these documents without the
-//     privacy review (docs/product/privacy-policy.DRAFT.md data list).
+//     privacy review (the data list in web/src/content/privacy.md).
 //
 // Both go through doGraphQLAt like every other call, so the kill switch,
 // the breaker, the upstream bucket and the per-operation metrics label

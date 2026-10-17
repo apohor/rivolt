@@ -16,7 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 )
 
-// Product events (docs/product/instrumentation.md). First-party only,
+// Product events. First-party only,
 // counts and enums, no IP or User-Agent stored. Off unless
 // RIVOLT_EVENTS=true.
 const (

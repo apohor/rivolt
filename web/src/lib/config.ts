@@ -65,7 +65,7 @@ export type RuntimeConfig = {
     // that doesn't send the field is treated as enabled.
     signupEnabled: boolean;
     // eventsEnabled mirrors RIVOLT_EVENTS: track() sends nothing unless
-    // true (first-party product events, instrumentation.md).
+    // true (first-party product events: counts and enums only).
     eventsEnabled: boolean;
     // demoOnly: this deployment is the public sample-truck demo (no
     // sign-in, no Rivian): "/" lands on /demo, auth routes redirect there

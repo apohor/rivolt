@@ -14,9 +14,8 @@ import (
 // time-boxed capture and decode-logged only, so backend and ux can promote
 // them one at a time from real frames. Nothing is applied to State.
 //
-// Each frame is logged as its protobuf field tree (pbTree), with the field
-// names pinned from the APK 3.17 decompile where the app's decoder for the
-// topic is known. The raw payload is never logged, and a topic can drop
+// Each frame is logged as its protobuf field tree (pbTree), with field
+// names where the topic's layout is known. The raw payload is never logged, and a topic can drop
 // strings altogether (vehicle.network.state carries the Wi-Fi SSID).
 
 // pxNextCaptureUntil ends the capture: the topics leave the subscription
@@ -29,8 +28,8 @@ func pxNextCapturing(now time.Time) bool { return now.Before(pxNextCaptureUntil)
 type pxNextSpec struct {
 	// log is the short topic name on the log line.
 	log string
-	// names are the top-level field names from the decompile; nil when the
-	// app's decoder for the topic isn't pinned (numbers only).
+	// names are the top-level field names; nil when the layout isn't
+	// known yet (numbers only).
 	names map[int]string
 	// strings lets the topic's strings into the log. Off for every topic:
 	// strings are dropped at any depth until a decode proves the topic
@@ -43,12 +42,11 @@ type pxNextSpec struct {
 	coarse bool
 }
 
-// pxNextTopics are the tier 1 and tier 2 topics. Proto classes are the
-// decompile's (R8 names) for whoever promotes a topic.
+// pxNextTopics are the tier 1 and tier 2 topics.
 var pxNextTopics = map[string]pxNextSpec{
 	// Tier 1: user value.
 	"energy_edge_compute.graphs.parked_energy_distributions": {log: "parked_energy"},
-	"charging.session.time_estimation": {log: "charge_time_estimation", // bbl
+	"charging.session.time_estimation": {log: "charge_time_estimation",
 		names: map[int]string{1: "validity_flag", 2: "remaining_minutes"}},
 	"charging.smart_charging.settings":                   {log: "smart_charging_settings", coarse: true},
 	"charging.smart_charging.smart_charging_info":        {log: "smart_charging_info", coarse: true},
@@ -58,23 +56,23 @@ var pxNextTopics = map[string]pxNextSpec{
 	"vehicle.network.state":                       {log: "network"},
 	"energy_edge_compute.graphs.cold_weather_soc": {log: "cold_weather_soc"},
 	"vehicle.wheels.vehicle_wheels":               {log: "wheels"},
-	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}, coarse: true}, // brc
+	"dynamics.vehicle.location":                   {log: "known_location", names: map[int]string{1: "known_location"}, coarse: true},
 	// Tier 2: Phase 5 completeness.
-	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},                        // zbi
-	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}}, // c8m
-	"charging.session.notification": {log: "charge_notification", // dle
+	"charging.session.soc_slider":  {log: "soc_slider", names: map[int]string{1: "user_soc_limit"}},
+	"charging.session.trip_target": {log: "trip_target", names: map[int]string{1: "soc", 2: "time_estimate", 3: "status"}},
+	"charging.session.notification": {log: "charge_notification",
 		names: map[int]string{1: "unexpected_stop_reason", 2: "derate_status", 3: "fault_chime"}},
 	"comfort.cabin.hvac_settings_status":     {log: "hvac_settings"},
 	"comfort.cabin.defrost_defog_status":     {log: "defrost_defog"},
-	"comfort.cabin.seat_conditioning_status": {log: "seat_conditioning", names: map[int]string{1: "levels"}},                                  // lyi
-	"security.access.vas_fault":              {log: "vas_fault", names: map[int]string{1: "secure_element_faulted", 2: "access_can_faulted"}}, // ozm
-	"security.access.btm": {log: "btm", names: map[int]string{ // vr1
+	"comfort.cabin.seat_conditioning_status": {log: "seat_conditioning", names: map[int]string{1: "levels"}},
+	"security.access.vas_fault":              {log: "vas_fault", names: map[int]string{1: "secure_element_faulted", 2: "access_can_faulted"}},
+	"security.access.btm": {log: "btm", names: map[int]string{
 		1: "ff_hardware_failure_status", 2: "ic_hardware_failure_status", 3: "lfd_hardware_failure_status",
 		4: "rf_hardware_failure_status", 5: "rfd_hardware_failure_status", 6: "oc_hardware_failure_error",
 		7: "ffr_hardware_failure_error", 8: "rfr_hardware_failure_error", 9: "ffl_hardware_failure_error",
 		10: "rfl_hardware_failure_error"}},
 	// Armed state only; no video, no streaming topics.
-	"security.video_monitoring.state": {log: "video_monitoring", names: map[int]string{1: "video_monitoring_status", 2: "video_mode", 3: "tos_acceptance"}}, // eko
+	"security.video_monitoring.state": {log: "video_monitoring", names: map[int]string{1: "video_monitoring_status", 2: "video_mode", 3: "tos_acceptance"}},
 }
 
 // pxNextRVMs lists pxNextTopics for the subscription, in a fixed order.

@@ -555,7 +555,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 	// above and must still see every frame — a gear or charger-state
 	// transition arriving 100 ms after the previous sample is real
 	// and must not be dropped. (dynamics.vehicle.gear is authoritative
-	// for drive-open per docs/PARALLAX_MIGRATION.md.)
+	// for drive-open.)
 	//
 	// This is a rate limiter, not the end state: row count still
 	// scales with topic count, and the Parallax migration keeps

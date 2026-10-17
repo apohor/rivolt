@@ -4,9 +4,8 @@ import { useEffect } from "react";
 import { getConfig } from "../lib/config";
 import { track } from "../lib/track";
 
-// Public landing page for signed-out visitors (docs/product/landing.md),
-// rendered at "/" only when the install enables it. Copy follows
-// claims-verification.md: claims about Rivolt's own behaviour only,
+// Public landing page for signed-out visitors, rendered at "/" only when
+// the install enables it. Copy makes claims about Rivolt's own behaviour only,
 // nothing about Rivian's app, no "real-time" or "battery-friendly"
 // headline. Illustrations are drawn components with masked figures,
 // never real data or screenshots. No third-party assets.

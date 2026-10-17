@@ -121,8 +121,7 @@ type StateMonitor struct {
 	//     (monotonic stall-bridge; never lowers its finer 0.01-mi to km).
 	//   - power.state / drive_mode: mapped enum applied to the cache.
 	// Never advances m.stamp, so the vehicleState watchdog is untouched.
-	// Off by default; preview-only until proven. See
-	// docs/PARALLAX_MIGRATION.md Phase 2.
+	// Off by default; on with RIVOLT_PARALLAX.
 	parallaxDriveDynamics bool
 	// parallaxCapture (RIVOLT_PARALLAX_CAPTURE) adds the not-yet-decoded
 	// read topics (CaptureRVMs) to the drive-dynamics subscription for
@@ -2066,8 +2065,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // It never applies Parallax P (mid-drive P blips would fragment) and never
 // advances m.stamp (record() doesn't), so the vehicleState watchdog and
 // drive-close authority are untouched. Gated on
-// RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity; see
-// docs/PARALLAX_MIGRATION.md Phase 2.
+// RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
 		m.onDriveDynamicsFrame(ctx, vehicleID, f)
@@ -2100,7 +2098,7 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		m.logger.Info("parallax drive-dynamics shadow",
 			"vehicle", vehicleID, "topic", "drive_mode",
 			"px_enum", f.Value, "px_mode", dm, "ts_ms", f.TimestampMs)
-		// Apply the mapped drive mode (APK 3.14.0 enum) to the cache.
+		// Apply the mapped drive mode to the cache.
 		// Unmapped enums (unspecified/init/fault) fall back to vehicleState.
 		// Like the gear, only from a fresh frame: a replay re-sends the
 		// mode of the last change, however long ago.
