@@ -138,6 +138,46 @@ func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {
 	}, selectAnomaly)
 }
 
+// NotifySoftwareUpdate fires when a vehicle is offered a new software
+// version (installed=false) or its installed version changed
+// (installed=true). Scoped to the user via store. notesURL is the
+// release-notes link, opened by tapping the notification; it must be
+// an https URL, anything else is dropped and the tap opens the app.
+func (s *Service) NotifySoftwareUpdate(store *Store, vehicle, version, notesURL string, installed bool) {
+	if s == nil || store == nil || version == "" {
+		return
+	}
+	p := softwareUpdatePayload(vehicle, version, notesURL, installed)
+	go s.broadcast(store, p, selectSoftwareUpdate)
+}
+
+func softwareUpdatePayload(vehicle, version, notesURL string, installed bool) Payload {
+	if vehicle == "" {
+		vehicle = "your vehicle"
+	} else {
+		vehicle = "your " + vehicle
+	}
+	p := Payload{Tag: "rivolt-software-update", URL: "/", Kind: "software_update"}
+	if installed {
+		p.Title = "Software updated"
+		p.Body = fmt.Sprintf("%s is now on %s.", capitalize(vehicle), version)
+	} else {
+		p.Title = "Software update available"
+		p.Body = fmt.Sprintf("Update %s available for %s.", version, vehicle)
+	}
+	if u, err := url.Parse(notesURL); err == nil && u.Scheme == "https" && u.Host != "" {
+		p.URL = notesURL
+	}
+	return p
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 // SendTest delivers a single test notification to one endpoint. The
 // store must be scoped to the requesting user so we don't leak test
 // pings across tenants.
@@ -168,6 +208,7 @@ type selector func(Subscription) bool
 func selectChargingDone(s Subscription) bool   { return s.OnChargingDone }
 func selectPlugInReminder(s Subscription) bool { return s.OnPlugInReminder }
 func selectAnomaly(s Subscription) bool        { return s.OnAnomaly }
+func selectSoftwareUpdate(s Subscription) bool { return s.OnSoftwareUpdate }
 
 // broadcast fans a payload out to every stored subscription matching
 // the selector. Each send is independent: one bad subscription can't

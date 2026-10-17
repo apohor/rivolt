@@ -39,7 +39,26 @@ type store interface {
 	Save(ctx context.Context, uid uuid.UUID, rivianID string, info *rivian.OTAInfo) error
 	MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID string) error
 	Vehicles(ctx context.Context, uid uuid.UUID) ([]string, error)
+	// Seed records a vehicle's first-seen versions as the silent baseline
+	// (true only the first time); ClaimNotice reports whether an alert for
+	// the (kind, version) is new; Label names the vehicle for the alert.
+	Seed(ctx context.Context, uid uuid.UUID, rivianID, installed, available string) (bool, error)
+	ClaimNotice(ctx context.Context, uid uuid.UUID, rivianID, kind, version string) (bool, error)
+	Label(ctx context.Context, uid uuid.UUID, rivianID string) string
 }
+
+// Update is a software-update event worth an alert: a new version offered
+// (Installed false) or the installed version changed (Installed true).
+type Update struct {
+	UserID          uuid.UUID
+	Vehicle         string // model or name, e.g. "R1S"
+	Version         string
+	ReleaseNotesURL string
+	Installed       bool
+}
+
+// Notifier delivers an Update (web push). It must not block.
+type Notifier func(Update)
 
 // pgStore stores the details in vehicles.metadata.
 type pgStore struct{ d *sql.DB }
@@ -60,6 +79,25 @@ func (p *pgStore) MarkUnavailable(ctx context.Context, uid uuid.UUID, rivianID s
 	return db.MarkOTAUnavailable(ctx, p.d, uid, rivianID)
 }
 
+func (p *pgStore) Seed(ctx context.Context, uid uuid.UUID, rivianID, installed, available string) (bool, error) {
+	return db.SeedOTANotices(ctx, p.d, uid, rivianID, installed, available)
+}
+
+func (p *pgStore) ClaimNotice(ctx context.Context, uid uuid.UUID, rivianID, kind, version string) (bool, error) {
+	return db.ClaimOTANotice(ctx, p.d, uid, rivianID, kind, version)
+}
+
+// Label is the vehicle's model ("R1S"), else its name, else "".
+func (p *pgStore) Label(ctx context.Context, uid uuid.UUID, rivianID string) string {
+	var model, name sql.NullString
+	_ = p.d.QueryRowContext(ctx, `SELECT model, display_name FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`,
+		uid, rivianID).Scan(&model, &name)
+	if model.Valid && model.String != "" {
+		return model.String
+	}
+	return name.String
+}
+
 func (p *pgStore) Vehicles(ctx context.Context, uid uuid.UUID) ([]string, error) {
 	return db.ListUserRivianVehicleIDs(ctx, p.d, uid)
 }
@@ -72,6 +110,63 @@ type Syncer struct {
 	users    func(ctx context.Context) ([]uuid.UUID, error)
 	logger   *slog.Logger
 	sleep    func(ctx context.Context, d time.Duration)
+	notify   Notifier
+}
+
+// SetNotifier makes the syncer announce new and installed versions. Call
+// before Run.
+func (s *Syncer) SetNotifier(n Notifier) { s.notify = n }
+
+// announce alerts on a version not announced before. A vehicle's first
+// sync only records its baseline. Failures are logged, never fatal: the
+// details are already saved and the next pass retries what was not
+// claimed.
+func (s *Syncer) announce(ctx context.Context, uid uuid.UUID, id string, info *rivian.OTAInfo) {
+	if s.notify == nil || info == nil {
+		return
+	}
+	installed, available := "", ""
+	if info.Current != nil {
+		installed = info.Current.Version
+	}
+	if info.Available != nil && info.Available.Version != installed {
+		available = info.Available.Version
+	}
+	seeded, err := s.st.Seed(ctx, uid, id, installed, available)
+	if err != nil {
+		s.logger.Warn("ota details: baseline failed", "user_id", uid.String(), "err", err.Error())
+		return
+	}
+	if seeded {
+		return
+	}
+	label := s.st.Label(ctx, uid, id)
+	for _, e := range []struct {
+		kind, version, notes string
+		installed            bool
+	}{
+		{db.OTAAvailable, available, notesURL(info.Available), false},
+		{db.OTAInstalled, installed, notesURL(info.Current), true},
+	} {
+		if e.version == "" {
+			continue
+		}
+		fresh, err := s.st.ClaimNotice(ctx, uid, id, e.kind, e.version)
+		if err != nil {
+			s.logger.Warn("ota details: notice claim failed", "user_id", uid.String(), "err", err.Error())
+			continue
+		}
+		if fresh {
+			s.notify(Update{UserID: uid, Vehicle: label, Version: e.version, ReleaseNotesURL: e.notes, Installed: e.installed})
+		}
+	}
+}
+
+func notesURL(v *rivian.OTAVersion) string {
+	if v == nil {
+		return ""
+	}
+	return v.ReleaseNotesURL
 }
 
 // New wires a Syncer over a pool.
@@ -132,6 +227,7 @@ func (s *Syncer) SyncUser(ctx context.Context, uid uuid.UUID) (int, error) {
 		if err := s.st.Save(ctx, uid, id, info); err != nil {
 			return fetched, err
 		}
+		s.announce(ctx, uid, id, info)
 		fetched++
 	}
 	return fetched, nil

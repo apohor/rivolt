@@ -21,6 +21,7 @@ type fakeStore struct {
 	saved   []string
 	// unavailable records MarkUnavailable calls.
 	unavailable []string
+	notices     map[string]bool
 }
 
 func (f *fakeStore) Claim(_ context.Context, _ uuid.UUID, id string, _ time.Duration) (bool, error) {
@@ -36,6 +37,36 @@ func (f *fakeStore) MarkUnavailable(_ context.Context, _ uuid.UUID, id string) e
 	return nil
 }
 func (f *fakeStore) Vehicles(context.Context, uuid.UUID) ([]string, error) { return f.ids, nil }
+
+// Notice bookkeeping, like the Postgres side: the first Seed per vehicle
+// wins, ClaimNotice is insert-if-absent.
+func (f *fakeStore) Seed(_ context.Context, _ uuid.UUID, id, installed, available string) (bool, error) {
+	if f.notices == nil {
+		f.notices = map[string]bool{}
+	}
+	for k := range f.notices {
+		if strings.HasPrefix(k, id+"|") {
+			return false, nil
+		}
+	}
+	seeded := false
+	for kind, v := range map[string]string{"installed": installed, "available": available} {
+		if v != "" {
+			f.notices[id+"|"+kind+"|"+v] = true
+			seeded = true
+		}
+	}
+	return seeded, nil
+}
+func (f *fakeStore) ClaimNotice(_ context.Context, _ uuid.UUID, id, kind, v string) (bool, error) {
+	k := id + "|" + kind + "|" + v
+	if f.notices[k] {
+		return false, nil
+	}
+	f.notices[k] = true
+	return true, nil
+}
+func (f *fakeStore) Label(context.Context, uuid.UUID, string) string { return "R1S" }
 
 type fakeAcct struct {
 	rivian.Account
@@ -139,5 +170,56 @@ func TestSyncUserBacksOffNotAvailableAndContinues(t *testing.T) {
 		if _, err := s.SyncUser(context.Background(), uuid.New()); err == nil || len(st.unavailable) != 0 || len(acct.calls) != 1 {
 			t.Errorf("%s: err %v unavailable %v calls %v; want a stop, no back-off", name, err, st.unavailable, acct.calls)
 		}
+	}
+}
+
+func info(cur, avail string) *rivian.OTAInfo {
+	i := &rivian.OTAInfo{Current: &rivian.OTAVersion{Version: cur}}
+	if avail != "" {
+		i.Available = &rivian.OTAVersion{Version: avail, ReleaseNotesURL: "https://rivian.example/notes/" + avail}
+	}
+	return i
+}
+
+// The first sync of a vehicle is a silent baseline; a new available version
+// alerts once; the same version again (a restart, the next day's sync) does
+// not; installing it alerts once as "installed".
+func TestAnnounceBaselineThenNewVersionThenInstalledOnce(t *testing.T) {
+	st := &fakeStore{notices: map[string]bool{}}
+	s, _ := newTest(st, &fakeAcct{})
+	var got []Update
+	s.SetNotifier(func(u Update) { got = append(got, u) })
+	uid := uuid.New()
+	ctx := context.Background()
+
+	s.announce(ctx, uid, "v1", info("2026.30", "2026.36")) // baseline: silent
+	if len(got) != 0 {
+		t.Fatalf("first sync alerted: %v", got)
+	}
+	s.announce(ctx, uid, "v1", info("2026.30", "2026.36")) // same again
+	if len(got) != 0 {
+		t.Fatalf("known version alerted: %v", got)
+	}
+	s.announce(ctx, uid, "v1", info("2026.30", "2026.38")) // new offer
+	s.announce(ctx, uid, "v1", info("2026.30", "2026.38")) // restart: no repeat
+	if len(got) != 1 || got[0].Installed || got[0].Version != "2026.38" || got[0].Vehicle != "R1S" ||
+		got[0].ReleaseNotesURL != "https://rivian.example/notes/2026.38" {
+		t.Fatalf("available alert = %+v", got)
+	}
+	s.announce(ctx, uid, "v1", info("2026.38", "")) // installed
+	s.announce(ctx, uid, "v1", info("2026.38", ""))
+	if len(got) != 2 || !got[1].Installed || got[1].Version != "2026.38" {
+		t.Fatalf("installed alert = %+v", got)
+	}
+}
+
+func TestAnnounceWithoutNotifierOrInfoIsNoOp(t *testing.T) {
+	st := &fakeStore{notices: map[string]bool{}}
+	s, _ := newTest(st, &fakeAcct{})
+	s.announce(context.Background(), uuid.New(), "v1", info("1", "2")) // no notifier
+	s.SetNotifier(func(Update) { t.Fatal("alerted") })
+	s.announce(context.Background(), uuid.New(), "v1", nil)
+	if len(st.notices) != 0 {
+		t.Errorf("recorded %v", st.notices)
 	}
 }

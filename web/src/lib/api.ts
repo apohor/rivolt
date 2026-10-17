@@ -813,6 +813,7 @@ export type PushPreferences = {
   on_charging_done: boolean;
   on_plug_in_reminder: boolean;
   on_anomaly: boolean;
+  on_software_update: boolean;
 };
 
 // PushStatus is the aggregated state returned by GET /api/push/status.

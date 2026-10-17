@@ -893,6 +893,11 @@ func runServer() {
 			// exist), stored in vehicles.metadata and served by /api/vehicles.
 			otaSyncer := otadetails.New(pgPool, accountRegistry,
 				func(ctx context.Context) ([]uuid.UUID, error) { return db.ListUsersWithRivianSession(ctx, pgPool) }, logger)
+			if pushSvc != nil && pushFactory != nil {
+				otaSyncer.SetNotifier(func(u otadetails.Update) {
+					pushSvc.NotifySoftwareUpdate(pushFactory.For(u.UserID), u.Vehicle, u.Version, u.ReleaseNotesURL, u.Installed)
+				})
+			}
 			go otaSyncer.Run(ctx)
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func([]rivian.Vehicle) {
 				return func(vs []rivian.Vehicle) {

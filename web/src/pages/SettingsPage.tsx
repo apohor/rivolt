@@ -1835,6 +1835,7 @@ export function NotificationsPanel() {
     on_charging_done: true,
     on_plug_in_reminder: true,
     on_anomaly: true,
+    on_software_update: true,
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1987,6 +1988,7 @@ export function NotificationsPanel() {
             ["on_charging_done", "Charging session completes"],
             ["on_plug_in_reminder", "I forget to plug in"],
             ["on_anomaly", "An anomaly is detected"],
+            ["on_software_update", "Software updates"],
           ] as const
         ).map(([key, label]) => (
           <label key={key} className="flex items-center gap-2">

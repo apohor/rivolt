@@ -25,8 +25,8 @@ type pushSubscribeRequest struct {
 		P256dh string `json:"p256dh"`
 		Auth   string `json:"auth"`
 	} `json:"keys"`
-	Preferences *push.Preferences `json:"preferences,omitempty"`
-	UserAgent   string            `json:"user_agent,omitempty"`
+	Preferences json.RawMessage `json:"preferences,omitempty"`
+	UserAgent   string          `json:"user_agent,omitempty"`
 }
 
 func handlePushVAPIDKey(svc *push.Service) http.HandlerFunc {
@@ -62,9 +62,14 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 		// Default both toggles to on so first-time subscribers get the
 		// behaviour they almost certainly expected when they tapped
 		// "Enable notifications".
-		prefs := push.Preferences{OnChargingDone: true, OnPlugInReminder: true, OnAnomaly: true}
-		if body.Preferences != nil {
-			prefs = *body.Preferences
+		prefs := push.Preferences{OnChargingDone: true, OnPlugInReminder: true, OnAnomaly: true, OnSoftwareUpdate: true}
+		if len(body.Preferences) > 0 && string(body.Preferences) != "null" {
+			// Decode over the defaults so a client that predates a toggle
+			// (an old cached PWA) leaves it on instead of turning it off.
+			if err := json.Unmarshal(body.Preferences, &prefs); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid preferences: " + err.Error()})
+				return
+			}
 		}
 
 		sub := push.Subscription{
@@ -74,6 +79,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			OnChargingDone:   prefs.OnChargingDone,
 			OnPlugInReminder: prefs.OnPlugInReminder,
 			OnAnomaly:        prefs.OnAnomaly,
+			OnSoftwareUpdate: prefs.OnSoftwareUpdate,
 			UserAgent:        body.UserAgent,
 		}
 		if err := store.Upsert(r.Context(), sub); err != nil {
@@ -94,6 +100,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			"on_charging_done", prefs.OnChargingDone,
 			"on_plug_in_reminder", prefs.OnPlugInReminder,
 			"on_anomaly", prefs.OnAnomaly,
+			"on_software_update", prefs.OnSoftwareUpdate,
 		)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":          true,

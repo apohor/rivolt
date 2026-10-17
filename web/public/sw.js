@@ -156,6 +156,13 @@ self.addEventListener("notificationclick", (event) => {
   const target = (event.notification.data && event.notification.data.url) || "/";
   event.waitUntil(
     (async () => {
+      // A cross-origin target (a release-notes page) opens in its own
+      // window: navigating the app's window away from Rivolt would strand
+      // the user outside the PWA.
+      if (/^https:\/\//.test(target) && new URL(target).origin !== self.location.origin) {
+        if (self.clients.openWindow) await self.clients.openWindow(target);
+        return;
+      }
       const all = await self.clients.matchAll({
         type: "window",
         includeUncontrolled: true,
