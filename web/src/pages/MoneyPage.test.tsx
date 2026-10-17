@@ -121,7 +121,7 @@ describe("MoneyPage", () => {
       "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [] } },
     });
     renderAt("/money");
-    expect(await screen.findByText(/No charging recorded in/)).toBeInTheDocument();
+    expect(await screen.findByText("Nothing priced yet")).toBeInTheDocument();
   });
 
   it("falls back to the two bars when by_place_kind is absent", async () => {
