@@ -86,6 +86,8 @@ function UpdateAlertsRow() {
     pushSupported() && Notification.permission === "denied" ? "blocked" : "idle",
   );
   const [subscribed, setSubscribed] = useState(false);
+  // The tap is held until we know whether this device is already subscribed.
+  const [checked, setChecked] = useState(false);
   const [hidden, setHidden] = useState(() => {
     try {
       return window.localStorage.getItem(ALERTS_DISMISS_KEY) === "1";
@@ -95,7 +97,11 @@ function UpdateAlertsRow() {
   });
   useEffect(() => {
     if (!pushSupported()) return;
-    void navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription()).then((s) => setSubscribed(!!s));
+    void navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((s) => setSubscribed(!!s))
+      .catch(() => undefined)
+      .finally(() => setChecked(true));
   }, []);
   if (!pushSupported() || !status.data?.enabled) return null;
   const on = state === "on" || (subscribed && state !== "blocked");
@@ -103,7 +109,7 @@ function UpdateAlertsRow() {
   async function enable() {
     setState("busy");
     try {
-      const r = await subscribeThisDevice({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true });
+      const r = await subscribeThisDevice({ on_charging_done: false, on_plug_in_reminder: false, on_anomaly: false, on_software_update: true }, { leaveExisting: true });
       setState(r === "on" ? "on" : "blocked");
     } catch {
       setState("error");
@@ -145,7 +151,7 @@ function UpdateAlertsRow() {
           <button
             type="button"
             onClick={enable}
-            disabled={state === "busy"}
+            disabled={state === "busy" || !checked}
             className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50"
           >
             Turn on alerts

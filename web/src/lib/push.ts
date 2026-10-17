@@ -18,7 +18,10 @@ export function pushSupported(): boolean {
 
 // Subscribes this device and registers it with the server. Asks the browser for permission only
 // when it has not been granted, so call it from a tap. Resolves "denied" when the user says no.
-export async function subscribeThisDevice(prefs: PushPreferences): Promise<"on" | "denied"> {
+// The server replaces a device's preferences with whatever is posted, and the client cannot read
+// them back, so a device that is already subscribed is left alone when `leaveExisting` is set
+// (its kinds were chosen in Settings and must not be reset).
+export async function subscribeThisDevice(prefs: PushPreferences, opts?: { leaveExisting?: boolean }): Promise<"on" | "denied"> {
   if (Notification.permission !== "granted") {
     const p = await Notification.requestPermission();
     if (p !== "granted") return "denied";
@@ -26,9 +29,9 @@ export async function subscribeThisDevice(prefs: PushPreferences): Promise<"on" 
   const reg = await navigator.serviceWorker.ready;
   const { public_key } = await backend.pushVAPIDKey();
   if (!public_key) throw new Error("Server is missing a VAPID public key.");
-  const s =
-    (await reg.pushManager.getSubscription()) ??
-    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(public_key) }));
+  const existing = await reg.pushManager.getSubscription();
+  if (existing && opts?.leaveExisting) return "on";
+  const s = existing ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(public_key) }));
   const json = s.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
   if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) throw new Error("Subscription is missing endpoint or keys.");
   await backend.pushSubscribe({

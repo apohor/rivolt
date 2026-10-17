@@ -8,16 +8,21 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 // The "Update alerts" row in the first-day card. Chromium can't reach a real push service, so the
 // Push API is faked: the page sees a service worker with a pushManager, and a Notification whose
 // permission and prompt result the test picks.
-async function open(page: Page, o: { permission?: "default" | "denied"; prompt?: "granted" | "denied"; pushEnabled?: boolean } = {}) {
-  const { permission = "default", prompt = "granted", pushEnabled = true } = o;
+async function open(page: Page, o: { permission?: "default" | "denied" | "granted"; prompt?: "granted" | "denied"; pushEnabled?: boolean; existing?: boolean; checkDelayMs?: number } = {}) {
+  const { permission = "default", prompt = "granted", pushEnabled = true, existing = false, checkDelayMs = 0 } = o;
   await page.addInitScript(
-    ([perm, result]) => {
+    ([perm, result, hasSub, delay]) => {
       const w = window as unknown as Record<string, unknown>;
       w.__prompts = 0;
-      let sub: unknown = null;
+      let sub: unknown = hasSub
+        ? { toJSON: () => ({ endpoint: "https://push.example/0", keys: { p256dh: "p", auth: "a" } }), endpoint: "https://push.example/0" }
+        : null;
       const reg = {
         pushManager: {
-          getSubscription: async () => sub,
+          getSubscription: async () => {
+            await new Promise((r) => setTimeout(r, delay as number));
+            return sub;
+          },
           subscribe: async () => {
             sub = { toJSON: () => ({ endpoint: "https://push.example/1", keys: { p256dh: "p", auth: "a" } }), endpoint: "https://push.example/1" };
             return sub;
@@ -39,7 +44,7 @@ async function open(page: Page, o: { permission?: "default" | "denied"; prompt?:
       w.Notification = N;
       w.PushManager = function () {};
     },
-    [permission, prompt] as const,
+    [permission, prompt, existing, checkDelayMs] as const,
   );
   await stubApi(page, { uiNext: true });
   await page.route("**/api/drives*", (r) => (r.request().url().includes("/api/drives/") ? r.fallback() : r.fulfill({ json: [] })));
@@ -116,4 +121,17 @@ test("no row when the server has no push configured", async ({ page }) => {
   await expect(page.locator("[data-first-day]")).toBeVisible();
   await page.waitForTimeout(400);
   await expect(page.locator("[data-first-day-alerts]")).toHaveCount(0);
+});
+
+test("an already-subscribed device: the button waits for the check, then shows Alerts on without re-posting", async ({ page }) => {
+  let posts = 0;
+  await page.route("**/api/push/subscribe", (r) => {
+    posts++;
+    return r.fulfill({ json: { ok: true, preferences: {} } });
+  });
+  await open(page, { permission: "granted", existing: true, checkDelayMs: 800 });
+  const row = page.locator("[data-first-day-alerts]");
+  await expect(row.getByRole("button", { name: "Turn on alerts" })).toBeDisabled();
+  await expect(row).toContainText("Alerts on");
+  expect(posts).toBe(0);
 });
