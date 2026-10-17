@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -93,7 +94,7 @@ func isValidEmail(s string) bool {
 // "wait a minute, then sign in" screen is where some signups gave up.
 // issueSession may be nil (no auth configured); the SPA then falls
 // back to sending the user to /login.
-func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, issueSession func(http.ResponseWriter, *http.Request, uuid.UUID) error, m *metrics.Metrics, log *slog.Logger) http.HandlerFunc {
+func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, issueSession func(http.ResponseWriter, *http.Request, uuid.UUID) error, m *metrics.Metrics, log *slog.Logger, capOK func(context.Context) (bool, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SignupToken string `json:"signup_token"`
@@ -120,6 +121,15 @@ func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, iss
 		if err != nil {
 			writeJSON(w, http.StatusGone, map[string]any{"error": "signup link is invalid or expired"})
 			return
+		}
+		// A link approved automatically (no admin named) is only good while
+		// there is room: the cap is checked again here, because many links
+		// can be out at once. An admin's approval is exempt, as always.
+		if tokenReq.DecidedBy == nil && capOK != nil {
+			if ok, err := capOK(r.Context()); err != nil || !ok {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "Rivolt is at capacity right now. Your link stays valid for 14 days; please try again later."})
+				return
+			}
 		}
 		email := tokenReq.Email
 		if body.DisplayName == "" {

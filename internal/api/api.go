@@ -393,7 +393,7 @@ func New(d Deps) http.Handler {
 		// Deliberately outside the requireUser group — the user
 		// does not have a session yet.
 		if d.SignupRequests != nil && !signupgate.Disabled() {
-			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger))
+			r.With(maxBodyBytes(maxJSONBody)).Post("/signup", handleSignup(d.DB, d.SignupRequests, d.Users, signupSessionIssuer(d.Auth), d.Metrics, d.Logger, signupCapOK(d)))
 		}
 		// Public "request access" form companion to /signup. Anyone
 		// without an invite code can submit an email + short note;
@@ -408,7 +408,7 @@ func New(d Deps) http.Handler {
 			signupReqLimiter := newIPLimiter(5, time.Hour, time.Hour)
 			r.With(signupReqLimiter.Middleware, maxBodyBytes(maxJSONBody)).Post(
 				"/signup/request",
-				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger),
+				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger, newAutoApprove(d)),
 			)
 			// Magic-link prefill — the SPA hits this on /signup?token=…
 			// to resolve the token to its email before rendering the
@@ -1163,4 +1163,43 @@ func otelTraceRoute(next http.Handler) http.Handler {
 			span.SetName("HTTP " + r.Method + " " + pattern)
 		}
 	})
+}
+
+// signupCapOK reports whether a new account fits under the signup_cap flag
+// (limit <= 0 blocks; otherwise the user count must be under it): the same
+// rule the OIDC callback applies. nil without flags or a database.
+func signupCapOK(d Deps) func(ctx context.Context) (bool, error) {
+	if d.Flags == nil || d.DB == nil {
+		return nil
+	}
+	return func(ctx context.Context) (bool, error) {
+		lim := d.Flags.SignupCap().Limit
+		if lim <= 0 {
+			return false, nil
+		}
+		n, err := db.CountUsers(ctx, d.DB)
+		if err != nil {
+			return false, err
+		}
+		return n < lim, nil
+	}
+}
+
+// newAutoApprove wires the automatic approval of email signup requests
+// (verified email under the cap); nil leaves every request to an admin.
+func newAutoApprove(d Deps) *autoApprove {
+	capOK := signupCapOK(d)
+	if capOK == nil || d.Email == nil {
+		return nil
+	}
+	return &autoApprove{
+		capOK: capOK,
+		userExists: func(ctx context.Context, email string) (bool, error) {
+			return db.UserExistsByUsername(ctx, d.DB, email)
+		},
+		send: func(ctx context.Context, to, link string) error {
+			return sendApprovalEmail(ctx, d.Email, to, link)
+		},
+		baseURL: d.BaseURL,
+	}
 }

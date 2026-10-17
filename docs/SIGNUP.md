@@ -10,7 +10,7 @@ the OIDC steps and use the docker-compose login instead.
 ## 1. Sign up
 
 Rivolt is in public beta, no invite needed; total accounts are capped. There are two
-ways in:
+ways in, and both are instant while there is room:
 
 ### Option A — Continue with Google or GitHub (fastest)
 
@@ -25,22 +25,30 @@ If the beta is at capacity, the OAuth callback bounces you to a
 "we're at capacity" page with your email pre-filled — leave the
 request and we'll let you know when a seat opens up.
 
-### Option B — Request access by email (manual approval)
+### Option B — Sign up with your email
 
-If you'd rather not link a third-party account, leave your email
-on the signup page and we'll send a one-click signup link once
-approved:
+If you'd rather not link a third-party account, use your email. Like
+Google or GitHub, it works straight away while there is room (the
+total number of accounts is capped); the one extra step is proving
+you own the address, which the emailed link does:
 
 1. Open <https://rivolt.dev/signup>, enter your email, click
    **Request access**.
-2. Wait for the approval email from `anton@rivolt.dev` (usually
-   the same day — check spam if it doesn't appear; iCloud Mail
-   in particular tends to filter new senders). The link is
-   single-use and expires in 14 days.
+2. Check your inbox for the signup link from `anton@rivolt.dev`
+   (usually within a minute; check spam if it doesn't appear, iCloud
+   Mail in particular tends to filter new senders). The link is
+   single-use and expires in 14 days. The same address can ask for a
+   link up to three times a day.
 3. Click **Finish signup** in the email. The signup form opens
    with your email already filled in — provide a display name
    and a 12+ character password.
 4. Click **Create account**. You're signed in straight away.
+
+If the beta is at capacity, the request waits instead: it stays
+pending until a seat opens up and an admin approves it (or you ask
+again once there is room, which approves it), and the email arrives
+then. A link that was sent while there was room only works while
+there is still room when you click it; the page tells you if not.
 
 The token is consumed on success and your identity is provisioned
 at `auth.rivolt.dev` (Ory Kratos under the hood).

@@ -40,7 +40,7 @@ func TestSignupRequestCreateLogsNoEmail(t *testing.T) {
 	defer d.Close()
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-	h := handleSignupRequestCreate(signuprequests.New(d), nil, logger)
+	h := handleSignupRequestCreate(signuprequests.New(d), nil, logger, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/signup/request",
 		strings.NewReader(`{"email":"john.smith+qa@gmail.com"}`))

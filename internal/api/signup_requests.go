@@ -72,7 +72,7 @@ func toSignupRequestRow(r signuprequests.Request) signupRequestRow {
 // Body: {"email": "...", "message": "..."}
 // 201 on success. Returns a generic 200 even on already-pending so
 // requesters can't enumerate prior submissions.
-func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client, logger *slog.Logger) http.HandlerFunc {
+func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client, logger *slog.Logger, auto *autoApprove) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "signup requests disabled"})
@@ -95,6 +95,15 @@ func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client
 		message := strings.TrimSpace(body.Message)
 		if len(message) > 2000 {
 			message = message[:2000]
+		}
+		// Under the signup cap, an email request is approved at once: the
+		// signup link goes to the address, and clicking it is what verifies
+		// the email (the account only exists after that). Over the cap, or
+		// with auto-approval off, the request waits for an admin as before.
+		if auto != nil {
+			if handled := auto.try(w, r, store, logger, reqEmail, message); handled {
+				return
+			}
 		}
 		_, err := store.Create(r.Context(), reqEmail, message)
 		switch {
@@ -296,7 +305,7 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 	// Same-domain redirect (served by GET /discord) so the email's links align with the sender domain.
 	const discordURL = "https://rivolt.dev/discord"
 	text := "Hi,\n\n" +
-		"Your request for Rivolt beta access has been approved.\n\n" +
+		"Here is your link to finish creating your Rivolt account.\n\n" +
 		"Click this link to finish signing up (it'll prefill your email\n" +
 		"so you only need to pick a password):\n\n" +
 		"    " + link + "\n\n" +
@@ -306,7 +315,7 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		"    " + discordURL + "\n\n" +
 		"— Anton (anton@rivolt.dev)\n"
 	html := "<p>Hi,</p>" +
-		"<p>Your request for Rivolt beta access has been approved.</p>" +
+		"<p>Here is your link to finish creating your Rivolt account.</p>" +
 		"<p>Click below to finish signing up — your email is already filled in, " +
 		"you'll just need to pick a password.</p>" +
 		"<p><a href=\"" + link + "\" " +
@@ -332,4 +341,81 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// autoApprove is the automatic approval of email signup requests.
+type autoApprove struct {
+	// capOK reports whether a new account fits under the signup cap now.
+	capOK func(ctx context.Context) (bool, error)
+	// userExists reports whether an account already uses the email.
+	userExists func(ctx context.Context, email string) (bool, error)
+	// send mails the signup link (the Resend client in production).
+	send    func(ctx context.Context, to, link string) error
+	baseURL string
+	now     func() time.Time
+}
+
+// Per address: at most this many requests in autoWindow get a link, so the
+// public form cannot be used to mail one inbox repeatedly.
+const (
+	autoMaxPerEmail = 3
+	autoWindow      = 24 * time.Hour
+)
+
+// try handles the request when it can be approved automatically and returns
+// true; false means "not handled, take the normal pending path". Every
+// handled answer has the same shape, so the response never reveals whether
+// the address already has an account or was throttled.
+func (a *autoApprove) try(w http.ResponseWriter, r *http.Request, store *signuprequests.Store, logger *slog.Logger, reqEmail, message string) bool {
+	ctx := r.Context()
+	ok, err := a.capOK(ctx)
+	if err != nil || !ok {
+		return false // over the cap (or unknown): the request waits for an admin
+	}
+	reply := func() { writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "auto_approved": true}) }
+	if exists, err := a.userExists(ctx, reqEmail); err == nil && exists {
+		reply() // already registered: nothing to send, same answer
+		return true
+	}
+	now := time.Now()
+	if a.now != nil {
+		now = a.now()
+	}
+	if n, err := store.CountSince(ctx, reqEmail, now.Add(-autoWindow)); err == nil && n >= autoMaxPerEmail {
+		reply() // throttled: no further email
+		return true
+	}
+	req, err := store.Create(ctx, reqEmail, message)
+	if errors.Is(err, signuprequests.ErrAlreadyPending) {
+		// An earlier request (made over the cap) is still waiting: approve it.
+		var id uuid.UUID
+		if id, err = store.PendingID(ctx, reqEmail); err == nil {
+			req.ID = id
+		}
+	}
+	if err != nil {
+		if logger != nil {
+			logger.WarnContext(ctx, "auto-approve: create failed",
+				slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
+		}
+		return false
+	}
+	row, err := store.ApproveWithToken(ctx, req.ID, uuid.Nil, 0)
+	if err != nil {
+		if logger != nil {
+			logger.WarnContext(ctx, "auto-approve: approve failed",
+				slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
+		}
+		return true // the request exists; an admin can approve it
+	}
+	token := ""
+	if row.SignupToken != nil {
+		token = *row.SignupToken
+	}
+	if err := a.send(ctx, row.Email, signupLink(a.baseURL, token)); err != nil && logger != nil {
+		logger.WarnContext(ctx, "auto-approve: email failed",
+			slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
+	}
+	reply()
+	return true
 }

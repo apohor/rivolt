@@ -185,6 +185,13 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 		return Request{}, fmt.Errorf("signuprequests: mint token: %w", err)
 	}
 	expires := time.Now().Add(ttl)
+	// decidedBy == uuid.Nil is an automatic approval (verified email under
+	// the signup cap): decided_by stays NULL, which is how the signup step
+	// knows to re-check the cap. An admin's approval always names the admin.
+	var by any
+	if decidedBy != uuid.Nil {
+		by = decidedBy
+	}
 	var r Request
 	err = s.db.QueryRowContext(ctx, `
 		UPDATE signup_requests
@@ -196,7 +203,7 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 		       decided_at = NOW()
 		 WHERE id = $4 AND status = 'pending'
 		 RETURNING id, email, message, status, signup_token, token_expires_at, token_used_at, decided_by, decided_at, requested_at
-	`, token, expires, decidedBy, id).Scan(
+	`, token, expires, by, id).Scan(
 		&r.ID, &r.Email, &r.Message, &r.Status,
 		nullStringScanner{&r.SignupToken},
 		nullTimeScanner{&r.TokenExpiresAt},
@@ -212,6 +219,29 @@ func (s *Store) ApproveWithToken(ctx context.Context, id, decidedBy uuid.UUID, t
 		return Request{}, fmt.Errorf("signuprequests: approve with token: %w", err)
 	}
 	return r, nil
+}
+
+// PendingID returns the id of the email's pending request, or ErrNotFound.
+func (s *Store) PendingID(ctx context.Context, email string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM signup_requests WHERE email = $1 AND status = 'pending'`,
+		strings.ToLower(strings.TrimSpace(email))).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, ErrNotFound
+	}
+	return id, err
+}
+
+// CountSince is how many requests the email made since t, whatever their
+// status: the throttle that keeps a public form from mailing one address
+// over and over.
+func (s *Store) CountSince(ctx context.Context, email string, t time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM signup_requests WHERE email = $1 AND requested_at >= $2`,
+		strings.ToLower(strings.TrimSpace(email)), t).Scan(&n)
+	return n, err
 }
 
 // LookupToken returns the approved row whose signup_token matches.

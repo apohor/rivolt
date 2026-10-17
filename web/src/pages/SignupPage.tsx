@@ -107,6 +107,8 @@ export default function SignupPage() {
   const [reqError, setReqError] = useState<string | null>(null);
   const [reqSubmitting, setReqSubmitting] = useState(false);
   const [reqSent, setReqSent] = useState(false);
+  // True when the server mailed the signup link at once (room under the cap).
+  const [reqAuto, setReqAuto] = useState(false);
 
   const passwordChecks = useMemo(
     () => rules.map((r) => ({ ...r, ok: r.test(password) })),
@@ -173,12 +175,13 @@ export default function SignupPage() {
     setReqError(null);
     setReqSubmitting(true);
     try {
-      await backend.requestSignup({
+      const res = await backend.requestSignup({
         email: trimmed,
       });
-      // Backend returns ok=true for both fresh requests and
-      // already-pending duplicates; either way the user-facing
-      // outcome is identical so we don't differentiate.
+      // Under the signup cap the link is emailed at once; otherwise the
+      // request waits for approval. Fresh requests and already-pending
+      // duplicates look the same to the user.
+      setReqAuto(res?.auto_approved === true);
       setReqSent(true);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -365,11 +368,15 @@ export default function SignupPage() {
               </form>
             ) : (
               <div className="rounded-md border border-emerald-900 bg-emerald-950/40 px-3 py-4 text-sm text-emerald-200">
-                <div className="mb-1 font-semibold">Request received.</div>
+                <div className="mb-1 font-semibold">
+                  {reqAuto ? "Check your inbox." : "Request received."}
+                </div>
                 <p className="text-emerald-200/80">
-                  We'll email{" "}
-                  <span className="text-emerald-100 font-mono">{reqEmail}</span>{" "}
-                  when you're approved — usually within the same day.
+                  {reqAuto ? "We sent a signup link to " : "We'll email "}
+                  <span className="text-emerald-100 font-mono">{reqEmail}</span>
+                  {reqAuto
+                    ? ". Open it to finish creating your account."
+                    : " when you're approved — usually within the same day."}
                 </p>
                 <p className="mt-2 text-xs text-emerald-200/70">
                   Check your spam folder or add{" "}
