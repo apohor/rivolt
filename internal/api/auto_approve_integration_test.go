@@ -45,6 +45,7 @@ func TestSignupRequestAutoApprove(t *testing.T) {
 	}
 	store := signuprequests.New(pool)
 	mail := &linkMail{}
+	var wg sync.WaitGroup
 	limit := 2
 	auto := &autoApprove{
 		capOK: func(ctx context.Context) (bool, error) {
@@ -53,6 +54,7 @@ func TestSignupRequestAutoApprove(t *testing.T) {
 		},
 		userExists: func(ctx context.Context, e string) (bool, error) { return db.UserExistsByUsername(ctx, pool, e) },
 		send:       mail.send,
+		wg:         &wg,
 		baseURL:    "https://rivolt.test",
 	}
 	h := handleSignupRequestCreate(store, nil, nil, auto)
@@ -60,6 +62,7 @@ func TestSignupRequestAutoApprove(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/api/signup/request", strings.NewReader(`{"email":"`+addr+`"}`))
 		h(rec, req)
+		wg.Wait() // the mail is sent in the background
 		var b map[string]any
 		_ = json.Unmarshal(rec.Body.Bytes(), &b)
 		return rec.Code, b

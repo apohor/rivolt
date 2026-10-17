@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apohor/rivolt/internal/auth"
@@ -353,6 +354,8 @@ type autoApprove struct {
 	send    func(ctx context.Context, to, link string) error
 	baseURL string
 	now     func() time.Time
+	// wg, when set, counts in-flight background sends (tests wait on it).
+	wg *sync.WaitGroup
 }
 
 // Per address: at most this many requests in autoWindow get a link, so the
@@ -406,16 +409,32 @@ func (a *autoApprove) try(w http.ResponseWriter, r *http.Request, store *signupr
 			logger.WarnContext(ctx, "auto-approve: approve failed",
 				slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
 		}
-		return true // the request exists; an admin can approve it
+		reply() // same answer; the request exists and an admin can approve it
+		return true
 	}
 	token := ""
 	if row.SignupToken != nil {
 		token = *row.SignupToken
 	}
-	if err := a.send(ctx, row.Email, signupLink(a.baseURL, token)); err != nil && logger != nil {
-		logger.WarnContext(ctx, "auto-approve: email failed",
-			slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
+	// Reply first and mail in the background, so how long the answer takes
+	// does not depend on whether a mail was sent (an address with an account
+	// answers without one). The send gets its own bounded context: the
+	// request's ends with the reply.
+	to, link := row.Email, signupLink(a.baseURL, token)
+	if a.wg != nil {
+		a.wg.Add(1)
 	}
+	go func() {
+		if a.wg != nil {
+			defer a.wg.Done()
+		}
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := a.send(sctx, to, link); err != nil && logger != nil {
+			logger.WarnContext(sctx, "auto-approve: email failed",
+				slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
+		}
+	}()
 	reply()
 	return true
 }
