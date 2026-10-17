@@ -18,6 +18,8 @@ import (
 // below are indexable. Anything else (preview.rivolt.dev, a self-host,
 // an IP) is treated as non-public: Disallow: / and X-Robots-Tag: noindex.
 
+const pathElectraFi = "/moving-from-electrafi"
+
 const (
 	hostApp  = "rivolt.dev"
 	hostDemo = "demo.rivolt.dev"
@@ -46,6 +48,12 @@ var seoPages = map[string]map[string]seoPage{
 			title:   "Terms of service | Rivolt",
 			desc:    "The terms for using Rivolt, a free, open-source companion for Rivian owners run by an individual. " + notAffiliated,
 			summary: "Rivolt terms of service. " + notAffiliated,
+		},
+		pathElectraFi: {
+			title: "Moving your history from ElectraFi to Rivolt",
+			desc:  "How to import your ElectraFi drives and charges into Rivolt, a free, open-source tracker for Rivian owners. " + notAffiliated,
+			summary: "Export your ElectraFi data (Settings, Account, Advanced, Download ElectraFi Data), then upload the CSVs in Rivolt under Settings, Data, " +
+				"Import ElectraFi CSV. Rivolt skips anything it has already recorded. Rivolt is not affiliated with ElectraFi. " + notAffiliated,
 		},
 	},
 	hostDemo: {
@@ -123,7 +131,11 @@ func llmsTxt(host string) (string, bool) {
 		b.WriteString("- [Demo](https://" + hostDemo + "/): a generated sample truck, no sign-in\n")
 	}
 	b.WriteString("- [Privacy policy](" + base + "/privacy): what is recorded, retention and deletion\n")
-	b.WriteString("- [Terms of service](" + base + "/terms)\n\n## Source\n\n")
+	b.WriteString("- [Terms of service](" + base + "/terms)\n")
+	if _, ok := pages[pathElectraFi]; ok {
+		b.WriteString("- [Moving from ElectraFi](" + base + pathElectraFi + "): import ElectraFi history\n")
+	}
+	b.WriteString("\n## Source\n\n")
 	b.WriteString("- [GitHub](" + repoURL + "): source code and self-hosting\n")
 	b.WriteString("- [Sign-up and import guide](" + repoURL + "/blob/main/docs/SIGNUP.md)\n\n")
 	b.WriteString("Rivolt is unofficial and not affiliated with, endorsed by or sponsored by Rivian. Rivian is a trademark of Rivian Automotive, LLC.\n")
@@ -218,7 +230,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range []string{"/", "/privacy", "/terms"} {
+	for _, p := range []string{"/", "/privacy", "/terms", pathElectraFi} {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}
