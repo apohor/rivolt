@@ -86,11 +86,22 @@ export function SocTrendChart({
   const line = monotone(xy);
   const area = xy.length > 1 ? `${line} L ${xy[xy.length - 1][0].toFixed(1)} ${Y(0)} L ${xy[0][0].toFixed(1)} ${Y(0)} Z` : "";
   const clip = (s: Span) => ({ a: Math.max(s.x0, x0), b: Math.min(s.x1, x1) });
+  // A band is a faint wash over the plot plus a solid strip on the bottom axis, with a
+  // minimum width so a short session is still a visible mark at month and year scale.
+  const STRIP = 6;
   const band = (s: Span, i: number, color: string, kind: string) => {
     const { a, b } = clip(s);
     if (b <= a) return null;
-    return <rect key={`${kind}${i}`} x={X(a)} y={PAD.t} width={Math.max(1.5, X(b) - X(a))} height={ih} fill={color} opacity={0.16} data-band={kind} />;
+    const wd = Math.max(3, X(b) - X(a));
+    return (
+      <g key={`${kind}${i}`} data-band={kind} data-draw={kind}>
+        <rect x={X(a)} y={PAD.t} width={wd} height={ih} fill={color} opacity={0.1} />
+        <rect x={X(a)} y={PAD.t + ih - STRIP} width={wd} height={STRIP} rx={1} fill={color} />
+      </g>
+    );
   };
+  const drawnCharge = charges.some((s) => clip(s).b > clip(s).a);
+  const drawnDrive = drives.some((s) => clip(s).b > clip(s).a);
   const lo = pts.reduce<Pt | null>((m, p) => (m == null || p.y < m.y ? p : m), null);
   const hi = pts.reduce<Pt | null>((m, p) => (m == null || p.y > m.y ? p : m), null);
   const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -98,7 +109,8 @@ export function SocTrendChart({
   const ticks = Array.from({ length: nt }, (_, i) => x0 + ((x1 - x0) * i) / (nt - 1));
 
   const at = (x: number) => {
-    if (pts.length === 0) return null;
+    // No reading outside the recorded span (the crosshair would otherwise float over empty space).
+    if (pts.length === 0 || x < pts[0].x || x > pts[pts.length - 1].x) return null;
     let i = pts.findIndex((p) => p.x >= x);
     if (i <= 0) i = i === 0 ? 0 : pts.length - 1;
     const a = pts[Math.max(0, i - 1)];
@@ -129,8 +141,8 @@ export function SocTrendChart({
       >
         <defs>
           <linearGradient id="soc-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#10b981" stopOpacity="0.38" />
-            <stop offset="100%" stopColor="#10b981" stopOpacity="0" />
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
           </linearGradient>
         </defs>
         {[0, 50, 100].map((v) => (
@@ -142,20 +154,20 @@ export function SocTrendChart({
         {charges.map((s, i) => band(s, i, "#10b981", "charge"))}
         {drives.map((s, i) => band(s, i, "#38bdf8", "drive"))}
         {limit != null && limit > 0 && limit < 100 && (
-          <g data-testid="soc-limit">
+          <g data-testid="soc-limit" data-draw="limit">
             <line x1={PAD.l} x2={PAD.l + iw} y1={Y(limit)} y2={Y(limit)} stroke="#f59e0b" strokeDasharray="4 3" strokeWidth={1} />
             <text x={PAD.l + iw + 4} y={Y(limit) + 3.5} className="fill-amber-400 text-[10px]">Limit {Math.round(limit)}%</text>
           </g>
         )}
-        {area && <path d={area} fill="url(#soc-fill)" />}
-        {line && <path d={line} fill="none" stroke="#10b981" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+        {area && <path d={area} fill="url(#soc-fill)" className="text-neutral-100" />}
+        {line && <path d={line} data-draw="line" fill="none" stroke="currentColor" className="text-neutral-100" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
         {hi && lo && hi.x !== lo.x && (
-          <>
-            <circle cx={X(hi.x)} cy={Y(hi.y)} r={3.5} fill="#10b981" stroke="currentColor" className="text-neutral-950" />
+          <g data-draw="extreme">
+            <circle cx={X(hi.x)} cy={Y(hi.y)} r={3.5} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
             <text x={X(hi.x)} y={Y(hi.y) - 7} textAnchor="middle" className="fill-neutral-300 text-[10px]" data-testid="soc-max">{Math.round(hi.y)}%</text>
-            <circle cx={X(lo.x)} cy={Y(lo.y)} r={3.5} fill="#10b981" stroke="currentColor" className="text-neutral-950" />
+            <circle cx={X(lo.x)} cy={Y(lo.y)} r={3.5} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
             <text x={X(lo.x)} y={Y(lo.y) + 15} textAnchor="middle" className="fill-neutral-300 text-[10px]" data-testid="soc-min">{Math.round(lo.y)}%</text>
-          </>
+          </g>
         )}
         {ticks.map((t, i) => (
           <text key={i} x={X(t)} y={H - 6} textAnchor={i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"} className="fill-neutral-500 text-[10px]">{day(t)}</text>
@@ -163,7 +175,7 @@ export function SocTrendChart({
         {hover != null && hv && (
           <g pointerEvents="none">
             <line x1={X(hover)} x2={X(hover)} y1={PAD.t} y2={PAD.t + ih} stroke="currentColor" className="text-neutral-400" strokeOpacity={0.6} />
-            <circle cx={X(hover)} cy={Y(hv.y)} r={4} fill="#10b981" stroke="currentColor" className="text-neutral-950" />
+            <circle cx={X(hover)} cy={Y(hv.y)} r={4} fill="currentColor" stroke="currentColor" className="text-neutral-100" />
           </g>
         )}
       </svg>
@@ -181,9 +193,39 @@ export function SocTrendChart({
           {hv.state}
         </div>
       )}
-      <p className="mt-1 flex flex-wrap gap-x-4 text-[11px] text-neutral-500">
-        <span><span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: "#10b981", opacity: 0.5 }} />Charging</span>
-        <span><span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: "#38bdf8", opacity: 0.5 }} />Driving</span>
+      <p data-soc-legend className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500">
+        {line && (
+          <span data-legend="line">
+            <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t-2 align-middle border-neutral-100" />
+            Battery %
+          </span>
+        )}
+        {drawnCharge && (
+          <span data-legend="charge">
+            <span aria-hidden className="mr-1 inline-block h-1.5 w-4 rounded-[1px] align-middle" style={{ background: "#10b981" }} />
+            Charging
+          </span>
+        )}
+        {drawnDrive && (
+          <span data-legend="drive">
+            <span aria-hidden className="mr-1 inline-block h-1.5 w-4 rounded-[1px] align-middle" style={{ background: "#38bdf8" }} />
+            Driving
+          </span>
+        )}
+        {limit != null && limit > 0 && limit < 100 && (
+          <span data-legend="limit">
+            <svg aria-hidden width="16" height="4" className="mr-1 inline-block align-middle">
+              <line data-testid="legend-limit-swatch" x1="0" x2="16" y1="2" y2="2" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3" />
+            </svg>
+            Charge limit
+          </span>
+        )}
+        {hi && lo && hi.x !== lo.x && (
+          <span data-legend="extreme">
+            <span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-full bg-neutral-100 align-middle" />
+            High and low
+          </span>
+        )}
       </p>
     </div>
   );

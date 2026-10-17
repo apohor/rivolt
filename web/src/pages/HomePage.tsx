@@ -478,7 +478,7 @@ export default function HomePage() {
               }
             />
             )}
-            {capacityPct > 0 ? (
+            {capacityPct > 0 && !next ? (
               <p className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <span
                   aria-hidden
