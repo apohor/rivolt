@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
 // config.ts caches /api/config at module level, so each case gets a
@@ -16,9 +17,11 @@ async function mount(signupEnabled: boolean | undefined, path: "/login" | "/sign
   });
   const Page = (await import(path === "/login" ? "./LoginPage" : "./SignupPage")).default;
   return render(
-    <MemoryRouter initialEntries={[path + query]}>
-      <Page />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter initialEntries={[path + query]}>
+        <Page />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
