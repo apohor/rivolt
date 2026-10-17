@@ -146,28 +146,3 @@ func TestR2PlugStateFromParallax(t *testing.T) {
 		}
 	})
 }
-
-func TestBatteryCharsTimeBoxed(t *testing.T) {
-	m := NewStateMonitor(nil, nil)
-	m.parallaxCapture = true
-	defer func(u time.Time) { pxChargeCaptureUntil = u }(pxChargeCaptureUntil)
-	has := func() bool {
-		for _, t := range m.captureTopics("v")() {
-			if t == rvmBatteryChars {
-				return true
-			}
-		}
-		return false
-	}
-	pxChargeCaptureUntil = time.Now().Add(time.Hour)
-	if !has() {
-		t.Error("battery_characteristics missing during the capture")
-	}
-	pxChargeCaptureUntil = time.Now().Add(-time.Hour)
-	if has() {
-		t.Error("battery_characteristics still subscribed after the capture")
-	}
-	if len(CaptureRVMs) > 0 && CaptureRVMs[len(CaptureRVMs)-1] == rvmBatteryChars {
-		t.Error("CaptureRVMs was appended to in place")
-	}
-}

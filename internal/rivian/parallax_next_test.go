@@ -79,8 +79,6 @@ func TestPxNextNetworkNeverLogsStrings(t *testing.T) {
 
 func TestPxNextTimeBox(t *testing.T) {
 	defer func(u time.Time) { pxNextCaptureUntil = u }(pxNextCaptureUntil)
-	defer func(u time.Time) { pxChargeCaptureUntil = u }(pxChargeCaptureUntil)
-	pxChargeCaptureUntil = time.Time{}
 	var buf syncBuffer
 	m := NewStateMonitor(nil, nil)
 	m.logger = slog.New(slog.NewJSONHandler(&buf, nil))

@@ -569,20 +569,12 @@ const (
 	// vehicleState chargerStatus/chargerState (see chargerStatusFromParallax).
 	rvmChargingStatus = "charging.session.status"
 	// rvmBatteryChars is energy.high_voltage.battery_characteristics, the
-	// pack's own identity and usable capacity. Decode-logged only, and
-	// subscribed only until pxChargeCaptureUntil.
+	// pack's identity and usable capacity. Not subscribed: the Oct 2026
+	// capture showed its user_total_kwh equals vehicleState's capacity, and
+	// no fleet pack is LFP (scratchpad r2-gaps). decodeBatteryCharacteristics
+	// stays, pinned and tested, for whoever shows the pack chemistry.
 	rvmBatteryChars = "energy.high_voltage.battery_characteristics"
 )
-
-// pxChargeCaptureUntil time-boxes the charging.session.status capture: until
-// then the R2s log its raw payload, and every vehicle subscribes to and logs
-// battery_characteristics (dropped at the first reconnect after it). One day
-// of frames to check the decode against the R1s' vehicleState chargerStatus
-// and their known packs.
-var pxChargeCaptureUntil = time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
-
-// pxChargeCapturing reports whether the time-boxed capture is still on.
-func pxChargeCapturing(now time.Time) bool { return now.Before(pxChargeCaptureUntil) }
 
 // CaptureRVMs are the read topics carried on the drive-dynamics
 // subscription only under the preview capture flag, so prod isn't
