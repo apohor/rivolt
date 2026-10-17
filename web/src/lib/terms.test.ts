@@ -18,7 +18,7 @@ describe("termsGateActive", () => {
     expect(termsGateActive({}, "/")).toBe(false);
   });
   it("keeps the legal pages, sign-in and the demo open", () => {
-    for (const p of ["/privacy", "/terms", "/login", "/auth/hydra/login", "/signup", "/signup/full", "/demo", "/demo/money"]) {
+    for (const p of ["/privacy", "/terms", "/lease-calculator", "/login", "/auth/hydra/login", "/signup", "/signup/full", "/demo", "/demo/money"]) {
       expect(termsGateActive(me(true), p), p).toBe(false);
     }
     expect(termsGateActive(me(true), "/privacy-settings")).toBe(true);
