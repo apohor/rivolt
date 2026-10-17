@@ -81,10 +81,14 @@ export function LeaseBody({ st, allowed, currency, end, unit }: { st: LeaseStatu
             <dd className="text-xs text-neutral-500">{st.days_left.toLocaleString()} days left</dd>
           </div>
           <div>
-            <dt className="ui-label">Projected return</dt>
-            <dd data-lease-projected-odo className="font-semibold tabular-nums text-neutral-100">
-              {st.projected_return_odometer_mi != null ? dist(st.projected_return_odometer_mi, unit) : "—"}
+            <dt className="ui-label">Projected at return</dt>
+            <dd data-lease-projected-total className="font-semibold tabular-nums text-neutral-100">
+              {st.projected_total_mi != null ? dist(st.projected_total_mi, unit) : "—"}
+              <span className="ml-1 text-xs font-normal text-neutral-400">of lease miles</span>
             </dd>
+            {st.projected_return_odometer_mi != null && (
+              <dd data-lease-projected-odo className="text-xs tabular-nums text-neutral-500">odometer ~{dist(st.projected_return_odometer_mi, unit)}</dd>
+            )}
             {st.pace_mi_per_day != null && (
               <dd className="text-xs text-neutral-500">at {dist(st.pace_mi_per_day, unit)} a day{st.pace_basis === "last_90_days" ? " (last 90 days)" : st.pace_basis === "lease_to_date" ? " (since the lease began)" : ""}</dd>
             )}
