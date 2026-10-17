@@ -265,6 +265,8 @@ function Statement({
       ? m.first_activity_at
       : null;
   const empty = m.receipts.length === 0 && m.spend.total === 0;
+  const chargingSettings = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
+  const rateSet = (chargingSettings.data?.home_price_per_kwh ?? 0) > 0;
 
   return (
     <>
@@ -309,8 +311,8 @@ function Statement({
                 because no home rate is set.{" "}
                 <Link to={appPath("/settings?tab=charging#cost")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
                   Set your home rate
-                </Link>{" "}
-                and they are priced.
+                </Link>
+                .
               </>
             )}
             {!(m.spend.unpriced_home_rate_estimate == null && m.spend.unpriced_kwh > 0) && "."}
@@ -423,15 +425,24 @@ function Statement({
 
       {empty ? (
         <Card>
-          <p className="text-sm text-neutral-400">
-            No charging recorded in {monthLabel(m.period)}. Once your truck charges, each session appears here with its cost: billed by Rivian where it reports a price, otherwise estimated from your home rate and network prices.
+          <h2 className="text-base font-semibold text-neutral-100">{rateSet ? "No charges recorded yet" : "Nothing priced yet"}</h2>
+          <p className="mt-1 text-sm text-neutral-400">
+            {rateSet ? (
+              <>No charges recorded in {monthLabel(m.period)}. They appear here as you charge.</>
+            ) : (
+              <>
+                Charges show up here priced at your home rate once Rivolt has recorded one. Set your rate in Settings → Charging so new charges are priced as they arrive.
+              </>
+            )}
           </p>
-          <p className="mt-2 text-sm text-neutral-400">
-            <Link to={appPath("/settings?tab=charging#cost")} className="text-emerald-300 underline underline-offset-4 hover:text-emerald-200">
-              Set your home rate
-            </Link>{" "}
-            now so home charging is priced from the first session.
-          </p>
+          {!rateSet && (
+            <Link
+              to={appPath("/settings?tab=charging#cost")}
+              className="mt-3 inline-block rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500"
+            >
+              Set home rate
+            </Link>
+          )}
         </Card>
       ) : (
         <>

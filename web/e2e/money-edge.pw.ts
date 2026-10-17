@@ -32,7 +32,7 @@ const SCENARIOS: Scenario[] = [
     name: "no-charges-this-month",
     receipts: () => [],
     opts: { miles: 212.4, drives: 9 },
-    text: [/No charging recorded in/],
+    text: [/No charges recorded yet/, /They appear here as you charge/],
     // No "-100% vs last month" or "$0.000/mi" on an empty month.
     absent: [/NaN|undefined|Infinity|vs September|\$0\.000\/mi/],
   },
@@ -99,9 +99,10 @@ const SCENARIOS: Scenario[] = [
     name: "brand-new-user",
     receipts: () => [],
     opts: { miles: 0, drives: 0 },
+    charging: { home_price_per_kwh: 0, home_currency: "USD", gas_price_per_gallon: 0, comparison_mpg: 0 },
     vehicles: [],
     summaryMonths: false,
-    text: [/Once your truck charges, each session appears here with its cost/, /Set your home rate/],
+    text: [/Nothing priced yet/, /Charges show up here priced at your home rate/, /Set home rate/],
     absent: [/NaN|undefined|Infinity/],
   },
 ];
@@ -114,7 +115,7 @@ async function setup(page: Page, sc: Scenario) {
     r.fulfill({ json: sc.summaryMonths === false ? { version: 1, tz: m.tz, currency: "USD", months: [] } : ledgerSummaryFixture(12) }),
   );
   if (sc.vehicles) await page.route("**/api/vehicles", (r) => r.fulfill({ json: sc.vehicles }));
-  if (sc.charging) await page.route("**/api/settings/charging", (r) => r.fulfill({ json: sc.charging }));
+  if (sc.charging) await page.route("**/api/settings/charging/", (r) => r.fulfill({ json: sc.charging }));
 }
 
 for (const sc of SCENARIOS) {
@@ -128,7 +129,7 @@ for (const sc of SCENARIOS) {
       await setup(page, sc);
       await page.goto("/money");
       await expect(page.getByRole("heading", { name: "Money" })).toBeVisible();
-      if (sc.name.startsWith("no-charges") || sc.name === "brand-new-user") await expect(page.getByText(/No charging recorded in/).first()).toBeVisible();
+      if (sc.name.startsWith("no-charges") || sc.name === "brand-new-user") await expect(page.getByText(/No charges recorded yet|Nothing priced yet/).first()).toBeVisible();
       else await expect(page.getByRole("region", { name: "Statement" })).toBeVisible();
       for (const t of sc.text) await expect(page.getByText(t).first()).toBeVisible();
       await page.waitForTimeout(500);
