@@ -21,6 +21,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/receipts"
+	"github.com/apohor/rivolt/internal/vehiclelease"
 )
 
 // "Take your data with you" (B11): GET /api/export.
@@ -78,6 +79,8 @@ type exportProfile struct {
 	// OTA is the stored software release details (versions and release-notes
 	// links Rivian publishes), when the OTA sync has fetched them.
 	OTA json.RawMessage `json:"ota,omitempty"`
+	// Lease is the lease-tracker terms, when set.
+	Lease *vehiclelease.Terms `json:"lease,omitempty"`
 }
 
 // exportData is everything an export contains.
@@ -266,7 +269,7 @@ rivian_receipts.csv  Rivian charging receipts we stored: amount, currency,
 drives.csv   every drive, including the encoded route polyline
 trips.csv    auto-detected multi-day trips (ledger), with cost and mix
 settings.json    your preferences (credentials are never included)
-vehicles.json    per-vehicle profile (pack capacity, tires, ...)
+vehicles.json    per-vehicle profile (pack capacity, tires, ...) and lease terms
 export.json      metadata: version, time, row counts
 
 Times are UTC (RFC 3339). Empty cells mean "not recorded". Raw telemetry
@@ -395,7 +398,8 @@ func loadExport(ctx context.Context, d Deps, uid uuid.UUID, now time.Time) (expo
 				if perr != nil {
 					continue
 				}
-				e.Profiles = append(e.Profiles, exportProfile{RivianVehicleID: v.RivianVehicleID, DisplayName: v.DisplayName, Profile: p, OTA: otas[v.RivianVehicleID]})
+				lease, _ := vehiclelease.NewStore(d.DB).Get(ctx, uid, v.ID)
+				e.Profiles = append(e.Profiles, exportProfile{RivianVehicleID: v.RivianVehicleID, DisplayName: v.DisplayName, Profile: p, OTA: otas[v.RivianVehicleID], Lease: lease})
 			}
 		}
 		// Trips: the ledger's own detection over all history.

@@ -15,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/vehiclelease"
 )
 
 // handleImportElectrafi accepts one or more CSV files in a multipart
@@ -217,9 +218,10 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		// vehicle row itself includes its rivian_vehicle_id so a
 		// future restore can match it back to the right truck.
 		type profileEntry struct {
-			RivianVehicleID string            `json:"rivian_vehicle_id"`
-			DisplayName     string            `json:"display_name,omitempty"`
-			Profile         db.VehicleProfile `json:"profile"`
+			RivianVehicleID string              `json:"rivian_vehicle_id"`
+			DisplayName     string              `json:"display_name,omitempty"`
+			Profile         db.VehicleProfile   `json:"profile"`
+			Lease           *vehiclelease.Terms `json:"lease,omitempty"`
 		}
 		profiles := []profileEntry{}
 		if d.DB != nil {
@@ -233,10 +235,12 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 						// backup over one bad row.
 						continue
 					}
+					lease, _ := vehiclelease.NewStore(d.DB).Get(ctx, uid, v.ID)
 					profiles = append(profiles, profileEntry{
 						RivianVehicleID: v.RivianVehicleID,
 						DisplayName:     v.DisplayName,
 						Profile:         p,
+						Lease:           lease,
 					})
 				}
 			}
