@@ -1,13 +1,16 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import path from "node:path";
 import { stubApi } from "./stub";
+
+const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 
 // The connect step answers "why hand over my Rivian login?" above the form, in Settings and in
 // Onboarding, and the existing privacy line stays.
 for (const route of ["/settings?tab=account", "/onboarding"] as const) {
   for (const theme of ["dark", "light"] as const) {
     for (const w of [390, 1280] as const) {
-      test(`connect reassurance · ${route} · ${w}px · ${theme}`, async ({ browser }, info) => {
+      test(`connect reassurance · ${route} · ${w}px · ${theme}`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript(([t]) => {
@@ -32,7 +35,7 @@ for (const route of ["/settings?tab=account", "/onboarding"] as const) {
         const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
         const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
         expect(summary, summary.join("\n")).toEqual([]);
-        await page.screenshot({ path: `/private/tmp/claude-501/-Users-anton-repos-rivolt/b975ed41-f384-4cc4-bcae-fc9b61c5bc11/scratchpad/reassure-${route.includes("onb") ? "onb" : "set"}-${w}-${theme}.png` });
+        await page.screenshot({ path: path.join(SHOTS, `connect-reassure-${route.includes("onb") ? "onb" : "set"}-${w}-${theme}.png`) });
         await ctx.close();
       });
     }
