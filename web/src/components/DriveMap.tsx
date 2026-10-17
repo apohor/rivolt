@@ -1436,15 +1436,18 @@ export function ChargeMap({
   );
 }
 
-// ChargeBucket categorizes a session for the overview map. Mirrors the
-// server-side cluster labels (Home/Public/Fast) but is computed from
-// max kW alone so callers don't have to plumb the cluster API through.
-//   - "fast": ≥ 30 kW peak (DCFC)
-//   - "l2":   3–30 kW peak (240 V AC, public or home)
+// ChargeBucket categorizes a session for the overview map by power.
+// "fast" is the server's DC fast charge (kind, the ledger's rule, as on
+// Money and every other page); only without a classification does it
+// fall back to peak power.
+//   - "fast": kind dcfc (else ≥ 50 kW peak)
+//   - "l2":   3 kW peak or more, AC (240 V, public or home)
 //   - "l1":   < 3 kW peak (110 V trickle / unknown)
-function chargeBucket(maxKW: number): "fast" | "l2" | "l1" {
+function chargeBucket(c: { MaxPowerKW: number; kind?: "ac" | "dcfc" }): "fast" | "l2" | "l1" {
+  if (c.kind === "dcfc") return "fast";
+  const maxKW = c.MaxPowerKW;
+  if (c.kind === undefined && Number.isFinite(maxKW) && maxKW >= 50) return "fast";
   if (!Number.isFinite(maxKW) || maxKW < 3) return "l1";
-  if (maxKW >= 30) return "fast";
   return "l2";
 }
 
@@ -1523,7 +1526,7 @@ export function ChargesOverviewMap({
     addBasemap(map);
 
     for (const c of valid) {
-      const bucket = chargeBucket(c.MaxPowerKW);
+      const bucket = chargeBucket(c);
       const m = L.marker([c.Lat, c.Lon], {
         icon: dotIcon(CHARGE_BUCKET_COLOR[bucket]),
       }).addTo(map);

@@ -2,7 +2,8 @@ import { formatMoney } from "../lib/ledger";
 import { appPath } from "../lib/demo";
 import { useNavigate } from "react-router-dom";
 import { clickableRowProps } from "./ui";
-import type { Charge, ChargeCluster, ChargeClusterLabel, Drive } from "../lib/api";
+import type { Charge, ChargeCluster, Drive } from "../lib/api";
+import { chargePlaceLabels, type ChargePlaceLabel } from "../lib/chargePlace";
 import { driveDurationSeconds } from "../lib/drives";
 import {
   durationSeconds,
@@ -97,7 +98,7 @@ export function ChargeTable({
   compact = false,
 }: {
   charges: Charge[];
-  labelByID: Map<string, ChargeClusterLabel>;
+  labelByID: Map<string, ChargePlaceLabel>;
   // The Activity Table view (ui_theme_next): the secondary columns drop out on a phone.
   compact?: boolean;
 }) {
@@ -161,27 +162,19 @@ export function ChargeTable({
   );
 }
 
-// labelMap projects the cluster response into a per-charge lookup the
-// table uses to colour rows. Unknown-bucket clusters contribute an
-// empty label so the UI renders a neutral dash.
-export function labelMap(clusters: ChargeCluster[]): Map<string, ChargeClusterLabel> {
-  const m = new Map<string, ChargeClusterLabel>();
-  for (const c of clusters) {
-    const label: ChargeClusterLabel =
-      c.label === "Home" || c.label === "Public" || c.label === "Fast"
-        ? c.label
-        : "";
-    for (const id of c.member_ids) m.set(id, label);
-  }
-  return m;
+// labelMap is the per-charge Home / Away / Fast label the table colours
+// rows by: the server's classification (lib/chargePlace), the cluster
+// label only where the server couldn't say. No label renders a dash.
+export function labelMap(charges: Charge[], clusters: ChargeCluster[]): Map<string, ChargePlaceLabel> {
+  return chargePlaceLabels(charges, clusters);
 }
 
-// LocationBadge renders the Home/Public/Fast tag. Styling follows the
+// LocationBadge renders the Home/Away/Fast tag. Styling follows the
 // convention of the rest of the app: Home leans emerald (positive /
 // matches the "ready" pill on Settings), Fast is amber (attention —
-// DCFC stops are the expensive ones), Public is plain neutral because
-// it's the default catch-all for non-home slow charging.
-function LocationBadge({ label }: { label: ChargeClusterLabel }) {
+// DCFC stops are the expensive ones), Away is plain neutral because
+// it's the catch-all for AC charging away from home.
+function LocationBadge({ label }: { label: ChargePlaceLabel }) {
   if (!label) {
     return <span className="text-neutral-600">—</span>;
   }
@@ -196,8 +189,8 @@ function LocationBadge({ label }: { label: ChargeClusterLabel }) {
       className={`text-xs px-2 py-0.5 rounded-full border ${tone}`}
       title={
         label === "Fast"
-          ? "Peak power ≥ 50 kW (DCFC)"
-          : "Clustered by charge location"
+          ? "DC fast charge"
+          : "By distance from your home location"
       }
     >
       {label}

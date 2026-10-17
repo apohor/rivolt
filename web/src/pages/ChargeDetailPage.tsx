@@ -20,7 +20,8 @@ import {
   num,
   pct,
 } from "../lib/format";
-import { formatTemperature, usePreferences } from "../lib/preferences";
+import { formatDistance, formatTemperature, usePreferences, type DistanceUnit } from "../lib/preferences";
+import { chargePlaceLabel } from "../lib/chargePlace";
 import { smoothGaussianTime } from "../lib/smooth";
 
 // nearestY returns the y of the series point closest in time to ms, or
@@ -577,6 +578,7 @@ export default function ChargeDetailPage() {
           charge={charge}
           insights={insights}
           tempUnit={prefs.temperatureUnit}
+          distanceUnit={prefs.distanceUnit}
         />
       </Card>
 
@@ -773,13 +775,23 @@ function SessionInsights({
   charge,
   insights,
   tempUnit,
+  distanceUnit,
 }: {
   charge: import("../lib/api").Charge;
   insights: SessionInsightsData | null;
   tempUnit: import("../lib/preferences").TemperatureUnit;
+  distanceUnit: DistanceUnit;
 }) {
   if (!insights) return null;
   const tier = insights.tier;
+  // Where: the same label as Now, Activity and Money (lib/chargePlace).
+  const place = chargePlaceLabel(charge);
+  const where =
+    place === "Fast"
+      ? "Fast charge"
+      : place === "Away" && charge.km_from_home != null
+        ? `Away · ${formatDistance(charge.km_from_home, distanceUnit)} from home`
+        : place || "—";
   return (
     <div className="space-y-4 text-sm text-neutral-300">
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -787,6 +799,7 @@ function SessionInsights({
           label="Final state"
           value={formatChargeState(charge.FinalState)}
         />
+        <Row label="Where" value={where} />
         <Row label="Charging tier" value={tier.label} />
         <Row label="Source" value={charge.Source} />
         <Row
@@ -1096,13 +1109,14 @@ function computeSessionInsights(
 
 // classifyChargingTier maps a session's peak charger power to the
 // canonical tier the operator would think in. Buckets borrow from
-// SAE J1772 / CCS naming: L1 wall outlet, L2 home, L2 commercial,
+// SAE J1772 / CCS naming: L1 wall outlet, L2, L2 high power,
 // then DC slow / standard / fast / ultra.
 function classifyChargingTier(maxKW: number): { label: string; hint: string } {
   if (maxKW <= 0) return { label: "—", hint: "no power data" };
   if (maxKW <= 2) return { label: "L1 (120 V)", hint: "wall outlet" };
-  if (maxKW <= 12) return { label: "L2 home", hint: "7–11 kW range" };
-  if (maxKW <= 25) return { label: "L2 commercial", hint: "destination charger" };
+  // Power only: where the charge was is the "Where" row.
+  if (maxKW <= 12) return { label: "L2", hint: "7–12 kW range" };
+  if (maxKW <= 25) return { label: "L2 high power", hint: "12–25 kW range" };
   if (maxKW <= 60) return { label: "DC slow", hint: "~50 kW DCFC" };
   if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW DCFC" };
   if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW DCFC" };
