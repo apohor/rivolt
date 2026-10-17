@@ -11,7 +11,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
-import { backend, type ChargeCluster, type ChargeClusterLabel } from "../lib/api";
+import { backend, type Charge, type ChargeCluster } from "../lib/api";
+import { chargePlaceLabels, type ChargePlaceLabel } from "../lib/chargePlace";
 import { Card, ErrorBox, PageHeader } from "../components/ui";
 import { BarChart, LineChart } from "../components/charts";
 import { IdleAwakeTile } from "../components/IdleAwakeTile";
@@ -81,10 +82,9 @@ export default function HomePage() {
   const ds = useMemo(() => driveStats(rangeDrives), [rangeDrives]);
   const cs = useMemo(() => chargeStats(winCharges), [winCharges]);
 
-  // Cluster labels are computed server-side over the full charge corpus
-  // (bigger sample => better Home detection). We intersect with the
-  // window-filtered set here so the Home/Public split reflects the
-  // same scope as the KPI row above it. Missing data is non-fatal.
+  // Cluster labels are only the fallback for charges the server couldn't
+  // classify (lib/chargePlace); the split follows the window like the KPI
+  // row above it. Missing data is non-fatal.
   const clusters = useQuery({
     queryKey: ["charges", "clusters"],
     queryFn: () => backend.chargeClusters(),
@@ -571,36 +571,30 @@ function Stat({
 // percentage math.
 type LocationSplitBuckets = {
   Home: { sessions: number; energyKWh: number };
-  Public: { sessions: number; energyKWh: number };
+  Away: { sessions: number; energyKWh: number };
   Fast: { sessions: number; energyKWh: number };
   total: number;
 };
 
-// locationSplit joins the window-filtered charges with the
-// server-computed cluster labels and groups by label. Unknown-bucket
-// charges (no GPS fix) and anything outside the window are excluded
-// so the denominator matches what the rest of the Overview shows.
+// locationSplit groups the window's charges by the shared Home / Away /
+// Fast label (lib/chargePlace: the server's classification, the same as
+// Money; the cluster label only where the server couldn't say). Charges
+// with no label are left out, so the denominator matches what the rest
+// of the Overview shows.
 function locationSplit(
-  winCharges: { ID: string; EnergyAddedKWh: number }[],
+  winCharges: Charge[],
   clusters: ChargeCluster[],
 ): LocationSplitBuckets {
-  const labelByID = new Map<string, ChargeClusterLabel>();
-  for (const c of clusters) {
-    const label: ChargeClusterLabel =
-      c.label === "Home" || c.label === "Public" || c.label === "Fast"
-        ? c.label
-        : "";
-    for (const id of c.member_ids) labelByID.set(id, label);
-  }
+  const labels = chargePlaceLabels(winCharges, clusters);
   const buckets: LocationSplitBuckets = {
     Home: { sessions: 0, energyKWh: 0 },
-    Public: { sessions: 0, energyKWh: 0 },
+    Away: { sessions: 0, energyKWh: 0 },
     Fast: { sessions: 0, energyKWh: 0 },
     total: 0,
   };
   for (const c of winCharges) {
-    const label = labelByID.get(c.ID);
-    if (label !== "Home" && label !== "Public" && label !== "Fast") continue;
+    const label = labels.get(c.ID);
+    if (!label) continue;
     buckets[label].sessions += 1;
     buckets[label].energyKWh += c.EnergyAddedKWh ?? 0;
     buckets.total += 1;
@@ -608,16 +602,14 @@ function locationSplit(
   return buckets;
 }
 
-// LocationSplit renders three tiles (Home / Public / Fast) with
+// LocationSplit renders three tiles (Home / Away / Fast) with
 // session count, energy, and percentage of sessions in the window.
 // Tone mirrors the badges on /charges so the two surfaces read as
-// the same concept. Home is the largest slow location cluster
-// (driveway / apartment L2). Public is every other slow session
-// (non-home L1/L2). Fast is the DCFC bucket keyed off peak power
-// regardless of location.
+// the same concept: Home and Away are AC charges by place, Fast is a
+// DC fast charge wherever it was (the ledger's rules, as on Money).
 function LocationSplit({ split }: { split: LocationSplitBuckets }) {
   const rows: {
-    label: ChargeClusterLabel;
+    label: ChargePlaceLabel;
     tone: string;
     sessions: number;
     energyKWh: number;
@@ -629,10 +621,10 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
       energyKWh: split.Home.energyKWh,
     },
     {
-      label: "Public",
+      label: "Away",
       tone: "border-neutral-700 text-neutral-300",
-      sessions: split.Public.sessions,
-      energyKWh: split.Public.energyKWh,
+      sessions: split.Away.sessions,
+      energyKWh: split.Away.energyKWh,
     },
     {
       label: "Fast",

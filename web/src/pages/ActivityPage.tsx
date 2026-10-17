@@ -12,6 +12,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { collapseRoundTrips } from "../lib/drives";
 import { ACTIVITY_VIEWS, parseActivityView, withActivityView, type ActivityView } from "../lib/activityView";
 import { ChargeTable, DriveTable, labelMap } from "../components/ActivityTables";
+import { chargePlaceLabel } from "../lib/chargePlace";
 import { ChargesOverviewMap, DrivesOverviewMap } from "../components/DriveMap";
 import { usePreferences } from "../lib/preferences";
 import { formatDuration, durationSeconds } from "../lib/format";
@@ -75,7 +76,7 @@ export default function ActivityPage() {
     staleTime: 60_000,
     enabled: view === "table",
   });
-  const labelByID = useMemo(() => labelMap(clustersQ.data ?? []), [clustersQ.data]);
+  const labelByID = useMemo(() => labelMap(chargesQ.data ?? [], clustersQ.data ?? []), [chargesQ.data, clustersQ.data]);
 
   // The rows behind the Table and Map views: the same period and round-trip
   // collapse as the feed, before the All/Drives/Charges filter.
@@ -328,7 +329,12 @@ function DriveCard({ item }: { item: DriveItem }) {
 function ChargeCard({ item, homeRate }: { item: ChargeItem; homeRate: number | null }) {
   const c: Charge = item.charge;
   const cost = chargeCostLine(c, homeRate);
-  const where = item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
+  // The shared label (lib/chargePlace); the feed's geofence guess only
+  // where the server gave no place.
+  const label = chargePlaceLabel(c);
+  const where =
+    label === "Fast" ? "Fast charge" : label === "Home" ? "Home charge" : label === "Away" ? "Away charge"
+    : item.fast ? "Fast charge" : item.atHome ? "Home charge" : "Charge";
   const energy = c.EnergyAddedKWh > 0 ? `${c.EnergyAddedKWh.toFixed(1)} kWh` : "no energy recorded";
   return (
     <Link to={detailPath("charges", c.ID)} className={CARD}>

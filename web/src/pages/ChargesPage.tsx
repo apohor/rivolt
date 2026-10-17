@@ -8,10 +8,10 @@ import { useNavigate } from "react-router-dom";
 import {
   backend,
   type Charge,
-  type ChargeClusterLabel,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { ChargeTable, chargingSeconds, labelMap } from "../components/ActivityTables";
+import type { ChargePlaceLabel } from "../lib/chargePlace";
 import { WindowPicker } from "../components/WindowPicker";
 import { ChargesOverviewMap } from "../components/DriveMap";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
@@ -34,7 +34,7 @@ export default function ChargesPage() {
   // component state because the filter is purely a view concern;
   // hitting reload starts you back on "all" which is what users want.
   const [categoryFilter, setCategoryFilter] =
-    useState<ChargeClusterLabel | "">("");
+    useState<ChargePlaceLabel | "">("");
   const q = useQuery({
     queryKey: ["charges", "all"],
     queryFn: () => backend.allCharges(),
@@ -47,7 +47,7 @@ export default function ChargesPage() {
     queryFn: () => backend.chargeClusters(),
     staleTime: 60_000,
   });
-  const labelByID = useMemo(() => labelMap(cq.data ?? []), [cq.data]);
+  const labelByID = useMemo(() => labelMap(q.data ?? [], cq.data ?? []), [q.data, cq.data]);
   const windowed = useMemo(
     () => filterByWindow(q.data ?? [], win),
     [q.data, win],
@@ -63,10 +63,10 @@ export default function ChargesPage() {
   // before clicking. Computed off the windowed (pre-filter) set so
   // the pill labels stay stable while a filter is active.
   const counts = useMemo(() => {
-    const c = { all: windowed.length, Home: 0, Public: 0, Fast: 0 };
+    const c = { all: windowed.length, Home: 0, Away: 0, Fast: 0 };
     for (const r of windowed) {
       const l = labelByID.get(r.ID);
-      if (l === "Home" || l === "Public" || l === "Fast") c[l]++;
+      if (l) c[l]++;
     }
     return c;
   }, [windowed, labelByID]);
@@ -172,7 +172,7 @@ function ViewToggle({
 }
 
 // CategoryFilter renders a horizontal pill row that toggles between
-// All / Home / Public / Fast. Pills are click-to-select with the
+// All / Home / Away / Fast. Pills are click-to-select with the
 // active one highlighted; counts trail each label so the user can
 // see at a glance how the window splits across categories.
 function CategoryFilter({
@@ -180,14 +180,14 @@ function CategoryFilter({
   onChange,
   counts,
 }: {
-  value: ChargeClusterLabel | "";
-  onChange: (v: ChargeClusterLabel | "") => void;
-  counts: { all: number; Home: number; Public: number; Fast: number };
+  value: ChargePlaceLabel | "";
+  onChange: (v: ChargePlaceLabel | "") => void;
+  counts: { all: number; Home: number; Away: number; Fast: number };
 }) {
-  const pills: { label: string; value: ChargeClusterLabel | ""; count: number }[] = [
+  const pills: { label: string; value: ChargePlaceLabel | ""; count: number }[] = [
     { label: "All", value: "", count: counts.all },
     { label: "Home", value: "Home", count: counts.Home },
-    { label: "Public", value: "Public", count: counts.Public },
+    { label: "Away", value: "Away", count: counts.Away },
     { label: "Fast", value: "Fast", count: counts.Fast },
   ];
   return (
