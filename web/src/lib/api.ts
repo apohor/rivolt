@@ -1768,7 +1768,8 @@ export type AuthUser = {
   terms?: TermsState;
 };
 
-export type TermsState = { current: string; accepted: string | null; accepted_at: string | null };
+// required: only new accounts (created after the terms took effect) must accept; existing users never see the gate.
+export type TermsState = { current: string; accepted: string | null; accepted_at: string | null; required?: boolean };
 
 // AdminFlagsState is the response shape from GET /api/admin/kill-switch.
 // Carries every operational flag — currently the Rivian-upstream kill

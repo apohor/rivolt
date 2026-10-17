@@ -10,7 +10,7 @@ import { stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-type Terms = { current: string; accepted: string | null; accepted_at: string | null };
+type Terms = { current: string; accepted: string | null; accepted_at: string | null; required: boolean };
 async function open(page: Page, terms: Terms, opts: { acceptStatus?: number } = {}) {
   let t = { ...terms };
   const posted: unknown[] = [];
@@ -21,15 +21,15 @@ async function open(page: Page, terms: Terms, opts: { acceptStatus?: number } = 
   await page.route("**/api/terms/accept", (r) => {
     posted.push(r.request().postDataJSON());
     if (opts.acceptStatus === 409) {
-      t = { current: "2026-11-01", accepted: t.accepted, accepted_at: null };
+      t = { current: "2026-11-01", accepted: t.accepted, accepted_at: null, required: true };
       return r.fulfill({ status: 409, json: { error: "version_not_current", current: "2026-11-01" } });
     }
-    t = { ...t, accepted: t.current, accepted_at: new Date().toISOString() };
+    t = { ...t, accepted: t.current, accepted_at: new Date().toISOString(), required: false };
     return r.fulfill({ json: { ok: true, terms: t } });
   });
   return posted;
 }
-const NEW: Terms = { current: "2026-10-17", accepted: null, accepted_at: null };
+const NEW: Terms = { current: "2026-10-17", accepted: null, accepted_at: null, required: true };
 
 for (const theme of ["dark", "light"] as const) {
   for (const w of [390, 1280] as const) {
@@ -81,7 +81,7 @@ test("ticking enables Continue; it posts the current version and lets you into t
 });
 
 test("updated terms say so; a version that moved on shows the new one, unticked", async ({ page }) => {
-  await open(page, { current: "2026-10-17", accepted: "2026-01-01", accepted_at: "2026-01-02T00:00:00Z" }, { acceptStatus: 409 });
+  await open(page, { current: "2026-10-17", accepted: "2026-01-01", accepted_at: "2026-01-02T00:00:00Z", required: true }, { acceptStatus: 409 });
   await page.goto("/");
   const gate = page.locator("[data-terms-gate]");
   await expect(gate.getByRole("heading", { name: "We updated our terms" })).toBeVisible();
@@ -97,10 +97,19 @@ test("updated terms say so; a version that moved on shows the new one, unticked"
 test("up to date: no gate; legal pages and sign-in stay reachable while gated; the demo never gates", async ({ browser }) => {
   let ctx = await browser.newContext();
   let page = await ctx.newPage();
-  await open(page, { current: "2026-10-17", accepted: "2026-10-17", accepted_at: "2026-10-17T00:00:00Z" });
+  await open(page, { current: "2026-10-17", accepted: "2026-10-17", accepted_at: "2026-10-17T00:00:00Z", required: false });
   await page.goto("/");
   await expect(page.locator("[data-terms-gate]")).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Now" })).toBeVisible();
+  await ctx.close();
+
+  // An existing account that never accepted: terms.required is false, so no gate and no notice.
+  ctx = await browser.newContext();
+  page = await ctx.newPage();
+  await open(page, { current: "2026-10-17", accepted: null, accepted_at: null, required: false });
+  await page.goto("/");
+  await expect(page.getByRole("region", { name: "Now" })).toBeVisible();
+  await expect(page.locator("[data-terms-gate]")).toHaveCount(0);
   await ctx.close();
 
   ctx = await browser.newContext();
