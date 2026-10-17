@@ -22,7 +22,8 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.getByRole("heading", { name: /^2\. Unofficial access to Rivian/ })).toHaveAttribute("id", "2");
       await expect(doc).toContainText("Anton Pohorilyi");
       const text = await doc.innerText();
-      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toEqual(["[PUBLICATION DATE]"]);
+      // Only [PUBLICATION DATE] remains (Last updated, and the section 11 date), set at release.
+      expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toEqual(["[PUBLICATION DATE]", "[PUBLICATION DATE]"]);
       for (const gone of ["DRAFT", "[DECIDE", "[VERIFY", "[ATTORNEY", "[CONFIRM", "Not legal advice"]) expect(text, gone).not.toContain(gone);
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `terms-${w}-${theme}.png`), fullPage: true });
@@ -42,7 +43,7 @@ test("/terms#2 lands on section 2; the privacy page links there", async ({ page 
   await expect(h).toBeVisible();
   await expect.poll(async () => (await h.boundingBox())!.y).toBeLessThan(120);
   await page.goto("/privacy");
-  await page.getByRole("link", { name: "Terms, section 2" }).click();
+  await page.locator("[data-legal]").getByRole("link", { name: "Terms", exact: true }).click();
   await expect(page).toHaveURL(/\/terms#2$/);
   await expect(page.getByRole("heading", { name: /^2\. Unofficial access to Rivian/ })).toBeVisible();
 });
@@ -50,7 +51,7 @@ test("/terms#2 lands on section 2; the privacy page links there", async ({ page 
 test("linked from the footer and the sign-in screen; works on the demo host", async ({ page }) => {
   await stubApi(page, { signedIn: false });
   await page.goto("/login");
-  await page.getByRole("link", { name: "Terms", exact: true }).click();
+  await page.locator("[data-legal]").getByRole("link", { name: "Terms", exact: true }).click();
   await expect(page).toHaveURL(/\/terms$/);
   await stubApi(page, { signedIn: true });
   await page.goto("/");

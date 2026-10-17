@@ -29,7 +29,8 @@ for (const theme of ["dark", "light"] as const) {
       const text = await doc.innerText();
       expect(text.match(/\[[A-Z][A-Z ]+\]/g)).toBeNull();
       for (const gone of ["DRAFT", "ATTORNEY TO CONFIRM", "[VERIFY", "[CONFIRM", "Mail:", "MAILING ADDRESS", "Internal notes", "[OWNER LEGAL NAME]", "[STATE]"]) expect(text, gone).not.toContain(gone);
-      await expect(doc.getByRole("link", { name: "Terms, section 2" })).toHaveAttribute("href", "/terms#2");
+      // The Terms are published: the reference links to section 2.
+      await expect(doc.getByRole("link", { name: "Terms", exact: true })).toHaveAttribute("href", "/terms#2");
       await expect(doc.getByText("anton@rivolt.dev").first()).toBeVisible();
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, `privacy-${w}-${theme}.png`), fullPage: true });
