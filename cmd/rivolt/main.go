@@ -287,8 +287,12 @@ func runServer() {
 		// vehicle_state heap). Ping itself is sub-second; only
 		// migrations can legitimately take this long, and they
 		// run exactly once per upgrade.
+		// OpenWithRetry first waits up to 60 s for Postgres to be
+		// reachable (a fresh pod can lack a route for a moment), and
+		// the listener below is not up until it returns, so readiness
+		// stays false meanwhile.
 		pctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		p, err := db.Open(pctx, dsn)
+		p, err := db.OpenWithRetry(pctx, dsn, 60*time.Second, logger)
 		cancel()
 		if err != nil {
 			logger.Error("postgres open failed", "err", err.Error())
