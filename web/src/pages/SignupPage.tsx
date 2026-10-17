@@ -534,12 +534,15 @@ export default function SignupPage() {
         </form>
         )}
 
-        <p className="mt-4 text-center text-xs text-neutral-400">
-          Already have an account?{" "}
-          <a href="/login" className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400">
-            Sign in
-          </a>
-        </p>
+        {/* The sent confirmation carries its own Sign in line. */}
+        {!reqSent && (
+          <p className="mt-4 text-center text-xs text-neutral-400">
+            Already have an account?{" "}
+            <a href="/login" className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400">
+              Sign in
+            </a>
+          </p>
+        )}
       </div>
     </div>
   );

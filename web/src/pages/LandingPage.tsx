@@ -110,7 +110,11 @@ export default function LandingPage() {
           <Claim
             title="Lease miles, projected"
             body="Enter your allowance and term. Rivolt projects your miles at lease return and what the overage would cost at your per-mile rate."
-          />
+          >
+            <Link to="/lease-calculator" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+              Try the free lease calculator
+            </Link>
+          </Claim>
           <Claim
             title="Efficiency, explained"
             body="mi/kWh broken down by outside temperature, speed and drive mode, so you can see what actually moves your number."
@@ -176,6 +180,10 @@ export default function LandingPage() {
             {" · "}
             <Link to="/terms" className="text-neutral-300 hover:underline">
               Terms
+            </Link>
+            {" · "}
+            <Link to="/lease-calculator" className="text-neutral-300 hover:underline">
+              Lease calculator
             </Link>
           </p>
           <p>

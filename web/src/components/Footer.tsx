@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
+import { inDemo } from "../lib/demo";
 
 export function Footer() {
   const health = useQuery({
@@ -38,6 +39,14 @@ export function Footer() {
         <Link to="/terms" className="hover:text-neutral-200">
           Terms
         </Link>
+        {!inDemo() && (
+          <>
+            <span className="text-neutral-700">·</span>
+            <Link to="/lease-calculator" className="hover:text-neutral-200">
+              Lease calculator
+            </Link>
+          </>
+        )}
         <span className="text-neutral-700">·</span>
         <a
           href="https://discord.gg/FGty2xmdeV"
