@@ -1,13 +1,13 @@
-import { formatMoney } from "../lib/ledger";
+import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } from "../lib/ledger";
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, usePeriod, type Period } from "../lib/period";
+import { barDayCount, barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
@@ -26,6 +26,7 @@ import {
   chargeStats,
   driveStats,
   milesPerDay,
+  shareByEnergy,
   socTrend,
   windowStart,
   WINDOW_OPTIONS,
@@ -140,6 +141,52 @@ export default function HomePage() {
   }, [all, allC]);
   const batteryLabel = liveSoC > 0 ? "Battery" : "Battery (last seen)";
 
+  // ui_theme_next Cost tile: the period's charging spend, the same number Money shows. A single
+  // month comes from the ledger month; a year or All sums the ledger months inside it; a week
+  // or custom range (not whole months) falls back to the charges in the window.
+  // Same vehicle scoping as Money: only filter when there is more than one truck.
+  const ledgerVehicle = (vehicles.data?.length ?? 0) > 1 ? (activeVehicleID ?? undefined) : undefined;
+  const periodMonth = next && period.kind === "month" && range.start ? toYmd(range.start).slice(0, 7) : null;
+  const spendMonthQ = useQuery({
+    queryKey: ["ledger", "now-cost", "month", periodMonth, ledgerVehicle ?? ""],
+    queryFn: ({ signal }) => fetchLedgerMonth(periodMonth as string, { vehicleID: ledgerVehicle, signal }),
+    placeholderData: keepPreviousData,
+    enabled: !!periodMonth,
+    staleTime: 60_000,
+    retry: 0,
+  });
+  const wholeMonths = next && (period.kind === "year" || period.kind === "all");
+  const spendSummaryQ = useQuery({
+    queryKey: ["ledger", "now-cost", "summary", ledgerVehicle ?? ""],
+    queryFn: ({ signal }) => fetchLedgerSummary({ months: 24, vehicleID: ledgerVehicle, signal }),
+    placeholderData: keepPreviousData,
+    enabled: wholeMonths,
+    staleTime: 60_000,
+    retry: 0,
+  });
+  const chargingSpend = useMemo(() => {
+    if (!next) return null;
+    const fallback = { total: cs.cost, currency: cs.currency || "USD" };
+    if (periodMonth) {
+      const r = spendMonthQ.data;
+      if (r?.source === "api") return { total: statementTotal(r.data), currency: r.data.currency };
+      return spendMonthQ.isPending ? null : fallback;
+    }
+    if (wholeMonths) {
+      const r = spendSummaryQ.data;
+      if (r?.source === "api") {
+        const inRange = r.data.months.filter((m) => {
+          if (!range.start) return true;
+          const t = new Date(`${m.period}-01T12:00:00`).getTime();
+          return t >= range.start.getTime() && (!range.end || t < range.end.getTime());
+        });
+        if (inRange.length > 0) return { total: inRange.reduce((a, m) => a + statementTotal(m), 0), currency: r.data.currency };
+      }
+      return spendSummaryQ.isPending ? null : fallback;
+    }
+    return fallback;
+  }, [next, cs.cost, cs.currency, periodMonth, wholeMonths, spendMonthQ.data, spendMonthQ.isPending, spendSummaryQ.data, spendSummaryQ.isPending, range]);
+
   // Daily-bar count follows the window picker rather than pinning at 60.
   // 7/30/90/365 map to their day counts; "all" spans from the earliest
   // record to today, capped at ~2y so a multi-year corpus doesn't render
@@ -147,13 +194,15 @@ export default function HomePage() {
   const barDays = useMemo(() => {
     if (next && range.start && range.end) {
       // Calendar period: bars run from its first day to its last (or today).
-      const last = barsEndDay(range);
-      return Math.max(1, Math.round((last.getTime() - range.start.getTime()) / 86_400_000) + 1);
+      return barDayCount(range.start, barsEndDay(range));
     }
-    if (win === "7d") return 7;
-    if (win === "30d") return 30;
-    if (win === "90d") return 90;
-    if (win === "365d") return 365;
+    // "All" in the new look has no start: span the recorded data like the old All window,
+    // not the (unrelated) rolling window state.
+    const allSpan = next && !range.start;
+    if (!allSpan && win === "7d") return 7;
+    if (!allSpan && win === "30d") return 30;
+    if (!allSpan && win === "90d") return 90;
+    if (!allSpan && win === "365d") return 365;
     const times = [...winDrives, ...winCharges].map((x) =>
       new Date(x.StartedAt).getTime(),
     );
@@ -366,6 +415,19 @@ export default function HomePage() {
                     : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`
               }
             />
+            {next ? (
+              <Stat
+                label="Charging cost"
+                value={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
+                hint={
+                  chargingSpend != null && chargingSpend.total > 0
+                    ? ds.miles > 0
+                      ? `${(chargingSpend.total / ds.miles).toFixed(3)} ${chargingSpend.currency}/mi · ${cs.count} ${cs.count === 1 ? "session" : "sessions"}`
+                      : `${cs.count} ${cs.count === 1 ? "session" : "sessions"}`
+                    : "no priced charges yet"
+                }
+              />
+            ) : (
             <Stat
               label="Cost"
               value={
@@ -383,6 +445,7 @@ export default function HomePage() {
                     : "no priced charges yet"
               }
             />
+            )}
             {next ? (
               <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
             ) : (
@@ -608,6 +671,7 @@ function locationSplit(
 // the same concept: Home and Away are AC charges by place, Fast is a
 // DC fast charge wherever it was (the ledger's rules, as on Money).
 function LocationSplit({ split }: { split: LocationSplitBuckets }) {
+  const next = useUiNext();
   const rows: {
     label: ChargePlaceLabel;
     tone: string;
@@ -633,11 +697,17 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
       energyKWh: split.Fast.energyKWh,
     },
   ];
+  // The new look shows each bucket's share of the energy (the kWh beside it); the old look the
+  // session-count share.
+  const kwhShares = shareByEnergy(rows.map((r) => r.energyKWh));
   return (
     <div className="grid grid-cols-3 gap-3">
-      {rows.map((r) => {
-        const sharePct =
-          split.total > 0 ? (r.sessions / split.total) * 100 : 0;
+      {rows.map((r, idx) => {
+        const sharePct = next
+          ? kwhShares[idx]
+          : split.total > 0
+            ? (r.sessions / split.total) * 100
+            : 0;
         return (
           <div
             key={r.label}
@@ -649,7 +719,7 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
               >
                 {r.label}
               </span>
-              <span className="text-xs text-neutral-500 tabular-nums">
+              <span data-loc-share className="text-xs text-neutral-500 tabular-nums">
                 {sharePct.toFixed(0)}%
               </span>
             </div>

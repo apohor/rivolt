@@ -134,6 +134,18 @@ export function statementTotal(m: Pick<MonthSummary, "spend">): number {
   return b != null && e != null ? b + e : total;
 }
 
+// spendThroughDay: a month's spend up to and including a day of the month, from its receipts
+// (each receipt counts on the day it started). Used to compare a month in progress with the same
+// stretch of the previous month. Unpriced receipts count as 0.
+export function spendThroughDay(m: Pick<LedgerMonth, "receipts">, day: number): number {
+  let sum = 0;
+  for (const r of m.receipts) {
+    const d = Number(r.local_date.slice(8, 10));
+    if (Number.isFinite(d) && d <= day && r.cost != null) sum += r.cost;
+  }
+  return sum;
+}
+
 export type MonthSummary = {
   version: number;
   period: string;

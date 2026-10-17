@@ -37,10 +37,10 @@ export function SummaryStrip({
   const totalChargeMin = chargeMinutes;
   const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
   const arriveAt = (() => {
-    let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs);
+    let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs, true);
     if (!t && route.TotalTripDurationSec > 0) {
       const originDep = origin?.DepartureTimeUTC ? new Date(origin.DepartureTimeUTC).getTime() : Date.now();
-      t = new Date(originDep + route.TotalTripDurationSec * 1000 + timeShiftMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      t = new Date(Math.round((originDep + route.TotalTripDurationSec * 1000 + timeShiftMs) / 60_000) * 60_000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
     return t;
   })();
