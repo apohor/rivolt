@@ -166,3 +166,43 @@ func TestRivianReceiptsStoreEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// Software-update alert bookkeeping in Postgres: a vehicle's first sync is a
+// silent baseline, a new version is claimed exactly once, and deleting the
+// account removes the notices; the push preference defaults on.
+func TestOTANoticesClaimOnceAndCascade(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "otanotices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := db.SeedOTANotices(ctx, pool, uid, "rv-1", "2026.30", "2026.36")
+	if err != nil || !seeded {
+		t.Fatalf("first seed = %v, %v", seeded, err)
+	}
+	if again, _ := db.SeedOTANotices(ctx, pool, uid, "rv-1", "2026.30", "2026.38"); again {
+		t.Error("second seed wrote rows")
+	}
+	if fresh, _ := db.ClaimOTANotice(ctx, pool, uid, "rv-1", db.OTAAvailable, "2026.36"); fresh {
+		t.Error("baseline version was claimable")
+	}
+	for i, want := range []bool{true, false} {
+		fresh, err := db.ClaimOTANotice(ctx, pool, uid, "rv-1", db.OTAAvailable, "2026.38")
+		if err != nil || fresh != want {
+			t.Fatalf("claim #%d = %v, %v; want %v", i, fresh, err, want)
+		}
+	}
+	if err := db.DeleteUser(ctx, pool, uid); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM ota_notices WHERE user_id = $1`, uid).Scan(&n); err != nil || n != 0 {
+		t.Errorf("notices left after delete: %d, %v", n, err)
+	}
+}
