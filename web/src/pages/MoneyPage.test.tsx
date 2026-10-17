@@ -62,7 +62,7 @@ describe("MoneyPage", () => {
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(screen.getByText(/Estimate · Electrify America/)).toBeInTheDocument();
     // Two server-owned splits: where (by_place) and how (by_kind).
-    expect(screen.getByRole("img", { name: /^Charging: Home .*, Away .*, DCFC / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^Charging: Home .*, Away .*, Fast / })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /^Where:/ })).toBeNull();
   });
 
@@ -77,10 +77,10 @@ describe("MoneyPage", () => {
     await screen.findByRole("region", { name: "Statement" });
 
     const filters = screen.getByRole("group", { name: "Filter receipts" });
-    fireEvent.click(within(filters).getByRole("button", { name: "DCFC" }));
+    fireEvent.click(within(filters).getByRole("button", { name: "Fast" }));
     const list = screen.getAllByRole("listitem").filter((li) => li.textContent?.includes("kW peak"));
     expect(list.length).toBe(4);
-    expect(list.every((li) => li.textContent?.includes("DCFC"))).toBe(true);
+    expect(list.every((li) => li.textContent?.includes("Fast"))).toBe(true);
 
     fireEvent.click(within(filters).getByRole("button", { name: "Home" }));
     const toggle = screen.getByRole("button", { name: /\+ 9 top-ups\/fragments/ });
@@ -135,7 +135,7 @@ describe("MoneyPage", () => {
     renderAt("/money");
     await screen.findByRole("region", { name: "Statement" });
     expect(screen.getByRole("img", { name: /^Where: Home .*, Away / })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /^How: AC .*, DCFC / })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /^How: AC .*, Fast / })).toBeInTheDocument();
   });
 
   it("To confirm lists every open charge across months and agrees with the all-time badge", async () => {
