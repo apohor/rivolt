@@ -477,8 +477,6 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 			return
 		}
 		tc := tripadvice.Context{
-			OriginLabel:      body.Origin,
-			DestinationLabel: body.Destination,
 			DriveMode:        body.DriveMode,
 			StartingSoC:      body.StartingSoC,
 			HasAdapter:       body.HasAdapter,

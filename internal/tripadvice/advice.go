@@ -22,9 +22,13 @@ import (
 
 // Context bundles user-supplied labels and request parameters that
 // would otherwise be unavailable in the plan response itself.
+//
+// Privacy: what the model receives about places is limited to charger names,
+// and locations rounded to weather.CoarseRound (0.1 deg, ~11 km). The typed
+// origin/destination text (which may be a street address) is deliberately
+// not part of Context, and no full-precision coordinate is ever written
+// into the prompt.
 type Context struct {
-	OriginLabel      string
-	DestinationLabel string
 	// DriveMode is the mode the user explicitly chose, or "" for
 	// "let the planner pick". Included so the model can say "you
 	// planned in Conserve mode" rather than treating it as a mystery.
@@ -281,8 +285,8 @@ func buildPrompt(plan *rivian.TripPlan, tc Context, cost CostEstimate) (system, 
 - Lead each section with the most actionable observation. Do not invent numbers. No emoji, no marketing language.`
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Origin: %s\n", labelOrUnknown(tc.OriginLabel))
-	fmt.Fprintf(&sb, "Destination: %s\n", labelOrUnknown(tc.DestinationLabel))
+	fmt.Fprintf(&sb, "Origin: %s\n", endpointLabel(plan, "ORIGIN"))
+	fmt.Fprintf(&sb, "Destination: %s\n", endpointLabel(plan, "DESTINATION"))
 	fmt.Fprintf(&sb, "Starting SoC: %.0f%%\n", tc.StartingSoC)
 	if tc.DriveMode != "" {
 		fmt.Fprintf(&sb, "Drive mode: %s\n", tc.DriveMode)
@@ -413,16 +417,30 @@ func chargeStops(r rivian.TripRoute) []rivian.PlannedWaypoint {
 	return out
 }
 
+// stopLabel names a charging stop: the charger's name when Rivian gave
+// one, otherwise its location rounded to the weather grid.
 func stopLabel(w rivian.PlannedWaypoint) string {
 	if w.Name != "" {
 		return w.Name
 	}
-	return fmt.Sprintf("(%.3f, %.3f)", w.Latitude, w.Longitude)
+	return coarsePlace(w.Latitude, w.Longitude)
 }
 
-func labelOrUnknown(s string) string {
-	if s == "" {
-		return "unknown"
+// endpointLabel describes the trip's origin or destination by its location
+// rounded to ~11 km, never by the typed text or the waypoint's name (either
+// may be a street address). "unknown" when the plan has no such waypoint.
+func endpointLabel(plan *rivian.TripPlan, waypointType string) string {
+	for _, r := range plan.Routes {
+		for _, w := range r.Waypoints {
+			if strings.EqualFold(w.WaypointType, waypointType) {
+				return coarsePlace(w.Latitude, w.Longitude)
+			}
+		}
 	}
-	return s
+	return "unknown"
+}
+
+func coarsePlace(lat, lon float64) string {
+	lat, lon = weather.Coarsen(lat, lon)
+	return fmt.Sprintf("near %.1f, %.1f (rounded to ~11 km)", lat, lon)
 }
