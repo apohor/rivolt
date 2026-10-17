@@ -28,9 +28,11 @@ for (const theme of ["dark", "light"] as const) {
       await open(page);
       const card = page.locator("[data-first-day]");
       await expect(card).toBeVisible();
-      await expect(card.getByRole("link", { name: "Set rate" })).toHaveAttribute("href", "/settings?tab=charging#cost");
+      await expect(card.getByRole("link", { name: "Set home rate" })).toHaveAttribute("href", "/settings?tab=charging#cost");
       await expect(card.getByRole("link", { name: "Add lease" })).toHaveAttribute("href", "/settings#lease");
       await expect(card.locator("[data-first-day-step=todo]")).toHaveCount(2);
+      await expect(card).toContainText("Your first day with Rivolt");
+      await expect(card).toContainText("show $0 until you re-price them");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
       const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
@@ -45,7 +47,9 @@ test("steps already done show as done, and Dismiss sticks", async ({ page }) => 
   await open(page, { rate: 0.12, lease: true });
   const card = page.locator("[data-first-day]");
   await expect(card.locator("[data-first-day-step=done]")).toHaveCount(2);
-  await card.getByRole("button", { name: "Dismiss" }).click();
+  await expect(card).toContainText("Home rate set: $0.12/kWh");
+  await expect(card).toContainText("Lease added");
+  await card.getByRole("button", { name: "Hide this" }).click();
   await expect(card).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Now" }).or(page.locator("[data-ui-grid=now]")).first()).toBeVisible();
