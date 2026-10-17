@@ -90,7 +90,9 @@ export function LeaseBody({ st, allowed, currency, end, unit }: { st: LeaseStatu
           </div>
           <div>
             <dt className="ui-label">Overage</dt>
-            {over ? (
+            {st.projected_overage_mi == null ? (
+              <dd data-lease-overage className="font-semibold text-neutral-400">—</dd>
+            ) : over ? (
               <>
                 <dd data-lease-overage className="font-semibold tabular-nums text-rose-300">~{formatMoney(st.projected_overage_cost ?? 0, currency)}</dd>
                 <dd className="text-xs text-neutral-500">{dist(st.projected_overage_mi as number, unit)} over</dd>
@@ -100,7 +102,7 @@ export function LeaseBody({ st, allowed, currency, end, unit }: { st: LeaseStatu
             )}
           </div>
           <div className="col-span-2 sm:col-span-3">
-            <dt className="ui-label">Miles a day to stay within the allowance</dt>
+            <dt className="ui-label">{unit === "km" ? "Kilometers" : "Miles"} a day to stay within the allowance</dt>
             <dd data-lease-budget className="text-lg font-semibold tabular-nums text-neutral-100">
               {st.miles_per_day_budget != null ? `${(unit === "km" ? st.miles_per_day_budget * KM : st.miles_per_day_budget).toFixed(1)} ${unit}` : "—"}
               <span className="ml-2 text-xs font-normal text-neutral-500">{st.miles_per_day_budget === 0 ? "already over the allowance" : "from today to the end of the lease"}</span>

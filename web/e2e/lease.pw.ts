@@ -155,5 +155,61 @@ test("a stale odometer pauses the figures and says why", async ({ browser }) => 
   await expect(page.locator("[data-lease-used]")).toContainText("—");
   await expect(page.locator("[data-lease-standing]")).toHaveCount(0);
   await expect(page.locator("[data-lease-projected-odo]")).toHaveText("—");
+  // Paused figures never read as "none": no projection means no overage claim.
+  await expect(page.locator("[data-lease-overage]")).toHaveText("—");
   await ctx.close();
 });
+
+// Screenshots for review: the card on plan, over plan (overage shown) and with a stale odometer, at
+// 390 and 1280 in both themes; and the Settings form at 390 with validation errors showing.
+const ON_PLAN = {
+  ...STATUS, used_mi: 15210.2, ahead_behind_mi: 4919.8, projected_total_mi: 31140, projected_return_odometer_mi: 31152,
+  projected_overage_mi: 0, projected_overage_cost: 0, miles_per_day_budget: 52.8, pace_mi_per_day: 21.7,
+};
+const STALE = {
+  ...STATUS, used_mi: null, ahead_behind_mi: null, projected_total_mi: null, projected_return_odometer_mi: null,
+  projected_overage_mi: null, projected_overage_cost: null, miles_per_day_budget: null, pace_mi_per_day: null, odometer_at: "2026-10-02T12:00:00Z",
+};
+for (const [name, status] of [["on-plan", ON_PLAN], ["over", STATUS], ["stale", STALE]] as const) {
+  for (const theme of ["dark", "light"] as const) {
+    for (const w of [390, 1280] as const) {
+      test(`lease card screenshot · ${name} · ${w}px · ${theme}`, async ({ browser }) => {
+        const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: theme });
+        const page = await ctx.newPage();
+        await page.addInitScript(([t]) => {
+          localStorage.setItem("rivolt.ui.next", "on");
+          localStorage.setItem("rivolt.theme", t);
+        }, [theme]);
+        await mock(page, TERMS, status);
+        await page.goto("/truck");
+        const card = page.locator("section", { has: page.locator("[data-lease-state]") });
+        await expect(card).toBeVisible();
+        if (name === "on-plan") await expect(page.locator("[data-lease-overage]")).toHaveText("None projected");
+        await page.waitForTimeout(400);
+        await card.screenshot({ path: path.join(SHOTS, `lease-card-${name}-${w}-${theme}.png`) });
+        await ctx.close();
+      });
+    }
+  }
+}
+
+for (const theme of ["dark", "light"] as const) {
+  test(`lease form validation screenshot · 390px · ${theme}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: theme });
+    const page = await ctx.newPage();
+    await page.addInitScript(([t]) => {
+      localStorage.setItem("rivolt.ui.next", "on");
+      localStorage.setItem("rivolt.theme", t);
+    }, [theme]);
+    await mock(page, null, null);
+    await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] } }));
+    await page.goto("/settings?tab=vehicle");
+    const form = page.locator("[data-lease-form]");
+    await form.getByRole("button", { name: "Add lease" }).click();
+    await expect(form.getByRole("alert")).toHaveCount(5);
+    await form.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    await page.locator("section", { has: form }).screenshot({ path: path.join(SHOTS, `lease-form-errors-390-${theme}.png`) });
+    await ctx.close();
+  });
+}
