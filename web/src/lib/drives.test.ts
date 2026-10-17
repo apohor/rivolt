@@ -74,6 +74,10 @@ describe("collapseRoundTrips origin anchoring", () => {
     const roundTrip = out[0];
     expect(roundTrip.EndLat).toBeCloseTo(A.lat, 4); // ends back home
     expect(roundTrip.DistanceMi).toBeCloseTo(10, 5); // both legs summed
+    // The merged row says how many recorded drives it holds; a single
+    // drive carries no count.
+    expect(roundTrip.round_trip_legs).toBe(2);
+    expect(out[1].round_trip_legs).toBeUndefined();
   });
 
   it("still merges a clean round trip with an accurate start and no predecessor", () => {

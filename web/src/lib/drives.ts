@@ -147,6 +147,7 @@ function mergeChain(chain: Drive[]): Drive {
     estimated_cost: cost,
     estimated_currency: cur,
     estimated_price_per_kwh: rate,
+    round_trip_legs: chain.length,
   };
 }
 
