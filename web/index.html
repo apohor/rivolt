@@ -13,8 +13,24 @@
     <script src="/theme-init.js?v=3"></script>
     <meta
       name="description"
-      content="Open-source Rivian companion. Self-host it, or use rivolt.dev."
+      content="Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. Unofficial, not affiliated with Rivian."
     />
+
+    <!-- Link previews (Reddit, Discord, iMessage, Slack). Static, same-origin
+         image; no third-party requests. Per-route values and canonical
+         come from the server for the public pages. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Rivolt" />
+    <meta property="og:title" content="Rivolt: what your Rivian actually costs" />
+    <meta property="og:description" content="Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. Unofficial, not affiliated with Rivian." />
+    <meta property="og:image" content="https://rivolt.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Rivolt: what your Rivian actually costs, with the Now tab on a sample truck" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Rivolt: what your Rivian actually costs" />
+    <meta name="twitter:description" content="Free, open-source tracker for Rivian owners: charging cost, trips, efficiency and lease miles. Unofficial, not affiliated with Rivian." />
+    <meta name="twitter:image" content="https://rivolt.dev/og.png" />
 
     <!-- PWA manifest + icons -->
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -31,7 +47,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Rivolt" />
 
-    <title>Rivolt — your Rivian, your data</title>
+    <title>Rivolt: Rivian charging cost, trip and efficiency tracker</title>
   </head>
   <body class="bg-neutral-950 text-neutral-100">
     <div id="root"></div>
