@@ -20,7 +20,7 @@ Trade-offs: you need a second email address and a few minutes in the Rivian app,
 
 ## What Rivolt does
 
-- It is read-only. It reads telemetry, drives and charging, and it can't control your truck. Rivolt has never sent a command to Rivian and never will.
+- It is read-only. It reads telemetry, drives and charging, and it can't control your truck. Rivolt has never sent a command to your vehicle. The only write-style requests it makes to Rivian are the sign-in steps.
 - It does not use third-party analytics.
 
 ## How to undo it
