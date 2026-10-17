@@ -71,14 +71,22 @@ type fakeAcct struct {
 	sumCalls    int
 	detailCalls []string
 	detailErr   error
+	// onFetch runs after each Rivian call returns (a user opting out mid-pass).
+	onFetch func()
 }
 
 func (a *fakeAcct) CompletedSessionSummaries(context.Context) ([]rivian.SessionSummary, error) {
 	a.sumCalls++
+	if a.onFetch != nil {
+		defer a.onFetch()
+	}
 	return a.sums, a.sumsErr
 }
 func (a *fakeAcct) SessionCharger(_ context.Context, txn string) (*rivian.SessionCharger, error) {
 	a.detailCalls = append(a.detailCalls, txn)
+	if a.onFetch != nil {
+		defer a.onFetch()
+	}
 	if a.detailErr != nil {
 		return nil, a.detailErr
 	}
@@ -267,5 +275,28 @@ func TestDescribeKeepsResponseBodiesOut(t *testing.T) {
 	_, _ = s.Sync(context.Background(), uuid.New(), time.Hour, false)
 	if len(st.results) != 1 || st.results[0] == nil || strings.Contains(st.results[0].Error(), "Reno") {
 		t.Errorf("stored result = %v", st.results)
+	}
+}
+
+// A user who opts out while a pass is running (opting out deletes their
+// receipts) gets nothing saved from the Rivian response that arrives after.
+func TestSyncStopsSavingWhenTheUserOptsOutMidPass(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		detailsOnly bool
+	}{{"summaries", false}, {"details", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &fakeStore{claimOK: true, needDetail: []string{"t1", "t2"}}
+			on := true
+			a := &fakeAcct{sums: []rivian.SessionSummary{{TransactionID: "t1"}}, onFetch: func() { on = false }}
+			s := newSyncer(st, fakeRegistry{a}, func(uuid.UUID) bool { return on }, nil, nil)
+			s.sleep = func(context.Context, time.Duration) {}
+			if _, err := s.Sync(context.Background(), uuid.New(), time.Hour, tc.detailsOnly); err != nil {
+				t.Fatal(err)
+			}
+			if len(st.upserted) != 0 || len(st.applied) != 0 || len(st.saved) != 0 {
+				t.Errorf("saved after opt-out: upserted %d applied %d details %d", len(st.upserted), len(st.applied), len(st.saved))
+			}
+		})
 	}
 }

@@ -103,6 +103,27 @@ func TestPrivacyRetentionAndReceiptsOptIn(t *testing.T) {
 	if err := receipts.NewStore(pool).Purge(ctx, uid); err != nil {
 		t.Fatal(err)
 	}
+	// The daily backstop: re-seed a receipt for the now opted-out state, and
+	// it is removed; an opted-in user's receipt stays.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at) VALUES ($1,'late',now(),now())`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SetRivianReceiptsOptIn(ctx, st, false); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := receipts.NewStore(pool).PurgeNotOptedIn(ctx); err != nil || n != 1 {
+		t.Fatalf("backstop deleted %d, %v; want 1", n, err)
+	}
+	if err := settings.SetRivianReceiptsOptIn(ctx, st, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO rivian_receipts (user_id, transaction_id, started_at, ended_at) VALUES ($1,'keep',now(),now())`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := receipts.NewStore(pool).PurgeNotOptedIn(ctx); err != nil || n != 0 {
+		t.Fatalf("backstop removed an opted-in user's receipt: %d, %v", n, err)
+	}
+	_, _ = pool.ExecContext(ctx, `DELETE FROM rivian_receipts WHERE user_id = $1`, uid)
 	var rc, cost int
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM rivian_receipts WHERE user_id = $1`, uid).Scan(&rc)
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE id = $1 AND receipt_cost IS NULL AND receipt_txn_id IS NULL AND energy_added_kwh = 30`, cid).Scan(&cost)
