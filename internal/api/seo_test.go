@@ -104,6 +104,9 @@ func TestSEOInjection(t *testing.T) {
 	t.Run("robots and sitemap per indexable host", func(t *testing.T) {
 		for _, host := range []string{"rivolt.dev", "demo.rivolt.dev", "RIVOLT.DEV:443"} {
 			base := strings.ToLower(strings.Split(host, ":")[0])
+			if cc := seoGet(t, h, host, "/robots.txt").Header().Get("Cache-Control"); cc != "public, max-age=300" {
+				t.Errorf("%s: robots Cache-Control %q", host, cc)
+			}
 			r := seoGet(t, h, host, "/robots.txt").Body.String()
 			if !strings.Contains(r, "Disallow: /api/") || !strings.Contains(r, "Sitemap: https://"+base+"/sitemap.xml") || strings.Contains(r, "Disallow: /\n") {
 				t.Errorf("%s: robots %q", host, r)
