@@ -50,10 +50,13 @@ jobs:
       # BUILD the tool; the scan below runs with the repo's own toolchain
       # (GOTOOLCHAIN=local), so stdlib findings are those of the toolchain
       # go.mod pins.
+      # Pinned, so a new release cannot break the weekly job unnoticed or
+      # change what it reports; bump it deliberately (the vulnerability
+      # database itself is always fetched fresh).
       - name: Install govulncheck
         env:
           GOTOOLCHAIN: auto
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       - name: Run govulncheck
         env:
