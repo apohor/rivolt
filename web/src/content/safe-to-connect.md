@@ -27,7 +27,7 @@ Trade-offs: you need a second email address and a few minutes in the Rivian app,
 
 - In Rivolt, go to Settings → Account → Rivian account and sign out of Rivian. The stored session is deleted.
 - Or remove the Authorized Driver in the Rivian app.
-- You can export your data (a zip of CSVs: charges with cost source, drives and trips, plus a full JSON backup) and delete it from Settings.
+- You can export your data as a zip of CSVs (charges with cost source, drives and trips) or download a full JSON backup, and delete it from Settings.
 
 ## The honest risks
 

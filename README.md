@@ -26,7 +26,7 @@ affiliated with, endorsed by or sponsored by Rivian.
 - **Coming from ElectraFi?** Import your history from its CSV export; see
   [how](https://rivolt.dev/moving-from-electrafi).
 - **Yours to keep:** export your data as a zip of CSVs (charges with cost source, drives,
-  trips) plus a full JSON backup, delete your data
+  trips) or download a full JSON backup, delete your data
   from Settings, or run your own copy.
 
 ## Try the demo

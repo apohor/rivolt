@@ -21,7 +21,7 @@ Rivolt is a free, open-source companion for Rivian owners. It is unofficial and 
 
 - Your charges are priced at your home rate. Set it under Settings → Charging → Home charging cost. Rivolt records the rate as of the moment a session ends, so changing it later doesn't rewrite history. Charges recorded before you set a rate stay unpriced; setting a rate doesn't change them, but you can add a price to each one.
 - Activity shows a day-grouped feed of drives and charges, and Money shows the monthly ledger.
-- Your data stays yours: you can export it (a zip of CSVs: charges with cost source, drives and trips, plus a full JSON backup) and delete your data from Settings.
+- Your data stays yours: you can export it as a zip of CSVs (charges with cost source, drives and trips) or download a full JSON backup, and delete your data from Settings.
 
 ## What to expect
 
