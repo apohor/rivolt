@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import path from "node:path";
 import { stubApi, VEHICLE_ID } from "./stub";
 
-const SHOTS = "/private/tmp/claude-501/-Users-anton-repos-rivolt/b975ed41-f384-4cc4-bcae-fc9b61c5bc11/scratchpad";
+const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 
 async function open(page: import("@playwright/test").Page, opts: { rate?: number; lease?: boolean; history?: boolean } = {}) {
   await stubApi(page, { uiNext: true });
@@ -34,7 +35,7 @@ for (const theme of ["dark", "light"] as const) {
       const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
-      await page.screenshot({ path: `${SHOTS}/firstday-${w}-${theme}.png` });
+      await page.screenshot({ path: path.join(SHOTS, `first-day-${w}-${theme}.png`) });
       await ctx.close();
     });
   }
