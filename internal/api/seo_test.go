@@ -109,6 +109,19 @@ func TestSEOInjection(t *testing.T) {
 			t.Error("demo host must not index it")
 		}
 	})
+	t.Run("lease calculator is public on the app host only", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/lease-calculator").Body.String()
+		if !strings.Contains(b, "<title>Rivian lease mileage calculator | Rivolt</title>") || !strings.Contains(b, `href="https://rivolt.dev/lease-calculator"`) {
+			t.Error("head not injected")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "https://rivolt.dev/lease-calculator") ||
+			!strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/lease-calculator") {
+			t.Error("not in sitemap and llms.txt")
+		}
+		if seoGet(t, h, "demo.rivolt.dev", "/lease-calculator").Header().Get("X-Robots-Tag") != "noindex" {
+			t.Error("demo host must not index it")
+		}
+	})
 	t.Run("app routes are noindex and keep the generic shell", func(t *testing.T) {
 		for _, p := range []string{"/login", "/signup", "/drives/abc", "/demo/activity"} {
 			rec := seoGet(t, h, "rivolt.dev", p)
