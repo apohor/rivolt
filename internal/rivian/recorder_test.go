@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 )
 
@@ -1243,5 +1244,42 @@ func TestLiveChargeRow_DCFCDetectorGetsRivianCharger(t *testing.T) {
 	m.liveChargeRow("veh-1", c)
 	if len(calls) != 2 || calls[0] || !calls[1] {
 		t.Fatalf("detector calls %v, want [false true]: once without, once again with isRivianCharger", calls)
+	}
+}
+
+// A charge resumed from its open DB row after a restart keeps the energy
+// already delivered. The integral used to restart at zero, so an L2 charge
+// resumed at 83% of a 31 to 90% charge finished with only the last stretch
+// (8.7 kWh recorded instead of ~77: the demo's 12 h away charge, and any
+// real charge a deploy interrupted).
+func TestResumedChargeKeepsItsEnergy(t *testing.T) {
+	ctx := context.Background()
+	m := NewStateMonitor(nil, nil)
+	m.vehicleInfo["vid-1"] = &Vehicle{ID: "vid-1", PackKWh: 131}
+	t0 := time.Date(2026, 10, 15, 23, 34, 0, 0, time.UTC)
+	row := &charges.Charge{
+		ID: "live_vid-1_c_1", Source: "live", FinalState: "charging_active",
+		StartedAt: t0, EndedAt: t0.Add(10*time.Hour + 30*time.Minute),
+		StartSoCPct: 31, EndSoCPct: 83.4, EnergyAddedKWh: 68.2, ActiveSeconds: 37800, MaxPowerKW: 6,
+	}
+	c := liveChargeFromRow(row)
+	if c.energyIntKWh != 68.2 || c.progressKWh != 68.2 || c.activeSeconds != 37800 {
+		t.Fatalf("resumed accumulators = %v / %v kWh, %v s; want the row's 68.2 / 68.2 kWh, 37800 s", c.energyIntKWh, c.progressKWh, c.activeSeconds)
+	}
+	s := &liveSessions{charge: c}
+	// After the restart: 80 more minutes at 6 kW, 83.4 -> 90%, then complete.
+	at := t0.Add(10*time.Hour + 31*time.Minute)
+	for i := 0; i <= 80; i++ {
+		soc := 83.4 + 6.6*float64(i)/80
+		_ = s.handleChargeLifecycle(chargingFrameKW(at.Add(time.Duration(i)*time.Minute), soc, 6), nil, m, ctx)
+	}
+	done := chargingFrameKW(at.Add(81*time.Minute), 90, 0)
+	done.ChargerState = "charging_complete"
+	_ = s.handleChargeLifecycle(done, nil, m, ctx)
+
+	got := m.liveChargeRow("vid-1", c)
+	want := (90.0 - 31.0) / 100 * 131 // 77.3 kWh
+	if math.Abs(got.EnergyAddedKWh-want) > 0.1*want {
+		t.Errorf("recorded %.1f kWh for 31 -> 90%% on a 131 kWh pack, want ~%.1f (it was ~8.7 before the fix)", got.EnergyAddedKWh, want)
 	}
 }

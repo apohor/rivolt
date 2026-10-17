@@ -2054,7 +2054,23 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 	if row == nil || time.Since(row.StartedAt) > 24*time.Hour {
 		return nil
 	}
-	c := &liveCharge{
+	c := liveChargeFromRow(row)
+	m.logger.Info("resumed open charge from DB",
+		"vehicle", curr.VehicleID,
+		"id", row.ID,
+		"started_at", row.StartedAt,
+		"age", time.Since(row.StartedAt).Round(time.Second))
+	return c
+}
+
+// liveChargeFromRow rebuilds the in-memory charge accumulator from the open
+// row a restart left behind. The row's persisted energy seeds the energy
+// integral: without it the integral restarted at zero, and a charge that was
+// resumed mid-way finished with only the energy delivered after the restart
+// (an L2 charge resumed at 83% of a 31 to 90% charge was recorded as 8.7 kWh
+// instead of ~77, and every deploy during a charge did the same on prod).
+func liveChargeFromRow(row *charges.Charge) *liveCharge {
+	return &liveCharge{
 		id:         row.ID,
 		startedAt:  row.StartedAt,
 		startSoC:   row.StartSoCPct,
@@ -2064,8 +2080,10 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		endAt:      row.EndedAt,
 		endSoC:     row.EndSoCPct,
 		finalState: row.FinalState,
-		// Continue the active-charging-time accumulator from the
-		// persisted value so a mid-charge restart doesn't reset it.
+		// Continue the energy and active-charging-time accumulators from
+		// the persisted values so a mid-charge restart doesn't reset them.
+		energyIntKWh:      row.EnergyAddedKWh,
+		progressKWh:       row.EnergyAddedKWh,
 		activeSeconds:     row.ActiveSeconds,
 		progressActiveSec: row.ActiveSeconds,
 		// Anchor the stale-session guard at the last advanced frame, not
@@ -2075,12 +2093,6 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 		lastMeaningfulAt: row.EndedAt,
 		lastProgressAt:   row.EndedAt,
 	}
-	m.logger.Info("resumed open charge from DB",
-		"vehicle", curr.VehicleID,
-		"id", row.ID,
-		"started_at", row.StartedAt,
-		"age", time.Since(row.StartedAt).Round(time.Second))
-	return c
 }
 
 // closeStaleOpenCharges marks every live charge row for the vehicle

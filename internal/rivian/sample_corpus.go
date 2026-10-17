@@ -577,7 +577,14 @@ func (s sampleSeg) frameAt(i int) replayFrame {
 		fr.PowerState = "ready"
 		kw := s.peakKW
 		if s.dcfc {
-			kw = math.Max(30, s.peakKW*(1-0.65*(soc-20)/80))
+			// The power that produces the SoC curve above: the energy
+			// delivered over the stop is socΔ × pack, so the power is the
+			// derivative of that curve, 1.6·(1-f)^0.6 × the average. (A
+			// separate linear taper made the power integral differ from the
+			// SoC energy by up to 14%.) Never below the 30 kW the taper
+			// bottoms out at on a real stall.
+			avgKW := (s.socB - s.socA) / 100 * samplePackKWh / s.end.Sub(s.start).Hours()
+			kw = math.Max(30, 1.6*math.Pow(1-f, 0.6)*avgKW)
 			fr.PackTempAvgC, fr.PackTempMinC, fr.PackTempMaxC = 34, 32, 36
 		} else if f > 0.9 {
 			kw = s.peakKW * (1 - (f-0.9)*5)
