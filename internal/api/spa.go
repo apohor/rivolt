@@ -52,6 +52,9 @@ func spaHandler(fsys fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/robots.txt":
+			// Short, explicit TTL: Cloudflare otherwise caches .txt at the
+			// edge for hours, so a host-rule change would linger.
+			w.Header().Set("Cache-Control", "public, max-age=300")
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			_, _ = w.Write([]byte(robotsTxt(requestHost(r))))
 			return
@@ -61,6 +64,7 @@ func spaHandler(fsys fs.FS) http.Handler {
 				http.NotFound(w, r)
 				return
 			}
+			w.Header().Set("Cache-Control", "public, max-age=300")
 			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 			_, _ = w.Write([]byte(body))
 			return
