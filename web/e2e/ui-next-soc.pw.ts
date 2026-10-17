@@ -37,7 +37,7 @@ for (const theme of ["dark", "light"] as const) {
           // hover() scrolls the plot into view first: a raw mouse.move at a page
           // coordinate can land below the fold on a short or slower-loading page
           // (it did on the Linux CI runner, desktop only).
-          const svg = chart.locator("svg");
+          const svg = chart.locator("svg[role='img']");
           const box = await svg.boundingBox();
           await svg.hover({ position: { x: box!.width * 0.8, y: Math.min(80, box!.height / 2) } });
           await expect(page.getByTestId("soc-tip")).toContainText(/%/);
@@ -54,6 +54,11 @@ for (const theme of ["dark", "light"] as const) {
           }
           await expect(page.getByText(/Pack capacity/)).toHaveCount(0);
           await expect(chart.locator("[data-legend='limit']")).toContainText("Charge limit");
+          // The limit swatch is the same amber as the drawn line.
+          const drawn = await page.getByTestId("soc-limit").locator("line").evaluate((l) => getComputedStyle(l).stroke);
+          const swatch = await page.getByTestId("legend-limit-swatch").evaluate((l) => getComputedStyle(l).stroke);
+          expect(swatch).toBe(drawn);
+          expect(swatch).toBe("rgb(245, 158, 11)");
           // Bands are visible marks: the strip on the axis is at least 3px wide.
           const strip = await chart.locator("[data-band] rect").last().evaluate((r) => Number(r.getAttribute("width")));
           expect(strip).toBeGreaterThanOrEqual(3);

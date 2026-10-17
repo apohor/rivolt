@@ -214,7 +214,9 @@ export function SocTrendChart({
         )}
         {limit != null && limit > 0 && limit < 100 && (
           <span data-legend="limit">
-            <span aria-hidden className="mr-1 inline-block h-0 w-4 border-t border-dashed align-middle" style={{ borderColor: "#f59e0b" }} />
+            <svg aria-hidden width="16" height="4" className="mr-1 inline-block align-middle">
+              <line data-testid="legend-limit-swatch" x1="0" x2="16" y1="2" y2="2" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3" />
+            </svg>
             Charge limit
           </span>
         )}
