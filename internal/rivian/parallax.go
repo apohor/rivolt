@@ -589,12 +589,12 @@ func pxChargeCapturing(now time.Time) bool { return now.Before(pxChargeCaptureUn
 // subscribed to them yet. alarm + 12V health are decoded from the APK
 // enums and applied on preview (with the concurrent vehicleState value
 // logged for verification); trailer + precon are decode-logged only
-// (no State field / unconfirmed field number); OTA is a nested wrapper
-// still on the raw default case. Graduate each into the base list above
-// once the preview logs confirm the mapping.
+// (no State field / unconfirmed field number); ota_state is still on the
+// raw default case. Graduate each into the base list above once the logs
+// confirm the mapping (ota.deployment.state has: decodeOTADeployment).
 var CaptureRVMs = []string{
 	rvmTrailer,
-	rvmLowVoltBatt, rvmOtaState, rvmOtaDeploy, rvmAlarmState, rvmPreconStatus,
+	rvmLowVoltBatt, rvmOtaState, rvmAlarmState, rvmPreconStatus,
 	rvmPetMode, rvmClimateHold, rvmImmobilizer,
 }
 
@@ -965,7 +965,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		rvms := []string{
 			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
-			rvmChargingStatus,
+			rvmChargingStatus, rvmOtaDeploy,
 		}
 		if extra != nil {
 			rvms = append(rvms, extra()...)
@@ -1183,4 +1183,70 @@ func packCapacityKWh(v uint64) float64 {
 	default:
 		return 0
 	}
+}
+
+// decodeOTADeployment parses ota.deployment.state (APK 3.17 proto) the way
+// the app does:
+//
+//	1: repeated Software { 1: category (1 = FIRMWARE), 2: Version,
+//	                       3: deployment_id, 4: AvailableOTA }
+//	Version      { 1: version "2026.36.41", 2: software_version_id,
+//	               3: year, 4: week, 5: number, 6: git_hash }
+//	AvailableOTA { 1: deployment_id, 2: Version, 3: ota_type, 4: context,
+//	               5: progress, 6: install_time_secs, 7: install_tod,
+//	               8: skip_count, 9: skip_allowed, 10: intent, 11: is_active }
+//
+// current is the FIRMWARE software's version; available is the version of
+// the last software whose AvailableOTA is active (""= none pending).
+// ok=false means the payload was malformed or carried no firmware entry.
+func decodeOTADeployment(b64 string) (current, available string, ok bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return "", "", false
+	}
+	version := func(msg []byte) (v string) {
+		_ = pbScan(msg, func(f, w int, val []byte) {
+			if f == 1 && w == 2 {
+				v = string(val)
+			}
+		})
+		return v
+	}
+	haveFirmware := false
+	err = pbScan(raw, func(f, w int, sw []byte) {
+		if f != 1 || w != 2 {
+			return
+		}
+		var category uint64
+		var ver, availVer string
+		active := false
+		_ = pbScan(sw, func(sf, sw2 int, val []byte) {
+			switch {
+			case sf == 1 && sw2 == 0:
+				category, _ = binary.Uvarint(val)
+			case sf == 2 && sw2 == 2:
+				ver = version(val)
+			case sf == 4 && sw2 == 2:
+				_ = pbScan(val, func(af, aw int, av []byte) {
+					switch {
+					case af == 2 && aw == 2:
+						availVer = version(av)
+					case af == 11 && aw == 0:
+						n, _ := binary.Uvarint(av)
+						active = n != 0
+					}
+				})
+			}
+		})
+		if category == 1 && !haveFirmware {
+			current, haveFirmware = ver, true
+		}
+		if active && availVer != "" {
+			available = availVer
+		}
+	})
+	if err != nil || !haveFirmware {
+		return "", "", false
+	}
+	return current, available, true
 }

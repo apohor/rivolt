@@ -168,6 +168,10 @@ type StateMonitor struct {
 	// only to vehicles without it (an R2); on the rest it's shadow-logged
 	// to validate the mapping. Guarded by mu.
 	vehChargerStatus map[string]bool
+	// vehOtaVersion[vehicleID] is set once vehicleState has delivered an
+	// otaCurrentVersion. Parallax ota.deployment.state fills the versions
+	// only for vehicles without it (an R2). Guarded by mu.
+	vehOtaVersion map[string]bool
 	// lastVehStateGPS[vehicleID] is when vehicleState last delivered a
 	// GPS fix. The gnss subscriber injects a Parallax point only when
 	// this is older than parallaxGPSStallThreshold, i.e. vehicleState
@@ -439,6 +443,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		lastPxGearAt:    make(map[string]time.Time),
 		lastPxPower:     make(map[string]string),
 		vehChargerStatus: make(map[string]bool),
+		vehOtaVersion:    make(map[string]bool),
 		cache:           make(map[string]*State),
 		stamp:           make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
@@ -2402,6 +2407,8 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		}
 	case rvmChargingStatus:
 		m.applyParallaxChargingStatus(ctx, vehicleID, f, prev)
+	case rvmOtaDeploy:
+		m.applyParallaxOTA(vehicleID, f, prev)
 	case rvmBatteryChars:
 		// Decode-log only, during the time-boxed capture: the pack's own
 		// capacity next to the one we infer (InferPackKWh) and the
@@ -2478,6 +2485,45 @@ func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleI
 	m.putCacheLocked(vehicleID, &next)
 	m.mu.Unlock()
 	m.record(ctx, vehicleID, base, &next)
+}
+
+// applyParallaxOTA handles an ota.deployment.state frame: it logs the
+// decoded installed and pending versions next to vehicleState's and, for a
+// vehicle whose vehicleState sends no otaCurrentVersion (an R2), sets them
+// on the cache. The R1s carry both, so the log validates the decode. Like
+// the plug status it's a state: the replay of the latest frame applies, an
+// out-of-order older one doesn't.
+func (m *StateMonitor) applyParallaxOTA(vehicleID string, f DriveDynamicsFrame, prev *State) {
+	cur, avail, ok := decodeOTADeployment(f.Payload)
+	var vehCur, vehAvail string
+	if prev != nil {
+		vehCur, vehAvail = prev.OtaCurrentVersion, prev.OtaAvailableVersion
+	}
+	m.mu.RLock()
+	vehReports := m.vehOtaVersion[vehicleID]
+	latest := f.TimestampMs > 0 && m.lastTopicTs[vehicleID+"|"+f.RVM] == f.TimestampMs
+	m.mu.RUnlock()
+	args := []any{"vehicle", vehicleID, "topic", "ota_deployment",
+		"px_ok", ok, "px_current", cur, "px_available", avail,
+		"vehicleState_current", vehCur, "vehicleState_available", vehAvail,
+		"vehicleState_has_version", vehReports, "ts_ms", f.TimestampMs}
+	if !ok {
+		args = append(args, "px_raw_b64", f.Payload)
+	}
+	m.logger.Info("parallax drive-dynamics shadow", args...)
+	if !m.parallaxDriveDynamics || !ok || cur == "" || vehReports || !latest {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	base := m.cache[vehicleID]
+	if base == nil || m.vehOtaVersion[vehicleID] || (base.OtaCurrentVersion == cur && base.OtaAvailableVersion == avail) {
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.OtaCurrentVersion, next.OtaAvailableVersion = cur, avail
+	m.putCacheLocked(vehicleID, &next)
 }
 
 // parkableGear reports whether a Parallax P should replace the cached gear:
@@ -2608,6 +2654,9 @@ func (m *StateMonitor) applyVehicleStatePush(ctx context.Context, vehicleID stri
 	prev := m.cache[vehicleID]
 	if st != nil && strings.TrimSpace(st.ChargerStatus) != "" {
 		m.vehChargerStatus[vehicleID] = true
+	}
+	if st != nil && strings.TrimSpace(st.OtaCurrentVersion) != "" {
+		m.vehOtaVersion[vehicleID] = true
 	}
 	merged := mergeState(prev, st)
 	m.holdParallaxLocked(vehicleID, prev, merged)

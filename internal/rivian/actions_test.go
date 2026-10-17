@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func TestVehicleOfAndTopics(t *testing.T) {
 	if got := topicsDetail(map[string]any{"rvms": []string{"dynamics.vehicle.gnss"}}); got != "dynamics.vehicle.gnss" {
 		t.Errorf("one topic: %q", got)
 	}
-	if got := topicsDetail(map[string]any{"rvms": CaptureRVMs}); got != "9 topics" {
+	if got, want := topicsDetail(map[string]any{"rvms": CaptureRVMs}), fmt.Sprintf("%d topics", len(CaptureRVMs)); got != want {
 		t.Errorf("many topics: %q", got)
 	}
 	if got := topicsDetail(map[string]any{"vehicleID": "a"}); got != "" {
