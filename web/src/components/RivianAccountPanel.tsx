@@ -296,6 +296,13 @@ export function RivianAccountPanel() {
         onChange={(e) => setPassword(e.target.value)}
         className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-200"
       />
+      <p data-connect-privacy className="text-xs text-neutral-400">
+        Rivolt records your vehicle's GPS location and other vehicle data to build your drives and charges. See the{" "}
+        <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-200">
+          Privacy policy
+        </a>
+        .
+      </p>
       <button
         type="submit"
         disabled={login.isPending || !email || !password}
