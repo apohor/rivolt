@@ -256,8 +256,13 @@ config:
   # Cookie security. `true` requires the ingress to terminate TLS.
   secureCookie: true
 
-  # Optional CIDRs trusted for X-Forwarded-* parsing. Set when an
-  # ingress controller / mesh sits in front.
+  # DANGEROUS, leave empty unless you run an authenticating reverse proxy
+  # (oauth2-proxy and the like). Enables header SSO: any peer inside these
+  # CIDRs may sign in as ANY user by sending X-Forwarded-Preferred-Username.
+  # It is NOT for "trusting the ingress to forward client IPs" (the app does
+  # that itself from CF-Connecting-IP). Never put the pod network, the ingress
+  # controller's network or a /16 here: use the exact proxy address (/32).
+  # The app logs an error at boot when an entry is that wide.
   trustedProxyCIDR: ""
 
   # Timezone for log timestamps + scheduler ticks.

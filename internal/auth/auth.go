@@ -306,6 +306,38 @@ func ParseTrustedCIDRs(list string) ([]*net.IPNet, error) {
 	return out, nil
 }
 
+// BroadTrustedCIDRs returns the entries of nets that are too wide to be "the
+// proxy": a network of 65,536 or more IPv4 addresses (a prefix of /16 or
+// shorter; /48 or shorter for IPv6), or one that contains an address of this
+// host (so it contains the pod's own network, load balancer and every
+// neighbour). Header SSO believes a user header from any peer inside the list,
+// so such an entry lets anything that can reach the app through that network
+// sign in as anyone. The list should hold the exact proxy address.
+func BroadTrustedCIDRs(nets []*net.IPNet) []string {
+	var local []net.IP
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() {
+				local = append(local, ipn.IP)
+			}
+		}
+	}
+	var out []string
+	for _, n := range nets {
+		ones, bits := n.Mask.Size()
+		broad := (bits == 32 && ones <= 16) || (bits == 128 && ones <= 48)
+		for _, ip := range local {
+			if n.Contains(ip) {
+				broad = true
+			}
+		}
+		if broad {
+			out = append(out, n.String())
+		}
+	}
+	return out
+}
+
 // token is the payload we sign into the cookie. Kept tiny — just
 // the tenant uuid and an expiry. Real auth providers will hand us a
 // JWT with claims instead, but the Middleware contract (resolve

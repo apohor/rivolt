@@ -524,3 +524,41 @@ func TestHeader_TrustUsesTheConnectionPeerNotTheClientAddress(t *testing.T) {
 		t.Error("a stranger forged a trusted address and was believed")
 	}
 }
+
+// A trusted-proxy list that spans the pod network is flagged for the boot
+// warning; the exact address of one proxy is not.
+func TestBroadTrustedCIDRs(t *testing.T) {
+	parse := func(list string) []*net.IPNet {
+		t.Helper()
+		nets, err := ParseTrustedCIDRs(list)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nets
+	}
+	for _, broad := range []string{"10.42.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "2001:db8::/32"} {
+		if got := BroadTrustedCIDRs(parse(broad)); len(got) != 1 {
+			t.Errorf("%s not flagged as broad: %v", broad, got)
+		}
+	}
+	for _, exact := range []string{"192.0.2.7/32", "198.51.100.0/24", "2001:db8:1:2::/64"} {
+		if got := BroadTrustedCIDRs(parse(exact)); len(got) != 0 {
+			t.Errorf("%s flagged: %v", exact, got)
+		}
+	}
+	if got := BroadTrustedCIDRs(nil); len(got) != 0 {
+		t.Errorf("empty list flagged: %v", got)
+	}
+	// An entry that contains one of this host's own addresses is broad however
+	// short its prefix is not: even a /32 of the pod's own IP trusts the pod.
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+			own := ipn.IP.String() + "/32"
+			if got := BroadTrustedCIDRs(parse(own)); len(got) != 1 {
+				t.Errorf("%s (this host) not flagged", own)
+			}
+			return
+		}
+	}
+}
