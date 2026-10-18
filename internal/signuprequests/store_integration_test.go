@@ -5,12 +5,12 @@
 // /api/signup/token/{token} endpoint reads it back, and /api/signup
 // consumes it on account creation. Two adversarial paths matter most:
 //
-//   1. Double-redeem. Two concurrent POSTs to /api/signup with the
-//      same token must NOT both succeed — the UPDATE … WHERE
-//      token_used_at IS NULL is the single-row guarantee.
-//   2. Expiry. A token whose expires_at has passed must look
-//      identical to a missing/used one from the API (ErrTokenInvalid)
-//      — leaking which state caused the rejection helps phishing.
+//  1. Double-redeem. Two concurrent POSTs to /api/signup with the
+//     same token must NOT both succeed — the UPDATE … WHERE
+//     token_used_at IS NULL is the single-row guarantee.
+//  2. Expiry. A token whose expires_at has passed must look
+//     identical to a missing/used one from the API (ErrTokenInvalid)
+//     — leaking which state caused the rejection helps phishing.
 //
 // Run with: go test -tags=integration ./internal/signuprequests/...
 package signuprequests_test
@@ -19,18 +19,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/signuprequests"
+	"github.com/apohor/rivolt/internal/testpg"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -55,38 +52,7 @@ func expireToken(ctx context.Context, t *testing.T, dsn, token string) {
 
 func pgDSN(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {
-		t.Skip("RIVOLT_SKIP_INTEGRATION set")
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:16-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "rivolt",
-			"POSTGRES_PASSWORD": "rivolt",
-			"POSTGRES_DB":       "rivolt_test",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(60 * time.Second),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := c.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-	return fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
+	return testpg.DSN(ctx, t)
 }
 
 func setupStore(t *testing.T) (*signuprequests.Store, uuid.UUID, string) {
@@ -196,8 +162,8 @@ func TestConsumeToken_SingleUse(t *testing.T) {
 	token := *approved.SignupToken
 
 	var (
-		wg          sync.WaitGroup
-		results     [2]error
+		wg      sync.WaitGroup
+		results [2]error
 	)
 	start := make(chan struct{})
 	for i := 0; i < 2; i++ {

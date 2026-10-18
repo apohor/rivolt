@@ -16,58 +16,24 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 func crossTenantDSN(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {
-		t.Skip("RIVOLT_SKIP_INTEGRATION set")
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:16-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "rivolt",
-			"POSTGRES_PASSWORD": "rivolt",
-			"POSTGRES_DB":       "rivolt_test",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(60 * time.Second),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := c.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-	return fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
+	return testpg.DSN(ctx, t)
 }
 
 // TestAPI_CrossTenantIsolation_DrivesAndCharges seeds rows for two

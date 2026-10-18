@@ -92,7 +92,7 @@ func backupTestDeps(pool *sql.DB) Deps {
 	}
 }
 
-// The backup is streamed: with 250k samples the heap stays flat, the output is
+// The backup is streamed: with 100k samples the heap stays flat, the output is
 // one valid JSON document with every row, and a second request inside the gap
 // is refused with Retry-After.
 func TestBackupStreamsWithBoundedMemory(t *testing.T) {
@@ -103,7 +103,7 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	const nSamples, nDrives, nCharges = 250_000, 300, 200
+	const nSamples, nDrives, nCharges = 100_000, 300, 200
 	uid := seedBackupUser(t, ctx, pool, "bk-big", nSamples, nDrives, nCharges)
 	h := handleDataBackup(backupTestDeps(pool))
 
@@ -185,11 +185,13 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 	}
 	delta := int64(peak.Load()) - int64(base.HeapAlloc)
 	t.Logf("streamed %d MB, peak heap delta %d MB", resp.n.Load()>>20, delta>>20)
-	if resp.n.Load() < 50<<20 {
+	if resp.n.Load() < 20<<20 {
 		t.Errorf("only %d MB streamed; the dataset is too small to prove anything", resp.n.Load()>>20)
 	}
-	if delta > 50<<20 {
-		t.Errorf("heap grew by %d MB while streaming; want under 50", delta>>20)
+	// Streaming holds the heap flat (about 4 MB measured); loading every sample
+	// first, as the old handler did, costs 30 MB or more for this dataset.
+	if delta > 15<<20 {
+		t.Errorf("heap grew by %d MB while streaming; want under 15", delta>>20)
 	}
 
 	// Second request inside the gap: 429 with Retry-After.
