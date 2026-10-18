@@ -54,7 +54,11 @@ func runMultiday(t *testing.T, p rivian.TripPlanner, body string) (int, map[stri
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out == nil {
-		out = map[string]any{"_body": rec.Body.String()}
+		out = map[string]any{}
+	}
+	out["_body"] = rec.Body.String()
+	if ct := rec.Header().Get("Content-Type"); rec.Code >= 400 && !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("an error response must be JSON, got %q: %s", ct, rec.Body.String())
 	}
 	return rec.Code, out
 }
@@ -212,5 +216,29 @@ func TestMultidayPartialFailureIs200WithTheDaysSoFar(t *testing.T) {
 	_, out = runMultiday(t, &daysPlanner{fail: map[int]error{0: errors.New("boom")}}, `{`+mdVehicle+`"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2}}]}`)
 	if out["failed_day"] != float64(1) || out["error_class"] != nil || len(out["days"].([]any)) != 0 {
 		t.Errorf("first-day failure = %v", out)
+	}
+}
+
+// Every error from the plan endpoints has one shape: JSON {"error": "..."}.
+func TestPlanErrorsAreAlwaysJSON(t *testing.T) {
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: &daysPlanner{}}
+	for name, req := range map[string]struct {
+		h    http.HandlerFunc
+		body string
+		want int
+	}{
+		"single-day, one waypoint": {handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{"waypoints":[{"latitude":1,"longitude":1}]}`, 400},
+		"single-day, bad json":     {handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{`, 400},
+		"single-day, stub client":  {handleTripPlan(rivian.NewStub(), nil, nil, uuid.New(), nil, nil, nil, nil), `{}`, 404},
+		"multi-day, bad json":      {handleTripPlanMultiday(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{`, 400},
+		"multi-day, stub client":   {handleTripPlanMultiday(rivian.NewStub(), nil, nil, uuid.New(), nil, nil, nil, nil), `{}`, 404},
+	} {
+		rec := httptest.NewRecorder()
+		req.h(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString(req.body)))
+		var out map[string]any
+		if rec.Code != req.want || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") ||
+			json.Unmarshal(rec.Body.Bytes(), &out) != nil || out["error"] == "" || out["error"] == nil {
+			t.Errorf("%s: %d %q %s", name, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+		}
 	}
 }

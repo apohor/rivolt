@@ -71,16 +71,16 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 	return func(w http.ResponseWriter, r *http.Request) {
 		planner, ok := tripPlannerOf(c)
 		if !ok {
-			http.Error(w, "live rivian client required", http.StatusNotFound)
+			planError(w, http.StatusNotFound, "live rivian client required")
 			return
 		}
 		var req tripPlanRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			badRequest(w, "invalid body: "+err.Error())
 			return
 		}
 		if len(req.Waypoints) < 2 {
-			http.Error(w, "at least origin + destination waypoints required", http.StatusBadRequest)
+			badRequest(w, "at least origin + destination waypoints required")
 			return
 		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, req.VehicleID, req.StartingSoC, req.StartingRangeMeters)
@@ -171,7 +171,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				return
 			}
 			if errors.Is(err, rivian.ErrNoPlanner) {
-				http.Error(w, "trip planning is not available here", http.StatusNotFound)
+				planError(w, http.StatusNotFound, "trip planning is not available here")
 				return
 			}
 			if errors.Is(err, rivian.ErrNoFixture) {
