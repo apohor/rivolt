@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
@@ -1811,6 +1812,7 @@ func runServer() {
 	// approved: until the account exists).
 	if pgPool != nil {
 		jobs := []retention.Job{
+			{Name: "admin_audit", Run: adminaudit.New(pgPool).Purge},
 			{Name: "sessions", Run: func(ctx context.Context) (int64, error) {
 				if sessionStore == nil {
 					return 0, nil

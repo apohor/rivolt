@@ -118,7 +118,10 @@ const ImpersonateHeader = "X-Rivolt-Impersonate"
 // auth.WithImpersonation (identity swap + audit fields for every
 // subsequent log line) and one explicit "impersonation" audit line
 // is emitted here.
-func impersonationMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string, error), disabled func() bool) func(http.Handler) http.Handler {
+// onStart, when given, is called for each impersonated request with the real
+// admin and the target (the audit log dedupes it to one row per pair); an
+// error refuses the request, so viewing as someone is never unrecorded.
+func impersonationMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string, error), disabled func() bool, onStart ...func(ctx context.Context, admin, target uuid.UUID, ip string) error) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			hdr := strings.TrimSpace(r.Header.Get(ImpersonateHeader))
@@ -166,6 +169,13 @@ func impersonationMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string
 			if targetRole == "admin" {
 				http.Error(w, "cannot impersonate an admin", http.StatusForbidden)
 				return
+			}
+			for _, f := range onStart {
+				if err := f(r.Context(), callerID, targetID, clientAddr(r)); err != nil {
+					slog.ErrorContext(r.Context(), "impersonation: audit failed, request refused", "err", err.Error())
+					http.Error(w, "the audit log is unavailable", http.StatusServiceUnavailable)
+					return
+				}
 			}
 			ctx := logging.WithAuthMethod(auth.WithImpersonation(r.Context(), callerID, targetID), logging.AuthImpersonation)
 			slog.InfoContext(ctx, "impersonation",
