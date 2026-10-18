@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -187,7 +190,7 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 // of every sample first and OOM-killed small pods). A guard keeps a few
 // backups from running at once and one user from repeating them.
 func handleDataBackup(d Deps) http.HandlerFunc {
-	guard := newBackupGuard(backupMaxConcurrent, backupPerUserGap, time.Now)
+	guard := guardFor(d, backupMaxConcurrent, "last_backup_at")
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
@@ -201,7 +204,7 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			http.Error(w, "backup unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		release, retryAfter, allowed := guard.acquire(uid)
+		release, retryAfter, allowed := guard.acquire(r.Context(), uid, backupPerUserGap)
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 			http.Error(w, "a backup is already running or was just made; try again shortly", http.StatusTooManyRequests)
@@ -386,51 +389,140 @@ const (
 	streamIdle          = 2 * time.Minute  // how long a backup or restore may make no progress
 )
 
-// backupGuard bounds the cost of /api/data/backup: at most max run at once
-// on this pod and one user may start one per gap. In-memory and per pod, so
-// the effective per-user rate is gap divided by the number of pods.
+// backupGuard bounds the cost of /api/data/backup and /api/data/restore: at
+// most max run at once on this pod (a per-pod semaphore, since memory and the
+// database connection are per pod) and one user may start one per gap. The
+// gap is global when the guard is backed by the database: a conditional
+// UPDATE on the users row claims the slot atomically, so two replicas cannot
+// both let the same user through.
 type backupGuard struct {
 	sem  chan struct{}
-	gap  time.Duration
-	now  func() time.Time
-	mu   sync.Mutex
-	last map[uuid.UUID]time.Time
+	gaps gapStore
 }
 
+// gapStore remembers when each user last started the operation.
+type gapStore interface {
+	// claim takes uid's slot if the last start is older than gap. When it
+	// refuses it says how long until a retry could succeed.
+	claim(ctx context.Context, uid uuid.UUID, gap time.Duration) (ok bool, retryAfter time.Duration, err error)
+	// clear gives the slot back (the operation broke; a retry should not wait).
+	clear(ctx context.Context, uid uuid.UUID)
+}
+
+// newBackupGuard keeps the gap in memory (per pod): for tests and installs
+// without a database.
 func newBackupGuard(max int, gap time.Duration, now func() time.Time) *backupGuard {
-	return &backupGuard{sem: make(chan struct{}, max), gap: gap, now: now, last: map[uuid.UUID]time.Time{}}
+	return &backupGuard{sem: make(chan struct{}, max), gaps: &memGaps{now: now, last: map[uuid.UUID]time.Time{}}}
+}
+
+// newDBBackupGuard keeps the gap in users.<column> (last_backup_at or
+// last_restore_at), shared by every replica.
+func newDBBackupGuard(max int, pool *sql.DB, column string) *backupGuard {
+	return &backupGuard{sem: make(chan struct{}, max), gaps: &pgGaps{db: pool, column: column}}
 }
 
 // acquire reserves a slot for uid. On refusal it returns how long until a
-// retry could succeed. release must be called when the backup ends.
-func (g *backupGuard) acquire(uid uuid.UUID) (release func(), retryAfter time.Duration, ok bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	now := g.now()
-	if t, seen := g.last[uid]; seen && now.Sub(t) < g.gap {
-		return nil, g.gap - now.Sub(t), false
-	}
+// retry could succeed. release must be called when the operation ends.
+func (g *backupGuard) acquire(ctx context.Context, uid uuid.UUID, gap time.Duration) (release func(), retryAfter time.Duration, ok bool) {
 	select {
 	case g.sem <- struct{}{}:
 	default:
 		return nil, 30 * time.Second, false
 	}
-	// Forget old entries so the map does not grow without bound.
-	for k, t := range g.last {
-		if now.Sub(t) >= g.gap {
-			delete(g.last, k)
-		}
+	free := func() { <-g.sem }
+	claimed, wait, err := g.gaps.claim(ctx, uid, gap)
+	if err != nil {
+		// This guard is cost control, not security: if the database cannot
+		// answer, the per-pod semaphore still bounds the load. Let it through.
+		slog.WarnContext(ctx, "backup guard: gap check failed, allowing", "err", logging.ScrubErr(err))
+		return free, 0, true
 	}
-	g.last[uid] = now
-	return func() { <-g.sem }, 0, true
+	if !claimed {
+		free()
+		return nil, wait, false
+	}
+	return free, 0, true
 }
 
-// forget clears uid's gap (a backup that broke should not cost the user
+// forget gives uid's slot back (a run that broke should not cost the user
 // the wait).
 func (g *backupGuard) forget(uid uuid.UUID) {
-	g.mu.Lock()
-	delete(g.last, uid)
-	g.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	g.gaps.clear(ctx, uid)
+}
+
+type memGaps struct {
+	now  func() time.Time
+	mu   sync.Mutex
+	last map[uuid.UUID]time.Time
+}
+
+func (m *memGaps) claim(_ context.Context, uid uuid.UUID, gap time.Duration) (bool, time.Duration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	if t, seen := m.last[uid]; seen && now.Sub(t) < gap {
+		return false, gap - now.Sub(t), nil
+	}
+	// Forget old entries so the map does not grow without bound.
+	for k, t := range m.last {
+		if now.Sub(t) >= gap {
+			delete(m.last, k)
+		}
+	}
+	m.last[uid] = now
+	return true, 0, nil
+}
+
+func (m *memGaps) clear(_ context.Context, uid uuid.UUID) {
+	m.mu.Lock()
+	delete(m.last, uid)
+	m.mu.Unlock()
+}
+
+// pgGaps stores the gap on the users row. column is one of the two known
+// names (never user input).
+type pgGaps struct {
+	db     *sql.DB
+	column string
+}
+
+func (p *pgGaps) claim(ctx context.Context, uid uuid.UUID, gap time.Duration) (bool, time.Duration, error) {
+	interval := fmt.Sprintf("%d milliseconds", gap.Milliseconds())
+	res, err := p.db.ExecContext(ctx, `UPDATE users SET `+p.column+` = now()
+		WHERE id = $1 AND (`+p.column+` IS NULL OR `+p.column+` < now() - $2::interval)`, uid, interval)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return true, 0, nil
+	}
+	// Refused (or no such user): how long is left?
+	var left float64
+	err = p.db.QueryRowContext(ctx, `SELECT COALESCE(EXTRACT(EPOCH FROM (`+p.column+` + $2::interval - now())), 0) FROM users WHERE id = $1`, uid, interval).Scan(&left)
+	if err != nil {
+		return false, 0, err
+	}
+	if left < 1 {
+		left = 1
+	}
+	return false, time.Duration(left * float64(time.Second)), nil
+}
+
+func (p *pgGaps) clear(ctx context.Context, uid uuid.UUID) {
+	if _, err := p.db.ExecContext(ctx, `UPDATE users SET `+p.column+` = NULL WHERE id = $1`, uid); err != nil {
+		slog.WarnContext(ctx, "backup guard: could not clear the gap", "err", logging.ScrubErr(err))
+	}
+}
+
+// guardFor builds the guard for one endpoint: database-backed (global across
+// replicas) when there is a database, in memory otherwise.
+func guardFor(d Deps, max int, column string) *backupGuard {
+	if d.DB != nil {
+		return newDBBackupGuard(max, d.DB, column)
+	}
+	return newBackupGuard(max, backupPerUserGap, time.Now)
 }
 
 // handleDataRestore accepts a previously downloaded backup bundle
@@ -448,7 +540,7 @@ func (g *backupGuard) forget(uid uuid.UUID) {
 // again. Limits: one restore at a time per pod, one per user per ten
 // minutes, and a cap on the DECOMPRESSED size (a zip-bomb guard).
 func handleDataRestore(d Deps) http.HandlerFunc {
-	guard := newBackupGuard(1, backupPerUserGap, time.Now)
+	guard := guardFor(d, 1, "last_restore_at")
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
@@ -462,7 +554,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			http.Error(w, "restore unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		release, retryAfter, allowed := guard.acquire(uid)
+		release, retryAfter, allowed := guard.acquire(r.Context(), uid, backupPerUserGap)
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 			http.Error(w, "a restore is already running or was just made; try again shortly", http.StatusTooManyRequests)
@@ -555,6 +647,23 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		}
 		emit(counts("done"))
 	}
+}
+
+// restoreReadErr classifies an error from reading or decoding the body: a
+// network or deadline failure, a size limit or a cancelled request keeps its
+// identity (the client then gets the generic message, never the text, which
+// can carry internal addresses); anything else is a malformed backup.
+func restoreReadErr(ctx context.Context, err error) error {
+	var tooBig *http.MaxBytesError
+	var netErr net.Error
+	switch {
+	case errors.Is(err, errRestoreTooBig), errors.As(err, &tooBig),
+		errors.As(err, &netErr), errors.Is(err, os.ErrDeadlineExceeded),
+		errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		ctx.Err() != nil:
+		return err
+	}
+	return fmt.Errorf("%w: %v", errRestoreBadFile, err)
 }
 
 // restoreErrorEvent maps a restore failure to the status and message the
@@ -695,13 +804,7 @@ func (g *restoreGate) vehicleOK(id string) error {
 func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate, prog *restoreProgress) (restoreResult, error) {
 	var res restoreResult
 	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
-	wrap := func(err error) error { // size errors keep their identity
-		var tooBig *http.MaxBytesError
-		if errors.Is(err, errRestoreTooBig) || errors.As(err, &tooBig) || ctx.Err() != nil {
-			return err
-		}
-		return bad(err)
-	}
+	wrap := func(err error) error { return restoreReadErr(ctx, err) }
 	if tok, err := dec.Token(); err != nil {
 		return res, wrap(err)
 	} else if d, ok := tok.(json.Delim); !ok || d != '{' {
