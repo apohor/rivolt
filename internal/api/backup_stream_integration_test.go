@@ -242,13 +242,9 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	}
 	rr := httptest.NewRecorder()
 	handleDataRestore(deps)(rr, httptest.NewRequest("POST", "/api/data/restore", bytes.NewReader(rec.Body.Bytes())).WithContext(auth.WithUser(ctx, dst)))
-	if rr.Code != 200 {
-		t.Fatalf("restore = %d %s", rr.Code, rr.Body.String())
-	}
-	var got map[string]int
-	_ = json.Unmarshal(rr.Body.Bytes(), &got)
-	if got["samples"] != 5000 || got["drives"] != 40 || got["charges"] != 25 {
-		t.Fatalf("restore counts = %v", got)
+	ev, _, got := final(t, rr)
+	if ev != "done" || got.Samples != 5000 || got.Drives != 40 || got.Charges != 25 {
+		t.Fatalf("restore = %s %+v", ev, got)
 	}
 	for table, want := range map[string]int{"vehicle_state": 5000, "drives": 40, "charges": 25} {
 		var n int

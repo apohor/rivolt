@@ -87,8 +87,8 @@ func TestRestoreGateTimeBounds(t *testing.T) {
 			t.Errorf("%v accepted", ts)
 		}
 	}
-	if g.skipped != len(bad) {
-		t.Errorf("skipped = %d, want %d", g.skipped, len(bad))
+	if g.skipped.Load() != int64(len(bad)) {
+		t.Errorf("skipped = %d, want %d", g.skipped.Load(), len(bad))
 	}
 	// A drive is skipped if either end is out of range.
 	if g.timesOK(ok[1], bad[0]) {

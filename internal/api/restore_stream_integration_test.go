@@ -86,6 +86,8 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	const n = 250_000
+	restoreHeartbeat = 100 * time.Millisecond
+	defer func() { restoreHeartbeat = 3 * time.Second }()
 	h := handleDataRestore(backupTestDeps(pool))
 
 	runtime.GC()
@@ -115,13 +117,32 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h(rec, httptest.NewRequest("POST", "/api/data/restore", body).WithContext(auth.WithUser(ctx, dst)))
 	close(stop)
-	if rec.Code != 200 {
-		t.Fatalf("restore = %d %s", rec.Code, rec.Body.String())
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/x-ndjson" {
+		t.Fatalf("restore = %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
-	var got restoreResult
-	_ = json.Unmarshal(rec.Body.Bytes(), &got)
-	if got.Samples != n || got.Drives != 20 || got.Charges != 10 {
-		t.Fatalf("result = %+v", got)
+	ev, _, got := final(t, rec)
+	if ev != "done" || got.Samples != n || got.Drives != 20 || got.Charges != 10 {
+		t.Fatalf("final event %q result = %+v", ev, got)
+	}
+	// The stream starts with "start", reports progress while it works (counts
+	// never go backwards) and ends with "done".
+	all := events(t, rec.Body.Bytes())
+	if all[0]["event"] != "start" {
+		t.Errorf("first event = %v", all[0]["event"])
+	}
+	progress, last := 0, -1.0
+	for _, e := range all {
+		if e["event"] == "progress" {
+			progress++
+			if s, _ := e["samples"].(float64); s < last {
+				t.Errorf("progress went backwards: %v after %v", s, last)
+			} else {
+				last = s
+			}
+		}
+	}
+	if progress < 2 {
+		t.Errorf("only %d progress events for a long restore", progress)
 	}
 	for table, want := range map[string]int{"vehicle_state": n, "drives": 20, "charges": 10} {
 		var c int
@@ -141,6 +162,40 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("repeat = %d Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
+}
+
+// events parses an NDJSON restore response.
+func events(t *testing.T, body []byte) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(body), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(line, &m); err != nil {
+			t.Fatalf("bad NDJSON line %q: %v", line, err)
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// final is the last event of a restore: its name, the HTTP-style status of an
+// error, and the counts.
+func final(t *testing.T, rec *httptest.ResponseRecorder) (event string, status int, r restoreResult) {
+	t.Helper()
+	ev := events(t, rec.Body.Bytes())
+	if len(ev) == 0 {
+		t.Fatalf("no events in %q (HTTP %d)", rec.Body.String(), rec.Code)
+	}
+	last := ev[len(ev)-1]
+	event, _ = last["event"].(string)
+	if st, ok := last["status"].(float64); ok {
+		status = int(st)
+	}
+	num := func(k string) int { f, _ := last[k].(float64); return int(f) }
+	return event, status, restoreResult{Drives: num("drives"), Charges: num("charges"), Samples: num("samples"), Skipped: num("skipped")}
 }
 
 type countWriter struct{ n *atomic.Int64 }
@@ -168,12 +223,13 @@ func TestRestoreFormatsAndLimits(t *testing.T) {
 		}
 		return u
 	}
-	restore := func(uid uuid.UUID, body io.Reader) (int, restoreResult) {
+	// restore returns the final event ("done" or "error"), the status carried
+	// by an error event, and the counts.
+	restore := func(uid uuid.UUID, body io.Reader) (string, int, restoreResult) {
 		rec := httptest.NewRecorder()
 		handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", body).WithContext(auth.WithUser(ctx, uid)))
-		var r restoreResult
-		_ = json.Unmarshal(rec.Body.Bytes(), &r)
-		return rec.Code, r
+		ev, st, r := final(t, rec)
+		return ev, st, r
 	}
 
 	// Plain JSON (what older backups are).
@@ -181,25 +237,25 @@ func TestRestoreFormatsAndLimits(t *testing.T) {
 	if err := genBackup(&plain, "rv-gen", 3000, false); err != nil {
 		t.Fatal(err)
 	}
-	if code, r := restore(mkDst("rs-plain"), bytes.NewReader(plain.Bytes())); code != 200 || r.Samples != 3000 || r.Drives != 20 || r.Charges != 10 {
-		t.Fatalf("plain restore = %d %+v", code, r)
+	if ev, _, r := restore(mkDst("rs-plain"), bytes.NewReader(plain.Bytes())); ev != "done" || r.Samples != 3000 || r.Drives != 20 || r.Charges != 10 {
+		t.Fatalf("plain restore = %s %+v", ev, r)
 	}
 	// Key order and null arrays (an older, alphabetical backup with no drives).
 	old := `{"charges":null,"created_at":"x","drives":null,"samples":[` + sampleJSON(t, "rv-gen", 5) + `],"user_settings":{"a":"b"},"version":"v0","vehicle_profiles":[]}`
-	if code, r := restore(mkDst("rs-old"), strings.NewReader(old)); code != 200 || r.Samples != 5 {
-		t.Fatalf("old-format restore = %d %+v", code, r)
+	if ev, _, r := restore(mkDst("rs-old"), strings.NewReader(old)); ev != "done" || r.Samples != 5 {
+		t.Fatalf("old-format restore = %s %+v", ev, r)
 	}
 	// Not a backup, and truncated JSON: 400, not a panic and not a success.
 	for name, bad := range map[string]string{"array": `[1,2]`, "truncated": `{"samples":[{"VehicleID":"rv-gen"`, "garbage": `hello`} {
-		if code, _ := restore(mkDst("rs-bad-"+name), strings.NewReader(bad)); code != http.StatusBadRequest {
-			t.Errorf("%s restore = %d, want 400", name, code)
+		if ev, st, _ := restore(mkDst("rs-bad-"+name), strings.NewReader(bad)); ev != "error" || st != http.StatusBadRequest {
+			t.Errorf("%s restore = %s %d, want an error event with status 400", name, ev, st)
 		}
 	}
 	// Too big once decompressed: 413.
 	restoreMaxPlain = 64 << 10
 	defer func() { restoreMaxPlain = 2 << 30 }()
-	if code, _ := restore(mkDst("rs-big"), bytes.NewReader(plain.Bytes())); code != http.StatusRequestEntityTooLarge {
-		t.Errorf("oversized restore = %d, want 413", code)
+	if ev, st, _ := restore(mkDst("rs-big"), bytes.NewReader(plain.Bytes())); ev != "error" || st != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversized restore = %s %d, want an error event with status 413", ev, st)
 	}
 }
 
@@ -242,12 +298,10 @@ func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
 		}
 		return u
 	}
-	restore := func(uid uuid.UUID, body string) (int, restoreResult) {
+	restore := func(uid uuid.UUID, body string) (string, int, restoreResult) {
 		rec := httptest.NewRecorder()
 		handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", strings.NewReader(body)).WithContext(auth.WithUser(ctx, uid)))
-		var r restoreResult
-		_ = json.Unmarshal(rec.Body.Bytes(), &r)
-		return rec.Code, r
+		return final(t, rec)
 	}
 	row := func(vehicle string, at time.Time) string {
 		b, _ := json.Marshal(samples.Sample{VehicleID: vehicle, At: at, Source: "live"})
@@ -261,9 +315,9 @@ func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
 	}
 	rows = append(rows, row("rv-flood", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)), row("rv-flood", time.Time{}))
 	before := partitions()
-	code, r := restore(user("rf-1"), `{"samples":[`+strings.Join(rows, ",")+`]}`)
-	if code != 200 || r.Samples == 0 || r.Skipped == 0 {
-		t.Fatalf("restore = %d %+v", code, r)
+	ev, _, r := restore(user("rf-1"), `{"samples":[`+strings.Join(rows, ",")+`]}`)
+	if ev != "done" || r.Samples == 0 || r.Skipped == 0 {
+		t.Fatalf("restore = %s %+v", ev, r)
 	}
 	// Only in-range months can have been created; none for 1976..2020 or 2027+.
 	var oldest, newest time.Time
@@ -280,13 +334,13 @@ func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
 	// Vehicles: five new ones are fine, a sixth is refused.
 	five := []string{row("rv-n1", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)), row("rv-n2", time.Date(2026, 3, 1, 0, 1, 0, 0, time.UTC)),
 		row("rv-n3", time.Date(2026, 3, 1, 0, 2, 0, 0, time.UTC)), row("rv-n4", time.Date(2026, 3, 1, 0, 3, 0, 0, time.UTC)), row("rv-n5", time.Date(2026, 3, 1, 0, 4, 0, 0, time.UTC))}
-	if code, r := restore(user("rf-5"), `{"samples":[`+strings.Join(five, ",")+`]}`); code != 200 || r.Samples != 5 {
-		t.Fatalf("five vehicles = %d %+v", code, r)
+	if ev, _, r := restore(user("rf-5"), `{"samples":[`+strings.Join(five, ",")+`]}`); ev != "done" || r.Samples != 5 {
+		t.Fatalf("five vehicles = %s %+v", ev, r)
 	}
 	six := append(append([]string{}, five...), row("rv-n6", time.Date(2026, 3, 1, 0, 5, 0, 0, time.UTC)))
 	u6 := user("rf-6")
-	if code, _ := restore(u6, `{"samples":[`+strings.Join(six, ",")+`]}`); code != http.StatusBadRequest {
-		t.Fatalf("six vehicles = %d, want 400", code)
+	if ev, st, _ := restore(u6, `{"samples":[`+strings.Join(six, ",")+`]}`); ev != "error" || st != http.StatusBadRequest {
+		t.Fatalf("six vehicles = %s %d, want an error event with status 400", ev, st)
 	}
 	var nv int
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM vehicles WHERE user_id = $1`, u6).Scan(&nv); err != nil || nv > 5 {

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -497,21 +498,64 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 				}
 			}
 		}
-		res, err := restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate)
+		// Answer at once and report progress as NDJSON lines: a long restore
+		// would otherwise sit silent past Cloudflare's ~100 s limit. The
+		// request body is still being read, so full duplex is needed on
+		// HTTP/1.
+		_ = rc.EnableFullDuplex()
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		var wmu sync.Mutex
+		emit := func(m map[string]any) {
+			wmu.Lock()
+			defer wmu.Unlock()
+			_ = json.NewEncoder(w).Encode(m)
+			_ = rc.Flush()
+		}
+		prog := &restoreProgress{}
+		counts := func(event string) map[string]any {
+			m := map[string]any{"event": event, "drives": prog.drives.Load(), "charges": prog.charges.Load(), "samples": prog.samples.Load()}
+			if n := gate.skipped.Load(); n > 0 {
+				m["skipped"] = n
+			}
+			return m
+		}
+		emit(map[string]any{"event": "start"})
+		stopBeat := make(chan struct{})
+		beatDone := make(chan struct{})
+		go func() { // a line every few seconds, so the connection never goes quiet
+			defer close(beatDone)
+			t := time.NewTicker(restoreHeartbeat)
+			defer t.Stop()
+			for {
+				select {
+				case <-stopBeat:
+					return
+				case <-t.C:
+					emit(counts("progress"))
+				}
+			}
+		}()
+		_, err = restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate, prog)
+		close(stopBeat)
+		<-beatDone
 		if err != nil {
 			guard.forget(uid) // an idempotent retry should not wait
+			status, msg := http.StatusInternalServerError, err.Error()
 			var tooBig *http.MaxBytesError
 			switch {
 			case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
-				http.Error(w, "backup is too large", http.StatusRequestEntityTooLarge)
+				status, msg = http.StatusRequestEntityTooLarge, "backup is too large"
 			case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
-				http.Error(w, "parse backup: "+err.Error(), http.StatusBadRequest)
-			default:
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				status, msg = http.StatusBadRequest, "parse backup: "+err.Error()
 			}
+			m := counts("error")
+			m["status"], m["error"] = status, msg
+			emit(m)
 			return
 		}
-		writeJSON(w, http.StatusOK, res)
+		emit(counts("done"))
 	}
 }
 
@@ -525,6 +569,10 @@ const (
 // restoreMaxPlain caps the decompressed size of a backup (a variable so a
 // test can lower it).
 var restoreMaxPlain int64 = 2 << 30
+
+// restoreHeartbeat is how often a restore reports progress (a variable so a
+// test can shorten it).
+var restoreHeartbeat = 3 * time.Second
 
 var (
 	errRestoreTooBig  = errors.New("backup is too large when decompressed")
@@ -567,6 +615,12 @@ func (c *capReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// restoreProgress counts what a running restore has written; the heartbeat
+// reads it while the decoder updates it.
+type restoreProgress struct {
+	drives, charges, samples atomic.Int64
+}
+
 type restoreResult struct {
 	Drives  int `json:"drives"`
 	Charges int `json:"charges"`
@@ -592,7 +646,7 @@ type restoreGate struct {
 	from, to time.Time
 	owned    map[string]bool // Rivian ids already on the account
 	fresh    map[string]bool // ids this restore would create
-	skipped  int
+	skipped  atomic.Int64
 }
 
 func newRestoreGate(now time.Time) *restoreGate {
@@ -604,7 +658,7 @@ func newRestoreGate(now time.Time) *restoreGate {
 func (g *restoreGate) timesOK(ts ...time.Time) bool {
 	for _, t := range ts {
 		if t.Before(g.from) || t.After(g.to) {
-			g.skipped++
+			g.skipped.Add(1)
 			return false
 		}
 	}
@@ -626,7 +680,7 @@ func (g *restoreGate) vehicleOK(id string) error {
 
 // restoreStream decodes the bundle token by token. Keys may come in any
 // order (older backups list charges first); unknown keys are skipped.
-func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate) (restoreResult, error) {
+func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate, prog *restoreProgress) (restoreResult, error) {
 	var res restoreResult
 	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
 	wrap := func(err error) error { // size errors keep their identity
@@ -687,7 +741,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := ds.Upsert(ctx, v); err != nil {
 					return fmt.Errorf("upsert drive %s: %w", v.ID, err)
 				}
-				res.Drives++
+				prog.drives.Add(1)
 				return nil
 			})
 		case "charges":
@@ -705,7 +759,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := cs.Upsert(ctx, v); err != nil {
 					return fmt.Errorf("upsert charge %s: %w", v.ID, err)
 				}
-				res.Charges++
+				prog.charges.Add(1)
 				return nil
 			})
 		case "samples":
@@ -717,7 +771,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := ss.InsertBulk(ctx, batch); err != nil {
 					return fmt.Errorf("insert samples: %w", err)
 				}
-				res.Samples += len(batch)
+				prog.samples.Add(int64(len(batch)))
 				batch = batch[:0]
 				return nil
 			}
@@ -755,7 +809,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 	if _, err := dec.Token(); err != nil { // closing brace
 		return res, wrap(err)
 	}
-	res.Skipped = gate.skipped
+	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load())}
 	return res, nil
 }
 
