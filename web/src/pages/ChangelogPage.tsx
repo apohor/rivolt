@@ -57,7 +57,9 @@ function Release({ r }: { r: ChangelogRelease }) {
         <a href={`#${r.tag}`} className="hover:underline">{r.tag}</a>
         {date && <span className="text-sm font-normal text-neutral-400">{date}</span>}
       </h2>
-      <div className="space-y-3 text-[15px] leading-relaxed">
+      {/* Older notes carry long unbroken URLs ("Full Changelog: https://…/compare/…"); let them wrap anywhere so
+          they never widen the page on a phone. */}
+      <div className="min-w-0 space-y-3 text-[15px] leading-relaxed [overflow-wrap:anywhere]">
         <Notes source={r.body_md} />
       </div>
       {r.url && (
