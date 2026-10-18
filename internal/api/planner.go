@@ -209,6 +209,10 @@ func handleSavedTripCreate(store *trips.Store) http.HandlerFunc {
 			http.Error(w, "inputs required", http.StatusBadRequest)
 			return
 		}
+		if err := validateSavedPlan(b.Plan); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		t, err := store.Create(r.Context(), name, b.Inputs, b.Plan, b.Advice)
 		if err != nil {
 			// Surface the unique (user_id, name) violation as 409 so
@@ -247,6 +251,10 @@ func handleSavedTripUpdate(store *trips.Store) http.HandlerFunc {
 		}
 		if len(b.Inputs) == 0 {
 			http.Error(w, "inputs required", http.StatusBadRequest)
+			return
+		}
+		if err := validateSavedPlan(b.Plan); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		t, err := store.Update(r.Context(), id, name, b.Inputs, b.Plan, b.Advice)

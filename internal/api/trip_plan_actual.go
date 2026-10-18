@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 
 // planLink is one trip_plan_links row.
 type planLink struct {
+	Day        int // 0 = the whole trip; 1..N = that day of a multi-day trip
 	TripID     string
 	Status     string // linked | unlinked
 	Confidence *float64
@@ -46,12 +48,12 @@ type planSnapshot struct {
 
 // planLinkStore is the links table, scoped by user.
 type planLinkStore interface {
-	// List returns every row for the saved trip.
-	List(ctx context.Context, uid, savedTripID uuid.UUID) ([]planLink, error)
-	// Link makes tripID the (only) linked outing, turning any other
-	// linked row 'unlinked', in one transaction.
+	// List returns every row for the saved trip's day (0: the whole trip).
+	List(ctx context.Context, uid, savedTripID uuid.UUID, day int) ([]planLink, error)
+	// Link makes the outing the (only) linked one for l.Day, turning any
+	// other linked row of that day 'unlinked', in one transaction.
 	Link(ctx context.Context, uid, savedTripID uuid.UUID, l planLink) error
-	// Unlink marks the outing unlinked (inserting the row if needed).
+	// Unlink marks the outing unlinked for l.Day (inserting the row if needed).
 	Unlink(ctx context.Context, uid, savedTripID uuid.UUID, l planLink) error
 }
 
@@ -108,12 +110,24 @@ type planActualLink struct {
 }
 
 type planActualResponse struct {
-	Version     int                    `json:"version"`
-	SavedTripID string                 `json:"saved_trip_id"`
-	Status      string                 `json:"status"` // linked | suggested | none
-	Link        *planActualLink        `json:"link"`
-	Candidates  []ledger.PlanCandidate `json:"candidates"`
-	Comparison  *ledger.PlanComparison `json:"comparison"`
+	Version     int    `json:"version"`
+	SavedTripID string `json:"saved_trip_id"`
+	// Day is the day of a multi-day trip this is for (1..N); absent for a
+	// single-day trip.
+	Day        int                    `json:"day,omitempty"`
+	Status     string                 `json:"status"` // linked | suggested | none
+	Link       *planActualLink        `json:"link"`
+	Candidates []ledger.PlanCandidate `json:"candidates"`
+	Comparison *ledger.PlanComparison `json:"comparison"`
+}
+
+// planActualMultiResponse is GET .../actual for a multi-day saved trip: one
+// plan-vs-actual per day, each against that day's own plan and window.
+type planActualMultiResponse struct {
+	Version     int                  `json:"version"`
+	SavedTripID string               `json:"saved_trip_id"`
+	Kind        string               `json:"kind"` // "multiday"
+	Days        []planActualResponse `json:"days"`
 }
 
 func bandFor(conf float64) string {
@@ -148,9 +162,9 @@ func (a *planActualAPI) loadTrip(w http.ResponseWriter, r *http.Request, uid uui
 
 // build computes the §4 body for a saved trip. Pure apart from the
 // store and ledger reads.
-func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.SavedTrip) (planActualResponse, error) {
-	out := planActualResponse{Version: 1, SavedTripID: st.ID.String(), Status: "none", Candidates: []ledger.PlanCandidate{}}
-	rows, err := a.links.List(ctx, uid, st.ID)
+func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.SavedTrip, sub planSubject) (planActualResponse, error) {
+	out := planActualResponse{Version: 1, SavedTripID: st.ID.String(), Day: sub.day, Status: "none", Candidates: []ledger.PlanCandidate{}}
+	rows, err := a.links.List(ctx, uid, st.ID, sub.day)
 	if err != nil {
 		return out, err
 	}
@@ -165,7 +179,7 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 		}
 	}
 	// Current plan: candidates and suggestions come from it.
-	cur, err := a.parse(st.Inputs, st.Plan, st.CreatedAt)
+	cur, err := a.parse(sub.inputs, sub.plan, st.CreatedAt)
 	if err != nil {
 		// A saved trip with no usable plan (ledger.ErrPlanUnusable:
 		// no origin or destination, never planned, or an older
@@ -240,18 +254,77 @@ func (a *planActualAPI) build(ctx context.Context, uid uuid.UUID, st *trips.Save
 
 // ---- handlers -----------------------------------------------------------
 
-// GET /api/trips/saved/{id}/actual
+// GET /api/trips/saved/{id}/actual[?day=N]
+//
+// A single-day saved trip answers with one plan-vs-actual. A multi-day one
+// (plan.kind == "multiday") answers with one per day, each against that day's
+// own plan and window, or with just day N when ?day=N is given.
 func (a *planActualAPI) actual(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	st, ok := a.loadTrip(w, r, uid)
 	if !ok {
 		return
 	}
-	out, err := a.build(r.Context(), uid, st)
-	if err != nil {
-		a.fail(w, r, "plan vs actual", err)
+	days, multi := savedMultiday(st.Plan)
+	dayQ := strings.TrimSpace(r.URL.Query().Get("day"))
+	if !multi {
+		if dayQ != "" && dayQ != "0" {
+			planError(w, http.StatusBadRequest, "day applies to multi-day trips only")
+			return
+		}
+		out, err := a.build(r.Context(), uid, st, planSubject{inputs: st.Inputs, plan: st.Plan})
+		if err != nil {
+			a.fail(w, r, "plan vs actual", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
-	writeJSON(w, http.StatusOK, out)
+	if dayQ != "" {
+		n, err := strconv.Atoi(dayQ)
+		sub, ok := subjectForDay(days, n)
+		if err != nil || !ok {
+			planError(w, http.StatusBadRequest, "day must be between 1 and "+strconv.Itoa(len(days)))
+			return
+		}
+		out, berr := a.build(r.Context(), uid, st, sub)
+		if berr != nil {
+			a.fail(w, r, "plan vs actual", berr)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	resp := planActualMultiResponse{Version: 1, SavedTripID: st.ID.String(), Kind: "multiday", Days: make([]planActualResponse, 0, len(days))}
+	for n := 1; n <= len(days); n++ {
+		sub, _ := subjectForDay(days, n)
+		out, err := a.build(r.Context(), uid, st, sub)
+		if err != nil {
+			a.fail(w, r, "plan vs actual", err)
+			return
+		}
+		resp.Days = append(resp.Days, out)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// subjectOf picks what a link or unlink is for from the request's day: the
+// whole trip for a single-day saved trip, a day of the snapshot for a
+// multi-day one. A bad day answers 400 and false.
+func (a *planActualAPI) subjectOf(w http.ResponseWriter, st *trips.SavedTrip, day int) (planSubject, bool) {
+	days, multi := savedMultiday(st.Plan)
+	if !multi {
+		if day != 0 {
+			planError(w, http.StatusBadRequest, "day applies to multi-day trips only")
+			return planSubject{}, false
+		}
+		return planSubject{inputs: st.Inputs, plan: st.Plan}, true
+	}
+	sub, ok := subjectForDay(days, day)
+	if !ok {
+		planError(w, http.StatusBadRequest, "day is required for a multi-day trip, between 1 and "+strconv.Itoa(len(days)))
+		return planSubject{}, false
+	}
+	return sub, true
 }
 
 // POST /api/trips/saved/{id}/link {"trip_id": "..."}
@@ -262,13 +335,18 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 	}
 	var body struct {
 		TripID string `json:"trip_id"`
+		Day    int    `json:"day"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || strings.TrimSpace(body.TripID) == "" {
 		http.Error(w, "trip_id is required", http.StatusBadRequest)
 		return
 	}
 	tripID := strings.TrimSpace(body.TripID)
-	cur, err := a.parse(st.Inputs, st.Plan, st.CreatedAt)
+	sub, ok := a.subjectOf(w, st, body.Day)
+	if !ok {
+		return
+	}
+	cur, err := a.parse(sub.inputs, sub.plan, st.CreatedAt)
 	if err != nil {
 		http.Error(w, "plan: "+err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -293,15 +371,15 @@ func (a *planActualAPI) link(uid uuid.UUID, w http.ResponseWriter, r *http.Reque
 	}
 	conf := picked.Confidence
 	err = a.links.Link(r.Context(), uid, st.ID, planLink{
-		TripID: tripID, Status: "linked", Confidence: &conf,
+		Day: sub.day, TripID: tripID, Status: "linked", Confidence: &conf,
 		StartedAt: picked.StartedAt, EndedAt: picked.EndedAt,
-		Snapshot: planSnapshot{Inputs: st.Inputs, Plan: st.Plan},
+		Snapshot: planSnapshot{Inputs: sub.inputs, Plan: sub.plan},
 	})
 	if err != nil {
 		a.fail(w, r, "link", err)
 		return
 	}
-	out, err := a.build(r.Context(), uid, st)
+	out, err := a.build(r.Context(), uid, st, sub)
 	if err != nil {
 		a.fail(w, r, "plan vs actual", err)
 		return
@@ -325,6 +403,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	}
 	var body struct {
 		TripID string `json:"trip_id"`
+		Day    int    `json:"day"`
 	}
 	raw, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
 	if len(bytes.TrimSpace(raw)) > 0 {
@@ -333,7 +412,11 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	rows, err := a.links.List(r.Context(), uid, st.ID)
+	sub, ok := a.subjectOf(w, st, body.Day)
+	if !ok {
+		return
+	}
+	rows, err := a.links.List(r.Context(), uid, st.ID, sub.day)
 	if err != nil {
 		a.fail(w, r, "unlink", err)
 		return
@@ -352,7 +435,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	case linked != nil && linked.TripID == tripID:
 		target = linked
 	default:
-		cur, perr := a.parse(st.Inputs, st.Plan, st.CreatedAt)
+		cur, perr := a.parse(sub.inputs, sub.plan, st.CreatedAt)
 		if perr != nil {
 			http.Error(w, "trip_id is not a candidate for this plan", http.StatusConflict)
 			return
@@ -366,8 +449,8 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 		for _, c := range a.match(cur, in) {
 			if c.TripID == tripID {
 				conf := c.Confidence
-				target = &planLink{TripID: c.TripID, Confidence: &conf, StartedAt: c.StartedAt, EndedAt: c.EndedAt,
-					Snapshot: planSnapshot{Inputs: st.Inputs, Plan: st.Plan}}
+				target = &planLink{Day: sub.day, TripID: c.TripID, Confidence: &conf, StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+					Snapshot: planSnapshot{Inputs: sub.inputs, Plan: sub.plan}}
 				break
 			}
 		}
@@ -383,7 +466,7 @@ func (a *planActualAPI) unlink(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	out, err := a.build(r.Context(), uid, st)
+	out, err := a.build(r.Context(), uid, st, sub)
 	if err != nil {
 		a.fail(w, r, "plan vs actual", err)
 		return
@@ -402,19 +485,19 @@ func (a *planActualAPI) fail(w http.ResponseWriter, r *http.Request, what string
 
 type pgPlanLinks struct{ db *sql.DB }
 
-func (p pgPlanLinks) List(ctx context.Context, uid, savedTripID uuid.UUID) ([]planLink, error) {
+func (p pgPlanLinks) List(ctx context.Context, uid, savedTripID uuid.UUID, day int) ([]planLink, error) {
 	rows, err := p.db.QueryContext(ctx, `
 		SELECT trip_id, status, confidence::float8, started_at, ended_at, plan_snapshot, updated_at
 		  FROM trip_plan_links
-		 WHERE user_id = $1 AND saved_trip_id = $2
-		 ORDER BY created_at`, uid, savedTripID)
+		 WHERE user_id = $1 AND saved_trip_id = $2 AND day_index = $3
+		 ORDER BY created_at`, uid, savedTripID, day)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []planLink
 	for rows.Next() {
-		var l planLink
+		l := planLink{Day: day}
 		var conf sql.NullFloat64
 		var snap []byte
 		if err := rows.Scan(&l.TripID, &l.Status, &conf, &l.StartedAt, &l.EndedAt, &snap, &l.LinkedAt); err != nil {
@@ -444,17 +527,17 @@ func (p pgPlanLinks) Link(ctx context.Context, uid, savedTripID uuid.UUID, l pla
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE trip_plan_links SET status = 'unlinked', updated_at = NOW()
-		 WHERE user_id = $1 AND saved_trip_id = $2 AND status = 'linked' AND trip_id <> $3`,
-		uid, savedTripID, l.TripID); err != nil {
+		 WHERE user_id = $1 AND saved_trip_id = $2 AND day_index = $4 AND status = 'linked' AND trip_id <> $3`,
+		uid, savedTripID, l.TripID, l.Day); err != nil {
 		return err
 	}
 	// The saved trip must be the user's: the insert selects it by
 	// (id, user_id) so another user's id inserts nothing.
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO trip_plan_links (saved_trip_id, user_id, trip_id, status, confidence, started_at, ended_at, plan_snapshot)
-		SELECT s.id, s.user_id, $3, 'linked', $4, $5::timestamptz, $6::timestamptz, $7::jsonb
+		INSERT INTO trip_plan_links (saved_trip_id, user_id, day_index, trip_id, status, confidence, started_at, ended_at, plan_snapshot)
+		SELECT s.id, s.user_id, $8, $3, 'linked', $4, $5::timestamptz, $6::timestamptz, $7::jsonb
 		  FROM saved_trips s WHERE s.id = $2 AND s.user_id = $1
-		ON CONFLICT (saved_trip_id, trip_id) DO UPDATE SET
+		ON CONFLICT (saved_trip_id, day_index, trip_id) DO UPDATE SET
 		       -- Re-linking the outing that is already linked (a retry,
 		       -- a double submit, or Link after re-planning) must not
 		       -- rewrite the snapshot: contract §3.
@@ -464,7 +547,7 @@ func (p pgPlanLinks) Link(ctx context.Context, uid, savedTripID uuid.UUID, l pla
 		       plan_snapshot = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.plan_snapshot ELSE EXCLUDED.plan_snapshot END,
 		       status        = 'linked',
 		       updated_at    = CASE WHEN trip_plan_links.status = 'linked' THEN trip_plan_links.updated_at ELSE NOW() END`,
-		uid, savedTripID, l.TripID, nullFloat(l.Confidence), l.StartedAt.UTC(), l.EndedAt.UTC(), string(snap))
+		uid, savedTripID, l.TripID, nullFloat(l.Confidence), l.StartedAt.UTC(), l.EndedAt.UTC(), string(snap), l.Day)
 	if err != nil {
 		return err
 	}
@@ -480,11 +563,11 @@ func (p pgPlanLinks) Unlink(ctx context.Context, uid, savedTripID uuid.UUID, l p
 		return err
 	}
 	_, err = p.db.ExecContext(ctx, `
-		INSERT INTO trip_plan_links (saved_trip_id, user_id, trip_id, status, confidence, started_at, ended_at, plan_snapshot)
-		SELECT s.id, s.user_id, $3, 'unlinked', $4, $5::timestamptz, $6::timestamptz, $7::jsonb
+		INSERT INTO trip_plan_links (saved_trip_id, user_id, day_index, trip_id, status, confidence, started_at, ended_at, plan_snapshot)
+		SELECT s.id, s.user_id, $8, $3, 'unlinked', $4, $5::timestamptz, $6::timestamptz, $7::jsonb
 		  FROM saved_trips s WHERE s.id = $2 AND s.user_id = $1
-		ON CONFLICT (saved_trip_id, trip_id) DO UPDATE SET status = 'unlinked', updated_at = NOW()`,
-		uid, savedTripID, l.TripID, nullFloat(l.Confidence), l.StartedAt.UTC(), l.EndedAt.UTC(), string(snap))
+		ON CONFLICT (saved_trip_id, day_index, trip_id) DO UPDATE SET status = 'unlinked', updated_at = NOW()`,
+		uid, savedTripID, l.TripID, nullFloat(l.Confidence), l.StartedAt.UTC(), l.EndedAt.UTC(), string(snap), l.Day)
 	return err
 }
 
