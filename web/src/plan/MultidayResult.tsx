@@ -31,14 +31,28 @@ export function MultidayResult({
   const totalMiles = response.total.distance_meters / 1609.344;
   const totalHrs = response.total.drive_duration_sec / 3600;
   const chargeMin = Math.round(response.total.charging_duration_sec / 60);
+  const failed = response.failed_day;
+  const fmtDay = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   return (
     <Card title={`${response.days.length}-day trip: ${originLabel || "Origin"} → ${destLabel || "Destination"}`}>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Days" value={String(response.days.length)} />
         <Stat label="Total distance" value={`${totalMiles.toFixed(0)} mi`} />
         <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
         <Stat label="Charging" value={`${chargeMin} min`} />
-      </div>
+      </dl>
+      {response.simulated && (
+        <div className="mb-3 inline-block rounded-sm bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-300">
+          Simulated
+        </div>
+      )}
+      {failed ? (
+        <div role="alert" className="mb-3 rounded-md border border-amber-700/50 bg-amber-950/30 p-3 text-sm text-amber-200">
+          {failed > 1 ? `Planned through day ${failed - 1}. ` : ""}
+          Day {failed} couldn't be planned{response.error ? `: ${response.error}` : "."}
+        </div>
+      ) : null}
       <div className="space-y-4">
         {response.days.map((d, i) => {
           const r = d.plan.Routes?.[0];
@@ -59,6 +73,9 @@ export function MultidayResult({
                 <span className="rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-xs font-semibold text-emerald-200">
                   Day {d.index}
                 </span>
+                {d.depart_at && (
+                  <span className="text-xs text-neutral-400">{fmtDay(d.depart_at)}</span>
+                )}
                 <span className="text-sm text-neutral-300">
                   {dayOrigin} → {dayDest}
                 </span>
@@ -67,6 +84,16 @@ export function MultidayResult({
                   {" → "}
                   arrive <span className="text-neutral-300 font-mono">{d.arrival_soc.toFixed(0)}%</span>
                 </span>
+                {d.soc_below_limit && (
+                  <span className="rounded-sm bg-rose-900/40 px-1.5 py-0.5 text-xs text-rose-300">
+                    battery gets very low
+                  </span>
+                )}
+                {d.destination_reached === false && (
+                  <span className="rounded-sm bg-rose-900/40 px-1.5 py-0.5 text-xs text-rose-300">
+                    doesn't reach the stop
+                  </span>
+                )}
                 {isLongDay && (
                   <span
                     className="rounded-sm bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-300"
@@ -88,7 +115,7 @@ export function MultidayResult({
                     allRoutes={d.plan.Routes ?? [r]}
                     originLabel={dayOrigin}
                     destLabel={dayDest}
-                    departureAt={departureAt}
+                    departureAt={d.depart_at || departureAt}
                     cost={d.costs?.[0]}
                     primaryCost={d.costs?.[0]}
                   />

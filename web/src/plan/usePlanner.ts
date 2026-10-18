@@ -1,3 +1,4 @@
+import { buildDays } from "./days";
 import { useEffect, useRef, useState } from "react";
 import { formatRouteSummary, useRouteBarState } from "./routeBar";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -17,17 +18,11 @@ export function usePlanner() {
   // (ends one day, starts the next). Any true value flips planning to
   // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
   const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
-  // Overnight charging limit. Three modes:
-  //   - "soc":     cap the post-charge SoC at maxOvernightSoCPct
-  //   - "time":    cap by hours plugged in (overnightParkedHours)
-  //   - "depart":  cap by a target morning departure clock time
-  //                (overnightDepartureLocal, HH:MM). Translated to
-  //                parked hours assuming a typical 20:00 arrival;
-  //                Time-mode style otherwise (SoC cap lifted to 100).
-  const [overnightLimitMode, setOvernightLimitMode] = useState<"soc" | "time" | "depart">("soc");
+  // Overnight settings, applied to every overnight: leave time next
+  // morning (HH:MM, local), charger kW at the stop, and the charge cap.
   const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
-  const [overnightParkedHours, setOvernightParkedHours] = useState<number>(8);
   const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
+  const [overnightL2Kw, setOvernightL2Kw] = useState<number>(7);
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const { startingSoc, setStartingSoc } = routeBar;
@@ -306,54 +301,27 @@ export function usePlanner() {
       if (!origin || !destination) {
         return Promise.reject(new Error("origin + destination required"));
       }
-      const vid = firstVehicle?.rivian_vehicle_id;
       const liveSoc = stateQuery.data?.battery_level_pct;
       const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
       const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
-      if (!vid || !soc || !firstVehicle?.pack_kwh) {
-        return Promise.reject(new Error("vehicle, starting SoC, and pack capacity required"));
-      }
-      // Resolve mode → per-overnight parked_hours.
-      // - "soc":    leave 10 (server default), let the SoC cap rule.
-      // - "time":   take the user's number directly.
-      // - "depart": translate "I want to depart at HH:MM" into hours
-      //             assuming a 20:00 typical arrival. ASSUMED_ARRIVAL_HR
-      //             is conservative for road trips — late dinner, hotel
-      //             check-in. Real arrival varies per leg, but the
-      //             planner is an estimator, not a clock.
-      const ASSUMED_ARRIVAL_HR = 20;
-      const hoursForOvernight = (() => {
-        if (overnightLimitMode === "time") return overnightParkedHours;
-        if (overnightLimitMode === "depart") {
-          const [hh, mm] = overnightDepartureLocal.split(":").map(Number);
-          const depFrac = (hh || 0) + (mm || 0) / 60;
-          const parked = (24 - ASSUMED_ARRIVAL_HR) + depFrac;
-          return Math.max(1, Math.min(24, Math.round(parked)));
-        }
-        return 10;
-      })();
-      const overnights = extraStops
-        .map((s, i) => ({ stop: s, on: !!overnightFlags[i] }))
-        .filter((x) => x.on)
-        .map((x) => ({
-          latitude: x.stop.lat,
-          longitude: x.stop.lon,
-          name: x.stop.label,
-          parked_hours: hoursForOvernight,
-          l2_kw: 7,
-        }));
+      const vid = firstVehicle?.rivian_vehicle_id;
       return backend.planTripMultiday({
-        vehicle_id: vid,
-        starting_soc: soc,
-        pack_kwh: firstVehicle.pack_kwh,
+        ...(vid ? { vehicle_id: vid } : {}),
+        ...(soc ? { starting_soc: soc } : {}),
+        ...(firstVehicle?.pack_kwh ? { pack_kwh: firstVehicle.pack_kwh } : {}),
+        start_at: departureAt ? new Date(departureAt).toISOString() : new Date().toISOString(),
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         drive_mode: driveMode || undefined,
         has_adapter: hasAdapter,
         target_arrival_soc_percent: target,
-        origin: { latitude: origin.lat, longitude: origin.lon, waypoint_type: "origin" },
-        destination: { latitude: destination.lat, longitude: destination.lon, waypoint_type: "destination" },
-        overnights,
-        max_overnight_soc_pct: overnightLimitMode === "soc" ? maxOvernightSoCPct : 100,
+        origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
+        days: buildDays(extraStops, overnightFlags, destination, {
+          l2Kw: overnightL2Kw,
+          until: overnightDepartureLocal,
+          maxSocPct: maxOvernightSoCPct,
+        }),
+        max_overnight_soc_pct: maxOvernightSoCPct,
       });
     },
   });
@@ -400,8 +368,7 @@ export function usePlanner() {
         extraStops,
         overnightFlags,
         maxOvernightSoCPct,
-        overnightLimitMode,
-        overnightParkedHours,
+        overnightL2Kw,
         overnightDepartureLocal,
         targetSoc,
         startingSoc,
@@ -455,8 +422,7 @@ export function usePlanner() {
       setOvernightFlags(stops.map(() => false));
     }
     if (typeof i.max_overnight_soc_pct === "number") setMaxOvernightSoCPct(i.max_overnight_soc_pct);
-    if (i.overnight_limit_mode) setOvernightLimitMode(i.overnight_limit_mode);
-    if (typeof i.overnight_parked_hours === "number") setOvernightParkedHours(i.overnight_parked_hours);
+    if (typeof i.overnight_l2_kw === "number") setOvernightL2Kw(i.overnight_l2_kw);
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
@@ -534,12 +500,10 @@ export function usePlanner() {
     setExtraStops,
     overnightFlags,
     setOvernightFlags,
-    overnightLimitMode,
-    setOvernightLimitMode,
     maxOvernightSoCPct,
     setMaxOvernightSoCPct,
-    overnightParkedHours,
-    setOvernightParkedHours,
+    overnightL2Kw,
+    setOvernightL2Kw,
     overnightDepartureLocal,
     setOvernightDepartureLocal,
     targetSoc,

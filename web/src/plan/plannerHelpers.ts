@@ -95,8 +95,7 @@ export function collectInputs(s: {
   extraStops: NonNullable<Selection>[];
   overnightFlags: boolean[];
   maxOvernightSoCPct: number;
-  overnightLimitMode: "soc" | "time" | "depart";
-  overnightParkedHours: number;
+  overnightL2Kw: number;
   overnightDepartureLocal: string;
   targetSoc: string;
   startingSoc: string;
@@ -120,8 +119,7 @@ export function collectInputs(s: {
       ? {
           overnight_flags: s.overnightFlags,
           max_overnight_soc_pct: s.maxOvernightSoCPct,
-          overnight_limit_mode: s.overnightLimitMode,
-          overnight_parked_hours: s.overnightParkedHours,
+          overnight_l2_kw: s.overnightL2Kw,
           overnight_departure_local: s.overnightDepartureLocal,
         }
       : {}),
