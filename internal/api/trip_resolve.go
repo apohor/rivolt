@@ -29,6 +29,12 @@ type resolvedVehicle struct {
 func resolveVehicle(ctx context.Context, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID,
 	vehicleID string, soc *float64, rangeMeters float64) (resolvedVehicle, string) {
 	out := resolvedVehicle{VehicleID: vehicleID, RangeMeters: rangeMeters}
+	// A vehicle id the caller supplies (in a request, or in a saved snapshot
+	// they wrote) must be one of theirs: it goes to Rivian as the vehicle to
+	// plan for, under this user's session.
+	if vehicleID != "" && !ownsVehicle(ctx, mon, pool, uid, vehicleID) {
+		return out, "unknown vehicle"
+	}
 	have := soc != nil
 	if have {
 		out.StartingSoC = *soc
@@ -181,3 +187,47 @@ func planError(w http.ResponseWriter, status int, msg string) {
 
 // badRequest is planError with 400.
 func badRequest(w http.ResponseWriter, msg string) { planError(w, http.StatusBadRequest, msg) }
+
+// userVehicleIDs lists the Rivian ids of the user's trucks; tests replace it.
+var userVehicleIDs = func(ctx context.Context, pool *sql.DB, uid uuid.UUID) ([]string, error) {
+	vs, err := db.ListUserVehicles(ctx, pool, uid)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(vs))
+	for _, v := range vs {
+		ids = append(ids, v.RivianVehicleID)
+	}
+	return ids, nil
+}
+
+// ownsVehicle reports whether vehicleID is one of the user's trucks: known to
+// the user's own monitor, or listed in the user's vehicles. With neither a
+// monitor nor a database (the single-user, no-database mode, which has no other
+// user) there is nothing to check against, and it is allowed. A lookup that
+// fails is a refusal, not a pass.
+func ownsVehicle(ctx context.Context, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, vehicleID string) bool {
+	if mon == nil && pool == nil {
+		return true
+	}
+	if mon != nil {
+		for _, v := range mon.AllVehicleInfo() {
+			if v.ID == vehicleID {
+				return true
+			}
+		}
+	}
+	if pool == nil {
+		return false
+	}
+	ids, err := userVehicleIDs(ctx, pool, uid)
+	if err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == vehicleID {
+			return true
+		}
+	}
+	return false
+}
