@@ -45,6 +45,10 @@ export function Footer() {
             <Link to="/lease-calculator" className="hover:text-neutral-200">
               Lease calculator
             </Link>
+            <span className="text-neutral-700">·</span>
+            <Link to="/changelog" className="hover:text-neutral-200">
+              What's new
+            </Link>
           </>
         )}
         <span className="text-neutral-700">·</span>
