@@ -77,14 +77,21 @@ jobs:
             query($owner: String!, $name: String!) {
               repository(owner: $owner, name: $name) {
                 id
+                hasDiscussionsEnabled
                 discussionCategories(first: 25) { nodes { id slug } }
               }
             }' > /tmp/repo.json
+          # Discussions off, or no Announcements category yet (an owner
+          # step): skip with a notice; the release itself is unaffected.
+          if [ "$(jq -r '.data.repository.hasDiscussionsEnabled' /tmp/repo.json)" != "true" ]; then
+            echo "::notice::Discussions is not enabled on $REPO; nothing announced."
+            exit 0
+          fi
           repo_id="$(jq -r '.data.repository.id' /tmp/repo.json)"
           cat_id="$(jq -r --arg s "$CATEGORY_SLUG" '.data.repository.discussionCategories.nodes[] | select(.slug == $s) | .id' /tmp/repo.json)"
           if [ -z "$cat_id" ]; then
-            echo "::error::No '$CATEGORY_SLUG' discussion category in $REPO."
-            exit 1
+            echo "::notice::No '$CATEGORY_SLUG' discussion category in $REPO yet; nothing announced."
+            exit 0
           fi
           gh api graphql -F owner="$owner" -F name="$name" -F cat="$cat_id" -f query='
             query($owner: String!, $name: String!, $cat: ID!) {
