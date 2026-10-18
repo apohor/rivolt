@@ -13,7 +13,6 @@
   "postUpdateOptions": ["gomodTidy"],
   "platformAutomerge": false,
   "automergeSchedule": ["at any time"],
-  "requiredStatusChecks": ["go", "web", "integration", "e2e-ok"],
   "packageRules": [
     {
       "description": "Image tag in the Helm chart is owned by CI (retag/promote release flow), never by Renovate",
@@ -63,7 +62,7 @@
       "groupName": "container base images"
     },
     {
-      "description": "Automerge non-major updates once every required check (go, web, integration, e2e-ok; a skipped one counts as passed) is green, on any day. Renovate merges them itself on a later run instead of GitHub auto-merge (platformAutomerge off): main has no branch protection, so GitHub would merge before CI finished. A group containing a major is a major and stays manual. A merge only reaches preview; prod still needs a release tag.",
+      "description": "Automerge non-major updates once every check on the PR head is green (none failing or pending; a skipped job counts as passed, so go, web, integration and e2e-ok all have to have passed or been skipped by the path filter), on any day, rebased onto the current main first. Renovate merges them itself on a later run instead of GitHub auto-merge (platformAutomerge off): main has no branch protection, so GitHub would merge before CI finished. A group containing a major is a major and stays manual. A merge only reaches preview; prod still needs a release tag.",
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
       "automerge": true
     }
