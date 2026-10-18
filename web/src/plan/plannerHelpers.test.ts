@@ -24,3 +24,15 @@ describe("planErrorCopy", () => {
     expect(planErrorCopy(new ApiError(502, "bad gateway")).title).toBe("Rivian's planner isn't answering right now.");
   });
 });
+
+describe("saved multi-day plans", () => {
+  it("recognises the saved shape and sums day totals", async () => {
+    const { isSavedMultiday } = await import("../lib/api");
+    const { totalsOf } = await import("./plannerHelpers");
+    expect(isSavedMultiday({ kind: "multiday", days: [] })).toBe(true);
+    expect(isSavedMultiday({ Routes: [] })).toBe(false);
+    expect(isSavedMultiday(undefined)).toBe(false);
+    const day = (m: number) => ({ plan: { Routes: [{ TotalDriveDistanceMeters: m, TotalDriveDurationSec: 10, TotalChargingDurationSec: 5 }] } }) as never;
+    expect(totalsOf([day(100), day(250), { plan: {} } as never])).toEqual({ distance_meters: 350, drive_duration_sec: 20, charging_duration_sec: 10 });
+  });
+});

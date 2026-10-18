@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { formatRouteSummary, useRouteBarState } from "./routeBar";
 import { forVehicle } from "../lib/vehicleSamples";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, type PlannerFavorite, type SavedTrip, type TripAdvice, type TripPlan } from "../lib/api";
+import { backend, isSavedMultiday, type PlannerFavorite, type SavedMultidayPlan, type SavedTrip, type TripAdvice, type TripPlan, type TripPlanMultidayRequest, type TripPlanMultidayResponse } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
-import { DriveMode, Selection, collectInputs, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
+import { DriveMode, Selection, collectInputs, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
 
 // usePlanner: the planner's state, queries, mutations and handlers, so TripPlanPage is layout.
 export function usePlanner() {
@@ -250,6 +250,11 @@ export function usePlanner() {
   // immediately-following render, not as a render input itself.
   const autoReplanAfterAddRef = useRef(false);
   const planMutation = useMutation({
+    // A single-day plan replaces any multi-day answer on screen.
+    onMutate: () => {
+      setMultidaySnapshot(null);
+      multidayMutation.reset();
+    },
     mutationFn: () => {
       if (!origin || !destination) {
         return Promise.reject(new Error("origin + destination required"));
@@ -325,7 +330,12 @@ export function usePlanner() {
   // via-stop is marked Overnight. Server orchestrates N+1 planTrip2
   // calls and returns one Day per leg.
   const hasOvernightStops = overnightFlags.some(Boolean);
+  // The request behind the multi-day answer on screen, kept so a save can store it with the days.
+  const lastMultidayRequest = useRef<TripPlanMultidayRequest | undefined>(undefined);
+  // A saved multi-day trip opened from the list: shown as it was saved, until a new plan replaces it.
+  const [multidaySnapshot, setMultidaySnapshot] = useState<{ response: TripPlanMultidayResponse; name: string; updatedAt: string } | null>(null);
   const multidayMutation = useMutation({
+    onMutate: () => setMultidaySnapshot(null),
     mutationFn: () => {
       if (!origin || !destination) {
         return Promise.reject(new Error("origin + destination required"));
@@ -335,7 +345,7 @@ export function usePlanner() {
       const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
       const vid = firstVehicle?.rivian_vehicle_id;
-      return backend.planTripMultiday({
+      const req: TripPlanMultidayRequest = {
         ...(vid ? { vehicle_id: vid } : {}),
         ...(soc ? { starting_soc: soc } : {}),
         ...(firstVehicle?.pack_kwh ? { pack_kwh: firstVehicle.pack_kwh } : {}),
@@ -348,7 +358,9 @@ export function usePlanner() {
         origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
         days: buildDays(extraStops, overnightFlags, destination, optsFor),
         max_overnight_soc_pct: maxOvernightSoCPct,
-      });
+      };
+      lastMultidayRequest.current = req;
+      return backend.planTripMultiday(req);
     },
   });
 
@@ -409,15 +421,26 @@ export function usePlanner() {
         departureAt,
         routePrefs,
       });
-      // Multi-day plans aren't snapshotted yet (orchestrator response
-      // shape doesn't match the single-day TripPlan stored on saved
-      // trips); reopening re-plans against current Rivian state.
-      const isMultiday = !!inputs.overnight_flags?.some(Boolean);
+      // A multi-day trip is saved as the planner answered: its days and totals, and the
+      // request that produced them, so reopening shows it with no planner call.
+      const md = multidayMutation.data ?? multidaySnapshot?.response;
+      // The stored request leaves out the truck and its charge: a re-plan reads both live, and a
+      // saved SoC would be stale by then.
+      const { vehicle_id: _vehicle, starting_soc: _soc, ...request } = lastMultidayRequest.current ?? ({} as Partial<TripPlanMultidayRequest>);
+      const multiday: SavedMultidayPlan | undefined = md
+        ? {
+            kind: "multiday",
+            request: lastMultidayRequest.current ? (request as TripPlanMultidayRequest) : undefined,
+            days: md.days,
+            total: md.total,
+            ...(md.simulated ? { simulated: true } : {}),
+          }
+        : undefined;
       const body = {
         name: vars.name,
         inputs,
-        plan: isMultiday ? undefined : plan,
-        advice: isMultiday ? undefined : advice,
+        plan: multiday ?? (inputs.overnight_flags?.some(Boolean) ? undefined : plan),
+        advice: multiday || inputs.overnight_flags?.some(Boolean) ? undefined : advice,
       };
       return vars.id
         ? backend.savedTripUpdate(vars.id, body)
@@ -472,7 +495,17 @@ export function usePlanner() {
     planMutation.reset();
     adviceMutation.reset();
     multidayMutation.reset();
-    if (t.plan) {
+    setMultidaySnapshot(null);
+    if (isSavedMultiday(t.plan)) {
+      const p = t.plan;
+      lastMultidayRequest.current = p.request;
+      setMultidaySnapshot({
+        response: { days: p.days, total: p.total ?? totalsOf(p.days), ...(p.simulated ? { simulated: true } : {}) },
+        name: t.name,
+        updatedAt: t.updated_at,
+      });
+      setLoadedSnapshot(null);
+    } else if (t.plan) {
       setLoadedSnapshot({
         plan: t.plan,
         advice: t.advice,
@@ -526,9 +559,10 @@ export function usePlanner() {
   // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
   // for everyone; in the ui_theme_next layer the result follows the form in the DOM
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
-  const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data);
+  const multiday = multidayMutation.data ?? multidaySnapshot?.response;
+  const hasResult = !!(loadedSnapshot?.plan ?? planMutation.data ?? multiday);
   const routeSummary = formatRouteSummary(routeBar);
-  const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null;
+  const resultKey = loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null;
   return {
     routeBar,
     origin,
@@ -589,6 +623,9 @@ export function usePlanner() {
     qc,
     savedTripsQuery,
     loadedSnapshot,
+    multiday,
+    multidaySnapshot,
+    setMultidaySnapshot,
     setLoadedSnapshot,
     activeTripId,
     setActiveTripId,

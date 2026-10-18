@@ -2521,11 +2521,24 @@ export type DemoTripPreset = {
   route_polyline?: string;
 };
 
+// A saved multi-day trip keeps the planner's answer as it was: the days, the
+// totals and the request that produced them, so reopening needs no planner call.
+export type SavedMultidayPlan = {
+  kind: "multiday";
+  request?: TripPlanMultidayRequest;
+  days: TripPlanMultidayDay[];
+  total?: TripPlanMultidayResponse["total"];
+  simulated?: boolean;
+};
+
+export const isSavedMultiday = (p: unknown): p is SavedMultidayPlan =>
+  !!p && typeof p === "object" && (p as { kind?: unknown }).kind === "multiday" && Array.isArray((p as { days?: unknown }).days);
+
 export type SavedTrip = {
   id: string;
   name: string;
   inputs: SavedTripInputs;
-  plan?: TripPlan;
+  plan?: TripPlan | SavedMultidayPlan;
   advice?: TripAdvice;
   created_at: string;
   updated_at: string;
@@ -2534,6 +2547,6 @@ export type SavedTrip = {
 export type SavedTripBody = {
   name: string;
   inputs: SavedTripInputs;
-  plan?: TripPlan;
+  plan?: TripPlan | SavedMultidayPlan;
   advice?: TripAdvice;
 };
