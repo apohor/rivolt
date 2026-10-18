@@ -24,6 +24,9 @@ func TestServerFunnelEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
+	outcomes := map[string]int{}
+	db.ServerEventObserver = func(event, outcome string) { outcomes[event+":"+outcome]++ }
+	defer func() { db.ServerEventObserver = nil }()
 	count := func(uid uuid.UUID, name string) int {
 		t.Helper()
 		var n int
@@ -108,5 +111,11 @@ func TestServerFunnelEvents(t *testing.T) {
 		if got := count(u, db.EventRivianConnectOK); got != want {
 			t.Errorf("%s: rivian_connect_ok = %d, want %d", name, got, want)
 		}
+	}
+
+	// The metric tells the story: recorded for the normal request, skipped_dnt
+	// for the DNT/GPC one, skipped_disabled while the switches were off.
+	if outcomes["signup_complete:recorded"] < 2 || outcomes["signup_complete:skipped_dnt"] < 1 || outcomes["signup_complete:skipped_disabled"] < 1 {
+		t.Errorf("outcomes = %v", outcomes)
 	}
 }

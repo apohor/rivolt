@@ -74,13 +74,45 @@ func skipServerEvent(d *sql.DB, uid uuid.UUID) bool {
 	return d == nil || uid == uuid.Nil || uid == UserIDFor(DemoUsername) || !ServerEventsEnabled()
 }
 
+// Outcomes of RecordServerEvent, for ServerEventObserver.
+const (
+	ServerEventRecorded        = "recorded"
+	ServerEventSkippedDNT      = "skipped_dnt"      // the request carried Do Not Track / Global Privacy Control
+	ServerEventSkippedDisabled = "skipped_disabled" // events or server events are off
+	ServerEventSkippedOther    = "skipped_other"    // demo user, no user, no database
+	ServerEventFailed          = "failed"           // the insert failed
+)
+
+// ServerEventObserver, when set (once, at startup, before serving), is told
+// the outcome of every RecordServerEvent call: a metrics hook that makes
+// "why is there no signup_complete row?" answerable. It sees the event name
+// and the outcome, never a user id.
+var ServerEventObserver func(event, outcome string)
+
+func observeServerEvent(event, outcome string) {
+	if ServerEventObserver != nil {
+		ServerEventObserver(event, outcome)
+	}
+}
+
 // RecordServerEvent writes one server event for a user. Best effort: a
 // failure is logged and never returned, so analytics can't break signup or
 // recording. Does nothing when events are off, for the demo user, or for an
 // unknown event name; props not allowed for the event are dropped.
 func RecordServerEvent(ctx context.Context, d *sql.DB, uid uuid.UUID, name string, props map[string]any) {
 	allowed, ok := serverEventProps[name]
-	if !ok || DoNotTrack(ctx) || skipServerEvent(d, uid) {
+	if !ok {
+		return
+	}
+	switch {
+	case !ServerEventsEnabled():
+		observeServerEvent(name, ServerEventSkippedDisabled)
+		return
+	case DoNotTrack(ctx):
+		observeServerEvent(name, ServerEventSkippedDNT)
+		return
+	case skipServerEvent(d, uid):
+		observeServerEvent(name, ServerEventSkippedOther)
 		return
 	}
 	clean := map[string]any{}
@@ -97,5 +129,8 @@ func RecordServerEvent(ctx context.Context, d *sql.DB, uid uuid.UUID, name strin
 		`INSERT INTO events (anon_id, user_id, name, props) VALUES ('server', $1, $2, $3::jsonb)`,
 		uid, name, string(raw)); err != nil {
 		slog.Warn("server event failed", "event", name, "err", err.Error())
+		observeServerEvent(name, ServerEventFailed)
+		return
 	}
+	observeServerEvent(name, ServerEventRecorded)
 }
