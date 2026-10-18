@@ -19,6 +19,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
 import { MultidayResult } from "../plan/MultidayResult";
+import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
 
 
@@ -30,7 +31,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // Phones: when a plan arrives, bring the map up under the top bar so it fills the
   // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
@@ -366,7 +367,17 @@ export default function TripPlanPage() {
 
       {multiday && (
         <div data-plan-wide className="space-y-3">
-          {multidaySnapshot && !(nextUi && inDemo()) && (
+          {multidaySnapshot && activeTripId && !inDemo() && (
+            <ReplanFromHere
+              tripId={activeTripId}
+              days={multidaySnapshot.response.days}
+              base={replanBase}
+              onPlanned={(merged, info) =>
+                setMultidaySnapshot((prev) => (prev ? { ...prev, response: merged, replan: { fromDay: info.fromDay, position: info.position, mid: info.mid } } : prev))
+              }
+            />
+          )}
+          {multidaySnapshot && !multidaySnapshot.replan && !(nextUi && inDemo()) && (
             <SnapshotBanner
               name={multidaySnapshot.name}
               updatedAt={multidaySnapshot.updatedAt}
@@ -383,6 +394,7 @@ export default function TripPlanPage() {
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
             onAddOvernight={addOvernightStop}
+            replan={multidaySnapshot?.replan}
           />
         </div>
       )}

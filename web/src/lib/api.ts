@@ -1588,6 +1588,15 @@ export const backend = {
   // trip can render the result instantly while still letting the
   // user re-plan against current station / weather state.
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
+  // Read-only and cheap (no Rivian call). Null on 404 (flag off or not the user's trip).
+  savedTripActive: async (id: string): Promise<SavedTripActive | null> => {
+    try {
+      return await api.get<SavedTripActive>(`/api/trips/saved/${encodeURIComponent(id)}/active`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
   // Null on 404 (flag off or not the user's trip), so the section
   // simply doesn't render.
   planVsActual: async (savedTripID: string): Promise<PlanVsActual | PlanVsActualMulti | null> => {
@@ -2273,6 +2282,29 @@ export type TripPlanMultidayRequest = {
   origin: TripPoint;
   days: TripPlanDayRequest[];
   max_overnight_soc_pct?: number;
+  // Re-plan from here: the origin and the starting charge are the truck's latest reading.
+  origin_from_vehicle?: boolean;
+};
+
+// Where the truck was when a re-plan started: the plan's first day begins here.
+export type FromPosition = { lat: number; lon: number; soc: number; at: string };
+
+// GET /api/trips/saved/{id}/active: where a saved trip stands now, for "re-plan from here".
+export type SavedTripActive = {
+  version: number;
+  saved_trip_id: string;
+  kind: "multiday" | "single";
+  day_count: number;
+  state: "before" | "active" | "after" | "none";
+  current_day: number | null;
+  remaining_days: number;
+  position: FromPosition | null;
+  phase?: "driving" | "overnight";
+  next_day?: number;
+  next_depart_at?: string;
+  projected_soc?: number;
+  // The current day's via stops (1-based) the truck has already gone by.
+  vias_passed?: number[];
 };
 
 export type TripPlanMultidayResponse = {
@@ -2285,6 +2317,8 @@ export type TripPlanMultidayResponse = {
   error?: string;
   error_class?: string;
   error_reason?: string;
+  // Set when the plan started from the truck's reading (origin_from_vehicle).
+  from_position?: FromPosition;
 };
 
 export type OvernightCandidatesRequest = {

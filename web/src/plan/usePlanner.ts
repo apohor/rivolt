@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatRouteSummary, useRouteBarState } from "./routeBar";
 import { forVehicle } from "../lib/vehicleSamples";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { backend, isSavedMultiday, type PlannerFavorite, type SavedMultidayPlan, type SavedTrip, type TripAdvice, type TripPlan, type TripPlanMultidayRequest, type TripPlanMultidayResponse } from "../lib/api";
+import { backend, isSavedMultiday, type FromPosition, type PlannerFavorite, type SavedMultidayPlan, type SavedTrip, type TripAdvice, type TripPlan, type TripPlanMultidayRequest, type TripPlanMultidayResponse } from "../lib/api";
 import { useAIEnabled } from "../lib/config";
 import { DriveMode, Selection, collectInputs, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
 
@@ -333,32 +333,35 @@ export function usePlanner() {
   // The request behind the multi-day answer on screen, kept so a save can store it with the days.
   const lastMultidayRequest = useRef<TripPlanMultidayRequest | undefined>(undefined);
   // A saved multi-day trip opened from the list: shown as it was saved, until a new plan replaces it.
-  const [multidaySnapshot, setMultidaySnapshot] = useState<{ response: TripPlanMultidayResponse; name: string; updatedAt: string } | null>(null);
+  const [multidaySnapshot, setMultidaySnapshot] = useState<{ response: TripPlanMultidayResponse; name: string; updatedAt: string; replan?: { fromDay: number; position: FromPosition; mid: boolean } } | null>(null);
+  // The multi-day request the form describes now (null until it has a start and an end).
+  const buildMultidayRequest = (): TripPlanMultidayRequest | null => {
+    if (!origin || !destination) return null;
+    const liveSoc = stateQuery.data?.battery_level_pct;
+    const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
+    const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
+    const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
+    const vid = firstVehicle?.rivian_vehicle_id;
+    return {
+      ...(vid ? { vehicle_id: vid } : {}),
+      ...(soc ? { starting_soc: soc } : {}),
+      ...(firstVehicle?.pack_kwh ? { pack_kwh: firstVehicle.pack_kwh } : {}),
+      start_at: departureAt ? new Date(departureAt).toISOString() : new Date().toISOString(),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      drive_mode: driveMode || undefined,
+      has_adapter: hasAdapter,
+      route_preferences: routePrefsWire(routePrefs),
+      target_arrival_soc_percent: target,
+      origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
+      days: buildDays(extraStops, overnightFlags, destination, optsFor),
+      max_overnight_soc_pct: maxOvernightSoCPct,
+    };
+  };
   const multidayMutation = useMutation({
     onMutate: () => setMultidaySnapshot(null),
     mutationFn: () => {
-      if (!origin || !destination) {
-        return Promise.reject(new Error("origin + destination required"));
-      }
-      const liveSoc = stateQuery.data?.battery_level_pct;
-      const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
-      const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
-      const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
-      const vid = firstVehicle?.rivian_vehicle_id;
-      const req: TripPlanMultidayRequest = {
-        ...(vid ? { vehicle_id: vid } : {}),
-        ...(soc ? { starting_soc: soc } : {}),
-        ...(firstVehicle?.pack_kwh ? { pack_kwh: firstVehicle.pack_kwh } : {}),
-        start_at: departureAt ? new Date(departureAt).toISOString() : new Date().toISOString(),
-        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        drive_mode: driveMode || undefined,
-        has_adapter: hasAdapter,
-        route_preferences: routePrefsWire(routePrefs),
-        target_arrival_soc_percent: target,
-        origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
-        days: buildDays(extraStops, overnightFlags, destination, optsFor),
-        max_overnight_soc_pct: maxOvernightSoCPct,
-      };
+      const req = buildMultidayRequest();
+      if (!req) return Promise.reject(new Error("origin + destination required"));
       lastMultidayRequest.current = req;
       return backend.planTripMultiday(req);
     },
@@ -625,6 +628,7 @@ export function usePlanner() {
     loadedSnapshot,
     multiday,
     multidaySnapshot,
+    replanBase: () => lastMultidayRequest.current ?? buildMultidayRequest(),
     setMultidaySnapshot,
     setLoadedSnapshot,
     activeTripId,
