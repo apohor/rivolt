@@ -275,8 +275,13 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		}
 		bw := bufio.NewWriterSize(out, 64<<10)
 		flusher, _ := w.(http.Flusher)
+		// The server's write deadline (5 min) would cut a big backup on a slow
+		// link. Move it forward at every flush: a client that keeps receiving
+		// is never cut, one that stalls for streamIdle is.
+		rc := http.NewResponseController(w)
 		// flushOut pushes buffered bytes (through the compressor) to the client.
 		flushOut := func() error {
+			_ = rc.SetWriteDeadline(time.Now().Add(streamIdle))
 			if err := bw.Flush(); err != nil {
 				return err
 			}
@@ -376,6 +381,7 @@ const (
 	backupMaxConcurrent = 2                // backups running at once per pod
 	backupPerUserGap    = 10 * time.Minute // minimum gap between one user's backups
 	backupFlushEvery    = 500              // elements between flushes to the client
+	streamIdle          = 2 * time.Minute  // how long a backup or restore may make no progress
 )
 
 // backupGuard bounds the cost of /api/data/backup: at most max run at once
@@ -461,10 +467,20 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			return
 		}
 		defer release()
-		// A big restore outlives the server's default read/write deadlines.
+		// A big restore outlives the server's default read/write deadlines
+		// (5 min). Move them forward as the work progresses (tick is called
+		// every few hundred rows), up to restoreDeadline overall.
 		rc := http.NewResponseController(w)
-		_ = rc.SetReadDeadline(time.Now().Add(restoreDeadline))
-		_ = rc.SetWriteDeadline(time.Now().Add(restoreDeadline))
+		hardStop := time.Now().Add(restoreDeadline)
+		tick := func() {
+			d := time.Now().Add(streamIdle)
+			if d.After(hardStop) {
+				d = hardStop
+			}
+			_ = rc.SetReadDeadline(d)
+			_ = rc.SetWriteDeadline(d)
+		}
+		tick()
 
 		src, closeSrc, err := restoreSource(http.MaxBytesReader(w, r.Body, restoreMaxWire), restoreMaxPlain)
 		if err != nil {
@@ -473,7 +489,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			return
 		}
 		defer closeSrc()
-		res, err := restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss)
+		res, err := restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick)
 		if err != nil {
 			guard.forget(uid) // an idempotent retry should not wait
 			var tooBig *http.MaxBytesError
@@ -551,7 +567,7 @@ type restoreResult struct {
 
 // restoreStream decodes the bundle token by token. Keys may come in any
 // order (older backups list charges first); unknown keys are skipped.
-func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store) (restoreResult, error) {
+func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func()) (restoreResult, error) {
 	var res restoreResult
 	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
 	wrap := func(err error) error { // size errors keep their identity
@@ -574,9 +590,12 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 		} else if d, ok := tok.(json.Delim); !ok || d != '[' {
 			return bad(errors.New("expected an array"))
 		}
-		for dec.More() {
+		for rows := 0; dec.More(); rows++ {
 			if err := ctx.Err(); err != nil {
 				return err
+			}
+			if rows%200 == 0 {
+				tick()
 			}
 			if err := each(); err != nil {
 				return err
