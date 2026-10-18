@@ -183,7 +183,11 @@ type State struct {
 	//     "true", the car refuses to charge regardless of cable state.
 	//   ChargingTimeEstimationValidity: "valid" / "invalid" / "" —
 	//     SPA hides the time estimate when invalid.
-	TimeToEndMins                  float64 `json:"time_to_end_mins"`
+	TimeToEndMins float64 `json:"time_to_end_mins"`
+	// TimeToEndSource is "estimate" when TimeToEndMins came from Parallax
+	// charging.session.time_estimation (an R2's vehicleState reports none),
+	// "" when the vehicle's own vehicleState gave it.
+	TimeToEndSource                string  `json:"time_to_end_source,omitempty"`
 	TripTargetSoCPct               float64 `json:"trip_target_soc_pct"`
 	TripTargetMinsRemaining        float64 `json:"trip_target_mins_remaining"`
 	ChargerDerateStatus            string  `json:"charger_derate_status"`
