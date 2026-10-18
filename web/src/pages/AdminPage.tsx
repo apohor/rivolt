@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
 import { grafanaBaseURL, useImpersonationDisabled, useRivianActions } from "../lib/config";
@@ -612,6 +612,12 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
   const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
 
   const [selectedID, setSelectedID] = useState<string | null>(null);
+  // The detail sits below the list, which can be long: opening a user brings it into view.
+  const detailRef = useRef<HTMLDivElement>(null);
+  const openUser = (id: string) => {
+    setSelectedID(id);
+    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   // Auto-select first row so the detail panel has something to render
   // on initial load — picking explicitly afterwards just swaps the
   // selection. The deselect-on-delete effect below clears this if
@@ -651,7 +657,7 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
           <AdminUsersTable
             rows={rows}
             selectedID={selectedID}
-            onSelect={setSelectedID}
+            onSelect={openUser}
             busyID={busyID}
             adminCount={adminCount}
             actions={{
@@ -699,7 +705,7 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                 <tr
                   key={u.id}
                   aria-pressed={active}
-                  {...clickableRowProps(() => setSelectedID(u.id), {
+                  {...clickableRowProps(() => openUser(u.id), {
                     label: `Select ${u.display_name || u.username}`,
                   })}
                   className={`cursor-pointer border-t border-neutral-900 focus:outline-hidden focus-visible:bg-neutral-800/80 ${
@@ -799,7 +805,7 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
       {/* Detail panel — full-width below the list so columns aren't
           fighting for screen space. Fetches the deep-dive bundle
           for the selected row and holds every per-user action. */}
-      <div>
+      <div ref={detailRef} data-user-detail-anchor className="scroll-mt-16">
         {selectedRow ? (
           <UserDetailPanel
             row={selectedRow}
@@ -937,7 +943,7 @@ function UserDetailPanel({
   const headerName = row.display_name || row.username;
 
   return (
-    <div className="rounded-md border border-neutral-900 bg-neutral-950/40">
+    <div data-user-detail={row.id} className="rounded-md border border-neutral-900 bg-neutral-950/40">
       <div className="border-b border-neutral-900 px-4 py-3">
         <div className="flex items-baseline justify-between gap-3">
           <div>
