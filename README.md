@@ -128,9 +128,43 @@ phone the map is on top and the trip sits in a sheet you drag up.
   and each matched network's rate (your member rate where set), not
   from an LLM. When the operator wires an AI provider, short
   commentary on cost, efficiency, weather and the vehicle is added.
-- **Saved and Plan vs actual.** Planner, Saved and Plan vs actual are
-  tabs at the top; after you drive a saved trip the app compares plan
-  and reality (cost, energy, stops, arrival battery, duration).
+- **Saved trips and plan vs actual.** Save a plan and reopen it exactly
+  as planned. After you drive it, Rivolt lines up each day's plan against
+  what was recorded: arrival time, energy charged, cost and arrival
+  battery, day by day.
+- **Re-plan from here.** On a saved multi-day trip that's under way,
+  re-plan the rest of it from the truck's current position and charge.
+  The original plan is kept for comparison.
+- **Avoid tolls, ferries or highways.** A per-trip setting that applies
+  to every day and is saved with the trip. Avoiding highways usually adds
+  time and can add a charging stop.
+
+#### Multi-day trips
+
+Going further than a day? Add an overnight and Rivolt plans each day
+on its own: the start time, starting charge and arrival charge of each
+day follow from the day before, including whatever charging happens
+while you sleep.
+
+- **Overnights are stops.** Each overnight sits in the itinerary with
+  the arrival time and charge, the hours parked, the charger you expect
+  there (Level 2 at 7 kW by default, another power, or none) and the
+  charge you'll leave with, capped at the limit you set.
+- **Hotels with Level 2.** The map's "Hotels with Level 2" filter shows
+  hotels that list a Level 2 charger (NREL AFDC data). Pick one as the
+  overnight and its listed power is used for the overnight estimate.
+  Listed is not guaranteed: chargers can be in use, broken or
+  guests-only, so check with the hotel before you rely on one.
+- **Day by day.** Each day is its own section with its date, departure
+  time, legs, charging stops and arrival charge. If a day can't be
+  routed, the days before it are kept and the error says which day to
+  fix.
+- **Limits.** Up to 10 points per day (start, vias, end) and 10 days
+  per trip.
+
+Every figure in a plan is an estimate built from your own truck's
+efficiency, the route and the chargers along it. Real charging speed,
+weather and traffic will differ.
 
 ![Plan](docs/screenshots/plan.png)
 
@@ -240,6 +274,12 @@ In production at [rivolt.dev](https://rivolt.dev). The demo at
 [demo.rivolt.dev](https://demo.rivolt.dev) runs on generated data, and
 a preview at [preview.rivolt.dev](https://preview.rivolt.dev) tracks
 `main`.
+
+Release notes for every version are at
+[rivolt.dev/changelog](https://rivolt.dev/changelog), with an Atom feed at
+[`/changelog.atom`](https://rivolt.dev/changelog.atom), and on the
+[GitHub releases page](https://github.com/apohor/rivolt/releases). The
+version in the app's footer links to its release on GitHub.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for what's queued and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the load-bearing
