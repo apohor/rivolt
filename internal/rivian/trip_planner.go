@@ -25,6 +25,15 @@ var _ TripPlanner = (*LiveClient)(nil)
 // of waypoints, a missing starting SoC). The handlers answer it with a 400.
 var ErrInvalidTrip = errors.New("invalid trip")
 
+// MaxPlanWaypoints is the gateway's limit on waypoints in one planTrip call,
+// counting the origin and the destination.
+const MaxPlanWaypoints = 10
+
+// MaxDepartureAhead is how far in the future a planned departure may be. The
+// gateway is sent only departures a person could plausibly pick in the app, so
+// a request for a far-future date is refused here rather than forwarded.
+const MaxDepartureAhead = 30 * 24 * time.Hour
+
 // PlanTripInput is the request shape for PlanTrip. Mirrors the
 // arguments accepted by the Rivian gateway's planTripWithMultiStop
 // operation. All required fields are non-pointer; optional fields
@@ -169,6 +178,12 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	}
 	if len(in.Waypoints) < 2 {
 		return nil, fmt.Errorf("planTrip: origin + destination waypoints required")
+	}
+	if len(in.Waypoints) > MaxPlanWaypoints {
+		return nil, fmt.Errorf("%w: %d waypoints (the planner takes at most %d)", ErrInvalidTrip, len(in.Waypoints), MaxPlanWaypoints)
+	}
+	if !in.DepartureTime.IsZero() && in.DepartureTime.After(time.Now().Add(MaxDepartureAhead)) {
+		return nil, fmt.Errorf("%w: departure %s is more than %d days ahead", ErrInvalidTrip, in.DepartureTime.UTC().Format("2006-01-02"), int(MaxDepartureAhead.Hours()/24))
 	}
 	// Build an inlined GraphQL query (no GraphQL variables). The
 	// gateway rejects every input type name we've tried for
@@ -581,6 +596,14 @@ const legacyPlanTripMultiStopQuery = `query planTripWithMultiStop(
 // Python client at jrgutier/rivian-python-client/src/rivian/rivian.py
 // plan_trip_with_multi_stop (line 2441).
 func buildPlanTrip2Query(in PlanTripInput) (string, map[string]any) {
+	return buildPlanTrip2QueryAt(in, time.Now())
+}
+
+// buildPlanTrip2QueryAt builds the query as of now. departureTime (epoch
+// milliseconds) is sent only for a departure in the future: a missing or past
+// one means "now", which the gateway assumes, so the request is then
+// byte-identical to one that never had the field.
+func buildPlanTrip2QueryAt(in PlanTripInput, now time.Time) (string, map[string]any) {
 	var wps []string
 	for _, wp := range in.Waypoints {
 		wps = append(wps, fmt.Sprintf("{latitude: %s, longitude: %s}",
@@ -607,6 +630,9 @@ func buildPlanTrip2Query(in PlanTripInput) (string, map[string]any) {
 	}
 	if in.HasAdapter != nil {
 		args = append(args, fmt.Sprintf("hasAdapter: %t", *in.HasAdapter))
+	}
+	if !in.DepartureTime.IsZero() && in.DepartureTime.After(now) {
+		args = append(args, fmt.Sprintf("departureTime: %d", in.DepartureTime.UnixMilli()))
 	}
 	// networkPreferences: $variable form with the full app wire shape.
 	// Earlier inline `[{networkId: "..."}]` got GRAPHQL_VALIDATION_FAILED.

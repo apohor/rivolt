@@ -37,6 +37,9 @@ type tripPlanRequest struct {
 	AvoidAdapterRequired    bool                  `json:"avoid_adapter_required,omitempty"`
 	SupportedConnectorTypes []string              `json:"supported_connector_types,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
+	// DepartAt (RFC3339) is when the trip leaves, for ETAs on a future
+	// trip. Empty or in the past means now.
+	DepartAt string `json:"depart_at,omitempty"`
 	// PackKWh is the vehicle's usable pack capacity. The SPA already
 	// has it from /api/vehicles/.../profile; the handler uses it for
 	// per-route DCFC cost computation. Zero means "don't price the
@@ -104,7 +107,17 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			settings.DriveModeOffRoadAuto:
 			drive = req.DriveMode
 		}
+		var departAt time.Time
+		if req.DepartAt != "" {
+			t, err := time.Parse(time.RFC3339, req.DepartAt)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "depart_at must be an RFC 3339 time"})
+				return
+			}
+			departAt = t
+		}
 		in := rivian.PlanTripInput{
+			DepartureTime:           departAt,
 			VehicleID:               req.VehicleID,
 			StartingSoC:             startingSoC,
 			StartingRangeMeters:     req.StartingRangeMeters,
