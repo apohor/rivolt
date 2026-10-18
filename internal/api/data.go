@@ -2,12 +2,18 @@ package api
 
 import (
 	"bufio"
+	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/vehiclelease"
 )
@@ -248,14 +255,48 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			}
 		}
 		stamp := time.Now().UTC().Format("20060102-150405")
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Disposition",
-			`attachment; filename="rivolt-backup-`+stamp+`.json"`)
+		// Gzip by default: telemetry JSON compresses about tenfold, which keeps
+		// a big account's download (and its later upload) small. ?gzip=0 gives
+		// the plain .json. Served as application/gzip, not Content-Encoding,
+		// so a browser saves the .json.gz instead of unpacking it.
+		useGzip := r.URL.Query().Get("gzip") != "0"
+		name, ctype := "rivolt-backup-"+stamp+".json", "application/json"
+		if useGzip {
+			name, ctype = name+".gz", "application/gzip"
+		}
+		w.Header().Set("Content-Type", ctype)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 
-		bw := bufio.NewWriterSize(w, 64<<10)
+		var out io.Writer = w
+		var gz *gzip.Writer
+		if useGzip {
+			gz, _ = gzip.NewWriterLevel(w, gzip.BestSpeed)
+			out = gz
+		}
+		bw := bufio.NewWriterSize(out, 64<<10)
 		flusher, _ := w.(http.Flusher)
+		// The server's write deadline (5 min) would cut a big backup on a slow
+		// link. Move it forward at every flush: a client that keeps receiving
+		// is never cut, one that stalls for streamIdle is.
+		rc := http.NewResponseController(w)
+		// flushOut pushes buffered bytes (through the compressor) to the client.
+		flushOut := func() error {
+			_ = rc.SetWriteDeadline(time.Now().Add(streamIdle))
+			if err := bw.Flush(); err != nil {
+				return err
+			}
+			if gz != nil {
+				if err := gz.Flush(); err != nil {
+					return err
+				}
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return nil
+		}
 		enc := json.NewEncoder(bw)
 		// fail ends a stream that broke after the status line went out: a
 		// clean ending would hand the user a truncated file that looks
@@ -276,11 +317,13 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			}
 		}
 		flush := func() {
-			if err := bw.Flush(); err != nil {
+			if err := flushOut(); err != nil {
 				fail("flush", err)
 			}
-			if flusher != nil {
-				flusher.Flush()
+			if gz != nil {
+				if err := gz.Close(); err != nil {
+					fail("gzip", err)
+				}
 			}
 		}
 		// streamArray writes "name":[ ... ] one element at a time.
@@ -301,11 +344,8 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 					return err
 				}
 				if n%backupFlushEvery == 0 {
-					if err := bw.Flush(); err != nil {
+					if err := flushOut(); err != nil {
 						return err
-					}
-					if flusher != nil {
-						flusher.Flush()
 					}
 				}
 				return nil
@@ -343,6 +383,7 @@ const (
 	backupMaxConcurrent = 2                // backups running at once per pod
 	backupPerUserGap    = 10 * time.Minute // minimum gap between one user's backups
 	backupFlushEvery    = 500              // elements between flushes to the client
+	streamIdle          = 2 * time.Minute  // how long a backup or restore may make no progress
 )
 
 // backupGuard bounds the cost of /api/data/backup: at most max run at once
@@ -393,16 +434,21 @@ func (g *backupGuard) forget(uid uuid.UUID) {
 }
 
 // handleDataRestore accepts a previously downloaded backup bundle
-// (see handleDataBackup) and upserts every drive/charge/sample
-// into the current user's stores. Existing rows with the same
-// external_id (drives/charges) or (vehicle_id, at) (samples) are
-// left as-is for samples and overwritten for drives/charges — this
-// matches the importer's own behavior, so re-running is idempotent.
+// (see handleDataBackup), plain JSON or gzip, and upserts every
+// drive/charge/sample into the current user's stores. Existing rows with the
+// same external_id (drives/charges) or (vehicle_id, at) (samples) are left
+// as-is for samples and overwritten for drives/charges — this matches the
+// importer's own behavior, so re-running is idempotent.
 //
-// The request body is the raw JSON file from /data/backup. Capped
-// at 100 MiB; a year of 60 s polls is ~100 MB in the current shape,
-// so this is the realistic ceiling.
+// It is streamed: the body is decoded token by token and samples go in
+// restoreBatch at a time, so memory stays flat however large the backup is
+// (a heavy account's backup is hundreds of MB; the old version decoded the
+// whole file into slices). Batches commit independently, which is safe
+// because every write is idempotent: a failed restore can simply be run
+// again. Limits: one restore at a time per pod, one per user per ten
+// minutes, and a cap on the DECOMPRESSED size (a zip-bomb guard).
 func handleDataRestore(d Deps) http.HandlerFunc {
+	guard := newBackupGuard(1, backupPerUserGap, time.Now)
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
@@ -416,41 +462,367 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			http.Error(w, "restore unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 100<<20)
-		var bundle struct {
-			Version   string           `json:"version"`
-			CreatedAt string           `json:"created_at"`
-			Drives    []drives.Drive   `json:"drives"`
-			Charges   []charges.Charge `json:"charges"`
-			Samples   []samples.Sample `json:"samples"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&bundle); err != nil {
-			http.Error(w, "parse backup: "+err.Error(), http.StatusBadRequest)
+		release, retryAfter, allowed := guard.acquire(uid)
+		if !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+			http.Error(w, "a restore is already running or was just made; try again shortly", http.StatusTooManyRequests)
 			return
 		}
-		ctx := r.Context()
-		for _, drv := range bundle.Drives {
-			if err := ds.Upsert(ctx, drv); err != nil {
-				http.Error(w, "upsert drive "+drv.ID+": "+err.Error(), http.StatusInternalServerError)
-				return
+		defer release()
+		// A big restore outlives the server's default read/write deadlines
+		// (5 min). Move them forward as the work progresses (tick is called
+		// every few hundred rows), up to restoreDeadline overall.
+		rc := http.NewResponseController(w)
+		hardStop := time.Now().Add(restoreDeadline)
+		tick := func() {
+			d := time.Now().Add(streamIdle)
+			if d.After(hardStop) {
+				d = hardStop
 			}
+			_ = rc.SetReadDeadline(d)
+			_ = rc.SetWriteDeadline(d)
 		}
-		for _, chg := range bundle.Charges {
-			if err := cs.Upsert(ctx, chg); err != nil {
-				http.Error(w, "upsert charge "+chg.ID+": "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-		if err := ss.InsertBatch(ctx, bundle.Samples); err != nil {
-			http.Error(w, "insert samples: "+err.Error(), http.StatusInternalServerError)
+		tick()
+
+		src, closeSrc, err := restoreSource(http.MaxBytesReader(w, r.Body, restoreMaxWire), restoreMaxPlain)
+		if err != nil {
+			http.Error(w, "read backup: "+err.Error(), http.StatusBadRequest)
+			guard.forget(uid)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"drives":  len(bundle.Drives),
-			"charges": len(bundle.Charges),
-			"samples": len(bundle.Samples),
-		})
+		defer closeSrc()
+		gate := newRestoreGate(time.Now())
+		if d.DB != nil {
+			if vs, verr := db.ListUserVehicles(r.Context(), d.DB, uid); verr == nil {
+				for _, v := range vs {
+					gate.owned[v.RivianVehicleID] = true
+				}
+			}
+		}
+		// Answer at once and report progress as NDJSON lines: a long restore
+		// would otherwise sit silent past Cloudflare's ~100 s limit. The
+		// request body is still being read, so full duplex is needed on
+		// HTTP/1.
+		_ = rc.EnableFullDuplex()
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		var wmu sync.Mutex
+		emit := func(m map[string]any) {
+			wmu.Lock()
+			defer wmu.Unlock()
+			_ = json.NewEncoder(w).Encode(m)
+			_ = rc.Flush()
+		}
+		prog := &restoreProgress{}
+		counts := func(event string) map[string]any {
+			m := map[string]any{"event": event, "drives": prog.drives.Load(), "charges": prog.charges.Load(), "samples": prog.samples.Load()}
+			if n := gate.skipped.Load(); n > 0 {
+				m["skipped"] = n
+			}
+			return m
+		}
+		emit(map[string]any{"event": "start"})
+		stopBeat := make(chan struct{})
+		beatDone := make(chan struct{})
+		go func() { // a line every few seconds, so the connection never goes quiet
+			defer close(beatDone)
+			t := time.NewTicker(restoreHeartbeat)
+			defer t.Stop()
+			for {
+				select {
+				case <-stopBeat:
+					return
+				case <-t.C:
+					emit(counts("progress"))
+				}
+			}
+		}()
+		_, err = restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate, prog)
+		close(stopBeat)
+		<-beatDone
+		if err != nil {
+			guard.forget(uid) // an idempotent retry should not wait
+			status, msg := restoreErrorEvent(err)
+			if status == http.StatusInternalServerError {
+				slog.WarnContext(r.Context(), "restore failed",
+					"user", logging.IDHash(uid.String()), "err", logging.ScrubErr(err))
+			}
+			m := counts("error")
+			m["status"], m["error"] = status, msg
+			emit(m)
+			return
+		}
+		emit(counts("done"))
 	}
+}
+
+// restoreErrorEvent maps a restore failure to the status and message the
+// client sees. Only the failures we expect carry their own text; anything else
+// (a database error, a partition failure) is generic, and the caller logs it.
+func restoreErrorEvent(err error) (int, string) {
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
+		return http.StatusRequestEntityTooLarge, "backup is too large"
+	case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
+		return http.StatusBadRequest, "parse backup: " + err.Error()
+	}
+	return http.StatusInternalServerError, "The restore stopped partway. It may be partly restored; running it again is safe."
+}
+
+// Restore limits.
+const (
+	restoreBatch    = 2000             // samples per insert batch
+	restoreMaxWire  = 100 << 20        // bytes accepted on the wire (Cloudflare's upload limit); the gzip size, not the unpacked one
+	restoreDeadline = 30 * time.Minute // read/write deadline for one restore
+)
+
+// restoreMaxPlain caps the decompressed size of a backup (a variable so a
+// test can lower it).
+var restoreMaxPlain int64 = 2 << 30
+
+// restoreHeartbeat is how often a restore reports progress (a variable so a
+// test can shorten it).
+var restoreHeartbeat = 3 * time.Second
+
+var (
+	errRestoreTooBig  = errors.New("backup is too large when decompressed")
+	errRestoreBadFile = errors.New("not a Rivolt backup")
+)
+
+// restoreSource returns the reader to decode: the body itself, or its gzip
+// unpacking when it starts with the gzip magic bytes, capped at maxPlain
+// decompressed bytes.
+func restoreSource(body io.Reader, maxPlain int64) (io.Reader, func(), error) {
+	br := bufio.NewReaderSize(body, 64<<10)
+	closeFn := func() {}
+	var src io.Reader = br
+	if magic, _ := br.Peek(2); len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(br)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid gzip: %w", err)
+		}
+		closeFn = func() { _ = gz.Close() }
+		src = gz
+	}
+	return &capReader{r: src, left: maxPlain}, closeFn, nil
+}
+
+// capReader fails with errRestoreTooBig once more than left bytes were read.
+type capReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		return 0, errRestoreTooBig
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	return n, err
+}
+
+// restoreProgress counts what a running restore has written; the heartbeat
+// reads it while the decoder updates it.
+type restoreProgress struct {
+	drives, charges, samples atomic.Int64
+}
+
+type restoreResult struct {
+	Drives  int `json:"drives"`
+	Charges int `json:"charges"`
+	Samples int `json:"samples"`
+	// Skipped counts rows left out because their time is outside the
+	// accepted range (a real backup has none).
+	Skipped int `json:"skipped,omitempty"`
+}
+
+// A restore file is untrusted input: signups are instant, and every distinct
+// month of samples creates a vehicle_state partition (which slows query
+// planning for everyone) while every unknown Rivian id creates a vehicle. So
+// rows outside a sane time window are skipped before anything is created, and
+// a restore may add only a few vehicles.
+var (
+	restoreMinTime        = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	restoreFutureSlack    = 24 * time.Hour
+	restoreMaxNewVehicles = 5
+	errRestoreVehicles    = errors.New("the backup refers to too many vehicles that are not on this account")
+)
+
+type restoreGate struct {
+	from, to time.Time
+	owned    map[string]bool // Rivian ids already on the account
+	fresh    map[string]bool // ids this restore would create
+	skipped  atomic.Int64
+}
+
+func newRestoreGate(now time.Time) *restoreGate {
+	return &restoreGate{from: restoreMinTime, to: now.Add(restoreFutureSlack), owned: map[string]bool{}, fresh: map[string]bool{}}
+}
+
+// timesOK reports whether every time is inside [2021-01-01, now+24h]; a row
+// that is not is counted and skipped.
+func (g *restoreGate) timesOK(ts ...time.Time) bool {
+	for _, t := range ts {
+		if t.Before(g.from) || t.After(g.to) {
+			g.skipped.Add(1)
+			return false
+		}
+	}
+	return true
+}
+
+// vehicleOK admits a row's vehicle: one the account has, or one of at most
+// restoreMaxNewVehicles new ids.
+func (g *restoreGate) vehicleOK(id string) error {
+	if g.owned[id] || g.fresh[id] {
+		return nil
+	}
+	if len(g.fresh) >= restoreMaxNewVehicles {
+		return fmt.Errorf("%w (more than %d)", errRestoreVehicles, restoreMaxNewVehicles)
+	}
+	g.fresh[id] = true
+	return nil
+}
+
+// restoreStream decodes the bundle token by token. Keys may come in any
+// order (older backups list charges first); unknown keys are skipped.
+func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate, prog *restoreProgress) (restoreResult, error) {
+	var res restoreResult
+	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
+	wrap := func(err error) error { // size errors keep their identity
+		var tooBig *http.MaxBytesError
+		if errors.Is(err, errRestoreTooBig) || errors.As(err, &tooBig) || ctx.Err() != nil {
+			return err
+		}
+		return bad(err)
+	}
+	if tok, err := dec.Token(); err != nil {
+		return res, wrap(err)
+	} else if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return res, bad(errors.New("expected a JSON object"))
+	}
+	array := func(each func() error) error {
+		if tok, err := dec.Token(); err != nil {
+			return wrap(err)
+		} else if tok == nil { // null: an old backup with no rows
+			return nil
+		} else if d, ok := tok.(json.Delim); !ok || d != '[' {
+			return bad(errors.New("expected an array"))
+		}
+		for rows := 0; dec.More(); rows++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if rows%200 == 0 {
+				tick()
+			}
+			if err := each(); err != nil {
+				return err
+			}
+		}
+		if _, err := dec.Token(); err != nil {
+			return wrap(err)
+		}
+		return nil
+	}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return res, wrap(err)
+		}
+		key, _ := keyTok.(string)
+		switch key {
+		case "drives":
+			err = array(func() error {
+				var v drives.Drive
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				if !gate.timesOK(v.StartedAt, v.EndedAt) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
+				}
+				if err := ds.Upsert(ctx, v); err != nil {
+					return fmt.Errorf("upsert drive %s: %w", v.ID, err)
+				}
+				prog.drives.Add(1)
+				return nil
+			})
+		case "charges":
+			err = array(func() error {
+				var v charges.Charge
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				if !gate.timesOK(v.StartedAt, v.EndedAt) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
+				}
+				if err := cs.Upsert(ctx, v); err != nil {
+					return fmt.Errorf("upsert charge %s: %w", v.ID, err)
+				}
+				prog.charges.Add(1)
+				return nil
+			})
+		case "samples":
+			batch := make([]samples.Sample, 0, restoreBatch)
+			flush := func() error {
+				if len(batch) == 0 {
+					return nil
+				}
+				if err := ss.InsertBulk(ctx, batch); err != nil {
+					return fmt.Errorf("insert samples: %w", err)
+				}
+				prog.samples.Add(int64(len(batch)))
+				batch = batch[:0]
+				return nil
+			}
+			err = array(func() error {
+				var v samples.Sample
+				if err := dec.Decode(&v); err != nil {
+					return wrap(err)
+				}
+				if !gate.timesOK(v.At) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
+				}
+				batch = append(batch, v)
+				if len(batch) == restoreBatch {
+					return flush()
+				}
+				return nil
+			})
+			if err == nil {
+				err = flush()
+			}
+		default: // version, created_at, user_settings, vehicle_profiles, anything new
+			var skip json.RawMessage
+			err = dec.Decode(&skip)
+			if err != nil {
+				err = wrap(err)
+			}
+		}
+		if err != nil {
+			return res, err
+		}
+	}
+	if _, err := dec.Token(); err != nil { // closing brace
+		return res, wrap(err)
+	}
+	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load())}
+	return res, nil
 }
 
 // handleDataReset truncates the three session tables for the current

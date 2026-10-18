@@ -16,6 +16,7 @@ import {
   type GeocodeResult,
   type HomeLocation,
   type RestampResult,
+  type RestoreProgress,
   type RestampUndoResult,
   type PlannerPrefs,
   type ImportResult,
@@ -2156,8 +2157,12 @@ function DangerZonePanel() {
       qc.invalidateQueries();
     },
   });
+  const [restoreProgress, setRestoreProgress] = useState<RestoreProgress | null>(null);
   const restore = useMutation({
-    mutationFn: (file: File) => backend.restoreData(file),
+    mutationFn: (file: File) => {
+      setRestoreProgress(null);
+      return backend.restoreData(file, setRestoreProgress);
+    },
     onSuccess: () => {
       qc.invalidateQueries();
       if (restoreRef.current) restoreRef.current.value = "";
@@ -2202,14 +2207,14 @@ function DangerZonePanel() {
       <div className="border-t border-neutral-800 pt-4">
         <div className="text-neutral-400 mb-1">Restore</div>
         <p className="text-xs text-neutral-500 mb-2">
-          Uploads a <code>rivolt-backup-*.json</code> file and upserts every
+          Uploads a <code>rivolt-backup-*.json.gz</code> (or older <code>.json</code>) file and upserts every
           drive, charge, and raw sample. Safe to re-run; existing rows are
           upserted by session ID (drives/charges) or kept as-is (samples).
         </p>
         <input
           ref={restoreRef}
           type="file"
-          accept="application/json,.json"
+          accept="application/json,application/gzip,.json,.gz"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) restore.mutate(f);
@@ -2218,17 +2223,29 @@ function DangerZonePanel() {
           className="text-xs text-neutral-400 file:mr-3 file:px-3 file:py-1.5 file:text-xs file:rounded-md file:border file:border-neutral-700 file:bg-neutral-800 file:text-neutral-200 hover:file:bg-neutral-700 file:cursor-pointer disabled:opacity-50"
         />
         {restore.isPending && (
-          <p className="mt-2 text-xs text-neutral-400">Restoring…</p>
+          <p className="mt-2 text-xs text-neutral-400" role="status">
+            Restoring…
+            {restoreProgress
+              ? ` ${restoreProgress.drives} drives, ${restoreProgress.charges} charges, ${restoreProgress.samples} samples so far.`
+              : ""}{" "}
+            Keep this page open.
+          </p>
         )}
         {restore.isSuccess && (
           <p className="mt-2 text-xs text-emerald-400">
             Restored {restore.data.drives} drives, {restore.data.charges}{" "}
             charges, {restore.data.samples} samples.
+            {restore.data.skipped
+              ? ` ${restore.data.skipped} rows with dates outside 2021 to today were skipped.`
+              : ""}
           </p>
         )}
         {restore.isError && (
-          <p className="mt-2 text-xs text-rose-400">
+          <p className="mt-2 text-xs text-rose-400" role="alert">
             Restore failed: {String(restore.error)}
+            {restoreProgress
+              ? ` It may be partly restored (${restoreProgress.samples} samples so far); running it again is safe.`
+              : ""}
           </p>
         )}
       </div>

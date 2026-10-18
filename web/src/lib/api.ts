@@ -1724,22 +1724,84 @@ export const backend = {
   // upserts every drive, charge, and sample back. Safe to re-run
   // (drives/charges upsert by external_id; samples dedupe by
   // (vehicle_id, at)). Returns per-table processed counts.
-  restoreData: async (file: File) => {
+  restoreData: async (file: File, onProgress?: (p: RestoreProgress) => void) => {
     const res = await fetch("/api/data/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: file,
     });
-    const text = await res.text();
-    let parsed: unknown = text;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // non-JSON error body; keep as text
+    if (!res.ok) {
+      // Refused before it started (not signed in, too many restores, ...).
+      const text = await res.text();
+      let parsed: unknown = text;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // non-JSON error body; keep as text
+      }
+      throw new ApiError(res.status, parsed);
     }
-    if (!res.ok) throw new ApiError(res.status, parsed);
-    return parsed as { drives: number; charges: number; samples: number };
+    // The server answers at once and streams NDJSON ({event:"start"},
+    // {event:"progress",...} every few seconds, then {event:"done",...} or
+    // {event:"error",status,error}), so a long restore never goes quiet past
+    // the proxy's timeout.
+    if (!res.body) throw new ApiError(500, "no response body");
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let done: RestoreProgress | null = null;
+    let err: { status: number; error: string } | null = null;
+    const consumeLine = (line: string) => {
+      if (!line.trim()) return;
+      let ev: Record<string, unknown>;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (ev.event === "done") {
+        done = ev as unknown as RestoreProgress;
+      } else if (ev.event === "error") {
+        err = { status: Number(ev.status) || 500, error: String(ev.error ?? "restore failed") };
+      } else if (onProgress) {
+        onProgress(ev as unknown as RestoreProgress);
+      }
+    };
+    for (;;) {
+      const { value, done: eof } = await reader.read();
+      if (value) {
+        buf += dec.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          consumeLine(buf.slice(0, idx));
+          buf = buf.slice(idx + 1);
+        }
+      }
+      if (eof) {
+        if (buf) consumeLine(buf);
+        break;
+      }
+    }
+    if (err) {
+      const e = err as { status: number; error: string };
+      throw new ApiError(e.status, { error: e.error });
+    }
+    if (!done) {
+      // The connection ended without a final event (a proxy timeout or a
+      // dropped connection): the restore may have stopped partway.
+      throw new ApiError(500, { error: "the restore stream ended early" });
+    }
+    return done as RestoreProgress;
   },
+};
+
+// A restore progress / final event.
+export type RestoreProgress = {
+  event: string;
+  drives: number;
+  charges: number;
+  samples: number;
+  skipped?: number;
 };
 
 export type ImportResult = {
