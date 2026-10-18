@@ -66,6 +66,11 @@ func TestEngageStore(t *testing.T) {
 	if delivered.Load() != 3 {
 		t.Errorf("%d milestones delivered, want 3 (budget 4 including the recap)", delivered.Load())
 	}
+	// A push to an account with no zone at all is refused, not sent at UTC hours.
+	if out, _ := e.Send(ctx, engage.Msg{User: uid, Kind: "milestone", Key: "nozone", Channel: engage.Push, Toggle: on},
+		func(context.Context) error { return nil }); out != engage.SkippedNoTZ {
+		t.Errorf("push with no zone: %s", out)
+	}
 	// A utility is outside the budget; skipped rows cost nothing.
 	if out, _ := e.Send(ctx, engage.Msg{User: uid, Kind: "plug_in_reminder", Key: "2026-10-21", Channel: engage.Push, Utility: true, Toggle: on},
 		func(context.Context) error { return nil }); out != engage.SkippedNoTZ {

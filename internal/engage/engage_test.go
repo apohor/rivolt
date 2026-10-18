@@ -28,8 +28,8 @@ func newFake(tz string, stored bool) *fakeStore {
 	return &fakeStore{tz: tz, stored: stored, rows: map[[2]string]row{}}
 }
 
-func (f *fakeStore) Timezone(context.Context, uuid.UUID) (string, bool, error) {
-	return f.tz, f.stored, nil
+func (f *fakeStore) Timezone(context.Context, uuid.UUID) (string, bool, bool, error) {
+	return f.tz, f.stored, f.tz != "", nil
 }
 func (f *fakeStore) used(since time.Time) int {
 	n := 0
@@ -264,5 +264,29 @@ func TestSkipRecordsOnceAndInvalidInputIsRefused(t *testing.T) {
 		if _, err := send(e, bad, &n); err == nil {
 			t.Errorf("accepted %+v", bad)
 		}
+	}
+}
+
+// A push to an account with no known zone (neither its browser's nor the
+// statement email's) is refused rather than sent at UTC hours; an email has no
+// clock to keep.
+func TestBudgetedPushNeedsAZone(t *testing.T) {
+	uid := uuid.New()
+	var n int
+	f := newFake("", false)
+	e, _ := engine(f, at(12))
+	push := Msg{User: uid, Kind: "milestone", Key: "a", Channel: Push, Toggle: on}
+	if out, _ := send(e, push, &n); out != SkippedNoTZ || n != 0 || len(f.rows) != 0 {
+		t.Errorf("push with no zone: %s delivered %d rows %d", out, n, len(f.rows))
+	}
+	em := Msg{User: uid, Kind: "recap", Key: "w", Channel: Email, Toggle: on}
+	if out, _ := send(e, em, &n); out != Sent {
+		t.Errorf("email with no zone: %s", out)
+	}
+	// A zone known only from the statement email is enough for quiet hours.
+	g := newFake("America/Chicago", false)
+	e2, _ := engine(g, at(20)) // 15:00 local
+	if out, _ := send(e2, push, &n); out != Sent {
+		t.Errorf("push with the statement zone: %s", out)
 	}
 }
