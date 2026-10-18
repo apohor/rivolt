@@ -105,16 +105,16 @@ for (const theme of ["dark", "light"] as const) {
 test("filter chips and search", async ({ page }) => {
   await open(page);
   const ids = async () => page.locator("[data-user-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-user-row")));
-  expect(await ids()).toHaveLength(6);
+  await expect.poll(async () => (await ids()).length).toBe(6);
   await page.getByRole("button", { name: /^Needs attention/ }).click();
-  expect(await ids()).toEqual(["u2", "u3", "u4", "u5"]);
+  await expect.poll(() => ids()).toEqual(["u2", "u3", "u4", "u5"]);
   await page.getByRole("button", { name: /^Re-auth/ }).click();
-  expect(await ids()).toEqual(["u3"]);
+  await expect.poll(() => ids()).toEqual(["u3"]);
   await page.getByRole("button", { name: /^No data/ }).click();
-  expect(await ids()).toEqual(["u2"]);
+  await expect.poll(() => ids()).toEqual(["u2"]);
   await page.getByRole("button", { name: /^All/ }).click();
   await page.getByRole("searchbox", { name: "Search users" }).fill("WARNED");
-  expect(await ids()).toEqual(["u5"]);
+  await expect.poll(() => ids()).toEqual(["u5"]);
   await page.getByRole("searchbox", { name: "Search users" }).fill("nobody");
   await expect(page.getByText("No users match.")).toBeVisible();
 });

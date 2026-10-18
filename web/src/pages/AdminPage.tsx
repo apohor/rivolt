@@ -7,6 +7,7 @@ import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { useUserActions } from "../components/admin/useUserActions";
 import UserPage from "./admin/UserPage";
 import { UsersList } from "../components/admin/UsersList";
+import AddUser from "../components/admin/AddUser";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
@@ -134,8 +135,8 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
       {view === "users" && !userID && (
         <div className="space-y-4">
           <Card title="Users">
-            <CreateUserForm />
-            <UsersPanel onOpen={(id) => navigate(`/admin/users/${id}`)} />
+            <AddUser />
+            <UsersPanel onOpen={(id, from) => navigate(`/admin/users/${id}`, { state: { from } })} />
           </Card>
           <IdpFailuresPanel />
         </div>
@@ -372,146 +373,9 @@ function SignupCapPanel() {
   );
 }
 
-function CreateUserForm() {
-  const qc = useQueryClient();
-  const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<"user" | "admin">("user");
-  const [disabled, setDisabled] = useState(false);
-  // One-time password surfaced when the server's IdP (Kratos)
-  // integration is wired in. Cleared by the next form submit
-  // and on dismiss — never persisted, never refetched. Admin
-  // must copy it out before the dialog closes.
-  const [oneTimePassword, setOneTimePassword] = useState<{
-    username: string;
-    password: string;
-  } | null>(null);
-
-  const create = useMutation({
-    mutationFn: () =>
-      backend.adminCreateUser({
-        email: email.trim(),
-        display_name: displayName.trim() || undefined,
-        role,
-        disabled: disabled || undefined,
-      }),
-    onSuccess: (resp) => {
-      const created = email.trim();
-      setEmail("");
-      setDisplayName("");
-      setRole("user");
-      setDisabled(false);
-      qc.invalidateQueries({ queryKey: ["admin", "users"] });
-      if (resp.password) {
-        setOneTimePassword({ username: created, password: resp.password });
-      }
-    },
-  });
-
-  // Email is the canonical Kratos credential identifier. Display
-  // name is optional — the server defaults it to the email when
-  // empty. Role and disabled stay explicit because their defaults
-  // matter operationally (a stale "admin" toggle would be a bug).
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!email.trim()) return;
-        create.mutate();
-      }}
-      className="mb-4 grid grid-cols-1 gap-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:grid-cols-5"
-    >
-      <input
-        type="email"
-        required
-        placeholder="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
-      />
-      <input
-        type="text"
-        placeholder="display name (optional)"
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
-      />
-      <select
-        aria-label="Role"
-        value={role}
-        onChange={(e) => setRole(e.target.value as "user" | "admin")}
-        className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
-      >
-        <option value="user">user</option>
-        <option value="admin">admin</option>
-      </select>
-      <label className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-300">
-        <input
-          type="checkbox"
-          checked={disabled}
-          onChange={(e) => setDisabled(e.target.checked)}
-          className="h-3.5 w-3.5"
-        />
-        disabled
-      </label>
-      <button
-        type="submit"
-        disabled={!email.trim() || create.isPending}
-        className="rounded-md border border-emerald-800 bg-emerald-950 px-3 py-1 text-sm text-emerald-200 hover:border-emerald-700 hover:text-emerald-100 disabled:opacity-40"
-      >
-        {create.isPending ? "Creating…" : "Create user"}
-      </button>
-      <p className="col-span-full text-xs text-neutral-500">
-        Provisions the user in Kratos with a one-time password. They
-        sign in at <span className="font-mono">auth.rivolt.dev</span>{" "}
-        with this email and the password shown below, then change it
-        via the IdP self-service flow.
-      </p>
-      {create.error && (
-        <p className="col-span-full text-xs text-red-400">
-          {String(create.error)}
-        </p>
-      )}
-      {oneTimePassword && (
-        <div className="col-span-full rounded-md border border-amber-800 bg-amber-950/40 p-3 text-xs text-amber-100">
-          <p className="mb-2 font-medium">
-            One-time password for{" "}
-            <span className="font-mono">{oneTimePassword.username}</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="select-all rounded-sm bg-neutral-900 px-2 py-1 font-mono text-sm text-amber-200">
-              {oneTimePassword.password}
-            </code>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(oneTimePassword.password);
-              }}
-              className="rounded-md border border-amber-800 px-2 py-1 text-amber-200 hover:border-amber-700"
-            >
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => setOneTimePassword(null)}
-              className="ml-auto rounded-md border border-neutral-700 px-2 py-1 text-neutral-300 hover:border-neutral-500"
-            >
-              Dismiss
-            </button>
-          </div>
-          <p className="mt-2 text-amber-200/80">
-            Send this to the user out-of-band. It is shown once and is
-            not stored. The user can change it after first sign-in.
-          </p>
-        </div>
-      )}
-    </form>
-  );
-}
-
 // The Users tab: the list, with each user's status and quick actions. A click (or the name link)
 // opens /admin/users/:id, the user's own page.
-function UsersPanel({ onOpen }: { onOpen: (id: string) => void }) {
+function UsersPanel({ onOpen }: { onOpen: (id: string, from: string) => void }) {
   const q = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => backend.adminListUsers(),

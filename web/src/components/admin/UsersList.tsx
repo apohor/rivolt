@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import type { AdminUserRow } from "../../lib/api";
 import { connection, filterUsers, lastData, noDataAlert, purge, type UserFilter } from "../../lib/adminUsers";
 import { useImpersonationDisabled, useRivianActions } from "../../lib/config";
@@ -41,14 +41,56 @@ export function UsersList({
   rows, onSelect, busyID, adminCount, actions, now = Date.now(),
 }: {
   rows: AdminUserRow[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, from: string) => void;
   busyID: string | null;
   adminCount: number;
   actions: UserActions;
   now?: number;
 }) {
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<UserFilter>("all");
+  // Search and filter live in the URL (?q= and ?f=), so opening a user and pressing Back, a reload or a
+  // shared link all land on the same view of the list. They replace the history entry instead of adding one.
+  const [params, setParams] = useSearchParams();
+  const here = useLocation();
+
+  const urlQ = params.get("q") ?? "";
+  const f = params.get("f") as UserFilter | null;
+  const filter: UserFilter = CHIPS.some((c) => c.id === f) ? (f as UserFilter) : "all";
+  const setParam = (key: "q" | "f", value: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value && !(key === "f" && value === "all")) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  // The search box types into local state (a URL that lags a keystroke would swallow characters) and the
+  // URL follows a moment later; a URL change that wasn't ours (Back, a link) replaces the text.
+  const [q, setQ] = useState(urlQ);
+  const written = useRef(urlQ);
+  useEffect(() => {
+    if (urlQ !== written.current) {
+      written.current = urlQ;
+      setQ(urlQ);
+    }
+  }, [urlQ]);
+  useEffect(() => {
+    if (q === written.current) return;
+    const t = window.setTimeout(() => {
+      written.current = q;
+      setParam("q", q);
+    }, 200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+  const setFilter = (v: UserFilter) => setParam("f", v);
+  // Where "All users" returns to from a user's page: this view, including text typed a moment ago.
+  const fromParams = new URLSearchParams(params);
+  if (q) fromParams.set("q", q);
+  else fromParams.delete("q");
+  const fromSearch = fromParams.toString();
+  const from = `${here.pathname}${fromSearch ? `?${fromSearch}` : ""}`;
   const [deleting, setDeleting] = useState<AdminUserRow | null>(null);
   const impersonationDisabled = useImpersonationDisabled();
   const rivianActions = useRivianActions();
@@ -104,10 +146,10 @@ export function UsersList({
             <li
               key={u.id}
               data-user-row={u.id}
-              onClick={opensUser(onSelect, u.id)}
+              onClick={opensUser(onSelect, u.id, from)}
               className={`grid cursor-pointer grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 hover:bg-neutral-900/50 @3xl:items-start @3xl:gap-x-3 ${COLS}`}
             >
-              <div className="col-span-2 min-w-0 @3xl:col-span-1"><UserBlock u={u} /></div>
+              <div className="col-span-2 min-w-0 @3xl:col-span-1"><UserBlock u={u} from={from} /></div>
               <Cell label="Rivian"><RivianCell u={u} now={now} /></Cell>
               <Cell label="Last data"><LastDataCell u={u} now={now} /></Cell>
               <Cell label="Last seen"><span className="tabular-nums text-neutral-300" title={u.last_seen_at ?? ""}>{ago(u.last_seen_at, now)}</span></Cell>
@@ -141,9 +183,9 @@ export function UsersList({
 
 // A click anywhere on a user's row or card opens them, except on the row's own controls (the actions,
 // the name link): those keep their own meaning.
-const opensUser = (onSelect: (id: string) => void, id: string) => (e: React.MouseEvent) => {
+const opensUser = (onSelect: (id: string, from: string) => void, id: string, from: string) => (e: React.MouseEvent) => {
   if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label, summary")) return;
-  onSelect(id);
+  onSelect(id, from);
 };
 
 // One tree for every width: a row is a grid. At phone width (the list's container under 48 rem) it
@@ -162,11 +204,11 @@ function Cell({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function UserBlock({ u }: { u: AdminUserRow }) {
+function UserBlock({ u, from }: { u: AdminUserRow; from: string }) {
   const name = u.display_name || u.username;
   return (
     <>
-      <Link to={`/admin/users/${u.id}`} aria-label={`Open ${name}`} className="font-medium text-neutral-100 hover:underline">
+      <Link to={`/admin/users/${u.id}`} state={{ from }} aria-label={`Open ${name}`} className="font-medium text-neutral-100 hover:underline">
         {name}
       </Link>
       <div className="break-all text-xs text-neutral-400">{u.email || u.username}</div>

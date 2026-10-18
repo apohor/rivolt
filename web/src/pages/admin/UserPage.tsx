@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type AdminUserDetail, type AdminUserRow } from "../../lib/api";
 import { agoFrom } from "../../lib/adminFormat";
@@ -17,13 +17,16 @@ import { useUserActions } from "../../components/admin/useUserActions";
 // this one, so the browser's back button returns to it.
 export default function UserPage({ currentUserID }: { currentUserID: string }) {
   const { id = "" } = useParams();
+  // Opened from the list, "All users" returns to the same view of it (its search and filter).
+  const from = (useLocation().state as { from?: string } | null)?.from;
+  const back = from?.startsWith("/admin/users") ? from : "/admin/users";
   const list = useQuery({ queryKey: ["admin", "users"], queryFn: () => backend.adminListUsers() });
   const detail = useQuery({ queryKey: ["admin", "user", id], queryFn: () => backend.adminUserDetail(id), enabled: !!id, retry: 0 });
   const row = list.data?.users.find((u) => u.id === id);
 
   return (
     <div data-user-page={id} className="space-y-4">
-      <Link to="/admin/users" className="inline-block text-sm text-emerald-300 underline-offset-2 hover:underline">
+      <Link to={back} className="inline-block text-sm text-emerald-300 underline-offset-2 hover:underline">
         ← All users
       </Link>
       {list.isLoading && <Spinner />}
@@ -33,12 +36,12 @@ export default function UserPage({ currentUserID }: { currentUserID: string }) {
           <p className="text-sm text-neutral-400">There is no user with this id. They may have been deleted.</p>
         </Card>
       )}
-      {row && <UserBody row={row} d={detail.data} detailError={detail.isError ? String((detail.error as Error).message) : null} users={list.data!.users} currentUserID={currentUserID} />}
+      {row && <UserBody back={back} row={row} d={detail.data} detailError={detail.isError ? String((detail.error as Error).message) : null} users={list.data!.users} currentUserID={currentUserID} />}
     </div>
   );
 }
 
-function UserBody({ row, d, detailError, users, currentUserID }: { row: AdminUserRow; d: AdminUserDetail | undefined; detailError: string | null; users: AdminUserRow[]; currentUserID: string }) {
+function UserBody({ back, row, d, detailError, users, currentUserID }: { back: string; row: AdminUserRow; d: AdminUserDetail | undefined; detailError: string | null; users: AdminUserRow[]; currentUserID: string }) {
   const now = Date.now();
   const name = row.display_name || row.username;
   const conn = connection(row);
@@ -155,7 +158,7 @@ function UserBody({ row, d, detailError, users, currentUserID }: { row: AdminUse
 
       <Card title="Admin history"><UserAuditHistory userID={row.id} bare /></Card>
 
-      <ActionsCard row={row} users={users} currentUserID={currentUserID} needsReauth={conn.state === "reauth"} />
+      <ActionsCard back={back} row={row} users={users} currentUserID={currentUserID} needsReauth={conn.state === "reauth"} />
     </>
   );
 }
@@ -189,7 +192,7 @@ function TelemetrySpan({ id, d }: { id: string; d: AdminUserDetail | undefined }
 
 type Pending = null | "promote" | "demote" | "toggle" | "delete";
 
-function ActionsCard({ row, users, currentUserID, needsReauth }: { row: AdminUserRow; users: AdminUserRow[]; currentUserID: string; needsReauth: boolean }) {
+function ActionsCard({ back, row, users, currentUserID, needsReauth }: { back: string; row: AdminUserRow; users: AdminUserRow[]; currentUserID: string; needsReauth: boolean }) {
   const navigate = useNavigate();
   const acts = useUserActions();
   const rivianActions = useRivianActions();
@@ -242,7 +245,7 @@ function ActionsCard({ row, users, currentUserID, needsReauth }: { row: AdminUse
             phrase={row.email || row.username}
             confirmLabel="Delete user"
             onCancel={() => setPending(null)}
-            onConfirm={() => { setPending(null); void acts.remove(row).then((ok) => ok && navigate("/admin/users")); }}
+            onConfirm={() => { setPending(null); void acts.remove(row).then((ok) => ok && navigate(back)); }}
           />
         </div>
       )}
