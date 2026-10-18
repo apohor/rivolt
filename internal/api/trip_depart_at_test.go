@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,9 +29,11 @@ func planWith(extra string) string {
 }
 
 func TestTripPlanDepartAt(t *testing.T) {
+	var lastType string
 	run := func(body string) (int, *capturePlanner) {
 		cp := &capturePlanner{}
 		rec := httptest.NewRecorder()
+		defer func() { lastType = rec.Header().Get("Content-Type") }()
 		handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: cp}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
 			httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(body)))
 		return rec.Code, cp
@@ -43,8 +46,8 @@ func TestTripPlanDepartAt(t *testing.T) {
 		t.Errorf("no depart_at: %d, departure %v (want zero: now)", code, cp.got.DepartureTime)
 	}
 	for _, bad := range []string{"tomorrow", "2026-12-24", "2026-12-24 08:30:00", "1782300000"} {
-		if code, _ := run(planWith(`"depart_at":"` + bad + `",`)); code != http.StatusBadRequest {
-			t.Errorf("depart_at %q = %d, want 400", bad, code)
+		if code, _ := run(planWith(`"depart_at":"` + bad + `",`)); code != http.StatusBadRequest || !strings.HasPrefix(lastType, "application/json") {
+			t.Errorf("depart_at %q = %d (%s), want a JSON 400", bad, code, lastType)
 		}
 	}
 }

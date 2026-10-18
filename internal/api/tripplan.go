@@ -160,7 +160,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		if req.DepartAt != "" {
 			t, err := time.Parse(time.RFC3339, req.DepartAt)
 			if err != nil {
-				http.Error(w, "depart_at must be an RFC 3339 time", http.StatusBadRequest)
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "depart_at must be an RFC 3339 time"})
 				return
 			}
 			departAt = t
