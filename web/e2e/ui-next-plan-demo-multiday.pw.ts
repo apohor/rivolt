@@ -38,8 +38,9 @@ const PRESET = {
   summary: { distance_mi: 540, duration_min: 490, charge_stops: 2, arrival_soc_pct: 24 },
   saved_trip_id: "st-demo-2day",
 };
+// The demo serves the planner's multi-day answer as is: days and total, with no kind.
 const PLAN = {
-  kind: "multiday",
+  tz: "America/Los_Angeles",
   days: [day(1, "2026-11-14T16:00:00Z", "Los Angeles", "Sample Inn, Las Vegas", "Sample Inn, Las Vegas"), day(2, "2026-11-15T16:00:00Z", "Sample Inn, Las Vegas", "Los Angeles")],
   total: { distance_meters: 870_000, drive_duration_sec: 26_400, charging_duration_sec: 3_000 },
 };
