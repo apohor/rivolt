@@ -3,9 +3,13 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -136,5 +140,34 @@ func TestRestoreErrorEventHidesInternals(t *testing.T) {
 	}
 	if st, msg := restoreErrorEvent(fmt.Errorf("%w (more than 5)", errRestoreVehicles)); st != 400 || !strings.Contains(msg, "vehicles") {
 		t.Errorf("vehicle-cap event = %d %q", st, msg)
+	}
+}
+
+// A network or deadline failure reading the body is not a malformed backup,
+// and its text (which can carry internal addresses) never reaches the client.
+func TestRestoreReadErrKeepsNetworkErrorsOutOfTheMessage(t *testing.T) {
+	ctx := context.Background()
+	netErr := &net.OpError{Op: "read", Net: "tcp", Addr: &net.TCPAddr{IP: net.ParseIP("10.42.3.7"), Port: 8080}, Err: os.ErrDeadlineExceeded}
+	for name, err := range map[string]error{
+		"net error":      netErr,
+		"deadline":       fmt.Errorf("read: %w", os.ErrDeadlineExceeded),
+		"context cancel": context.Canceled,
+	} {
+		got := restoreReadErr(ctx, err)
+		if errors.Is(got, errRestoreBadFile) {
+			t.Errorf("%s was classified as a bad backup", name)
+		}
+		if st, msg := restoreErrorEvent(got); st != 500 || strings.Contains(msg, "10.42") || strings.Contains(msg, "tcp") {
+			t.Errorf("%s event = %d %q", name, st, msg)
+		}
+	}
+	// A malformed document still is one, with its parse text.
+	var v any
+	syntax := json.Unmarshal([]byte(`{"a":`), &v)
+	if got := restoreReadErr(ctx, syntax); !errors.Is(got, errRestoreBadFile) {
+		t.Errorf("json error = %v, want a bad-backup error", got)
+	}
+	if got := restoreReadErr(ctx, errRestoreTooBig); !errors.Is(got, errRestoreTooBig) {
+		t.Errorf("size error lost its identity: %v", got)
 	}
 }
