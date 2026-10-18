@@ -28,6 +28,14 @@ imagePullSecrets: []
 # but disabled-by-default for the same reason.
 replicaCount: 1
 
+# -- Admin-only deployment (admin.rivolt.dev): sets RIVOLT_ADMIN_ONLY and
+# leaves out RIVOLT_POD_ID, which the admin-only boot refuses (it runs no
+# leases or other workers). It still needs the Cloudflare Access env
+# (RIVOLT_ACCESS_TEAM_DOMAIN, RIVOLT_ACCESS_AUD, RIVOLT_ADMIN_EMAILS) and
+# is reached only through Access, so it can't be combined with
+# ingress.enabled.
+adminOnly: false
+
 # -- Deployment update strategy. RollingUpdate with maxSurge=1
 # and maxUnavailable=0 is the right default even at replicaCount=1
 # because it keeps the old pod serving until the new one is
