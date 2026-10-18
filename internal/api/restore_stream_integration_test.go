@@ -392,10 +392,12 @@ func TestRestoreRefusalsDoNotConsumeTheSlot(t *testing.T) {
 			t.Errorf("%s: %v, want a 400 error event saying %q", name, last, want)
 		}
 	}
-	// Corrupt gzip: refused up front with the same sentence.
+	// Corrupt gzip (a good header, a damaged body): the same sentence, either as
+	// a plain 400 up front or as an error event once the stream has started,
+	// and never the decompressor's text.
 	rec := httptest.NewRecorder()
 	handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", bytes.NewReader([]byte{0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 1, 2, 3})).WithContext(auth.WithUser(ctx, uid)))
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), msgDamaged) {
+	if !strings.Contains(rec.Body.String(), msgDamaged) || strings.Contains(rec.Body.String(), "flate") || strings.Contains(rec.Body.String(), "gzip:") || strings.Contains(rec.Body.String(), "EOF") {
 		t.Errorf("corrupt gzip = %d %q", rec.Code, rec.Body.String())
 	}
 
