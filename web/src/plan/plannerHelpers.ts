@@ -1,4 +1,5 @@
 import { ApiError, type SavedTripInputs } from "../lib/api";
+import { routePrefsWire, type RoutePrefs } from "./routePrefs";
 
 // Selection is what the form actually plans against. lat/lon are
 // resolved (search result, preset, or current vehicle position);
@@ -59,6 +60,7 @@ export type LastTrip = {
   targetSoc: string;
   driveMode: DriveMode;
   hasAdapter: boolean;
+  routePrefs?: RoutePrefs;
 };
 
 export function readLastTrip(): LastTrip | null {
@@ -103,6 +105,7 @@ export function collectInputs(s: {
   driveMode: DriveMode;
   hasAdapter: boolean;
   departureAt: string;
+  routePrefs?: RoutePrefs;
 }): SavedTripInputs {
   const hasOvernight = s.overnightFlags.some(Boolean);
   return {
@@ -114,6 +117,7 @@ export function collectInputs(s: {
     drive_mode: s.driveMode,
     has_adapter: s.hasAdapter,
     departure_at: s.departureAt,
+    ...(s.routePrefs && routePrefsWire(s.routePrefs) ? { route_preferences: routePrefsWire(s.routePrefs) } : {}),
     // Only persist multi-day fields when actually used — single-day
     // saves stay byte-compatible with the pre-multi-day schema.
     ...(hasOvernight

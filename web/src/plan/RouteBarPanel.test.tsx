@@ -104,5 +104,6 @@ describe("countNonDefaultOptions", () => {
     expect(countNonDefaultOptions({ ...base, driveModeIsDefault: false })).toBe(1);
     expect(countNonDefaultOptions({ ...base, hasAdapter: true })).toBe(1);
     expect(countNonDefaultOptions({ viaStops: 1, targetSoc: "15", driveModeIsDefault: false, hasAdapter: true })).toBe(4);
+    expect(countNonDefaultOptions({ ...base, avoidCount: 2 })).toBe(2);
   });
 });
