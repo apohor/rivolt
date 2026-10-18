@@ -35,6 +35,15 @@ func NewSigner(secret []byte) *Signer {
 	return &Signer{key: m.Sum(nil)}
 }
 
+// NewScopedSigner is a Signer whose key also depends on scope, so a token from
+// one kind of email (the weekly recap) can never verify as another's (the
+// monthly statement), or the reverse.
+func NewScopedSigner(secret []byte, scope string) *Signer {
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte("rivolt/statement-email/unsubscribe/v1/scope/" + scope))
+	return &Signer{key: m.Sum(nil)}
+}
+
 func (s *Signer) mac(payload string) []byte {
 	m := hmac.New(sha256.New, s.key)
 	m.Write([]byte(payload))

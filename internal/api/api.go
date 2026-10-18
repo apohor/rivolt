@@ -211,6 +211,9 @@ type Deps struct {
 	// StatementSigner signs the one-click unsubscribe links of the
 	// monthly statement email (nil disables the unsubscribe routes).
 	StatementSigner *statement.Signer
+	// WeeklySigner signs the weekly recap's unsubscribe links (a scope of its
+	// own, so they never verify as statement links). nil disables the recap.
+	WeeklySigner *statement.Signer
 	// BaseURL is the install's public origin (e.g. https://rivolt.dev),
 	// sourced from $RIVOLT_PUBLIC_BASE_URL, else $RIVOLT_BASE_URL (the
 	// admin deployment sets the former: its own host is behind Cloudflare
@@ -436,6 +439,16 @@ func New(d Deps) http.Handler {
 		}
 		if d.DB != nil && d.StatementSigner != nil && d.Email != nil && d.Flags != nil {
 			startStatementJob(d, d.StatementSigner)
+		}
+		// Weekly recap email (opt-in, internal/weekly): the sweep, and its signed
+		// one-click unsubscribe, public like the statement's.
+		if d.DB != nil && d.WeeklySigner != nil && d.Email != nil && !demo.OnlyEnabled() {
+			startWeeklyJob(d)
+			wu := &weeklyUnsub{db: d.DB, signer: d.WeeklySigner, now: time.Now}
+			wl := newIPLimiter(30, time.Minute, time.Hour)
+			wl.key = demoClientKey
+			r.With(wl.Middleware).Get("/weekly-recap/unsubscribe", wu.get)
+			r.With(wl.Middleware, maxBodyBytes(4096)).Post("/weekly-recap/unsubscribe", wu.post)
 		}
 		// Monthly statement email: signed one-click unsubscribe.
 		// Public (no session), per-IP limited, GET shows a page and
