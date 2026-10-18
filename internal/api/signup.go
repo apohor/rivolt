@@ -214,7 +214,18 @@ func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, iss
 // logic (session resolution, role lookup) is unchanged; we read the
 // DB row ourselves for the extra column rather than changing the auth
 // package interface.
-func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
+// meRole is the role /api/auth/me reports: "user" when unknown, and for an
+// admin when the deployment hides the admin surface.
+func meRole(role string, hideAdmin bool) string {
+	if role == "" || (hideAdmin && role == "admin") {
+		return "user"
+	}
+	return role
+}
+
+// hideAdmin (RIVOLT_ADMIN_DISABLED) reports an admin's role as "user": the
+// public site has no admin surface, so the SPA mustn't link to one.
+func handleMeEnriched(svc *auth.Service, d *sql.DB, hideAdmin bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -247,9 +258,7 @@ func handleMeEnriched(svc *auth.Service, d *sql.DB) http.HandlerFunc {
 			}
 		}
 		role, _ := db.RoleFor(r.Context(), d, uid)
-		if role == "" {
-			role = "user"
-		}
+		role = meRole(role, hideAdmin)
 		onboardingDone, _ := db.OnboardingCompleted(r.Context(), d, uid)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
