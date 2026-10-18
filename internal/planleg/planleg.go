@@ -10,10 +10,11 @@
 //   - every call that does reach the upstream planner counts against the
 //     user's 60 per hour; the 61st is refused with a QuotaError.
 //
-// Only the live client is wrapped: simulated plans (fixtures, the synthetic
-// planner) cost nothing upstream, so they are neither cached nor counted.
-// Redis being down never blocks planning: the cache then misses and the quota
-// allows.
+// Every planner is wrapped, not only the live one: a replay install's synthetic
+// plan is a Valhalla route and a charger-archive scan, which a user can also
+// run up. Simulated plans are deterministic for their inputs, so they cache
+// like any other. Redis being down never blocks planning: the cache then
+// misses and the quota allows.
 package planleg
 
 import (
@@ -118,7 +119,7 @@ func (w *cached) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian
 	if err != nil {
 		return nil, err
 	}
-	if plan != nil && !plan.Simulated {
+	if plan != nil {
 		c.set(ctx, key, plan)
 	}
 	return plan, nil

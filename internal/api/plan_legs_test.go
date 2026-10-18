@@ -15,7 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
-func TestWithLegCacheWrapsOnlyTheLiveClient(t *testing.T) {
+func TestWithLegCacheWrapsEveryPlannerButNotClientsWithout(t *testing.T) {
 	mr := miniredis.RunT(t)
 	d := Deps{PlanLegs: planleg.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), "t", nil)}
 	uid := uuid.New()
@@ -24,8 +24,13 @@ func TestWithLegCacheWrapsOnlyTheLiveClient(t *testing.T) {
 	if _, ok := withLegCache(d, uid, live).(legCachedClient); !ok {
 		t.Error("the live client's planning should go through the cache and quota")
 	}
-	// Simulated planners are free: never wrapped. Nor is a nil live client.
-	for name, c := range map[string]rivian.Client{"stub": rivian.NewStub(), "mock": rivian.NewMock(), "fixture": fixtureClient()} {
+	// The replay planners (stored plans, Valhalla-backed synthetic plans) are
+	// limited like the live one.
+	if _, ok := withLegCache(d, uid, fixtureClient()).(legCachedClient); !ok {
+		t.Error("a replay-style planner should be wrapped too")
+	}
+	// A client with no planner has nothing to limit.
+	for name, c := range map[string]rivian.Client{"stub": rivian.NewStub(), "mock": rivian.NewMock()} {
 		if got := withLegCache(d, uid, c); got != c {
 			t.Errorf("%s was wrapped", name)
 		}

@@ -175,17 +175,29 @@ func TestQuotaCountsUpstreamCallsOnly(t *testing.T) {
 	}
 }
 
-func TestSimulatedPlansAndErrorsAreNotCached(t *testing.T) {
+func TestSimulatedPlansAreCachedAndCountedErrorsAreNot(t *testing.T) {
 	c, _, _ := setup(t)
+	// A simulated (Valhalla-backed) plan is deterministic for its inputs, and
+	// costs a route: it is cached and counts against the quota like any other.
 	sim := &countingPlanner{plan: &rivian.TripPlan{Status: "OK", Simulated: true}}
 	p := c.Wrap(sim, uid)
-	_, _ = p.PlanTrip(context.Background(), in())
-	_, _ = p.PlanTrip(context.Background(), in())
-	if sim.calls != 2 {
-		t.Errorf("a simulated plan must not be cached (calls %d)", sim.calls)
+	a, _ := p.PlanTrip(context.Background(), in())
+	b, _ := p.PlanTrip(context.Background(), in())
+	if sim.calls != 1 || !a.Simulated || !b.Simulated {
+		t.Errorf("a simulated plan is cached, and stays marked simulated (calls %d)", sim.calls)
+	}
+	for i := 0; i < QuotaPerHour; i++ {
+		x := in()
+		x.Waypoints[0].Latitude = 30 + float64(i)/10
+		_, _ = p.PlanTrip(context.Background(), x)
+	}
+	x := in()
+	x.Waypoints[0].Latitude = 45
+	if _, err := p.PlanTrip(context.Background(), x); !errors.As(err, new(*QuotaError)) {
+		t.Errorf("simulated planner calls count toward the quota: %v", err)
 	}
 	boom := &countingPlanner{err: errors.New("upstream")}
-	pb := c.Wrap(boom, uid)
+	pb := c.Wrap(boom, uuid.New()) // a user with quota left
 	_, _ = pb.PlanTrip(context.Background(), in())
 	_, _ = pb.PlanTrip(context.Background(), in())
 	if boom.calls != 2 {
