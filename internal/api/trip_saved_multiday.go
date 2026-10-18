@@ -29,6 +29,7 @@ type savedDayJSON struct {
 	Index    int             `json:"index"`
 	Plan     json.RawMessage `json:"plan"`
 	DepartAt string          `json:"depart_at"`
+	ArriveAt string          `json:"arrive_at"`
 	Costs    json.RawMessage `json:"costs"`
 	Start    *savedPoint     `json:"start"`
 	End      *savedPoint     `json:"end"`
