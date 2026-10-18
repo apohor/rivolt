@@ -57,12 +57,20 @@ export default function LandingPage() {
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               {demoEnabled && (
-                <Link to="/demo" className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
+                <Link
+                  to="/demo"
+                  onClick={() => track("demo_click", { where: "hero" })}
+                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                >
                   Try the demo truck
                 </Link>
               )}
               {hostedDemo && (
-                <a href={DEMO_URL} className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500">
+                <a
+                  href={DEMO_URL}
+                  onClick={() => track("demo_click", { where: "hero" })}
+                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+                >
                   Try the demo truck
                 </a>
               )}
@@ -185,6 +193,30 @@ export default function LandingPage() {
             <Link to="/lease-calculator" className="text-neutral-300 hover:underline">
               Lease calculator
             </Link>
+            {demoEnabled && (
+              <>
+                {" · "}
+                <Link
+                  to="/demo"
+                  onClick={() => track("demo_click", { where: "footer" })}
+                  className="text-neutral-300 hover:underline"
+                >
+                  Demo
+                </Link>
+              </>
+            )}
+            {hostedDemo && (
+              <>
+                {" · "}
+                <a
+                  href={DEMO_URL}
+                  onClick={() => track("demo_click", { where: "footer" })}
+                  className="text-neutral-300 hover:underline"
+                >
+                  Demo
+                </a>
+              </>
+            )}
           </p>
           <p>
             Rivian is a trademark of Rivian Automotive, LLC. Rivolt is an independent project and is not affiliated

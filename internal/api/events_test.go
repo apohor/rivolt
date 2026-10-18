@@ -76,7 +76,7 @@ func TestEvents_Rejections(t *testing.T) {
 			t.Errorf("%s: code %d stored %d", name, rec.Code, s.n)
 		}
 	}
-	over := `{"anon_id":"` + anon + `","events":[` + strings.TrimSuffix(strings.Repeat(`{"name":"demo_tab"},`, 21), ",") + `]}`
+	over := `{"anon_id":"` + anon + `","events":[` + strings.TrimSuffix(strings.Repeat(`{"name":"demo_click"},`, 21), ",") + `]}`
 	if rec := postEvents(handleEvents(&fakeSink{}), over, nil); rec.Code != http.StatusBadRequest {
 		t.Errorf("21 events: %d", rec.Code)
 	}
@@ -123,5 +123,36 @@ func TestDNTContextMiddleware(t *testing.T) {
 		if got != want {
 			t.Errorf("%s: DoNotTrack = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// demo_click carries only a fixed `where`; the never-emitted demo_view and
+// demo_tab are gone from the vocabulary, so the stats can't imply data we
+// don't collect.
+func TestEvents_DemoClickVocabulary(t *testing.T) {
+	if got := sanitizeProps("demo_click", map[string]any{"where": "hero"}); got["where"] != "hero" {
+		t.Errorf("hero dropped: %v", got)
+	}
+	if got := sanitizeProps("demo_click", map[string]any{"where": "footer"}); got["where"] != "footer" {
+		t.Errorf("footer dropped: %v", got)
+	}
+	for _, bad := range []any{"sidebar", "https://x.test/?a=b", "", 1, nil} {
+		if got := sanitizeProps("demo_click", map[string]any{"where": bad}); len(got) != 0 {
+			t.Errorf("where=%v kept: %v", bad, got)
+		}
+	}
+	if got := sanitizeProps("demo_click", map[string]any{"where": "hero", "utm_source": "x", "tab": "now"}); len(got) != 1 {
+		t.Errorf("extra props kept: %v", got)
+	}
+	for _, gone := range []string{"demo_view", "demo_tab"} {
+		s := &fakeSink{}
+		body := `{"anon_id":"` + anon + `","events":[{"name":"` + gone + `"}]}`
+		if rec := postEvents(handleEvents(s), body, nil); rec.Code != http.StatusBadRequest || s.n != 0 {
+			t.Errorf("%s: code %d stored %d, want 400 and nothing stored", gone, rec.Code, s.n)
+		}
+	}
+	s := &fakeSink{}
+	if rec := postEvents(handleEvents(s), `{"anon_id":"`+anon+`","events":[{"name":"demo_click","props":{"where":"hero"}}]}`, nil); rec.Code != http.StatusNoContent || s.n != 1 {
+		t.Errorf("demo_click: code %d stored %d", rec.Code, s.n)
 	}
 }
