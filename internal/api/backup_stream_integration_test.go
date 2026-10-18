@@ -4,6 +4,7 @@ package api
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -128,7 +129,7 @@ func TestBackupStreamsWithBoundedMemory(t *testing.T) {
 
 	pr, pw := io.Pipe()
 	resp := &pipeResponse{h: http.Header{}, pw: pw}
-	req := httptest.NewRequest("GET", "/api/data/backup", nil).WithContext(auth.WithUser(ctx, uid))
+	req := httptest.NewRequest("GET", "/api/data/backup?gzip=0", nil).WithContext(auth.WithUser(ctx, uid))
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -221,12 +222,19 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("backup = %d", rec.Code)
 	}
-	if !json.Valid(rec.Body.Bytes()) {
-		t.Fatal("backup is not valid JSON")
+	// Gzip by default, served as a download named .json.gz.
+	if cd := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, `attachment; filename="rivolt-backup-`) || !strings.HasSuffix(cd, `.json.gz"`) || rec.Header().Get("Content-Type") != "application/gzip" {
+		t.Errorf("Content-Disposition = %q, Content-Type = %q", cd, rec.Header().Get("Content-Type"))
 	}
-	if cd := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, `attachment; filename="rivolt-backup-`) {
-		t.Errorf("Content-Disposition = %q", cd)
+	zr, err := gzip.NewReader(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("backup is not gzip: %v", err)
 	}
+	plain, err := io.ReadAll(zr)
+	if err != nil || !json.Valid(plain) {
+		t.Fatalf("backup does not unpack to valid JSON: %v", err)
+	}
+	t.Logf("gzip %d KB -> %d KB", rec.Body.Len()>>10, len(plain)>>10)
 
 	// Restore it into another account (its own vehicle id is created on demand).
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,'rv-bk-src','R1S')`, dst); err != nil {
