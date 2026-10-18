@@ -2202,14 +2202,14 @@ function DangerZonePanel() {
       <div className="border-t border-neutral-800 pt-4">
         <div className="text-neutral-400 mb-1">Restore</div>
         <p className="text-xs text-neutral-500 mb-2">
-          Uploads a <code>rivolt-backup-*.json</code> file and upserts every
+          Uploads a <code>rivolt-backup-*.json.gz</code> (or older <code>.json</code>) file and upserts every
           drive, charge, and raw sample. Safe to re-run; existing rows are
           upserted by session ID (drives/charges) or kept as-is (samples).
         </p>
         <input
           ref={restoreRef}
           type="file"
-          accept="application/json,.json"
+          accept="application/json,application/gzip,.json,.gz"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) restore.mutate(f);
