@@ -160,7 +160,7 @@ func handleSavedTripActive(tf *trips.Factory, mon func(uuid.UUID) *rivian.StateM
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
-			http.NotFound(w, r)
+			planError(w, http.StatusNotFound, "trip not found")
 			return
 		}
 		// A vehicle that is not the caller's is refused before anything is read.
@@ -170,7 +170,7 @@ func handleSavedTripActive(tf *trips.Factory, mon func(uuid.UUID) *rivian.StateM
 		}
 		st, err := tf.For(uid).Get(r.Context(), id)
 		if errors.Is(err, trips.ErrNotFound) {
-			http.NotFound(w, r)
+			planError(w, http.StatusNotFound, "trip not found")
 			return
 		}
 		if err != nil {

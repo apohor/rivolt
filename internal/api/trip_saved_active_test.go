@@ -134,3 +134,14 @@ func TestActiveForeignVehicleIs400AndLeaksNothing(t *testing.T) {
 		t.Errorf("the position was read (%d calls) or leaked: %s", *calls, rec.Body.String())
 	}
 }
+
+func TestActiveUnknownTripIs404JSON(t *testing.T) {
+	h := handleSavedTripActive(trips.NewFactory(nil), func(uuid.UUID) *rivian.StateMonitor { return nil }, nil)
+	r := chi.NewRouter()
+	r.Get("/trips/saved/{id}/active", func(w http.ResponseWriter, req *http.Request) { h(uuid.New(), w, req) })
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/trips/saved/not-a-trip/active", nil))
+	if rec.Code != 404 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") || !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("%d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}

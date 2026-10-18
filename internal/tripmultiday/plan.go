@@ -25,14 +25,17 @@ import (
 // Limits. A day is one planner call, so it takes at most the planner's
 // waypoint count; the day count keeps one request inside its time budget.
 const (
-	MaxDays          = 10
-	MaxDayWaypoints  = 10   // the planner's limit per call, origin and destination included
-	DefaultACMaxKW   = 11.5 // onboard AC charger ceiling when the model is unknown
-	DefaultL2KW      = 7.0  // a typical hotel or home L2 when none is given
-	DefaultCapPct    = 80.0 // overnight charge stops here unless asked otherwise
-	defaultParkedHrs = 10.0 // when neither a departure nor an "until" time is known
-	acEfficiency     = 0.9  // wall-to-battery efficiency of AC charging
-	taperAbovePct    = 90.0 // above this the gain per kWh is halved
+	MaxDays           = 10
+	MaxDayWaypoints   = 10   // the planner's limit per call, origin and destination included
+	DefaultACMaxKW    = 11.5 // onboard AC charger ceiling when the model is unknown
+	DefaultL2KW       = 7.0  // a typical hotel or home L2 when none is given
+	DefaultReservePct = 10.0 // a day's arrival reserve when none was asked for
+	MaxPlanTargetPct  = 90.0 // a raised reserve never asks for more than this
+	maxReplans        = 2
+	DefaultCapPct     = 80.0 // overnight charge stops here unless asked otherwise
+	defaultParkedHrs  = 10.0 // when neither a departure nor an "until" time is known
+	acEfficiency      = 0.9  // wall-to-battery efficiency of AC charging
+	taperAbovePct     = 90.0 // above this the gain per kWh is halved
 )
 
 // Waypoint is a place on the trip. Label is cosmetic: never sent to the
@@ -152,6 +155,10 @@ type Day struct {
 	DestinationReached bool             `json:"destination_reached"`
 	SoCBelowLimit      bool             `json:"soc_below_limit"`
 	Overnight          *OvernightResult `json:"overnight,omitempty"`
+	// Problem is plain text for the user when the day cannot be driven as
+	// planned: it does not reach its end, or ends below the reserve with no stop
+	// that fixes it. Empty for a day that works.
+	Problem string `json:"problem,omitempty"`
 }
 
 // OvernightResult is the post-charge state at the end of a day. Always nil on
@@ -283,12 +290,48 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 			return resp, nil
 		}
 
+		// The corrected arrival (weather, vehicle profile) can fall below the
+		// reserve the day was planned for. Plan the day again with the reserve
+		// raised by the shortfall, so the planner adds the stop that makes up
+		// for it, rather than handing the user a day that ends under its reserve.
+		var adj float64
+		var adjOK bool
+		if req.AdjustArrival != nil && i < len(req.Days)-1 {
+			adj, adjOK = req.AdjustArrival(ctx, i+1, plan, soc, target)
+			want := DefaultReservePct
+			if target != nil {
+				want = *target
+			}
+			for try := 0; try < maxReplans && adjOK && plan.Routes[0].DestinationReached && adj < want; try++ {
+				raised := math.Min(want+(want-adj)+1, MaxPlanTargetPct)
+				if in.TargetArrivalSocPercent != nil && raised <= *in.TargetArrivalSocPercent {
+					break
+				}
+				in2 := in
+				in2.TargetArrivalSocPercent = &raised
+				p2, err := p.PlanTrip(ctx, in2)
+				if err != nil || p2 == nil || len(p2.Routes) == 0 || !p2.Routes[0].DestinationReached {
+					break
+				}
+				a2, ok2 := req.AdjustArrival(ctx, i+1, p2, soc, target)
+				if !ok2 {
+					break
+				}
+				plan, adj, in = p2, a2, in2
+			}
+		}
+
 		rt := plan.Routes[0]
 		day := Day{
 			Index: i + 1, Plan: plan, Start: start, Vias: di.Vias, End: di.End,
 			DepartAt: depart.UTC(), ArriveAt: arrivalOf(rt, depart).UTC(),
 			DepartureSoC: soc, ArrivalSoC: rt.ArrivalSoC,
 			DestinationReached: rt.DestinationReached, SoCBelowLimit: plan.SoCBelowLimit,
+		}
+		if !day.DestinationReached {
+			day.Problem = fmt.Sprintf("The truck can't reach the end of day %d from where it starts: it would run out of charge with no fast charger in range. Charge more overnight, start with a higher charge, or split the day.", i+1)
+		} else if day.SoCBelowLimit || (adjOK && adj < wantReserve(target)) {
+			day.Problem = fmt.Sprintf("Day %d ends below your reserve and no stop makes up for it. Charge more beforehand or add a stop.", i+1)
 		}
 		resp.Total.DistanceMeters += rt.TotalDriveDistanceMeters
 		resp.Total.DriveDurationSec += rt.TotalDriveDurationSec
@@ -305,13 +348,11 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 				ov = &Overnight{}
 			}
 			chainSoC := day.ArrivalSoC
-			if req.AdjustArrival != nil {
-				if adj, ok := req.AdjustArrival(ctx, i+1, plan, soc, target); ok {
-					if adj < chainSoC {
-						chainSoC = adj
-					}
-					day.ChainArrivalSoC = chainSoC
+			if adjOK {
+				if adj < chainSoC {
+					chainSoC = adj
 				}
+				day.ChainArrivalSoC = chainSoC
 			}
 			nextDepart := nextDeparture(day.ArriveAt, ov, next.DepartAt, loc)
 			if nextDepart.Before(day.ArriveAt) {
@@ -463,4 +504,11 @@ func OvernightSoC(arrSoC, hours float64, l2kw *float64, packKWh, capPct float64)
 		capPct = DefaultCapPct
 	}
 	return overnight(arrSoC, hours, &Overnight{L2KW: l2kw}, packKWh, DefaultACMaxKW, capPct).PostChargeSoCPct
+}
+
+func wantReserve(target *float64) float64 {
+	if target != nil {
+		return *target
+	}
+	return DefaultReservePct
 }

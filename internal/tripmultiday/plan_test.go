@@ -391,3 +391,66 @@ func TestRoutePreferencesApplyToEveryDay(t *testing.T) {
 		}
 	}
 }
+
+// qa's chain: night 1 at 11.5 kW leaves day 2 arriving at 11.1 % and the
+// weather correction takes that to 8.1 %, under the 10 % reserve. Day 2 is
+// planned again with a higher reserve so the planner adds the stop that makes up
+// for it; day 3 then starts from a corrected arrival that holds the reserve.
+func TestShortfallAfterCorrectionReplansTheDay(t *testing.T) {
+	var targets []float64
+	p := planFunc(func(_ context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		tgt := 10.0
+		if in.TargetArrivalSocPercent != nil {
+			tgt = *in.TargetArrivalSocPercent
+		}
+		targets = append(targets, tgt)
+		// The planner keeps whatever reserve it is asked for, arriving a point over.
+		return &rivian.TripPlan{Status: "OK", Routes: []rivian.TripRoute{{
+			DestinationReached: true, ArrivalSoC: math.Max(tgt+1.1, 11.1), TotalDriveDistanceMeters: 1,
+			TotalDriveDurationSec: 3600, TotalTripDurationSec: 3600,
+			Waypoints: []rivian.PlannedWaypoint{{DepartureTimeUTC: in.DepartureTime.UTC().Format(time.RFC3339)}, {ArrivalTimeUTC: in.DepartureTime.Add(time.Hour).UTC().Format(time.RFC3339)}},
+		}}}, nil
+	})
+	hookTargets := 0
+	resp, err := Plan(context.Background(), p, Request{
+		PackKWh: 100, StartingSoC: 80, StartAt: at(8, 0), Origin: wp(1), TargetArrivalSoCPct: f64(10),
+		Days: []DayInput{{End: wp(2), Overnight: &Overnight{L2KW: f64(0)}}, {End: wp(3)}},
+		AdjustArrival: func(_ context.Context, _ int, plan *rivian.TripPlan, _ float64, tgt *float64) (float64, bool) {
+			hookTargets++
+			if *tgt != 10 {
+				t.Errorf("the hook was told target %v, want the user's 10", *tgt)
+			}
+			return plan.Routes[0].ArrivalSoC - 3, true // weather costs 3 points
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := resp.Days[0]
+	if len(targets) != 3 || targets[1] <= 10 {
+		t.Fatalf("planner targets %v: day 1 should be planned again with a raised reserve", targets)
+	}
+	if d.ChainArrivalSoC < 10 || d.Problem != "" {
+		t.Errorf("day 1 chain %v, problem %q: the corrected arrival should hold the 10 reserve", d.ChainArrivalSoC, d.Problem)
+	}
+	if got := targets[2]; got != 10 {
+		t.Errorf("day 2 reserve %v, want 10", got)
+	}
+}
+
+// When no raised reserve helps, the day says so in words.
+func TestDayThatCannotBeFixedHasAProblem(t *testing.T) {
+	p := planFunc(func(_ context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		return &rivian.TripPlan{Status: "OK", Routes: []rivian.TripRoute{{
+			DestinationReached: false, ArrivalSoC: 0, TotalDriveDurationSec: 3600, TotalTripDurationSec: 3600,
+			Waypoints: []rivian.PlannedWaypoint{{DepartureTimeUTC: in.DepartureTime.UTC().Format(time.RFC3339)}, {ArrivalTimeUTC: in.DepartureTime.Add(time.Hour).UTC().Format(time.RFC3339)}},
+		}}}, nil
+	})
+	resp, err := Plan(context.Background(), p, Request{PackKWh: 100, StartingSoC: 8, StartAt: at(8, 0), Origin: wp(1), Days: []DayInput{{End: wp(2)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := resp.Days[0]; d.Problem == "" || d.DestinationReached {
+		t.Errorf("day = %+v, want a plain Problem for a day that does not reach its end", d)
+	}
+}

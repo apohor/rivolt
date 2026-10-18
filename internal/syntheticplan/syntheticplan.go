@@ -75,21 +75,22 @@ var _ rivian.TripPlanner = (*Planner)(nil)
 // Tunables. Waypoint limits match the gateway's (2 to 10 including the
 // origin and the destination).
 const (
-	minWaypoints   = 2
-	maxWaypoints   = rivian.MaxPlanWaypoints
-	defaultReserve = 10.0 // SoC kept at arrival when no target was asked for
-	taper          = 0.62 // average / peak kW over a fast charge (sample_plan.go)
-	corridorKm     = 5.0  // a station counts as on the route within this
-	minStationKW   = 50.0 // slower chargers are not fast-charge stops
-	chargeTo       = 80.0 // default charge target
-	chargeCap      = 90.0 // never plan a charge above this
-	finishMargin   = 2.0  // SoC points above what the rest of the trip needs
-	minTopUp       = 5.0  // the least a stop charges, in SoC points
-	tieKm          = 10.0 // preferred networks win ties this close to the best
-	minLegM        = 1000 // a stop must be at least this far on
-	maxStops       = 25
-	trailerFactor  = 1.6
-	metersPerMile  = 1609.344
+	minWaypoints    = 2
+	maxWaypoints    = rivian.MaxPlanWaypoints
+	defaultReserve  = 10.0 // SoC kept at arrival when no target was asked for
+	taper           = 0.62 // average / peak kW over a fast charge (sample_plan.go)
+	corridorKm      = 5.0  // a station counts as on the route within this
+	minStationKW    = 50.0 // slower chargers are not fast-charge stops
+	chargeTo        = 80.0 // default charge target
+	chargeCap       = 90.0 // never plan a charge above this
+	finishMargin    = 2.0  // SoC points above what the rest of the trip needs
+	minTopUp        = 5.0  // the least a stop charges, in SoC points
+	lowArrivalFloor = 3.0  // when the reserve cannot be kept, still arrive with this much
+	tieKm           = 10.0 // preferred networks win ties this close to the best
+	minLegM         = 1000 // a stop must be at least this far on
+	maxStops        = 25
+	trailerFactor   = 1.6
+	metersPerMile   = 1609.344
 )
 
 func driveFactor(mode string) float64 {
@@ -387,6 +388,22 @@ func placeStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reser
 		for _, s := range sts {
 			if s.dist > d+minLegM && s.dist <= reach {
 				cands = append(cands, s)
+			}
+		}
+		if len(cands) == 0 && soc < reserve+minTopUp {
+			// Below the reserve already (a day that starts low after a short
+			// night): the reserve cannot be kept to the next charger, so go for
+			// the furthest one that is reachable at all, with a small buffer. A
+			// charger at the very start of the leg counts for the first stop.
+			from := d + minLegM
+			if len(stops) == 0 {
+				from = d - 1
+			}
+			low := d + (soc-lowArrivalFloor)/socPerM
+			for _, s := range sts {
+				if s.dist > from && s.dist <= low {
+					cands = append(cands, s)
+				}
 			}
 		}
 		if len(cands) == 0 {
