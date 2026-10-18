@@ -550,9 +550,9 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 	challenge := pkceChallenge(verifier)
 
 	ret := strings.TrimSpace(r.URL.Query().Get("return"))
-	// Only honour same-site, non-protocol-relative paths to avoid
-	// open-redirect via ?return=https://evil.example.
-	if ret == "" || !strings.HasPrefix(ret, "/") || strings.HasPrefix(ret, "//") {
+	// Only honour same-site paths to avoid open-redirect via
+	// ?return=https://evil.example (see safeReturnPath).
+	if !safeReturnPath(ret) {
 		ret = s.postLoginURL
 	}
 
@@ -787,11 +787,35 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearStateCookie(w)
 
+	// Checked again here, not only at the start: the redirect is what a
+	// browser follows, so it is validated where it is issued.
 	ret := st.Return
-	if ret == "" {
+	if !safeReturnPath(ret) {
 		ret = s.postLoginURL
 	}
 	http.Redirect(w, r, ret, http.StatusFound)
+}
+
+// safeReturnPath reports whether p is a same-site path that is safe to put in
+// a Location header after sign-in: it starts with a single "/", parses with no
+// scheme, host or userinfo, and holds no backslash or control character.
+// Browsers treat "\" as "/" in a URL, so "/\evil.example" would otherwise be
+// the protocol-relative "//evil.example"; a tab or newline is dropped by the
+// URL parser, so "/\t/evil.example" would be too.
+func safeReturnPath(p string) bool {
+	if p == "" || p[0] != '/' || strings.HasPrefix(p, "//") {
+		return false
+	}
+	for _, c := range p {
+		if c == '\\' || c < 0x20 || c == 0x7f {
+			return false
+		}
+	}
+	u, err := url.Parse(p)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" {
+		return false
+	}
+	return strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, "//")
 }
 
 // failRedirect aborts a sign-in by clearing the state cookie and
