@@ -5,6 +5,8 @@ import { grafanaBaseURL, useImpersonationDisabled } from "../lib/config";
 import { startImpersonation } from "../lib/impersonation";
 import { formatDateTime } from "../lib/format";
 import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { AdminUsersTable } from "../components/AdminUsersTable";
+import { useUiNext } from "../lib/uiNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
@@ -466,6 +468,7 @@ function CreateUserForm() {
         className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
       />
       <select
+        aria-label="Role"
         value={role}
         onChange={(e) => setRole(e.target.value as "user" | "admin")}
         className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
@@ -552,6 +555,8 @@ function relativeTime(iso: string): string {
 
 function UsersPanel({ currentUserID }: { currentUserID: string }) {
   const qc = useQueryClient();
+  const nextUi = useUiNext();
+  const [note, setNote] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => backend.adminListUsers(),
@@ -606,12 +611,55 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
   if (q.isError)
     return <ErrorBox title="Failed to load users" detail={String(q.error)} />;
 
+  async function runRowAction(u: AdminUserRow, fn: () => Promise<void>, failLabel: string) {
+    setBusyID(u.id);
+    setNote(null);
+    try {
+      await fn();
+    } catch (e) {
+      setNote(`${failLabel}: ${String(e)}`);
+    } finally {
+      setBusyID(null);
+    }
+  }
+
   const selectedRow = rows.find((u) => u.id === selectedID) ?? null;
   const isLastAdminFor = (u: AdminUserRow) =>
     u.role === "admin" && adminCount <= 1;
 
   return (
     <div className="space-y-4">
+      {nextUi ? (
+        <>
+          <AdminUsersTable
+            rows={rows}
+            selectedID={selectedID}
+            onSelect={setSelectedID}
+            busyID={busyID}
+            adminCount={adminCount}
+            actions={{
+              sync: (u) => void runRowAction(u, async () => {
+                const r = await syncRivian.mutateAsync(u.id);
+                setNote(`Synced: ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${u.username}.`);
+              }, "Sync failed"),
+              refresh: (u) => void runRowAction(u, async () => {
+                const r = await refreshRivianSession.mutateAsync(u.id);
+                setNote(r.message);
+              }, "Refresh failed"),
+              toggleDisabled: (u) => void runRowAction(u, async () => {
+                await setDisabled.mutateAsync({ id: u.id, disabled: !u.disabled });
+                setNote(`${u.username} ${u.disabled ? "enabled" : "disabled"}.`);
+              }, "Update failed"),
+              remove: (u) => void runRowAction(u, async () => {
+                await del.mutateAsync(u.id);
+                setNote(`${u.username} deleted.`);
+              }, "Delete failed"),
+            }}
+          />
+          {note && <p role="status" className="text-xs text-neutral-300">{note}</p>}
+        </>
+      ) : (
+      <>
       {/* Master list — full-width row of summary columns. Click a
           row to populate the detail panel below; the active row is
           tinted so the selection is obvious. */}
@@ -728,6 +776,8 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
       {/* Detail panel — full-width below the list so columns aren't
           fighting for screen space. Fetches the deep-dive bundle
