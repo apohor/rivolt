@@ -97,6 +97,7 @@ export function collectInputs(s: {
   maxOvernightSoCPct: number;
   overnightL2Kw: number;
   overnightDepartureLocal: string;
+  overnightSettings: NonNullable<SavedTripInputs["overnight_settings"]>;
   targetSoc: string;
   startingSoc: string;
   driveMode: DriveMode;
@@ -121,6 +122,7 @@ export function collectInputs(s: {
           max_overnight_soc_pct: s.maxOvernightSoCPct,
           overnight_l2_kw: s.overnightL2Kw,
           overnight_departure_local: s.overnightDepartureLocal,
+          overnight_settings: s.overnightSettings,
         }
       : {}),
   };

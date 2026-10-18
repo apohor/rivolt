@@ -14,6 +14,7 @@ import { useId, useState, type ReactNode } from "react";
 export function RouteBar({
   from,
   to,
+  overnights,
   onSwap,
   when,
   soc,
@@ -23,6 +24,8 @@ export function RouteBar({
 }: {
   from: ReactNode;
   to: ReactNode;
+  // The nights of the trip, right under From and To: the hint, each overnight, and the add button.
+  overnights?: ReactNode;
   onSwap: () => void;
   // The departure chip ("Now" or the picked time) and its popovers.
   when: ReactNode;
@@ -55,6 +58,7 @@ export function RouteBar({
         </button>
         {to}
       </div>
+      {overnights && <div data-plan-nights>{overnights}</div>}
       <div data-plan-when>{when}</div>
       <div data-plan-soc>
         <div data-plan-soc-head>

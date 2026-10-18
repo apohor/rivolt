@@ -1,4 +1,4 @@
-import { buildDays } from "./days";
+import { buildDays, stopKey, type OvernightOptions } from "./days";
 import { useEffect, useRef, useState } from "react";
 import { formatRouteSummary, useRouteBarState } from "./routeBar";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -18,11 +18,32 @@ export function usePlanner() {
   // (ends one day, starts the next). Any true value flips planning to
   // the multi-day endpoint. Defaults baked: 10h parked, 7kW L2.
   const [overnightFlags, setOvernightFlags] = useState<boolean[]>([]);
-  // Overnight settings, applied to every overnight: leave time next
-  // morning (HH:MM, local), charger kW at the stop, and the charge cap.
+  // Overnight settings: leave time next morning (HH:MM, local), charger kW at
+  // the stop, and the charge cap. These three are the starting values for a new
+  // overnight (the last one edited); each overnight then keeps its own in
+  // overnightOpts, keyed by its stop.
   const [maxOvernightSoCPct, setMaxOvernightSoCPct] = useState<number>(80);
   const [overnightDepartureLocal, setOvernightDepartureLocal] = useState<string>("08:00");
   const [overnightL2Kw, setOvernightL2Kw] = useState<number>(7);
+  const [overnightOpts, setOvernightOpts] = useState<Record<string, OvernightOptions>>({});
+  const optsFor = (s: { lat: number; lon: number }): OvernightOptions =>
+    overnightOpts[stopKey(s)] ?? { l2Kw: overnightL2Kw, until: overnightDepartureLocal, maxSocPct: maxOvernightSoCPct };
+  const updateOvernight = (s: { lat: number; lon: number }, patch: Partial<OvernightOptions>) => {
+    const next = { ...optsFor(s), ...patch };
+    // Freeze the other nights at what they show now: the starting values below
+    // follow the last edit, and an untouched night must not follow them.
+    setOvernightOpts((prev) => {
+      const out = { ...prev };
+      extraStops.forEach((st, i) => {
+        if (overnightFlags[i] && !out[stopKey(st)]) out[stopKey(st)] = optsFor(st);
+      });
+      out[stopKey(s)] = next;
+      return out;
+    });
+    setOvernightL2Kw(next.l2Kw);
+    setOvernightDepartureLocal(next.until);
+    setMaxOvernightSoCPct(next.maxSocPct);
+  };
   const [targetSoc, setTargetSoc] = useState<string>("20");
   // Empty = auto from live vehicle state; user can override.
   const { startingSoc, setStartingSoc } = routeBar;
@@ -316,11 +337,7 @@ export function usePlanner() {
         has_adapter: hasAdapter,
         target_arrival_soc_percent: target,
         origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
-        days: buildDays(extraStops, overnightFlags, destination, {
-          l2Kw: overnightL2Kw,
-          until: overnightDepartureLocal,
-          maxSocPct: maxOvernightSoCPct,
-        }),
+        days: buildDays(extraStops, overnightFlags, destination, optsFor),
         max_overnight_soc_pct: maxOvernightSoCPct,
       });
     },
@@ -370,6 +387,12 @@ export function usePlanner() {
         maxOvernightSoCPct,
         overnightL2Kw,
         overnightDepartureLocal,
+        overnightSettings: extraStops
+          .filter((_, i) => overnightFlags[i])
+          .map((st) => {
+            const o = optsFor(st);
+            return { lat: st.lat, lon: st.lon, until: o.until, l2_kw: o.l2Kw, max_soc_pct: o.maxSocPct };
+          }),
         targetSoc,
         startingSoc,
         driveMode,
@@ -423,6 +446,11 @@ export function usePlanner() {
     }
     if (typeof i.max_overnight_soc_pct === "number") setMaxOvernightSoCPct(i.max_overnight_soc_pct);
     if (typeof i.overnight_l2_kw === "number") setOvernightL2Kw(i.overnight_l2_kw);
+    setOvernightOpts(
+      Object.fromEntries(
+        (i.overnight_settings ?? []).map((o) => [stopKey(o), { l2Kw: o.l2_kw, until: o.until, maxSocPct: o.max_soc_pct }]),
+      ),
+    );
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
@@ -504,6 +532,8 @@ export function usePlanner() {
     setMaxOvernightSoCPct,
     overnightL2Kw,
     setOvernightL2Kw,
+    optsFor,
+    updateOvernight,
     overnightDepartureLocal,
     setOvernightDepartureLocal,
     targetSoc,

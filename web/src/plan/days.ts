@@ -6,6 +6,9 @@ import type { TripPlanDayRequest, TripPoint } from "../lib/api";
 // overnight, and the last day ends at the destination with whatever stops follow the final overnight.
 export type StopSel = { lat: number; lon: number; label: string };
 
+// stopKey identifies a stop by position, so per-night settings follow the stop through edits and saves.
+export const stopKey = (s: { lat: number; lon: number }) => `${s.lat.toFixed(4)},${s.lon.toFixed(4)}`;
+
 export type OvernightOptions = {
   l2Kw: number; // 0: no charger
   until: string; // "HH:MM", local time the truck is wanted the next morning
@@ -14,11 +17,13 @@ export type OvernightOptions = {
 
 const point = (s: StopSel): TripPoint => ({ lat: s.lat, lon: s.lon, label: s.label });
 
-export function buildDays(stops: StopSel[], overnightFlags: boolean[], destination: StopSel, o: OvernightOptions, targetSocPct?: number): TripPlanDayRequest[] {
+// optsFor gives the settings of one overnight stop: each night has its own leave time, charger and charge cap.
+export function buildDays(stops: StopSel[], overnightFlags: boolean[], destination: StopSel, optsFor: (s: StopSel) => OvernightOptions, targetSocPct?: number): TripPlanDayRequest[] {
   const days: TripPlanDayRequest[] = [];
   let vias: TripPoint[] = [];
   stops.forEach((s, i) => {
     if (overnightFlags[i]) {
+      const o = optsFor(s);
       days.push({
         ...(vias.length ? { vias } : {}),
         end: point(s),
