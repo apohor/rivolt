@@ -1518,6 +1518,8 @@ export const backend = {
   // Public demo only: the preset trips (stored plans in the real planner's
   // response shape). There is no demo planner compute.
   demoTrips: () => api.get<{ trips: DemoTripPreset[] }>("/api/demo/trips"),
+  // Release notes (public): the hand-written notes of each release, newest first.
+  changelog: () => api.get<{ releases: ChangelogRelease[] }>("/api/changelog"),
   demoTripPlan: (id: string) => api.get<TripPlan>(`/api/demo/trips/${encodeURIComponent(id)}/plan`),
   plannerFavoritesGet: async (): Promise<PlannerFavorite[]> =>
     inDemo() ? [] : api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
@@ -2454,6 +2456,15 @@ export const isPvaMulti = (d: PlanVsActual | PlanVsActualMulti): d is PlanVsActu
 
 // DemoTripPreset: one entry of GET /api/demo/trips. `inputs` has the shape of
 // SavedTrip.inputs, so a preset opens like a saved trip.
+// ChangelogRelease is one release in GET /api/changelog. body_md is the notes as written (Markdown).
+export type ChangelogRelease = {
+  tag: string;
+  published_at: string;
+  title: string;
+  body_md: string;
+  url: string;
+};
+
 export type DemoTripPreset = {
   id: string;
   name: string;

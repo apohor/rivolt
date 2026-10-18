@@ -31,6 +31,7 @@ const SettingsPage = lazy(pageLoaders.settings);
 const AdminPage = lazy(pageLoaders.admin);
 const LoginPage = lazy(pageLoaders.login);
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
+const ChangelogPage = lazy(() => import("./pages/ChangelogPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPage"));
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
@@ -130,6 +131,7 @@ export default function App() {
       */}
       <Route path="login" element={<LoginPage />} />
       <Route path="privacy" element={<PrivacyPage />} />
+      <Route path="changelog" element={<ChangelogPage />} />
       <Route path="terms" element={<TermsPage />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
