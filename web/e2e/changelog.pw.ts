@@ -22,7 +22,7 @@ const RELEASES = [
     tag: "v0.36.20",
     published_at: "2026-10-18T20:29:34Z",
     title: "v0.36.20",
-    body_md: "## What's new\n\n- **Safer sign-in:** after signing in you're always returned to a page on Rivolt itself.\n- **Clearer emails:** links in signup and monthly statement emails always point to rivolt.dev.",
+    body_md: "## What's new\n\n- **Safer sign-in:** after signing in you're always returned to a page on Rivolt itself.\n- **Clearer emails:** links in signup and monthly statement emails always point to rivolt.dev.\n\n**Full Changelog**: https://github.com/apohor/rivolt/compare/v0.36.8...v0.36.9",
     url: "https://github.com/apohor/rivolt/releases/tag/v0.36.20",
   },
 ];
