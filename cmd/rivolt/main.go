@@ -58,6 +58,7 @@ import (
 	"github.com/apohor/rivolt/internal/onboardmail"
 	"github.com/apohor/rivolt/internal/otadetails"
 	"github.com/apohor/rivolt/internal/packhealth"
+	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
@@ -1923,6 +1924,7 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
+		PlanLegs:              planleg.New(sharedRedis, redisKeyPrefix, logger),
 		AdminHealth: adminhealth.New(adminhealth.Config{
 			DB: pgPool, Flags: flagsStore, Version: version,
 			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),

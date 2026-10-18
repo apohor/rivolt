@@ -1,0 +1,224 @@
+package planleg
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/apohor/rivolt/internal/rivian"
+)
+
+type countingPlanner struct {
+	calls int
+	plan  *rivian.TripPlan
+	err   error
+}
+
+func (p *countingPlanner) PlanTrip(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) {
+	p.calls++
+	return p.plan, p.err
+}
+
+func setup(t *testing.T) (*Cache, *miniredis.Miniredis, *time.Time) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	c := New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), "test", nil)
+	clock := time.Date(2026, 10, 20, 14, 7, 30, 0, time.UTC)
+	c.now = func() time.Time { return clock }
+	return c, mr, &clock
+}
+
+func in() rivian.PlanTripInput {
+	tt := true
+	tg := 15.0
+	return rivian.PlanTripInput{
+		VehicleID: "v1", StartingSoC: 80.2, DriveMode: "EVERYDAY", HasAdapter: &tt, TargetArrivalSocPercent: &tg,
+		DepartureTime:      time.Date(2026, 10, 21, 8, 0, 0, 0, time.UTC),
+		NetworkPreferences: []rivian.NetworkPreference{{NetworkID: "10027", Preference: 1}, {NetworkID: "10050", Preference: 1}},
+		Waypoints: []rivian.PlanTripWaypoint{
+			{Latitude: 34.16131, Longitude: -118.16762}, {Latitude: 36.16989, Longitude: -115.13981},
+		},
+	}
+}
+
+var uid = uuid.MustParse("11111111-2222-3333-4444-555555555555")
+
+func TestRepeatedLegIsServedFromCache(t *testing.T) {
+	c, mr, _ := setup(t)
+	inner := &countingPlanner{plan: &rivian.TripPlan{Status: "OK", Routes: []rivian.TripRoute{{ArrivalSoC: 42}}}}
+	p := c.Wrap(inner, uid)
+
+	a, err := p.PlanTrip(context.Background(), in())
+	if err != nil || a.Routes[0].ArrivalSoC != 42 || inner.calls != 1 {
+		t.Fatalf("first call: %v, %v, upstream calls %d", a, err, inner.calls)
+	}
+	b, _ := p.PlanTrip(context.Background(), in())
+	if inner.calls != 1 || b.Routes[0].ArrivalSoC != 42 {
+		t.Errorf("a repeat must come from the cache (upstream calls %d)", inner.calls)
+	}
+	// The cached entry expires after 15 minutes.
+	mr.FastForward(TTL + time.Second)
+	_, _ = p.PlanTrip(context.Background(), in())
+	if inner.calls != 2 {
+		t.Errorf("after the TTL the planner must be asked again (calls %d)", inner.calls)
+	}
+}
+
+func TestKeyNormalisation(t *testing.T) {
+	c, _, clock := setup(t)
+	base := c.legKey(uid, in(), *clock)
+	same := map[string]func(*rivian.PlanTripInput){
+		"soc within the same percent": func(i *rivian.PlanTripInput) { i.StartingSoC = 79.6 },
+		"waypoints within 1e-4":       func(i *rivian.PlanTripInput) { i.Waypoints[0].Latitude += 0.00003 },
+		"departure within 15 minutes": func(i *rivian.PlanTripInput) { i.DepartureTime = i.DepartureTime.Add(14 * time.Minute) },
+		"network order": func(i *rivian.PlanTripInput) {
+			i.NetworkPreferences[0], i.NetworkPreferences[1] = i.NetworkPreferences[1], i.NetworkPreferences[0]
+		},
+		"starting range is not keyed":   func(i *rivian.PlanTripInput) { i.StartingRangeMeters = 123456 },
+		"the destination's own bearing": func(i *rivian.PlanTripInput) { i.OriginBearing = 90 },
+	}
+	for name, mut := range same {
+		x := in()
+		mut(&x)
+		if got := c.legKey(uid, x, *clock); got != base {
+			t.Errorf("%s changed the key", name)
+		}
+	}
+	differ := map[string]func(*rivian.PlanTripInput){
+		"vehicle":          func(i *rivian.PlanTripInput) { i.VehicleID = "v2" },
+		"soc by a point":   func(i *rivian.PlanTripInput) { i.StartingSoC = 81.2 },
+		"a waypoint moved": func(i *rivian.PlanTripInput) { i.Waypoints[1].Longitude += 0.0002 },
+		"a via added": func(i *rivian.PlanTripInput) {
+			i.Waypoints = append(i.Waypoints[:1], rivian.PlanTripWaypoint{Latitude: 35, Longitude: -117}, i.Waypoints[1])
+		},
+		"drive mode":           func(i *rivian.PlanTripInput) { i.DriveMode = "SPORT" },
+		"trailer":              func(i *rivian.PlanTripInput) { i.TrailerProfile = "small" },
+		"adapter":              func(i *rivian.PlanTripInput) { f := false; i.HasAdapter = &f },
+		"adapter unset":        func(i *rivian.PlanTripInput) { i.HasAdapter = nil },
+		"target":               func(i *rivian.PlanTripInput) { v := 20.0; i.TargetArrivalSocPercent = &v },
+		"target unset":         func(i *rivian.PlanTripInput) { i.TargetArrivalSocPercent = nil },
+		"a network preference": func(i *rivian.PlanTripInput) { i.NetworkPreferences = i.NetworkPreferences[:1] },
+		"departure 15 min on":  func(i *rivian.PlanTripInput) { i.DepartureTime = i.DepartureTime.Add(15 * time.Minute) },
+	}
+	for name, mut := range differ {
+		x := in()
+		mut(&x)
+		if c.legKey(uid, x, *clock) == base {
+			t.Errorf("%s must change the key", name)
+		}
+	}
+	if c.legKey(uuid.New(), in(), *clock) == base {
+		t.Error("another user must not share a cache entry")
+	}
+	// A departure that is not in the future is "now": the same 15-minute slot is
+	// the same key, the next slot is a different one.
+	past := in()
+	past.DepartureTime = time.Time{}
+	k1 := c.legKey(uid, past, *clock)
+	past.DepartureTime = clock.Add(-3 * time.Hour)
+	if c.legKey(uid, past, *clock) != k1 {
+		t.Error("a zero and a past departure are both \"now\"")
+	}
+	if c.legKey(uid, past, clock.Add(15*time.Minute)) == k1 {
+		t.Error("\"now\" must move with the 15-minute slot")
+	}
+}
+
+func TestQuotaCountsUpstreamCallsOnly(t *testing.T) {
+	c, _, clock := setup(t)
+	inner := &countingPlanner{plan: &rivian.TripPlan{Status: "OK"}}
+	p := c.Wrap(inner, uid)
+	// 60 different legs are allowed (each a miss); cache hits do not count.
+	for i := 0; i < QuotaPerHour; i++ {
+		x := in()
+		x.Waypoints[0].Latitude = 30 + float64(i)/10
+		if _, err := p.PlanTrip(context.Background(), x); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+	for i := 0; i < 20; i++ { // repeats of an earlier leg: free
+		x := in()
+		x.Waypoints[0].Latitude = 30
+		if _, err := p.PlanTrip(context.Background(), x); err != nil {
+			t.Fatalf("a cached repeat was refused: %v", err)
+		}
+	}
+	if inner.calls != QuotaPerHour {
+		t.Fatalf("upstream calls = %d, want %d", inner.calls, QuotaPerHour)
+	}
+	// The 61st distinct leg is refused, with the time to the next hour.
+	x := in()
+	x.Waypoints[0].Latitude = 40
+	_, err := p.PlanTrip(context.Background(), x)
+	q, ok := IsQuota(err)
+	if !ok {
+		t.Fatalf("61st leg = %v, want a QuotaError", err)
+	}
+	if want := time.Date(2026, 10, 20, 15, 0, 0, 0, time.UTC).Sub(*clock); q.RetryAfter != want {
+		t.Errorf("RetryAfter = %v, want %v", q.RetryAfter, want)
+	}
+	if inner.calls != QuotaPerHour {
+		t.Error("a refused call must not reach the planner")
+	}
+	// Another user is unaffected; the next hour resets the count.
+	if _, err := c.Wrap(inner, uuid.New()).PlanTrip(context.Background(), x); err != nil {
+		t.Errorf("another user: %v", err)
+	}
+	*clock = clock.Add(time.Hour)
+	if _, err := p.PlanTrip(context.Background(), x); err != nil {
+		t.Errorf("next hour: %v", err)
+	}
+}
+
+func TestSimulatedPlansAndErrorsAreNotCached(t *testing.T) {
+	c, _, _ := setup(t)
+	sim := &countingPlanner{plan: &rivian.TripPlan{Status: "OK", Simulated: true}}
+	p := c.Wrap(sim, uid)
+	_, _ = p.PlanTrip(context.Background(), in())
+	_, _ = p.PlanTrip(context.Background(), in())
+	if sim.calls != 2 {
+		t.Errorf("a simulated plan must not be cached (calls %d)", sim.calls)
+	}
+	boom := &countingPlanner{err: errors.New("upstream")}
+	pb := c.Wrap(boom, uid)
+	_, _ = pb.PlanTrip(context.Background(), in())
+	_, _ = pb.PlanTrip(context.Background(), in())
+	if boom.calls != 2 {
+		t.Errorf("an error must not be cached (calls %d)", boom.calls)
+	}
+}
+
+func TestRedisDownNeverBlocksPlanning(t *testing.T) {
+	c, mr, _ := setup(t)
+	mr.Close()
+	inner := &countingPlanner{plan: &rivian.TripPlan{Status: "OK"}}
+	p := c.Wrap(inner, uid)
+	start := time.Now()
+	for i := 0; i < QuotaPerHour+5; i++ {
+		if _, err := p.PlanTrip(context.Background(), in()); err != nil {
+			t.Fatalf("call %d with Redis down: %v", i, err)
+		}
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("65 planner calls took %v with Redis down: the cache must not slow planning", d)
+	}
+	if inner.calls != QuotaPerHour+5 {
+		t.Errorf("with Redis down every call goes upstream: %d", inner.calls)
+	}
+}
+
+func TestNilCacheWrapsNothing(t *testing.T) {
+	inner := &countingPlanner{plan: &rivian.TripPlan{}}
+	var c *Cache
+	if c.Wrap(inner, uid) != rivian.TripPlanner(inner) {
+		t.Error("a nil Cache must return the planner unchanged")
+	}
+	if New(nil, "x", nil) != nil {
+		t.Error("no Redis, no Cache")
+	}
+}

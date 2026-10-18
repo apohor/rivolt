@@ -38,6 +38,7 @@ import (
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/packhealth"
+	"github.com/apohor/rivolt/internal/planleg"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -123,7 +124,9 @@ type Deps struct {
 	AdminOnly bool
 	// AdminHealth feeds GET /api/admin/health-summary (nil: every section reads unavailable).
 	AdminHealth *adminhealth.Service
-	Access      *cfaccess.Verifier
+	// PlanLegs caches live planner calls and caps them per user (nil: neither).
+	PlanLegs *planleg.Cache
+	Access   *cfaccess.Verifier
 	// AdminDebugProbes mirrors $RIVOLT_ADMIN_DEBUG_PROBES: mounts the raw
 	// Rivian probes under /api/admin (trips/plan/raw, trips/plan/diag,
 	// gql/type, gql/enum, gql/raw), which send arbitrary queries to Rivian
@@ -1027,7 +1030,7 @@ func New(d Deps) http.Handler {
 			// gateway computes charging stops and per-leg numbers.
 			// 404'd when the trip-planner feature flag is off.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
+				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
 			}))
 			// Multi-day plan is mounted in the AI-bound group below
 			// (5-minute timeout). N sequential planTrip2 calls easily
