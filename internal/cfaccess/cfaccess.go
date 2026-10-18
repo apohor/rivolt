@@ -51,6 +51,11 @@ type Config struct {
 	CertsURL string
 }
 
+// ErrKeysUnavailable means no valid signing key could be had (the keys
+// endpoint is down or served nothing usable and nothing is cached). The
+// request is denied, with a 503 so an outage reads as one.
+var ErrKeysUnavailable = errors.New("signing keys unavailable")
+
 // Verifier checks Access JWTs against the team's JWKS.
 type Verifier struct {
 	issuer  string
@@ -197,7 +202,7 @@ func (v *Verifier) key(ctx context.Context, kid string) (jose.JSONWebKey, error)
 			if k, ok := find(); ok {
 				return k, nil
 			}
-			return jose.JSONWebKey{}, errors.New("signing keys unavailable")
+			return jose.JSONWebKey{}, ErrKeysUnavailable
 		}
 	}
 	if k, ok := find(); ok {
@@ -260,6 +265,10 @@ func Middleware(v *Verifier, exempt func(*http.Request) bool, log *slog.Logger) 
 			if err != nil {
 				if log != nil {
 					log.Warn("cloudflare access: request refused", "path", r.URL.Path, "reason", err.Error())
+				}
+				if errors.Is(err, ErrKeysUnavailable) {
+					http.Error(w, "admin sign-in is temporarily unavailable: cannot reach Cloudflare Access keys", http.StatusServiceUnavailable)
+					return
 				}
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return

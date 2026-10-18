@@ -29,6 +29,7 @@ type fixture struct {
 	v     *Verifier
 	clock time.Time
 	keys  []jose.JSONWebKey // what the fake certs endpoint serves
+	over  atomic.Pointer[http.HandlerFunc]
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -41,6 +42,10 @@ func newFixture(t *testing.T) *fixture {
 	f.keys = []jose.JSONWebKey{{Key: &k.PublicKey, KeyID: f.kid, Algorithm: "RS256", Use: "sig"}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
+		if h := f.over.Load(); h != nil {
+			(*h)(w, r)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: f.keys})
 	}))
 	t.Cleanup(f.srv.Close)
@@ -245,5 +250,54 @@ func TestNewRefusesIncompleteConfig(t *testing.T) {
 	}
 	if NormalizeTeamDomain("jolly-river-3a16") != team || NormalizeTeamDomain("https://"+team+"/") != team {
 		t.Error("team domain normalisation")
+	}
+}
+
+func TestHS256WithPublicKeyAndOtherAlgsRefused(t *testing.T) {
+	f := newFixture(t)
+	// Classic confusion: HS256 signed with the (public) key bytes as the secret.
+	sg, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.HS256, Key: []byte("any shared secret that is long enough")},
+		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", f.kid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := jwt.Signed(sg).Claims(f.good()).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.v.Verify(t.Context(), tok); err == nil {
+		t.Error("HS256 token accepted")
+	}
+	// RS384 is not RS256 either: the algorithm is pinned.
+	sg, _ = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS384, Key: f.key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", f.kid))
+	tok, _ = jwt.Signed(sg).Claims(f.good()).Serialize()
+	if _, err := f.v.Verify(t.Context(), tok); err == nil {
+		t.Error("RS384 token accepted")
+	}
+	// No kid at all.
+	sg, _ = jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: f.key}, (&jose.SignerOptions{}).WithType("JWT"))
+	tok, _ = jwt.Signed(sg).Claims(f.good()).Serialize()
+	if _, err := f.v.Verify(t.Context(), tok); err == nil {
+		t.Error("token without a kid accepted")
+	}
+}
+
+func TestKeysUnavailableDeniesWith503(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"down":      func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", 500) },
+		"garbage":   func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>not json")) },
+		"empty set": func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"keys":[]}`)) },
+	} {
+		f := newFixture(t)
+		f.over.Store(&handler) // swap what the certs endpoint serves
+		tok := f.sign(f.key, f.kid, f.good())
+		h := Middleware(f.v, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+		req := httptest.NewRequest("GET", "/api/admin/users", nil)
+		req.Header.Set(Header, tok)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: status %d, want 503 (never allow)", name, rec.Code)
+		}
 	}
 }
