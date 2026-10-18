@@ -1,35 +1,81 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tripadvice"
 	"github.com/apohor/rivolt/internal/tripmultiday"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
-// tripPlanMultidayRequest is the SPA-facing input. Mirrors
-// tripPlanRequest where it can; adds overnights and the SoC cap.
+// tripPoint is a place in a plan request. The coordinates may be written
+// lat/lon or latitude/longitude (the single-day waypoint spelling).
+type tripPoint struct {
+	Lat       float64 `json:"lat"`
+	Lon       float64 `json:"lon"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Label     string  `json:"label,omitempty"`
+	EntityID  string  `json:"entity_id,omitempty"`
+}
+
+func (p tripPoint) waypoint() tripmultiday.Waypoint {
+	lat, lon := p.Lat, p.Lon
+	if lat == 0 && lon == 0 {
+		lat, lon = p.Latitude, p.Longitude
+	}
+	return tripmultiday.Waypoint{Latitude: lat, Longitude: lon, Label: p.Label, EntityID: p.EntityID}
+}
+
+// tripPlanMultidayRequest is the SPA-facing input. Everything about the truck
+// (vehicle, starting SoC, pack size) is optional and filled in the way the
+// single-day handler does it.
 //
-// Unlike the single-day handler, this one requires the SPA to send
-// vehicle_id / starting_soc / pack_kwh explicitly — v1 keeps the
-// multi-day path minimal, leaving auto-fill to the existing
-// single-day endpoint.
+// A trip is an origin and a list of days; day k's start is day k-1's end. The
+// older shape (destination plus overnights) is still accepted and is mapped
+// onto days with no vias.
 type tripPlanMultidayRequest struct {
-	VehicleID               string                      `json:"vehicle_id"`
-	StartingSoC             float64                     `json:"starting_soc"`
-	PackKWh                 float64                     `json:"pack_kwh"`
-	DriveMode               string                      `json:"drive_mode,omitempty"`
-	HasAdapter              *bool                       `json:"has_adapter,omitempty"`
-	TargetArrivalSocPercent *float64                    `json:"target_arrival_soc_percent,omitempty"`
-	NetworkPreferences      []tripPlanNetworkPref       `json:"network_preferences,omitempty"`
-	Origin                  tripPlanWaypoint            `json:"origin"`
-	Destination             tripPlanWaypoint            `json:"destination"`
-	Overnights              []tripPlanMultidayOvernight `json:"overnights"`
-	MaxOvernightSoCPct      float64                     `json:"max_overnight_soc_pct"`
+	VehicleID               *string               `json:"vehicle_id"`
+	StartingSoC             *float64              `json:"starting_soc"`
+	PackKWh                 float64               `json:"pack_kwh"`
+	StartAt                 string                `json:"start_at"`
+	TZ                      string                `json:"tz"`
+	DriveMode               string                `json:"drive_mode,omitempty"`
+	HasAdapter              *bool                 `json:"has_adapter,omitempty"`
+	TrailerProfile          string                `json:"trailer_profile,omitempty"`
+	TargetArrivalSocPercent *float64              `json:"target_arrival_soc_percent,omitempty"`
+	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
+	Origin                  tripPoint             `json:"origin"`
+	Days                    []tripPlanDayRequest  `json:"days"`
+	MaxOvernightSoCPct      float64               `json:"max_overnight_soc_pct"`
+
+	// Legacy shape.
+	Destination tripPoint                   `json:"destination"`
+	Overnights  []tripPlanMultidayOvernight `json:"overnights"`
+}
+
+type tripPlanDayRequest struct {
+	Vias                []tripPoint        `json:"vias"`
+	End                 tripPoint          `json:"end"`
+	DepartAt            string             `json:"depart_at"`
+	TargetArrivalSocPct *float64           `json:"target_arrival_soc_pct"`
+	Overnight           *tripPlanOvernight `json:"overnight"`
+}
+
+type tripPlanOvernight struct {
+	L2KW      *float64 `json:"l2_kw"`
+	Until     string   `json:"until"`
+	MaxSoCPct float64  `json:"max_soc_pct"`
+	Name      string   `json:"name"`
 }
 
 type tripPlanMultidayOvernight struct {
@@ -41,25 +87,29 @@ type tripPlanMultidayOvernight struct {
 	L2KW        float64 `json:"l2_kw,omitempty"`
 }
 
-// tripPlanMultidayResponse is the wire shape. Each Day mirrors what
-// /api/trips/plan returns for a single trip; the SPA renders one
-// RouteCard per Day.
+// tripPlanMultidayResponse is the wire shape. Each day mirrors what
+// /api/trips/plan returns for a single trip, plus its times, endpoints and
+// overnight; the SPA renders one card per day.
 type tripPlanMultidayResponse struct {
-	Days  []tripPlanMultidayDay `json:"days"`
-	Total tripmultiday.Totals   `json:"total"`
+	Days      []tripPlanMultidayDay `json:"days"`
+	Total     tripmultiday.Totals   `json:"total"`
+	Simulated bool                  `json:"simulated,omitempty"`
+	// FailedDay is the day that could not be planned; the days before it are
+	// complete. Error, ErrorClass and ErrorReason say why.
+	FailedDay   int    `json:"failed_day,omitempty"`
+	Error       string `json:"error,omitempty"`
+	ErrorClass  string `json:"error_class,omitempty"`
+	ErrorReason string `json:"error_reason,omitempty"`
 }
 
 type tripPlanMultidayDay struct {
-	Index        int                           `json:"index"`
-	Plan         *rivian.TripPlan              `json:"plan"`
-	DepartureSoC float64                       `json:"departure_soc"`
-	ArrivalSoC   float64                       `json:"arrival_soc"`
-	Overnight    *tripmultiday.OvernightResult `json:"overnight,omitempty"`
-	Costs        []tripadvice.CostEstimate     `json:"costs,omitempty"`
+	tripmultiday.Day
+	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
+	Costs             []tripadvice.CostEstimate `json:"costs,omitempty"`
 }
 
 // handleTripPlanMultiday wraps the tripmultiday orchestrator.
-func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http.HandlerFunc {
+func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, mgr *settings.Manager, settingsStore *settings.Store, wc *weather.Client, mc *weather.MemCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		planner, ok := tripPlannerOf(c)
 		if !ok {
@@ -71,12 +121,45 @@ func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req.VehicleID == "" || req.StartingSoC <= 0 || req.PackKWh <= 0 {
-			http.Error(w, "vehicle_id, starting_soc, pack_kwh all required", http.StatusBadRequest)
+		days, err := req.dayInputs()
+		if err != nil {
+			badRequest(w, err.Error())
 			return
 		}
-		if len(req.Overnights) == 0 {
-			http.Error(w, "at least one overnight required (use /api/trips/plan for single-day)", http.StatusBadRequest)
+		if len(days) == 0 {
+			badRequest(w, "at least one day required (use /api/trips/plan for a single day)")
+			return
+		}
+		var startAt time.Time
+		if req.StartAt != "" {
+			if startAt, err = time.Parse(time.RFC3339, req.StartAt); err != nil {
+				badRequest(w, "start_at must be an RFC 3339 time")
+				return
+			}
+		}
+		loc := time.UTC
+		if req.TZ != "" {
+			if loc, err = time.LoadLocation(req.TZ); err != nil {
+				badRequest(w, "tz must be an IANA zone such as America/Chicago")
+				return
+			}
+		}
+
+		vid := ""
+		if req.VehicleID != nil {
+			vid = *req.VehicleID
+		}
+		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, vid, req.StartingSoC, 0)
+		if msg != "" {
+			badRequest(w, msg)
+			return
+		}
+		pack := req.PackKWh
+		if pack <= 0 {
+			pack = vehiclePackKWh(r.Context(), pool, uid, rv.VehicleID)
+		}
+		if pack <= 0 {
+			badRequest(w, "pack_kwh required (this vehicle's pack size is not known)")
 			return
 		}
 
@@ -91,23 +174,18 @@ func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http
 		}
 
 		mreq := tripmultiday.Request{
-			VehicleID:           req.VehicleID,
+			VehicleID:           rv.VehicleID,
 			HasAdapter:          req.HasAdapter,
 			DriveMode:           drive,
-			PackKWh:             req.PackKWh,
-			StartingSoC:         req.StartingSoC,
-			Origin:              tripmultiday.Waypoint{Latitude: req.Origin.Latitude, Longitude: req.Origin.Longitude, EntityID: req.Origin.EntityID},
-			Destination:         tripmultiday.Waypoint{Latitude: req.Destination.Latitude, Longitude: req.Destination.Longitude, EntityID: req.Destination.EntityID},
+			TrailerProfile:      req.TrailerProfile,
+			PackKWh:             pack,
+			StartingSoC:         rv.StartingSoC,
+			StartAt:             startAt,
+			Loc:                 loc,
+			Origin:              req.Origin.waypoint(),
+			Days:                days,
 			MaxOvernightSoCPct:  req.MaxOvernightSoCPct,
 			TargetArrivalSoCPct: req.TargetArrivalSocPercent,
-		}
-		for _, ov := range req.Overnights {
-			mreq.Overnights = append(mreq.Overnights, tripmultiday.OvernightStop{
-				Waypoint:    tripmultiday.Waypoint{Latitude: ov.Latitude, Longitude: ov.Longitude, EntityID: ov.EntityID},
-				Name:        ov.Name,
-				ParkedHours: ov.ParkedHours,
-				L2KW:        ov.L2KW,
-			})
 		}
 		for _, np := range req.NetworkPreferences {
 			mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
@@ -138,46 +216,79 @@ func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http
 
 		out, err := tripmultiday.Plan(r.Context(), planner, mreq)
 		if err != nil {
-			slog.WarnContext(r.Context(), "multi-day plan failed",
-				"vehicle_id", req.VehicleID,
-				"overnights", len(req.Overnights),
-				"err", err.Error())
+			var re *tripmultiday.RequestError
+			if errors.As(err, &re) {
+				badRequest(w, re.Error())
+				return
+			}
+			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "err", err.Error())
 			writeUpstreamError(w, err)
 			return
 		}
 
-		// Per-route DCFC cost on every day's routes. Settings are
-		// account-wide so we read them once.
-		tc := tripadvice.Context{PackKWh: req.PackKWh}
-		if settingsStore != nil {
-			if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
-				tc.HomePricePerKWh = cfg.HomePricePerKWh
-				tc.HomeCurrency = cfg.HomeCurrency
-				tc.GasPricePerGallon = cfg.GasPricePerGallon
-				tc.ComparisonMPG = cfg.ComparisonMPG
+		// The same weather, profile and cost pass the single-day plan gets,
+		// run on each day from its own starting SoC and reserve.
+		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
+		enr.load(r.Context())
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		for i, d := range out.Days {
+			day := tripPlanMultidayDay{Day: d}
+			target := req.TargetArrivalSocPercent
+			if req.Days != nil && i < len(req.Days) && req.Days[i].TargetArrivalSocPct != nil {
+				target = req.Days[i].TargetArrivalSocPct
 			}
-			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
-				tc.DCFCNetworks = settings.AsOverrides(nets)
-			}
-		}
-
-		resp := tripPlanMultidayResponse{Total: out.Total, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
-		for _, d := range out.Days {
-			day := tripPlanMultidayDay{
-				Index:        d.Index,
-				Plan:         d.Plan,
-				DepartureSoC: d.DepartureSoC,
-				ArrivalSoC:   d.ArrivalSoC,
-				Overnight:    d.Overnight,
-			}
-			if d.Plan != nil && len(d.Plan.Routes) > 0 {
-				day.Costs = make([]tripadvice.CostEstimate, len(d.Plan.Routes))
-				for i := range d.Plan.Routes {
-					day.Costs[i] = tripadvice.EstimateRoute(&d.Plan.Routes[i], tc)
-				}
-			}
+			day.WeatherAdjustment, day.Costs = enr.enrich(r.Context(), d.Plan, d.DepartureSoC, target)
 			resp.Days = append(resp.Days, day)
+		}
+		if out.FailedDay > 0 {
+			resp.FailedDay, resp.Error = out.FailedDay, out.Error
+			if out.FailedErr != nil {
+				_, body := upstreamErrorBody(out.FailedErr)
+				resp.ErrorClass, _ = body["class"].(string)
+				resp.ErrorReason, _ = body["reason"].(string)
+			}
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
+
+// dayInputs turns the request's days, or the older destination-plus-overnights
+// shape, into orchestrator days.
+func (req *tripPlanMultidayRequest) dayInputs() ([]tripmultiday.DayInput, error) {
+	if len(req.Days) > 0 {
+		out := make([]tripmultiday.DayInput, len(req.Days))
+		for i, d := range req.Days {
+			di := tripmultiday.DayInput{End: d.End.waypoint(), TargetArrivalSoCPct: d.TargetArrivalSocPct}
+			for _, v := range d.Vias {
+				di.Vias = append(di.Vias, v.waypoint())
+			}
+			if d.DepartAt != "" {
+				t, err := time.Parse(time.RFC3339, d.DepartAt)
+				if err != nil {
+					return nil, errors.New("day " + itoa(i+1) + ": depart_at must be an RFC 3339 time")
+				}
+				di.DepartAt = &t
+			}
+			if o := d.Overnight; o != nil {
+				di.Overnight = &tripmultiday.Overnight{L2KW: o.L2KW, Until: o.Until, MaxSoCPct: o.MaxSoCPct, Name: o.Name}
+			}
+			out[i] = di
+		}
+		return out, nil
+	}
+	if len(req.Overnights) == 0 {
+		return nil, nil
+	}
+	out := make([]tripmultiday.DayInput, 0, len(req.Overnights)+1)
+	for _, ov := range req.Overnights {
+		l2 := ov.L2KW // an unset l2_kw was always "no charging" in this shape
+		out = append(out, tripmultiday.DayInput{
+			End:       tripmultiday.Waypoint{Latitude: ov.Latitude, Longitude: ov.Longitude, EntityID: ov.EntityID, Label: ov.Name},
+			Overnight: &tripmultiday.Overnight{L2KW: &l2, ParkedHours: ov.ParkedHours, Name: ov.Name},
+		})
+	}
+	out = append(out, tripmultiday.DayInput{End: req.Destination.waypoint()})
+	return out, nil
+}
+
+func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }

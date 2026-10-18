@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/tripadvice"
@@ -84,62 +83,14 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			http.Error(w, "at least origin + destination waypoints required", http.StatusBadRequest)
 			return
 		}
-		startingSoC := 0.0
-		if req.StartingSoC != nil {
-			startingSoC = *req.StartingSoC
-		}
-		// Prefer the in-memory monitor cache (fastest, freshest).
-		if mon != nil && req.VehicleID == "" {
-			for _, v := range mon.AllVehicleInfo() {
-				req.VehicleID = v.ID
-				break
-			}
-		}
-		if mon != nil && req.StartingSoC == nil && req.VehicleID != "" {
-			if st, _ := mon.Latest(req.VehicleID); st != nil {
-				startingSoC = st.BatteryLevelPct
-				req.StartingSoC = &startingSoC
-				if req.StartingRangeMeters == 0 && st.DistanceToEmpty > 0 {
-					req.StartingRangeMeters = st.DistanceToEmpty * 1000
-				}
-			}
-		}
-		// DB fallback when the monitor cache didn't cover us — the
-		// typical multi-pod case where the OTHER replica holds the
-		// lease for this user's vehicle and our cache is empty.
-		if req.VehicleID == "" && pool != nil {
-			vs, err := db.ListUserVehicles(r.Context(), pool, uid)
-			if err == nil && len(vs) > 0 {
-				req.VehicleID = vs[0].RivianVehicleID
-			}
-		}
-		if req.VehicleID == "" {
-			http.Error(w, "vehicle_id required (no vehicle linked to this user)", http.StatusBadRequest)
+		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, req.VehicleID, req.StartingSoC, req.StartingRangeMeters)
+		if msg != "" {
+			badRequest(w, msg)
 			return
 		}
-		if req.StartingSoC == nil && pool != nil {
-			var soc, rangeMi sql.NullFloat64
-			err := pool.QueryRowContext(r.Context(), `
-				SELECT battery_level_pct, range_mi
-				  FROM vehicle_state
-				 WHERE user_id = $1
-				   AND vehicle_id = (
-				       SELECT id FROM vehicles
-				        WHERE user_id = $1 AND rivian_vehicle_id = $2
-				        LIMIT 1)
-				 ORDER BY at DESC
-				 LIMIT 1`, uid, req.VehicleID).Scan(&soc, &rangeMi)
-			if err == nil && soc.Valid {
-				startingSoC = soc.Float64
-				if rangeMi.Valid && req.StartingRangeMeters == 0 {
-					req.StartingRangeMeters = rangeMi.Float64 * 1609.34 // mi → m
-				}
-			}
-		}
-		if req.StartingSoC == nil && startingSoC == 0 {
-			http.Error(w, "starting_soc required (no recent vehicle_state row for this vehicle)", http.StatusBadRequest)
-			return
-		}
+		req.VehicleID, req.StartingRangeMeters = rv.VehicleID, rv.RangeMeters
+		startingSoC := rv.StartingSoC
+		req.StartingSoC = &startingSoC
 
 		// Drop unknown drive_mode values before they reach Rivian's
 		// GraphQL — the enum is strict and an unknown value fails the
@@ -233,59 +184,10 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		resp := tripPlanResponse{TripPlan: plan}
-		// Resolve the user's saved vehicle profile so we can apply a
-		// trip-wide energy multiplier (wheel size, tire type,
-		// accessories, payload). Rivian's planTrip2 doesn't accept
-		// these inputs, so the correction lives client-side on top
-		// of the response. Profile is loaded best-effort: missing
-		// rows / lookup errors fall through to multiplier=1.0.
-		profileMult := 1.0
-		var profileReasons []tripprofile.Reason
-		if pool != nil && req.VehicleID != "" {
-			var vid uuid.UUID
-			err := pool.QueryRowContext(r.Context(),
-				`SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2 LIMIT 1`,
-				uid, req.VehicleID,
-			).Scan(&vid)
-			if err == nil {
-				if prof, err := db.GetVehicleProfile(r.Context(), pool, uid, vid); err == nil {
-					profileMult = tripprofile.Multiplier(prof)
-					profileReasons = tripprofile.Reasons(prof)
-				}
-			}
-		}
-		// Either weather or profile (or both) can contribute. Fire
-		// the adjustment pipeline whenever either has signal.
-		weatherOn := mgr != nil && mgr.RecapWeatherEnabled() && wc != nil
-		hasProfileSignal := profileMult != 1.0
-		if weatherOn || hasProfileSignal {
-			target := 10.0
-			if in.TargetArrivalSocPercent != nil {
-				target = *in.TargetArrivalSocPercent
-			}
-			resp.WeatherAdjustment = computeTripWeatherAdjustment(r.Context(), plan, in.StartingSoC, target, wc, mc, profileMult, profileReasons, weatherOn)
-		}
-		// Always-on per-route DCFC cost. Needs pack_kwh from the SPA;
-		// without it we just don't price (cost fields stay zero on
-		// every route).
-		if req.PackKWh > 0 && len(plan.Routes) > 0 {
-			tc := tripadvice.Context{PackKWh: req.PackKWh}
-			if settingsStore != nil {
-				if cfg, err := settings.GetChargingConfig(r.Context(), settingsStore); err == nil {
-					tc.HomePricePerKWh = cfg.HomePricePerKWh
-					tc.HomeCurrency = cfg.HomeCurrency
-					tc.GasPricePerGallon = cfg.GasPricePerGallon
-					tc.ComparisonMPG = cfg.ComparisonMPG
-				}
-				if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
-					tc.DCFCNetworks = settings.AsOverrides(nets)
-				}
-			}
-			resp.Costs = make([]tripadvice.CostEstimate, len(plan.Routes))
-			for i := range plan.Routes {
-				resp.Costs[i] = tripadvice.EstimateRoute(&plan.Routes[i], tc)
-			}
-		}
+		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc,
+			vehicleID: req.VehicleID, packKWh: req.PackKWh}
+		enr.load(r.Context())
+		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
