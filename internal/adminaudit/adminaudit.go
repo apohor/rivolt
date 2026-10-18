@@ -127,15 +127,21 @@ func (s *Store) Finish(ctx context.Context, id int64, status int) error {
 }
 
 // NoteImpersonationStart records that admin began viewing as target, once per
-// pair per window (every impersonated request would otherwise add a row).
+// pair per window (every impersonated request would otherwise add a row). A
+// successful impersonation.stop ends the session: the next view-as of the same
+// target logs a fresh start, so a stop is never left without its start.
 func (s *Store) NoteImpersonationStart(ctx context.Context, admin, target uuid.UUID, ip string, window time.Duration) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO admin_audit (actor_user_id, action, target_type, target_id, target_user_id, ip, outcome, status, finished_at)
 		SELECT $1::uuid, 'impersonation.start', 'user', ($2::uuid)::text, $2::uuid, $3::text, 'ok', 200, now()
 		 WHERE NOT EXISTS (
-		       SELECT 1 FROM admin_audit
-		        WHERE actor_user_id = $1::uuid AND target_user_id = $2::uuid AND action = 'impersonation.start'
-		          AND at > now() - $4::interval)`,
+		       SELECT 1 FROM admin_audit s
+		        WHERE s.actor_user_id = $1::uuid AND s.target_user_id = $2::uuid AND s.action = 'impersonation.start'
+		          AND s.at > now() - $4::interval
+		          AND NOT EXISTS (
+		              SELECT 1 FROM admin_audit e
+		               WHERE e.actor_user_id = s.actor_user_id AND e.target_user_id = s.target_user_id
+		                 AND e.action = 'impersonation.stop' AND e.outcome = 'ok' AND e.at > s.at))`,
 		admin, target, ip, fmt.Sprintf("%d seconds", int(window.Seconds())))
 	return err
 }

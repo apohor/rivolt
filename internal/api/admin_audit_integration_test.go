@@ -157,6 +157,24 @@ func TestAdminAuditEndToEnd(t *testing.T) {
 		t.Errorf("impersonation.start rows = %d, want 2 (one per target)", len(starts))
 	}
 
+	// A successful stop ends the session: the next start is logged afresh,
+	// and a repeat inside the same session still is not.
+	stopID, err := store.Begin(ctx, adminaudit.Entry{Actor: admin, Action: "impersonation.stop", TargetType: "user", TargetID: target.String(), TargetUser: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Finish(ctx, stopID, 204); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := store.NoteImpersonationStart(ctx, admin, target, "203.0.113.77", 30*time.Minute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if starts, _, _ := store.List(ctx, adminaudit.Filter{Action: "impersonation.start", TargetUser: target}); len(starts) != 2 {
+		t.Errorf("start, stop, start: %d start rows for the target, want 2", len(starts))
+	}
+
 	// Fail closed: a store that cannot write refuses the change and runs nothing.
 	dead, err := db.Open(ctx, dsn)
 	if err != nil {
