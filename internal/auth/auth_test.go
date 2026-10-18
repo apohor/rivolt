@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/apohor/rivolt/internal/clientip"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -493,5 +494,33 @@ func TestNormalizeHost(t *testing.T) {
 		if got := normalizeHost(in); got != want {
 			t.Errorf("normalizeHost(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Trust in the proxy that sets the user header is judged on the connection's
+// own address, not on the visitor address the client-address middleware
+// puts in RemoteAddr: a visitor behind the trusted proxy still gets in, and a
+// stranger who forges X-Forwarded-For / CF-Connecting-IP with a trusted
+// address does not become "trusted" (chi's RealIP used to allow exactly that).
+func TestHeader_TrustUsesTheConnectionPeerNotTheClientAddress(t *testing.T) {
+	s := newTestService(t, []string{"10.42.0.0/16"})
+	resolved := func(remote string, hdr map[string]string) bool {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = remote
+		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		got := false
+		clientip.Middleware(s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, got = UserFromContext(r.Context())
+		}))).ServeHTTP(httptest.NewRecorder(), r)
+		return got
+	}
+	if !resolved("10.42.0.172:5000", map[string]string{"CF-Connecting-IP": "203.0.113.9"}) {
+		t.Error("a visitor behind the trusted proxy lost their identity (RemoteAddr was rewritten and then used for trust)")
+	}
+	if resolved("203.0.113.9:5000", map[string]string{"X-Forwarded-For": "10.42.0.5", "CF-Connecting-IP": "10.42.0.5", "X-Real-IP": "10.42.0.5"}) {
+		t.Error("a stranger forged a trusted address and was believed")
 	}
 }

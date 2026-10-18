@@ -47,6 +47,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/apohor/rivolt/internal/clientip"
 	"github.com/apohor/rivolt/internal/logging"
 )
 
@@ -645,7 +646,7 @@ func (s *Service) identityFromHeader(r *http.Request) (uuid.UUID, bool) {
 	if len(s.trustedNets) == 0 {
 		return uuid.Nil, false
 	}
-	if !s.remoteAddrTrusted(r.RemoteAddr) {
+	if !s.remoteAddrTrusted(clientip.Peer(r)) {
 		return uuid.Nil, false
 	}
 	user := strings.TrimSpace(r.Header.Get(s.hdrUser))
