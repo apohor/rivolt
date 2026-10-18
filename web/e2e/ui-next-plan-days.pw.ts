@@ -220,8 +220,12 @@ test("a long day suggests hotels with a listed charger; Use makes one the night 
   await ctx.close();
 });
 
-test("a saved multi-day trip keeps its days and reopens with no planner call", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+for (const v of [
+  { n: "iphone", vp: { width: 390, height: 844 } },
+  { n: "desktop", vp: { width: 1280, height: 900 } },
+] as const) {
+test(`a saved multi-day trip keeps its days and reopens with no planner call · ${v.n}`, async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark", timezoneId: "America/Chicago" });
   const page = await ctx.newPage();
   await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
   await stubApi(page);
@@ -239,6 +243,9 @@ test("a saved multi-day trip keeps its days and reopens with no planner call", a
   expect(saved!.plan!.total).toMatchObject({ distance_meters: TOTAL.distance_meters });
   expect(saved!.plan!.request?.tz).toBe("America/Chicago");
   expect(saved!.plan!.request?.days).toHaveLength(3);
+  // Not the truck or its charge: a re-plan reads those live.
+  expect(saved!.plan!.request).not.toHaveProperty("vehicle_id");
+  expect(saved!.plan!.request).not.toHaveProperty("starting_soc");
 
   // Reopen it fresh: the days come from the snapshot and the planner is not called.
   const page2 = await ctx.newPage();
@@ -261,6 +268,7 @@ test("a saved multi-day trip keeps its days and reopens with no planner call", a
   await expect(page2.getByText("Simulated", { exact: true })).toBeVisible();
   expect(planCalls).toBe(0);
   await page2.waitForTimeout(800);
-  await page2.screenshot({ path: path.join(SHOTS, "days-reopened-desktop-dark.png"), fullPage: true });
+  await page2.screenshot({ path: path.join(SHOTS, `days-reopened-${v.n}-dark.png`), fullPage: true });
   await ctx.close();
 });
+}

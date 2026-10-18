@@ -424,10 +424,13 @@ export function usePlanner() {
       // A multi-day trip is saved as the planner answered: its days and totals, and the
       // request that produced them, so reopening shows it with no planner call.
       const md = multidayMutation.data ?? multidaySnapshot?.response;
+      // The stored request leaves out the truck and its charge: a re-plan reads both live, and a
+      // saved SoC would be stale by then.
+      const { vehicle_id: _vehicle, starting_soc: _soc, ...request } = lastMultidayRequest.current ?? ({} as Partial<TripPlanMultidayRequest>);
       const multiday: SavedMultidayPlan | undefined = md
         ? {
             kind: "multiday",
-            request: lastMultidayRequest.current,
+            request: lastMultidayRequest.current ? (request as TripPlanMultidayRequest) : undefined,
             days: md.days,
             total: md.total,
             ...(md.simulated ? { simulated: true } : {}),
