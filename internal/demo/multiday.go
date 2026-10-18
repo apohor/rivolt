@@ -215,8 +215,9 @@ func SampleMultidayPlan(now, since time.Time, cfg settings.ChargingConfig, nets 
 	return &SamplePlan{ID: SampleMultidayTripID(), Name: MultidayTripName, SavedAt: b.SavedAt.Add(time.Second), Inputs: b.Inputs, Plan: b.Saved, DepartAt: b.DepartAt}, nil
 }
 
-// vegasMultidayPreset is the same trip as a demo preset: the planner's answer
-// with the times moved to presetDepart, under the saved trip's id.
+// vegasMultidayPreset is the same trip as a demo preset: a saved multi-day plan
+// ({kind:"multiday", days, total}, what the picker opens like a saved trip) with
+// the times moved to presetDepart, under the saved trip's id.
 func vegasMultidayPreset() (presetFile, error) {
 	depart, err := presetDepart()
 	if err != nil {
@@ -239,5 +240,5 @@ func vegasMultidayPreset() (presetFile, error) {
 	if err != nil {
 		return presetFile{}, err
 	}
-	return presetFile{Preset: Preset{ID: SampleMultidayTripID().String(), Name: MultidayTripName, Inputs: b.Inputs, Summary: b.Summary}, Plan: b.Response}, nil
+	return presetFile{Preset: Preset{ID: SampleMultidayTripID().String(), Name: MultidayTripName, Inputs: b.Inputs, Summary: b.Summary}, Plan: b.Saved}, nil
 }

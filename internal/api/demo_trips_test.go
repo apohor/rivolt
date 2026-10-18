@@ -60,10 +60,18 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 		}
 		_ = json.Unmarshal(b.Body, &head)
 		if len(head.Days) > 0 {
-			// A multi-day preset is plan-multiday's answer.
-			var plan tripPlanMultidayResponse
-			if err := dec.Decode(&plan); err != nil || len(plan.Days) == 0 {
-				t.Errorf("preset %s plan does not decode as tripPlanMultidayResponse: %v", tr.ID, err)
+			// A multi-day preset is a saved multi-day plan, which the picker opens
+			// like a saved trip.
+			var plan struct {
+				Kind  string                `json:"kind"`
+				Days  []tripPlanMultidayDay `json:"days"`
+				Total json.RawMessage       `json:"total"`
+			}
+			if err := dec.Decode(&plan); err != nil || plan.Kind != "multiday" || len(plan.Days) == 0 {
+				t.Errorf("preset %s plan is not a saved multi-day plan: %v", tr.ID, err)
+			}
+			if err := validateSavedPlan(b.Body); err != nil {
+				t.Errorf("preset %s: validateSavedPlan: %v", tr.ID, err)
 			}
 			continue
 		}

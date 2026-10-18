@@ -1,4 +1,5 @@
 {
+  "kind": "multiday",
   "days": [
     {
       "index": 1,
@@ -255,6 +256,5 @@
     "distance_meters": 852825,
     "drive_duration_sec": 27159,
     "charging_duration_sec": 2771
-  },
-  "tz": "America/Los_Angeles"
+  }
 }

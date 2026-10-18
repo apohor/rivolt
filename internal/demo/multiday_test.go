@@ -105,9 +105,9 @@ func TestMultidayPresetMatchesTheSavedTrip(t *testing.T) {
 			Index     int `json:"index"`
 			Overnight any `json:"overnight"`
 		} `json:"days"`
-		TZ string `json:"tz"`
+		Kind string `json:"kind"`
 	}
-	if err := json.Unmarshal(f.Plan, &resp); err != nil || len(resp.Days) != 2 || resp.TZ != planLocation || resp.Days[0].Overnight == nil {
+	if err := json.Unmarshal(f.Plan, &resp); err != nil || len(resp.Days) != 2 || resp.Kind != "multiday" || resp.Days[0].Overnight == nil {
 		t.Errorf("preset plan: %+v (%v)", resp, err)
 	}
 	if f.Summary.DistanceMi < 400 || f.Summary.ChargeStops < 1 {
