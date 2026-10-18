@@ -554,6 +554,7 @@ jobs:
         run: |
           short="sha-${SHA:0:7}"
           file=apps/platform/rivolt-preview/values.yaml
+          admin_file=apps/platform/rivolt-admin-preview/values.yaml
           git config user.name "rivolt-ci"
           git config user.email "ci@rivolt.dev"
           for attempt in 1 2 3 4 5; do
@@ -592,10 +593,15 @@ jobs:
                 unknown) echo "::warning::couldn't compare ${prev} with ${SHA:0:7}; not bumping."; exit 0 ;;
               esac
             fi
-            # Rewrite `  tag: sha-xxxxxxx`, preserving indent.
-            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
-            if git diff --quiet "$file"; then echo "image.tag unchanged; nothing to commit."; exit 0; fi
-            git add "$file"
+            # Rewrite `  tag: sha-xxxxxxx`, preserving indent. The preview
+            # admin site (rivolt-admin-preview) moves with it in the same
+            # commit: it shares preview's DB and migrates on boot, so it
+            # must never run ahead of (or drift behind) preview.
+            files=("$file")
+            [ -f "$admin_file" ] && files+=("$admin_file")
+            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "${files[@]}"
+            if git diff --quiet "${files[@]}"; then echo "image.tag unchanged; nothing to commit."; exit 0; fi
+            git add "${files[@]}"
             git commit -q -m "rivolt-preview: bump image.tag to ${short} (${VERSION_STAMP})"
             if git push -q origin main; then echo "bumped to ${short}"; exit 0; fi
             echo "push rejected (another bump landed); retrying ($attempt)"
@@ -712,7 +718,7 @@ jobs:
     name: bump-prod
     needs: retag
     # After retag attaches the prod tag to the existing image, rewrite
-    # rivolt-infra's apps/platform/rivolt/{app.yaml,values.yaml} so ArgoCD picks
+    # rivolt-infra's apps/platform/rivolt{,-admin}/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
     # that previously followed every tag push.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -735,14 +741,23 @@ jobs:
           # chart.version tracks the git tag literally (ArgoCD resolves
           # against the rivolt repo ref); image.tag is the bare semver
           # that the retag job applied on GHCR.
-          sed -i -E "s/^([[:space:]]+version:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+/\1 ${VERSION}/" "$app"
-          sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"/\1 \"${v}\"/" "$values"
-          if git diff --quiet "$app" "$values"; then
+          # The admin site (rivolt-admin, admin.rivolt.dev) moves with prod
+          # in the same commit: it shares prod's DB and migrates on boot, so
+          # it must never run ahead of (or drift behind) prod.
+          apps=("$app")
+          vals=("$values")
+          if [ -f apps/platform/rivolt-admin/app.yaml ]; then
+            apps+=(apps/platform/rivolt-admin/app.yaml)
+            vals+=(apps/platform/rivolt-admin/values.yaml)
+          fi
+          sed -i -E "s/^([[:space:]]+version:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+/\1 ${VERSION}/" "${apps[@]}"
+          sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"/\1 \"${v}\"/" "${vals[@]}"
+          if git diff --quiet "${apps[@]}" "${vals[@]}"; then
             echo "prod already on ${VERSION} — nothing to commit."
             exit 0
           fi
           git config user.name "rivolt-ci"
           git config user.email "ci@rivolt.dev"
-          git add "$app" "$values"
+          git add "${apps[@]}" "${vals[@]}"
           git commit -m "rivolt: promote ${VERSION} to prod"
           git push origin main
