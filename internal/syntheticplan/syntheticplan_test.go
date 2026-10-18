@@ -376,16 +376,34 @@ func TestFinalStopChargesOnlyWhatTheRestNeeds(t *testing.T) {
 	if arr := got.Routes[0].ArrivalSoC; arr < 10 || arr > 14 {
 		t.Errorf("arrives with %v, want just above the 10 reserve", arr)
 	}
-	// 800 km: from the first stop 470 km remain, which needs more than the
-	// cap, so it charges to the usual 80; the second stop, 160 km from the end, is a top-up.
+	// 800 km with stops at 330 and 640: each stop charges only what the leg to
+	// the next stop (or the end) needs plus the reserve and margin. The first
+	// needs 310 km = 63.9 points + 10 + 2, so ~76, not a blanket 80; the second,
+	// 160 km from the end, is a top-up.
 	long := &fakeRouter{lat0: 34, legKm: []float64{800}, speedKmh: 100}
 	far := fakeChargers{pois: []chargers.POI{stationAt(34, 330, 150, "First", ""), stationAt(34, 640, 150, "Second", "")}}
 	st := stopsOf(mustPlan(t, newPlanner(long, far), input(80, 2)))
-	if len(st) != 2 || st[0].DepartureSoC != 80 {
-		t.Fatalf("stops = %+v, want a first charge to 80", st)
+	if len(st) != 2 || math.Abs(st[0].DepartureSoC-76) > 1 {
+		t.Fatalf("stops = %+v, want a first charge to ~76", st)
+	}
+	if math.Abs(st[1].ArrivalSoC-12) > 1 {
+		t.Errorf("the second stop arrives with %v, want the reserve plus the margin (~12)", st[1].ArrivalSoC)
 	}
 	if st[1].DepartureSoC > 50 {
 		t.Errorf("the last stop charged to %v, want a top-up for 160 km", st[1].DepartureSoC)
+	}
+	// A trip that needs more than the cap from the first stop can't be settled by
+	// one charge: the stop charges to what reaches the next one.
+	huge := &fakeRouter{lat0: 34, legKm: []float64{1200}, speedKmh: 100}
+	hs := stopsOf(mustPlan(t, newPlanner(huge, fakeChargers{pois: []chargers.POI{
+		stationAt(34, 330, 150, "A", ""), stationAt(34, 640, 150, "B", ""), stationAt(34, 950, 150, "C", "")}}), input(80, 2)))
+	if len(hs) != 3 {
+		t.Fatalf("1200 km = %d stops, want 3", len(hs))
+	}
+	for i, w := range hs[:2] {
+		if w.DepartureSoC < 70 || w.DepartureSoC > 90 {
+			t.Errorf("stop %d charges to %v, want enough for the next 310 km", i, w.DepartureSoC)
+		}
 	}
 	// Always at least a point above the arrival, never above the cap.
 	for _, w := range st {
