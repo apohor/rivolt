@@ -96,6 +96,9 @@ export function verdict(cs: Check[]): Verdict {
   const unknown = cs.filter((c) => c.tone === "unknown");
   if (bad.length) return { tone: "bad", headline: `${bad.length + warn.length} need${bad.length + warn.length === 1 ? "s" : ""} attention: ${[...bad, ...warn].map((c) => c.label).join(", ")}` };
   if (warn.length) return { tone: "warn", headline: `${warn.length} need${warn.length === 1 ? "s" : ""} a look: ${warn.map((c) => c.label).join(", ")}` };
-  if (unknown.length) return { tone: "unknown", headline: `Nothing wrong found, but ${unknown.length === cs.length ? "no check" : `${unknown.map((c) => c.label).join(", ")}`} could not be read` };
+  if (unknown.length) {
+    const detail = unknown.length === cs.length ? "no check could be read" : `${unknown.map((c) => c.label).join(", ")} could not be read`;
+    return { tone: "unknown", headline: `Nothing wrong found, but ${detail}` };
+  }
   return { tone: "ok", headline: "Everything looks OK" };
 }

@@ -83,6 +83,17 @@ describe("health checks", () => {
     expect(v.headline).toContain("Alerts, Database disk could not be read");
   });
 
+  it("when nothing at all could be read, it says so plainly", () => {
+    const s = base();
+    s.alerts = { ...unavailable(), items: [] };
+    s.kill_switch = { ...unavailable(), paused: false };
+    s.rivian = { ...s.rivian, ...unavailable() };
+    s.vehicles = { ...unavailable(), leased: 0, streaming: 0 };
+    s.disk = { ...unavailable(), used_pct: null };
+    s.backup = { ...unavailable(), age_seconds: null };
+    expect(verdict(checks(s))).toEqual({ tone: "unknown", headline: "Nothing wrong found, but no check could be read" });
+  });
+
   it("bad outranks warn outranks unknown, and the headline names them", () => {
     const s = base();
     s.kill_switch.paused = true;
