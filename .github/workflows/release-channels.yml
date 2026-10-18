@@ -1,0 +1,141 @@
+# Announce each release's hand-written notes in GitHub Discussions.
+#
+# The notes are the GitHub Release body. release-notes.yml creates the
+# release on the tag push with a generated commit list (marked
+# <!-- rivolt:auto-notes -->); the hand-written notes replace it later
+# (gh release edit). So this runs on the release being published or
+# edited, and posts only once the body is the hand-written notes.
+#
+# One discussion per release, in Announcements, titled "Rivolt vX.Y.Z":
+# created the first time, updated when the notes are edited again, left
+# alone when nothing changed. Re-running never posts twice.
+#
+# Posted by github-actions[bot] with this run's token: nothing is posted
+# as a person, and the post carries no tracking links.
+#
+# Manual run (back-fill, or a test): workflow_dispatch with a tag;
+# dry_run (the default) prints what it would do and changes nothing.
+name: release-channels
+
+on:
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (vX.Y.Z)"
+        required: true
+      dry_run:
+        description: "Print what would be posted; change nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  discussions: write
+
+concurrency:
+  group: release-channels-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  discussion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce the release notes in Discussions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          CATEGORY_SLUG: announcements
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$TAG is not a release tag (vX.Y.Z); nothing to announce."
+            exit 0
+          fi
+          gh api "repos/$REPO/releases/tags/$TAG" > /tmp/release.json
+          if [ "$(jq -r '.draft or .prerelease' /tmp/release.json)" = "true" ]; then
+            echo "$TAG is a draft or pre-release; nothing to announce."
+            exit 0
+          fi
+          jq -r '.body // ""' /tmp/release.json | tr -d '\r' > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ] || grep -q 'rivolt:auto-notes' /tmp/notes.md; then
+            echo "$TAG has no hand-written notes yet; nothing to announce."
+            exit 0
+          fi
+          url="$(jq -r '.html_url' /tmp/release.json)"
+          title="Rivolt $TAG"
+          {
+            cat /tmp/notes.md
+            printf '\n\n---\n\n_Rivolt is an unofficial app, not affiliated with Rivian._\n\nRelease page: %s\n' "$url"
+          } > /tmp/body.md
+
+          owner="${REPO%/*}"; name="${REPO#*/}"
+          gh api graphql -F owner="$owner" -F name="$name" -f query='
+            query($owner: String!, $name: String!) {
+              repository(owner: $owner, name: $name) {
+                id
+                hasDiscussionsEnabled
+                discussionCategories(first: 25) { nodes { id slug } }
+              }
+            }' > /tmp/repo.json
+          # Discussions off, or no Announcements category yet (an owner
+          # step): skip with a notice; the release itself is unaffected.
+          if [ "$(jq -r '.data.repository.hasDiscussionsEnabled' /tmp/repo.json)" != "true" ]; then
+            echo "::notice::Discussions is not enabled on $REPO; nothing announced."
+            exit 0
+          fi
+          repo_id="$(jq -r '.data.repository.id' /tmp/repo.json)"
+          cat_id="$(jq -r --arg s "$CATEGORY_SLUG" '.data.repository.discussionCategories.nodes[] | select(.slug == $s) | .id' /tmp/repo.json)"
+          if [ -z "$cat_id" ]; then
+            echo "::notice::No '$CATEGORY_SLUG' discussion category in $REPO yet; nothing announced."
+            exit 0
+          fi
+          gh api graphql -F owner="$owner" -F name="$name" -F cat="$cat_id" -f query='
+            query($owner: String!, $name: String!, $cat: ID!) {
+              repository(owner: $owner, name: $name) {
+                discussions(first: 50, categoryId: $cat, orderBy: {field: CREATED_AT, direction: DESC}) {
+                  nodes { id title body }
+                }
+              }
+            }' > /tmp/existing.json
+          existing_id="$(jq -r --arg t "$title" '[.data.repository.discussions.nodes[] | select(.title == $t)][0].id // ""' /tmp/existing.json)"
+
+          if [ -z "$existing_id" ]; then
+            action=create
+          else
+            jq -r --arg t "$title" '[.data.repository.discussions.nodes[] | select(.title == $t)][0].body' /tmp/existing.json | tr -d '\r' > /tmp/old.md
+            # GitHub may drop trailing whitespace and newlines; compare without them.
+            if [ "$(sed -e 's/[[:space:]]*$//' /tmp/old.md)" = "$(sed -e 's/[[:space:]]*$//' /tmp/body.md)" ]; then
+              action=skip
+            else
+              action=update
+            fi
+          fi
+          echo "action: $action  title: $title"
+          echo "----- body -----"; cat /tmp/body.md; echo "----------------"
+          if [ "$action" = "skip" ]; then
+            echo "The discussion is already up to date."
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: nothing posted."
+            exit 0
+          fi
+          if [ "$action" = "create" ]; then
+            gh api graphql -F repo="$repo_id" -F cat="$cat_id" -F title="$title" -F body=@/tmp/body.md -f query='
+              mutation($repo: ID!, $cat: ID!, $title: String!, $body: String!) {
+                createDiscussion(input: {repositoryId: $repo, categoryId: $cat, title: $title, body: $body}) {
+                  discussion { url }
+                }
+              }' --jq '.data.createDiscussion.discussion.url'
+          else
+            gh api graphql -F id="$existing_id" -F body=@/tmp/body.md -f query='
+              mutation($id: ID!, $body: String!) {
+                updateDiscussion(input: {discussionId: $id, body: $body}) {
+                  discussion { url }
+                }
+              }' --jq '.data.updateDiscussion.discussion.url'
+          fi
