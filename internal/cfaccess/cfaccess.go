@@ -264,15 +264,28 @@ func (v *Verifier) key(ctx context.Context, kid string) (jose.JSONWebKey, error)
 
 	// The fetch must outlive this caller's cancellation (others share it) but
 	// stays bounded by the client timeout.
-	f.err = v.fetch(context.WithoutCancel(ctx))
-	if f.err != nil && v.log != nil {
-		v.log.Warn("cloudflare access: fetching signing keys failed", "err", f.err.Error())
-	}
-	v.mu.Lock()
-	v.flight = nil
-	v.mu.Unlock()
-	close(f.done)
+	v.runRefresh(context.WithoutCancel(ctx), f)
 	return v.await(ctx, f, find)
+}
+
+// runRefresh performs the shared fetch and always ends the flight, even if the
+// fetch panics: a panic becomes a failed refresh, so waiters are released and
+// the next request after the refresh gap can try again instead of every
+// unknown kid waiting on a flight that never ends.
+func (v *Verifier) runRefresh(ctx context.Context, f *refresh) {
+	defer func() {
+		if r := recover(); r != nil {
+			f.err = fmt.Errorf("refresh panicked: %v", r)
+		}
+		if f.err != nil && v.log != nil {
+			v.log.Warn("cloudflare access: fetching signing keys failed", "err", f.err.Error())
+		}
+		v.mu.Lock()
+		v.flight = nil
+		v.mu.Unlock()
+		close(f.done)
+	}()
+	f.err = v.fetch(ctx)
 }
 
 // await waits for f and then reads the key. A failed refresh must not lock out
