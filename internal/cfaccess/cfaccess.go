@@ -76,6 +76,7 @@ type Verifier struct {
 	keys    jose.JSONWebKeySet
 	fetched time.Time // last fetch attempt that succeeded
 	tried   time.Time // last fetch attempt of any outcome
+	flight  *refresh  // the fetch in progress, if any
 }
 
 // NormalizeTeamDomain returns the host form of a team domain, or "" when it is
@@ -212,41 +213,89 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (string, error) {
 	return email, nil
 }
 
+// refresh is one in-flight JWKS fetch that concurrent callers share.
+type refresh struct {
+	done chan struct{}
+	err  error // set before done is closed
+}
+
 // key returns the signing key for kid, fetching the JWKS when the cache is
 // cold, stale, or does not know the kid (key rotation). Fetches are spaced at
 // least refreshMinGap apart, so a flood of forged kids cannot hammer Cloudflare.
+//
+// The lock is never held during the HTTP fetch, and concurrent refreshes share
+// one fetch: a request whose kid is already cached keeps using the cached keys
+// while a refresh runs; only a request with an unknown kid waits for it.
 func (v *Verifier) key(ctx context.Context, kid string) (jose.JSONWebKey, error) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	find := func() (jose.JSONWebKey, bool) {
+	find := func() (jose.JSONWebKey, bool) { // callers hold v.mu
 		ks := v.keys.Key(kid)
 		if len(ks) == 0 {
 			return jose.JSONWebKey{}, false
 		}
 		return ks[0], true
 	}
-	if k, ok := find(); ok && v.now().Sub(v.fetched) < keysTTL {
+	v.mu.Lock()
+	k, known := find()
+	if known && v.now().Sub(v.fetched) < keysTTL {
+		v.mu.Unlock()
 		return k, nil
 	}
-	if v.now().Sub(v.tried) >= refreshMinGap || v.tried.IsZero() {
-		v.tried = v.now()
-		if err := v.fetch(ctx); err != nil {
-			if v.log != nil {
-				v.log.Warn("cloudflare access: fetching signing keys failed", "err", err.Error())
-			}
-			// A failed refresh must not lock out a key we already hold.
-			if k, ok := find(); ok {
-				return k, nil
-			}
-			return jose.JSONWebKey{}, ErrKeysUnavailable
+	if f := v.flight; f != nil {
+		// A refresh is already running. A known (if stale) kid proceeds on the
+		// cached key; an unknown one waits for the result.
+		v.mu.Unlock()
+		if known {
+			return k, nil
 		}
+		return v.await(ctx, f, find)
 	}
+	if !v.tried.IsZero() && v.now().Sub(v.tried) < refreshMinGap {
+		// Refreshed (or tried) too recently to try again.
+		v.mu.Unlock()
+		if known {
+			return k, nil
+		}
+		return jose.JSONWebKey{}, errors.New("unknown signing key")
+	}
+	f := &refresh{done: make(chan struct{})}
+	v.flight = f
+	v.tried = v.now()
+	v.mu.Unlock()
+
+	// The fetch must outlive this caller's cancellation (others share it) but
+	// stays bounded by the client timeout.
+	f.err = v.fetch(context.WithoutCancel(ctx))
+	if f.err != nil && v.log != nil {
+		v.log.Warn("cloudflare access: fetching signing keys failed", "err", f.err.Error())
+	}
+	v.mu.Lock()
+	v.flight = nil
+	v.mu.Unlock()
+	close(f.done)
+	return v.await(ctx, f, find)
+}
+
+// await waits for f and then reads the key. A failed refresh must not lock out
+// a key we already hold; with none, the request is denied as unavailable.
+func (v *Verifier) await(ctx context.Context, f *refresh, find func() (jose.JSONWebKey, bool)) (jose.JSONWebKey, error) {
+	select {
+	case <-f.done:
+	case <-ctx.Done():
+		return jose.JSONWebKey{}, ErrKeysUnavailable
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	if k, ok := find(); ok {
 		return k, nil
+	}
+	if f.err != nil {
+		return jose.JSONWebKey{}, ErrKeysUnavailable
 	}
 	return jose.JSONWebKey{}, errors.New("unknown signing key")
 }
 
+// fetch downloads the key set and, on success, stores it. It takes the lock
+// only for the store.
 func (v *Verifier) fetch(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.certs, nil)
 	if err != nil {
@@ -267,8 +316,10 @@ func (v *Verifier) fetch(ctx context.Context) error {
 	if len(set.Keys) == 0 {
 		return errors.New("empty key set")
 	}
+	v.mu.Lock()
 	v.keys = set
 	v.fetched = v.now()
+	v.mu.Unlock()
 	return nil
 }
 

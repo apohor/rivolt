@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -378,5 +379,131 @@ func TestServiceTokensEmptyByDefault(t *testing.T) {
 	f := newFixture(t) // no ServiceTokens configured
 	if got, err := f.v.Verify(t.Context(), f.signSvc(f.key, nil)); err == nil {
 		t.Errorf("emailless token accepted with no service tokens configured: %q", got)
+	}
+}
+
+// newKey publishes a second signing key (kid-2) and returns a token for it.
+func (f *fixture) newKey() string {
+	f.t.Helper()
+	nk, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.keys = append(f.keys, jose.JSONWebKey{Key: &nk.PublicKey, KeyID: "kid-2", Algorithm: "RS256", Use: "sig"})
+	return f.sign(nk, "kid-2", f.good())
+}
+
+func waitHits(t *testing.T, f *fixture, n int32) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for f.hits.Load() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("JWKS endpoint hit %d times, want %d", f.hits.Load(), n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A refresh in flight must not hold up requests whose kid is already cached;
+// only an unknown kid waits for it.
+func TestRefreshDoesNotBlockKnownKid(t *testing.T) {
+	f := newFixture(t)
+	known := f.sign(f.key, f.kid, f.good())
+	if _, err := f.v.Verify(t.Context(), known); err != nil { // warm the cache
+		t.Fatal(err)
+	}
+	rot := f.newKey()
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.v.now = func() time.Time { return f.clock }
+	release := make(chan struct{})
+	var blocked http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: f.keys})
+	}
+	f.over.Store(&blocked)
+
+	type res struct {
+		email string
+		err   error
+	}
+	unknownDone := make(chan res, 1)
+	go func() { e, err := f.v.Verify(t.Context(), rot); unknownDone <- res{e, err} }()
+	waitHits(t, f, 2) // the refresh is now stuck at the endpoint
+
+	// Known kid: answered at once from the cache, with the lock free.
+	knownDone := make(chan res, 1)
+	go func() { e, err := f.v.Verify(t.Context(), known); knownDone <- res{e, err} }()
+	select {
+	case r := <-knownDone:
+		if r.err != nil {
+			t.Errorf("known kid during a refresh: %v", r.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a known kid waited for the JWKS refresh")
+	}
+	select {
+	case <-unknownDone:
+		t.Fatal("the unknown kid returned before the refresh finished")
+	default:
+	}
+	close(release)
+	if r := <-unknownDone; r.err != nil || r.email != who {
+		t.Errorf("unknown kid after the refresh = %q, %v; want the new key to verify", r.email, r.err)
+	}
+}
+
+// Concurrent unknown-kid requests share one fetch.
+func TestConcurrentRefreshesShareOneFetch(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.v.Verify(t.Context(), f.sign(f.key, f.kid, f.good())); err != nil {
+		t.Fatal(err)
+	}
+	rot := f.newKey()
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.v.now = func() time.Time { return f.clock }
+	release := make(chan struct{})
+	var blocked http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: f.keys})
+	}
+	f.over.Store(&blocked)
+	before := f.hits.Load()
+
+	const n = 12
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() { _, err := f.v.Verify(t.Context(), rot); errs <- err }()
+	}
+	waitHits(t, f, before+1)
+	time.Sleep(100 * time.Millisecond) // let the others pile up behind the flight
+	close(release)
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("waiter %d: %v", i, err)
+		}
+	}
+	if got := f.hits.Load() - before; got != 1 {
+		t.Errorf("%d concurrent requests caused %d fetches, want 1", n, got)
+	}
+}
+
+// A refresh that fails still denies the unknown kid as unavailable (503) and a
+// held key keeps working: the fail-closed behaviour is unchanged.
+func TestFailedSharedRefreshStaysFailClosed(t *testing.T) {
+	f := newFixture(t)
+	known := f.sign(f.key, f.kid, f.good())
+	if _, err := f.v.Verify(t.Context(), known); err != nil {
+		t.Fatal(err)
+	}
+	rot := f.newKey()
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.v.now = func() time.Time { return f.clock }
+	var down http.HandlerFunc = func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", 500) }
+	f.over.Store(&down)
+	if _, err := f.v.Verify(t.Context(), rot); !errors.Is(err, ErrKeysUnavailable) {
+		t.Errorf("unknown kid with the endpoint down = %v, want ErrKeysUnavailable", err)
+	}
+	if _, err := f.v.Verify(t.Context(), known); err != nil {
+		t.Errorf("a held key must survive a failed refresh: %v", err)
 	}
 }
