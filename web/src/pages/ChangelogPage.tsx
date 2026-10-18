@@ -35,7 +35,8 @@ function Notes({ source }: { source: string }) {
         code: (p) => <code className="rounded-sm bg-neutral-900 px-1 py-0.5 text-[13px] text-neutral-200" {...p} />,
         img: () => null,
         a: ({ href, children }) =>
-          href?.startsWith("/") ? (
+          // In-app paths only; "//host" is another site and opens like any external link.
+          href?.startsWith("/") && !href.startsWith("//") ? (
             <Link to={href} className={linkCls}>{children}</Link>
           ) : (
             <a href={href} className={linkCls} target="_blank" rel="noopener noreferrer">{children}</a>

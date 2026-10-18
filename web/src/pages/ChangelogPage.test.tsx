@@ -61,6 +61,15 @@ describe("ChangelogPage", () => {
     expect(container.querySelector("script")).toBeNull();
   });
 
+  it("treats a protocol-relative link as external", async () => {
+    changelog.mockResolvedValue({ releases: [{ ...releases[1], body_md: "- See [elsewhere](//evil.example/x) and [planner](/plan)." }] });
+    renderPage();
+    const ext = await screen.findByRole("link", { name: "elsewhere" });
+    expect(ext).toHaveAttribute("rel", "noopener noreferrer");
+    expect(ext).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("link", { name: "planner" })).not.toHaveAttribute("target");
+  });
+
   it("says so when the notes are unavailable", async () => {
     changelog.mockRejectedValue(new Error("503"));
     renderPage();
