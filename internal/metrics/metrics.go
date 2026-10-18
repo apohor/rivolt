@@ -92,6 +92,11 @@ type Metrics struct {
 	// cookie-authenticated admin.)
 	AuthRequestsTotal *prometheus.CounterVec
 
+	// Server-side funnel events by outcome: recorded, skipped_dnt (the request
+	// sent Do Not Track / GPC), skipped_disabled, skipped_other, failed. Event
+	// name and outcome only; no user data.
+	ServerEventsTotal *prometheus.CounterVec
+
 	// Completed vehicle sleeps by outcome: "failed" when the car woke
 	// within a minute of falling asleep, "lasted" otherwise. A rising
 	// failed share is a car that can't stay asleep (vampire drain);
@@ -231,6 +236,13 @@ func New() *Metrics {
 			},
 			[]string{"event"},
 		),
+		ServerEventsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_server_events_total",
+				Help: "Server-side funnel events (signup_complete, rivian_connect_ok) by outcome.",
+			},
+			[]string{"event", "outcome"},
+		),
 		AuthRequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_auth_requests_total",
@@ -269,6 +281,7 @@ func New() *Metrics {
 		m.DemoRateLimitedTotal,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
+		m.ServerEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
 	)
