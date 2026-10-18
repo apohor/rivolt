@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/settings"
@@ -171,6 +172,10 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// site, the demo. The SPA hides the actions that call Rivian (an
 		// admin's per-user Sync and Refresh session).
 		RivianActions bool `json:"rivian_actions"`
+		// AdminOnly is true on the admin deployment (RIVOLT_ADMIN_ONLY): the
+		// SPA renders the admin-only shell, since the user routes it would
+		// otherwise probe do not exist there.
+		AdminOnly bool `json:"admin_only"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -238,6 +243,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()
 	base.Features.RivianActions = rivianActionsEnabled()
+	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")

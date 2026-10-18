@@ -100,3 +100,29 @@ func TestAdminRivianActionsRefuseWhereRivianIsOff(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigAdvertisesAdminOnly(t *testing.T) {
+	get := func() any {
+		rec := httptest.NewRecorder()
+		handleConfig(false, false, false, false, nil, nil)(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var out struct {
+			Features map[string]any `json:"features"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.Features["admin_only"]
+	}
+	t.Setenv("RIVOLT_ADMIN_ONLY", "")
+	if got := get(); got != false {
+		t.Errorf("unset: features.admin_only = %v, want false", got)
+	}
+	t.Setenv("RIVOLT_ADMIN_ONLY", "false")
+	if got := get(); got != false {
+		t.Errorf("false: features.admin_only = %v, want false", got)
+	}
+	t.Setenv("RIVOLT_ADMIN_ONLY", "true")
+	if got := get(); got != true {
+		t.Errorf("true: features.admin_only = %v, want true", got)
+	}
+}
