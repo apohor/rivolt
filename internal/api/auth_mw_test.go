@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -268,5 +269,38 @@ func TestImpersonationMW_TagsTheAuthMethod(t *testing.T) {
 	impersonationMW(roles, alwaysEnabled)(next).ServeHTTP(httptest.NewRecorder(), req)
 	if method != logging.AuthImpersonation {
 		t.Errorf("auth method = %q, want impersonation", method)
+	}
+}
+
+// Viewing as a user is recorded through the start hook, with the real admin,
+// the target and the client address; if the record cannot be made the request
+// is refused.
+func TestImpersonationMW_StartHookRecordsOrRefuses(t *testing.T) {
+	admin, target := uuid.New(), uuid.New()
+	roles := roleLookupStub(map[uuid.UUID]string{admin: "admin", target: "user"})
+	ran := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { ran = true })
+	build := func(hook func(context.Context, uuid.UUID, uuid.UUID, string) error) (*httptest.ResponseRecorder, bool) {
+		ran = false
+		req := httptest.NewRequest(http.MethodGet, "/api/drives", nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		req.Header.Set(ImpersonateHeader, target.String())
+		req = req.WithContext(auth.WithUser(req.Context(), admin))
+		w := httptest.NewRecorder()
+		impersonationMW(roles, alwaysEnabled, hook)(next).ServeHTTP(w, req)
+		return w, ran
+	}
+	var gotAdmin, gotTarget uuid.UUID
+	var gotIP string
+	w, ran1 := build(func(_ context.Context, a, tg uuid.UUID, ip string) error {
+		gotAdmin, gotTarget, gotIP = a, tg, ip
+		return nil
+	})
+	if w.Code != 200 || !ran1 || gotAdmin != admin || gotTarget != target || gotIP != "203.0.113.9" {
+		t.Errorf("hook args: admin %v target %v ip %q status %d ran %v", gotAdmin, gotTarget, gotIP, w.Code, ran1)
+	}
+	w, ran2 := build(func(context.Context, uuid.UUID, uuid.UUID, string) error { return errors.New("db down") })
+	if w.Code != http.StatusServiceUnavailable || ran2 {
+		t.Errorf("a failing audit must refuse the request: %d ran %v", w.Code, ran2)
 	}
 }

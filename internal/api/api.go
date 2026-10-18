@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/chargers"
@@ -324,7 +325,13 @@ func New(d Deps) http.Handler {
 				return "", nil
 			}
 			return db.RoleFor(ctx, d.DB, uid)
-		}, func() bool { return d.ImpersonationDisabled || d.AdminDisabled }))
+		}, func() bool { return d.ImpersonationDisabled || d.AdminDisabled },
+			func(ctx context.Context, admin, target uuid.UUID, ip string) error {
+				if d.DB == nil {
+					return nil
+				}
+				return adminaudit.New(d.DB).NoteImpersonationStart(ctx, admin, target, ip, 30*time.Minute)
+			}))
 	}
 
 	// /metrics is deliberately NOT mounted on this router: the Ingress
@@ -756,36 +763,89 @@ func New(d Deps) http.Handler {
 					}
 					return db.RoleFor(ctx, d.DB, uid)
 				}))
+				// Every admin write below is audited (admin_audit): the row is
+				// written first and the change is refused if that fails.
+				var auditStore *adminaudit.Store
+				if d.DB != nil {
+					auditStore = adminaudit.New(d.DB)
+				}
+				audit := adminAudit(auditStore)
+				flagBefore := func(f func(*flags.Store) map[string]any) func() map[string]any {
+					return func() map[string]any {
+						if d.Flags == nil {
+							return nil
+						}
+						return f(d.Flags)
+					}
+				}
+				usersCount := func(b map[string]any) map[string]any {
+					n := 0
+					if us, ok := b["users"].([]any); ok {
+						n = len(us)
+					}
+					return map[string]any{"users_count": n}
+				}
+				r.Get("/audit", handleAdminAuditList(auditStore))
+				r.With(audit(auditSpec{action: "impersonation.stop", targetType: "user", bodyUser: "target_id"})).
+					Post("/impersonation/stop", handleImpersonationStop())
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))
-				r.Put("/kill-switch", handleFlagsKillPut(d.Flags))
-				r.Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
-				r.Put("/flags/money-tab", handleFlagsMoneyTabPut(d.Flags))
-				r.Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
+				r.With(audit(auditSpec{action: "flag.kill_switch", targetType: "flag", targetID: "kill_switch", keys: []string{"paused"},
+					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"paused": f.KillSwitch().Paused} })})).
+					Put("/kill-switch", handleFlagsKillPut(d.Flags))
+				r.With(audit(auditSpec{action: "flag.trip_planner", targetType: "flag", targetID: "trip_planner", keys: []string{"enabled"},
+					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"enabled": f.TripPlanner().Enabled} })})).
+					Put("/flags/trip-planner", handleFlagsTripPlannerPut(d.Flags))
+				r.With(audit(auditSpec{action: "flag.money_tab", targetType: "flag", targetID: "money_tab", keys: []string{"all"}, custom: usersCount,
+					before: flagBefore(func(f *flags.Store) map[string]any {
+						return map[string]any{"all": f.MoneyTab().All, "users_count": len(f.MoneyTab().Users)}
+					})})).
+					Put("/flags/money-tab", handleFlagsMoneyTabPut(d.Flags))
+				r.With(audit(auditSpec{action: "flag.statement_email", targetType: "flag", targetID: "statement_email", keys: []string{"all"}, custom: usersCount,
+					before: flagBefore(func(f *flags.Store) map[string]any {
+						return map[string]any{"all": f.StatementEmail().All, "users_count": len(f.StatementEmail().Users)}
+					})})).
+					Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.DB))
-				r.Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
-				r.Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
+				r.With(audit(auditSpec{action: "flag.signup_cap", targetType: "flag", targetID: "signup_cap", keys: []string{"limit"},
+					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"limit": f.SignupCap().Limit} })})).
+					Put("/signup-cap", handleSignupCapPut(d.Flags, d.DB))
+				r.With(audit(auditSpec{action: "flag.ai_call_cap", targetType: "flag", targetID: "ai_call_cap", keys: []string{"daily_limit"},
+					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"daily_limit": f.AICallCap().DailyLimit} })})).
+					Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
 				r.Get("/users", handleAdminUsersList(d.DB))
 				r.Get("/idp-delete-failures", handleAdminIdPFailures(d.DB))
-				r.Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.DB, d.Users, d.Logger))
+				r.With(audit(auditSpec{action: "idp_failure.retry", targetType: "idp_delete_failure", idParam: "id"})).
+					Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.DB, d.Users, d.Logger))
 				r.Get("/users/{id}", handleAdminUserDetail(d.DB))
-				r.Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
-				r.Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
-				r.Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
-				r.Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.DB, d.Logger))
-				r.Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.DB, d.Logger))
-				r.Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.Logger))
+				r.With(audit(auditSpec{action: "user.create", targetType: "user", usernameID: "username", keys: []string{"role", "disabled"}})).
+					Post("/users", handleAdminUserCreate(d.DB, d.Users, d.Logger))
+				r.With(audit(auditSpec{action: "user.set_role", targetType: "user", idParam: "id", userTarget: true, keys: []string{"role"}})).
+					Post("/users/{id}/role", handleAdminUserSetRole(d.DB))
+				r.With(audit(auditSpec{action: "user.set_disabled", targetType: "user", idParam: "id", userTarget: true, keys: []string{"disabled"}})).
+					Post("/users/{id}/disabled", handleAdminUserSetDisabled(d.DB))
+				r.With(audit(auditSpec{action: "user.sync_rivian", targetType: "user", idParam: "id", userTarget: true})).
+					Post("/users/{id}/sync-rivian", handleAdminUserSyncRivian(d.Accounts, d.DB, d.Logger))
+				r.With(audit(auditSpec{action: "user.refresh_rivian_session", targetType: "user", idParam: "id", userTarget: true})).
+					Post("/users/{id}/refresh-rivian-session", handleAdminUserRefreshRivianSession(d.Accounts, d.Secrets, d.DB, d.Logger))
+				r.With(audit(auditSpec{action: "user.delete", targetType: "user", idParam: "id", userTarget: true})).
+					Delete("/users/{id}", handleAdminUserDelete(d.DB, d.Users, d.Logger))
 				r.Get("/settings/ai", handleAISettingsGet(d.SettingsMgr))
-				r.Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
+				r.With(audit(auditSpec{action: "settings.ai", targetType: "settings", targetID: "ai", fields: true})).
+					Put("/settings/ai", handleAISettingsPut(d.SettingsMgr))
 				r.Get("/settings/ai/models/{provider}", handleAIModelsList(d.SettingsMgr))
 				r.Post("/ai/ping", handleAIPing(d.SettingsMgr))
 				r.Get("/settings/recap", handleRecapSettingsGet(d.SettingsMgr))
-				r.Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
+				r.With(audit(auditSpec{action: "settings.recap", targetType: "settings", targetID: "recap", fields: true})).
+					Put("/settings/recap", handleRecapSettingsPut(d.SettingsMgr))
 				r.Get("/settings/gps", handleGPSSettingsGet(d.SettingsMgr))
-				r.Put("/settings/gps", handleGPSSettingsPut(d.SettingsMgr))
+				r.With(audit(auditSpec{action: "settings.gps", targetType: "settings", targetID: "gps", fields: true})).
+					Put("/settings/gps", handleGPSSettingsPut(d.SettingsMgr))
 				if d.SignupRequests != nil && !signupgate.Disabled() {
 					r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
-					r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
-					r.Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
+					r.With(audit(auditSpec{action: "signup_request.approve", targetType: "signup_request", idParam: "id"})).
+						Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
+					r.With(audit(auditSpec{action: "signup_request.reject", targetType: "signup_request", idParam: "id"})).
+						Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 				}
 				// Raw Rivian probes: arbitrary queries to Rivian as the admin.
 				// Off unless RIVOLT_ADMIN_DEBUG_PROBES (Deps.AdminDebugProbes).

@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: October 17, 2026
+Last updated: October 18, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
@@ -32,7 +32,7 @@ We run our own servers in the United States, and database backups go to storage 
 - If you connect a vehicle, we keep your history until you delete it.
 - If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90, and never delete less than 30 days after that warning. This starts only after this policy is published.
 - In Settings you can export your data, delete your history, or delete your whole account. Signing Rivolt out of Rivian deletes the stored Rivian session; you can also revoke access in the Rivian app.
-- After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days.
+- After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days. Records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security, including after you delete your account.
 
 **Security.** Your Rivian session is encrypted, every user's data is kept separate, and the code is open source. No system is perfectly secure. If a breach affects your data, we will email you without undue delay, and within 30 days of confirming it.
 
