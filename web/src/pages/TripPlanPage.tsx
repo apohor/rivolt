@@ -1581,7 +1581,7 @@ function ViaStopList({
           <span className="flex-1 text-neutral-100">{stop.label}</span>
           <label
             className="flex shrink-0 items-center gap-1 text-xs text-neutral-400"
-            title="Treat this stop as an overnight: ends one day's drive, starts the next. Assumes 10 h plugged in at 7 kW L2."
+            title="Treat this stop as an overnight: ends one day's drive, starts the next. Leave time, charger and charge limit are set below."
           >
             <input
               type="checkbox"

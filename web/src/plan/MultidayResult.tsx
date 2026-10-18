@@ -36,12 +36,12 @@ export function MultidayResult({
     new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   return (
     <Card title={`${response.days.length}-day trip: ${originLabel || "Origin"} → ${destLabel || "Destination"}`}>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Days" value={String(response.days.length)} />
         <Stat label="Total distance" value={`${totalMiles.toFixed(0)} mi`} />
         <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
         <Stat label="Charging" value={`${chargeMin} min`} />
-      </div>
+      </dl>
       {response.simulated && (
         <div className="mb-3 inline-block rounded-sm bg-amber-900/40 px-1.5 py-0.5 text-xs text-amber-300">
           Simulated
