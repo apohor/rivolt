@@ -52,6 +52,7 @@ for (const theme of ["dark", "light"] as const) {
       await expect(doc.locator("#v0\\.36\\.21")).toContainText("October 18, 2026");
       // Raw HTML in the notes is never rendered.
       await expect(doc.locator("img")).toHaveCount(0);
+      await expect(doc).not.toContainText("onerror");
       expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
       await expect(page.getByText("Rivolt is independent and not affiliated with Rivian.")).toBeVisible();
       await expect(page.getByRole("link", { name: "Feed", exact: true })).toHaveAttribute("href", "/changelog.atom");

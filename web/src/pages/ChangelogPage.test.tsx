@@ -59,6 +59,9 @@ describe("ChangelogPage", () => {
     await screen.findByRole("heading", { level: 2, name: /v0\.36\.21/ });
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
+    // Dropped, not shown as stray text either.
+    expect(container.textContent).not.toContain("onerror");
+    expect(container.textContent).not.toContain("<script");
   });
 
   it("treats a protocol-relative link as external", async () => {

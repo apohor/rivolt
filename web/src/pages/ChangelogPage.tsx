@@ -9,7 +9,7 @@ import { useSystemTheme } from "../lib/theme";
 // /changelog: what's new in each release, public (works signed out). The notes are the ones written
 // for each GitHub Release (GET /api/changelog), newest first; each release is a section with
 // id="vX.Y.Z", which is where the Atom feed (/changelog.atom) links. The notes are Markdown rendered
-// without raw HTML: react-markdown escapes any HTML in them instead of rendering it.
+// without raw HTML: any HTML in them (even a comment) is dropped, neither rendered nor shown as text.
 
 const dateFmt = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 
@@ -23,6 +23,7 @@ const linkCls = "text-emerald-300 underline underline-offset-2 hover:text-emeral
 function Notes({ source }: { source: string }) {
   return (
     <Markdown
+      skipHtml
       components={{
         // The release title is the section's h2, so the notes' own headings sit one level below it.
         h1: (p) => <h3 className="pt-2 text-lg font-semibold text-neutral-50" {...p} />,
