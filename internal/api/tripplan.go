@@ -179,6 +179,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			// Map upstream error class to an HTTP status the SPA
 			// can render. 4xx passes through Cloudflare cleanly;
 			// 5xx gets replaced with Cloudflare's HTML error page.
+			if writeQuotaError(w, err) {
+				return
+			}
 			if errors.Is(err, rivian.ErrInvalidTrip) {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 				return

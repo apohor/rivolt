@@ -226,6 +226,13 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return
 		}
 
+		// Over the hourly planner quota: refuse the request (429) rather than
+		// return a half plan. The days already planned are cached, so asking
+		// again after the window costs only the days that are left.
+		if out.FailedErr != nil && writeQuotaError(w, out.FailedErr) {
+			return
+		}
+
 		// The same weather, profile and cost pass the single-day plan gets,
 		// run on each day from its own starting SoC and reserve.
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
