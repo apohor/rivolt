@@ -112,6 +112,13 @@ func TestGeneratePresets(t *testing.T) {
 			t.Fatalf("%s: shape: %v", files[i].ID, err)
 		}
 	}
+	// The two-day trip drives the two Las Vegas legs' routes: their shapes
+	// ride on its days. It follows them in the list.
+	two, err := twoDayPreset([]string{files[0].RoutePolyline, files[1].RoutePolyline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files[:2], append([]presetFile{two}, files[2:]...)...)
 	if err := writePresets(PresetsDir, files); err != nil {
 		t.Fatal(err)
 	}

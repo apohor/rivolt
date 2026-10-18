@@ -13,8 +13,8 @@ import (
 	"github.com/apohor/rivolt/internal/settings"
 )
 
-// TestDemoSamplePlansSeed: the pass writes the two Las Vegas plans for
-// the demo user, rewrites nothing while the loop is unchanged, moves
+// TestDemoSamplePlansSeed: the pass writes the Las Vegas plans (each leg,
+// and both as one two-day trip) for the demo user, rewrites nothing while the loop is unchanged, moves
 // the same rows (same ids) to the next loop's trip, and leaves other
 // saved trips alone. The rows carry the fixed ids the presets use: an
 // older row with a random id (preview before this change) moves to it.
@@ -83,11 +83,11 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'replay')`, uid, vid, recorded); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 2 {
+	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 3 {
 		t.Fatalf("first pass: n=%d err=%v", n, err)
 	}
 	first := read()
-	if len(first) != 3 {
+	if len(first) != 4 {
 		t.Fatalf("rows = %+v", first)
 	}
 	for name, id := range demo.SampleTripIDs() {
@@ -99,15 +99,21 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT plan FROM saved_trips WHERE user_id = $1 AND name = 'Las Vegas weekend'`, uid).Scan(&plan); err != nil || len(plan) == 0 {
 		t.Fatalf("plan %s err %v", plan, err)
 	}
+	// The two-day trip is stored as the planner saves a multi-day trip.
+	var kind string
+	var days int
+	if err := pool.QueryRowContext(ctx, `SELECT plan->>'kind', jsonb_array_length(plan->'days') FROM saved_trips WHERE user_id = $1 AND name = 'Las Vegas, 2 days'`, uid).Scan(&kind, &days); err != nil || kind != "multiday" || days != 2 {
+		t.Fatalf("two-day plan: kind %q, %d days, err %v", kind, days, err)
+	}
 	// A restart (or a second replica) seeds again: no change.
 	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(time.Hour)); err != nil || n != 0 {
 		t.Fatalf("same loop: n=%d err=%v, want no rewrite", n, err)
 	}
-	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(60*24*time.Hour)); err != nil || n != 2 {
+	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(60*24*time.Hour)); err != nil || n != 3 {
 		t.Fatalf("next loop: n=%d err=%v", n, err)
 	}
 	next := read()
-	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home"} {
+	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home", "Las Vegas, 2 days"} {
 		a, b := first[name], next[name]
 		if a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
 			t.Errorf("%s: %+v then %+v, want the same row on a later trip", name, a, b)

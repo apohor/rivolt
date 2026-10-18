@@ -41,14 +41,38 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 	if len(idx.Trips) != len(demo.PresetIDs()) {
 		t.Fatalf("index has %d trips, loader has %d", len(idx.Trips), len(demo.PresetIDs()))
 	}
+	multi := 0
 	for _, tr := range idx.Trips {
-		if tr.Name == "" || len(tr.Inputs) == 0 || len(tr.Summary) == 0 || tr.RoutePolyline == "" {
-			t.Errorf("preset %s: name/inputs/summary/route_polyline missing", tr.ID)
-		}
 		b, ok := demo.PresetPlan(tr.ID)
 		if !ok {
 			t.Errorf("preset %s has no plan", tr.ID)
 			continue
+		}
+		// A multi-day preset's plan is a saved multi-day snapshot, as the
+		// planner saves one; its days carry their own road shapes.
+		if days, ok := savedMultiday(b.Body); ok {
+			multi++
+			if tr.Name == "" || len(tr.Inputs) == 0 || len(tr.Summary) == 0 {
+				t.Errorf("preset %s: name/inputs/summary missing", tr.ID)
+			}
+			if err := validateSavedPlan(b.Body); err != nil || len(days) < 2 {
+				t.Errorf("preset %s: %d days, %v", tr.ID, len(days), err)
+			}
+			for n := 1; n <= len(days); n++ {
+				sub, ok := subjectForDay(days, n)
+				if !ok {
+					t.Errorf("preset %s: no day %d", tr.ID, n)
+					continue
+				}
+				var dp tripPlanResponse
+				if err := json.Unmarshal(sub.plan, &dp); err != nil || dp.TripPlan == nil || len(dp.Routes) != 1 || len(dp.Costs) != 1 {
+					t.Errorf("preset %s day %d plan: %v", tr.ID, n, err)
+				}
+			}
+			continue
+		}
+		if tr.Name == "" || len(tr.Inputs) == 0 || len(tr.Summary) == 0 || tr.RoutePolyline == "" {
+			t.Errorf("preset %s: name/inputs/summary/route_polyline missing", tr.ID)
 		}
 		// The stored plan must be the planner's own response shape.
 		dec := json.NewDecoder(bytes.NewReader(b.Body))
@@ -57,6 +81,9 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 		if err := dec.Decode(&plan); err != nil {
 			t.Errorf("preset %s plan does not decode as tripPlanResponse: %v", tr.ID, err)
 		}
+	}
+	if multi != 1 {
+		t.Errorf("%d multi-day presets, want the two-day Las Vegas trip", multi)
 	}
 }
 

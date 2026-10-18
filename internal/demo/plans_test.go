@@ -9,6 +9,7 @@ import (
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
+	"github.com/apohor/rivolt/internal/tripmultiday"
 )
 
 // samplePlansAt returns the demo's saved plans at now, priced with the
@@ -75,9 +76,10 @@ func TestSamplePlansPairWithTheReplayedTrip(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	trips := rivian.SampleTripPlans(now, time.Time{})
 	plans := samplePlansAt(t, now)
-	if len(plans) != 2 || len(trips) != 2 || plans[0].Name != "Las Vegas weekend" || plans[1].Name != "Las Vegas back home" {
+	if len(plans) != 3 || len(trips) != 2 || plans[0].Name != "Las Vegas weekend" || plans[1].Name != "Las Vegas back home" {
 		t.Fatalf("plans = %+v", plans)
 	}
+	plans = plans[:2] // the two-day trip: TestTwoDayPlanPairsEachDay
 	drives, charges := replayedOuting(t, trips[0].OutingStart)
 	in := ledger.Input{Drives: drives, Charges: charges, Now: now,
 		Config: ledger.Config{Currency: "USD", HomeRate: HomeRate, Home: &ledger.LatLon{Lat: HomeLat, Lon: HomeLon}}}
@@ -169,5 +171,69 @@ func TestSamplePlansMoveOnOnlyWhenTheNextTripIsOver(t *testing.T) {
 	b := samplePlansAt(t, end.Add(30*24*time.Hour))
 	if string(a[0].Plan) != string(b[0].Plan) || string(a[1].Inputs) != string(b[1].Inputs) {
 		t.Error("plans changed between loops")
+	}
+}
+
+// The two-day trip is saved as the planner saves a multi-day trip, and
+// Plan vs Actual pairs each day, read as the API reads it, with the
+// replayed outing at high confidence: a suggestion, no link (a write).
+func TestTwoDayPlanPairsEachDay(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	plans := samplePlansAt(t, now)
+	two := plans[len(plans)-1]
+	if two.Name != rivian.SamplePlanVegasTwoDay || two.ID != SampleTripIDs()[two.Name] {
+		t.Fatalf("last plan %s %s", two.Name, two.ID)
+	}
+	var snap struct {
+		Kind string `json:"kind"`
+		Days []struct {
+			Plan      map[string]json.RawMessage    `json:"plan"`
+			DepartAt  time.Time                     `json:"depart_at"`
+			Start     tripmultiday.Waypoint         `json:"start"`
+			End       tripmultiday.Waypoint         `json:"end"`
+			Costs     json.RawMessage               `json:"costs"`
+			Overnight *tripmultiday.OvernightResult `json:"overnight"`
+		} `json:"days"`
+	}
+	if err := json.Unmarshal(two.Plan, &snap); err != nil || snap.Kind != "multiday" || len(snap.Days) != 2 {
+		t.Fatalf("snapshot %s: %v", two.Plan, err)
+	}
+	if o := snap.Days[0].Overnight; o == nil || o.L2KW != rivian.SampleHotelKW || o.PostChargeSoCPct != rivian.SampleOvernightMaxSoC ||
+		!o.Capped || o.ParkedHours < 10 || snap.Days[1].Overnight != nil {
+		t.Errorf("overnight %+v", o)
+	}
+	trips := rivian.SampleTripPlans(now, time.Time{})
+	drives, charges := replayedOuting(t, trips[0].OutingStart)
+	in := ledger.Input{Drives: drives, Charges: charges, Now: now,
+		Config: ledger.Config{Currency: "USD", HomeRate: HomeRate, Home: &ledger.LatLon{Lat: HomeLat, Lon: HomeLon}}}
+	for i, d := range snap.Days {
+		dayIn, _ := json.Marshal(map[string]any{
+			"origin":       map[string]any{"lat": d.Start.Latitude, "lon": d.Start.Longitude},
+			"destination":  map[string]any{"lat": d.End.Latitude, "lon": d.End.Longitude},
+			"departure_at": d.DepartAt.Format(time.RFC3339),
+		})
+		d.Plan["costs"] = d.Costs
+		dayPlan, _ := json.Marshal(d.Plan)
+		p, err := ledger.ParsePlan(dayIn, dayPlan, two.SavedAt)
+		if err != nil {
+			t.Fatalf("day %d: ParsePlan: %v", i+1, err)
+		}
+		cands := ledger.MatchPlan(p, in)
+		if len(cands) == 0 {
+			t.Fatalf("day %d: no candidate", i+1)
+		}
+		c := cands[0]
+		if c.Band != "high" || c.Signals.RouteOverlap == nil || *c.Signals.RouteOverlap != 1 {
+			t.Errorf("day %d: top candidate %+v", i+1, c)
+		}
+		if off := c.Signals.StartOffsetMin; off == nil || *off < 0 || *off > 15 {
+			t.Errorf("day %d: start offset %v min, want the drive to leave 0-15 min after the plan", i+1, off)
+		}
+		if _, ok := ledger.ComparePlan(p, in, c.TripID); !ok {
+			t.Errorf("day %d: no comparison", i+1)
+		}
+		if p.Cost == nil || len(p.Stops) != 1 {
+			t.Errorf("day %d: plan = %+v", i+1, p)
+		}
 	}
 }
