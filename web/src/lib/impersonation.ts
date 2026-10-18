@@ -58,7 +58,26 @@ export function startImpersonation(target: ImpersonationTarget): void {
 // stopImpersonation clears the active target. Callers should also
 // force a full page reload for the same cache-isolation reason as
 // startImpersonation.
+//
+// It first tells the server the admin has left "view as" (POST /api/admin/impersonation/stop,
+// recorded in the admin audit). Fire-and-forget: a failure, or no network, must never keep the
+// admin stuck in view-as, so errors are swallowed and the state is cleared regardless. The request
+// is sent as the real admin, without the impersonate header (an impersonated request is refused
+// on admin routes), and with keepalive so the page reload that follows does not cancel it.
 export function stopImpersonation(): void {
+  const target = read();
+  if (target) {
+    try {
+      void fetch("/api/admin/impersonation/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_id: target.id }),
+        keepalive: true,
+      }).catch(() => undefined);
+    } catch {
+      /* never block leaving view-as */
+    }
+  }
   sessionStorage.removeItem(STORAGE_KEY);
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
