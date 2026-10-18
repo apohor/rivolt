@@ -16,6 +16,7 @@
 // the fallback shape until then. Drive maps render the polyline
 // from raw GPS first anyway and overlay snapped roads when the
 // match call returns; a one-tick delay on first render is invisible.
+import { setServerUiNext } from "./uiNext";
 import { useEffect, useState } from "react";
 import { inDemo } from "./demo";
 export type RuntimeConfig = {
@@ -71,6 +72,10 @@ export type RuntimeConfig = {
     // sign-in, no Rivian): "/" lands on /demo, auth routes redirect there
     // and every sign-in CTA points at appUrl.
     demoOnly: boolean;
+    // adminOnly: this deployment is the admin site (features.admin_only): the SPA shows the
+    // admin-only shell, forces the new look and sends every non-admin path to /admin. An older
+    // server that omits it is treated as false.
+    adminOnly: boolean;
     // appUrl: origin of the real app (e.g. "https://rivolt.dev") for demo
     // CTAs. Empty means same-origin routes.
     appUrl: string;
@@ -111,7 +116,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "" },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, appUrl: "" },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "" },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -133,7 +138,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; app_url?: string; rivian_actions?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -153,6 +158,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         signupEnabled: j?.features?.signup_enabled !== false,
         eventsEnabled: j?.features?.events_enabled === true,
         demoOnly: j?.features?.demo_only === true,
+        adminOnly: j?.features?.admin_only === true,
         appUrl: (j?.features?.app_url ?? "").replace(/\/+$/, ""),
       },
       grafana: { baseUrl: j?.grafana?.base_url ?? "" },
@@ -179,6 +185,8 @@ export function ensureConfig(): Promise<RuntimeConfig> {
     inflight = loadConfig().then((c) => {
       cached = c;
       configLoaded = true;
+      // The admin site has no /api/ledger/enabled (it 404s there): the new look is simply on.
+      if (c.features.adminOnly) setServerUiNext(true);
       return c;
     });
   }
@@ -400,6 +408,25 @@ export function useDemoOnly(): { loading: boolean; only: boolean } {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setState({ loading: false, only: c.features.demoOnly });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
+// useAdminOnly resolves {loading, only}: whether this deployment is the admin site
+// (features.admin_only). Callers wait for loading to finish before mounting anything that fetches.
+export function useAdminOnly(): { loading: boolean; only: boolean } {
+  const [state, setState] = useState<{ loading: boolean; only: boolean }>({
+    loading: cached === fallback,
+    only: cached.features.adminOnly,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setState({ loading: false, only: c.features.adminOnly });
     });
     return () => {
       cancelled = true;
