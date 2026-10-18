@@ -1257,6 +1257,8 @@ export const backend = {
     const qs = q.toString();
     return api.get<AdminAuditPage>(`/api/admin/audit${qs ? `?${qs}` : ""}`);
   },
+  // The admin home's health summary. Always 200; each section may be {status:"unavailable"}.
+  adminHealthSummary: () => api.get<import("./adminHealth").HealthSummary>("/api/admin/health-summary"),
   adminSignupCapGet: () =>
     api.get<AdminSignupCapState>("/api/admin/signup-cap"),
   adminSignupCapPut: (limit: number) =>

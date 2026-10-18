@@ -11,6 +11,7 @@ import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
 import { AuditNext, UserAuditHistory } from "../components/AdminAuditNext";
 import { TypedConfirmDialog } from "../components/TypedConfirmDialog";
+import { HomeNext } from "../components/AdminHomeNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
@@ -107,12 +108,13 @@ function grafanaUserExploreURL(
 // AdminTabs groups admin-only surfaces under a single tab nav. The
 // active tab is mirrored in the URL hash so a reload (or a copy-
 // pasted link to /admin#ai) keeps the position the operator was on.
-type AdminTab = "users" | "signups" | "ai" | "operations" | "tuning" | "audit";
+type AdminTab = "home" | "users" | "signups" | "ai" | "operations" | "tuning" | "audit";
 
 // Signups is first because pending waitlist requests are the
 // most time-sensitive thing on this page — every other tab is
 // reactive ops (a user reported X) or background tuning.
 const ADMIN_TABS: { id: AdminTab; label: string }[] = [
+  { id: "home", label: "Home" },
   { id: "signups", label: "Signups" },
   { id: "users", label: "Users" },
   { id: "ai", label: "AI" },
@@ -127,19 +129,21 @@ function isAdminTab(s: string): s is AdminTab {
 
 function AdminTabs({ currentUserID }: { currentUserID: string }) {
   const nextUi = useUiNext();
-  const initial: AdminTab = (() => {
+  const initial: AdminTab | null = (() => {
     const h = window.location.hash.replace(/^#/, "");
-    return isAdminTab(h) ? h : "signups";
+    return isAdminTab(h) ? h : null;
   })();
-  const [tab, setTab] = useState<AdminTab>(initial);
+  // Until a tab is chosen (or deep-linked) the first one shows: Home in the new look, Signups before.
+  const [picked, setTab] = useState<AdminTab | null>(initial);
+  const tab: AdminTab = picked ?? (nextUi ? "home" : "signups");
   // Keep the hash in sync so a reload restores the active tab and
   // a deep link (`/admin#ai`) opens the right pane. Listen for
   // hashchange too — the back button moves between tabs cleanly.
   useEffect(() => {
-    if (window.location.hash.replace(/^#/, "") !== tab) {
-      window.history.replaceState(null, "", `#${tab}`);
+    if (picked && window.location.hash.replace(/^#/, "") !== picked) {
+      window.history.replaceState(null, "", `#${picked}`);
     }
-  }, [tab]);
+  }, [picked]);
   useEffect(() => {
     const onHash = () => {
       const h = window.location.hash.replace(/^#/, "");
@@ -149,14 +153,14 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // The Audit tab exists only in the new look (the flag arrives after first render, so a #audit
-  // deep link keeps its hash and shows once it is on; with it off the first tab shows instead).
-  const view: AdminTab = tab === "audit" && !nextUi ? "signups" : tab;
+  // Home and Audit exist only in the new look (the flag arrives after first render, so a #home or
+  // #audit deep link keeps its hash and shows once it is on; with it off the first tab shows instead).
+  const view: AdminTab = (tab === "audit" || tab === "home") && !nextUi ? "signups" : tab;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1 border-b border-neutral-800">
-        {ADMIN_TABS.filter((t) => t.id !== "audit" || nextUi).map((t) => {
+        {ADMIN_TABS.filter((t) => (t.id !== "audit" && t.id !== "home") || nextUi).map((t) => {
           const active = t.id === tab;
           return (
             <button
@@ -174,6 +178,7 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           );
         })}
       </div>
+      {view === "home" && <HomeNext goTo={(t) => setTab(t)} />}
       {view === "users" && (
         <div className="space-y-4">
           <Card title="Users">
