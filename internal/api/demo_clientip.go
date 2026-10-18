@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/apohor/rivolt/internal/clientip"
 	"net"
 	"net/http"
 	"net/netip"
@@ -59,9 +60,12 @@ func directPeerFrom(r *http.Request) (peer string, fromXFF bool) {
 			return a.Unmap().String(), true
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	// The connection's own peer: the client-address middleware may have
+	// rewritten RemoteAddr to the visitor, which this function must not see.
+	remote := clientip.Peer(r)
+	host, _, err := net.SplitHostPort(remote)
 	if err != nil {
-		return r.RemoteAddr, false
+		return remote, false
 	}
 	return host, false
 }

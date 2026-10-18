@@ -21,6 +21,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/clientip"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drives"
@@ -226,7 +227,10 @@ type Deps struct {
 func New(d Deps) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RealIP)
+	// The real client address, from CF-Connecting-IP and only when a trusted
+	// proxy sent it (chi's RealIP trusted forwarding headers from anyone, and
+	// left every visitor behind the load balancer sharing one address).
+	r.Use(clientip.Middleware)
 	r.Use(middleware.RequestID)
 	// HTTPMiddleware (a) copies chi's RequestID into our context so
 	// the slog ContextHandler stamps it on every log line, and (b)
@@ -404,14 +408,15 @@ func New(d Deps) http.Handler {
 		// without an invite code can submit an email + short note;
 		// admins decide the row in /admin/signup-requests.
 		//
-		// Per-IP in-memory limiter: 5 requests/hour/IP with a burst
-		// of 5. The real DDoS defense is the Cloudflare edge rule;
+		// Per-visitor in-memory limiter: 5 requests/hour per real client
+		// address (the clientip middleware), plus a global backstop of 200 an
+		// hour per pod against floods. The real DDoS defense is the Cloudflare edge rule;
 		// this is the in-pod fallback if CF ever lets traffic
 		// through. Beta scale: 5/hr is generous for a human filling
 		// out the form and trivial to enforce.
 		if d.SignupRequests != nil && !signupgate.Disabled() {
-			signupReqLimiter := newIPLimiter(5, time.Hour, time.Hour)
-			r.With(signupReqLimiter.Middleware, maxBodyBytes(maxJSONBody)).Post(
+			signupReqLimiter, signupReqGlobal := newSignupRequestLimiters(signupReqPerIPPerHour, signupReqGlobalPerHour)
+			r.With(signupReqLimiter.Middleware, signupReqGlobal.Middleware, maxBodyBytes(maxJSONBody)).Post(
 				"/signup/request",
 				handleSignupRequestCreate(d.SignupRequests, d.Email, d.Logger, newAutoApprove(d)),
 			)

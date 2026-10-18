@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/apohor/rivolt/internal/clientip"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -492,6 +493,72 @@ func TestNormalizeHost(t *testing.T) {
 	} {
 		if got := normalizeHost(in); got != want {
 			t.Errorf("normalizeHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Trust in the proxy that sets the user header is judged on the connection's
+// own address, not on the visitor address the client-address middleware
+// puts in RemoteAddr: a visitor behind the trusted proxy still gets in, and a
+// stranger who forges X-Forwarded-For / CF-Connecting-IP with a trusted
+// address does not become "trusted" (chi's RealIP used to allow exactly that).
+func TestHeader_TrustUsesTheConnectionPeerNotTheClientAddress(t *testing.T) {
+	s := newTestService(t, []string{"10.42.0.0/16"})
+	resolved := func(remote string, hdr map[string]string) bool {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = remote
+		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		got := false
+		clientip.Middleware(s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, got = UserFromContext(r.Context())
+		}))).ServeHTTP(httptest.NewRecorder(), r)
+		return got
+	}
+	if !resolved("10.42.0.172:5000", map[string]string{"CF-Connecting-IP": "203.0.113.9"}) {
+		t.Error("a visitor behind the trusted proxy lost their identity (RemoteAddr was rewritten and then used for trust)")
+	}
+	if resolved("203.0.113.9:5000", map[string]string{"X-Forwarded-For": "10.42.0.5", "CF-Connecting-IP": "10.42.0.5", "X-Real-IP": "10.42.0.5"}) {
+		t.Error("a stranger forged a trusted address and was believed")
+	}
+}
+
+// A trusted-proxy list that spans the pod network is flagged for the boot
+// warning; the exact address of one proxy is not.
+func TestBroadTrustedCIDRs(t *testing.T) {
+	parse := func(list string) []*net.IPNet {
+		t.Helper()
+		nets, err := ParseTrustedCIDRs(list)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nets
+	}
+	for _, broad := range []string{"10.42.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "2001:db8::/32"} {
+		if got := BroadTrustedCIDRs(parse(broad)); len(got) != 1 {
+			t.Errorf("%s not flagged as broad: %v", broad, got)
+		}
+	}
+	for _, exact := range []string{"192.0.2.7/32", "198.51.100.0/24", "2001:db8:1:2::/64"} {
+		if got := BroadTrustedCIDRs(parse(exact)); len(got) != 0 {
+			t.Errorf("%s flagged: %v", exact, got)
+		}
+	}
+	if got := BroadTrustedCIDRs(nil); len(got) != 0 {
+		t.Errorf("empty list flagged: %v", got)
+	}
+	// An entry that contains one of this host's own addresses is broad however
+	// short its prefix is not: even a /32 of the pod's own IP trusts the pod.
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+			own := ipn.IP.String() + "/32"
+			if got := BroadTrustedCIDRs(parse(own)); len(got) != 1 {
+				t.Errorf("%s (this host) not flagged", own)
+			}
+			return
 		}
 	}
 }

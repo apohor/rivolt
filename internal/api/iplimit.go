@@ -12,8 +12,10 @@ package api
 // without bound.
 
 import (
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -55,19 +57,20 @@ func newIPLimiter(perWindow int, window, idleTTL time.Duration) *ipLimiter {
 }
 
 // Middleware returns the chi handler that enforces the bucket.
-// Requires chi's middleware.RealIP upstream so r.RemoteAddr reflects
-// the client IP (Cloudflare-set CF-Connecting-IP / X-Forwarded-For).
+// Requires the clientip middleware upstream so r.RemoteAddr reflects the
+// real client IP (Cloudflare's CF-Connecting-IP, from a trusted proxy).
 func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
 		if l.key != nil {
 			ip = l.key(r)
 		}
-		if !l.allow(ip) {
+		if ok, wait := l.allow(ip); !ok {
 			if l.onDeny != nil {
 				l.onDeny()
 			}
-			w.Header().Set("Retry-After", "60")
+			// Honest: the time until the bucket has a token again, not a guess.
+			w.Header().Set("Retry-After", strconv.Itoa(max(1, int(math.Ceil(wait.Seconds())))))
 			writeJSON(w, http.StatusTooManyRequests, map[string]any{
 				"error": "too many requests, try again later",
 			})
@@ -79,7 +82,7 @@ func (l *ipLimiter) Middleware(next http.Handler) http.Handler {
 
 // allow checks and decrements the bucket for ip. Lazy-creates a new
 // bucket on first sight and updates lastSeen for the janitor.
-func (l *ipLimiter) allow(ip string) bool {
+func (l *ipLimiter) allow(ip string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -98,17 +101,42 @@ func (l *ipLimiter) allow(ip string) bool {
 		l.buckets[ip] = b
 	}
 	b.lastSeen = now
-	return b.l.Allow()
+	// Reserve instead of Allow so a refusal can say how long until the next
+	// token; a refused reservation is cancelled and costs nothing.
+	res := b.l.Reserve()
+	if d := res.Delay(); d > 0 || !res.OK() {
+		res.Cancel()
+		if !res.OK() || d <= 0 {
+			d = time.Duration(float64(time.Second) / float64(l.rps))
+		}
+		return false, d
+	}
+	return true, 0
 }
 
-// clientIP extracts the calling IP from r.RemoteAddr. chi's
-// middleware.RealIP already rewrites RemoteAddr from
-// CF-Connecting-IP / X-Forwarded-For, so we can trust the host
-// portion here.
+// clientIP extracts the calling IP from r.RemoteAddr, which the
+// clientip middleware has already set to the real visitor (CF-Connecting-IP,
+// believed only from a trusted proxy), so the host portion is the key.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// Signup-request limits: per real visitor, and a global backstop per pod.
+const (
+	signupReqPerIPPerHour  = 5
+	signupReqGlobalPerHour = 200
+)
+
+// newSignupRequestLimiters builds the per-visitor limiter and the global
+// backstop for POST /api/signup/request. Chain them in that order, so a
+// request the visitor's own limit refuses never spends a global token.
+func newSignupRequestLimiters(perIP, global int) (*ipLimiter, *ipLimiter) {
+	one := newIPLimiter(perIP, time.Hour, time.Hour)
+	all := newIPLimiter(global, time.Hour, time.Hour)
+	all.key = func(*http.Request) string { return "global-signup-request" }
+	return one, all
 }
