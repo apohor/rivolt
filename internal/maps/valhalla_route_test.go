@@ -1,8 +1,10 @@
 package maps
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -130,3 +132,35 @@ func TestValhallaRoute(t *testing.T) {
 }
 
 func jsonStr(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+func TestValhallaRouteNoPathAndBoundedBody(t *testing.T) {
+	// Valhalla answers an unroutable request with 400: the caller's input, not an outage.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error_code":442,"error":"No path could be found for input"}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	_, err := NewValhalla(srv.URL).Route(context.Background(), [][2]float64{{34, -118}, {36, -125}}, RouteOpts{})
+	if !errors.Is(err, ErrNoRoute) {
+		t.Errorf("400 = %v, want ErrNoRoute", err)
+	}
+	// A 5xx stays an ordinary failure.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "x", 503) }))
+	defer down.Close()
+	if _, err := NewValhalla(down.URL).Route(context.Background(), [][2]float64{{34, -118}, {36, -115}}, RouteOpts{}); err == nil || errors.Is(err, ErrNoRoute) {
+		t.Errorf("503 = %v, want an error that is not ErrNoRoute", err)
+	}
+	// An endless answer is cut off instead of read to the end.
+	huge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"trip":{"legs":[{"summary":{"length":1,"time":1},"shape":"`))
+		chunk := bytes.Repeat([]byte("a"), 1<<20)
+		for i := 0; i < 20; i++ { // 20 MiB, past the 8 MiB bound
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer huge.Close()
+	if _, err := NewValhalla(huge.URL).Route(context.Background(), [][2]float64{{34, -118}, {36, -115}}, RouteOpts{}); err == nil {
+		t.Error("an oversized answer must be an error, not a success")
+	}
+}

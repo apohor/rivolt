@@ -83,6 +83,7 @@ const (
 	minStationKW   = 50.0 // slower chargers are not fast-charge stops
 	chargeTo       = 80.0 // default charge target
 	chargeCap      = 90.0 // never plan a charge above this
+	finishMargin   = 2.0  // SoC points above what the rest of the trip needs
 	tieKm          = 10.0 // preferred networks win ties this close to the best
 	minLegM        = 1000 // a stop must be at least this far on
 	maxStops       = 25
@@ -117,6 +118,9 @@ func (p *Planner) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivia
 		locs[i] = [2]float64{w.Latitude, w.Longitude}
 	}
 	route, err := p.Router.Route(ctx, locs, maps.RouteOpts{})
+	if errors.Is(err, maps.ErrNoRoute) {
+		return nil, fmt.Errorf("%w: no road route between these points", rivian.ErrInvalidTrip)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("syntheticplan: route: %w", err)
 	}
@@ -397,7 +401,16 @@ func planStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reserv
 			}
 		}
 		arr := soc - socPerM*(pick.dist-d)
-		target := math.Min(chargeCap, math.Max(chargeTo, reserve+socPerM*(pt.total-pick.dist)))
+		// Charge only as far as the rest of the trip needs when it can be
+		// finished from one charge (plus a small margin), so a stop near the
+		// destination is a top-up, not a 40-minute charge to 80. When the rest
+		// of the trip needs more than the cap, charge to the usual 80 and let
+		// the next stop do the rest.
+		need := reserve + socPerM*(pt.total-pick.dist)
+		target := chargeTo
+		if need+finishMargin <= chargeCap {
+			target = math.Ceil(need + finishMargin)
+		}
 		if target <= arr {
 			target = math.Min(chargeCap, arr+1)
 		}
