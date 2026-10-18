@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -69,8 +70,8 @@ type tripPlanNetworkPref struct {
 // that vehicle).
 func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid uuid.UUID, mgr *settings.Manager, settingsStore *settings.Store, wc *weather.Client, mc *weather.MemCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		planner, ok := tripPlannerOf(c)
+		if !ok {
 			http.Error(w, "live rivian client required", http.StatusNotFound)
 			return
 		}
@@ -205,7 +206,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			}
 		}
 
-		plan, err := lc.PlanTrip(r.Context(), in)
+		plan, err := planner.PlanTrip(r.Context(), in)
 		if err != nil {
 			slog.WarnContext(r.Context(), "trip plan failed",
 				"vehicle_id", in.VehicleID,
@@ -214,6 +215,12 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			// Map upstream error class to an HTTP status the SPA
 			// can render. 4xx passes through Cloudflare cleanly;
 			// 5xx gets replaced with Cloudflare's HTML error page.
+			if errors.Is(err, rivian.ErrNoFixture) {
+				// Not an upstream failure: the stored-plan planner has no plan
+				// for this trip (preview data covers a few routes).
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "no sample plan for this trip", "class": "no_fixture"})
+				return
+			}
 			writeUpstreamError(w, err)
 			return
 		}
@@ -791,4 +798,15 @@ func handleTripPlanDiag(c rivian.Client) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// tripPlannerOf returns the client's trip planner: the live client, or the
+// replay client's fixture and synthetic planner. The stub and mock clients
+// have none, and a nil live client is not one.
+func tripPlannerOf(c rivian.Client) (rivian.TripPlanner, bool) {
+	if lc, isLive := c.(*rivian.LiveClient); isLive && lc == nil {
+		return nil, false
+	}
+	tp, ok := c.(rivian.TripPlanner)
+	return tp, ok
 }
