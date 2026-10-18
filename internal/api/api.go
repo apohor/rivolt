@@ -1102,6 +1102,14 @@ func New(d Deps) http.Handler {
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
 			}))
+			// Re-plan a saved multi-day trip from the truck's position, SoC and
+			// time: the rest of the trip, through the same leg cache and quota.
+			// Read-only; the client saves the result with the saved-trip PUT.
+			if d.Trips != nil {
+				r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/saved/{id}/replan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleTripReplan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.Trips.For(uid), d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
+				}))
+			}
 		})
 
 		// Bulk data routes. Identical auth, no 30s timeout — an

@@ -447,3 +447,17 @@ func tapered(arr, offered float64) float64 {
 }
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
+
+// OvernightCharge is the overnight model for a stay the orchestrator did not
+// plan: a re-plan made while the truck is already parked for the night
+// projects what the rest of the stay adds. capPct 0 takes DefaultCapPct and
+// acMaxKW 0 takes DefaultACMaxKW, as Plan does.
+func OvernightCharge(arrSoC, hours float64, ov Overnight, packKWh, acMaxKW, capPct float64) OvernightResult {
+	if acMaxKW <= 0 {
+		acMaxKW = DefaultACMaxKW
+	}
+	if capPct <= 0 {
+		capPct = DefaultCapPct
+	}
+	return *overnight(arrSoC, hours, &ov, packKWh, acMaxKW, capPct)
+}

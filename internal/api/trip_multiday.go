@@ -125,172 +125,198 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			badRequest(w, "invalid body: "+err.Error())
 			return
 		}
-		days, err := req.dayInputs()
-		if err != nil {
-			badRequest(w, err.Error())
+		md := multidayDeps{mon: mon, pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc}
+		resp, ok := planMultidayCore(r.Context(), w, planner, md, req)
+		if !ok {
 			return
-		}
-		if len(days) == 0 {
-			badRequest(w, "at least one day required (use /api/trips/plan for a single day)")
-			return
-		}
-		var startAt time.Time
-		if req.StartAt != "" {
-			if startAt, err = time.Parse(time.RFC3339, req.StartAt); err != nil {
-				badRequest(w, "start_at must be an RFC 3339 time")
-				return
-			}
-		}
-		// "until" times are read in the client's zone (an IANA name, what the
-		// browser reports). A missing or unrecognised zone falls back to UTC
-		// rather than failing the plan; the response says which was used.
-		loc, tzUsed := time.UTC, "UTC"
-		if req.TZ != "" {
-			if l, err := time.LoadLocation(req.TZ); err == nil {
-				loc, tzUsed = l, req.TZ
-			}
-		}
-
-		vid := ""
-		if req.VehicleID != nil {
-			vid = *req.VehicleID
-		}
-		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, vid, req.StartingSoC, 0)
-		if msg != "" {
-			badRequest(w, msg)
-			return
-		}
-		pack := req.PackKWh
-		if pack <= 0 {
-			pack = vehiclePackKWh(r.Context(), pool, uid, rv.VehicleID)
-		}
-		if pack <= 0 {
-			badRequest(w, "pack_kwh required (this vehicle's pack size is not known)")
-			return
-		}
-
-		// Validate drive_mode against the gateway's strict enum, same
-		// filter the single-day handler applies.
-		drive := ""
-		switch req.DriveMode {
-		case "", settings.DriveModeEveryday, settings.DriveModeDistance,
-			settings.DriveModeSport, settings.DriveModeWinter,
-			settings.DriveModeOffRoadAuto:
-			drive = req.DriveMode
-		}
-
-		mreq := tripmultiday.Request{
-			VehicleID:           rv.VehicleID,
-			HasAdapter:          req.HasAdapter,
-			DriveMode:           drive,
-			TrailerProfile:      req.TrailerProfile,
-			PackKWh:             pack,
-			StartingSoC:         rv.StartingSoC,
-			StartAt:             startAt,
-			Loc:                 loc,
-			Origin:              req.Origin.waypoint(),
-			Days:                days,
-			MaxOvernightSoCPct:  req.MaxOvernightSoCPct,
-			TargetArrivalSoCPct: req.TargetArrivalSocPercent,
-		}
-		for _, np := range req.NetworkPreferences {
-			mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
-				NetworkID:  np.NetworkID,
-				Preference: np.Preference,
-			})
-		}
-		// Auto-inject the full networkPreferences list (same as the
-		// single-day handler). See handleTripPlan for the
-		// preference=1/0 hypothesis rationale.
-		if settingsStore != nil {
-			if nets, err := settings.GetChargingNetworks(r.Context(), settingsStore); err == nil {
-				existing := make(map[string]bool, len(mreq.NetworkPreferences))
-				for _, np := range mreq.NetworkPreferences {
-					existing[np.NetworkID] = true
-				}
-				for _, p := range settings.NetworkPreferenceList(nets) {
-					if existing[p.NetworkID] {
-						continue
-					}
-					mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
-						NetworkID:  p.NetworkID,
-						Preference: p.Preference,
-					})
-				}
-			}
-		}
-
-		// The same weather, profile and cost pass the single-day plan gets, run
-		// on each day from its own starting SoC and reserve. It runs while the
-		// days are chained, and the overnight and the next day start from the
-		// corrected arrival when that is lower than the plan's: the chain is as
-		// conservative as the arrival the user is shown.
-		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
-		enr.load(r.Context())
-		type dayExtras struct {
-			adj   *tripWeatherAdjustmentDTO
-			costs []tripadvice.CostEstimate
-		}
-		extras := map[int]dayExtras{}
-		mreq.AdjustArrival = func(ctx context.Context, day int, plan *rivian.TripPlan, startSoC float64, target *float64) (float64, bool) {
-			adj, costs := enr.enrich(ctx, plan, startSoC, target)
-			extras[day] = dayExtras{adj, costs}
-			if adj == nil {
-				return 0, false
-			}
-			return adj.FinalArrivalSoC, true
-		}
-
-		out, err := tripmultiday.Plan(r.Context(), planner, mreq)
-		if err != nil {
-			var re *tripmultiday.RequestError
-			if errors.As(err, &re) {
-				badRequest(w, re.Error())
-				return
-			}
-			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "err", err.Error())
-			writeUpstreamError(w, err)
-			return
-		}
-
-		// Over the hourly planner quota: refuse the request (429) rather than
-		// return a half plan. The days already planned are cached, so asking
-		// again after the window costs only the days that are left.
-		if out.FailedErr != nil && writeQuotaError(w, out.FailedErr) {
-			return
-		}
-
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
-		for i, d := range out.Days {
-			day := tripPlanMultidayDay{Day: d}
-			if ex, ok := extras[d.Index]; ok {
-				day.WeatherAdjustment, day.Costs = ex.adj, ex.costs
-			} else {
-				// The last day is not chained from, so it was not corrected on the way.
-				target := req.TargetArrivalSocPercent
-				if i < len(req.Days) && req.Days[i].TargetArrivalSocPct != nil {
-					target = req.Days[i].TargetArrivalSocPct
-				}
-				day.WeatherAdjustment, day.Costs = enr.enrich(r.Context(), d.Plan, d.DepartureSoC, target)
-			}
-			resp.Days = append(resp.Days, day)
-		}
-		if out.FailedDay > 0 {
-			resp.FailedDay, resp.Error = out.FailedDay, out.Error
-			if out.FailedErr != nil {
-				_, body := upstreamErrorBody(out.FailedErr)
-				resp.ErrorClass, _ = body["class"].(string)
-				resp.ErrorReason, _ = body["reason"].(string)
-				if out.PlannerFailure {
-					// The detail (gateway text, router errors) is for the logs.
-					slog.WarnContext(r.Context(), "multi-day plan: a day could not be planned",
-						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "err", out.FailedErr.Error())
-					resp.Error = out.Error + ": " + plainPlanReason(out.FailedErr)
-				}
-			}
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// multidayDeps is what a multi-day plan reads besides the request: the
+// vehicle's cached state and DB rows, settings, and weather.
+type multidayDeps struct {
+	mon           *rivian.StateMonitor
+	pool          *sql.DB
+	uid           uuid.UUID
+	mgr           *settings.Manager
+	settingsStore *settings.Store
+	wc            *weather.Client
+	mc            *weather.MemCache
+}
+
+// planMultidayCore plans req (auto-filling the vehicle, SoC and pack), runs the
+// per-day enrichment and returns the response. On a refusal it has already
+// written the error to w and returns false. The plan-multiday handler and the
+// saved-trip re-plan both use it.
+func planMultidayCore(ctx context.Context, w http.ResponseWriter, planner rivian.TripPlanner, md multidayDeps, req tripPlanMultidayRequest) (*tripPlanMultidayResponse, bool) {
+	mon, pool, uid, mgr, settingsStore, wc, mc := md.mon, md.pool, md.uid, md.mgr, md.settingsStore, md.wc, md.mc
+	days, err := req.dayInputs()
+	if err != nil {
+		badRequest(w, err.Error())
+		return nil, false
+	}
+	if len(days) == 0 {
+		badRequest(w, "at least one day required (use /api/trips/plan for a single day)")
+		return nil, false
+	}
+	var startAt time.Time
+	if req.StartAt != "" {
+		if startAt, err = time.Parse(time.RFC3339, req.StartAt); err != nil {
+			badRequest(w, "start_at must be an RFC 3339 time")
+			return nil, false
+		}
+	}
+	// "until" times are read in the client's zone (an IANA name, what the
+	// browser reports). A missing or unrecognised zone falls back to UTC
+	// rather than failing the plan; the response says which was used.
+	loc, tzUsed := time.UTC, "UTC"
+	if req.TZ != "" {
+		if l, err := time.LoadLocation(req.TZ); err == nil {
+			loc, tzUsed = l, req.TZ
+		}
+	}
+
+	vid := ""
+	if req.VehicleID != nil {
+		vid = *req.VehicleID
+	}
+	rv, msg := resolveVehicle(ctx, mon, pool, uid, vid, req.StartingSoC, 0)
+	if msg != "" {
+		badRequest(w, msg)
+		return nil, false
+	}
+	pack := req.PackKWh
+	if pack <= 0 {
+		pack = vehiclePackKWh(ctx, pool, uid, rv.VehicleID)
+	}
+	if pack <= 0 {
+		badRequest(w, "pack_kwh required (this vehicle's pack size is not known)")
+		return nil, false
+	}
+
+	// Validate drive_mode against the gateway's strict enum, same
+	// filter the single-day handler applies.
+	drive := ""
+	switch req.DriveMode {
+	case "", settings.DriveModeEveryday, settings.DriveModeDistance,
+		settings.DriveModeSport, settings.DriveModeWinter,
+		settings.DriveModeOffRoadAuto:
+		drive = req.DriveMode
+	}
+
+	mreq := tripmultiday.Request{
+		VehicleID:           rv.VehicleID,
+		HasAdapter:          req.HasAdapter,
+		DriveMode:           drive,
+		TrailerProfile:      req.TrailerProfile,
+		PackKWh:             pack,
+		StartingSoC:         rv.StartingSoC,
+		StartAt:             startAt,
+		Loc:                 loc,
+		Origin:              req.Origin.waypoint(),
+		Days:                days,
+		MaxOvernightSoCPct:  req.MaxOvernightSoCPct,
+		TargetArrivalSoCPct: req.TargetArrivalSocPercent,
+	}
+	for _, np := range req.NetworkPreferences {
+		mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
+			NetworkID:  np.NetworkID,
+			Preference: np.Preference,
+		})
+	}
+	// Auto-inject the full networkPreferences list (same as the
+	// single-day handler). See handleTripPlan for the
+	// preference=1/0 hypothesis rationale.
+	if settingsStore != nil {
+		if nets, err := settings.GetChargingNetworks(ctx, settingsStore); err == nil {
+			existing := make(map[string]bool, len(mreq.NetworkPreferences))
+			for _, np := range mreq.NetworkPreferences {
+				existing[np.NetworkID] = true
+			}
+			for _, p := range settings.NetworkPreferenceList(nets) {
+				if existing[p.NetworkID] {
+					continue
+				}
+				mreq.NetworkPreferences = append(mreq.NetworkPreferences, rivian.NetworkPreference{
+					NetworkID:  p.NetworkID,
+					Preference: p.Preference,
+				})
+			}
+		}
+	}
+
+	// The same weather, profile and cost pass the single-day plan gets, run
+	// on each day from its own starting SoC and reserve. It runs while the
+	// days are chained, and the overnight and the next day start from the
+	// corrected arrival when that is lower than the plan's: the chain is as
+	// conservative as the arrival the user is shown.
+	enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
+	enr.load(ctx)
+	type dayExtras struct {
+		adj   *tripWeatherAdjustmentDTO
+		costs []tripadvice.CostEstimate
+	}
+	extras := map[int]dayExtras{}
+	mreq.AdjustArrival = func(ctx context.Context, day int, plan *rivian.TripPlan, startSoC float64, target *float64) (float64, bool) {
+		adj, costs := enr.enrich(ctx, plan, startSoC, target)
+		extras[day] = dayExtras{adj, costs}
+		if adj == nil {
+			return 0, false
+		}
+		return adj.FinalArrivalSoC, true
+	}
+
+	out, err := tripmultiday.Plan(ctx, planner, mreq)
+	if err != nil {
+		var re *tripmultiday.RequestError
+		if errors.As(err, &re) {
+			badRequest(w, re.Error())
+			return nil, false
+		}
+		slog.WarnContext(ctx, "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "err", err.Error())
+		writeUpstreamError(w, err)
+		return nil, false
+	}
+
+	// Over the hourly planner quota: refuse the request (429) rather than
+	// return a half plan. The days already planned are cached, so asking
+	// again after the window costs only the days that are left.
+	if out.FailedErr != nil && writeQuotaError(w, out.FailedErr) {
+		return nil, false
+	}
+
+	resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+	for i, d := range out.Days {
+		day := tripPlanMultidayDay{Day: d}
+		if ex, ok := extras[d.Index]; ok {
+			day.WeatherAdjustment, day.Costs = ex.adj, ex.costs
+		} else {
+			// The last day is not chained from, so it was not corrected on the way.
+			target := req.TargetArrivalSocPercent
+			if i < len(req.Days) && req.Days[i].TargetArrivalSocPct != nil {
+				target = req.Days[i].TargetArrivalSocPct
+			}
+			day.WeatherAdjustment, day.Costs = enr.enrich(ctx, d.Plan, d.DepartureSoC, target)
+		}
+		resp.Days = append(resp.Days, day)
+	}
+	if out.FailedDay > 0 {
+		resp.FailedDay, resp.Error = out.FailedDay, out.Error
+		if out.FailedErr != nil {
+			_, body := upstreamErrorBody(out.FailedErr)
+			resp.ErrorClass, _ = body["class"].(string)
+			resp.ErrorReason, _ = body["reason"].(string)
+			if out.PlannerFailure {
+				// The detail (gateway text, router errors) is for the logs.
+				slog.WarnContext(ctx, "multi-day plan: a day could not be planned",
+					"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "err", out.FailedErr.Error())
+				resp.Error = out.Error + ": " + plainPlanReason(out.FailedErr)
+			}
+		}
+	}
+	return &resp, true
 }
 
 // dayInputs turns the request's days, or the older destination-plus-overnights
