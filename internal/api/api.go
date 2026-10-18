@@ -402,7 +402,9 @@ func New(d Deps) http.Handler {
 		// Release notes for the /changelog page. The admin and demo-only
 		// gates 404 it there, like every non-allowlisted /api path.
 		if d.Changelog != nil {
-			r.With(clLimiter.Middleware).Get("/changelog", handleChangelogJSON(d.Changelog))
+			cl := handleChangelogJSON(d.Changelog)
+			r.With(clLimiter.Middleware).Get("/changelog", cl)
+			r.With(clLimiter.Middleware).Head("/changelog", cl)
 		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
@@ -1167,7 +1169,10 @@ func New(d Deps) http.Handler {
 	// The release-notes feed, next to the /changelog page. Outside /api, so
 	// it is mounted only on the public site, not the admin or demo hosts.
 	if d.Changelog != nil && !d.AdminOnly && !demo.OnlyEnabled() {
-		r.With(clLimiter.Middleware).Get("/changelog.atom", handleChangelogAtom(d.Changelog))
+		// HEAD too: feed readers and validators probe with it first.
+		feed := handleChangelogAtom(d.Changelog)
+		r.With(clLimiter.Middleware).Get("/changelog.atom", feed)
+		r.With(clLimiter.Middleware).Head("/changelog.atom", feed)
 	}
 	r.Handle("/*", spaHandler(d.WebFS))
 

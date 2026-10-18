@@ -78,3 +78,14 @@ func TestChangelogJSONIsNotOnTheAdminHost(t *testing.T) {
 		t.Errorf("/api/changelog on the admin host: %d, want 404", code)
 	}
 }
+
+func TestChangelogAnswersHEAD(t *testing.T) {
+	r := New(Deps{Changelog: changelogSource(t, false)})
+	for path, ct := range map[string]string{"/changelog.atom": "application/atom+xml", "/api/changelog": "application/json"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, path, nil))
+		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), ct) {
+			t.Errorf("HEAD %s: %d %q", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+}
