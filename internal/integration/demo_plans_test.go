@@ -83,17 +83,20 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'replay')`, uid, vid, recorded); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 2 {
+	if n, err := demo.SeedPlans(ctx, pool, sf, now); err != nil || n != 3 {
 		t.Fatalf("first pass: n=%d err=%v", n, err)
 	}
 	first := read()
-	if len(first) != 3 {
+	if len(first) != 4 { // the two legs, the two-day trip, and Other
 		t.Fatalf("rows = %+v", first)
 	}
 	for name, id := range demo.SampleTripIDs() {
 		if first[name].id != id.String() {
 			t.Errorf("%s: id %s, want %s", name, first[name].id, id)
 		}
+	}
+	if first[demo.MultidayTripName].id != demo.SampleMultidayTripID().String() {
+		t.Errorf("two-day trip id %s, want %s", first[demo.MultidayTripName].id, demo.SampleMultidayTripID())
 	}
 	var plan json.RawMessage
 	if err := pool.QueryRowContext(ctx, `SELECT plan FROM saved_trips WHERE user_id = $1 AND name = 'Las Vegas weekend'`, uid).Scan(&plan); err != nil || len(plan) == 0 {
@@ -103,11 +106,11 @@ func TestDemoSamplePlansSeed(t *testing.T) {
 	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(time.Hour)); err != nil || n != 0 {
 		t.Fatalf("same loop: n=%d err=%v, want no rewrite", n, err)
 	}
-	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(60*24*time.Hour)); err != nil || n != 2 {
+	if n, err := demo.SeedPlans(ctx, pool, sf, now.Add(60*24*time.Hour)); err != nil || n != 3 {
 		t.Fatalf("next loop: n=%d err=%v", n, err)
 	}
 	next := read()
-	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home"} {
+	for _, name := range []string{"Las Vegas weekend", "Las Vegas back home", demo.MultidayTripName} {
 		a, b := first[name], next[name]
 		if a.id != b.id || a.depart == b.depart || !b.created.After(a.created) {
 			t.Errorf("%s: %+v then %+v, want the same row on a later trip", name, a, b)
