@@ -1,6 +1,6 @@
 # Rivolt Privacy Policy
 
-Last updated: October 17, 2026
+Last updated: October 18, 2026
 
 **Who runs Rivolt.** Rivolt (rivolt.dev) is run by **Anton Pohorilyi, an individual** (not a company) in Texas, United States ("we"). Contact: anton@rivolt.dev. Rivolt is independent and not affiliated with Rivian. This policy covers the hosted service only, not copies of the open-source code that others run themselves.
 
@@ -16,6 +16,7 @@ Last updated: October 17, 2026
 - **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
+- **Admin actions on your account:** when the operator changes your account (its role, disabling or deleting it, or a Rivian sync or session refresh), or views it as you, we log your account ID, the action and the time, and keep that for 2 years.
 
 **Who we share it with.** Only these, and only for the service:
 - **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt.
