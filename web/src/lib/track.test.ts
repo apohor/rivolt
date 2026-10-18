@@ -36,27 +36,27 @@ describe("track", () => {
 
   it("sends nothing while events are off server-side", async () => {
     const t = await setup({ events: false });
-    t.track("demo_view", { tab: "now" });
+    t.track("demo_click", { where: "hero" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(t.posts).toHaveLength(0);
   });
 
   it("batches events with a random anon id when on", async () => {
     const t = await setup({ events: true });
-    t.track("demo_view", { tab: "now" });
-    t.track("demo_tab", { tab: "money" });
+    t.track("demo_click", { where: "hero" });
+    t.track("landing_view", { utm_source: "x" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(t.posts).toHaveLength(1);
     const b = t.posts[0].body;
     expect(b.anon_id).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
-    expect(b.events.map((e) => e.name)).toEqual(["demo_view", "demo_tab"]);
+    expect(b.events.map((e) => e.name)).toEqual(["demo_click", "landing_view"]);
     // The same browser keeps the same id.
     expect(window.localStorage.getItem("rivolt.anon_id")).toBe(b.anon_id);
   });
 
   it("honours Do-Not-Track: nothing queued, nothing sent", async () => {
     const t = await setup({ events: true, dnt: true });
-    t.track("demo_view", { tab: "now" });
+    t.track("demo_click", { where: "hero" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(t.posts).toHaveLength(0);
   });
@@ -66,7 +66,7 @@ describe("track", () => {
     const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");
     });
-    t.track("demo_view", { tab: "now" });
+    t.track("demo_click", { where: "hero" });
     await vi.advanceTimersByTimeAsync(1000);
     spy.mockRestore();
     expect(t.posts).toHaveLength(0);
