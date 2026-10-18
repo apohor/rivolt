@@ -8,7 +8,7 @@ import { stopImpersonation } from "../lib/impersonation";
 // Using window.location instead of react-router so the full SPA
 // state is dropped — we don't want cached queries leaking between
 // users on a shared-browser install.
-export function SignOutButton() {
+export function SignOutButton({ label = "Sign out", solid = false }: { label?: string; solid?: boolean } = {}) {
   const me = useQuery({
     queryKey: ["auth", "me"],
     queryFn: () => backend.whoami(),
@@ -32,9 +32,13 @@ export function SignOutButton() {
         }
       }}
       title={`Signed in as ${me.data.username}`}
-      className="rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100"
+      className={
+        solid
+          ? "rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-sm font-semibold text-neutral-100 hover:border-neutral-500 hover:bg-neutral-700"
+          : "rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100"
+      }
     >
-      Sign out
+      {label}
     </button>
   );
 }

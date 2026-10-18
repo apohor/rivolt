@@ -137,7 +137,7 @@ for (const view of views) {
         if (view.name === "settings") {
           // Sign out lives in Settings now.
           const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Rivolt account" }) });
-          await expect(card.getByRole("button", { name: "Sign out", exact: true })).toHaveCount(1);
+          await expect(card.getByRole("button", { name: "Sign out of Rivolt", exact: true })).toHaveCount(1);
         }
         if (view.name.endsWith("stale")) {
           await expect(page.getByTestId("now-pill")).not.toHaveText("Live");

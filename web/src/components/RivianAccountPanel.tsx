@@ -69,6 +69,7 @@ export function RivianAccountPanel() {
     mutationFn: () => backend.rivianLogout(),
     onSuccess: invalidate,
   });
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const authenticated = !!status.data?.authenticated;
   // DB-backed list, filled by the server during sign-in, so it's
   // current as soon as the login mutation invalidates it.
@@ -114,7 +115,7 @@ export function RivianAccountPanel() {
                 "Rivian rejected our stored session token. Drives and live state may stop recording until you re-sign in."}
             </p>
             <p className="mt-1 text-xs text-amber-100/60">
-              Sign out below, then sign in again with your Rivian password (a
+              Sign out of Rivian below, then sign in again with your Rivian password (a
               one-time code will follow by email or in your authenticator app).
             </p>
           </div>
@@ -124,14 +125,41 @@ export function RivianAccountPanel() {
             <div className="text-neutral-200">Connected as</div>
             <div className="text-xs text-neutral-500">{s.email || "unknown"}</div>
           </div>
-          <button
-            onClick={() => logout.mutate()}
-            disabled={logout.isPending}
-            className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-rose-500/50 hover:text-rose-300 disabled:opacity-50"
-          >
-            {logout.isPending ? "Signing out…" : "Sign out"}
-          </button>
+          {!confirmingSignOut && (
+            <button
+              type="button"
+              onClick={() => setConfirmingSignOut(true)}
+              disabled={logout.isPending}
+              className="rounded-md border border-rose-500/40 px-3 py-1.5 text-sm text-rose-300 hover:border-rose-500/70 hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              {logout.isPending ? "Signing out…" : "Sign out of Rivian"}
+            </button>
+          )}
         </div>
+        {confirmingSignOut && (
+          <div data-rivian-signout-confirm role="alertdialog" aria-label="Sign out of Rivian?" className="rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-sm">
+            <p className="font-medium text-rose-200">Sign out of Rivian?</p>
+            <p className="mt-1 text-xs text-neutral-300">
+              Rivolt deletes the stored Rivian session and stops recording until you sign in again. Your history stays.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingSignOut(false);
+                  logout.mutate();
+                }}
+                disabled={logout.isPending}
+                className="rounded-md bg-rose-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+              >
+                Yes, sign out of Rivian
+              </button>
+              <button type="button" onClick={() => setConfirmingSignOut(false)} className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <ConnectedVehicles
           vehicles={owned.data?.vehicles}
           loading={owned.isLoading}
