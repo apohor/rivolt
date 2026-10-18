@@ -231,3 +231,18 @@ func TestFailureBacksOff(t *testing.T) {
 		t.Errorf("with a copy and GitHub failing: %d upstream calls, want 3", calls)
 	}
 }
+
+func TestCallerHangingUpIsNotAFailure(t *testing.T) {
+	var calls int32
+	gh := fakeGitHub(t, &calls, nil)
+	defer gh.Close()
+	s := New(gh.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the client is already gone
+	if rels, err := s.Releases(ctx); err != nil || len(rels) != 2 {
+		t.Fatalf("a cancelled caller must still get the fetched notes: %d releases, err %v", len(rels), err)
+	}
+	if !s.failedAt.IsZero() {
+		t.Error("a caller hanging up must not start the backoff")
+	}
+}

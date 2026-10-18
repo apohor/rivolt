@@ -135,7 +135,10 @@ type ghRelease struct {
 }
 
 func (s *Source) fetch(ctx context.Context, etag string) ([]Release, string, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	// The fetch serves every caller, so it outlives the one that started it:
+	// a client hanging up mid-fetch must not count as a GitHub failure (that
+	// would start the backoff). The timeout still bounds it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fetchTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
 	if err != nil {
