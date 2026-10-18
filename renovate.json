@@ -14,6 +14,8 @@
   "postUpdateOptions": ["gomodTidy"],
   "platformAutomerge": false,
   "automergeSchedule": ["at any time"],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": { "labels": ["dependencies", "security"], "minimumReleaseAge": "1 day" },
   "packageRules": [
     {
       "description": "Image tag in the Helm chart is owned by CI (retag/promote release flow), never by Renovate",
