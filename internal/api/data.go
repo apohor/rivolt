@@ -1,10 +1,13 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -170,7 +173,14 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 // their data before wiping it. The response is served with a
 // Content-Disposition attachment so browsers download it directly;
 // nothing is kept server-side.
+//
+// It is streamed: the envelope is written by hand and drives, charges and
+// samples are encoded one row at a time from a database cursor, so memory
+// stays flat however much data the user has (the old version built a slice
+// of every sample first and OOM-killed small pods). A guard keeps a few
+// backups from running at once and one user from repeating them.
 func handleDataBackup(d Deps) http.HandlerFunc {
+	guard := newBackupGuard(backupMaxConcurrent, backupPerUserGap, time.Now)
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok || uid == uuid.Nil {
@@ -184,22 +194,14 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			http.Error(w, "backup unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
+		release, retryAfter, allowed := guard.acquire(uid)
+		if !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+			http.Error(w, "a backup is already running or was just made; try again shortly", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
 		ctx := r.Context()
-		drv, err := ds.ListAll(ctx)
-		if err != nil {
-			http.Error(w, "list drives: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		chg, err := cs.ListAll(ctx)
-		if err != nil {
-			http.Error(w, "list charges: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		smp, err := ss.ListAll(ctx)
-		if err != nil {
-			http.Error(w, "list samples: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 		// User settings (charging cost, currency, home location,
 		// trip planner defaults, drive mode, display prefs, etc.).
 		// Flat key/value map — survives schema changes because the
@@ -249,16 +251,145 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition",
 			`attachment; filename="rivolt-backup-`+stamp+`.json"`)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"version":          d.Version,
-			"created_at":       time.Now().UTC().Format(time.RFC3339),
-			"drives":           drv,
-			"charges":          chg,
-			"samples":          smp,
-			"user_settings":    userSettings,
-			"vehicle_profiles": profiles,
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+
+		bw := bufio.NewWriterSize(w, 64<<10)
+		flusher, _ := w.(http.Flusher)
+		enc := json.NewEncoder(bw)
+		// fail ends a stream that broke after the status line went out: a
+		// clean ending would hand the user a truncated file that looks
+		// complete, so abort the connection and let the download fail.
+		fail := func(what string, err error) {
+			slog.WarnContext(ctx, "backup stream failed", "stage", what, "err", err.Error())
+			guard.forget(uid) // let the user retry at once
+			panic(http.ErrAbortHandler)
+		}
+		put := func(v any) {
+			if err := enc.Encode(v); err != nil {
+				fail("encode", err)
+			}
+		}
+		writeStr := func(str string) {
+			if _, err := bw.WriteString(str); err != nil {
+				fail("write", err)
+			}
+		}
+		flush := func() {
+			if err := bw.Flush(); err != nil {
+				fail("flush", err)
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		// streamArray writes "name":[ ... ] one element at a time.
+		streamArray := func(name string, each func(emit func(any) error) error) {
+			writeStr(`,"` + name + `":[`)
+			n := 0
+			err := each(func(v any) error {
+				if err := ctx.Err(); err != nil { // client went away
+					return err
+				}
+				if n > 0 {
+					if _, err := bw.WriteString(","); err != nil {
+						return err
+					}
+				}
+				n++
+				if err := enc.Encode(v); err != nil {
+					return err
+				}
+				if n%backupFlushEvery == 0 {
+					if err := bw.Flush(); err != nil {
+						return err
+					}
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				fail(name, err)
+			}
+			writeStr("]")
+		}
+		writeStr("{")
+		writeStr(`"version":`)
+		put(d.Version)
+		writeStr(`,"created_at":`)
+		put(time.Now().UTC().Format(time.RFC3339))
+		writeStr(`,"user_settings":`)
+		put(userSettings)
+		writeStr(`,"vehicle_profiles":`)
+		put(profiles)
+		streamArray("drives", func(emit func(any) error) error {
+			return ds.EachAll(ctx, func(v drives.Drive) error { return emit(v) })
 		})
+		streamArray("charges", func(emit func(any) error) error {
+			return cs.EachAll(ctx, func(v charges.Charge) error { return emit(v) })
+		})
+		streamArray("samples", func(emit func(any) error) error {
+			return ss.EachAll(ctx, func(v samples.Sample) error { return emit(v) })
+		})
+		writeStr("}\n")
+		flush()
 	}
+}
+
+// Backup limits (see backupGuard).
+const (
+	backupMaxConcurrent = 2                // backups running at once per pod
+	backupPerUserGap    = 10 * time.Minute // minimum gap between one user's backups
+	backupFlushEvery    = 500              // elements between flushes to the client
+)
+
+// backupGuard bounds the cost of /api/data/backup: at most max run at once
+// on this pod and one user may start one per gap. In-memory and per pod, so
+// the effective per-user rate is gap divided by the number of pods.
+type backupGuard struct {
+	sem  chan struct{}
+	gap  time.Duration
+	now  func() time.Time
+	mu   sync.Mutex
+	last map[uuid.UUID]time.Time
+}
+
+func newBackupGuard(max int, gap time.Duration, now func() time.Time) *backupGuard {
+	return &backupGuard{sem: make(chan struct{}, max), gap: gap, now: now, last: map[uuid.UUID]time.Time{}}
+}
+
+// acquire reserves a slot for uid. On refusal it returns how long until a
+// retry could succeed. release must be called when the backup ends.
+func (g *backupGuard) acquire(uid uuid.UUID) (release func(), retryAfter time.Duration, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := g.now()
+	if t, seen := g.last[uid]; seen && now.Sub(t) < g.gap {
+		return nil, g.gap - now.Sub(t), false
+	}
+	select {
+	case g.sem <- struct{}{}:
+	default:
+		return nil, 30 * time.Second, false
+	}
+	// Forget old entries so the map does not grow without bound.
+	for k, t := range g.last {
+		if now.Sub(t) >= g.gap {
+			delete(g.last, k)
+		}
+	}
+	g.last[uid] = now
+	return func() { <-g.sem }, 0, true
+}
+
+// forget clears uid's gap (a backup that broke should not cost the user
+// the wait).
+func (g *backupGuard) forget(uid uuid.UUID) {
+	g.mu.Lock()
+	delete(g.last, uid)
+	g.mu.Unlock()
 }
 
 // handleDataRestore accepts a previously downloaded backup bundle

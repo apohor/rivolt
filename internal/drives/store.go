@@ -197,7 +197,7 @@ func (s *Store) Dedupe(ctx context.Context) (int, error) { return 0, nil }
 // ListAll returns every drive for this user, newest first. Used by
 // the Settings → Backup endpoint; /api/drives keeps the capped
 // ListRecent path for the dashboard.
-func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
+func (s *Store) EachAll(ctx context.Context, fn func(Drive) error) error {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.external_id, v.rivian_vehicle_id,
 		       d.started_at, d.ended_at,
@@ -214,10 +214,9 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 		  AND ended_at - started_at >= interval '1 minute'
 		ORDER BY d.started_at DESC`, s.userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var out []Drive
 	for rows.Next() {
 		var d Drive
 		if err := rows.Scan(&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
@@ -228,13 +227,25 @@ func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
 			&d.EnergyUsedKWh, &d.Source,
 			&d.RoutePolyline,
 		); err != nil {
-			return nil, err
+			return err
 		}
 		d.StartedAt = d.StartedAt.UTC()
 		d.EndedAt = d.EndedAt.UTC()
-		out = append(out, d)
+		if err := fn(d); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
+}
+
+// ListAll returns every row; use EachAll for large result sets.
+func (s *Store) ListAll(ctx context.Context) ([]Drive, error) {
+	var out []Drive
+	err := s.EachAll(ctx, func(v Drive) error {
+		out = append(out, v)
+		return nil
+	})
+	return out, err
 }
 
 func nullIfZero(f float64) sql.NullFloat64 {
