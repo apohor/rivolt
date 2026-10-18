@@ -2,7 +2,7 @@ import { useState } from "react";
 import { inDemo } from "../lib/demo";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUiNext } from "../lib/uiNext";
-import { backend, type PlanVsActual as Pva, type SavedTrip } from "../lib/api";
+import { backend, isPvaMulti, type PlanVsActual as Pva, type PlanVsActualMulti, type SavedTrip } from "../lib/api";
 import { costHeader, drivenText, rows, stopLabel, stateOf, topCandidate, type Row } from "../lib/planVsActual";
 import { Card } from "./ui";
 
@@ -44,7 +44,8 @@ function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?:
   const lines: SavedTrip[] = [];
   trips.forEach((t, i) => {
     const d = qs[i].data;
-    if (d && (stateOf(d) === "linked-full" || stateOf(d) === "linked-partial" || stateOf(d) === "suggested")) matched.push(t);
+    const parts = d ? (isPvaMulti(d) ? d.days : [d]) : [];
+    if (parts.some((x) => stateOf(x) === "linked-full" || stateOf(x) === "linked-partial" || stateOf(x) === "suggested")) matched.push(t);
     else lines.push(t);
   });
   const shown = more ? matched : matched.slice(0, 1);
@@ -85,10 +86,18 @@ function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boo
     retry: 0,
     staleTime: 60_000,
   });
-  const set = (data: Pva) => qc.setQueryData(["trips", "pva", trip.id], data);
-  const link = useMutation({ mutationFn: (tripID: string) => backend.planVsActualLink(trip.id, tripID), onSuccess: set });
+  // A single-day answer is the new data; a multi-day one is per day, so refetch the whole trip.
+  const set = (data: Pva) => {
+    const cur = qc.getQueryData<Pva | PlanVsActualMulti | null>(["trips", "pva", trip.id]);
+    if (cur && isPvaMulti(cur)) qc.invalidateQueries({ queryKey: ["trips", "pva", trip.id] });
+    else qc.setQueryData(["trips", "pva", trip.id], data);
+  };
+  const link = useMutation({
+    mutationFn: (v: { tripID: string; day?: number }) => backend.planVsActualLink(trip.id, v.tripID, v.day),
+    onSuccess: set,
+  });
   const unlink = useMutation({
-    mutationFn: (tripID: string) => backend.planVsActualUnlink(trip.id, tripID),
+    mutationFn: (v: { tripID: string; day?: number }) => backend.planVsActualUnlink(trip.id, v.tripID, v.day),
     onSuccess: set,
   });
   const d = q.data;
@@ -96,22 +105,53 @@ function TripCompare({ trip, compact = false }: { trip: SavedTrip; compact?: boo
   if (!d) return null; // endpoint absent: nothing to show
   const busy = link.isPending || unlink.isPending;
   const err = link.error ?? unlink.error;
-  if (compact) {
-    const st = stateOf(d);
-    if (st === "none" || st === "in-progress" || st === "link-lost") {
-      const text = st === "none" ? "Not driven yet" : st === "in-progress" ? "In progress" : "Link lost";
-      return (
-        <div className="flex items-baseline justify-between gap-3 px-1 text-sm">
-          <span className="min-w-0 truncate text-neutral-200">{trip.name}</span>
-          <span className="shrink-0 text-xs text-neutral-500">{text}</span>
+  const parts = isPvaMulti(d) ? d.days : [d];
+  if (compact && parts.every((x) => ["none", "in-progress", "link-lost"].includes(stateOf(x)))) {
+    const st = stateOf(parts[0]);
+    const text = parts.length > 1 || st === "none" ? "Not driven yet" : st === "in-progress" ? "In progress" : "Link lost";
+    return (
+      <div className="flex items-baseline justify-between gap-3 px-1 text-sm">
+        <span className="min-w-0 truncate text-neutral-200">{trip.name}</span>
+        <span className="shrink-0 text-xs text-neutral-500">{text}</span>
+      </div>
+    );
+  }
+  if (isPvaMulti(d)) {
+    return (
+      <div className="rounded-lg border border-neutral-800 p-3" data-pva-multiday>
+        <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
+        <div className="mt-2 space-y-4">
+          {d.days.map((x, i) => (
+            <section
+              key={x.day}
+              aria-label={`Day ${x.day}: plan vs actual`}
+              data-pva-day={x.day}
+              className={i > 0 ? "border-t border-neutral-800 pt-4" : undefined}
+            >
+              <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-400">Day {x.day}: plan vs actual</h4>
+              {stateOf(x) === "none" ? (
+                <p className="mt-1 text-sm text-neutral-400">Drive this day and the actuals appear here.</p>
+              ) : (
+                <Body
+                  d={x}
+                  busy={busy}
+                  readOnly={inDemo()}
+                  onConfirm={(id) => link.mutate({ tripID: id, day: x.day })}
+                  onUnlink={(id) => unlink.mutate({ tripID: id, day: x.day })}
+                />
+              )}
+            </section>
+          ))}
         </div>
-      );
-    }
+        <p className="mt-3 text-xs text-neutral-500">Actuals come from the drives and charges Rivolt recorded on that day.</p>
+        {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
+      </div>
+    );
   }
   return (
     <div className="rounded-lg border border-neutral-800 p-3">
       <div className="text-sm font-medium text-neutral-100">{trip.name}</div>
-      <Body d={d} busy={busy} readOnly={inDemo()} onConfirm={(id) => link.mutate(id)} onUnlink={(id) => unlink.mutate(id)} />
+      <Body d={d} busy={busy} readOnly={inDemo()} onConfirm={(id) => link.mutate({ tripID: id })} onUnlink={(id) => unlink.mutate({ tripID: id })} />
       {err != null && <p className="mt-2 text-xs text-rose-400">Couldn&apos;t update: {String(err)}</p>}
     </div>
   );

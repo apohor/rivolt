@@ -1578,20 +1578,21 @@ export const backend = {
   savedTripsList: () => api.get<SavedTrip[]>("/api/trips/saved"),
   // Null on 404 (flag off or not the user's trip), so the section
   // simply doesn't render.
-  planVsActual: async (savedTripID: string): Promise<PlanVsActual | null> => {
+  planVsActual: async (savedTripID: string): Promise<PlanVsActual | PlanVsActualMulti | null> => {
     try {
-      return await api.get<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/actual`);
+      return await api.get<PlanVsActual | PlanVsActualMulti>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/actual`);
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
     }
   },
-  planVsActualLink: (savedTripID: string, tripID: string) =>
-    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/link`, { trip_id: tripID }),
+  // A multi-day trip links each day to its own outing: day (1..N) is required there and refused otherwise.
+  planVsActualLink: (savedTripID: string, tripID: string, day?: number) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/link`, { trip_id: tripID, ...(day ? { day } : {}) }),
   // Records the rejection of this outing (never suggested again); for a
   // linked trip it also removes the link. trip_id is required (v1.1).
-  planVsActualUnlink: (savedTripID: string, tripID: string) =>
-    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, { trip_id: tripID }),
+  planVsActualUnlink: (savedTripID: string, tripID: string, day?: number) =>
+    api.post<PlanVsActual>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/unlink`, { trip_id: tripID, ...(day ? { day } : {}) }),
   savedTripCreate: (body: SavedTripBody) =>
     api.post<SavedTrip>("/api/trips/saved", body),
   savedTripUpdate: (id: string, body: SavedTripBody) =>
@@ -2438,6 +2439,18 @@ export type PlanVsActual = {
   candidates: PvaCandidate[];
   comparison: PvaComparison | null;
 };
+
+// A multi-day saved trip answers with one comparison per day, each against that
+// day's own slice of the recorded outing.
+export type PlanVsActualMulti = {
+  version: number;
+  saved_trip_id: string;
+  kind: "multiday";
+  days: (PlanVsActual & { day: number })[];
+};
+
+export const isPvaMulti = (d: PlanVsActual | PlanVsActualMulti): d is PlanVsActualMulti =>
+  (d as PlanVsActualMulti).kind === "multiday";
 
 // DemoTripPreset: one entry of GET /api/demo/trips. `inputs` has the shape of
 // SavedTrip.inputs, so a preset opens like a saved trip.
