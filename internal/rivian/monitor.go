@@ -2145,7 +2145,11 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		// vehicleState's push). Unmapped enums are left to vehicleState.
 		// Only from a fresh frame: a replayed "ready" while the car
 		// sleeps would read as a wake (sleep gate, rest_quiet).
-		if m.parallaxDriveDynamics && m.applicable(f, fresh) {
+		pxApplies := m.parallaxDriveDynamics && m.applicable(f, fresh)
+		if m.parallaxDriveDynamics && !pxApplies {
+			m.fillBlankPowerState(vehicleID, f)
+		}
+		if pxApplies {
 			if ps := powerStateFromParallax(f.Value); ps != "" {
 				m.mu.Lock()
 				if m.lastPxPower == nil {
@@ -2539,6 +2543,39 @@ func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
 // value is ignored instead of applied, per topic.
 type ParallaxReplayObserver interface {
 	OnParallaxReplayIgnored(topic string)
+}
+
+// fillBlankPowerState seeds an empty power state from a replayed or stale
+// power.state frame. An R2's vehicleState reports no usable power state, and
+// the cloud replays only the latest frame (the last change, possibly hours
+// old) on each (re)subscribe, so until the next real change the state would
+// stay blank: half of an R2's rows had none. The latest frame is the truck's
+// current state, so it fills a blank; it never replaces a value the cache has
+// (a replayed "ready" must not read as a wake over a "sleep"), it is not a
+// fresh frame (the veto and corroboration state are untouched), and its event
+// time is kept in PowerStateAt.
+func (m *StateMonitor) fillBlankPowerState(vehicleID string, f DriveDynamicsFrame) {
+	ps := powerStateFromParallax(f.Value)
+	if ps == "" || f.TimestampMs <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	base := m.cache[vehicleID]
+	if base == nil || strings.TrimSpace(base.PowerState) != "" {
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.PowerState = ps
+	next.PowerStateAt = time.UnixMilli(f.TimestampMs).UTC()
+	if m.lastPxPower == nil {
+		m.lastPxPower = map[string]string{}
+	}
+	if m.lastPxPower[vehicleID] == "" {
+		m.lastPxPower[vehicleID] = ps // so holdParallaxLocked can guard it
+	}
+	m.putCacheLocked(vehicleID, &next)
 }
 
 // applyParallaxGear handles one dynamics.vehicle.gear frame.
