@@ -118,8 +118,7 @@ test("read-only: nothing on the page writes", async ({ page }) => {
 
 test("the user detail shows that user's admin history", async ({ page }) => {
   const seen = await open(page);
-  await page.goto("/admin#users");
-  await page.getByRole("button", { name: "Select Ann" }).click();
+  await page.goto(`/admin/users/${USER.id}`); // the user's own page, deep-linked
   await expect(page.locator("[data-user-audit]")).toBeVisible();
   const history = page.locator("[data-user-audit]");
   await expect(history).toContainText("Disable or enable user");

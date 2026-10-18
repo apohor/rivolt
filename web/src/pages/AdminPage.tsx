@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
-import { grafanaBaseURL, useImpersonationDisabled, useRivianActions } from "../lib/config";
-import { startImpersonation } from "../lib/impersonation";
 import { formatDateTime } from "../lib/format";
-import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
+import { useUserActions } from "../components/admin/useUserActions";
+import UserPage from "./admin/UserPage";
 import { AdminUsersTable } from "../components/AdminUsersTable";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
-import { AuditNext, UserAuditHistory } from "../components/AdminAuditNext";
-import { TypedConfirmDialog } from "../components/TypedConfirmDialog";
+import { AuditNext } from "../components/AdminAuditNext";
 import { HomeNext } from "../components/AdminHomeNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -46,65 +46,6 @@ export default function AdminPage() {
   );
 }
 
-// grafanaUserExploreURL builds Grafana Explore deep links scoped
-// to one user_id over a time window. Returns "" when no Grafana
-// origin is wired so callers fall back to plain text.
-//
-// We emit two flavours of link:
-//   - logs:   {namespace=~"rivolt.*"} |~ "<uid>" against Loki —
-//             matches both server slog lines and any free-form
-//             mention of the uid.
-//   - traces: { .user.id = "<uid>" } against Tempo TraceQL —
-//             relies on the user.id span attribute stamped in
-//             auth.WithUser (v0.18.69+). Older spans won't match.
-function grafanaUserExploreURL(
-  userID: string,
-  fromISO: string,
-  toISO: string,
-  kind: "logs" | "traces" = "logs",
-): string {
-  const base = grafanaBaseURL();
-  if (!base) return "";
-  const from = new Date(fromISO).getTime();
-  const to = new Date(toISO).getTime();
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return "";
-  // Grafana 11+ replaced the `?left=` URL param with a new
-  // `?panes=<encoded>&schemaVersion=1` shape keyed by a
-  // randomly-generated pane id. The legacy `left` param is
-  // still parsed but the datasource field gets dropped on the
-  // floor — Grafana then defaults to the first provisioned
-  // datasource of any type (Tempo, in our case), which is the
-  // "logs link opens Tempo" symptom. Build the new format.
-  const ds =
-    kind === "logs"
-      ? { type: "loki", uid: "loki" }
-      : { type: "tempo", uid: "tempo" };
-  const query =
-    kind === "logs"
-      ? {
-          refId: "A",
-          datasource: ds,
-          expr: `{namespace=~"rivolt.*"} |~ "${userID}"`,
-        }
-      : {
-          refId: "A",
-          datasource: ds,
-          queryType: "traceql",
-          query: `{ .user.id = "${userID}" }`,
-        };
-  const pane = {
-    datasource: ds.uid,
-    queries: [query],
-    range: { from: String(from), to: String(to) },
-  };
-  // Pane id is an arbitrary short key Grafana uses to identify
-  // each split. Keep it deterministic per-kind for predictable
-  // URLs but it could be any string.
-  const paneID = kind === "logs" ? "lg" : "tr";
-  const panes = { [paneID]: pane };
-  return `${base}/explore?schemaVersion=1&orgId=1&panes=${encodeURIComponent(JSON.stringify(panes))}`;
-}
-
 // AdminTabs groups admin-only surfaces under a single tab nav. The
 // active tab is mirrored in the URL hash so a reload (or a copy-
 // pasted link to /admin#ai) keeps the position the operator was on.
@@ -129,21 +70,27 @@ function isAdminTab(s: string): s is AdminTab {
 
 function AdminTabs({ currentUserID }: { currentUserID: string }) {
   const nextUi = useUiNext();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  // /admin/users and /admin/users/:id are real routes (deep links, a working back button); every other
+  // tab lives at /admin with its name in the hash.
+  const onUsersRoute = pathname.startsWith("/admin/users");
+  const userID = useParams().id;
   const initial: AdminTab | null = (() => {
     const h = window.location.hash.replace(/^#/, "");
     return isAdminTab(h) ? h : null;
   })();
   // Until a tab is chosen (or deep-linked) the first one shows: Home in the new look, Signups before.
   const [picked, setTab] = useState<AdminTab | null>(initial);
-  const tab: AdminTab = picked ?? (nextUi ? "home" : "signups");
+  const tab: AdminTab = onUsersRoute ? "users" : picked ?? (nextUi ? "home" : "signups");
   // Keep the hash in sync so a reload restores the active tab and
   // a deep link (`/admin#ai`) opens the right pane. Listen for
   // hashchange too — the back button moves between tabs cleanly.
   useEffect(() => {
-    if (picked && window.location.hash.replace(/^#/, "") !== picked) {
+    if (!onUsersRoute && picked && window.location.hash.replace(/^#/, "") !== picked) {
       window.history.replaceState(null, "", `#${picked}`);
     }
-  }, [picked]);
+  }, [picked, onUsersRoute]);
   useEffect(() => {
     const onHash = () => {
       const h = window.location.hash.replace(/^#/, "");
@@ -166,7 +113,11 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
             <button
               key={t.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                if (t.id === "users") navigate("/admin/users");
+                else if (onUsersRoute) navigate(`/admin#${t.id}`);
+                else setTab(t.id);
+              }}
               className={`-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors ${
                 active
                   ? "border-emerald-500 text-neutral-100"
@@ -178,12 +129,13 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           );
         })}
       </div>
-      {view === "home" && <HomeNext goTo={(t) => setTab(t)} />}
-      {view === "users" && (
+      {view === "home" && <HomeNext goTo={(t) => (t === "users" ? navigate("/admin/users") : setTab(t))} />}
+      {view === "users" && userID && <UserPage currentUserID={currentUserID} />}
+      {view === "users" && !userID && (
         <div className="space-y-4">
           <Card title="Users">
             <CreateUserForm />
-            <UsersPanel currentUserID={currentUserID} />
+            <UsersPanel onOpen={(id) => navigate(`/admin/users/${id}`)} />
           </Card>
           <IdpFailuresPanel />
         </div>
@@ -557,815 +509,34 @@ function CreateUserForm() {
   );
 }
 
-// relativeTime renders a short "Xm ago" / "Xh ago" / "Xd ago" string
-// from an ISO timestamp. Used in the admin users table where seeing
-// "5m ago" vs "3d ago" is more useful than the full datetime.
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (isNaN(then)) return "—";
-  const diff = Math.floor((Date.now() - then) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-function UsersPanel({ currentUserID }: { currentUserID: string }) {
-  const qc = useQueryClient();
-  const nextUi = useUiNext();
-  const [note, setNote] = useState<string | null>(null);
+// The Users tab: the list, with each user's status and quick actions. A click (or the name link)
+// opens /admin/users/:id, the user's own page.
+function UsersPanel({ onOpen }: { onOpen: (id: string) => void }) {
   const q = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => backend.adminListUsers(),
   });
-  const setRole = useMutation({
-    mutationFn: ({ id, role }: { id: string; role: "user" | "admin" }) =>
-      backend.adminSetUserRole(id, role),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
-  });
-  const del = useMutation({
-    mutationFn: (id: string) => backend.adminDeleteUser(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin", "users"] });
-      qc.invalidateQueries({ queryKey: ["admin", "idp-failures"] });
-    },
-  });
-  const setDisabled = useMutation({
-    mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) =>
-      backend.adminSetUserDisabled(id, disabled),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
-  });
-  const syncRivian = useMutation({
-    mutationFn: (id: string) => backend.adminSyncRivian(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
-  });
-  const refreshRivianSession = useMutation({
-    mutationFn: (id: string) => backend.adminRefreshRivianSession(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "users"] }),
-  });
-
+  const acts = useUserActions();
   const rows: AdminUserRow[] = useMemo(() => q.data?.users ?? [], [q.data]);
-  const [busyID, setBusyID] = useState<string | null>(null);
-  // The "demote / delete the last admin" guard exists server-side
-  // (returns 409). The client mirrors it as a button disable so
-  // the destructive action doesn't even appear clickable.
-  const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
-
-  const [selectedID, setSelectedID] = useState<string | null>(null);
-  // The detail sits below the list, which can be long: opening a user brings it into view.
-  const detailRef = useRef<HTMLDivElement>(null);
-  const openUser = (id: string) => {
-    setSelectedID(id);
-    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  };
-  // Auto-select first row so the detail panel has something to render
-  // on initial load — picking explicitly afterwards just swaps the
-  // selection. The deselect-on-delete effect below clears this if
-  // the selected user disappears.
-  useEffect(() => {
-    if (selectedID == null && rows.length > 0) {
-      setSelectedID(rows[0].id);
-    } else if (selectedID != null && !rows.find((u) => u.id === selectedID)) {
-      setSelectedID(rows[0]?.id ?? null);
-    }
-  }, [rows, selectedID]);
-
   if (q.isLoading) return <Spinner />;
-  if (q.isError)
-    return <ErrorBox title="Failed to load users" detail={String(q.error)} />;
-
-  async function runRowAction(u: AdminUserRow, fn: () => Promise<void>, failLabel: string) {
-    setBusyID(u.id);
-    setNote(null);
-    try {
-      await fn();
-    } catch (e) {
-      setNote(`${failLabel}: ${String(e)}`);
-    } finally {
-      setBusyID(null);
-    }
-  }
-
-  const selectedRow = rows.find((u) => u.id === selectedID) ?? null;
-  const isLastAdminFor = (u: AdminUserRow) =>
-    u.role === "admin" && adminCount <= 1;
-
+  if (q.isError) return <ErrorBox title="Failed to load users" detail={String(q.error)} />;
+  // The server refuses to demote, disable or delete the last admin; the list mirrors it by disabling the buttons.
+  const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
   return (
-    <div className="space-y-4">
-      {nextUi ? (
-        <>
-          <AdminUsersTable
-            rows={rows}
-            selectedID={selectedID}
-            onSelect={openUser}
-            busyID={busyID}
-            adminCount={adminCount}
-            actions={{
-              sync: (u) => void runRowAction(u, async () => {
-                const r = await syncRivian.mutateAsync(u.id);
-                setNote(`Synced: ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${u.username}.`);
-              }, "Sync failed"),
-              refresh: (u) => void runRowAction(u, async () => {
-                const r = await refreshRivianSession.mutateAsync(u.id);
-                setNote(r.message);
-              }, "Refresh failed"),
-              toggleDisabled: (u) => void runRowAction(u, async () => {
-                await setDisabled.mutateAsync({ id: u.id, disabled: !u.disabled });
-                setNote(`${u.username} ${u.disabled ? "enabled" : "disabled"}.`);
-              }, "Update failed"),
-              remove: (u) => void runRowAction(u, async () => {
-                await del.mutateAsync(u.id);
-                setNote(`${u.username} deleted.`);
-              }, "Delete failed"),
-            }}
-          />
-          {note && <p role="status" className="text-xs text-neutral-300">{note}</p>}
-        </>
-      ) : (
-      <>
-      {/* Master list — full-width row of summary columns. Click a
-          row to populate the detail panel below; the active row is
-          tinted so the selection is obvious. */}
-      <div className="rounded-md border border-neutral-900">
-        <table className="w-full text-sm">
-          <thead className="text-left text-neutral-500">
-            <tr>
-              <th className="py-2 px-3">User</th>
-              <th className="py-2 px-3 hidden md:table-cell">Email</th>
-              <th className="py-2 px-3">Role</th>
-              <th className="py-2 px-3 hidden sm:table-cell">Activity</th>
-              <th className="py-2 px-3 hidden sm:table-cell">Last seen</th>
-              <th className="py-2 px-3 hidden lg:table-cell">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((u) => {
-              const active = u.id === selectedID;
-              return (
-                <tr
-                  key={u.id}
-                  aria-pressed={active}
-                  {...clickableRowProps(() => openUser(u.id), {
-                    label: `Select ${u.display_name || u.username}`,
-                  })}
-                  className={`cursor-pointer border-t border-neutral-900 focus:outline-hidden focus-visible:bg-neutral-800/80 ${
-                    active
-                      ? "bg-emerald-950/30"
-                      : "hover:bg-neutral-900/50"
-                  }`}
-                >
-                  <td className="py-2 px-3">
-                    <div className="text-neutral-100">
-                      {u.display_name || u.username}
-                    </div>
-                    {/* Username/email under the display name. On
-                        narrow viewports we collapse Email into this
-                        sub-line so the operator still sees how to
-                        contact the user without horizontal scroll. */}
-                    <div className="text-xs text-neutral-500 md:hidden">
-                      {u.email || u.username}
-                    </div>
-                    <div className="text-xs text-neutral-500 hidden md:block">
-                      {u.username}
-                    </div>
-                  </td>
-                  <td className="py-2 px-3 text-neutral-400 hidden md:table-cell">
-                    {u.email || "—"}
-                  </td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-xs ${
-                        u.role === "admin"
-                          ? "border-emerald-700 bg-emerald-950 text-emerald-300"
-                          : "border-neutral-800 bg-neutral-900 text-neutral-400"
-                      }`}
-                    >
-                      {u.role}
-                    </span>
-                    {u.disabled && (
-                      <span className="ml-1 rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-xs text-amber-300">
-                        disabled
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2 px-3 hidden sm:table-cell">
-                    <div className="flex flex-wrap gap-1 text-[10px]">
-                      <span
-                        className={
-                          u.rivian_connected
-                            ? "rounded-sm border border-emerald-800 bg-emerald-950 px-1.5 py-0.5 text-emerald-300"
-                            : "rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-500"
-                        }
-                      >
-                        {u.rivian_connected ? "rivian" : "no rivian"}
-                      </span>
-                      {u.needs_reauth && (
-                        <span
-                          className="rounded-sm border border-rose-800 bg-rose-950 px-1.5 py-0.5 text-rose-300"
-                          title={
-                            u.needs_reauth_at
-                              ? `Rivian session rejected ${relativeTime(u.needs_reauth_at)} - drives stopped recording`
-                              : "Rivian session rejected - drives stopped recording"
-                          }
-                        >
-                          re-auth
-                        </span>
-                      )}
-                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
-                        🚗 {u.vehicle_count}
-                      </span>
-                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
-                        ↻ {u.drive_count}
-                      </span>
-                      <span className="rounded-sm border border-neutral-800 bg-neutral-900 px-1.5 py-0.5 text-neutral-400">
-                        ⬇ {u.import_count}
-                      </span>
-                    </div>
-                  </td>
-                  <td
-                    className="py-2 px-3 text-xs text-neutral-500 hidden sm:table-cell"
-                    title={u.last_seen_at ?? ""}
-                  >
-                    {u.last_seen_at
-                      ? relativeTime(u.last_seen_at)
-                      : <span className="text-neutral-700">never</span>}
-                  </td>
-                  <td className="py-2 px-3 text-xs text-neutral-500 hidden lg:table-cell">
-                    {new Date(u.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      </>
-      )}
-
-      {/* Detail panel — full-width below the list so columns aren't
-          fighting for screen space. Fetches the deep-dive bundle
-          for the selected row and holds every per-user action. */}
-      <div ref={detailRef} data-user-detail-anchor className="scroll-mt-16">
-        {selectedRow ? (
-          <UserDetailPanel
-            row={selectedRow}
-            currentUserID={currentUserID}
-            isLastAdmin={isLastAdminFor(selectedRow)}
-            busy={busyID === selectedRow.id}
-            onPromote={async () => {
-              setBusyID(selectedRow.id);
-              try {
-                await setRole.mutateAsync({ id: selectedRow.id, role: "admin" });
-              } finally {
-                setBusyID(null);
-              }
-            }}
-            onDemote={async () => {
-              setBusyID(selectedRow.id);
-              try {
-                await setRole.mutateAsync({ id: selectedRow.id, role: "user" });
-              } finally {
-                setBusyID(null);
-              }
-            }}
-            onToggleDisabled={async () => {
-              setBusyID(selectedRow.id);
-              try {
-                await setDisabled.mutateAsync({
-                  id: selectedRow.id,
-                  disabled: !selectedRow.disabled,
-                });
-              } finally {
-                setBusyID(null);
-              }
-            }}
-            onSyncRivian={async () => {
-              setBusyID(selectedRow.id);
-              try {
-                const r = await syncRivian.mutateAsync(selectedRow.id);
-                alert(
-                  `Synced — ${r.vehicle_count} vehicle${r.vehicle_count === 1 ? "" : "s"} on file for ${selectedRow.username}.`,
-                );
-              } catch (e) {
-                alert(`Sync failed: ${String(e)}`);
-              } finally {
-                setBusyID(null);
-              }
-            }}
-            onRefreshRivianSession={async () => {
-              setBusyID(selectedRow.id);
-              try {
-                const r = await refreshRivianSession.mutateAsync(
-                  selectedRow.id,
-                );
-                alert(r.message);
-              } catch (e) {
-                alert(`Refresh failed: ${String(e)}`);
-              } finally {
-                setBusyID(null);
-              }
-            }}
-            onDelete={async (confirmed) => {
-              // The new look asks with the typed confirm in the panel; the old one with confirm().
-              if (
-                !confirmed &&
-                !confirm(
-                  `Permanently delete ${selectedRow.username}? Their drives, charges, and settings will be removed.`,
-                )
-              )
-                return;
-              setBusyID(selectedRow.id);
-              try {
-                await del.mutateAsync(selectedRow.id);
-              } finally {
-                setBusyID(null);
-              }
-            }}
-          />
-        ) : (
-          <div className="rounded-md border border-neutral-900 bg-neutral-950/40 px-4 py-6 text-sm text-neutral-500">
-            Select a user to see details.
-          </div>
-        )}
-        {del.data?.idp === "failed" && (
-          <p role="status" className="mt-2 text-xs text-amber-300">
-            Account deleted, but sign-in removal failed. See Sign-in removal failures below.
-            {del.data.idp_error ? ` (${del.data.idp_error})` : ""}
-          </p>
-        )}
-        {(setRole.error || del.error) && (
-          <p className="mt-2 text-xs text-red-400">
-            {String(setRole.error ?? del.error)}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// UserDetailPanel renders the deep-dive bundle for one selected user
-// plus every per-user action (promote/demote, enable/disable, sync
-// rivian, delete). Fetches the bundle on each selectedID change so
-// switching users feels live; row data from the master list paints
-// immediately while the detailed counters load.
-function UserDetailPanel({
-  row,
-  currentUserID,
-  isLastAdmin,
-  busy,
-  onPromote,
-  onDemote,
-  onToggleDisabled,
-  onSyncRivian,
-  onRefreshRivianSession,
-  onDelete,
-}: {
-  row: AdminUserRow;
-  currentUserID: string;
-  isLastAdmin: boolean;
-  busy: boolean;
-  onPromote: () => Promise<void>;
-  onDemote: () => Promise<void>;
-  onToggleDisabled: () => Promise<void>;
-  onSyncRivian: () => Promise<void>;
-  onRefreshRivianSession: () => Promise<void>;
-  onDelete: (confirmed?: boolean) => Promise<void>;
-}) {
-  const nextUi = useUiNext();
-  const rivianActions = useRivianActions();
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const isSelf = row.id === currentUserID;
-  const detail = useQuery({
-    queryKey: ["admin", "user", row.id],
-    queryFn: () => backend.adminUserDetail(row.id),
-  });
-  const d = detail.data;
-  const headerName = row.display_name || row.username;
-
-  return (
-    <div data-user-detail={row.id} className="rounded-md border border-neutral-900 bg-neutral-950/40">
-      <div className="border-b border-neutral-900 px-4 py-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <div className="text-base font-semibold text-neutral-100">
-              {headerName}
-            </div>
-            <div className="text-xs text-neutral-500">
-              {row.email || row.username} · {row.id}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span
-              className={`rounded-full border px-2 py-0.5 ${
-                row.role === "admin"
-                  ? "border-emerald-700 bg-emerald-950 text-emerald-300"
-                  : "border-neutral-800 bg-neutral-900 text-neutral-400"
-              }`}
-            >
-              {row.role}
-            </span>
-            {row.disabled && (
-              <span className="rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-amber-300">
-                disabled
-              </span>
-            )}
-            {d?.needs_reauth && (
-              <span
-                className="rounded-full border border-red-900 bg-red-950 px-2 py-0.5 text-red-300"
-                title={d.needs_reauth_reason || ""}
-              >
-                needs re-auth
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 p-4 sm:grid-cols-2">
-        {/* Identity */}
-        <Stat label="User ID" value={<code className="text-xs">{row.id}</code>} />
-        <Stat label="Created" value={new Date(row.created_at).toLocaleString()} />
-        <Stat
-          label="Last seen"
-          value={
-            row.last_seen_at
-              ? `${relativeTime(row.last_seen_at)} (${new Date(row.last_seen_at).toLocaleString()})`
-              : "never"
-          }
-        />
-        <Stat
-          label="Active sessions"
-          value={d ? `${d.active_sessions}` : "…"}
-        />
-
-        {/* Rivian */}
-        <Stat
-          label="Rivian"
-          value={
-            !d
-              ? "…"
-              : d.rivian_connected
-                ? d.rivian_session_at
-                  ? `Connected · session ${relativeTime(d.rivian_session_at)}`
-                  : "Connected"
-                : "Not connected"
-          }
-          tone={
-            d?.needs_reauth
-              ? "danger"
-              : d?.rivian_connected
-                ? "ok"
-                : "muted"
-          }
-        />
-        <Stat
-          label="Onboarding"
-          value={d ? (d.onboarding_completed ? "Completed" : "Pending") : "…"}
-          tone={d?.onboarding_completed ? "ok" : "muted"}
-        />
-
-        {/* Activity rollups */}
-        <Stat
-          label="Drives"
-          value={
-            d
-              ? `${d.drive_count} · ${d.drive_miles_total.toFixed(0)} mi`
-              : "…"
-          }
-        />
-        <Stat
-          label="Charges"
-          value={
-            d
-              ? `${d.charge_count} · ${d.charge_kwh_total.toFixed(0)} kWh`
-              : "…"
-          }
-        />
-        <Stat
-          label="Samples"
-          value={
-            d
-              ? `${d.sample_count.toLocaleString()}`
-              : "…"
-          }
-        />
-        <Stat
-          label="Telemetry span"
-          value={
-            !d
-              ? "…"
-              : d.oldest_sample_at && d.newest_sample_at
-                ? (() => {
-                    const label = `${new Date(d.oldest_sample_at).toLocaleDateString()} → ${new Date(d.newest_sample_at).toLocaleDateString()}`;
-                    const logsHref = grafanaUserExploreURL(
-                      row.id,
-                      d.oldest_sample_at,
-                      d.newest_sample_at,
-                      "logs",
-                    );
-                    const tracesHref = grafanaUserExploreURL(
-                      row.id,
-                      d.oldest_sample_at,
-                      d.newest_sample_at,
-                      "traces",
-                    );
-                    if (!logsHref && !tracesHref) return label;
-                    return (
-                      <span>
-                        {label}
-                        {logsHref && (
-                          <>
-                            {" · "}
-                            <a
-                              href={logsHref}
-                              target="_blank"
-                              rel="noopener"
-                              className="text-emerald-300 underline-offset-2 hover:underline"
-                              title="Open Loki logs for this user in Grafana"
-                            >
-                              logs ↗
-                            </a>
-                          </>
-                        )}
-                        {tracesHref && (
-                          <>
-                            {" · "}
-                            <a
-                              href={tracesHref}
-                              target="_blank"
-                              rel="noopener"
-                              className="text-emerald-300 underline-offset-2 hover:underline"
-                              title="Open Tempo traces filtered by user.id"
-                            >
-                              traces ↗
-                            </a>
-                          </>
-                        )}
-                      </span>
-                    );
-                  })()
-                : "no samples"
-          }
-        />
-      </div>
-
-      {/* Vehicles */}
-      <div className="border-t border-neutral-900 px-4 py-3">
-        <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
-          Vehicles ({d ? d.vehicles.length : "…"})
-        </div>
-        {!d ? (
-          <div className="text-sm text-neutral-500">Loading…</div>
-        ) : !d.vehicles || d.vehicles.length === 0 ? (
-          <div className="text-sm text-neutral-500">
-            No vehicles on file.
-            {row.rivian_connected && rivianActions && (
-              <>
-                {" "}
-                Try <strong>Sync Rivian</strong> below.
-              </>
-            )}
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {d.vehicles.map((v) => (
-              <li
-                key={v.id}
-                className="rounded-md border border-neutral-900 bg-neutral-950 px-3 py-2"
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <div className="text-sm text-neutral-200">
-                    {v.display_name || v.model || v.rivian_vehicle_id}
-                    {v.model_year ? ` · ${v.model_year}` : null}
-                    {v.pack_kwh ? ` · ${v.pack_kwh.toFixed(0)} kWh` : null}
-                  </div>
-                  <div
-                    className="text-xs text-neutral-500"
-                    title={v.last_sample_at ?? ""}
-                  >
-                    {v.last_sample_at
-                      ? `last frame ${relativeTime(v.last_sample_at)}`
-                      : "no telemetry"}
-                  </div>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs text-neutral-500">
-                  {v.vin && <span>VIN {v.vin}</span>}
-                  <span>{v.drive_count} drives</span>
-                  <span>{v.charge_count} charges</span>
-                  <span className="text-neutral-700">
-                    rivian id {v.rivian_vehicle_id}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Signup origin */}
-      {d?.signup_request && (
-        <div className="border-t border-neutral-900 px-4 py-3">
-          <div className="mb-1 text-xs uppercase tracking-wide text-neutral-500">
-            Signup origin
-          </div>
-          <div className="text-sm text-neutral-300">
-            Requested {new Date(d.signup_request.requested_at).toLocaleString()}
-            {" · "}
-            <span
-              className={
-                d.signup_request.status === "approved"
-                  ? "text-emerald-400"
-                  : d.signup_request.status === "rejected"
-                    ? "text-red-400"
-                    : "text-amber-300"
-              }
-            >
-              {d.signup_request.status}
-            </span>
-            {d.signup_request.decided_at && (
-              <span>
-                {" "}
-                · decided{" "}
-                {new Date(d.signup_request.decided_at).toLocaleString()}
-              </span>
-            )}
-          </div>
-          {d.signup_request.message && (
-            <div className="mt-1 whitespace-pre-wrap rounded-sm bg-neutral-950 p-2 text-xs text-neutral-400">
-              {d.signup_request.message}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-neutral-900 px-4 py-3">
-        {row.role === "user" ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onPromote}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
-          >
-            Promote to admin
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy || isLastAdmin}
-            title={isLastAdmin ? "Cannot demote the last admin" : ""}
-            onClick={onDemote}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 hover:border-neutral-700 hover:text-neutral-100 disabled:opacity-40"
-          >
-            Demote to user
-          </button>
-        )}
-        <button
-          type="button"
-          disabled={
-            busy ||
-            (!row.disabled && isSelf) ||
-            (!row.disabled && row.role === "admin" && isLastAdmin)
-          }
-          title={
-            !row.disabled && isSelf
-              ? "Cannot disable your own account"
-              : !row.disabled && row.role === "admin" && isLastAdmin
-                ? "Cannot disable the last admin"
-                : row.disabled
-                  ? "Re-enable sign-in for this user"
-                  : "Block this user from minting new sessions"
-          }
-          onClick={onToggleDisabled}
-          className={`rounded-md border px-2 py-1 text-xs disabled:opacity-40 ${
-            row.disabled
-              ? "border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:border-emerald-700 hover:text-emerald-200"
-              : "border-amber-900 bg-amber-950/40 text-amber-300 hover:border-amber-800 hover:text-amber-200"
-          }`}
-        >
-          {row.disabled ? "Enable account" : "Disable account"}
-        </button>
-        {rivianActions && (
-          <button
-            type="button"
-            disabled={busy}
-            title="Re-fetch this user's vehicles from Rivian"
-            onClick={onSyncRivian}
-            className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
-          >
-            Sync Rivian
-          </button>
-        )}
-        <ViewAsButton row={row} />
-        {rivianActions && d?.needs_reauth && (
-          <button
-            type="button"
-            disabled={busy}
-            title="Force a fresh CSRF/session token and probe Rivian. Clears the re-auth flag if the session is still valid; if not, the user must sign in again."
-            onClick={onRefreshRivianSession}
-            className="rounded-md border border-amber-800 bg-amber-950/40 px-2 py-1 text-xs text-amber-200 hover:border-amber-700 hover:text-amber-100 disabled:opacity-40"
-          >
-            Refresh session
-          </button>
-        )}
-        {!rivianActions && <p data-rivian-actions-note className="basis-full text-xs text-neutral-400">Rivian actions run on rivolt.dev only</p>}
-        <div className="ml-auto">
-          <button
-            type="button"
-            disabled={busy || isSelf || isLastAdmin}
-            title={
-              isSelf
-                ? "Cannot delete your own account"
-                : isLastAdmin
-                  ? "Cannot delete the last admin"
-                  : ""
-            }
-            onClick={() => (nextUi ? setConfirmingDelete(true) : void onDelete())}
-            className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-xs text-red-300 hover:border-red-800 hover:text-red-200 disabled:opacity-40"
-          >
-            Delete user
-          </button>
-        </div>
-      </div>
-      {nextUi && confirmingDelete && (
-        <div className="border-t border-neutral-800 p-4">
-          <TypedConfirmDialog
-            title={`Delete ${row.display_name || row.username}?`}
-            detail="Their drives, charges and settings are removed permanently."
-            phrase={row.email || row.username}
-            confirmLabel="Delete user"
-            onCancel={() => setConfirmingDelete(false)}
-            onConfirm={() => {
-              setConfirmingDelete(false);
-              void onDelete(true);
-            }}
-          />
-        </div>
-      )}
-      {nextUi && (
-        <div className="border-t border-neutral-800 p-4">
-          <UserAuditHistory userID={row.id} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ViewAsButton starts a read-only "View as user" session — see
-// docs on internal/api/auth_mw.go's impersonationMW for the server
-// side of this. Hidden for admin rows (the server refuses to
-// impersonate another admin anyway; hiding the button avoids
-// offering a control that always 403s) and while the operator has
-// set RIVOLT_IMPERSONATION_DISABLED.
-//
-// A full page reload (not client-side navigation) is deliberate:
-// every React Query cache entry fetched under the admin's own
-// identity must be gone before any impersonated fetch happens, so
-// stale admin-scoped data never renders next to the target's data.
-function ViewAsButton({ row }: { row: AdminUserRow }) {
-  const impersonationDisabled = useImpersonationDisabled();
-  if (row.role === "admin" || impersonationDisabled) return null;
-  return (
-    <button
-      type="button"
-      title={`View the app read-only as ${row.display_name || row.username}`}
-      onClick={() => {
-        startImpersonation({ id: row.id, email: row.email || row.username });
-        window.location.assign("/");
-      }}
-      className="rounded-md border border-sky-900 bg-sky-950/40 px-2 py-1 text-xs text-sky-300 hover:border-sky-800 hover:text-sky-200"
-    >
-      View as
-    </button>
-  );
-}
-
-// Stat is a tiny label/value row used inside UserDetailPanel. `tone`
-// nudges the value colour so the eye can scan for problem cells
-// without reading every line.
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: "ok" | "danger" | "muted";
-}) {
-  const valueClass =
-    tone === "danger"
-      ? "text-red-300"
-      : tone === "ok"
-        ? "text-emerald-300"
-        : tone === "muted"
-          ? "text-neutral-500"
-          : "text-neutral-200";
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-        {label}
-      </div>
-      <div className={`text-sm ${valueClass}`}>{value}</div>
+    <div className="space-y-3">
+      <AdminUsersTable
+        rows={rows}
+        onSelect={onOpen}
+        busyID={acts.busyID}
+        adminCount={adminCount}
+        actions={{
+          sync: (u) => void acts.sync(u),
+          refresh: (u) => void acts.refreshSession(u),
+          toggleDisabled: (u) => void acts.toggleDisabled(u),
+          remove: (u) => void acts.remove(u),
+        }}
+      />
+      {acts.note && <p role="status" className="text-xs text-neutral-300">{acts.note}</p>}
     </div>
   );
 }

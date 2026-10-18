@@ -21,45 +21,40 @@ async function open(page: Page, rivianActions: boolean | "absent", nextUi: boole
   await page.route("**/api/admin/users/*", (r) =>
     r.fulfill({ json: { ...USERS[1], onboarding_completed: true, updated_at: ago(H), active_sessions: 0, needs_reauth_reason: "rejected", drive_miles_total: 0, charge_count: 0, charge_kwh_total: 0, sample_count: 0, vehicles: [] } }),
   );
-  await page.goto("/admin#users");
+  await page.goto("/admin/users/u1");
 }
 
 for (const w of [390, 1280] as const) {
-  test(`rivian_actions=false hides Sync and Refresh, new look · ${w}px`, async ({ browser }) => {
+  test(`rivian_actions=false hides Sync and Refresh in the list and on the user page · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
     const page = await ctx.newPage();
     await open(page, false, true);
-    await page.getByRole("button", { name: "Select Ann" }).click();
+    // The user's page: the note, no Rivian actions, the rest still there.
     await expect(page.locator("[data-rivian-actions-note]")).toHaveText("Rivian actions run on rivolt.dev only");
-    await expect(page.getByRole("button", { name: /^Sync/ })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /^Refresh/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sync Rivian" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Refresh session" })).toHaveCount(0);
-    await expect(page.getByText("Try Sync Rivian below")).toHaveCount(0);
-    // The rest of the row's actions are still there.
-    await expect(page.locator("[data-user-row=u1]").getByRole("button", { name: "Disable Ann" })).toBeVisible();
-    await expect(page.locator("[data-user-row=u1]").getByRole("button", { name: "Delete Ann" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Disable account/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Delete user/ })).toBeVisible();
+    // The list's row actions.
+    await page.goto("/admin/users");
+    const row = page.locator("[data-user-row=u1]");
+    await expect(row.getByRole("button", { name: "Disable Ann" })).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Sync/ })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /^Refresh/ })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
     await ctx.close();
   });
 }
 
-test("rivian_actions=false hides them in the flag-off admin too", async ({ page }) => {
-  await open(page, false, false);
-  await page.getByRole("button", { name: "Select Ann" }).click();
-  await expect(page.locator("[data-rivian-actions-note]")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sync Rivian" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Refresh session" })).toHaveCount(0);
-});
-
 for (const v of [true, "absent"] as const) {
   test(`rivian_actions ${v === "absent" ? "absent (older server)" : "true"} keeps them`, async ({ page }) => {
     await open(page, v, true);
-    await expect(page.locator("[data-user-row=u1]").getByRole("button", { name: "Sync Ann" })).toBeVisible();
-    await expect(page.locator("[data-user-row=u1]").getByRole("button", { name: "Refresh Rivian session for Ann" })).toBeVisible();
-    await page.getByRole("button", { name: "Select Ann" }).click();
     await expect(page.getByRole("button", { name: "Sync Rivian" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh session" })).toBeVisible();
     await expect(page.locator("[data-rivian-actions-note]")).toHaveCount(0);
+    await page.goto("/admin/users");
+    const row = page.locator("[data-user-row=u1]");
+    await expect(row.getByRole("button", { name: "Sync Ann" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Refresh Rivian session for Ann" })).toBeVisible();
   });
 }

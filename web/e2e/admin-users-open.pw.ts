@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// On the admin site the Users list can be long and the detail sits below it: clicking a user must open
-// them (the whole row or card, not just the name) and bring the detail into view.
+// On the admin site (admin_only, a long list): clicking a user opens their page (the whole row or card,
+// not just the name), and Back returns to the list.
 const H = 3_600_000;
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 const mk = (i: number) => ({ id: `u${i}`, username: `user${i}@example.com`, email: `user${i}@example.com`, display_name: `User ${i}`, role: i === 0 ? "admin" : "user", disabled: false, created_at: ago((40 + i) * 24 * H), vehicle_count: 1, drive_count: 2, import_count: 0, rivian_connected: true, needs_reauth: false, last_seen_at: ago((i + 1) * H) });
@@ -23,41 +23,41 @@ async function open(page: Page) {
   });
   await page.route("**/api/admin/users/*/disabled", (r) => { writes.push("disabled"); return r.fulfill({ json: { ok: true } }); });
   await page.route("**/api/admin/audit**", (r) => r.fulfill({ json: { items: [], next_before: null } }));
-  await page.goto("/admin#users");
+  await page.goto("/admin/users");
   await expect(page.locator("[data-admin-users]")).toBeVisible();
   return writes;
 }
-const detail = (page: Page) => page.locator("[data-user-detail]");
+const userPage = (page: Page, id: string) => page.locator(`[data-user-page=${id}]`);
 
-test("1280: clicking anywhere on a row opens that user and shows the detail", async ({ browser }) => {
+test("1280: clicking anywhere on a row opens that user's page; Back returns", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
   await open(page);
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u0"); // the first user is open by default
-  // A plain cell, not the name button.
+  // A plain cell, not the name link.
   await page.locator("[data-user-row=u12]").locator("td").nth(3).click();
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u12");
-  await expect(detail(page)).toContainText("user12@example.com");
-  await expect(detail(page)).toBeInViewport();
-  // The name button opens too.
-  await page.getByRole("button", { name: "Select User 7" }).click();
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u7");
-  await expect(detail(page)).toBeInViewport();
+  await expect(page).toHaveURL(/\/admin\/users\/u12$/);
+  await expect(userPage(page, "u12")).toContainText("user12@example.com");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/admin\/users$/);
+  // The name link opens too.
+  await page.getByRole("link", { name: "Open User 7" }).click();
+  await expect(page).toHaveURL(/\/admin\/users\/u7$/);
+  await expect(userPage(page, "u7")).toBeVisible();
   await ctx.close();
 });
 
-test("390: tapping a card opens that user and shows the detail", async ({ browser }) => {
+test("390: tapping a card opens that user's page", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true });
   const page = await ctx.newPage();
   await open(page);
   await expect(page.locator("[data-admin-users-cards]")).toBeVisible();
   // The body of the card, not a button.
   await page.locator("[data-user-row=u11]").locator("dl").tap();
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u11");
-  await expect(detail(page)).toBeInViewport();
-  await page.getByRole("button", { name: "Select User 3" }).tap();
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u3");
-  await expect(detail(page)).toBeInViewport();
+  await expect(page).toHaveURL(/\/admin\/users\/u11$/);
+  await expect(userPage(page, "u11")).toBeVisible();
+  await page.goBack();
+  await page.getByRole("link", { name: "Open User 3" }).tap();
+  await expect(page).toHaveURL(/\/admin\/users\/u3$/);
   await ctx.close();
 });
 
@@ -67,6 +67,6 @@ test("a row's own controls keep their meaning: Disable does not open the user", 
   const writes = await open(page);
   await page.locator("[data-user-row=u5]").getByRole("button", { name: "Disable User 5" }).click();
   await expect.poll(() => writes).toContain("disabled");
-  await expect(detail(page)).toHaveAttribute("data-user-detail", "u0"); // selection unchanged
+  await expect(page).toHaveURL(/\/admin\/users$/); // still on the list
   await ctx.close();
 });

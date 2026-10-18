@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { AdminUserRow } from "../lib/api";
 import { connection, filterUsers, lastData, noDataAlert, purge, type UserFilter } from "../lib/adminUsers";
 import { useImpersonationDisabled, useRivianActions } from "../lib/config";
@@ -37,10 +38,9 @@ function ago(iso: string | null | undefined, now: number): string {
 }
 
 export function AdminUsersTable({
-  rows, selectedID, onSelect, busyID, adminCount, actions, now = Date.now(),
+  rows, onSelect, busyID, adminCount, actions, now = Date.now(),
 }: {
   rows: AdminUserRow[];
-  selectedID: string | null;
   onSelect: (id: string) => void;
   busyID: string | null;
   adminCount: number;
@@ -90,8 +90,8 @@ export function AdminUsersTable({
       {narrow ? (
         <ul data-admin-users-cards className="space-y-3">
           {shown.map((u) => (
-            <li key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className={`cursor-pointer rounded-lg border border-neutral-800 p-3 hover:bg-neutral-900/50 ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
-              <UserBlock u={u} selected={u.id === selectedID} onSelect={onSelect} />
+            <li key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className="cursor-pointer rounded-lg border border-neutral-800 p-3 hover:bg-neutral-900/50">
+              <UserBlock u={u} />
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-xs text-neutral-400">Rivian</dt>
@@ -132,8 +132,8 @@ export function AdminUsersTable({
             </thead>
             <tbody>
               {shown.map((u) => (
-                <tr key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className={`cursor-pointer border-t border-neutral-800 align-top hover:bg-neutral-900/50 ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
-                  <td className="px-3 py-2"><UserBlock u={u} selected={u.id === selectedID} onSelect={onSelect} /></td>
+                <tr key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className="cursor-pointer border-t border-neutral-800 align-top hover:bg-neutral-900/50">
+                  <td className="px-3 py-2"><UserBlock u={u} /></td>
                   <td className="px-3 py-2"><RivianCell u={u} now={now} /></td>
                   <td className="px-3 py-2"><LastDataCell u={u} now={now} /></td>
                   <td className="px-3 py-2 tabular-nums text-neutral-300" title={u.last_seen_at ?? ""}>{ago(u.last_seen_at, now)}</td>
@@ -174,7 +174,7 @@ export function AdminUsersTable({
 }
 
 // A click anywhere on a user's row or card opens them, except on the row's own controls (the actions,
-// the name button): those keep their own meaning.
+// the name link): those keep their own meaning.
 const opensUser = (onSelect: (id: string) => void, id: string) => (e: React.MouseEvent) => {
   if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label, summary")) return;
   onSelect(id);
@@ -195,13 +195,13 @@ function useNarrow(maxPx = 767): boolean {
   return narrow;
 }
 
-function UserBlock({ u, selected, onSelect }: { u: AdminUserRow; selected: boolean; onSelect: (id: string) => void }) {
+function UserBlock({ u }: { u: AdminUserRow }) {
   const name = u.display_name || u.username;
   return (
     <>
-      <button type="button" aria-pressed={selected} aria-label={`Select ${name}`} onClick={() => onSelect(u.id)} className="text-left font-medium text-neutral-100 hover:underline">
+      <Link to={`/admin/users/${u.id}`} aria-label={`Open ${name}`} className="font-medium text-neutral-100 hover:underline">
         {name}
-      </button>
+      </Link>
       <div className="break-all text-xs text-neutral-400">{u.email || u.username}</div>
       <div className="mt-0.5 text-xs text-neutral-400">
         <span data-col="vehicles">{u.vehicle_count} {u.vehicle_count === 1 ? "vehicle" : "vehicles"}</span>
