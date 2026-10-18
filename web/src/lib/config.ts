@@ -102,7 +102,7 @@ export type RuntimeConfig = {
     // the admin "View as" control instead of offering a dead button.
     disabled: boolean;
   };
-  // rivianActions is false only on the admin-only site, which never talks to Rivian: the admin
+  // rivianActions is false wherever Rivian is off (the admin-only site, the demo): the admin
   // hides "Sync" and "Refresh session". An older server that omits it is treated as true.
   rivianActions: boolean;
 };
@@ -163,7 +163,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         jumpCount: typeof j?.gps?.jump_count === "number" ? j.gps.jump_count : fallback.gps.jumpCount,
       },
       impersonation: { disabled: !!j?.impersonation?.disabled },
-      // false only on the admin-only site, which never talks to Rivian; absent means allowed.
+      // false wherever Rivian is off (the admin-only site, the demo); absent means allowed.
       rivianActions: j?.features?.rivian_actions !== false,
     };
   } catch {
@@ -367,7 +367,7 @@ export function useImpersonationDisabled(): boolean {
 }
 
 // useRivianActions: whether this site can act on Rivian (sync a user's vehicles, refresh a session).
-// False on the admin-only site. Until /api/config has answered it is false, so those controls never
+// False wherever Rivian is off (the admin-only site, the demo). Until /api/config has answered it is false, so those controls never
 // flash up on a site that cannot run them; once it answers, absent means true.
 export function useRivianActions(): boolean {
   const [on, setOn] = useState<boolean>(configLoaded ? cached.rivianActions : false);
