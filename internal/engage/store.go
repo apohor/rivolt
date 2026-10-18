@@ -46,7 +46,18 @@ func (s *pgStore) BudgetUsed(ctx context.Context, uid uuid.UUID, since time.Time
 }
 
 func (s *pgStore) Claim(ctx context.Context, m Msg, now, since time.Time, limit int) (bool, bool, error) {
-	res, err := s.db.ExecContext(ctx, `
+	// The budget check and the insert must not interleave with another claim for
+	// the same account (two transactions can each count 3 and both insert), so a
+	// per-account advisory lock serializes them for the length of the transaction.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('engage:' || $1::text, 0))`, m.User); err != nil {
+		return false, false, err
+	}
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO engagement_sends (user_id, kind, key, channel, status, budgeted, claimed_at)
 		SELECT $1, $2, $3, $4, 'sending', $5::boolean, $6::timestamptz
 		 WHERE NOT $5::boolean
@@ -58,15 +69,15 @@ func (s *pgStore) Claim(ctx context.Context, m Msg, now, since time.Time, limit 
 		return false, false, err
 	}
 	if n, _ := res.RowsAffected(); n == 1 {
-		return true, false, nil
+		return true, false, tx.Commit()
 	}
 	var exists bool
-	if err := s.db.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT EXISTS (SELECT 1 FROM engagement_sends WHERE user_id = $1 AND kind = $2 AND key = $3)`,
 		m.User, m.Kind, m.Key).Scan(&exists); err != nil {
 		return false, false, err
 	}
-	return false, !exists, nil
+	return false, !exists, tx.Commit()
 }
 
 func (s *pgStore) Mark(ctx context.Context, uid uuid.UUID, kind, key, status string, now time.Time) error {
