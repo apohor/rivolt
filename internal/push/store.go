@@ -6,6 +6,7 @@ package push
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -123,6 +124,47 @@ func (s *Store) List(ctx context.Context) ([]Subscription, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// Get returns the user's subscription for endpoint, or (nil, nil) when the
+// endpoint is not one of theirs.
+func (s *Store) Get(ctx context.Context, endpoint string) (*Subscription, error) {
+	var v Subscription
+	err := s.db.QueryRowContext(ctx, `
+		SELECT endpoint, p256dh, auth,
+		       on_charging_done, on_plug_in_reminder, on_anomaly, on_software_update, on_milestones,
+		       COALESCE(user_agent, ''), created_at, updated_at
+		FROM push_subscriptions
+		WHERE user_id = $1 AND endpoint = $2`, s.userID, endpoint).Scan(&v.Endpoint, &v.P256dh, &v.Auth,
+		&v.OnChargingDone, &v.OnPlugInReminder, &v.OnAnomaly, &v.OnSoftwareUpdate, &v.OnMilestones,
+		&v.UserAgent, &v.CreatedAt, &v.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// SwitchOffAll turns one opt-in kind (plug_in_reminder or milestones) off on
+// every one of the user's subscriptions and reports how many changed.
+func (s *Store) SwitchOffAll(ctx context.Context, kind string) (int64, error) {
+	var col string
+	switch kind {
+	case "plug_in_reminder":
+		col = "on_plug_in_reminder"
+	case "milestones":
+		col = "on_milestones"
+	default:
+		return 0, fmt.Errorf("push: unknown kind %q", kind)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE push_subscriptions SET `+col+` = FALSE, updated_at = NOW() WHERE user_id = $1 AND `+col, s.userID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Count returns the number of stored subscriptions for this user.
