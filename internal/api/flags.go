@@ -36,11 +36,12 @@ func handleFlagsGet(store *flags.Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"kill_switch":  store.KillSwitch(),
-			"trip_planner": store.TripPlanner(),
-			"ai_call_cap":  store.AICallCap(),
-			"sleep_safe":   store.SleepSafe(),
-			"money_tab":    store.MoneyTab(),
+			"kill_switch":     store.KillSwitch(),
+			"trip_planner":    store.TripPlanner(),
+			"ai_call_cap":     store.AICallCap(),
+			"sleep_safe":      store.SleepSafe(),
+			"money_tab":       store.MoneyTab(),
+			"statement_email": store.StatementEmail(),
 		})
 	}
 }
