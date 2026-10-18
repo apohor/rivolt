@@ -1250,6 +1250,12 @@ export const backend = {
       "/api/admin/flags/trip-planner",
       { enabled },
     ),
+  adminFlagsMoneyTabPut: (all: boolean, users: string[]) =>
+    api.put<{ money_tab: AudienceFlag }>("/api/admin/flags/money-tab", { all, users }),
+  adminFlagsStatementEmailPut: (all: boolean, users: string[]) =>
+    api.put<{ statement_email: AudienceFlag }>("/api/admin/flags/statement-email", { all, users }),
+  adminFlagsAICallCapPut: (dailyLimit: number) =>
+    api.put<{ ai_call_cap: { daily_limit: number; actor?: string } }>("/api/admin/flags/ai-call-cap", { daily_limit: dailyLimit }),
   // Admin audit log (newest first). `next_before` pages: pass it back as `before`.
   adminAudit: (p: { action?: string; limit?: number; before?: number; actor?: string; target_user?: string } = {}) => {
     const q = new URLSearchParams();
@@ -1856,7 +1862,12 @@ export type TermsState = { current: string; accepted: string | null; accepted_at
 export type AdminFlagsState = {
   kill_switch: { paused: boolean; reason?: string; actor?: string };
   trip_planner: { enabled: boolean; actor?: string };
+  // Who a feature is on for: everyone, or the listed user ids (empty: nobody).
+  money_tab?: AudienceFlag;
+  statement_email?: AudienceFlag;
+  ai_call_cap?: { daily_limit: number; actor?: string }; // <= 0: no cap
 };
+export type AudienceFlag = { all?: boolean; users?: string[]; actor?: string };
 
 // One admin action from GET /api/admin/audit (internal/adminaudit.Row).
 export type AdminAuditRow = {
