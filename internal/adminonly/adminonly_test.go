@@ -8,10 +8,12 @@ import (
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 var good = map[string]string{
-	"RIVOLT_ADMIN_ONLY":         "true",
-	"RIVOLT_ACCESS_TEAM_DOMAIN": "jolly-river-3a16.cloudflareaccess.com",
-	"RIVOLT_ACCESS_AUD":         "aud",
-	"RIVOLT_ADMIN_EMAILS":       "owner@example.com",
+	"RIVOLT_ADMIN_ONLY":            "true",
+	"RIVOLT_ACCESS_TEAM_DOMAIN":    "jolly-river-3a16.cloudflareaccess.com",
+	"RIVOLT_ACCESS_AUD":            "aud",
+	"RIVOLT_ADMIN_EMAILS":          "owner@example.com",
+	"RIVIAN_CLIENT":                "stub",
+	"RIVOLT_RIVIAN_LIVE_FORBIDDEN": "true",
 }
 
 func with(k, v string) map[string]string {
@@ -58,7 +60,27 @@ func TestRefusesWorkerAndPublicEnv(t *testing.T) {
 	if p := Problems(env(with("RIVOLT_ADMIN_DISABLED", "true"))); len(p) != 1 {
 		t.Errorf("ADMIN_DISABLED: %v", p)
 	}
-	if p := Problems(env(with("RIVIAN_CLIENT", "replay"))); len(p) != 1 {
-		t.Errorf("RIVIAN_CLIENT=replay: %v", p)
+}
+
+func TestRefusesAnythingButStubAndLiveForbidden(t *testing.T) {
+	for _, c := range []string{"", "live", "mock", "replay", "Live "} {
+		p := Problems(env(with("RIVIAN_CLIENT", c)))
+		if len(p) != 1 || !strings.Contains(p[0], "RIVIAN_CLIENT") {
+			t.Errorf("RIVIAN_CLIENT=%q: %v", c, p)
+		}
+	}
+	if p := Problems(env(with("RIVIAN_CLIENT", " STUB "))); len(p) != 0 {
+		t.Errorf("stub in any case is fine: %v", p)
+	}
+	for _, v := range []string{"", "false", "0", "no", "off", "maybe"} {
+		p := Problems(env(with("RIVOLT_RIVIAN_LIVE_FORBIDDEN", v)))
+		if len(p) != 1 || !strings.Contains(p[0], "LIVE_FORBIDDEN") {
+			t.Errorf("RIVOLT_RIVIAN_LIVE_FORBIDDEN=%q: %v", v, p)
+		}
+	}
+	for _, v := range []string{"true", "TRUE", "1", "yes", "on"} {
+		if p := Problems(env(with("RIVOLT_RIVIAN_LIVE_FORBIDDEN", v))); len(p) != 0 {
+			t.Errorf("RIVOLT_RIVIAN_LIVE_FORBIDDEN=%q should pass: %v", v, p)
+		}
 	}
 }

@@ -13,6 +13,15 @@ import (
 // Enabled reports RIVOLT_ADMIN_ONLY=true.
 func Enabled(getenv func(string) string) bool { return truthy(getenv("RIVOLT_ADMIN_ONLY")) }
 
+// liveForbidden parses the flag the way rivian.ParseBoolEnv does.
+func liveForbidden(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 func truthy(s string) bool { return strings.EqualFold(strings.TrimSpace(s), "true") }
 
 // required must be set: they identify the Access app and who may pass it.
@@ -59,8 +68,14 @@ func Problems(getenv func(string) string) []string {
 	if truthy(getenv("RIVOLT_ADMIN_DISABLED")) {
 		out = append(out, "RIVOLT_ADMIN_DISABLED contradicts RIVOLT_ADMIN_ONLY")
 	}
-	if c := strings.ToLower(strings.TrimSpace(getenv("RIVIAN_CLIENT"))); c == "replay" || c == "mock" {
-		out = append(out, "RIVIAN_CLIENT="+c+" must not be used on the admin deployment")
+	// The admin site never talks to Rivian: the client must be the stub, and
+	// a live client must be forbidden outright, so a stray value cannot turn
+	// one on. (Its per-user Sync and Refresh session answer 409 for this.)
+	if c := strings.ToLower(strings.TrimSpace(getenv("RIVIAN_CLIENT"))); c != "stub" {
+		out = append(out, fmt.Sprintf("RIVIAN_CLIENT must be stub on the admin deployment (got %q)", c))
+	}
+	if !liveForbidden(getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN")) {
+		out = append(out, "RIVOLT_RIVIAN_LIVE_FORBIDDEN=true is required on the admin deployment")
 	}
 	return out
 }
