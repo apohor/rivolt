@@ -419,3 +419,43 @@ func TestRestoreRefusalsDoNotConsumeTheSlot(t *testing.T) {
 		t.Errorf("after a restore that wrote rows, the next = %d, want 429", rec.Code)
 	}
 }
+
+// Through the handler: a refused file frees the slot but a second upload right
+// away waits the cooldown (429), and after it the user may try again.
+func TestRestoreRefusalCooldownThroughTheHandler(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	old := restoreRefusalCooldown
+	restoreRefusalCooldown = 300 * time.Millisecond
+	defer func() { restoreRefusalCooldown = old }()
+	uid, err := db.EnsureUser(ctx, pool, "cool-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := handleDataRestore(backupTestDeps(pool)) // one handler: one guard
+	post := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest("POST", "/api/data/restore", strings.NewReader(body)).WithContext(auth.WithUser(ctx, uid)))
+		return rec
+	}
+	if rec := post(`{"hello":"world"}`); !strings.Contains(rec.Body.String(), msgNotBackup) {
+		t.Fatalf("first upload: %q", rec.Body.String())
+	}
+	rec := post(`{"hello":"again"}`)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("immediate second upload = %d, want 429 with Retry-After", rec.Code)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if rec := post(`{"version":"x","drives":[],"charges":[],"samples":[]}`); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"event":"done"`) {
+		t.Fatalf("after the cooldown: %d %q", rec.Code, rec.Body.String())
+	}
+	// An empty restore also cools down.
+	if rec := post(`{"samples":[]}`); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("right after an empty restore = %d, want 429", rec.Code)
+	}
+}

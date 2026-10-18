@@ -398,6 +398,13 @@ const (
 type backupGuard struct {
 	sem  chan struct{}
 	gaps gapStore
+
+	// cool holds a short per-user cooldown (in memory, per pod) set after a
+	// refused or empty restore. Those give the ten-minute slot back, so
+	// without it a user could send 100 MiB of junk back to back, each fully
+	// parsed and then refused.
+	coolMu sync.Mutex
+	cool   map[uuid.UUID]time.Time
 }
 
 // gapStore remembers when each user last started the operation.
@@ -424,6 +431,9 @@ func newDBBackupGuard(max int, pool *sql.DB, column string) *backupGuard {
 // acquire reserves a slot for uid. On refusal it returns how long until a
 // retry could succeed. release must be called when the operation ends.
 func (g *backupGuard) acquire(ctx context.Context, uid uuid.UUID, gap time.Duration) (release func(), retryAfter time.Duration, ok bool) {
+	if wait := g.coolingDown(uid); wait > 0 {
+		return nil, wait, false
+	}
 	select {
 	case g.sem <- struct{}{}:
 	default:
@@ -442,6 +452,39 @@ func (g *backupGuard) acquire(ctx context.Context, uid uuid.UUID, gap time.Durat
 		return nil, wait, false
 	}
 	return free, 0, true
+}
+
+// coolingDown is how long uid must still wait after a refused restore.
+func (g *backupGuard) coolingDown(uid uuid.UUID) time.Duration {
+	g.coolMu.Lock()
+	defer g.coolMu.Unlock()
+	until, ok := g.cool[uid]
+	if !ok {
+		return 0
+	}
+	if d := time.Until(until); d > 0 {
+		return d
+	}
+	delete(g.cool, uid)
+	return 0
+}
+
+// forgetWithCooldown gives uid's ten-minute slot back (nothing useful was
+// written) but makes the next attempt wait restoreRefusalCooldown.
+func (g *backupGuard) forgetWithCooldown(uid uuid.UUID) {
+	g.forget(uid)
+	g.coolMu.Lock()
+	defer g.coolMu.Unlock()
+	if g.cool == nil {
+		g.cool = map[uuid.UUID]time.Time{}
+	}
+	now := time.Now()
+	for k, t := range g.cool { // forget expired entries
+		if now.After(t) {
+			delete(g.cool, k)
+		}
+	}
+	g.cool[uid] = now.Add(restoreRefusalCooldown)
 }
 
 // forget gives uid's slot back (a run that broke should not cost the user
@@ -579,7 +622,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		src, closeSrc, err := restoreSource(http.MaxBytesReader(w, r.Body, restoreMaxWire), restoreMaxPlain)
 		if err != nil {
 			http.Error(w, msgDamaged, http.StatusBadRequest)
-			guard.forget(uid)
+			guard.forgetWithCooldown(uid)
 			return
 		}
 		defer closeSrc()
@@ -634,8 +677,12 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		close(stopBeat)
 		<-beatDone
 		if err != nil {
-			guard.forget(uid) // an idempotent retry should not wait
 			status, msg := restoreErrorEvent(err)
+			if status == http.StatusInternalServerError {
+				guard.forget(uid) // our failure: an idempotent retry should not wait
+			} else {
+				guard.forgetWithCooldown(uid) // a refused file: free the slot, but not for back-to-back junk
+			}
 			if status == http.StatusInternalServerError {
 				slog.WarnContext(r.Context(), "restore failed",
 					"user", logging.IDHash(uid.String()), "err", logging.ScrubErr(err))
@@ -646,7 +693,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			return
 		}
 		if prog.drives.Load()+prog.charges.Load()+prog.samples.Load() == 0 {
-			guard.forget(uid) // nothing was written: it should not cost the user the wait
+			guard.forgetWithCooldown(uid) // nothing was written: no ten-minute wait, but not back to back
 		}
 		emit(counts("done"))
 	}
@@ -693,6 +740,10 @@ func restoreErrorEvent(err error) (int, string) {
 	}
 	return http.StatusInternalServerError, "The restore stopped partway. It may be partly restored; running it again is safe."
 }
+
+// restoreRefusalCooldown is the wait after a refused or empty restore (a
+// variable so a test can shorten it).
+var restoreRefusalCooldown = 30 * time.Second
 
 // Restore limits.
 const (
