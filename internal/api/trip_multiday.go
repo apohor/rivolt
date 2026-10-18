@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,6 +96,8 @@ type tripPlanMultidayResponse struct {
 	Days      []tripPlanMultidayDay `json:"days"`
 	Total     tripmultiday.Totals   `json:"total"`
 	Simulated bool                  `json:"simulated,omitempty"`
+	// TZ is the zone the overnight "until" times were read in.
+	TZ string `json:"tz"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -113,12 +117,12 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 	return func(w http.ResponseWriter, r *http.Request) {
 		planner, ok := tripPlannerOf(c)
 		if !ok {
-			http.Error(w, "live rivian client required", http.StatusNotFound)
+			planError(w, http.StatusNotFound, "live rivian client required")
 			return
 		}
 		var req tripPlanMultidayRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			badRequest(w, "invalid body: "+err.Error())
 			return
 		}
 		days, err := req.dayInputs()
@@ -137,11 +141,13 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				return
 			}
 		}
-		loc := time.UTC
+		// "until" times are read in the client's zone (an IANA name, what the
+		// browser reports). A missing or unrecognised zone falls back to UTC
+		// rather than failing the plan; the response says which was used.
+		loc, tzUsed := time.UTC, "UTC"
 		if req.TZ != "" {
-			if loc, err = time.LoadLocation(req.TZ); err != nil {
-				badRequest(w, "tz must be an IANA zone such as America/Chicago")
-				return
+			if l, err := time.LoadLocation(req.TZ); err == nil {
+				loc, tzUsed = l, req.TZ
 			}
 		}
 
@@ -214,6 +220,27 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			}
 		}
 
+		// The same weather, profile and cost pass the single-day plan gets, run
+		// on each day from its own starting SoC and reserve. It runs while the
+		// days are chained, and the overnight and the next day start from the
+		// corrected arrival when that is lower than the plan's: the chain is as
+		// conservative as the arrival the user is shown.
+		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
+		enr.load(r.Context())
+		type dayExtras struct {
+			adj   *tripWeatherAdjustmentDTO
+			costs []tripadvice.CostEstimate
+		}
+		extras := map[int]dayExtras{}
+		mreq.AdjustArrival = func(ctx context.Context, day int, plan *rivian.TripPlan, startSoC float64, target *float64) (float64, bool) {
+			adj, costs := enr.enrich(ctx, plan, startSoC, target)
+			extras[day] = dayExtras{adj, costs}
+			if adj == nil {
+				return 0, false
+			}
+			return adj.FinalArrivalSoC, true
+		}
+
 		out, err := tripmultiday.Plan(r.Context(), planner, mreq)
 		if err != nil {
 			var re *tripmultiday.RequestError
@@ -233,18 +260,19 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return
 		}
 
-		// The same weather, profile and cost pass the single-day plan gets,
-		// run on each day from its own starting SoC and reserve.
-		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
-		enr.load(r.Context())
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d}
-			target := req.TargetArrivalSocPercent
-			if req.Days != nil && i < len(req.Days) && req.Days[i].TargetArrivalSocPct != nil {
-				target = req.Days[i].TargetArrivalSocPct
+			if ex, ok := extras[d.Index]; ok {
+				day.WeatherAdjustment, day.Costs = ex.adj, ex.costs
+			} else {
+				// The last day is not chained from, so it was not corrected on the way.
+				target := req.TargetArrivalSocPercent
+				if i < len(req.Days) && req.Days[i].TargetArrivalSocPct != nil {
+					target = req.Days[i].TargetArrivalSocPct
+				}
+				day.WeatherAdjustment, day.Costs = enr.enrich(r.Context(), d.Plan, d.DepartureSoC, target)
 			}
-			day.WeatherAdjustment, day.Costs = enr.enrich(r.Context(), d.Plan, d.DepartureSoC, target)
 			resp.Days = append(resp.Days, day)
 		}
 		if out.FailedDay > 0 {
@@ -253,6 +281,12 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				_, body := upstreamErrorBody(out.FailedErr)
 				resp.ErrorClass, _ = body["class"].(string)
 				resp.ErrorReason, _ = body["reason"].(string)
+				if out.PlannerFailure {
+					// The detail (gateway text, router errors) is for the logs.
+					slog.WarnContext(r.Context(), "multi-day plan: a day could not be planned",
+						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "err", out.FailedErr.Error())
+					resp.Error = out.Error + ": " + plainPlanReason(out.FailedErr)
+				}
 			}
 		}
 		writeJSON(w, http.StatusOK, resp)
@@ -299,3 +333,30 @@ func (req *tripPlanMultidayRequest) dayInputs() ([]tripmultiday.DayInput, error)
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
+
+// plainPlanReason words a planner failure for the person planning: no
+// internals (router, gateway or package names), just what happened or what to
+// do. The full error goes to the log.
+func plainPlanReason(err error) string {
+	var ue *rivian.UpstreamError
+	switch {
+	case errors.Is(err, rivian.ErrInvalidTrip):
+		// These are written for the user ("no road route between these points").
+		msg := err.Error()
+		if i := strings.Index(msg, ": "); i >= 0 && strings.HasPrefix(msg, "invalid trip") {
+			msg = msg[i+2:]
+		}
+		return msg
+	case errors.Is(err, rivian.ErrNeedsReauth):
+		return "reconnect your Rivian account and try again"
+	case errors.Is(err, rivian.ErrUpstreamPaused):
+		return "trip planning is paused for the moment"
+	case errors.As(err, &ue) && ue.Class == rivian.ClassRateLimited:
+		return "the planner is busy, try again in a minute"
+	case errors.As(err, &ue) && ue.Class == rivian.ClassUserAction:
+		return "reconnect your Rivian account and try again"
+	case errors.Is(err, rivian.ErrNoFixture):
+		return "no sample plan for this trip"
+	}
+	return "the planner could not plan this day"
+}

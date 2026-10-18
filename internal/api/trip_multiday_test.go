@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,7 +55,11 @@ func runMultiday(t *testing.T, p rivian.TripPlanner, body string) (int, map[stri
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out == nil {
-		out = map[string]any{"_body": rec.Body.String()}
+		out = map[string]any{}
+	}
+	out["_body"] = rec.Body.String()
+	if ct := rec.Header().Get("Content-Type"); rec.Code >= 400 && !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("an error response must be JSON, got %q: %s", ct, rec.Body.String())
 	}
 	return rec.Code, out
 }
@@ -173,7 +178,6 @@ func TestMultidayRefusals(t *testing.T) {
 		"eleven days":               {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[` + elevenDays + `]}`, "11 days"},
 		"no days":                   {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[]}`, "at least one day"},
 		"bad start_at":              {`{` + mdVehicle + `"start_at":"tomorrow","origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "start_at"},
-		"bad tz":                    {`{` + mdVehicle + `"tz":"Mars/Base","origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "tz"},
 		"bad depart_at":             {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2},"depart_at":"soon"}]}`, "day 1"},
 		"bad until":                 {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2},"overnight":{"until":"8am"}},` + day + `]}`, "day 1"},
 		"no pack":                   {`{"vehicle_id":"v1","starting_soc":90,"origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "pack_kwh"},
@@ -212,5 +216,82 @@ func TestMultidayPartialFailureIs200WithTheDaysSoFar(t *testing.T) {
 	_, out = runMultiday(t, &daysPlanner{fail: map[int]error{0: errors.New("boom")}}, `{`+mdVehicle+`"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2}}]}`)
 	if out["failed_day"] != float64(1) || out["error_class"] != nil || len(out["days"].([]any)) != 0 {
 		t.Errorf("first-day failure = %v", out)
+	}
+}
+
+// Every error from the plan endpoints has one shape: JSON {"error": "..."}.
+func TestPlanErrorsAreAlwaysJSON(t *testing.T) {
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: &daysPlanner{}}
+	for name, req := range map[string]struct {
+		h    http.HandlerFunc
+		body string
+		want int
+	}{
+		"single-day, one waypoint": {handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{"waypoints":[{"latitude":1,"longitude":1}]}`, 400},
+		"single-day, bad json":     {handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{`, 400},
+		"single-day, stub client":  {handleTripPlan(rivian.NewStub(), nil, nil, uuid.New(), nil, nil, nil, nil), `{}`, 404},
+		"multi-day, bad json":      {handleTripPlanMultiday(c, nil, nil, uuid.New(), nil, nil, nil, nil), `{`, 400},
+		"multi-day, stub client":   {handleTripPlanMultiday(rivian.NewStub(), nil, nil, uuid.New(), nil, nil, nil, nil), `{}`, 404},
+	} {
+		rec := httptest.NewRecorder()
+		req.h(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString(req.body)))
+		var out map[string]any
+		if rec.Code != req.want || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") ||
+			json.Unmarshal(rec.Body.Bytes(), &out) != nil || out["error"] == "" || out["error"] == nil {
+			t.Errorf("%s: %d %q %s", name, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+		}
+	}
+}
+
+// A missing or unrecognised zone is not an error: "until" falls back to UTC
+// and the response says what was used.
+func TestMultidayTimezoneFallsBackToUTC(t *testing.T) {
+	body := func(tz string) string {
+		return `{` + mdVehicle + tz + `"start_at":"2026-10-20T08:00:00-07:00","origin":{"lat":1,"lon":1},
+		 "days":[{"end":{"lat":2,"lon":2},"overnight":{"until":"08:00","l2_kw":0}},{"end":{"lat":3,"lon":3}}]}`
+	}
+	for name, tc := range map[string]struct{ tz, used, day2 string }{
+		"los angeles": {`"tz":"America/Los_Angeles",`, "America/Los_Angeles", "2026-10-21T15:00:00Z"},
+		"chicago":     {`"tz":"America/Chicago",`, "America/Chicago", "2026-10-21T13:00:00Z"},
+		"missing":     {``, "UTC", "2026-10-21T08:00:00Z"},
+		"invalid":     {`"tz":"Mars/Base",`, "UTC", "2026-10-21T08:00:00Z"},
+		"garbage":     {`"tz":"../../etc/passwd",`, "UTC", "2026-10-21T08:00:00Z"},
+	} {
+		code, out := runMultiday(t, &daysPlanner{}, body(tc.tz))
+		if code != 200 || out["tz"] != tc.used {
+			t.Errorf("%s: %d tz %v, want 200 and %q", name, code, out["tz"], tc.used)
+			continue
+		}
+		if d2 := out["days"].([]any)[1].(map[string]any)["depart_at"]; d2 != tc.day2 {
+			t.Errorf("%s: day 2 departs %v, want %v", name, d2, tc.day2)
+		}
+	}
+}
+
+// A failed day's message is for the person planning: no router, gateway or
+// package names. The detail stays in the log.
+func TestFailedDayMessageHasNoInternals(t *testing.T) {
+	body := `{` + mdVehicle + `"start_at":"2026-10-20T08:00:00Z","origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2}}]}`
+	for name, tc := range map[string]struct {
+		err  error
+		want string
+	}{
+		"router 400":    {errors.New("syntheticplan: route: valhalla: HTTP 400"), "the planner could not plan this day"},
+		"gateway":       {errors.New("planTrip2: graphql: boom {\"x\":1}"), "the planner could not plan this day"},
+		"no road route": {fmt.Errorf("%w: no road route between these points", rivian.ErrInvalidTrip), "no road route between these points"},
+		"rate limited":  {&rivian.UpstreamError{Class: rivian.ClassRateLimited, Reason: "429 raw"}, "the planner is busy"},
+		"reauth":        {rivian.ErrNeedsReauth, "reconnect your Rivian account"},
+		"paused":        {rivian.ErrUpstreamPaused, "paused"},
+	} {
+		_, out := runMultiday(t, &daysPlanner{fail: map[int]error{0: tc.err}}, body)
+		msg, _ := out["error"].(string)
+		if out["failed_day"] != float64(1) || !strings.Contains(msg, "day 1 could not be planned: ") || !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: failed_day %v error %q, want it to say %q", name, out["failed_day"], msg, tc.want)
+		}
+		for _, internal := range []string{"syntheticplan", "valhalla", "HTTP 400", "planTrip2", "graphql", "invalid trip", "429 raw"} {
+			if strings.Contains(msg, internal) {
+				t.Errorf("%s: the message leaks %q: %s", name, internal, msg)
+			}
+		}
 	}
 }
