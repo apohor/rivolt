@@ -11,6 +11,7 @@ import { PackHealthCard } from "../components/PackHealthCard";
 import DrainCard from "../components/DrainCard";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { LeaseCard } from "../components/LeaseCard";
+import { R2CheckedCard, isR2 } from "../components/R2Checked";
 import { Card, PageHeader } from "../components/ui";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import { lowestTire, safeNotesUrl, sleepSummary, softwareInfo } from "../lib/truckHealth";
@@ -99,6 +100,8 @@ export default function TruckPage() {
           </>
         }
       />
+
+      {isR2(vehicle?.model) && <R2CheckedCard />}
 
       <DrainCard vehicleID={selectedID} />
 

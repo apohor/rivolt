@@ -1,0 +1,66 @@
+name: R2 report
+description: Something on your R2 looks wrong or is missing in Rivolt. No VIN, no address, no screenshots that show a location.
+labels:
+  - r2
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. Please leave out your VIN, your address and any screenshot that shows a location.
+        "It just worked" is useful to hear too.
+
+  - type: input
+    id: software
+    attributes:
+      label: Rivian software version
+      description: From the Rivian app.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: activity
+    attributes:
+      label: What were you doing?
+      options:
+        - Charging at home (Level 2)
+        - DC fast charging
+        - Driving
+        - Parked or asleep
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: rivolt
+    attributes:
+      label: What did Rivolt show?
+      placeholder: "Truck tab said … / the charge appeared as … / the field was blank"
+    validations:
+      required: true
+
+  - type: textarea
+    id: rivian
+    attributes:
+      label: What did the Rivian app show at the same time?
+
+  - type: checkboxes
+    id: about
+    attributes:
+      label: Which of these is it about?
+      options:
+        - label: Drive
+        - label: Charge or plug-in
+        - label: Charge limit or time to full
+        - label: Battery, range or odometer
+        - label: Temperature or tire pressure
+        - label: Sleep or power state
+        - label: Something not listed
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This report has no VIN, address or location in it.
+          required: true

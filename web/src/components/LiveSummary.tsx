@@ -1,3 +1,4 @@
+import { fieldHidden } from "../lib/fieldSupport";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend, type Vehicle, type VehicleState } from "../lib/api";
@@ -143,11 +144,11 @@ function LiveSummaryRow({ vehicle }: { vehicle: Vehicle }) {
           <Stat label="Odo" value={num(kmToMi(s.odometer_km), 0, "mi")} />
           <Stat label="Limit" value={pct(s.charge_target_pct, 0)} />
           <Stat label="Cabin" value={formatTemperature(s.cabin_temp_c, tempUnit)} />
-          {s.outside_temp_c !== 0 ? (
+          {s.outside_temp_c !== 0 && !fieldHidden(vehicle, "outside_temp") ? (
             <Stat label="Outside" value={formatTemperature(s.outside_temp_c, tempUnit)} />
           ) : null}
           <Stat label="Gear" value={s.gear || "—"} />
-          <Stat label="Power" value={formatPowerShort(s.power_state)} />
+          <Stat label="Power" value={s.power_state ? formatPowerShort(s.power_state) : "—"} />
           <Stat
             label={s.charger_power_kw > 0 ? "Charging" : "Plug"}
             value={
