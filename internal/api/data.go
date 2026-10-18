@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"database/sql"
@@ -204,6 +205,8 @@ func handleDataBackup(d Deps) http.HandlerFunc {
 			http.Error(w, "backup unavailable: stores not initialized", http.StatusServiceUnavailable)
 			return
 		}
+		sabotageSamples, _ := ss.ListAll(r.Context()) // OLD BEHAVIOUR (temporary experiment)
+		sabotageKeep = sabotageSamples
 		release, retryAfter, allowed := guard.acquire(r.Context(), uid, backupPerUserGap)
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
@@ -673,7 +676,11 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 				}
 			}
 		}()
-		_, err = restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate, prog)
+		whole, _ := io.ReadAll(src) // OLD BEHAVIOUR (temporary experiment): the whole body in memory
+		var all struct{ Samples []samples.Sample }
+		_ = json.Unmarshal(whole, &all)
+		sabotageBody, sabotageDecoded = whole, all.Samples
+		_, err = restoreStream(r.Context(), json.NewDecoder(bytes.NewReader(whole)), ds, cs, ss, tick, gate, prog)
 		close(stopBeat)
 		<-beatDone
 		if err != nil {
@@ -1132,3 +1139,9 @@ func handleDataAccountDelete(d Deps) http.HandlerFunc {
 // rest is DBSCAN-clustered on (lat, lon) with the biggest cluster
 // winning Home. The UI uses this for /charges badges and the Overview
 // Charging locations card. No external calls.
+
+var (
+	sabotageKeep    []samples.Sample
+	sabotageBody    []byte
+	sabotageDecoded []samples.Sample
+)
