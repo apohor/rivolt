@@ -14,8 +14,9 @@ import (
 // responses the anonymous demo serves instead of calling Rivian's
 // planner (GET /api/demo/trips, /api/demo/trips/{id}/plan). The data
 // lives in internal/demo/trips: index.json lists the presets, and
-// <id>.plan.json holds each one's response. The Las Vegas presets are
-// the sample owner's saved plans (the same ids, SampleTripID, so the
+// <id>.plan.json holds each one's response. The Las Vegas presets (each
+// leg, and both as one two-day trip whose plan file is the saved
+// multi-day snapshot) are the sample owner's saved plans (the same ids, SampleTripID, so the
 // demo can open them with Plan vs Actual) and are built from the corpus here; the others
 // are generated from Valhalla routes, the chargers archive and the
 // sample truck's efficiency by presets_gen_test.go (run by hand).
@@ -119,6 +120,53 @@ func vegasPresets() ([]presetFile, error) {
 		out = append(out, f)
 	}
 	return out, nil
+}
+
+// twoDayPreset is the sample owner's two-day Las Vegas trip as a preset:
+// the saved trip's id and multi-day snapshot, with the times moved to
+// presetDepart. shapes are each day's road shape (the Las Vegas presets'
+// own, as both days drive those routes), carried on the day's route; the
+// preset itself has none, as there is no single route to draw.
+func twoDayPreset(shapes []string) (presetFile, error) {
+	depart, err := presetDepart()
+	if err != nil {
+		return presetFile{}, err
+	}
+	days := rivian.SampleTwoDayPlan(presetPlansAt, time.Time{})
+	if len(days) != 2 {
+		return presetFile{}, fmt.Errorf("demo: no two-day Las Vegas plan")
+	}
+	d := depart.Sub(days[0].DepartAt)
+	for i := range days {
+		days[i].Plan = shiftPlan(days[i].Plan, d)
+		days[i].DepartAt, days[i].SavedAt = days[i].DepartAt.Add(d), days[i].SavedAt.Add(d)
+	}
+	in, err := twoDayInputs(days)
+	if err != nil {
+		return presetFile{}, err
+	}
+	pb, err := twoDaySnapshot(days, presetConfig(), settings.DefaultChargingNetworks(), shapes)
+	if err != nil {
+		return presetFile{}, err
+	}
+	var sum PresetSummary
+	var meters float64
+	var secs int
+	for _, day := range days {
+		r := day.Plan.Routes[0]
+		meters += r.TotalDriveDistanceMeters
+		secs += r.TotalTripDurationSec
+		for _, w := range r.Waypoints {
+			if w.WaypointType == "DC_CHARGE_STATION" {
+				sum.ChargeStops++
+			}
+		}
+		sum.ArrivalSoCPct = r.ArrivalSoC
+	}
+	sum.DistanceMi = math.Round(meters/1609.344*10) / 10
+	sum.DurationMin = math.Round(float64(secs) / 60)
+	return presetFile{Preset: Preset{ID: SampleTripID(rivian.SamplePlanVegasTwoDay).String(), Name: rivian.SamplePlanVegasTwoDay,
+		Inputs: in, Summary: sum}, Plan: pb}, nil
 }
 
 // shiftPlan moves every waypoint time in plan by d.

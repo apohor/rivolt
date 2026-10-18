@@ -59,6 +59,55 @@
       "route_polyline": "_~r~cAhtqrzEjTip@ia@sU}[zaAabFonCmQf_DirAvxHzn@rkIab@~eE`h@p{Az|DzsCrnHl`Dj_Enm@dhKvOnkDj_Azyb@`j^tnC~yA|{Dp}@hswDdUz~s@g\\j`nBziB`rGbf@vsFfpAhmF|`Ct{|@`tj@~ic@|uX~xD`gDb_vBnxgCrfEpuDzpvC|}mB||FbpBb`oBxkf@vxaCznUjoB`_@`xCteBdY\\^wzEzN`@p}ArtC|_Axn@|tCt}@dlAw`AeFiWmLbr@qw@|e@}tCu}@}_Ayn@ezAw|CeY}A_@zdFx}GprA`s_DfvcAxwGnhDvuKprDv{O~pDhs{@hyXtpD`oBpvC~kDv~LbqWjy@jfE~N`fE_UreEen@fyCynGdpNwz@t{CyoExs]nHtmFd~CvhUhV~wKweEhlv@{lF|`\\y_@`zEvQb`LttArqS|_Kj`c@du}B|lfJhzH`ad@thHjvg@jto@vv{C|zCpjHp~zCdzvFz|CvxDrgFzpDpoCr_Dzyk@hveAzpC~yCfnB~kApxzAfbu@hwDliDfqBn`EhaAp}EjxCr_h@h`@ngCl_AvgCl{Mx`Rh{iBp`bBhjPll[`_e@d`aAnbBpwFf\\`yCdpBnei@f_@`iDz}P~ql@v_B`aMlR`fHa_AdgKmCtwCzfGxnhAphAneHv`E|bMbVv~Rlp@~bEbnxAvdiCxg}@jykDdjhBhfpFzec@ftlA~s@rvDzd_@xv{CfMl|D}Sjt]xiRnclCqThbt@}cCz}UgqDxog@{oBniSWjcFdiDxbQtzAphEnt^lrj@~xAr_Ev]n`IwEvr_A`nBvrUztAlhFrvZzw^ruF`tDfneBrr\\peGrgC|nBxhBfvfBbf_C`qv@hvq@xvDbeC`qaArnb@ffDpa@fiDoCroTwzDluEuA`vh@zuKded@xpZf_lAbz{@pqp@htk@r~SxwJxjBlvBxkR~t^`tB|sBbg\\rfNr{e@lyIjup@vh^dqaDlk~Bxkh@rfa@rjVxmTxiOfdLh_F~sIrsElvF~bAxwC`lA|eJnAf}Cco@pyDydD~zI}Wd_Gjg@zwD|cAzkCbcEhxDn{Dtu@d~\\kKl`D{SbjEybA``HciE~pL_wNdzBchDt~Aw{FntAaeCzyOawLz{Dw}AllDeUj}Mv`@h~AsU`qEilBvkCk^`xQkEpnIlf@l`Fiy@rtDweDreHqePtlIupJ|o\\mje@ppBibBbtCoa@pc`@pzFxvSz|JhhOleUhnN|hQzbPzb\\vus@|x~@duEzrHphCr|Ib`@~{GiTnhuBjeBnaz@t]xyyC|s@txFlfAflD`vTfp^~}@b}ClTrhC?rx`@qe@x}m@bmAvyQkN|}YpLtmOcc@xkT|Sfhu@srAlac@dg@f{GfmDjkNfChtSv`@~}Iuf@tgEkeCdpGii@bzDuXldOcHdse@rUrtQ}vAf{D}hI`fJ{_BzmIebBvpFqKzpDxoBrwNvAxyCawFveVgyCzlRuQvpwAa_C~cKiwFpfHijJhwVg_@jsBss@rmMnBh~x@hk@t_M|KhsKcm@vaEg{D~_Hwy@feEpC||j@`d@bcXzDv`h@vt@vpDp|Dx}JzaAn|EchD`oFowBfOcpFjmB{[mJkUgaAaiD~EsEe]glCwx@"
     },
     {
+      "id": "919ca13a-123f-5423-994d-12d7ccd31319",
+      "name": "Las Vegas, 2 days",
+      "inputs": {
+        "departure_at": "2026-11-14T08:00",
+        "destination": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [
+          {
+            "label": "Las Vegas hotel (sample)",
+            "lat": 36.1699,
+            "lon": -115.1398
+          }
+        ],
+        "has_adapter": true,
+        "max_overnight_soc_pct": 90,
+        "origin": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "overnight_flags": [
+          true
+        ],
+        "overnight_l2_kw": 6,
+        "overnight_settings": [
+          {
+            "l2_kw": 6,
+            "lat": 36.1699,
+            "lon": -115.1398,
+            "max_soc_pct": 90,
+            "until": "09:20"
+          }
+        ],
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 529.9,
+        "duration_min": 474,
+        "charge_stops": 2,
+        "arrival_soc_pct": 11.7
+      },
+      "route_polyline": ""
+    },
+    {
       "id": "san-diego",
       "name": "LA to San Diego",
       "inputs": {

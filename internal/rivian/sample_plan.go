@@ -94,23 +94,75 @@ func SampleTripPlans(now, since time.Time) []SampleTripPlan {
 func (c *SampleCorpus) tripPlans(tl replayTimeline, now, since time.Time) []SampleTripPlan {
 	var out []SampleTripPlan
 	for _, p := range c.planned {
-		trip := c.trips[p.trip]
-		start, end := c.segs[trip.from].start, c.segs[trip.to-1].end
-		shift := func(k int64) time.Duration { return tl.loopStart(k).Sub(tl.start) }
-		k := tl.loopAt(now)
-		for k >= 0 && end.Add(shift(k)).After(now) {
-			k--
+		if shift, outA, outB, ok := c.legLoop(tl, p, now, since); ok {
+			out = append(out, c.planLeg(p, shift, outA, outB, 0))
 		}
-		if k < 0 || start.Add(shift(k)).Before(since) {
-			continue
-		}
-		out = append(out, c.planLeg(p, shift(k), start.Add(shift(k)), end.Add(shift(k))))
 	}
 	return out
 }
 
-// planLeg builds the plan for p's leg, shifted onto the wall clock.
-func (c *SampleCorpus) planLeg(p samplePlanned, shift time.Duration, outA, outB time.Time) SampleTripPlan {
+// legLoop places p's road trip on the latest loop of the replay where it
+// is over by now and started at or after since: the shift onto the wall
+// clock and the outing's bounds there. False when there is none.
+func (c *SampleCorpus) legLoop(tl replayTimeline, p samplePlanned, now, since time.Time) (time.Duration, time.Time, time.Time, bool) {
+	trip := c.trips[p.trip]
+	start, end := c.segs[trip.from].start, c.segs[trip.to-1].end
+	shift := func(k int64) time.Duration { return tl.loopStart(k).Sub(tl.start) }
+	k := tl.loopAt(now)
+	for k >= 0 && end.Add(shift(k)).After(now) {
+		k--
+	}
+	if k < 0 || start.Add(shift(k)).Before(since) {
+		return 0, time.Time{}, time.Time{}, false
+	}
+	return shift(k), start.Add(shift(k)), end.Add(shift(k)), true
+}
+
+// The sample owner's two-day plan for the Las Vegas trip: the way out as
+// day 1, a night at the hotel on its L2, and the way home as day 2.
+const (
+	SamplePlanVegasTwoDay = "Las Vegas, 2 days"
+	// SampleHotelLabel names the overnight stop; SampleHotelKW is its L2.
+	SampleHotelLabel = "Las Vegas hotel (sample)"
+	SampleHotelKW    = sampleHotelKW
+	// SampleOvernightMaxSoC caps the overnight charge, as the owner's
+	// charge limit did at the hotel.
+	SampleOvernightMaxSoC = 90.0
+)
+
+// SampleTwoDayPlan returns the two days of the sample owner's two-day
+// Las Vegas plan, placed on the same loop as SampleTripPlans' (nil when
+// there is none). Day 1 is the way-out plan. Day 2 is the way home as a
+// multi-day plan chains it: it leaves with the charge the hotel's L2 puts
+// in overnight (SampleOvernightMaxSoC; the stay allows far more), not with
+// what the truck had left after a day of driving around town.
+func SampleTwoDayPlan(now, since time.Time) []SampleTripPlan {
+	c, tl := sampleShared()
+	var out []SampleTripPlan
+	for _, p := range c.planned {
+		var startSoC float64
+		switch p.name {
+		case samplePlanVegas:
+		case samplePlanVegasHome:
+			startSoC = SampleOvernightMaxSoC
+		default:
+			continue
+		}
+		shift, outA, outB, ok := c.legLoop(tl, p, now, since)
+		if !ok {
+			return nil
+		}
+		out = append(out, c.planLeg(p, shift, outA, outB, startSoC))
+	}
+	if len(out) != 2 {
+		return nil
+	}
+	return out
+}
+
+// planLeg builds the plan for p's leg, shifted onto the wall clock. A
+// positive startSoC replaces the SoC the truck actually left with.
+func (c *SampleCorpus) planLeg(p samplePlanned, shift time.Duration, outA, outB time.Time, startSoC float64) SampleTripPlan {
 	segs := c.segs[p.leg.from:p.leg.to]
 	depart := segs[0].start.Add(shift).Add(-samplePlanLeadTime).Truncate(5 * time.Minute)
 	reach := func(soc float64) float64 { return round1(soc / 100 * samplePackKWh * sampleMiPerKWh * 1609.344) }
@@ -118,6 +170,10 @@ func (c *SampleCorpus) planLeg(p samplePlanned, shift time.Duration, outA, outB 
 	secs := func(s float64) time.Duration { return time.Duration(math.Round(s)) * time.Second }
 
 	soc, at := segs[0].socA, depart
+	if startSoC > 0 {
+		soc = startSoC
+	}
+	first := soc
 	var meters, driveSec, chargeSec, kwh float64
 	wps := []PlannedWaypoint{{WaypointType: "ORIGIN", Name: p.origin.label,
 		Latitude: p.origin.at.Lat, Longitude: p.origin.at.Lon,
@@ -160,7 +216,7 @@ func (c *SampleCorpus) planLeg(p samplePlanned, shift time.Duration, outA, outB 
 		Origin:      SamplePlace{p.origin.at.Lat, p.origin.at.Lon, p.origin.label},
 		Destination: SamplePlace{p.dest.at.Lat, p.dest.at.Lon, p.dest.label},
 		DepartAt:    depart, SavedAt: depart.Add(-samplePlanSavedBefore),
-		StartSoC: round1(segs[0].socA), TargetSoC: samplePlanTargetSoC, PackKWh: samplePackKWh,
+		StartSoC: round1(first), TargetSoC: samplePlanTargetSoC, PackKWh: samplePackKWh,
 		OutingStart: outA, OutingEnd: outB,
 		Plan: TripPlan{Status: "OK", ChargeStationsAvailable: true, Routes: []TripRoute{route}},
 	}

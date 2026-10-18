@@ -1,0 +1,298 @@
+{
+  "days": [
+    {
+      "arrival_soc": 30.1,
+      "arrive_at": "2026-11-14T20:04:23Z",
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend": 16.977600000000002,
+          "dcfc_spend_user_member": 15.279840000000002,
+          "dcfc_spend_all_member": 15.279840000000002,
+          "home_equivalent": 17.072,
+          "gas_equivalent": 0,
+          "gas_price_per_gallon": 0,
+          "gas_mpg": 0,
+          "dcfc_rate_used": 0.6,
+          "dcfc_rate_used_user_member": 0.54,
+          "dcfc_rate_used_all_member": 0.54,
+          "home_rate_used": 0.16,
+          "breakdown": [
+            {
+              "network_slug": "ran",
+              "network_name": "Rivian Adventure Network",
+              "charger_name": "Barstow, CA [Rivian Adventure Network]",
+              "energy_kwh": 28.296000000000003,
+              "guest_rate": 0.6,
+              "user_rate": 0.54,
+              "all_member_rate": 0.54,
+              "member_plan": "Rivian owner (10% off)"
+            }
+          ]
+        }
+      ],
+      "depart_at": "2026-11-14T16:00:00Z",
+      "departure_soc": 90,
+      "destination_reached": true,
+      "end": {
+        "latitude": 36.1699,
+        "longitude": -115.1398,
+        "label": "Las Vegas hotel (sample)"
+      },
+      "index": 1,
+      "overnight": {
+        "name": "Las Vegas hotel (sample)",
+        "parked_hours": 45.3,
+        "l2_kw": 6,
+        "added_kwh": 78.5,
+        "post_charge_soc_pct": 90,
+        "capped": true
+      },
+      "plan": {
+        "ChargeStationsAvailable": true,
+        "Routes": [
+          {
+            "ArrivalReachableMeters": 145935.1,
+            "ArrivalSoC": 30.1,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "BatteryEmptyToDestMeters": 0,
+            "DestinationReached": true,
+            "EnergyConsumptionKWh": 106.7,
+            "RouteResponseRaw": null,
+            "TotalChargingDurationSec": 1093,
+            "TotalDriveDistanceMeters": 424701,
+            "TotalDriveDurationSec": 13570,
+            "TotalTripDurationSec": 14663,
+            "Waypoints": [
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 0,
+                "ArrivalSoC": 0,
+                "ArrivalTimeUTC": "",
+                "ChargeDurationSec": 0,
+                "DepartureReachableMeters": 436405.8,
+                "DepartureSoC": 90,
+                "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+                "DistanceFromOriginMeters": 0,
+                "EntityID": "",
+                "Latitude": 34.1613,
+                "Longitude": -118.1676,
+                "MaxPowerKW": 0,
+                "Name": "Rose Bowl parking (sample)",
+                "WaypointType": "ORIGIN"
+              },
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 283414.7,
+                "ArrivalSoC": 58.4,
+                "ArrivalTimeUTC": "2026-11-14T17:29:13Z",
+                "ChargeDurationSec": 1093,
+                "DepartureReachableMeters": 387916.3,
+                "DepartureSoC": 80,
+                "DepartureTimeUTC": "2026-11-14T17:47:26Z",
+                "DistanceFromOriginMeters": 164507,
+                "EntityID": "",
+                "Latitude": 34.851348,
+                "Longitude": -117.082573,
+                "MaxPowerKW": 150,
+                "Name": "Barstow, CA [Rivian Adventure Network]",
+                "WaypointType": "DC_CHARGE_STATION"
+              },
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 145935.1,
+                "ArrivalSoC": 30.1,
+                "ArrivalTimeUTC": "2026-11-14T20:04:23Z",
+                "ChargeDurationSec": 0,
+                "DepartureReachableMeters": 0,
+                "DepartureSoC": 0,
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 424701,
+                "EntityID": "",
+                "Latitude": 36.1699,
+                "Longitude": -115.1398,
+                "MaxPowerKW": 0,
+                "Name": "Las Vegas, NV",
+                "WaypointType": "DESTINATION"
+              }
+            ],
+            "route_polyline": "ej`d`A|fhk`FflCvx@tGt]hhDeKePswAoyAqdDssAy`BsdD_wA{MkrA~gHkQtaGo}Al`Bk~A`j@ggCid@exQ[gi^{a@e|RiJwek@n`@wwD`t@orBldDopF~q@_xEaKy|Jsn@qbLqI_ie@A{mOxm@kiQfp@}fDfqIecUzcG{}Hv{Bw`KjMipvA|nCs|Q|iGumW}@mdDetBqaOtMchD|`BkjFr{A{eIp~IsbKlgAayDiYsfQda@eeu@``@{hDrqC{tHte@ghE_b@yiKkDy}Ri`D}wL_r@o~HjrAos`@^e~i@_R_rLth@ivVoNkgMjO}wYukAkuPle@uvs@mCki]ib@k`Duu@wvBstTcb^ceAopDqt@wyGiXyqrCqeB{g`AzUeggBpQqqLd_A{oJgp@_rE}gB_sCeiHwwEkgt@ug_AevPc{\\ioO_tRcbL}nQydC}rBy~Qq`Ikd`@cfGg`CfS{cCvbBsr\\`|e@csIfzJctGvoOaiDtgDq{EncAmrI{b@u}RbIcrBxXsoGl|B}mPiYqcEpm@ehClmAclOtlLgoA`wBc{CbeJm|M|qP_qDjuCmsFnvB}tFpm@c}MjDyaFuaAw{CetCu}AybEa[wbE|XuuMyw@gtKipGydXk~CiyFipDeqC{uJ}tB{xD_lBgxZ{hXuhb@gm[kzFggFsn_Dio|Bg{n@kl]cbCkv@wvb@ovHye]qqNmuCgeDqvPgd\\ugBu|BwpT{jKyrp@c{k@g}kAa}{@q~a@ohYm|CajAqhf@yuJusEtAssT`xDsfDxCsbDw`@_naAyib@auDueCixx@yct@}rdBey|BkdBs}AivD{qBimkA_~Tq_B{p@opAoyAvbBmi@z@{XOdTguAvPqw@l`Asu@[wcFgg@}iLudC{oFosDizYiu]aiAiqCo_@s{BwgB{_ZtDa`z@ca@qxIuqA}uDoa_@wdk@ivAm`EmlDaxQzGkxEj|G}tz@ddCs~UzYkqs@wmRkkmCxVuh^{MefEgl`@o|_D_fd@o_oA_efBwgkFgx~@ejoDqvvAe{eCk_AaaCkh@wjEqVmhRkcE{fMq`A_kGsiGquhAddAipOe[}~IwrAydKiiQm|m@anCuhn@ah@ulDqvBcxG}|c@{c_Aa{Me`X{fBghC_~hBq{`BojMseQwlAmrCof@ktCudDm~i@knAqxEi_BawCo`EmmDob{Aohu@cnFy}Ecjk@waeAm_CgnC_pHutFgkBiiCi|~Cqy}FqlBm_Hizm@w{wCemGgid@gbIytd@{cb@_udB}phAoqmEum\\ootAmu@_cJk[qtVlpD_~UxeC{k^tsByqd@gO}pTivB_vLkLqcGzpIahe@~vDciLpo@aiHeWgpFms@}`DapLq{VioDaeEqtDmyBcmoGuusBaueCeiVuzpByyf@ikE{{AumwCymnBcvDgfDk_qBgdbC_|IkgJi~|AofaAuaK}hFoiFuoAawGyh@a`oBykBytl@d]ce~DoZaxCmi@ieEqwBagb@wr^qfDwz@_hIl@yxDm_@uoEerAocDohBgjBi`E{oAapFsq@geEyBsgCj_CkdKnbGppCb_@wiAoZcQ}[fbAoBaX"
+          }
+        ],
+        "SoCBelowLimit": false,
+        "Status": "OK"
+      },
+      "soc_below_limit": false,
+      "start": {
+        "latitude": 34.1613,
+        "longitude": -118.1676,
+        "label": "Rose Bowl parking (sample)"
+      }
+    },
+    {
+      "arrival_soc": 11.7,
+      "arrive_at": "2026-11-16T21:09:43Z",
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend": 2.3894399999999982,
+          "dcfc_spend_user_member": 2.3894399999999982,
+          "dcfc_spend_all_member": 1.7920799999999986,
+          "home_equivalent": 17.216,
+          "gas_equivalent": 0,
+          "gas_price_per_gallon": 0,
+          "gas_mpg": 0,
+          "dcfc_rate_used": 0.48000000000000004,
+          "dcfc_rate_used_user_member": 0.48000000000000004,
+          "dcfc_rate_used_all_member": 0.36,
+          "home_rate_used": 0.16,
+          "breakdown": [
+            {
+              "network_slug": "ea",
+              "network_name": "Electrify America",
+              "charger_name": "Primm, NV [Electrify America]",
+              "energy_kwh": 4.977999999999996,
+              "guest_rate": 0.48,
+              "user_rate": 0.48,
+              "all_member_rate": 0.36,
+              "member_plan": "Pass+ - $7/mo"
+            }
+          ]
+        }
+      ],
+      "depart_at": "2026-11-16T17:20:00Z",
+      "departure_soc": 90,
+      "destination_reached": true,
+      "end": {
+        "latitude": 34.1613,
+        "longitude": -118.1676,
+        "label": "Rose Bowl parking (sample)"
+      },
+      "index": 2,
+      "plan": {
+        "ChargeStationsAvailable": true,
+        "Routes": [
+          {
+            "ArrivalReachableMeters": 56845.6,
+            "ArrivalSoC": 11.7,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "BatteryEmptyToDestMeters": 0,
+            "DestinationReached": true,
+            "EnergyConsumptionKWh": 107.6,
+            "RouteResponseRaw": null,
+            "TotalChargingDurationSec": 194,
+            "TotalDriveDistanceMeters": 428124,
+            "TotalDriveDurationSec": 13589,
+            "TotalTripDurationSec": 13783,
+            "Waypoints": [
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 0,
+                "ArrivalSoC": 0,
+                "ArrivalTimeUTC": "",
+                "ChargeDurationSec": 0,
+                "DepartureReachableMeters": 436405.8,
+                "DepartureSoC": 90,
+                "DepartureTimeUTC": "2026-11-16T17:20:00Z",
+                "DistanceFromOriginMeters": 0,
+                "EntityID": "",
+                "Latitude": 36.1699,
+                "Longitude": -115.1398,
+                "MaxPowerKW": 0,
+                "Name": "Las Vegas, NV",
+                "WaypointType": "ORIGIN"
+              },
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 369321,
+                "ArrivalSoC": 76.2,
+                "ArrivalTimeUTC": "2026-11-16T17:59:07Z",
+                "ChargeDurationSec": 194,
+                "DepartureReachableMeters": 387916.3,
+                "DepartureSoC": 80,
+                "DepartureTimeUTC": "2026-11-16T18:02:21Z",
+                "DistanceFromOriginMeters": 72134,
+                "EntityID": "",
+                "Latitude": 35.606006,
+                "Longitude": -115.38908,
+                "MaxPowerKW": 150,
+                "Name": "Primm, NV [Electrify America]",
+                "WaypointType": "DC_CHARGE_STATION"
+              },
+              {
+                "AdapterRequired": false,
+                "ArrivalReachableMeters": 56845.6,
+                "ArrivalSoC": 11.7,
+                "ArrivalTimeUTC": "2026-11-16T21:09:43Z",
+                "ChargeDurationSec": 0,
+                "DepartureReachableMeters": 0,
+                "DepartureSoC": 0,
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 428124,
+                "EntityID": "",
+                "Latitude": 34.1613,
+                "Longitude": -118.1676,
+                "MaxPowerKW": 0,
+                "Name": "Rose Bowl parking (sample)",
+                "WaypointType": "DESTINATION"
+              }
+            ],
+            "route_polyline": "_~r~cAhtqrzEjTip@ia@sU}[zaAabFonCmQf_DirAvxHzn@rkIab@~eE`h@p{Az|DzsCrnHl`Dj_Enm@dhKvOnkDj_Azyb@`j^tnC~yA|{Dp}@hswDdUz~s@g\\j`nBziB`rGbf@vsFfpAhmF|`Ct{|@`tj@~ic@|uX~xD`gDb_vBnxgCrfEpuDzpvC|}mB||FbpBb`oBxkf@vxaCznUjoB`_@`xCteBdY\\^wzEzN`@p}ArtC|_Axn@|tCt}@dlAw`AeFiWmLbr@qw@|e@}tCu}@}_Ayn@ezAw|CeY}A_@zdFx}GprA`s_DfvcAxwGnhDvuKprDv{O~pDhs{@hyXtpD`oBpvC~kDv~LbqWjy@jfE~N`fE_UreEen@fyCynGdpNwz@t{CyoExs]nHtmFd~CvhUhV~wKweEhlv@{lF|`\\y_@`zEvQb`LttArqS|_Kj`c@du}B|lfJhzH`ad@thHjvg@jto@vv{C|zCpjHp~zCdzvFz|CvxDrgFzpDpoCr_Dzyk@hveAzpC~yCfnB~kApxzAfbu@hwDliDfqBn`EhaAp}EjxCr_h@h`@ngCl_AvgCl{Mx`Rh{iBp`bBhjPll[`_e@d`aAnbBpwFf\\`yCdpBnei@f_@`iDz}P~ql@v_B`aMlR`fHa_AdgKmCtwCzfGxnhAphAneHv`E|bMbVv~Rlp@~bEbnxAvdiCxg}@jykDdjhBhfpFzec@ftlA~s@rvDzd_@xv{CfMl|D}Sjt]xiRnclCqThbt@}cCz}UgqDxog@{oBniSWjcFdiDxbQtzAphEnt^lrj@~xAr_Ev]n`IwEvr_A`nBvrUztAlhFrvZzw^ruF`tDfneBrr\\peGrgC|nBxhBfvfBbf_C`qv@hvq@xvDbeC`qaArnb@ffDpa@fiDoCroTwzDluEuA`vh@zuKded@xpZf_lAbz{@pqp@htk@r~SxwJxjBlvBxkR~t^`tB|sBbg\\rfNr{e@lyIjup@vh^dqaDlk~Bxkh@rfa@rjVxmTxiOfdLh_F~sIrsElvF~bAxwC`lA|eJnAf}Cco@pyDydD~zI}Wd_Gjg@zwD|cAzkCbcEhxDn{Dtu@d~\\kKl`D{SbjEybA``HciE~pL_wNdzBchDt~Aw{FntAaeCzyOawLz{Dw}AllDeUj}Mv`@h~AsU`qEilBvkCk^`xQkEpnIlf@l`Fiy@rtDweDreHqePtlIupJ|o\\mje@ppBibBbtCoa@pc`@pzFxvSz|JhhOleUhnN|hQzbPzb\\vus@|x~@duEzrHphCr|Ib`@~{GiTnhuBjeBnaz@t]xyyC|s@txFlfAflD`vTfp^~}@b}ClTrhC?rx`@qe@x}m@bmAvyQkN|}YpLtmOcc@xkT|Sfhu@srAlac@dg@f{GfmDjkNfChtSv`@~}Iuf@tgEkeCdpGii@bzDuXldOcHdse@rUrtQ}vAf{D}hI`fJ{_BzmIebBvpFqKzpDxoBrwNvAxyCawFveVgyCzlRuQvpwAa_C~cKiwFpfHijJhwVg_@jsBss@rmMnBh~x@hk@t_M|KhsKcm@vaEg{D~_Hwy@feEpC||j@`d@bcXzDv`h@vt@vpDp|Dx}JzaAn|EchD`oFowBfOcpFjmB{[mJkUgaAaiD~EsEe]glCwx@"
+          }
+        ],
+        "SoCBelowLimit": false,
+        "Status": "OK"
+      },
+      "soc_below_limit": false,
+      "start": {
+        "latitude": 36.1699,
+        "longitude": -115.1398,
+        "label": "Las Vegas hotel (sample)"
+      }
+    }
+  ],
+  "kind": "multiday",
+  "request": {
+    "days": [
+      {
+        "end": {
+          "label": "Las Vegas hotel (sample)",
+          "lat": 36.1699,
+          "lon": -115.1398
+        },
+        "overnight": {
+          "l2_kw": 6,
+          "max_soc_pct": 90,
+          "name": "Las Vegas hotel (sample)",
+          "until": "09:20"
+        }
+      },
+      {
+        "depart_at": "2026-11-16T17:20:00Z",
+        "end": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        }
+      }
+    ],
+    "drive_mode": "EVERYDAY",
+    "has_adapter": true,
+    "max_overnight_soc_pct": 90,
+    "origin": {
+      "label": "Rose Bowl parking (sample)",
+      "lat": 34.1613,
+      "lon": -118.1676
+    },
+    "start_at": "2026-11-14T16:00:00Z",
+    "target_arrival_soc_percent": 10,
+    "tz": "America/Los_Angeles"
+  },
+  "total": {
+    "distance_meters": 852825,
+    "drive_duration_sec": 27159,
+    "charging_duration_sec": 1287
+  }
+}
