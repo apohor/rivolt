@@ -28,3 +28,10 @@ func TestSelectSoftwareUpdateHonoursThePreference(t *testing.T) {
 		t.Error("selector ignores OnSoftwareUpdate")
 	}
 }
+
+func TestPlugInReminderPayload(t *testing.T) {
+	p := PlugInReminderPayload(32, 40)
+	if p.Title != "Plug in tonight?" || p.Body != "Battery at 32%. Below your 40% reminder level." || p.Kind != "plug_in_reminder" || p.URL != "/" {
+		t.Errorf("payload %+v", p)
+	}
+}

@@ -108,19 +108,51 @@ func (s *Service) NotifyChargingDone(store *Store, sessionID, summary string) {
 	}, selectChargingDone)
 }
 
-// NotifyPlugInReminder fires when the vehicle is parked at home below a
-// configured SoC threshold. Scoped to the user via store.
-func (s *Service) NotifyPlugInReminder(store *Store, soc int) {
-	if s == nil || store == nil {
-		return
-	}
-	go s.broadcast(store, Payload{
-		Title: "Plug in reminder",
-		Body:  fmt.Sprintf("Battery is at %d%%. Plug in to be ready for tomorrow.", soc),
+// PlugInReminderPayload is the plug-in reminder: functional, SoC and the
+// user's own threshold, no place and no promotion.
+func PlugInReminderPayload(soc, threshold int) Payload {
+	return Payload{
+		Title: "Plug in tonight?",
+		Body:  fmt.Sprintf("Battery at %d%%. Below your %d%% reminder level.", soc, threshold),
 		Tag:   "rivolt-plug-in",
 		URL:   "/",
 		Kind:  "plug_in_reminder",
-	}, selectPlugInReminder)
+	}
+}
+
+// DeliverPlugInReminder sends the plug-in reminder to every subscription of
+// the store's user that has it on, and waits. It reports how many sends
+// succeeded; an error means none did, or the subscriptions could not be read.
+// Zero subscriptions with the reminder on is an error too: nothing was
+// delivered.
+func (s *Service) DeliverPlugInReminder(ctx context.Context, store *Store, soc, threshold int) (int, error) {
+	if s == nil || store == nil {
+		return 0, errors.New("push: not configured")
+	}
+	subs, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	p := PlugInReminderPayload(soc, threshold)
+	var ok int
+	var last error
+	for _, sub := range subs {
+		if !selectPlugInReminder(sub) {
+			continue
+		}
+		if err := s.sendOne(ctx, store, sub, p); err != nil {
+			last = err
+			continue
+		}
+		ok++
+	}
+	if ok == 0 {
+		if last == nil {
+			last = errors.New("push: no subscription has the plug-in reminder on")
+		}
+		return 0, last
+	}
+	return ok, nil
 }
 
 // DeliverMilestone sends a milestone push to every subscription of the store's
