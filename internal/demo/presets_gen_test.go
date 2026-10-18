@@ -96,6 +96,11 @@ func TestGeneratePresets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	md, err := vegasMultidayPreset()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, md)
 	for _, g := range genTrips {
 		plan, err := genPlan(ctx, vbase, arch, elev, g, depart)
 		if err != nil {
@@ -108,6 +113,21 @@ func TestGeneratePresets(t *testing.T) {
 		files = append(files, f)
 	}
 	for i := range files {
+		if files[i].ID == SampleMultidayTripID().String() {
+			// The two-day trip's shape is its two legs' shapes end to end.
+			var shape [][2]float64
+			for _, f := range files {
+				if f.Name == vegasOutName || f.Name == vegasBackName {
+					pts := decodePolyline6(f.RoutePolyline)
+					if len(shape) > 0 {
+						pts = pts[1:]
+					}
+					shape = append(shape, pts...)
+				}
+			}
+			files[i].RoutePolyline = encodePolyline6(shape)
+			continue
+		}
 		if files[i].RoutePolyline, err = genShape(vbase, files[i].Plan); err != nil {
 			t.Fatalf("%s: shape: %v", files[i].ID, err)
 		}

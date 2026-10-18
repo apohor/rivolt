@@ -1,0 +1,260 @@
+{
+  "days": [
+    {
+      "index": 1,
+      "plan": {
+        "Status": "OK",
+        "ChargeStationsAvailable": true,
+        "SoCBelowLimit": false,
+        "Routes": [
+          {
+            "DestinationReached": true,
+            "TotalChargingDurationSec": 1093,
+            "TotalDriveDurationSec": 13570,
+            "TotalTripDurationSec": 14663,
+            "TotalDriveDistanceMeters": 424701,
+            "ArrivalSoC": 30.1,
+            "ArrivalReachableMeters": 145935.1,
+            "EnergyConsumptionKWh": 106.7,
+            "BatteryEmptyToDestMeters": 0,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "RouteResponseRaw": null,
+            "Waypoints": [
+              {
+                "WaypointType": "ORIGIN",
+                "EntityID": "",
+                "Name": "Rose Bowl parking (sample)",
+                "Latitude": 34.1613,
+                "Longitude": -118.1676,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 0,
+                "DepartureSoC": 90,
+                "ArrivalReachableMeters": 0,
+                "DepartureReachableMeters": 436405.8,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "",
+                "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+                "DistanceFromOriginMeters": 0
+              },
+              {
+                "WaypointType": "DC_CHARGE_STATION",
+                "EntityID": "",
+                "Name": "Barstow, CA [Rivian Adventure Network]",
+                "Latitude": 34.851348,
+                "Longitude": -117.082573,
+                "MaxPowerKW": 150,
+                "ChargeDurationSec": 1093,
+                "ArrivalSoC": 58.4,
+                "DepartureSoC": 80,
+                "ArrivalReachableMeters": 283414.7,
+                "DepartureReachableMeters": 387916.3,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2026-11-14T17:29:13Z",
+                "DepartureTimeUTC": "2026-11-14T17:47:26Z",
+                "DistanceFromOriginMeters": 164507
+              },
+              {
+                "WaypointType": "DESTINATION",
+                "EntityID": "",
+                "Name": "Las Vegas, NV",
+                "Latitude": 36.1699,
+                "Longitude": -115.1398,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 30.1,
+                "DepartureSoC": 0,
+                "ArrivalReachableMeters": 145935.1,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2026-11-14T20:04:23Z",
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 424701
+              }
+            ]
+          }
+        ]
+      },
+      "depart_at": "2026-11-14T16:00:00Z",
+      "arrive_at": "2026-11-14T20:04:23Z",
+      "start": {
+        "latitude": 34.1613,
+        "longitude": -118.1676,
+        "label": "Rose Bowl parking (sample)"
+      },
+      "end": {
+        "latitude": 36.1699,
+        "longitude": -115.1398,
+        "label": "Las Vegas, NV"
+      },
+      "departure_soc": 90,
+      "arrival_soc": 30.1,
+      "destination_reached": true,
+      "soc_below_limit": false,
+      "overnight": {
+        "name": "Sample hotel, Las Vegas",
+        "parked_hours": 45.26,
+        "l2_kw": 7,
+        "added_kwh": 40.09,
+        "post_charge_soc_pct": 60.7,
+        "capped": false
+      },
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend": 16.977600000000002,
+          "dcfc_spend_user_member": 15.279840000000002,
+          "dcfc_spend_all_member": 15.279840000000002,
+          "home_equivalent": 17.072,
+          "gas_equivalent": 0,
+          "gas_price_per_gallon": 0,
+          "gas_mpg": 0,
+          "dcfc_rate_used": 0.6,
+          "dcfc_rate_used_user_member": 0.54,
+          "dcfc_rate_used_all_member": 0.54,
+          "home_rate_used": 0.16,
+          "breakdown": [
+            {
+              "network_slug": "ran",
+              "network_name": "Rivian Adventure Network",
+              "charger_name": "Barstow, CA [Rivian Adventure Network]",
+              "energy_kwh": 28.296000000000003,
+              "guest_rate": 0.6,
+              "user_rate": 0.54,
+              "all_member_rate": 0.54,
+              "member_plan": "Rivian owner (10% off)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "plan": {
+        "Status": "OK",
+        "ChargeStationsAvailable": true,
+        "SoCBelowLimit": false,
+        "Routes": [
+          {
+            "DestinationReached": true,
+            "TotalChargingDurationSec": 1678,
+            "TotalDriveDurationSec": 13589,
+            "TotalTripDurationSec": 15267,
+            "TotalDriveDistanceMeters": 428124,
+            "ArrivalSoC": 11.7,
+            "ArrivalReachableMeters": 56845.6,
+            "EnergyConsumptionKWh": 107.6,
+            "BatteryEmptyToDestMeters": 0,
+            "BatteryEmptyLat": 0,
+            "BatteryEmptyLon": 0,
+            "RouteResponseRaw": null,
+            "Waypoints": [
+              {
+                "WaypointType": "ORIGIN",
+                "EntityID": "",
+                "Name": "Las Vegas, NV",
+                "Latitude": 36.1699,
+                "Longitude": -115.1398,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 0,
+                "DepartureSoC": 60.7,
+                "ArrivalReachableMeters": 0,
+                "DepartureReachableMeters": 294519.3,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "",
+                "DepartureTimeUTC": "2026-11-16T17:20:00Z",
+                "DistanceFromOriginMeters": 0
+              },
+              {
+                "WaypointType": "DC_CHARGE_STATION",
+                "EntityID": "",
+                "Name": "Primm, NV [Electrify America]",
+                "Latitude": 35.606006,
+                "Longitude": -115.38908,
+                "MaxPowerKW": 150,
+                "ChargeDurationSec": 1678,
+                "ArrivalSoC": 46.9,
+                "DepartureSoC": 80,
+                "ArrivalReachableMeters": 227434.4,
+                "DepartureReachableMeters": 387916.3,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2026-11-16T17:59:07Z",
+                "DepartureTimeUTC": "2026-11-16T18:27:05Z",
+                "DistanceFromOriginMeters": 72134
+              },
+              {
+                "WaypointType": "DESTINATION",
+                "EntityID": "",
+                "Name": "Rose Bowl parking (sample)",
+                "Latitude": 34.1613,
+                "Longitude": -118.1676,
+                "MaxPowerKW": 0,
+                "ChargeDurationSec": 0,
+                "ArrivalSoC": 11.7,
+                "DepartureSoC": 0,
+                "ArrivalReachableMeters": 56845.6,
+                "DepartureReachableMeters": 0,
+                "AdapterRequired": false,
+                "ArrivalTimeUTC": "2026-11-16T21:34:27Z",
+                "DepartureTimeUTC": "",
+                "DistanceFromOriginMeters": 428124
+              }
+            ]
+          }
+        ]
+      },
+      "depart_at": "2026-11-16T17:20:00Z",
+      "arrive_at": "2026-11-16T21:34:27Z",
+      "start": {
+        "latitude": 36.1699,
+        "longitude": -115.1398,
+        "label": "Las Vegas, NV"
+      },
+      "end": {
+        "latitude": 34.1613,
+        "longitude": -118.1676,
+        "label": "Rose Bowl parking (sample)"
+      },
+      "departure_soc": 60.7,
+      "arrival_soc": 11.7,
+      "destination_reached": true,
+      "soc_below_limit": false,
+      "costs": [
+        {
+          "currency": "USD",
+          "dcfc_spend": 20.813280000000002,
+          "dcfc_spend_user_member": 20.813280000000002,
+          "dcfc_spend_all_member": 15.609960000000001,
+          "home_equivalent": 17.216,
+          "gas_equivalent": 0,
+          "gas_price_per_gallon": 0,
+          "gas_mpg": 0,
+          "dcfc_rate_used": 0.48,
+          "dcfc_rate_used_user_member": 0.48,
+          "dcfc_rate_used_all_member": 0.36,
+          "home_rate_used": 0.16,
+          "breakdown": [
+            {
+              "network_slug": "ea",
+              "network_name": "Electrify America",
+              "charger_name": "Primm, NV [Electrify America]",
+              "energy_kwh": 43.361000000000004,
+              "guest_rate": 0.48,
+              "user_rate": 0.48,
+              "all_member_rate": 0.36,
+              "member_plan": "Pass+ - $7/mo"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total": {
+    "distance_meters": 852825,
+    "drive_duration_sec": 27159,
+    "charging_duration_sec": 2771
+  },
+  "tz": "America/Los_Angeles"
+}

@@ -13,7 +13,9 @@ func TestPlanFixturesServeThePresets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fx) != len(PresetIDs()) || len(fx) < 4 {
+	// Every preset but the multi-day one, which has a stop (the fixture planner
+	// matches two-point trips only).
+	if len(fx) != len(PresetIDs())-1 || len(fx) < 4 {
 		t.Fatalf("%d fixtures for %d presets", len(fx), len(PresetIDs()))
 	}
 	p := rivian.NewFixturePlanner(fx, func() time.Time { return time.Date(2026, 12, 5, 8, 0, 0, 0, time.UTC) })

@@ -55,6 +55,30 @@ func TestPresetsFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The two-day trip is plan-multiday's answer (multiday.go): its days carry
+		// the plans, the hotel night and the costs, and its shape runs home to
+		// Las Vegas and back.
+		var md struct {
+			Days []struct {
+				Index     int             `json:"index"`
+				Plan      rivian.TripPlan `json:"plan"`
+				Overnight *struct {
+					Name string `json:"name"`
+				} `json:"overnight"`
+				Costs []tripadvice.CostEstimate `json:"costs"`
+			} `json:"days"`
+			TZ string `json:"tz"`
+		}
+		if json.Unmarshal(b, &md) == nil && len(md.Days) > 0 {
+			if len(md.Days) != 2 || md.TZ != planLocation || md.Days[0].Overnight == nil || md.Days[1].Overnight != nil ||
+				len(md.Days[0].Plan.Routes) != 1 || len(md.Days[1].Plan.Routes) != 1 || len(md.Days[0].Costs) != 1 {
+				t.Errorf("%s: multi-day plan %+v", p.ID, md)
+			}
+			if shape := decodePolyline6(p.RoutePolyline); len(shape) < 20 {
+				t.Errorf("%s: shape of %d points", p.ID, len(shape))
+			}
+			continue
+		}
 		var plan struct {
 			*rivian.TripPlan
 			Costs []tripadvice.CostEstimate `json:"costs"`

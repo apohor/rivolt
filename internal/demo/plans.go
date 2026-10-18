@@ -143,6 +143,14 @@ func SeedPlans(ctx context.Context, d *sql.DB, sf *settings.Factory, now time.Ti
 	if err != nil {
 		return 0, err
 	}
+	// The two legs also as one saved multi-day trip (multiday.go).
+	md, err := SampleMultidayPlan(now, since.Time, cfg, nets)
+	if err != nil {
+		return 0, err
+	}
+	if md != nil {
+		plans = append(plans, *md)
+	}
 	n := 0
 	for _, p := range plans {
 		res, err := d.ExecContext(ctx, `

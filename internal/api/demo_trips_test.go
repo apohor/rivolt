@@ -8,10 +8,12 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/apohor/rivolt/internal/demo"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 func demoTripsRouter() http.Handler {
@@ -53,6 +55,18 @@ func TestDemoPresetsEmbeddedDataIsValid(t *testing.T) {
 		// The stored plan must be the planner's own response shape.
 		dec := json.NewDecoder(bytes.NewReader(b.Body))
 		dec.DisallowUnknownFields()
+		var head struct {
+			Days json.RawMessage `json:"days"`
+		}
+		_ = json.Unmarshal(b.Body, &head)
+		if len(head.Days) > 0 {
+			// A multi-day preset is plan-multiday's answer.
+			var plan tripPlanMultidayResponse
+			if err := dec.Decode(&plan); err != nil || len(plan.Days) == 0 {
+				t.Errorf("preset %s plan does not decode as tripPlanMultidayResponse: %v", tr.ID, err)
+			}
+			continue
+		}
 		var plan tripPlanResponse
 		if err := dec.Decode(&plan); err != nil {
 			t.Errorf("preset %s plan does not decode as tripPlanResponse: %v", tr.ID, err)
@@ -129,6 +143,28 @@ func TestDemoPresetFilesAreSmallAndClean(t *testing.T) {
 			if !allowed[strings.ToLower(string(u))] {
 				t.Errorf("%s contains a UUID that is not a preset id (%s...)", name, string(u)[:8])
 			}
+		}
+	}
+}
+
+// The demo's saved two-day Las Vegas trip is a valid saved multi-day plan, and
+// each day reads as a plan-vs-actual subject.
+func TestDemoMultidayTripIsAValidSavedPlan(t *testing.T) {
+	p, err := demo.SampleMultidayPlan(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC), time.Time{},
+		settings.ChargingConfig{HomePricePerKWh: demo.HomeRate, HomeCurrency: "USD"}, settings.DefaultChargingNetworks())
+	if err != nil || p == nil {
+		t.Fatalf("plan %v err %v", p, err)
+	}
+	if err := validateSavedPlan(p.Plan); err != nil {
+		t.Fatalf("validateSavedPlan: %v", err)
+	}
+	days, ok := savedMultiday(p.Plan)
+	if !ok || len(days) != 2 {
+		t.Fatalf("days %d ok %v", len(days), ok)
+	}
+	for n := 1; n <= 2; n++ {
+		if _, ok := subjectForDay(days, n); !ok {
+			t.Errorf("day %d is not a plan-vs-actual subject", n)
 		}
 	}
 }

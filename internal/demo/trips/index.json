@@ -59,6 +59,56 @@
       "route_polyline": "_~r~cAhtqrzEjTip@ia@sU}[zaAabFonCmQf_DirAvxHzn@rkIab@~eE`h@p{Az|DzsCrnHl`Dj_Enm@dhKvOnkDj_Azyb@`j^tnC~yA|{Dp}@hswDdUz~s@g\\j`nBziB`rGbf@vsFfpAhmF|`Ct{|@`tj@~ic@|uX~xD`gDb_vBnxgCrfEpuDzpvC|}mB||FbpBb`oBxkf@vxaCznUjoB`_@`xCteBdY\\^wzEzN`@p}ArtC|_Axn@|tCt}@dlAw`AeFiWmLbr@qw@|e@}tCu}@}_Ayn@ezAw|CeY}A_@zdFx}GprA`s_DfvcAxwGnhDvuKprDv{O~pDhs{@hyXtpD`oBpvC~kDv~LbqWjy@jfE~N`fE_UreEen@fyCynGdpNwz@t{CyoExs]nHtmFd~CvhUhV~wKweEhlv@{lF|`\\y_@`zEvQb`LttArqS|_Kj`c@du}B|lfJhzH`ad@thHjvg@jto@vv{C|zCpjHp~zCdzvFz|CvxDrgFzpDpoCr_Dzyk@hveAzpC~yCfnB~kApxzAfbu@hwDliDfqBn`EhaAp}EjxCr_h@h`@ngCl_AvgCl{Mx`Rh{iBp`bBhjPll[`_e@d`aAnbBpwFf\\`yCdpBnei@f_@`iDz}P~ql@v_B`aMlR`fHa_AdgKmCtwCzfGxnhAphAneHv`E|bMbVv~Rlp@~bEbnxAvdiCxg}@jykDdjhBhfpFzec@ftlA~s@rvDzd_@xv{CfMl|D}Sjt]xiRnclCqThbt@}cCz}UgqDxog@{oBniSWjcFdiDxbQtzAphEnt^lrj@~xAr_Ev]n`IwEvr_A`nBvrUztAlhFrvZzw^ruF`tDfneBrr\\peGrgC|nBxhBfvfBbf_C`qv@hvq@xvDbeC`qaArnb@ffDpa@fiDoCroTwzDluEuA`vh@zuKded@xpZf_lAbz{@pqp@htk@r~SxwJxjBlvBxkR~t^`tB|sBbg\\rfNr{e@lyIjup@vh^dqaDlk~Bxkh@rfa@rjVxmTxiOfdLh_F~sIrsElvF~bAxwC`lA|eJnAf}Cco@pyDydD~zI}Wd_Gjg@zwD|cAzkCbcEhxDn{Dtu@d~\\kKl`D{SbjEybA``HciE~pL_wNdzBchDt~Aw{FntAaeCzyOawLz{Dw}AllDeUj}Mv`@h~AsU`qEilBvkCk^`xQkEpnIlf@l`Fiy@rtDweDreHqePtlIupJ|o\\mje@ppBibBbtCoa@pc`@pzFxvSz|JhhOleUhnN|hQzbPzb\\vus@|x~@duEzrHphCr|Ib`@~{GiTnhuBjeBnaz@t]xyyC|s@txFlfAflD`vTfp^~}@b}ClTrhC?rx`@qe@x}m@bmAvyQkN|}YpLtmOcc@xkT|Sfhu@srAlac@dg@f{GfmDjkNfChtSv`@~}Iuf@tgEkeCdpGii@bzDuXldOcHdse@rUrtQ}vAf{D}hI`fJ{_BzmIebBvpFqKzpDxoBrwNvAxyCawFveVgyCzlRuQvpwAa_C~cKiwFpfHijJhwVg_@jsBss@rmMnBh~x@hk@t_M|KhsKcm@vaEg{D~_Hwy@feEpC||j@`d@bcXzDv`h@vt@vpDp|Dx}JzaAn|EchD`oFowBfOcpFjmB{[mJkUgaAaiD~EsEe]glCwx@"
     },
     {
+      "id": "483e5ce2-02a9-5a05-a0db-ff847b44046c",
+      "name": "Las Vegas 2-day",
+      "inputs": {
+        "departure_at": "2026-08-31T17:20",
+        "destination": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "drive_mode": "EVERYDAY",
+        "extra_stops": [
+          {
+            "label": "Las Vegas, NV",
+            "lat": 36.1699,
+            "lon": -115.1398
+          }
+        ],
+        "has_adapter": true,
+        "max_overnight_soc_pct": 80,
+        "origin": {
+          "label": "Rose Bowl parking (sample)",
+          "lat": 34.1613,
+          "lon": -118.1676
+        },
+        "overnight_departure_local": "08:00",
+        "overnight_flags": [
+          true
+        ],
+        "overnight_l2_kw": 7,
+        "overnight_settings": [
+          {
+            "l2_kw": 7,
+            "lat": 36.1699,
+            "lon": -115.1398,
+            "max_soc_pct": 80,
+            "until": "09:20"
+          }
+        ],
+        "starting_soc": "90",
+        "target_soc": "10"
+      },
+      "summary": {
+        "distance_mi": 529.9,
+        "duration_min": 499,
+        "charge_stops": 2,
+        "arrival_soc_pct": 11.7
+      },
+      "route_polyline": "ej`d`A|fhk`FflCvx@tGt]hhDeKePswAoyAqdDssAy`BsdD_wA{MkrA~gHkQtaGo}Al`Bk~A`j@ggCid@exQ[gi^{a@e|RiJwek@n`@wwD`t@orBldDopF~q@_xEaKy|Jsn@qbLqI_ie@A{mOxm@kiQfp@}fDfqIecUzcG{}Hv{Bw`KjMipvA|nCs|Q|iGumW}@mdDetBqaOtMchD|`BkjFr{A{eIp~IsbKlgAayDiYsfQda@eeu@``@{hDrqC{tHte@ghE_b@yiKkDy}Ri`D}wL_r@o~HjrAos`@^e~i@_R_rLth@ivVoNkgMjO}wYukAkuPle@uvs@mCki]ib@k`Duu@wvBstTcb^ceAopDqt@wyGiXyqrCqeB{g`AzUeggBpQqqLd_A{oJgp@_rE}gB_sCeiHwwEkgt@ug_AevPc{\\ioO_tRcbL}nQydC}rBy~Qq`Ikd`@cfGg`CfS{cCvbBsr\\`|e@csIfzJctGvoOaiDtgDq{EncAmrI{b@u}RbIcrBxXsoGl|B}mPiYqcEpm@ehClmAclOtlLgoA`wBc{CbeJm|M|qP_qDjuCmsFnvB}tFpm@c}MjDyaFuaAw{CetCu}AybEa[wbE|XuuMyw@gtKipGydXk~CiyFipDeqC{uJ}tB{xD_lBgxZ{hXuhb@gm[kzFggFsn_Dio|Bg{n@kl]cbCkv@wvb@ovHye]qqNmuCgeDqvPgd\\ugBu|BwpT{jKyrp@c{k@g}kAa}{@q~a@ohYm|CajAqhf@yuJusEtAssT`xDsfDxCsbDw`@_naAyib@auDueCixx@yct@}rdBey|BkdBs}AivD{qBimkA_~Tq_B{p@opAoyAvbBmi@z@{XOdTguAvPqw@l`Asu@[wcFgg@}iLudC{oFosDizYiu]aiAiqCo_@s{BwgB{_ZtDa`z@ca@qxIuqA}uDoa_@wdk@ivAm`EmlDaxQzGkxEj|G}tz@ddCs~UzYkqs@wmRkkmCxVuh^{MefEgl`@o|_D_fd@o_oA_efBwgkFgx~@ejoDqvvAe{eCk_AaaCkh@wjEqVmhRkcE{fMq`A_kGsiGquhAddAipOe[}~IwrAydKiiQm|m@anCuhn@ah@ulDqvBcxG}|c@{c_Aa{Me`X{fBghC_~hBq{`BojMseQwlAmrCof@ktCudDm~i@knAqxEi_BawCo`EmmDob{Aohu@cnFy}Ecjk@waeAm_CgnC_pHutFgkBiiCi|~Cqy}FqlBm_Hizm@w{wCemGgid@gbIytd@{cb@_udB}phAoqmEum\\ootAmu@_cJk[qtVlpD_~UxeC{k^tsByqd@gO}pTivB_vLkLqcGzpIahe@~vDciLpo@aiHeWgpFms@}`DapLq{VioDaeEqtDmyBcmoGuusBaueCeiVuzpByyf@ikE{{AumwCymnBcvDgfDk_qBgdbC_|IkgJi~|AofaAuaK}hFoiFuoAawGyh@a`oBykBytl@d]ce~DoZaxCmi@ieEqwBagb@wr^qfDwz@_hIl@yxDm_@uoEerAocDohBgjBi`E{oAapFsq@geEyBsgCj_CkdKnbGppCb_@wiAoZcQ}[fbAoBaXjTip@ia@sU}[zaAabFonCmQf_DirAvxHzn@rkIab@~eE`h@p{Az|DzsCrnHl`Dj_Enm@dhKvOnkDj_Azyb@`j^tnC~yA|{Dp}@hswDdUz~s@g\\j`nBziB`rGbf@vsFfpAhmF|`Ct{|@`tj@~ic@|uX~xD`gDb_vBnxgCrfEpuDzpvC|}mB||FbpBb`oBxkf@vxaCznUjoB`_@`xCteBdY\\^wzEzN`@p}ArtC|_Axn@|tCt}@dlAw`AeFiWmLbr@qw@|e@}tCu}@}_Ayn@ezAw|CeY}A_@zdFx}GprA`s_DfvcAxwGnhDvuKprDv{O~pDhs{@hyXtpD`oBpvC~kDv~LbqWjy@jfE~N`fE_UreEen@fyCynGdpNwz@t{CyoExs]nHtmFd~CvhUhV~wKweEhlv@{lF|`\\y_@`zEvQb`LttArqS|_Kj`c@du}B|lfJhzH`ad@thHjvg@jto@vv{C|zCpjHp~zCdzvFz|CvxDrgFzpDpoCr_Dzyk@hveAzpC~yCfnB~kApxzAfbu@hwDliDfqBn`EhaAp}EjxCr_h@h`@ngCl_AvgCl{Mx`Rh{iBp`bBhjPll[`_e@d`aAnbBpwFf\\`yCdpBnei@f_@`iDz}P~ql@v_B`aMlR`fHa_AdgKmCtwCzfGxnhAphAneHv`E|bMbVv~Rlp@~bEbnxAvdiCxg}@jykDdjhBhfpFzec@ftlA~s@rvDzd_@xv{CfMl|D}Sjt]xiRnclCqThbt@}cCz}UgqDxog@{oBniSWjcFdiDxbQtzAphEnt^lrj@~xAr_Ev]n`IwEvr_A`nBvrUztAlhFrvZzw^ruF`tDfneBrr\\peGrgC|nBxhBfvfBbf_C`qv@hvq@xvDbeC`qaArnb@ffDpa@fiDoCroTwzDluEuA`vh@zuKded@xpZf_lAbz{@pqp@htk@r~SxwJxjBlvBxkR~t^`tB|sBbg\\rfNr{e@lyIjup@vh^dqaDlk~Bxkh@rfa@rjVxmTxiOfdLh_F~sIrsElvF~bAxwC`lA|eJnAf}Cco@pyDydD~zI}Wd_Gjg@zwD|cAzkCbcEhxDn{Dtu@d~\\kKl`D{SbjEybA``HciE~pL_wNdzBchDt~Aw{FntAaeCzyOawLz{Dw}AllDeUj}Mv`@h~AsU`qEilBvkCk^`xQkEpnIlf@l`Fiy@rtDweDreHqePtlIupJ|o\\mje@ppBibBbtCoa@pc`@pzFxvSz|JhhOleUhnN|hQzbPzb\\vus@|x~@duEzrHphCr|Ib`@~{GiTnhuBjeBnaz@t]xyyC|s@txFlfAflD`vTfp^~}@b}ClTrhC?rx`@qe@x}m@bmAvyQkN|}YpLtmOcc@xkT|Sfhu@srAlac@dg@f{GfmDjkNfChtSv`@~}Iuf@tgEkeCdpGii@bzDuXldOcHdse@rUrtQ}vAf{D}hI`fJ{_BzmIebBvpFqKzpDxoBrwNvAxyCawFveVgyCzlRuQvpwAa_C~cKiwFpfHijJhwVg_@jsBss@rmMnBh~x@hk@t_M|KhsKcm@vaEg{D~_Hwy@feEpC||j@`d@bcXzDv`h@vt@vpDp|Dx}JzaAn|EchD`oFowBfOcpFjmB{[mJkUgaAaiD~EsEe]glCwx@"
+    },
+    {
       "id": "san-diego",
       "name": "LA to San Diego",
       "inputs": {
