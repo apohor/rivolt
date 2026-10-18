@@ -3,10 +3,11 @@ import { useUiNext } from "../lib/uiNext";
 import { inDemo } from "../lib/demo";
 import { type TripAdvice, type TripPlan } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
-import { StopAdder, StopPreviewer } from "./tripTypes";
+import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
 import { WeatherAdjustmentChip } from "./WeatherAdjustmentChip";
 import { RouteChooser } from "./RouteChooser";
 import { RouteCard } from "./RouteCard";
+import { OvernightSuggestions } from "./OvernightSuggestions";
 import { TripAdviceCard } from "./TripAdvice";
 
 export function TripPlanResult({
@@ -28,7 +29,7 @@ export function TripPlanResult({
   adviceLoading?: boolean;
   onAnalyze?: () => void;
   onAddStop?: StopAdder;
-  onAddOvernight?: StopAdder;
+  onAddOvernight?: OvernightAdder;
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
 }) {
@@ -57,6 +58,7 @@ export function TripPlanResult({
           const i = Math.min(active, plan.Routes.length - 1);
           const route = plan.Routes[i];
           return (
+            <>
             <RouteCard
               key={i}
               route={route}
@@ -78,6 +80,8 @@ export function TripPlanResult({
                 ) : undefined
               }
             />
+            <OvernightSuggestions route={route} day={1} onUse={onAddOvernight} />
+            </>
           );
         })()
       ) : (

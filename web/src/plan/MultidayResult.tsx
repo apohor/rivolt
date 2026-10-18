@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
 import { RouteCard } from "./RouteCard";
+import { OvernightSuggestions } from "./OvernightSuggestions";
+import type { OvernightAdder } from "./tripTypes";
 import { Stat } from "./Stat";
 
 // LONG_DAY_THRESHOLD_MI / LONG_DAY_THRESHOLD_HR drive the "long day"
@@ -56,11 +58,13 @@ export function MultidayResult({
   originLabel,
   destLabel,
   departureAt,
+  onAddOvernight,
 }: {
   response: TripPlanMultidayResponse;
   originLabel: string;
   destLabel: string;
   departureAt?: string;
+  onAddOvernight?: OvernightAdder;
 }) {
   const totalMiles = response.total.distance_meters / 1609.344;
   const totalHrs = response.total.drive_duration_sec / 3600;
@@ -180,6 +184,7 @@ export function MultidayResult({
                   </div>
                 )}
               </div>
+              {r && !d.overnight && <OvernightSuggestions route={r} day={d.index} onUse={onAddOvernight} />}
               <OvernightRow day={d} />
             </div>
           );

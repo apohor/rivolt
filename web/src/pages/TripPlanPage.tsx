@@ -192,6 +192,22 @@ export default function TripPlanPage() {
             }}
           />
   );
+  // Makes a place the night of a day: a new stop flagged as an overnight, or the existing stop at
+  // that place. A listed charger's power (from a hotel pick) belongs to that night alone.
+  const addOvernightStop = (stop: { lat: number; lon: number; label: string; l2Kw?: number }) => {
+    const labeled = { ...relabelIfHome(stop, home) };
+    const at = extraStops.findIndex(
+      (s) => Math.abs(s.lat - labeled.lat) < 0.0005 && Math.abs(s.lon - labeled.lon) < 0.0005,
+    );
+    if (at >= 0) {
+      // Already a stop on the trip: it becomes the night.
+      setOvernightFlags((prev) => extraStops.map((_, j) => (j === at ? true : !!prev[j])));
+    } else {
+      setExtraStops((prev) => [...prev, labeled]);
+      setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
+    }
+    if (stop.l2Kw !== undefined) updateOvernight(at >= 0 ? extraStops[at] : labeled, { l2Kw: stop.l2Kw }, false);
+  };
   const overnightsEl = (
     <OvernightList
       stops={extraStops}
@@ -202,19 +218,7 @@ export default function TripPlanPage() {
         setExtraStops((prev) => prev.filter((_, j) => j !== i));
         setOvernightFlags((prev) => prev.filter((_, j) => j !== i));
       }}
-      onAdd={(stop) => {
-        const labeled = relabelIfHome(stop, home);
-        const at = extraStops.findIndex(
-          (s) => Math.abs(s.lat - labeled.lat) < 0.0005 && Math.abs(s.lon - labeled.lon) < 0.0005,
-        );
-        if (at >= 0) {
-          // Already a stop on the trip: it becomes the night.
-          setOvernightFlags((prev) => extraStops.map((_, j) => (j === at ? true : !!prev[j])));
-        } else {
-          setExtraStops((prev) => [...prev, labeled]);
-          setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
-        }
-      }}
+      onAdd={addOvernightStop}
     />
   );
   const toEl = (
@@ -367,6 +371,7 @@ export default function TripPlanPage() {
             originLabel={origin?.label ?? ""}
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
+            onAddOvernight={addOvernightStop}
           />
         </div>
       )}
@@ -569,28 +574,7 @@ export default function TripPlanPage() {
                 });
                 setOvernightFlags((prev) => [...prev, false]);
               }}
-              onAddOvernight={(stop) => {
-                // Hotel-L2 popup path. Append to extraStops AND mark
-                // the new index as overnight so the next submit fires
-                // the multi-day endpoint. Skip the autoReplan ref —
-                // the SPA route stays on the single-day render until
-                // the user clicks "Plan N-day trip"; otherwise the
-                // single-day mutation fires against a now-multi-day
-                // form state and 502s.
-                const labeled = relabelIfHome(stop, home);
-                let added = false;
-                setExtraStops((prev) => {
-                  const dup = prev.some(
-                    (s) =>
-                      Math.abs(s.lat - labeled.lat) < 0.0005 &&
-                      Math.abs(s.lon - labeled.lon) < 0.0005,
-                  );
-                  if (dup) return prev;
-                  added = true;
-                  return [...prev, labeled];
-                });
-                setOvernightFlags((prev) => (added ? [...prev, true] : prev));
-              }}
+              onAddOvernight={addOvernightStop}
               departureAt={departureAt}
             />
           </ErrorBoundary>
@@ -1604,7 +1588,7 @@ function OvernightList({
                   onChange={(e) => onChange(stop, { l2Kw: Number(e.target.value) })}
                   className={fieldCls}
                 >
-                  {OVERNIGHT_CHARGERS.map((c) => (
+                  {[...OVERNIGHT_CHARGERS, ...(OVERNIGHT_CHARGERS.some((c) => c.kw === o.l2Kw) ? [] : [{ kw: o.l2Kw, label: `Listed charger (${o.l2Kw} kW)` }])].map((c) => (
                     <option key={c.kw} value={c.kw}>{c.label}</option>
                   ))}
                 </select>

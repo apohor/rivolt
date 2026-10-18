@@ -29,7 +29,9 @@ export function usePlanner() {
   const [overnightOpts, setOvernightOpts] = useState<Record<string, OvernightOptions>>({});
   const optsFor = (s: { lat: number; lon: number }): OvernightOptions =>
     overnightOpts[stopKey(s)] ?? { l2Kw: overnightL2Kw, until: overnightDepartureLocal, maxSocPct: maxOvernightSoCPct };
-  const updateOvernight = (s: { lat: number; lon: number }, patch: Partial<OvernightOptions>) => {
+  // remember: the edit also becomes the starting value for the next overnight. A hotel's listed
+  // charger belongs to that hotel only, so picking one does not.
+  const updateOvernight = (s: { lat: number; lon: number }, patch: Partial<OvernightOptions>, remember = true) => {
     const next = { ...optsFor(s), ...patch };
     // Freeze the other nights at what they show now: the starting values below
     // follow the last edit, and an untouched night must not follow them.
@@ -41,6 +43,7 @@ export function usePlanner() {
       out[stopKey(s)] = next;
       return out;
     });
+    if (!remember) return;
     setOvernightL2Kw(next.l2Kw);
     setOvernightDepartureLocal(next.until);
     setMaxOvernightSoCPct(next.maxSocPct);
