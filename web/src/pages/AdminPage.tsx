@@ -9,6 +9,7 @@ import { AdminUsersTable } from "../components/AdminUsersTable";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
+import { AuditNext, UserAuditHistory } from "../components/AdminAuditNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
@@ -105,7 +106,7 @@ function grafanaUserExploreURL(
 // AdminTabs groups admin-only surfaces under a single tab nav. The
 // active tab is mirrored in the URL hash so a reload (or a copy-
 // pasted link to /admin#ai) keeps the position the operator was on.
-type AdminTab = "users" | "signups" | "ai" | "operations" | "tuning";
+type AdminTab = "users" | "signups" | "ai" | "operations" | "tuning" | "audit";
 
 // Signups is first because pending waitlist requests are the
 // most time-sensitive thing on this page — every other tab is
@@ -116,6 +117,7 @@ const ADMIN_TABS: { id: AdminTab; label: string }[] = [
   { id: "ai", label: "AI" },
   { id: "operations", label: "Operations" },
   { id: "tuning", label: "Tuning" },
+  { id: "audit", label: "Audit" },
 ];
 
 function isAdminTab(s: string): s is AdminTab {
@@ -146,10 +148,14 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // The Audit tab exists only in the new look (the flag arrives after first render, so a #audit
+  // deep link keeps its hash and shows once it is on; with it off the first tab shows instead).
+  const view: AdminTab = tab === "audit" && !nextUi ? "signups" : tab;
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1 border-b border-neutral-800">
-        {ADMIN_TABS.map((t) => {
+        {ADMIN_TABS.filter((t) => t.id !== "audit" || nextUi).map((t) => {
           const active = t.id === tab;
           return (
             <button
@@ -167,7 +173,7 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           );
         })}
       </div>
-      {tab === "users" && (
+      {view === "users" && (
         <div className="space-y-4">
           <Card title="Users">
             <CreateUserForm />
@@ -176,18 +182,18 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           <IdpFailuresPanel />
         </div>
       )}
-      {tab === "signups" && (nextUi ? <SignupsNext /> : (
+      {view === "signups" && (nextUi ? <SignupsNext /> : (
         <Card title="Signup requests">
           <SignupRequestsPanel />
         </Card>
       ))}
-      {tab === "ai" && (
+      {view === "ai" && (
         <Card title="AI providers">
           <AIProvidersPanel />
         </Card>
       )}
-      {tab === "operations" && nextUi && <FlagsNext />}
-      {tab === "operations" && !nextUi && (
+      {view === "operations" && nextUi && <FlagsNext />}
+      {view === "operations" && !nextUi && (
         <div className="space-y-4">
           <Card title="Feature flags">
             <FeatureFlagsPanel />
@@ -197,7 +203,8 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           </Card>
         </div>
       )}
-      {tab === "tuning" && (
+      {view === "audit" && <AuditNext />}
+      {view === "tuning" && (
         <div className="space-y-4">
           <Card title="Recap weather">
             <RecapWeatherPanel />
@@ -910,6 +917,7 @@ function UserDetailPanel({
   onRefreshRivianSession: () => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
+  const nextUi = useUiNext();
   const isSelf = row.id === currentUserID;
   const detail = useQuery({
     queryKey: ["admin", "user", row.id],
@@ -1260,6 +1268,11 @@ function UserDetailPanel({
           </button>
         </div>
       </div>
+      {nextUi && (
+        <div className="border-t border-neutral-800 p-4">
+          <UserAuditHistory userID={row.id} />
+        </div>
+      )}
     </div>
   );
 }

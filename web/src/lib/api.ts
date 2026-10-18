@@ -1869,7 +1869,8 @@ export type AdminAuditRow = {
   target_user_id?: string;
   details: Record<string, unknown>;
   ip: string;
-  outcome: string | null; // null: in flight or unknown
+  access_email?: string; // the Cloudflare Access identity, when the request carried one
+  outcome: string | null; // "ok" | "failed"; null: in flight or unknown
   status?: number;
   finished_at?: string;
 };
