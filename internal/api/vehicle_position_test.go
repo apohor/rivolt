@@ -35,7 +35,7 @@ func TestMultidayReplanFromTheTrucksPosition(t *testing.T) {
 	fixedPosition(t, truckAt, true)
 	p := &daysPlanner{}
 	// The remaining days only; the origin and the SoC the SPA sends are not used.
-	code, out := runMultiday(t, p, `{`+mdVehicle+`"origin_from_vehicle":true,"start_at":"2026-10-21T17:45:00Z",
+	code, out := runMultiday(t, p, `{`+mdNoSoC+`"origin_from_vehicle":true,"start_at":"2026-10-21T17:45:00Z",
 	  "origin":{"lat":1,"lon":1},
 	  "days":[{"end":{"lat":37.79,"lon":-122.39,"label":"SF"},"overnight":{"l2_kw":0}},{"end":{"lat":34.16,"lon":-118.17}}]}`)
 	if code != 200 || len(p.calls) != 2 {
@@ -81,12 +81,35 @@ func TestReplanWithoutAPositionIs409(t *testing.T) {
 	}
 }
 
+const mdNoSoC = `"vehicle_id":"v1","pack_kwh":131,`
+
+func TestExplicitStartingSoCBeatsTheReading(t *testing.T) {
+	fixedPosition(t, truckAt, true)
+	p := &daysPlanner{}
+	// A start_at in the past is stale when planning from the truck: it leaves now.
+	code, out := runMultiday(t, p, `{`+mdVehicle+`"origin_from_vehicle":true,"start_at":"2026-10-20T08:00:00Z",
+	  "days":[{"end":{"lat":2,"lon":2}}]}`)
+	if code != 200 || p.calls[0].StartingSoC != 90 || p.calls[0].Waypoints[0].Latitude != 35.37 {
+		t.Fatalf("multi-day: %d %v soc %v", code, out, p.calls[0].StartingSoC)
+	}
+	if !p.calls[0].DepartureTime.IsZero() && p.calls[0].DepartureTime.Before(time.Now().Add(-time.Minute)) {
+		t.Errorf("departure %v should not be in the past", p.calls[0].DepartureTime)
+	}
+	cp := &capturePlanner{}
+	rec := httptest.NewRecorder()
+	handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: cp}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
+		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planWith(`"origin_from_vehicle":true,`))))
+	if rec.Code != 200 || cp.got.StartingSoC != 80 || cp.got.Waypoints[0].Latitude != 35.37 {
+		t.Errorf("single-day: %d soc %v (explicit 80 beats the 61.5 reading)", rec.Code, cp.got.StartingSoC)
+	}
+}
+
 func TestSingleDayReplanFromThePosition(t *testing.T) {
 	fixedPosition(t, truckAt, true)
 	cp := &capturePlanner{}
 	rec := httptest.NewRecorder()
 	handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: cp}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
-		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planWith(`"origin_from_vehicle":true,"starting_range_meters":99999,`))))
+		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(strings.Replace(planWith(`"origin_from_vehicle":true,"starting_range_meters":99999,`), `"starting_soc":80,`, ``, 1))))
 	if rec.Code != 200 {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}

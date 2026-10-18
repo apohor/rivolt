@@ -130,11 +130,12 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			return
 		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, req.VehicleID, req.StartingSoC, req.StartingRangeMeters)
-		if msg != "" {
+		if msg != "" && !(req.OriginFromVehicle && socFromPosition(msg)) {
 			badRequest(w, msg)
 			return
 		}
 		req.VehicleID, req.StartingRangeMeters = rv.VehicleID, rv.RangeMeters
+		explicitSoC := req.StartingSoC != nil
 		startingSoC := rv.StartingSoC
 		req.StartingSoC = &startingSoC
 		var fromPos *fromPosition
@@ -145,7 +146,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				return
 			}
 			req.Waypoints[0] = tripPlanWaypoint{Latitude: pos.Lat, Longitude: pos.Lon, WaypointType: "origin"}
-			startingSoC = pos.SoC
+			if !explicitSoC {
+				startingSoC = pos.SoC
+			}
 			req.StartingRangeMeters = 0 // the reading's range is not the position's: derive it from the charge
 			fromPos = pos.echo()
 		}
@@ -174,6 +177,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				return
 			}
 			departAt = t
+		}
+		if req.OriginFromVehicle && departAt.Before(time.Now()) {
+			departAt = time.Time{} // from where the truck is, leaving now
 		}
 		in := rivian.PlanTripInput{
 			DepartureTime:           departAt,

@@ -450,3 +450,17 @@ func tapered(arr, offered float64) float64 {
 }
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
+
+// OvernightSoC projects the state of charge after parking for hours at an L2
+// of l2kw (nil: the default; 0: none), from arrSoC, with the same model the
+// planner chains days with. The AC ceiling is the default one and the charge
+// stops at capPct (0: DefaultCapPct).
+func OvernightSoC(arrSoC, hours float64, l2kw *float64, packKWh, capPct float64) float64 {
+	if packKWh <= 0 {
+		return arrSoC
+	}
+	if capPct <= 0 {
+		capPct = DefaultCapPct
+	}
+	return overnight(arrSoC, hours, &Overnight{L2KW: l2kw}, packKWh, DefaultACMaxKW, capPct).PostChargeSoCPct
+}

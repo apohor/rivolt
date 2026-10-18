@@ -39,7 +39,7 @@ func TestActiveAtPicksTheDayNowFallsIn(t *testing.T) {
 		"day 3 evening, late":       {"2026-10-23T05:00:00Z", "active", 3, 1}, // within 12 h of arrival
 		"long after":                {"2026-10-24T00:00:00Z", "after", 0, 0},
 	} {
-		got := activeAt(st, at(tc.now), nil)
+		got := activeAt(st, at(tc.now), nil, 0)
 		cur := 0
 		if got.CurrentDay != nil {
 			cur = *got.CurrentDay
@@ -50,10 +50,10 @@ func TestActiveAtPicksTheDayNowFallsIn(t *testing.T) {
 	}
 	// The truck's position rides along (nil when there is none).
 	pos := &fromPosition{Lat: 35, Lon: -119, SoC: 50}
-	if got := activeAt(st, at("2026-10-21T16:00:00Z"), pos); got.Position != pos {
+	if got := activeAt(st, at("2026-10-21T16:00:00Z"), pos, 0); got.Position != pos {
 		t.Error("the position should be echoed")
 	}
-	if got := activeAt(st, at("2026-10-21T16:00:00Z"), nil); got.Position != nil {
+	if got := activeAt(st, at("2026-10-21T16:00:00Z"), nil, 0); got.Position != nil {
 		t.Error("no reading, no position")
 	}
 }
@@ -66,16 +66,49 @@ func TestActiveAtForOtherTrips(t *testing.T) {
 		"multiday, no days": `{"kind":"multiday","days":[]}`,
 		"unparseable times": `{"kind":"multiday","days":[{"depart_at":"soon","plan":{}}]}`,
 	} {
-		got := activeAt(savedWith(plan), now, nil)
+		got := activeAt(savedWith(plan), now, nil, 0)
 		if got.CurrentDay != nil || got.State != "none" {
 			t.Errorf("%s: %+v", name, got)
 		}
 	}
-	if got := activeAt(savedWith(`{"Status":"OK"}`), now, nil); got.Kind != "single" || got.DayCount != 0 {
+	if got := activeAt(savedWith(`{"Status":"OK"}`), now, nil, 0); got.Kind != "single" || got.DayCount != 0 {
 		t.Errorf("single-day: %+v", got)
 	}
 	// A multi-day trip whose times are unreadable still says it is multi-day.
-	if got := activeAt(savedWith(`{"kind":"multiday","days":[{"depart_at":"soon","plan":{}}]}`), now, nil); got.Kind != "multiday" || got.DayCount != 1 {
+	if got := activeAt(savedWith(`{"kind":"multiday","days":[{"depart_at":"soon","plan":{}}]}`), now, nil, 0); got.Kind != "multiday" || got.DayCount != 1 {
 		t.Errorf("unreadable times: %+v", got)
+	}
+}
+
+const withStops = `{"kind":"multiday","days":[
+ {"depart_at":"2026-10-20T15:00:00Z","arrive_at":"2026-10-20T21:00:00Z","plan":{},
+  "start":{"lat":34.0,"lon":-118.0},"end":{"lat":36.0,"lon":-119.0},
+  "vias":[{"lat":34.5,"lon":-118.2},{"lat":35.5,"lon":-118.8}],
+  "overnight":{"l2_kw":7,"max_soc_pct":80}},
+ {"depart_at":"2026-10-21T15:00:00Z","arrive_at":"2026-10-21T22:00:00Z","plan":{},
+  "start":{"lat":36.0,"lon":-119.0},"end":{"lat":37.0,"lon":-120.0}}]}`
+
+func TestActiveOvernightAndViasPassed(t *testing.T) {
+	st := savedWith(withStops)
+	at := func(s string) time.Time { v, _ := time.Parse(time.RFC3339, s); return v }
+
+	got := activeAt(st, at("2026-10-21T04:00:00Z"), &fromPosition{Lat: 36.001, Lon: -119.0, SoC: 30}, 131)
+	if got.Phase != "overnight" || got.NextDay == nil || *got.NextDay != 2 || got.NextDepartAt != "2026-10-21T15:00:00Z" {
+		t.Fatalf("overnight: %+v", got)
+	}
+	if got.ProjectedSoC == nil || *got.ProjectedSoC <= 30 || *got.ProjectedSoC > 80 {
+		t.Errorf("projected soc %v: expected a gain from 30, capped at 80", got.ProjectedSoC)
+	}
+
+	got = activeAt(st, at("2026-10-20T17:00:00Z"), &fromPosition{Lat: 35.0, Lon: -118.5, SoC: 60}, 131)
+	if got.Phase != "driving" || len(got.ViasPassed) != 1 || got.ViasPassed[0] != 1 {
+		t.Errorf("driving: %+v", got)
+	}
+
+	if got = activeAt(st, at("2026-10-20T18:00:00Z"), &fromPosition{Lat: 36.0, Lon: -119.0, SoC: 20}, 131); got.Phase != "driving" {
+		t.Errorf("before arrive_at: %+v", got)
+	}
+	if got = activeAt(st, at("2026-10-21T04:00:00Z"), nil, 131); got.Phase != "" || got.NextDay != nil {
+		t.Errorf("no position: %+v", got)
 	}
 }

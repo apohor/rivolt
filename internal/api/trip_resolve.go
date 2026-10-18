@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -88,6 +89,10 @@ func resolveVehicle(ctx context.Context, mon *rivian.StateMonitor, pool *sql.DB,
 	}
 	return out, ""
 }
+
+// socFromPosition reports whether msg is only the missing starting charge,
+// which a request planning from the truck's position gets from the position.
+func socFromPosition(msg string) bool { return strings.HasPrefix(msg, "starting_soc required") }
 
 // vehiclePackKWh is the stored pack size of the user's vehicle, 0 if unknown.
 func vehiclePackKWh(ctx context.Context, pool *sql.DB, uid uuid.UUID, vehicleID string) float64 {

@@ -169,7 +169,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			vid = *req.VehicleID
 		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, vid, req.StartingSoC, 0)
-		if msg != "" {
+		if msg != "" && !(req.OriginFromVehicle && socFromPosition(msg)) {
 			badRequest(w, msg)
 			return
 		}
@@ -182,7 +182,14 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				return
 			}
 			origin = tripmultiday.Waypoint{Latitude: pos.Lat, Longitude: pos.Lon, Label: "Current location"}
-			rv.StartingSoC = pos.SoC
+			// An explicit starting_soc wins over the reading.
+			if req.StartingSoC == nil {
+				rv.StartingSoC = pos.SoC
+			}
+			// Planning from where the truck is leaves now: a past start is stale.
+			if startAt.Before(time.Now()) {
+				startAt = time.Time{}
+			}
 			fromPos = pos.echo()
 		}
 		pack := req.PackKWh

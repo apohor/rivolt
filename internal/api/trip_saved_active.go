@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"errors"
+	"math"
 	"net/http"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/tripmultiday"
 	"github.com/apohor/rivolt/internal/trips"
 )
 
@@ -31,6 +33,64 @@ type savedActiveResponse struct {
 	// Position is the truck's latest reading, null when there is no recent one
 	// (re-planning would then answer 409 no_position).
 	Position *fromPosition `json:"position"`
+	// Phase is "driving" on a day, or "overnight" once the day's end is
+	// reached and the truck is parked there; empty when it cannot be told.
+	Phase string `json:"phase,omitempty"`
+	// NextDay, NextDepartAt and ProjectedSoC are set in the overnight phase:
+	// the day that leaves next, when, and the charge the truck should leave
+	// with after the rest of the stay.
+	NextDay      *int     `json:"next_day,omitempty"`
+	NextDepartAt string   `json:"next_depart_at,omitempty"`
+	ProjectedSoC *float64 `json:"projected_soc,omitempty"`
+	// ViasPassed are the current day's via stops (1-based) the truck has gone by.
+	ViasPassed []int `json:"vias_passed,omitempty"`
+}
+
+const nearEndM = 2000.0
+
+func distM(aLat, aLon, bLat, bLon float64) float64 {
+	const r = 6371000.0
+	rad := math.Pi / 180
+	dLat, dLon := (bLat-aLat)*rad, (bLon-aLon)*rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(aLat*rad)*math.Cos(bLat*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Sqrt(h))
+}
+
+// detail fills the phase, the overnight projection and the vias passed for the
+// current day (index i) from the truck's position.
+func (o *savedActiveResponse) detail(days []savedDayJSON, i int, now time.Time, pos *fromPosition, packKWh float64) {
+	if pos == nil || days[i].End == nil {
+		return
+	}
+	d := days[i]
+	eLat, eLon := d.End.coords()
+	toEnd := distM(pos.Lat, pos.Lon, eLat, eLon)
+	o.Phase = "driving"
+	if arrive, err := time.Parse(time.RFC3339, d.ArriveAt); err == nil && !now.Before(arrive) && toEnd <= nearEndM && i+1 < len(days) {
+		o.Phase = "overnight"
+		n := i + 2
+		o.NextDay = &n
+		if dep, err := time.Parse(time.RFC3339, days[i+1].DepartAt); err == nil {
+			o.NextDepartAt = dep.UTC().Format(time.RFC3339)
+			if packKWh > 0 {
+				var l2 *float64
+				cp := 0.0
+				if d.Overnight != nil {
+					l2, cp = d.Overnight.L2KW, d.Overnight.MaxSoCPc
+				}
+				v := tripmultiday.OvernightSoC(pos.SoC, math.Max(dep.Sub(now).Hours(), 0), l2, packKWh, cp)
+				o.ProjectedSoC = &v
+			}
+		}
+		return
+	}
+	// A via is passed once the truck is at least 2 km closer to the day's end than it.
+	for k, v := range d.Vias {
+		vLat, vLon := v.coords()
+		if distM(vLat, vLon, eLat, eLon)-toEnd >= nearEndM {
+			o.ViasPassed = append(o.ViasPassed, k+1)
+		}
+	}
 }
 
 // dayWindows returns, for each saved day, when it starts and when its window
@@ -63,7 +123,7 @@ func dayWindows(days []savedDayJSON) (starts, ends []time.Time, ok bool) {
 
 // activeAt works out where the saved trip stands at `now`. Pure: the plan, the
 // time, and the position (nil when there is no recent reading).
-func activeAt(st *trips.SavedTrip, now time.Time, pos *fromPosition) savedActiveResponse {
+func activeAt(st *trips.SavedTrip, now time.Time, pos *fromPosition, packKWh float64) savedActiveResponse {
 	out := savedActiveResponse{Version: 1, SavedTripID: st.ID.String(), Kind: "single", State: "none", Position: pos}
 	days, multi := savedMultiday(st.Plan)
 	if !multi {
@@ -85,6 +145,7 @@ func activeAt(st *trips.SavedTrip, now time.Time, pos *fromPosition) savedActive
 			if !now.Before(starts[i]) && now.Before(ends[i]) {
 				n := i + 1
 				out.CurrentDay, out.RemainingDays = &n, len(days)-i
+				out.detail(days, i, now, pos, packKWh)
 				break
 			}
 		}
@@ -115,12 +176,18 @@ func handleSavedTripActive(tf *trips.Factory, mon func(uuid.UUID) *rivian.StateM
 		var pos *fromPosition
 		// Only the vehicle id is wanted here; whether a starting charge is known
 		// does not matter, so the resolver's message is not an error.
-		rv, _ := resolveVehicle(r.Context(), mon(uid), pool, uid, "", nil, 0)
+		rv, msg := resolveVehicle(r.Context(), mon(uid), pool, uid, r.URL.Query().Get("vehicle_id"), nil, 0)
+		if msg == "unknown vehicle" {
+			badRequest(w, msg)
+			return
+		}
+		var pack float64
 		if rv.VehicleID != "" {
+			pack = vehiclePackKWh(r.Context(), pool, uid, rv.VehicleID)
 			if p, ok := vehiclePositionFor(r.Context(), mon(uid), pool, uid, rv.VehicleID, now); ok {
 				pos = p.echo()
 			}
 		}
-		writeJSON(w, http.StatusOK, activeAt(st, now, pos))
+		writeJSON(w, http.StatusOK, activeAt(st, now, pos, pack))
 	}
 }
