@@ -4,11 +4,11 @@
 // pin the Coordinator's diff logic; this file pins the SQL itself —
 // specifically the load-bearing multi-replica safety net:
 //
-//   * A healthy lease held by pod A blocks pod B's Acquire.
-//   * Once pod A's lease expires, pod B steals it on the next Acquire.
-//   * Renew is pod-scoped: bumping A's leases does not touch B's, and
+//   - A healthy lease held by pod A blocks pod B's Acquire.
+//   - Once pod A's lease expires, pod B steals it on the next Acquire.
+//   - Renew is pod-scoped: bumping A's leases does not touch B's, and
 //     does not return B's vehicle IDs.
-//   * Release / ReleaseAll never reach across pods.
+//   - Release / ReleaseAll never reach across pods.
 //
 // These are exactly the invariants that, if broken, cause two pods to
 // subscribe to the same vehicle (duplicate WS traffic, doubled
@@ -20,53 +20,18 @@ package leases_test
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
 	"sort"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/leases"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 func pgDSN(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {
-		t.Skip("RIVOLT_SKIP_INTEGRATION set")
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:16-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "rivolt",
-			"POSTGRES_PASSWORD": "rivolt",
-			"POSTGRES_DB":       "rivolt_test",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(60 * time.Second),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := c.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-	return fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
+	return testpg.DSN(ctx, t)
 }
 
 func setup(t *testing.T) *sql.DB {

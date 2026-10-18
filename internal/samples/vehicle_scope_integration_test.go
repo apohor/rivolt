@@ -4,16 +4,13 @@ package samples_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
-
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 // TestListBetweenVehicleScope: with two trucks recording over the same
@@ -26,23 +23,8 @@ func TestListBetweenVehicleScope(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "postgres:16-alpine",
-			ExposedPorts: []string{"5432/tcp"},
-			Env:          map[string]string{"POSTGRES_USER": "rivolt", "POSTGRES_PASSWORD": "rivolt", "POSTGRES_DB": "rivolt_test"},
-			WaitingFor: wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(60 * time.Second),
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, _ := c.Host(ctx)
-	port, _ := c.MappedPort(ctx, "5432/tcp")
-	pool, err := db.Open(ctx, fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port()))
+	dsn := testpg.DSN(ctx, t)
+	pool, err := db.Open(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

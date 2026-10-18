@@ -13,17 +13,15 @@ package rivian
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 func ownerTestPool(t *testing.T) *sql.DB {
@@ -33,27 +31,7 @@ func ownerTestPool(t *testing.T) *sql.DB {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:16-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "rivolt",
-			"POSTGRES_PASSWORD": "rivolt",
-			"POSTGRES_DB":       "rivolt_test",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).WithStartupTimeout(60 * time.Second),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req, Started: true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, _ := c.Host(ctx)
-	port, _ := c.MappedPort(ctx, "5432/tcp")
-	dsn := fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
+	dsn := testpg.DSN(ctx, t)
 	pool, err := db.Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
