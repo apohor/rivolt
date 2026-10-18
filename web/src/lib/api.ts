@@ -1907,6 +1907,12 @@ export type AdminUserRow = {
   needs_reauth: boolean;
   needs_reauth_at?: string | null;
   last_seen_at?: string | null;
+  // The columns below arrive with the admin-split API additions; until the server sends them the
+  // table shows "-" (undefined = not supplied, null = supplied but empty).
+  last_data_at?: string | null; // newest vehicle_state across the user's vehicles
+  leased?: boolean; // a vehicle is leased to a pod for streaming (an unexpired subscription lease)
+  receipts_opt_in?: boolean;
+  purge_warned_at?: string | null; // inactive-account purge warning sent
 };
 
 // AdminUserVehicle is one vehicle inside an AdminUserDetail bundle.
