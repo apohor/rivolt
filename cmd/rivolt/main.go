@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/adminaudit"
+	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
@@ -1885,30 +1886,36 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
-		Access:                accessVerifier,
-		AdminDebugProbes:      adminDebugProbes,
-		OIDC:                  oidcSvc,
-		WebFS:                 webFS,
-		Version:               version,
-		DB:                    pgPool,
-		Logger:                logger,
-		Flags:                 flagsStore,
-		AIBudget:              aibudget.New(pgPool),
-		Secrets:               secretsStore,
-		Metrics:               appMetrics,
-		Users:                 userProvider,
-		SignupRequests:        signupRequestStore,
-		Email:                 mailer,
-		BaseURL:               os.Getenv("RIVOLT_BASE_URL"),
-		ValhallaProxy:         valhallaProxy,
-		TilesProxy:            tilesProxy,
-		ChargersArchive:       chargersArchive,
-		Photon:                photonClient,
-		WeatherClient:         weather.NewClient(),
-		WeatherCache:          weather.NewMemCache(15*time.Minute, 1024),
-		Hydra:                 hydraClient,
-		Kratos:                kratosClient,
-		HydraRememberFor:      hydraRememberFor,
+		AdminHealth: adminhealth.New(adminhealth.Config{
+			DB: pgPool, Flags: flagsStore, Version: version,
+			AlertmanagerURL: os.Getenv("RIVOLT_ALERTMANAGER_URL"),
+			PrometheusURL:   os.Getenv("RIVOLT_PROMETHEUS_URL"),
+			Namespace:       os.Getenv("RIVOLT_HEALTH_NAMESPACE"),
+		}),
+		Access:           accessVerifier,
+		AdminDebugProbes: adminDebugProbes,
+		OIDC:             oidcSvc,
+		WebFS:            webFS,
+		Version:          version,
+		DB:               pgPool,
+		Logger:           logger,
+		Flags:            flagsStore,
+		AIBudget:         aibudget.New(pgPool),
+		Secrets:          secretsStore,
+		Metrics:          appMetrics,
+		Users:            userProvider,
+		SignupRequests:   signupRequestStore,
+		Email:            mailer,
+		BaseURL:          os.Getenv("RIVOLT_BASE_URL"),
+		ValhallaProxy:    valhallaProxy,
+		TilesProxy:       tilesProxy,
+		ChargersArchive:  chargersArchive,
+		Photon:           photonClient,
+		WeatherClient:    weather.NewClient(),
+		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
+		Hydra:            hydraClient,
+		Kratos:           kratosClient,
+		HydraRememberFor: hydraRememberFor,
 	})
 
 	// Wrap the chi router with otelhttp at the very outside. Span
