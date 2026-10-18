@@ -12,7 +12,7 @@ import { appPath, inDemo } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
-import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedTrip, type TripPlan } from "../lib/api";
+import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
@@ -760,11 +760,15 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     setErr(null);
     try {
       const fetched = await backend.demoTripPlan(p.id);
-      // The preset's geometry rides on the route unless the plan carries its own.
+      // The preset's geometry rides on the route unless the plan carries its own. A multi-day preset is
+      // the planner's multi-day answer ({days, total}), which opens like a saved multi-day plan.
       const geometry = p.route_polyline;
-      const plan: TripPlan = geometry
-        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
-        : fetched;
+      const days = (fetched as Partial<SavedMultidayPlan>).days;
+      const plan: TripPlan | SavedMultidayPlan = Array.isArray(days)
+        ? { kind: "multiday", days, total: (fetched as SavedMultidayPlan).total, ...((fetched as SavedMultidayPlan).simulated ? { simulated: true } : {}) }
+        : geometry
+          ? { ...(fetched as TripPlan), Routes: (fetched as TripPlan).Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
+          : (fetched as TripPlan);
       const now = new Date().toISOString();
       onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
     } catch (e) {
