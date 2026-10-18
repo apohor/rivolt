@@ -28,8 +28,12 @@ html[data-ui='next'] [data-plan-area='itinerary'] {
 html[data-ui='next'] [data-plan-bar] > [data-plan-edit] {
   padding-block: 0.15rem;
 }
-html[data-ui='next'] [data-plan-bar][data-collapsed='true'] > [data-plan-bar-body] {
-  display: none;
+/* Collapsing to a one-line summary is for the phone: the Edit button is lg:hidden,
+   so on desktop the bar stays open beside the result. */
+@media (max-width: 1023.98px) {
+  html[data-ui='next'] [data-plan-bar][data-collapsed='true'] > [data-plan-bar-body] {
+    display: none;
+  }
 }
 
 /* The map. */
@@ -80,6 +84,10 @@ html[data-ui='next'] [data-plan-area='map'][data-empty='true'] {
     column-gap: 1.25rem;
     row-gap: 0.75rem;
     align-items: start;
+  }
+  /* A multi-day result has no single map to sit beside: it takes the full width. */
+  html[data-ui='next'] [data-plan-split] > [data-plan-wide] {
+    grid-column: 1 / -1;
   }
   html[data-ui='next'] [data-plan-split] [data-plan-area='map'] {
     grid-column: 2;

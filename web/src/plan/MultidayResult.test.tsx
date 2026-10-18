@@ -12,6 +12,7 @@ const day = (index: number, depart_at: string) =>
     departure_soc: 80,
     arrival_soc: 20,
     soc_below_limit: index === 2,
+    ...(index === 1 ? { overnight: { name: "Des Moines", parked_hours: 11, l2_kw: 7, added_kwh: 52, post_charge_soc_pct: 80, capped: true } } : {}),
   }) as never;
 
 const resp = (extra: Partial<TripPlanMultidayResponse>) =>
@@ -28,7 +29,17 @@ describe("MultidayResult", () => {
     render(<MultidayResult response={resp({ simulated: true, failed_day: 3, error: "no route" })} originLabel="A" destLabel="B" />);
     expect(screen.getByText("Simulated")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("Planned through day 2");
-    expect(screen.getByText("battery gets very low")).toBeTruthy();
+    expect(screen.getByText("The battery gets very low on this day.")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Day 3 failed: no route. Fix day 3 and plan again; earlier days are kept.");
+  });
+
+  it("puts the overnight between the days with arrival, parked hours and the charge", () => {
+    render(<MultidayResult response={resp({})} originLabel="A" destLabel="B" />);
+    const row = document.querySelector("[data-overnight-row]")!;
+    expect(row.textContent).toContain("Overnight at Des Moines");
+    expect(row.textContent).toContain("Parked about 11 h");
+    expect(row.textContent).toContain("Charging at 7 kW adds about 52 kWh");
+    expect(row.textContent).toContain("(capped)");
   });
 
   it("shows no banner or badge for a clean plan", () => {

@@ -89,6 +89,13 @@ for (const v of [
     expect(r.days[2].overnight).toBeUndefined();
     await expect(page.getByText("Simulated", { exact: true })).toBeVisible();
     for (const d of ["Day 1", "Day 2", "Day 3"]) await expect(page.getByText(d, { exact: true }).first()).toBeVisible();
+    // The night is its own row between the days, with the charge it adds.
+    const nights = page.locator("[data-overnight-row]");
+    await expect(nights).toHaveCount(2);
+    await expect(nights.first()).toContainText("Overnight at Des Moines");
+    await expect(nights.first()).toContainText("adds about 52 kWh");
+    // Every day is on the page, not just the last one.
+    await expect(page.locator("[data-day-card]")).toHaveCount(3);
     // Each day shows its own date.
     await expect(page.getByText(/Oct 21/).first()).toBeVisible();
     await expect(page.getByText(/Oct 22/).first()).toBeVisible();
@@ -112,6 +119,10 @@ for (const v of [
     await expect(page.getByText("Simulated", { exact: true })).toHaveCount(0);
     await page.waitForTimeout(900);
     await page.screenshot({ path: path.join(SHOTS, `days-failed-${v.n}-light.png`), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".leaflet-container").analyze();
+    const summary = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
+    expect(summary, summary.join("\n")).toEqual([]);
     await ctx.close();
   });
 }

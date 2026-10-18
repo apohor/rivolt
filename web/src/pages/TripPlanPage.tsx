@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useUiNext } from "../lib/uiNext";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
-import { relabelIfHome, type DriveMode, type Selection } from "../plan/plannerHelpers";
+import { planErrorCopy, relabelIfHome, type DriveMode, type Selection } from "../plan/plannerHelpers";
 import { RouteBar } from "../plan/RouteBarPanel";
 import { countNonDefaultOptions, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
@@ -260,7 +260,7 @@ export default function TripPlanPage() {
       <button
               type="submit"
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
-              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
               {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
@@ -375,27 +375,19 @@ export default function TripPlanPage() {
   );
   const resultEl = (
     <>
-      {planMutation.error && (
-        <ErrorBox
-          title="Planner failed"
-          detail={(planMutation.error as Error).message}
-        />
-      )}
-
-      {multidayMutation.isError && (
-        <ErrorBox
-          title="Multi-day plan failed"
-          detail={(multidayMutation.error as Error).message}
-        />
+      {(planMutation.error || multidayMutation.isError) && (
+        <PlanError error={planMutation.error ?? multidayMutation.error} />
       )}
 
       {multidayMutation.data && (
-        <MultidayResult
-          response={multidayMutation.data}
-          originLabel={origin?.label ?? ""}
-          destLabel={destination?.label ?? ""}
-          departureAt={departureAt}
-        />
+        <div data-plan-wide>
+          <MultidayResult
+            response={multidayMutation.data}
+            originLabel={origin?.label ?? ""}
+            destLabel={destination?.label ?? ""}
+            departureAt={departureAt}
+          />
+        </div>
       )}
 
       {(() => {
@@ -1554,6 +1546,21 @@ function LocationSearch({
 
 function formatGeocode(r: GeocodeResult): string {
   return [r.name, r.admin1, r.country].filter(Boolean).join(", ");
+}
+
+// PlanError is the inline failure under the form, scrolled into view because on
+// a phone the result area starts below the fold.
+function PlanError({ error }: { error: unknown }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [error]);
+  const { title, detail } = planErrorCopy(error);
+  return (
+    <div ref={ref}>
+      <ErrorBox title={title} detail={detail} />
+    </div>
+  );
 }
 
 function ViaStopList({

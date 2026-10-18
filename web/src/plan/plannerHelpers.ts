@@ -1,4 +1,4 @@
-import { type SavedTripInputs } from "../lib/api";
+import { ApiError, type SavedTripInputs } from "../lib/api";
 
 // Selection is what the form actually plans against. lat/lon are
 // resolved (search result, preset, or current vehicle position);
@@ -136,4 +136,37 @@ export type DriveMode = "EVERYDAY" | "DISTANCE";
 
 export function normalizeDriveMode(v: unknown): DriveMode {
   return v === "DISTANCE" ? "DISTANCE" : "EVERYDAY";
+}
+
+// planErrorCopy turns a failed plan request into one sentence of cause and one
+// of what to do, in plain words.
+export function planErrorCopy(err: unknown): { title: string; detail: string } {
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      const sec = (err.body as { retry_after_sec?: number } | null)?.retry_after_sec;
+      const min = typeof sec === "number" && sec > 0 ? Math.max(1, Math.ceil(sec / 60)) : null;
+      return {
+        title: "You've planned a lot in the last hour.",
+        detail: `Planning is limited to protect the shared Rivian connection. Try again in ${min ? `about ${min} minute${min === 1 ? "" : "s"}` : "a little while"}.`,
+      };
+    }
+    if (err.status === 400 && /starting soc|vehicle|pack/i.test(err.message)) {
+      return {
+        title: "We don't know your truck's current charge.",
+        detail: "Enter a starting charge above, or connect your Rivian so Rivolt can read it.",
+      };
+    }
+    if (err.status === 400 && /10/.test(err.message)) {
+      return /waypoint|point|stop|via/i.test(err.message)
+        ? { title: err.message, detail: "Rivolt plans up to 10 points per day, including the start and end. Split the day or remove a via." }
+        : { title: "Trips are limited to 10 days.", detail: "Split the trip into two." };
+    }
+    if (err.status === 400) return { title: err.message, detail: "Check the trip and try again." };
+  } else if (err instanceof TypeError) {
+    return { title: "We couldn't reach Rivolt.", detail: "Check your connection and try again." };
+  }
+  return {
+    title: "Rivian's planner isn't answering right now.",
+    detail: "Nothing is wrong with your trip. Try again in a few minutes.",
+  };
 }
