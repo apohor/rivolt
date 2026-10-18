@@ -665,6 +665,22 @@ func decodeCabinTemp(b64 string) (float64, bool) {
 	return 0, false
 }
 
+// decodeCabinOutside pulls the exterior temperature (field 2, float32, °C)
+// from a comfort.cabin.cabin_temperatures payload. The app's schema has it,
+// but the captured frame (field 3 = 26.0, field 4 = 22.0) carries only the
+// interior fields, so it is read for the shadow log only until live frames show
+// the field arriving with a believable value.
+func decodeCabinOutside(b64 string) (float64, bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, false
+	}
+	if v, ok, _ := pbFloatField(raw, 2); ok && !math.IsNaN(float64(v)) {
+		return float64(v), true
+	}
+	return 0, false
+}
+
 // decodeSingleVarint decodes a base64 protobuf payload of the shape
 // { field 1: varint } and returns that varint. Extra fields are ignored so a
 // firmware that later grows these messages doesn't break the read; ok=false

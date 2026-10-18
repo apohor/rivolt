@@ -225,3 +225,18 @@ func TestDecodeCabinTemp(t *testing.T) {
 		t.Errorf("decodeCabinTemp = %v, %v; want 26.0, true", c, ok)
 	}
 }
+
+func TestDecodeCabinOutside(t *testing.T) {
+	// The captured frame has the interior fields only: no exterior temperature.
+	if v, ok := decodeCabinOutside("HQAAAEElAACwQQ=="); ok {
+		t.Errorf("a frame without field 2 decoded %v", v)
+	}
+	// Field 2 = 11.5 as float32 (0x41380000).
+	raw := append([]byte{0x15, 0x00, 0x00, 0x38, 0x41}, []byte{0x1d, 0x00, 0x00, 0xd0, 0x41}...)
+	if v, ok := decodeCabinOutside(base64.StdEncoding.EncodeToString(raw)); !ok || v != 11.5 {
+		t.Errorf("decodeCabinOutside = %v, %v; want 11.5, true", v, ok)
+	}
+	if _, ok := decodeCabinOutside("%%%"); ok {
+		t.Error("garbage decoded")
+	}
+}
