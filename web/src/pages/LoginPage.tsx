@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { backend, type OIDCProvider } from "../lib/api";
 import Logo from "../components/Logo";
-import { useSignupEnabled } from "../lib/config";
+import { useAdminOnly, useSignupEnabled } from "../lib/config";
 
 // LoginPage is the cookie-issuing front door. It sits outside the
 // AppLayout route tree on purpose — no header, no nav, no API
@@ -43,6 +43,11 @@ export default function LoginPage() {
   // null until /api/config loads; the "Create an account" link only
   // renders once the server has confirmed sign-ups are open.
   const signupEnabled = useSignupEnabled();
+  // The admin site gets a plain card: no product pitch, no sign-up, no links to pages it doesn't
+  // serve. While /api/config is still loading the consumer copy is held back too, so it never
+  // flashes up on the admin site.
+  const adminOnly = useAdminOnly();
+  const plain = adminOnly.loading || adminOnly.only;
 
   // The OIDC callback redirects here with ?error + ?error_description
   // on any sign-in failure (expired state, IdP error, disabled
@@ -98,20 +103,28 @@ export default function LoginPage() {
           <Logo size={24} className="text-emerald-400" />
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
-        <div className="mb-2 flex items-center gap-2">
-          <h1 className="text-base font-semibold text-neutral-100">Sign in</h1>
-          <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
-            Beta
-          </span>
-        </div>
-        <p className="mb-3 text-sm text-neutral-400">
-          Your Rivian companion. After signing in you'll have:
-        </p>
-        <ul className="mb-4 space-y-1 text-xs text-neutral-500">
-          <li>• Live telemetry from your truck</li>
-          <li>• Every drive and charge tracked against your own $/kWh</li>
-          <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
-        </ul>
+        {plain ? (
+          <h1 data-admin-login={adminOnly.only ? "" : undefined} className="mb-4 text-base font-semibold text-neutral-100">
+            {adminOnly.only ? "Sign in to Rivolt Admin" : "Sign in"}
+          </h1>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <h1 className="text-base font-semibold text-neutral-100">Sign in</h1>
+              <span className="rounded-full border border-amber-700/60 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                Beta
+              </span>
+            </div>
+            <p className="mb-3 text-sm text-neutral-400">
+              Your Rivian companion. After signing in you'll have:
+            </p>
+            <ul className="mb-4 space-y-1 text-xs text-neutral-500">
+              <li>• Live telemetry from your truck</li>
+              <li>• Every drive and charge tracked against your own $/kWh</li>
+              <li>• Road-trip planner with real cost, weather, and efficiency analysis</li>
+            </ul>
+          </>
+        )}
         {signInError && (
           <div
             role="alert"
@@ -156,7 +169,7 @@ export default function LoginPage() {
                 </button>
               ))}
             </div>
-            {providers.length > 1 && (
+            {providers.length > 1 && !plain && (
               <p className="mt-3 text-[11px] leading-relaxed text-neutral-600">
                 Accounts are keyed by email - use the same provider and email
                 you signed up with, or a different address lands you in a
@@ -166,7 +179,7 @@ export default function LoginPage() {
           </>
         )}
 
-        {signupEnabled === true && (
+        {!plain && signupEnabled === true && (
           <p className="mt-5 text-center text-xs text-neutral-600">
             New here?{" "}
             <a href="/signup" className="text-emerald-500 hover:underline">
@@ -175,7 +188,7 @@ export default function LoginPage() {
           </p>
         )}
 
-        <p className="mt-4 text-center text-xs text-neutral-400">
+        {!plain && <p className="mt-4 text-center text-xs text-neutral-400">
           <a href="/privacy" className="underline underline-offset-2 hover:text-neutral-200">
             Privacy policy
           </a>
@@ -183,7 +196,7 @@ export default function LoginPage() {
           <a href="/terms" className="underline underline-offset-2 hover:text-neutral-200">
             Terms
           </a>
-        </p>
+        </p>}
       </div>
     </div>
   );
