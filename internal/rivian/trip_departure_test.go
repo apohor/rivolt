@@ -99,3 +99,36 @@ func TestLivePlanTripRefusesMoreThanTenWaypoints(t *testing.T) {
 		t.Errorf("10 waypoints must be accepted and sent: %v (gateway hits %d)", err, hits.Load())
 	}
 }
+
+func TestLivePlanTripRefusesADepartureMoreThanThirtyDaysAhead(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		http.Error(w, "no", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := NewLive().WithEndpoint(srv.URL)
+	c.userSessionToken = "token"
+
+	for name, dep := range map[string]time.Time{
+		"31 days":   time.Now().Add(31 * 24 * time.Hour),
+		"a year":    time.Now().AddDate(1, 0, 0),
+		"year 9999": time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		in := departureInput()
+		in.DepartureTime = dep
+		_, err := c.PlanTrip(context.Background(), in)
+		if !errors.Is(err, ErrInvalidTrip) || !strings.Contains(err.Error(), "30 days ahead") {
+			t.Errorf("%s: err = %v, want ErrInvalidTrip naming the limit", name, err)
+		}
+	}
+	if hits.Load() != 0 {
+		t.Errorf("a far-future departure reached the gateway %d times", hits.Load())
+	}
+	// 29 days ahead is fine and is sent, as a departureTime argument.
+	in := departureInput()
+	in.DepartureTime = time.Now().Add(29 * 24 * time.Hour)
+	if _, err := c.PlanTrip(context.Background(), in); errors.Is(err, ErrInvalidTrip) || hits.Load() != 1 {
+		t.Errorf("29 days must be accepted and sent: %v (hits %d)", err, hits.Load())
+	}
+}

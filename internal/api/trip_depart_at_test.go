@@ -48,3 +48,15 @@ func TestTripPlanDepartAt(t *testing.T) {
 		}
 	}
 }
+
+// A far-future depart_at is turned into the planner's invalid-trip error, which
+// the handler answers 400.
+func TestTripPlanFarFutureDepartAtIs400(t *testing.T) {
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: errPlanner{rivian.ErrInvalidTrip}}
+	rec := httptest.NewRecorder()
+	handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
+		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planWith(`"depart_at":"9999-12-31T00:00:00Z",`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status %d: %s", rec.Code, rec.Body.String())
+	}
+}

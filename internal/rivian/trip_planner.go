@@ -29,6 +29,11 @@ var ErrInvalidTrip = errors.New("invalid trip")
 // counting the origin and the destination.
 const MaxPlanWaypoints = 10
 
+// MaxDepartureAhead is how far in the future a planned departure may be. The
+// gateway is sent only departures a person could plausibly pick in the app, so
+// a request for a far-future date is refused here rather than forwarded.
+const MaxDepartureAhead = 30 * 24 * time.Hour
+
 // PlanTripInput is the request shape for PlanTrip. Mirrors the
 // arguments accepted by the Rivian gateway's planTripWithMultiStop
 // operation. All required fields are non-pointer; optional fields
@@ -176,6 +181,9 @@ func (c *LiveClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan,
 	}
 	if len(in.Waypoints) > MaxPlanWaypoints {
 		return nil, fmt.Errorf("%w: %d waypoints (the planner takes at most %d)", ErrInvalidTrip, len(in.Waypoints), MaxPlanWaypoints)
+	}
+	if !in.DepartureTime.IsZero() && in.DepartureTime.After(time.Now().Add(MaxDepartureAhead)) {
+		return nil, fmt.Errorf("%w: departure %s is more than %d days ahead", ErrInvalidTrip, in.DepartureTime.UTC().Format("2006-01-02"), int(MaxDepartureAhead.Hours()/24))
 	}
 	// Build an inlined GraphQL query (no GraphQL variables). The
 	// gateway rejects every input type name we've tried for
