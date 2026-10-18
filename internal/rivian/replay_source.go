@@ -432,6 +432,9 @@ type ReplayClient struct {
 	feed    *ReplayFeed
 	vehicle Vehicle
 	allowed bool
+	// planner answers trip plans (fixtures, then the synthetic planner);
+	// nil means this install plans nothing.
+	planner TripPlanner
 
 	mu              sync.Mutex
 	email           string
@@ -588,7 +591,8 @@ var (
 // replayAccountRegistry is the RIVIAN_CLIENT=replay registry: one
 // *ReplayClient per user over a shared feed.
 type replayAccountRegistry struct {
-	feed *ReplayFeed
+	feed    *ReplayFeed
+	planner TripPlanner
 
 	mu    sync.RWMutex
 	users map[uuid.UUID]*ReplayClient
@@ -596,8 +600,8 @@ type replayAccountRegistry struct {
 
 // NewReplayAccountRegistry returns a registry handing each user a
 // ReplayClient over feed.
-func NewReplayAccountRegistry(feed *ReplayFeed) AccountRegistry {
-	return &replayAccountRegistry{feed: feed, users: make(map[uuid.UUID]*ReplayClient)}
+func NewReplayAccountRegistry(feed *ReplayFeed, planner TripPlanner) AccountRegistry {
+	return &replayAccountRegistry{feed: feed, planner: planner, users: make(map[uuid.UUID]*ReplayClient)}
 }
 
 func (r *replayAccountRegistry) For(uid uuid.UUID) Account {
@@ -613,6 +617,7 @@ func (r *replayAccountRegistry) For(uid uuid.UUID) Account {
 		return c
 	}
 	c = NewReplayClient(r.feed, uid)
+	c.planner = r.planner
 	r.users[uid] = c
 	return c
 }
@@ -625,4 +630,38 @@ func (r *replayAccountRegistry) Loaded() []uuid.UUID {
 		out = append(out, uid)
 	}
 	return out
+}
+
+// ErrNoPlanner means this replay install has no trip planner configured.
+var ErrNoPlanner = errors.New("rivian: no trip planner on this install")
+
+// PlanTrip implements TripPlanner for the replay client from its planner: no
+// network, no Rivian. Without one it answers ErrNoPlanner.
+func (c *ReplayClient) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan, error) {
+	if c.planner == nil {
+		return nil, ErrNoPlanner
+	}
+	return c.planner.PlanTrip(ctx, in)
+}
+
+var _ TripPlanner = (*ReplayClient)(nil)
+
+// FirstPlanner tries each planner in order and returns the first answer that
+// is not ErrNoFixture (so a stored plan is used when one matches and the next
+// planner otherwise). Any other error ends the search.
+type FirstPlanner []TripPlanner
+
+// PlanTrip implements TripPlanner.
+func (f FirstPlanner) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan, error) {
+	for _, p := range f {
+		if p == nil {
+			continue
+		}
+		plan, err := p.PlanTrip(ctx, in)
+		if errors.Is(err, ErrNoFixture) {
+			continue
+		}
+		return plan, err
+	}
+	return nil, ErrNoFixture
 }

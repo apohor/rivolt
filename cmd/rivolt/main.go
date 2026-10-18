@@ -70,6 +70,7 @@ import (
 	"github.com/apohor/rivolt/internal/signupgate"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/apohor/rivolt/internal/statement"
+	"github.com/apohor/rivolt/internal/syntheticplan"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
 	"github.com/apohor/rivolt/internal/weather"
@@ -510,6 +511,10 @@ func runServer() {
 			os.Exit(1)
 		}
 	}
+	// The replay client's trip planner: stored plans first, then a synthetic
+	// plan from Valhalla and the charger archive (both wired further down,
+	// before serving, when they are configured).
+	var tripSynth *syntheticplan.Planner
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "replay":
 		// Demo vehicles: every signed-in user who "connects Rivian"
@@ -572,7 +577,12 @@ func runServer() {
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
 		}
-		accountRegistry = rivian.NewReplayAccountRegistry(feed)
+		fixtures, ferr := demo.PlanFixtures()
+		if ferr != nil {
+			logger.Warn("replay: no stored trip plans", "err", ferr.Error())
+		}
+		tripSynth = &syntheticplan.Planner{Vehicle: syntheticplan.SampleVehicle(), Now: time.Now}
+		accountRegistry = rivian.NewReplayAccountRegistry(feed, rivian.FirstPlanner{rivian.NewFixturePlanner(fixtures, nil), tripSynth})
 		rivianClient = rivian.NewStub()
 		logger.Info("rivian client: replay (no network)", "source_vehicle", src)
 		// Share live state across replicas as live mode does, so a pod
@@ -748,6 +758,18 @@ func runServer() {
 			}
 			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
 		}()
+	}
+	// The replay planner's route and charger sources. A long multi-stop route
+	// takes Valhalla longer than the recorder's gap-fill budget, hence its own
+	// client; without Valhalla the synthetic planner reports it cannot route.
+	if tripSynth != nil {
+		if pv := maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")); pv != nil {
+			pv.HTTP = &http.Client{Timeout: 30 * time.Second}
+			tripSynth.Router = pv
+		}
+		if chargersArchive != nil {
+			tripSynth.Chargers = syntheticplan.LazyArchive{A: chargersArchive}
+		}
 	}
 
 	// Build the monitor registry. In live/mock modes the registry

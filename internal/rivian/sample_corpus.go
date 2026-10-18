@@ -31,6 +31,13 @@ import (
 // SampleSeed is the seed the demo uses.
 const SampleSeed int64 = 20261014
 
+// The sample truck's pack size and efficiency, for planners that model its
+// energy use.
+const (
+	SamplePackKWh  = samplePackKWh
+	SampleMiPerKWh = sampleMiPerKWh
+)
+
 const (
 	sampleDays = 45
 	// sampleWrapSoC is the state of charge the corpus starts and ends at.

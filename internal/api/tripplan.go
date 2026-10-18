@@ -215,6 +215,14 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			// Map upstream error class to an HTTP status the SPA
 			// can render. 4xx passes through Cloudflare cleanly;
 			// 5xx gets replaced with Cloudflare's HTML error page.
+			if errors.Is(err, rivian.ErrInvalidTrip) {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+				return
+			}
+			if errors.Is(err, rivian.ErrNoPlanner) {
+				http.Error(w, "trip planning is not available here", http.StatusNotFound)
+				return
+			}
 			if errors.Is(err, rivian.ErrNoFixture) {
 				// Not an upstream failure: the stored-plan planner has no plan
 				// for this trip (preview data covers a few routes).
