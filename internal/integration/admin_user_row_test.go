@@ -83,18 +83,20 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		exec(`UPDATE users SET created_at = now() - make_interval(secs => $2::float8), disabled = $3,
+		exec(`UPDATE users SET created_at = now() - make_interval(secs => $2::float8), disabled = $3, email_verified = TRUE,
 		        inactive_warned_at = CASE WHEN $4::float8 > 0 THEN now() - make_interval(secs => $4::float8) END WHERE id = $1`,
 			id, created.Seconds(), disabled, warned.Seconds())
 		return id
 	}
 	day := 24 * time.Hour
-	warned := mk("warned", "warned@x.test", "user", 100*day, 5*day, false) // max(+20d, +25d)
-	young := mk("young", "young@x.test", "user", 10*day, 0, false)         // max(+110d, now+30d) = +110d
-	old := mk("old", "old@x.test", "user", 200*day, 0, false)              // warns on the next run: now+30d
-	noMail := mk("nomail", "", "user", 200*day, 0, false)                  // out of scope
-	adm := mk("adm", "adm@x.test", "admin", 200*day, 0, false)             // out of scope
-	off := mk("off", "off@x.test", "user", 200*day, 0, true)               // out of scope
+	warned := mk("warned", "warned@x.test", "user", 100*day, 5*day, false)  // max(+20d, +25d)
+	young := mk("young", "young@x.test", "user", 10*day, 0, false)          // max(+110d, now+30d) = +110d
+	old := mk("old", "old@x.test", "user", 200*day, 0, false)               // warns on the next run: now+30d
+	noMail := mk("nomail", "", "user", 200*day, 0, false)                   // out of scope
+	adm := mk("adm", "adm@x.test", "admin", 200*day, 0, false)              // out of scope
+	off := mk("off", "off@x.test", "user", 200*day, 0, true)                // out of scope
+	unverified := mk("unverified", "unv@x.test", "user", 200*day, 0, false) // out of scope: never warned, never deleted
+	exec(`UPDATE users SET email_verified = FALSE WHERE id = $1`, unverified)
 	rows, err = db.ListUsersForAdmin(ctx, pool)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +118,7 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 	within("warned", by[warned].PurgeAt, 25*day)
 	within("young", by[young].PurgeAt, 110*day)
 	within("old", by[old].PurgeAt, 30*day)
-	for name, id := range map[string]uuid.UUID{"no email": noMail, "admin": adm, "disabled": off, "connected": busy, "has vehicle": idle} {
+	for name, id := range map[string]uuid.UUID{"no email": noMail, "admin": adm, "disabled": off, "unverified email": unverified, "connected": busy, "has vehicle": idle} {
 		if by[id].PurgeAt != nil {
 			t.Errorf("%s purge_at = %v, want null (out of scope)", name, *by[id].PurgeAt)
 		}
