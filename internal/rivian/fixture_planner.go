@@ -54,6 +54,11 @@ func (p *FixturePlanner) PlanTrip(_ context.Context, in PlanTripInput) (*TripPla
 	if !ok {
 		return nil, ErrNoFixture
 	}
+	// A stored plan was made for the default route; one that avoids something
+	// is a different route, so it is routed (the next planner), not replayed.
+	if in.RoutePreferences.Any() {
+		return nil, ErrNoFixture
+	}
 	best, bestDist := -1, math.MaxFloat64
 	for i, f := range p.fixtures {
 		do := haversineM(o[0], o[1], f.Origin[0], f.Origin[1]) / 1000

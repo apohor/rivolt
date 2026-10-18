@@ -54,6 +54,7 @@ type tripPlanMultidayRequest struct {
 	DriveMode               string                `json:"drive_mode,omitempty"`
 	HasAdapter              *bool                 `json:"has_adapter,omitempty"`
 	TrailerProfile          string                `json:"trailer_profile,omitempty"`
+	RoutePreferences        *tripRoutePrefs       `json:"route_preferences,omitempty"`
 	TargetArrivalSocPercent *float64              `json:"target_arrival_soc_percent,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
 	Origin                  tripPoint             `json:"origin"`
@@ -184,6 +185,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			HasAdapter:          req.HasAdapter,
 			DriveMode:           drive,
 			TrailerProfile:      req.TrailerProfile,
+			RoutePreferences:    req.RoutePreferences.toRivian(),
 			PackKWh:             pack,
 			StartingSoC:         rv.StartingSoC,
 			StartAt:             startAt,

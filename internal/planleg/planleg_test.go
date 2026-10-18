@@ -79,6 +79,7 @@ func TestKeyNormalisation(t *testing.T) {
 		"network order": func(i *rivian.PlanTripInput) {
 			i.NetworkPreferences[0], i.NetworkPreferences[1] = i.NetworkPreferences[1], i.NetworkPreferences[0]
 		},
+		"an empty route preference":     func(i *rivian.PlanTripInput) { i.RoutePreferences = &rivian.RoutePreferences{} },
 		"starting range is not keyed":   func(i *rivian.PlanTripInput) { i.StartingRangeMeters = 123456 },
 		"the destination's own bearing": func(i *rivian.PlanTripInput) { i.OriginBearing = 90 },
 	}

@@ -132,3 +132,28 @@ func TestLivePlanTripRefusesADepartureMoreThanThirtyDaysAhead(t *testing.T) {
 		t.Errorf("29 days must be accepted and sent: %v (hits %d)", err, hits.Load())
 	}
 }
+
+func TestPlanTripQueryRoutePreferences(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	in := departureInput()
+	// Nil: the request never mentions it, byte-identical to before.
+	if q, _ := buildPlanTrip2QueryAt(in, now); q != planTripGolden || strings.Contains(q, "routePreferences") {
+		t.Errorf("a trip with no preference changed the request:\n%s", q)
+	}
+	in.RoutePreferences = &RoutePreferences{AvoidTolls: true, AvoidHighways: true}
+	q, _ := buildPlanTrip2QueryAt(in, now)
+	want := "routePreferences: {avoidTolls: true, avoidFerries: false, avoidHighways: true}"
+	if strings.Count(q, "routePreferences") != 1 || !strings.Contains(q, want) {
+		t.Errorf("want one %q in:\n%s", want, q)
+	}
+	// It composes with the departure and the other arguments.
+	in.DepartureTime = now.Add(48 * time.Hour)
+	q, _ = buildPlanTrip2QueryAt(in, now)
+	if !strings.Contains(q, "departureTime:") || !strings.Contains(q, want) || !strings.Contains(q, "driveMode: EVERYDAY") {
+		t.Errorf("composed query:\n%s", q)
+	}
+	// Any() is what the handlers use to decide whether there is a preference.
+	if (*RoutePreferences)(nil).Any() || (&RoutePreferences{}).Any() || !(&RoutePreferences{AvoidFerries: true}).Any() {
+		t.Error("Any()")
+	}
+}

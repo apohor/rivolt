@@ -295,3 +295,22 @@ func TestFailedDayMessageHasNoInternals(t *testing.T) {
 		}
 	}
 }
+
+func TestMultidayRoutePreferencesGoToEveryDay(t *testing.T) {
+	p := &daysPlanner{}
+	code, _ := runMultiday(t, p, `{`+mdVehicle+`"start_at":"2026-10-20T08:00:00Z","route_preferences":{"avoid_ferries":true},
+	  "origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2},"overnight":{"l2_kw":0}},{"end":{"lat":3,"lon":3}}]}`)
+	if code != 200 || len(p.calls) != 2 {
+		t.Fatalf("status %d, calls %d", code, len(p.calls))
+	}
+	for i, c := range p.calls {
+		if c.RoutePreferences == nil || !c.RoutePreferences.AvoidFerries || c.RoutePreferences.AvoidTolls {
+			t.Errorf("day %d preferences = %+v", i+1, c.RoutePreferences)
+		}
+	}
+	p2 := &daysPlanner{}
+	runMultiday(t, p2, `{`+mdVehicle+`"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2}}]}`)
+	if p2.calls[0].RoutePreferences != nil {
+		t.Error("no preference must leave the input unset")
+	}
+}
