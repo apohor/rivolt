@@ -100,3 +100,28 @@ func TestTripPlanHandlersStillRefuseClientsWithoutAPlanner(t *testing.T) {
 	}
 	_ = context.Background
 }
+
+// Planner errors that are the caller's, or the install's, are not upstream failures.
+func TestHandleTripPlanMapsPlannerErrors(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err  error
+		want int
+	}{
+		"invalid trip": {rivian.ErrInvalidTrip, http.StatusBadRequest},
+		"no planner":   {rivian.ErrNoPlanner, http.StatusNotFound},
+		"no fixture":   {rivian.ErrNoFixture, http.StatusNotFound},
+	} {
+		c := plannerClient{Client: rivian.NewStub(), TripPlanner: errPlanner{tc.err}}
+		rec := httptest.NewRecorder()
+		handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planBody)))
+		if rec.Code != tc.want {
+			t.Errorf("%s = %d %s, want %d", name, rec.Code, rec.Body.String(), tc.want)
+		}
+	}
+}
+
+type errPlanner struct{ err error }
+
+func (e errPlanner) PlanTrip(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) {
+	return nil, e.err
+}

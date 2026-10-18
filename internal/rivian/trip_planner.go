@@ -3,6 +3,7 @@ package rivian
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -19,6 +20,10 @@ type TripPlanner interface {
 }
 
 var _ TripPlanner = (*LiveClient)(nil)
+
+// ErrInvalidTrip marks a trip request the planner cannot accept (the number
+// of waypoints, a missing starting SoC). The handlers answer it with a 400.
+var ErrInvalidTrip = errors.New("invalid trip")
 
 // PlanTripInput is the request shape for PlanTrip. Mirrors the
 // arguments accepted by the Rivian gateway's planTripWithMultiStop

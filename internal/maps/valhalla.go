@@ -123,55 +123,152 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 // precision 5 (1e-5 degrees). Mirrors the encoder in
 // internal/rivian/polyline.go so an encode/decode round-trip is
 // lossless modulo banker's rounding.
-func decodePolyline5(s string) [][2]float64 {
-	if s == "" {
-		return nil
-	}
+func decodePolyline5(s string) [][2]float64 { return decodePolyline(s, 1e5) }
+
+// decodePolyline decodes a Google-format encoded polyline whose
+// coordinates are scaled by scale (1e5 for precision 5, 1e6 for 6). A
+// truncated string ends the decode instead of reading past it.
+func decodePolyline(s string, scale float64) [][2]float64 {
 	var (
-		out                [][2]float64
-		i, lat, lon, shift int
-		result             int32
+		out      [][2]float64
+		i        int
+		lat, lon int
 	)
+	next := func() (int, bool) {
+		var result int32
+		var shift uint
+		for {
+			if i >= len(s) {
+				return 0, false
+			}
+			b := int32(s[i]) - 63
+			i++
+			result |= (b & 0x1f) << shift
+			shift += 5
+			if b < 0x20 {
+				break
+			}
+		}
+		if result&1 != 0 {
+			return int(^(result >> 1)), true
+		}
+		return int(result >> 1), true
+	}
 	for i < len(s) {
-		shift = 0
-		result = 0
-		for {
-			b := int32(s[i]) - 63
-			i++
-			result |= (b & 0x1f) << shift
-			shift += 5
-			if b < 0x20 {
-				break
-			}
+		dlat, ok := next()
+		if !ok {
+			break
 		}
-		var dlat int32
-		if result&1 != 0 {
-			dlat = ^(result >> 1)
-		} else {
-			dlat = result >> 1
+		dlon, ok := next()
+		if !ok {
+			break
 		}
-		lat += int(dlat)
-
-		shift = 0
-		result = 0
-		for {
-			b := int32(s[i]) - 63
-			i++
-			result |= (b & 0x1f) << shift
-			shift += 5
-			if b < 0x20 {
-				break
-			}
-		}
-		var dlon int32
-		if result&1 != 0 {
-			dlon = ^(result >> 1)
-		} else {
-			dlon = result >> 1
-		}
-		lon += int(dlon)
-
-		out = append(out, [2]float64{float64(lat) / 1e5, float64(lon) / 1e5})
+		lat += dlat
+		lon += dlon
+		out = append(out, [2]float64{float64(lat) / scale, float64(lon) / scale})
 	}
 	return out
+}
+
+// RouteOpts are the routing preferences Route honours.
+type RouteOpts struct {
+	AvoidTolls    bool
+	AvoidFerries  bool
+	AvoidHighways bool
+}
+
+// RouteLeg is one leg of a Route: from one location to the next.
+type RouteLeg struct {
+	LengthMeters float64
+	TimeSec      float64
+	// Shape is the leg's road geometry as (lat, lon) pairs.
+	Shape [][2]float64
+}
+
+// Route is a Valhalla route through an ordered list of locations.
+type Route struct {
+	Legs []RouteLeg
+}
+
+// maxRouteLocations is Valhalla's default limit per request.
+const maxRouteLocations = 50
+
+// Route asks Valhalla for the auto route through locs (lat, lon pairs, at
+// least two, every one a stop so each gap is its own leg) in one request,
+// and returns per-leg length, time and shape. It sits beside RouteShape,
+// which stays as it is.
+func (v *Valhalla) Route(ctx context.Context, locs [][2]float64, opts RouteOpts) (Route, error) {
+	if !v.Enabled() {
+		return Route{}, errors.New("valhalla: not configured")
+	}
+	if len(locs) < 2 || len(locs) > maxRouteLocations {
+		return Route{}, fmt.Errorf("valhalla: %d locations (need 2 to %d)", len(locs), maxRouteLocations)
+	}
+	ls := make([]map[string]any, len(locs))
+	for i, l := range locs {
+		ls[i] = map[string]any{"lat": l[0], "lon": l[1], "type": "break"}
+	}
+	body := map[string]any{
+		"locations":          ls,
+		"costing":            "auto",
+		"shape_format":       "polyline6",
+		"directions_options": map[string]any{"language": "en-US"},
+	}
+	// Valhalla's use_* factors run 0 (avoid as far as possible) to 1.
+	co := map[string]any{}
+	if opts.AvoidTolls {
+		co["use_tolls"] = 0
+	}
+	if opts.AvoidFerries {
+		co["use_ferry"] = 0
+	}
+	if opts.AvoidHighways {
+		co["use_highways"] = 0
+	}
+	if len(co) > 0 {
+		body["costing_options"] = map[string]any{"auto": co}
+	}
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return Route{}, fmt.Errorf("valhalla: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.BaseURL+"/route", bytes.NewReader(buf))
+	if err != nil {
+		return Route{}, fmt.Errorf("valhalla: new request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := v.HTTP.Do(req)
+	if err != nil {
+		return Route{}, fmt.Errorf("valhalla: do: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return Route{}, fmt.Errorf("valhalla: HTTP %d", resp.StatusCode)
+	}
+	var parsed struct {
+		Trip struct {
+			Legs []struct {
+				Summary struct {
+					Length float64 `json:"length"` // km
+					Time   float64 `json:"time"`   // s
+				} `json:"summary"`
+				Shape string `json:"shape"`
+			} `json:"legs"`
+		} `json:"trip"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return Route{}, fmt.Errorf("valhalla: decode: %w", err)
+	}
+	if len(parsed.Trip.Legs) != len(locs)-1 {
+		return Route{}, fmt.Errorf("valhalla: %d legs for %d locations", len(parsed.Trip.Legs), len(locs))
+	}
+	out := Route{Legs: make([]RouteLeg, len(parsed.Trip.Legs))}
+	for i, l := range parsed.Trip.Legs {
+		shape := decodePolyline(l.Shape, 1e6)
+		if len(shape) == 0 {
+			return Route{}, errors.New("valhalla: empty shape")
+		}
+		out.Legs[i] = RouteLeg{LengthMeters: l.Summary.Length * 1000, TimeSec: l.Summary.Time, Shape: shape}
+	}
+	return out, nil
 }
