@@ -341,7 +341,10 @@ func (s *Service) backup(ctx context.Context) Backup {
 	if s.cfg.PrometheusURL == "" {
 		return Backup{Section: unavailable("prometheus not configured")}
 	}
-	q := fmt.Sprintf(`time() - max(cnpg_collector_last_available_backup_timestamp{namespace=%q})`, s.cfg.Namespace)
+	// The newest backup's own timestamp; the age is worked out here. A
+	// cluster that never took one reports 0, which must not read as a backup
+	// from 1970.
+	q := fmt.Sprintf(`max(cnpg_collector_last_available_backup_timestamp{namespace=%q})`, s.cfg.Namespace)
 	r, err := s.query(ctx, q)
 	if err != nil {
 		return Backup{Section: unavailable("prometheus unreachable")}
@@ -349,8 +352,14 @@ func (s *Service) backup(ctx context.Context) Backup {
 	if len(r) != 1 {
 		return Backup{Section: unavailable("no backup metrics")}
 	}
-	v := r[0].Value
-	return Backup{Section: Section{Status: OK}, AgeSeconds: &v}
+	if r[0].Value <= 0 {
+		return Backup{Section: unavailable("no backup recorded")}
+	}
+	age := float64(s.now().Unix()) - r[0].Value
+	if age < 0 {
+		age = 0 // clock skew; a backup cannot be from the future
+	}
+	return Backup{Section: Section{Status: OK}, AgeSeconds: &age}
 }
 
 // ---- outside sources -------------------------------------------------------
