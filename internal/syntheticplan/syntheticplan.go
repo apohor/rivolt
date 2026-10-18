@@ -76,7 +76,7 @@ var _ rivian.TripPlanner = (*Planner)(nil)
 // origin and the destination).
 const (
 	minWaypoints   = 2
-	maxWaypoints   = 10
+	maxWaypoints   = rivian.MaxPlanWaypoints
 	defaultReserve = 10.0 // SoC kept at arrival when no target was asked for
 	taper          = 0.62 // average / peak kW over a fast charge (sample_plan.go)
 	corridorKm     = 5.0  // a station counts as on the route within this
