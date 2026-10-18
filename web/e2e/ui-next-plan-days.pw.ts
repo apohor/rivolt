@@ -176,3 +176,46 @@ test("add an overnight from the route bar: the hint, the row, then a 2-day plan"
   expect(reqs[0].days[0].overnight).toMatchObject({ name: expect.stringContaining("Omaha"), l2_kw: 7, until: "07:30" });
   await ctx.close();
 });
+
+test("a long day suggests hotels with a listed charger; Use makes one the night with its kW", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page);
+  const asked: { path?: unknown[]; budget_hours?: number }[] = [];
+  await page.route("**/api/trips/overnight-candidates", (r) => {
+    asked.push(r.request().postDataJSON());
+    return r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        candidates: [
+          { name: "Sample Inn, Ogallala", lat: 41.13, lon: -101.72, l2_kw: 19, l2_kw_assumed: false, detour_m: 6000, along_m: 450000 },
+          { name: "Sample Suites, Sidney", lat: 41.14, lon: -102.98, l2_kw: 7, l2_kw_assumed: true, detour_m: 3000, along_m: 470000 },
+        ],
+        target: { lat: 41.13, lon: -101.8, along_m: 452000, reaches_end: false },
+        route_m: 900000,
+        source: "listing",
+      }),
+    });
+  });
+  const longDay = { ...DAYS[2], plan: { ...DEMO_PLAN, Routes: [{ ...DEMO_PLAN.Routes[0], TotalDriveDurationSec: 40_000 }] } };
+  await plan(page, { days: [DAYS[0], DAYS[1], longDay], total: TOTAL, tz: "America/Chicago" });
+  const card = page.locator("[data-overnight-suggestions]");
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("Where to sleep on day 3");
+  await expect(card).toContainText("up to 19 kW");
+  await expect(card).toContainText("power not listed (7 kW assumed)");
+  await expect(card).toContainText("Listed chargers only; availability isn't checked.");
+  expect(asked).toHaveLength(1);
+  expect(asked[0].budget_hours).toBe(8);
+  await page.screenshot({ path: path.join(SHOTS, "days-sleep-desktop-dark.png"), fullPage: true });
+  await card.getByRole("button", { name: "Use Sample Inn, Ogallala as the overnight stop" }).click();
+  const nights = page.locator("[data-overnight-stop]");
+  await expect(nights).toHaveCount(3);
+  await expect(nights.nth(2)).toContainText("Sample Inn, Ogallala");
+  // The hotel's listed charger is on that night only.
+  await expect(nights.nth(2).getByLabel("Charger at the stop")).toHaveValue("19");
+  await expect(nights.nth(0).getByLabel("Charger at the stop")).toHaveValue("7");
+  await ctx.close();
+});

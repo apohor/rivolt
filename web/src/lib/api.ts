@@ -1569,6 +1569,16 @@ export const backend = {
       }[];
       count: number;
     }>("/api/maps/chargers-along", req),
+  // Hotels with a listed Level 2 charger near where the day's driving budget runs out. Archive
+  // only: no Rivian call. Null on 404 (no archive on this install).
+  overnightCandidates: async (req: OvernightCandidatesRequest): Promise<OvernightCandidatesResponse | null> => {
+    try {
+      return await api.post<OvernightCandidatesResponse>("/api/trips/overnight-candidates", req);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
   planTripAdvice: (req: TripAdviceRequest) =>
     api.post<TripAdvice>("/api/trips/plan/advice", req),
   // Named trip templates. Inputs are the form state the user typed
@@ -2270,6 +2280,37 @@ export type TripPlanMultidayResponse = {
   error?: string;
   error_class?: string;
   error_reason?: string;
+};
+
+export type OvernightCandidatesRequest = {
+  path: [number, number][];
+  drive_sec?: number;
+  budget_hours?: number;
+  budget_miles?: number;
+};
+
+export type OvernightCandidate = {
+  name: string;
+  lat: number;
+  lon: number;
+  entity_id?: string;
+  facility_type?: string;
+  l2_kw: number;
+  // True when the listing gave no power and 7 kW is assumed.
+  l2_kw_assumed: boolean;
+  l2_count?: number;
+  // The round trip off the route, in metres.
+  detour_m: number;
+  // How far along the day the stop is, in metres.
+  along_m: number;
+  dcfc_nearby?: { name: string; distance_m: number; max_power_kw: number } | null;
+};
+
+export type OvernightCandidatesResponse = {
+  candidates: OvernightCandidate[];
+  target: { lat: number; lon: number; along_m: number; reaches_end: boolean };
+  route_m: number;
+  source: string;
 };
 
 export type TripPlanWaypointEcho = { latitude: number; longitude: number; label?: string; entity_id?: string };

@@ -22,6 +22,7 @@ import type { PlannedWaypoint, TripRoute } from "../lib/api";
 // real-world trip (origin + a handful of stops + destination)
 // resolves in a single round trip. Shape is returned as polyline6.
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
+type AddOvernight = (stop: { lat: number; lon: number; label: string; l2Kw?: number }) => void;
 
 // PreviewResult mirrors the shape returned by the trip planner
 // page's onPreviewStop callback. Kept local so this component
@@ -62,7 +63,7 @@ export function TripRouteMap({
   // Same shape as onAddStop; the parent appends to extraStops AND
   // sets overnightFlags[i] = true so the next submit flips to the
   // multi-day path.
-  onAddOvernight?: AddStop;
+  onAddOvernight?: AddOvernight;
   // ISO 8601 departure datetime from the planner form. Used to
   // compute the check-in date on hotel-marker Booking.com
   // deep-links. Empty / undefined falls back to today.
@@ -100,7 +101,7 @@ export function TripRouteMap({
   // being in the dep array (which would re-mount the map on every render).
   const onAddStopRef = useRef<AddStop | undefined>(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
-  const onAddOvernightRef = useRef<AddStop | undefined>(onAddOvernight);
+  const onAddOvernightRef = useRef<AddOvernight | undefined>(onAddOvernight);
   useEffect(() => { onAddOvernightRef.current = onAddOvernight; }, [onAddOvernight]);
   const onSelectStopRef = useRef<typeof onSelectStop>(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
@@ -361,7 +362,7 @@ export function TripRouteMap({
           // the multi-day endpoint.
           const overnightBtn = el.querySelector<HTMLButtonElement>(".charger-overnight-btn");
           overnightBtn?.addEventListener("click", () => {
-            onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label });
+            onAddOvernightRef.current?.({ lat: poi.lat, lon: poi.lon, label, l2Kw: hotelKw(poi) });
             map.closePopup();
           });
           // Preview path. Click fires the hypothetical replan, then
@@ -406,7 +407,7 @@ export function TripRouteMap({
   const filterLabels: Record<typeof chargerFilter, string> = {
     dcfc: "DCFC",
     l2: "L2",
-    hotels: "Hotels (L2)",
+    hotels: "Hotels with Level 2",
     all: "All",
   };
 
@@ -591,7 +592,11 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function chargerPopupHTML(
+// A hotel listing without a power rating is taken as a 7 kW Level 2 charger.
+const HOTEL_L2_ASSUMED_KW = 7;
+const hotelKw = (poi: POI) => (poi.maxPowerKW && poi.maxPowerKW > 0 ? poi.maxPowerKW : HOTEL_L2_ASSUMED_KW);
+
+export function chargerPopupHTML(
   poi: POI,
   addable: boolean,
   previewable: boolean,
@@ -603,7 +608,15 @@ function chargerPopupHTML(
     `<div class="charger-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px">`,
     `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)}</div>`,
   ];
-  if (poi.maxPowerKW && poi.maxPowerKW > 0) {
+  if (bookingURL) {
+    // A hotel: say what the listing says, and that it is only a listing.
+    out.push(
+      poi.maxPowerKW && poi.maxPowerKW > 0
+        ? `<div>Listed Level 2 charger, up to ${poi.maxPowerKW.toFixed(0)} kW</div>`
+        : `<div>Listed Level 2 charger, power not listed (${HOTEL_L2_ASSUMED_KW} kW assumed)</div>`,
+      `<div style="color:#fbbf24;margin-top:3px">Listed, not guaranteed. Chargers can be in use, broken or guests-only; check with the hotel before you rely on it.</div>`,
+    );
+  } else if (poi.maxPowerKW && poi.maxPowerKW > 0) {
     out.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
   }
   if (poi.network && poi.network !== name) {
@@ -622,7 +635,8 @@ function chargerPopupHTML(
       `<a href="${bookingURL}" target="_blank" rel="noopener noreferrer" ` +
       `style="display:block;margin-top:6px;padding:3px 8px;background:#7c3aed;color:#fff;` +
       `border-radius:4px;font-size:11px;text-align:center;text-decoration:none">` +
-      `Check rates on Booking.com &rarr;</a>`,
+      `Hotel details</a>`,
+      `<div style="color:#a3a3a3;font-size:10px;margin-top:2px;text-align:center">Opens booking.com</div>`,
     );
   }
   if (overnightable) {
@@ -635,7 +649,7 @@ function chargerPopupHTML(
     out.push(
       `<button class="charger-overnight-btn" style="margin-top:6px;width:100%;padding:3px 8px;` +
       `background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">` +
-      `Add as overnight stop</button>`,
+      `Use as overnight stop</button>`,
     );
   } else if (previewable) {
     // Preview-first path. Rivian's planner re-runs with this stop
