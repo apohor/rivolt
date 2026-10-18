@@ -1,3 +1,4 @@
+import { noRoutePrefs, routePrefsFromInputs, routePrefsWire, type RoutePrefs } from "./routePrefs";
 import { buildDays, stopKey, type OvernightOptions } from "./days";
 import { useEffect, useRef, useState } from "react";
 import { formatRouteSummary, useRouteBarState } from "./routeBar";
@@ -49,6 +50,7 @@ export function usePlanner() {
   const { startingSoc, setStartingSoc } = routeBar;
   const [driveMode, setDriveMode] = useState<DriveMode>("EVERYDAY");
   const [hasAdapter, setHasAdapter] = useState<boolean>(false);
+  const [routePrefs, setRoutePrefs] = useState<RoutePrefs>(noRoutePrefs);
   // departureAt is a datetime-local string (local time, no timezone).
   // Empty = depart now; Rivian's planner always plans from "now", so
   // we store this and shift displayed waypoint times client-side.
@@ -194,6 +196,7 @@ export function usePlanner() {
     if (last.targetSoc) setTargetSoc(last.targetSoc);
     if (last.driveMode) setDriveMode(normalizeDriveMode(last.driveMode));
     if (typeof last.hasAdapter === "boolean") setHasAdapter(last.hasAdapter);
+    if (last.routePrefs) setRoutePrefs({ ...noRoutePrefs, ...last.routePrefs });
   }, [lastTripApplied, homeQuery.isLoading, home]);
 
   // Pre-fill origin to current vehicle position once on mount when
@@ -260,6 +263,7 @@ export function usePlanner() {
         target_arrival_soc_percent: target,
         drive_mode: driveMode || undefined,
         has_adapter: hasAdapter,
+        route_preferences: routePrefsWire(routePrefs),
         pack_kwh:
           typeof firstVehicle?.pack_kwh === "number" && firstVehicle.pack_kwh > 0
             ? firstVehicle.pack_kwh
@@ -288,6 +292,7 @@ export function usePlanner() {
           targetSoc,
           driveMode,
           hasAdapter,
+          routePrefs,
         });
       }
       // Auto-fire AI analysis on non-trivial trips so the user
@@ -335,6 +340,7 @@ export function usePlanner() {
         tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
         drive_mode: driveMode || undefined,
         has_adapter: hasAdapter,
+        route_preferences: routePrefsWire(routePrefs),
         target_arrival_soc_percent: target,
         origin: { lat: origin.lat, lon: origin.lon, label: origin.label },
         days: buildDays(extraStops, overnightFlags, destination, optsFor),
@@ -398,6 +404,7 @@ export function usePlanner() {
         driveMode,
         hasAdapter,
         departureAt,
+        routePrefs,
       });
       // Multi-day plans aren't snapshotted yet (orchestrator response
       // shape doesn't match the single-day TripPlan stored on saved
@@ -456,6 +463,7 @@ export function usePlanner() {
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
     if (typeof i.drive_mode === "string") setDriveMode(normalizeDriveMode(i.drive_mode));
     if (typeof i.has_adapter === "boolean") setHasAdapter(i.has_adapter);
+    setRoutePrefs(routePrefsFromInputs(i));
     if (typeof i.departure_at === "string") setDepartureAt(i.departure_at);
     setActiveTripId(t.id);
     planMutation.reset();
@@ -544,6 +552,8 @@ export function usePlanner() {
     setDriveMode,
     hasAdapter,
     setHasAdapter,
+    routePrefs,
+    setRoutePrefs,
     departureAt,
     setDepartureAt,
     aiEnabled,

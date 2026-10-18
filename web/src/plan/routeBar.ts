@@ -87,7 +87,8 @@ export function countNonDefaultOptions(o: {
   targetSoc: string;
   driveModeIsDefault: boolean;
   hasAdapter: boolean;
+  avoidCount?: number;
 }): number {
   const target = o.targetSoc.trim();
-  return o.viaStops + (target !== "" && target !== "20" ? 1 : 0) + (o.driveModeIsDefault ? 0 : 1) + (o.hasAdapter ? 1 : 0);
+  return o.viaStops + (target !== "" && target !== "20" ? 1 : 0) + (o.driveModeIsDefault ? 0 : 1) + (o.hasAdapter ? 1 : 0) + (o.avoidCount ?? 0);
 }

@@ -16,6 +16,7 @@ import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeRes
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
+import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
 import { MultidayResult } from "../plan/MultidayResult";
 import { TripPlanResult } from "../plan/TripPlanResult";
@@ -29,7 +30,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // Phones: when a plan arrives, bring the map up under the top bar so it fills the
   // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
@@ -261,6 +262,7 @@ export default function TripPlanPage() {
     targetSoc,
     driveModeIsDefault: driveMode === "EVERYDAY",
     hasAdapter,
+    avoidCount: [routePrefs.avoidTolls, routePrefs.avoidFerries, routePrefs.avoidHighways].filter(Boolean).length,
   });
   const formEl = (
     <>
@@ -295,6 +297,7 @@ export default function TripPlanPage() {
                     {driveModeEl}
                     {adapterEl}
                   </div>
+                  <AvoidToggles value={routePrefs} onChange={setRoutePrefs} />
                   {planTipEl}
                 </>
               }

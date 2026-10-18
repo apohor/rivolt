@@ -2099,6 +2099,7 @@ export type TripPlanRequest = {
   has_adapter?: boolean;
   trailer_profile?: string;
   avoid_adapter_required?: boolean;
+  route_preferences?: { avoid_tolls: boolean; avoid_ferries: boolean; avoid_highways: boolean };
   supported_connector_types?: string[];
   network_preferences?: { network_id: string; preference: number }[];
   // pack_kwh enables server-side per-route cost computation. The
@@ -2254,6 +2255,7 @@ export type TripPlanMultidayRequest = {
   tz?: string; // IANA zone of the browser, used for "until" and the day boundaries
   drive_mode?: string;
   has_adapter?: boolean;
+  route_preferences?: { avoid_tolls: boolean; avoid_ferries: boolean; avoid_highways: boolean };
   target_arrival_soc_percent?: number;
   network_preferences?: { network_id: string; preference: number }[];
   origin: TripPoint;
@@ -2366,6 +2368,7 @@ export type SavedTripInputs = {
   starting_soc?: string;
   drive_mode?: string;
   has_adapter?: boolean;
+  route_preferences?: { avoid_tolls: boolean; avoid_ferries: boolean; avoid_highways: boolean };
   departure_at?: string;
   // Multi-day overnight metadata. overnight_flags is a parallel
   // array to extra_stops; any `true` flips the saved trip into the
