@@ -172,7 +172,7 @@ function SettingsPageInner() {
           {shell && <AppearanceCard />}
           {shell && (
             <Card title="Rivolt account">
-              <SignOutButton />
+              <SignOutButton label="Sign out of Rivolt" solid />
             </Card>
           )}
         </>

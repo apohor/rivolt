@@ -15,6 +15,15 @@ const SIGNUP_PROVIDER_WHITELIST = new Set(["google", "github"]);
 
 // Password complexity rules — must mirror backend validatePassword in
 // internal/api/signup.go so the live checklist and the server agree.
+// A 429 from the edge (Cloudflare's rate rule answers with plain text such as "error code: 1015")
+// has no JSON body of ours: say what to do instead of "Error 429".
+const TOO_MANY = "Too many tries. Wait a minute and try again.";
+const apiMessage = (err: ApiError): string => {
+  const msg = (err.body as { error?: string } | null)?.error;
+  if (typeof msg === "string" && msg.length > 0) return msg;
+  return err.status === 429 ? TOO_MANY : `Error ${err.status}`;
+};
+
 const rules = [
   { id: "len", label: "At least 12 characters", test: (p: string) => p.length >= 12 },
   { id: "upper", label: "One uppercase letter", test: (p: string) => /[A-Z]/.test(p) },
@@ -159,8 +168,7 @@ export default function SignupPage() {
       setCreated(true);
     } catch (err) {
       if (err instanceof ApiError) {
-        const msg = (err.body as { error?: string } | null)?.error;
-        setError(msg ?? `Error ${err.status}`);
+        setError(apiMessage(err));
       } else {
         setError("Unexpected error. Please try again.");
       }
@@ -190,8 +198,7 @@ export default function SignupPage() {
       setReqSent(true);
     } catch (err) {
       if (err instanceof ApiError) {
-        const msg = (err.body as { error?: string } | null)?.error;
-        setReqError(msg ?? `Error ${err.status}`);
+        setReqError(apiMessage(err));
       } else {
         setReqError("Unexpected error. Please try again.");
       }
