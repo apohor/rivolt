@@ -10,6 +10,7 @@ import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
 import { AuditNext, UserAuditHistory } from "../components/AdminAuditNext";
+import { TypedConfirmDialog } from "../components/TypedConfirmDialog";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
 // AdminPage is gated server-side by requireAdminMW + client-side by
@@ -853,8 +854,10 @@ function UsersPanel({ currentUserID }: { currentUserID: string }) {
                 setBusyID(null);
               }
             }}
-            onDelete={async () => {
+            onDelete={async (confirmed) => {
+              // The new look asks with the typed confirm in the panel; the old one with confirm().
               if (
+                !confirmed &&
                 !confirm(
                   `Permanently delete ${selectedRow.username}? Their drives, charges, and settings will be removed.`,
                 )
@@ -915,9 +918,10 @@ function UserDetailPanel({
   onToggleDisabled: () => Promise<void>;
   onSyncRivian: () => Promise<void>;
   onRefreshRivianSession: () => Promise<void>;
-  onDelete: () => Promise<void>;
+  onDelete: (confirmed?: boolean) => Promise<void>;
 }) {
   const nextUi = useUiNext();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isSelf = row.id === currentUserID;
   const detail = useQuery({
     queryKey: ["admin", "user", row.id],
@@ -1261,13 +1265,28 @@ function UserDetailPanel({
                   ? "Cannot delete the last admin"
                   : ""
             }
-            onClick={onDelete}
+            onClick={() => (nextUi ? setConfirmingDelete(true) : void onDelete())}
             className="rounded-md border border-red-900 bg-red-950/40 px-2 py-1 text-xs text-red-300 hover:border-red-800 hover:text-red-200 disabled:opacity-40"
           >
             Delete user
           </button>
         </div>
       </div>
+      {nextUi && confirmingDelete && (
+        <div className="border-t border-neutral-800 p-4">
+          <TypedConfirmDialog
+            title={`Delete ${row.display_name || row.username}?`}
+            detail="Their drives, charges and settings are removed permanently."
+            phrase={row.email || row.username}
+            confirmLabel="Delete user"
+            onCancel={() => setConfirmingDelete(false)}
+            onConfirm={() => {
+              setConfirmingDelete(false);
+              void onDelete(true);
+            }}
+          />
+        </div>
+      )}
       {nextUi && (
         <div className="border-t border-neutral-800 p-4">
           <UserAuditHistory userID={row.id} />
