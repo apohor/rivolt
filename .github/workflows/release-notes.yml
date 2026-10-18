@@ -8,6 +8,10 @@
 #
 # Idempotent: running again on the same tag silently fails the
 # create call (the release already exists) and the step exits 0.
+#
+# The body starts with <!-- rivolt:auto-notes -->: it is the
+# placeholder until the hand-written notes replace it, and
+# release-channels.yml announces only hand-written notes.
 name: release-notes
 
 on:
@@ -47,6 +51,10 @@ jobs:
           # instead — first-line subjects, bullet-formatted.
           PREV="$(git describe --tags --abbrev=0 --exclude="$TAG" 2>/dev/null || true)"
           {
+            # Marks the body as the generated commit list, not the
+            # hand-written notes that replace it (gh release edit). The
+            # release-channels workflow posts nothing for a marked body.
+            echo "<!-- rivolt:auto-notes -->"
             if [ -n "$PREV" ]; then
               echo "## Changes since $PREV"
               echo
