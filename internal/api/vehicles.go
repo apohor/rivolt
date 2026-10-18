@@ -365,7 +365,28 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				}
 			}
 		}
+		for i := range vs {
+			vs[i].FieldSupport = rivian.FieldSupport(vs[i].Model)
+			if mon != nil {
+				if st, _ := mon.Latest(vs[i].ID); st != nil {
+					liveFieldSupport(vs[i].FieldSupport, st)
+				}
+			}
+		}
 		writeJSON(w, http.StatusOK, vs)
+	}
+}
+
+// liveFieldSupport refines the model's table with what the vehicle is sending
+// now: a time to full the vehicle itself reports is "reported" on any model,
+// and one taken from Parallax is an "estimate".
+func liveFieldSupport(fs map[string]string, st *rivian.State) {
+	if st.TimeToEndMins > 0 {
+		if st.TimeToEndSource == "estimate" {
+			fs["charge_time_remaining"] = rivian.FieldEstimate
+		} else {
+			fs["charge_time_remaining"] = rivian.FieldReported
+		}
 	}
 }
 

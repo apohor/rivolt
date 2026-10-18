@@ -169,6 +169,8 @@ export type Vehicle = {
   vin: string;
   name: string;
   model: string;
+  // Which live fields to trust on this model: label "estimate", soften "best_effort", hide "unavailable".
+  field_support?: Record<string, "reported" | "estimate" | "best_effort" | "unavailable">;
   model_year?: number;
   make?: string;
   trim_id?: string;

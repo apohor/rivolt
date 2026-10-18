@@ -178,3 +178,46 @@ func (c *LiveClient) VehicleImages(ctx context.Context) ([]VehicleImage, error) 
 	}
 	return []VehicleImage{}, nil
 }
+
+// Field support levels, as /api/vehicles reports them in field_support.
+const (
+	// FieldReported: the vehicle sends it and we show it.
+	FieldReported = "reported"
+	// FieldEstimate: derived or best guess; the UI labels it "(estimate)".
+	FieldEstimate = "estimate"
+	// FieldBestEffort: usually there, can lag or be missing for a while.
+	FieldBestEffort = "best_effort"
+	// FieldUnavailable: not sent, or not confirmed; the UI hides it.
+	FieldUnavailable = "unavailable"
+)
+
+// FieldSupport says, per model, which live fields can be trusted, so the UI
+// labels and hides from one place instead of checking models. One table to edit
+// when a field is confirmed on a model or an R2 software change moves it (the
+// evidence is in scratchpad r2-verified-design.md). Unknown models are treated
+// as R1s. The map is a fresh copy.
+func FieldSupport(model string) map[string]string {
+	r2 := strings.EqualFold(strings.TrimSpace(model), "R2")
+	out := map[string]string{
+		// vehicleState carries a time to full on R1; an R2 gets Parallax's countdown.
+		"charge_time_remaining": FieldReported,
+		// R1 reports it on every frame; an R2's comes from Parallax and can lag
+		// for a minute after a reconnect.
+		"power_state": FieldReported,
+		// vehicle_state.outside_temp_c is 0 on every row of every truck: never sourced.
+		"outside_temp": FieldUnavailable,
+		// Sent as a sentinel only on the R2s checked; R1 reports a trip target.
+		"trip_target": FieldReported,
+		// Decoded for neither model: constant or unconfirmed on the R2s.
+		"charge_stop_reason": FieldUnavailable,
+		"user_modes":         FieldUnavailable,
+		"parked_energy":      FieldUnavailable,
+		"smart_charging":     FieldUnavailable,
+	}
+	if r2 {
+		out["charge_time_remaining"] = FieldEstimate
+		out["power_state"] = FieldBestEffort
+		out["trip_target"] = FieldUnavailable
+	}
+	return out
+}

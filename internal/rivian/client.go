@@ -54,6 +54,9 @@ type Vehicle struct {
 	// links (stored by the OTA sync, served by /api/vehicles); nil until the
 	// first fetch.
 	OTA *OTAInfo `json:"ota,omitempty"`
+	// FieldSupport says which live fields to trust on this model: reported,
+	// estimate, best_effort or unavailable (see FieldSupport).
+	FieldSupport map[string]string `json:"field_support,omitempty"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at
