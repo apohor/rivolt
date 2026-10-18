@@ -1633,6 +1633,27 @@ func runServer() {
 		}
 		impersonationDisabled = b
 	}
+	// RIVOLT_ADMIN_DISABLED: this deployment serves no admin surface
+	// (/admin*, /api/admin* answer 404; impersonation off; /me hides the
+	// admin role). RIVOLT_ADMIN_DEBUG_PROBES: mount the raw Rivian probes
+	// under /api/admin. Both default to false.
+	parseFlag := func(name string) bool {
+		v := os.Getenv(name)
+		if v == "" {
+			return false
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			logger.Error("bad "+name, "value", v, "err", err.Error())
+			os.Exit(1)
+		}
+		return b
+	}
+	adminDisabled := parseFlag("RIVOLT_ADMIN_DISABLED")
+	adminDebugProbes := parseFlag("RIVOLT_ADMIN_DEBUG_PROBES")
+	if adminDisabled {
+		logger.Info("admin surface disabled on this deployment (RIVOLT_ADMIN_DISABLED)")
+	}
 
 	// Install-wide settings manager (AI provider keys + models).
 	// Backed by the app_settings table, sealed with the same KEK
@@ -1830,6 +1851,8 @@ func runServer() {
 		Auth:                  authSvc,
 		AuthEnforced:          authEnforced,
 		ImpersonationDisabled: impersonationDisabled,
+		AdminDisabled:         adminDisabled,
+		AdminDebugProbes:      adminDebugProbes,
 		OIDC:                  oidcSvc,
 		WebFS:                 webFS,
 		Version:               version,

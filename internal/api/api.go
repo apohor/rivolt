@@ -108,6 +108,17 @@ type Deps struct {
 	// is surfaced via /api/config so the SPA hides the admin
 	// "View as" control instead of offering a dead button.
 	ImpersonationDisabled bool
+	// AdminDisabled mirrors $RIVOLT_ADMIN_DISABLED: the public site
+	// serves no admin surface. /admin* and /api/admin* answer 404 (even
+	// for an admin session), /api/auth/me reports an admin as "user" so
+	// the SPA hides the link, and impersonation is off. Off by default;
+	// for the split to admin.rivolt.dev (scratchpad admin-split.md).
+	AdminDisabled bool
+	// AdminDebugProbes mirrors $RIVOLT_ADMIN_DEBUG_PROBES: mounts the raw
+	// Rivian probes under /api/admin (trips/plan/raw, trips/plan/diag,
+	// gql/type, gql/enum, gql/raw), which send arbitrary queries to Rivian
+	// as the admin. Off by default; an operator turns it on for a session.
+	AdminDebugProbes bool
 	// OIDC, when non-nil, mounts /api/auth/oidc/* — the third
 	// auth issuer alongside static creds and trusted-proxy
 	// header. nil disables the social-login button row in the
@@ -252,6 +263,9 @@ func New(d Deps) http.Handler {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
+	if d.AdminDisabled {
+		r.Use(adminDisabledMW)
+	}
 	// Carry DNT/GPC in the context for server-side product events.
 	r.Use(dntContextMW)
 	// NOTE: the global request timeout is applied per-group below,
@@ -310,7 +324,7 @@ func New(d Deps) http.Handler {
 				return "", nil
 			}
 			return db.RoleFor(ctx, d.DB, uid)
-		}, func() bool { return d.ImpersonationDisabled }))
+		}, func() bool { return d.ImpersonationDisabled || d.AdminDisabled }))
 	}
 
 	// /metrics is deliberately NOT mounted on this router: the Ingress
@@ -342,11 +356,11 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled, d.Flags, d.SettingsMgr))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr))
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
-				r.Get("/me", handleMeEnriched(d.Auth, d.DB))
+				r.Get("/me", handleMeEnriched(d.Auth, d.DB, d.AdminDisabled))
 				if d.OIDC != nil {
 					d.OIDC.Mount(r)
 				}
@@ -773,39 +787,43 @@ func New(d Deps) http.Handler {
 					r.Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.DB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
 					r.Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 				}
-				// Trip-planner debug: send arbitrary planTripWithMultiStop
-				// variables and get the gateway response (data + errors)
-				// verbatim. Lets us iterate on schema/value shape without
-				// chart bumps. Body shape:
-				//   { "variables": { ... whatever the caller wants ... } }
-				r.Post("/trips/plan/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleTripPlanRawDebug(clientFor(d, uid))(w, r)
-				}))
-				// Schema introspection: GET /api/admin/gql/type?name=CoordinatesInput
-				// returns the input-object field set the gateway publishes.
-				// Bypasses guess-and-check on undocumented shapes.
-				r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleGraphQLIntrospect(clientFor(d, uid))(w, r)
-				}))
-				r.Get("/gql/enum", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleGraphQLIntrospectEnum(clientFor(d, uid))(w, r)
-				}))
-				// Generic raw-GraphQL probe. POST {operation, query,
-				// variables} → gateway response. Used to exercise
-				// arbitrary query shapes (different operation names,
-				// alternate field positions, nested input objects)
-				// when introspection is locked down on the upstream.
-				r.Post("/gql/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleGraphQLRaw(clientFor(d, uid))(w, r)
-				}))
-				// Trip-planner diagnostic bundle. GET-only so an operator
-				// can click the URL on mobile (no DevTools needed). Runs:
-				//   1. __type introspection on a few likely names
-				//   2. planTripWithMultiStop with a known-Austin payload
-				// Dumps every response together. Paste-back-to-debug.
-				r.Get("/trips/plan/diag", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-					handleTripPlanDiag(clientFor(d, uid))(w, r)
-				}))
+				// Raw Rivian probes: arbitrary queries to Rivian as the admin.
+				// Off unless RIVOLT_ADMIN_DEBUG_PROBES (Deps.AdminDebugProbes).
+				if d.AdminDebugProbes {
+					// Trip-planner debug: send arbitrary planTripWithMultiStop
+					// variables and get the gateway response (data + errors)
+					// verbatim. Lets us iterate on schema/value shape without
+					// chart bumps. Body shape:
+					//   { "variables": { ... whatever the caller wants ... } }
+					r.Post("/trips/plan/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+						handleTripPlanRawDebug(clientFor(d, uid))(w, r)
+					}))
+					// Schema introspection: GET /api/admin/gql/type?name=CoordinatesInput
+					// returns the input-object field set the gateway publishes.
+					// Bypasses guess-and-check on undocumented shapes.
+					r.Get("/gql/type", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+						handleGraphQLIntrospect(clientFor(d, uid))(w, r)
+					}))
+					r.Get("/gql/enum", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+						handleGraphQLIntrospectEnum(clientFor(d, uid))(w, r)
+					}))
+					// Generic raw-GraphQL probe. POST {operation, query,
+					// variables} → gateway response. Used to exercise
+					// arbitrary query shapes (different operation names,
+					// alternate field positions, nested input objects)
+					// when introspection is locked down on the upstream.
+					r.Post("/gql/raw", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+						handleGraphQLRaw(clientFor(d, uid))(w, r)
+					}))
+					// Trip-planner diagnostic bundle. GET-only so an operator
+					// can click the URL on mobile (no DevTools needed). Runs:
+					//   1. __type introspection on a few likely names
+					//   2. planTripWithMultiStop with a known-Austin payload
+					// Dumps every response together. Paste-back-to-debug.
+					r.Get("/trips/plan/diag", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+						handleTripPlanDiag(clientFor(d, uid))(w, r)
+					}))
+				}
 			})
 
 			// Read-only session/telemetry endpoints. Populated by either the
