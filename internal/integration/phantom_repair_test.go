@@ -11,6 +11,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/repair/phantom"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 // TestPhantomRepair: the rule keeps a real charge and a user-priced
@@ -126,7 +127,7 @@ func TestPhantomRepair(t *testing.T) {
 func TestOpenNoMigrate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	dsn := startPostgres(ctx, t)
+	dsn := testpg.Fresh(ctx, t) // a database with no migrations applied
 	d, err := db.OpenNoMigrate(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)

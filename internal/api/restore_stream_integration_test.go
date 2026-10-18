@@ -68,7 +68,7 @@ func genBackup(w io.Writer, vehicle string, n int, gzipped bool) error {
 	return nil
 }
 
-// A 250k-sample backup restores with flat memory, gzip or plain, and every
+// A 100k-sample backup restores with flat memory, gzip or plain, and every
 // row lands.
 func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
@@ -85,7 +85,7 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,'rv-gen','R1S')`, dst); err != nil {
 		t.Fatal(err)
 	}
-	const n = 250_000
+	const n = 100_000
 	restoreHeartbeat = 100 * time.Millisecond
 	defer func() { restoreHeartbeat = 3 * time.Second }()
 	h := handleDataRestore(backupTestDeps(pool))
@@ -152,8 +152,10 @@ func TestRestoreStreamsWithBoundedMemory(t *testing.T) {
 	}
 	delta := int64(peak.Load()) - int64(base.HeapAlloc)
 	t.Logf("restored %d samples from %d MB on the wire, peak heap delta %d MB", n, wire.Load()>>20, delta>>20)
-	if delta > 50<<20 {
-		t.Errorf("heap grew by %d MB during the restore; want under 50", delta>>20)
+	// Streaming keeps the heap flat; decoding the whole backup into slices, as the
+	// old handler did, costs 30 MB or more for 100k samples.
+	if delta > 15<<20 {
+		t.Errorf("heap grew by %d MB during the restore; want under 15", delta>>20)
 	}
 
 	// Run again right away: refused with Retry-After (the user gap).

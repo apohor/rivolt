@@ -1,71 +1,38 @@
 //go:build integration
 
 // Charges store integration tests — focus on the bug-prone surfaces:
-//   1. ThermalKWh round-trip (*float64; NULL ↔ nil ↔ *0.0 are three
-//      different things, and a Row.Scan-style regression here would
-//      silently lose Parallax's thermal accounting).
-//   2. The open-live whitelist on LatestOpenLive — the past absorber
-//      bug (a brief charging_user_stopped frame between two physical
-//      sessions reattached the next session to the closed row) lives
-//      here and only here. A test that pins the whitelist is what
-//      keeps that incident from coming back.
-//   3. Cross-user isolation: every read scoped by user_id.
+//  1. ThermalKWh round-trip (*float64; NULL ↔ nil ↔ *0.0 are three
+//     different things, and a Row.Scan-style regression here would
+//     silently lose Parallax's thermal accounting).
+//  2. The open-live whitelist on LatestOpenLive — the past absorber
+//     bug (a brief charging_user_stopped frame between two physical
+//     sessions reattached the next session to the closed row) lives
+//     here and only here. A test that pins the whitelist is what
+//     keeps that incident from coming back.
+//  3. Cross-user isolation: every read scoped by user_id.
 //
 // Run with: go test -tags=integration ./internal/charges/...
 package charges_test
 
 import (
 	"context"
-	"errors"
 	"database/sql"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/testpg"
 )
 
 func pgDSN(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {
-		t.Skip("RIVOLT_SKIP_INTEGRATION set")
-	}
-	req := testcontainers.ContainerRequest{
-		Image:        "postgres:16-alpine",
-		ExposedPorts: []string{"5432/tcp"},
-		Env: map[string]string{
-			"POSTGRES_USER":     "rivolt",
-			"POSTGRES_PASSWORD": "rivolt",
-			"POSTGRES_DB":       "rivolt_test",
-		},
-		WaitingFor: wait.ForLog("database system is ready to accept connections").
-			WithOccurrence(2).
-			WithStartupTimeout(60 * time.Second),
-	}
-	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start postgres: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Terminate(context.Background()) })
-	host, err := c.Host(ctx)
-	if err != nil {
-		t.Fatalf("container host: %v", err)
-	}
-	port, err := c.MappedPort(ctx, "5432/tcp")
-	if err != nil {
-		t.Fatalf("container port: %v", err)
-	}
-	return fmt.Sprintf("postgres://rivolt:rivolt@%s:%s/rivolt_test?sslmode=disable", host, port.Port())
+	return testpg.DSN(ctx, t)
 }
 
 func setupEnv(t *testing.T) (*charges.Factory, uuid.UUID, uuid.UUID) {
@@ -656,13 +623,13 @@ func TestRestampPlace(t *testing.T) {
 			t.Fatalf("Upsert %s: %v", id, err)
 		}
 	}
-	mk("was-away", 0, 30.27, -97.74, "away", "home_rate", 7.6, true)  // priced: keeps its price
-	mk("unpriced-ac", 1, 30.27, -97.74, "away", "", 7.6, false)       // gets the home rate
-	mk("unpriced-dcfc", 2, 30.27, -97.74, "away", "", 200, false)     // fast: stays unpriced
-	mk("really-away", 3, 35.47, -97.52, "away", "", 7.6, false)       // stays away and unpriced
-	mk("user-priced", 4, 30.27, -97.74, "away", "user", 7.6, true)    // never touched
-	mk("no-position", 5, 0, 0, "away", "", 7.6, false)                // never touched
-	mk("unpriced-ac2", 6, 30.27, -97.74, "away", "", 7.6, false)      // gets the home rate, then the user edits it
+	mk("was-away", 0, 30.27, -97.74, "away", "home_rate", 7.6, true) // priced: keeps its price
+	mk("unpriced-ac", 1, 30.27, -97.74, "away", "", 7.6, false)      // gets the home rate
+	mk("unpriced-dcfc", 2, 30.27, -97.74, "away", "", 200, false)    // fast: stays unpriced
+	mk("really-away", 3, 35.47, -97.52, "away", "", 7.6, false)      // stays away and unpriced
+	mk("user-priced", 4, 30.27, -97.74, "away", "user", 7.6, true)   // never touched
+	mk("no-position", 5, 0, 0, "away", "", 7.6, false)               // never touched
+	mk("unpriced-ac2", 6, 30.27, -97.74, "away", "", 7.6, false)     // gets the home rate, then the user edits it
 	type row struct {
 		place, source string
 		cost          sql.NullFloat64
