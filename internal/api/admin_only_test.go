@@ -64,7 +64,10 @@ const (
 	rigEmail = "owner@example.com"
 )
 
-func newAccessRig(t *testing.T) *accessRig {
+func newAccessRig(t *testing.T) *accessRig { t.Helper(); return newAccessRigWith(t, nil) }
+
+// newAccessRigWith is newAccessRig with extra Deps set by with.
+func newAccessRigWith(t *testing.T, with func(*Deps)) *accessRig {
 	t.Helper()
 	k, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -82,7 +85,11 @@ func newAccessRig(t *testing.T) *accessRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &accessRig{key: k, router: New(Deps{Auth: svc, AuthEnforced: true, AdminOnly: true, Access: v})}
+	d := Deps{Auth: svc, AuthEnforced: true, AdminOnly: true, Access: v}
+	if with != nil {
+		with(&d)
+	}
+	return &accessRig{key: k, router: New(d)}
 }
 
 func (a *accessRig) jwt(t *testing.T, mut func(*jwt.Claims, *string)) string {
