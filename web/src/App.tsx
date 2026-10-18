@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "./lib/api";
 import { inDemo } from "./lib/demo";
 import { termsGateActive } from "./lib/terms";
+import { useImpersonationTarget } from "./lib/impersonation";
 import { TermsGate } from "./components/TermsGate";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
@@ -87,7 +88,9 @@ export default function App() {
     staleTime: 5 * 60_000,
     enabled: !demoOnly.loading && !demoOnly.only && !inDemo(),
   });
-  const gate = termsGateActive(me.data, location.pathname);
+  // An admin viewing as a user has not accepted anything for them and cannot (read-only).
+  const impersonating = useImpersonationTarget();
+  const gate = !impersonating && termsGateActive(me.data, location.pathname);
   // The Rivian connect step must not show before the gate has had its say.
   const meLoading = location.pathname.startsWith("/onboarding") && me.isPending && me.fetchStatus !== "idle";
   if (demoOnly.loading || landing === "loading" || meLoading) return <div className="p-4"><Spinner /></div>;

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
+import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import {
   AuthorizedDriverNote,
   RivianAccountPanel,
@@ -52,6 +53,9 @@ export default function OnboardingPage() {
   }
 
   return (
+    <>
+    {/* An admin viewing as this user must be able to leave: the page's own buttons are refused read-only. */}
+    <ImpersonationBanner />
     <div className="min-h-full flex items-center justify-center px-4 py-10 app-safe-top">
       <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-950 p-6 shadow-lg">
         <div className="mb-6 flex items-center gap-2 text-neutral-100">
@@ -93,5 +97,6 @@ export default function OnboardingPage() {
         )}
       </div>
     </div>
+    </>
   );
 }
