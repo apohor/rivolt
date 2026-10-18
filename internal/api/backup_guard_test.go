@@ -63,3 +63,42 @@ func TestBackupGuardForget(t *testing.T) {
 		rel()
 	}
 }
+
+// After a refused or empty restore the ten-minute slot is free, but the next
+// attempt waits the short cooldown; a failure of ours (forget) does not.
+func TestBackupGuardRefusalCooldown(t *testing.T) {
+	ctx := context.Background()
+	old := restoreRefusalCooldown
+	restoreRefusalCooldown = 150 * time.Millisecond
+	defer func() { restoreRefusalCooldown = old }()
+
+	g := newBackupGuard(1, 10*time.Minute, time.Now)
+	u, other := uuid.New(), uuid.New()
+	rel, _, ok := g.acquire(ctx, u, 10*time.Minute)
+	if !ok {
+		t.Fatal("first attempt refused")
+	}
+	rel()
+	g.forgetWithCooldown(u)
+	if _, wait, ok := g.acquire(ctx, u, 10*time.Minute); ok || wait <= 0 || wait > 150*time.Millisecond {
+		t.Fatalf("right after a refusal: ok=%v wait=%v, want refused for under 150ms", ok, wait)
+	}
+	if rel, _, ok := g.acquire(ctx, other, 10*time.Minute); !ok {
+		t.Fatal("another user was held up by u's cooldown")
+	} else {
+		rel()
+	}
+	time.Sleep(200 * time.Millisecond)
+	rel, _, ok = g.acquire(ctx, u, 10*time.Minute)
+	if !ok {
+		t.Fatal("still refused after the cooldown (the ten-minute slot must be free)")
+	}
+	rel()
+	// Our own failure: no cooldown at all.
+	g.forget(u)
+	if rel, _, ok := g.acquire(ctx, u, 10*time.Minute); !ok {
+		t.Error("a retry after our own failure was held back")
+	} else {
+		rel()
+	}
+}

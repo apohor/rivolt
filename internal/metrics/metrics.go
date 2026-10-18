@@ -86,6 +86,12 @@ type Metrics struct {
 	// matching "funnel" log line instead.
 	FunnelEventsTotal *prometheus.CounterVec
 
+	// Authenticated requests by how they were authenticated: cookie, kratos,
+	// header (trusted-proxy SSO), bypass. A fixed vocabulary; no user data.
+	// (Impersonation is logged but not counted separately: it rides on a
+	// cookie-authenticated admin.)
+	AuthRequestsTotal *prometheus.CounterVec
+
 	// Completed vehicle sleeps by outcome: "failed" when the car woke
 	// within a minute of falling asleep, "lasted" otherwise. A rising
 	// failed share is a car that can't stay asleep (vampire drain);
@@ -225,6 +231,13 @@ func New() *Metrics {
 			},
 			[]string{"event"},
 		),
+		AuthRequestsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_auth_requests_total",
+				Help: "Authenticated requests, by how they were authenticated (cookie, kratos, header, bypass).",
+			},
+			[]string{"method"},
+		),
 		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_parallax_replays_ignored_total",
@@ -255,6 +268,7 @@ func New() *Metrics {
 		m.DemoClientKeyTotal,
 		m.DemoRateLimitedTotal,
 		m.FunnelEventsTotal,
+		m.AuthRequestsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
 	)

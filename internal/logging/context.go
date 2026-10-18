@@ -34,6 +34,7 @@ const (
 	keyUserIDSink
 	keyImpersonatorID
 	keyTargetID
+	keyAuthMethod
 )
 
 // WithRequestID returns a context that carries the given request ID.
@@ -60,6 +61,35 @@ func WithUserID(ctx context.Context, uid uuid.UUID) context.Context {
 	return context.WithValue(ctx, keyUserID, uid)
 }
 
+// How a request was authenticated, for the access log and forensics. Fixed
+// vocabulary, never anything about the user.
+const (
+	AuthCookie        = "cookie"        // Rivolt session cookie (opaque or signed)
+	AuthKratos        = "kratos"        // Ory Kratos session cookie
+	AuthHeader        = "header"        // trusted-proxy SSO header
+	AuthImpersonation = "impersonation" // an admin viewing as a user
+	AuthBypass        = "bypass"        // RIVOLT_AUTH_BYPASS_USER
+)
+
+// WithAuthMethod records how the request's user was authenticated, in the
+// context and in the access-log sink (so the outer access log sees what an
+// inner middleware resolved).
+func WithAuthMethod(ctx context.Context, method string) context.Context {
+	if method == "" {
+		return ctx
+	}
+	if sink, ok := ctx.Value(keyUserIDSink).(*userIDSink); ok && sink != nil {
+		sink.method = method
+	}
+	return context.WithValue(ctx, keyAuthMethod, method)
+}
+
+// AuthMethodFromContext returns the method recorded by WithAuthMethod.
+func AuthMethodFromContext(ctx context.Context) string {
+	m, _ := ctx.Value(keyAuthMethod).(string)
+	return m
+}
+
 // userIDSink is a request-scoped writable holder for the resolved
 // user_id. Necessary because middleware-chain context mutations
 // (auth.WithUser) don't propagate back to the outer http access-log
@@ -68,7 +98,10 @@ func WithUserID(ctx context.Context, uid uuid.UUID) context.Context {
 // user_id even though the inner handler did. HTTPMiddleware installs
 // a sink before next.ServeHTTP; WithUserID writes into it; the
 // access log reads from it.
-type userIDSink struct{ uid uuid.UUID }
+type userIDSink struct {
+	uid    uuid.UUID
+	method string
+}
 
 // withUserIDSink installs an empty sink and returns both the new
 // context and the sink pointer. Internal to the logging package —
@@ -76,6 +109,14 @@ type userIDSink struct{ uid uuid.UUID }
 func withUserIDSink(ctx context.Context) (context.Context, *userIDSink) {
 	s := &userIDSink{}
 	return context.WithValue(ctx, keyUserIDSink, s), s
+}
+
+// readAuthMethodSink returns the auth method stamped during the request.
+func readAuthMethodSink(s *userIDSink) string {
+	if s == nil {
+		return ""
+	}
+	return s.method
 }
 
 // readUserIDSink returns the user_id stamped during the request, or

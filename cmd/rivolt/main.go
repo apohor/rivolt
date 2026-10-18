@@ -1358,12 +1358,17 @@ func runServer() {
 	// Header SSO believes the user header from any peer in this list. A
 	// network-wide entry (the pod network, a /16) trusts the ingress and every
 	// neighbour, so anyone who reaches the app through them can sign in as any
-	// user by sending the header. Say so loudly at every boot.
-	if broad := auth.BroadTrustedCIDRs(trustedNets); len(broad) > 0 {
+	// user by sending the header. With OIDC sign-in configured (a public
+	// site) that is a refusal to start; otherwise a loud error at every boot.
+	oidcConfigured := strings.TrimSpace(os.Getenv("RIVOLT_OIDC_PROVIDERS")) != ""
+	if broad, cerr := auth.CheckTrustedProxies(trustedNets, oidcConfigured); cerr != nil {
+		logger.Error("refusing to start: "+cerr.Error(), "cidrs", strings.Join(broad, ","))
+		os.Exit(1)
+	} else if len(broad) > 0 {
 		logger.Error("RIVOLT_TRUSTED_PROXY_CIDR is too broad: it trusts the user header from every address in "+strings.Join(broad, ", ")+
 			" (the pod network or a /16 or wider). Anyone who can reach this app through those peers can sign in as any user. "+
 			"Trust only the exact address of an authenticating proxy (a /32), or unset it.",
-			"cidrs", strings.Join(broad, ","), "oidc_configured", strings.TrimSpace(os.Getenv("RIVOLT_OIDC_PROVIDERS")) != "")
+			"cidrs", strings.Join(broad, ","))
 	}
 	cookieSecret, err := decodeHexSecret(os.Getenv("RIVOLT_COOKIE_SECRET"))
 	if err != nil {
@@ -1443,6 +1448,7 @@ func runServer() {
 		CookieSecret:      cookieSecret,
 		SecureCookie:      secureCookie,
 		TrustedProxyCIDRs: trustedNets,
+		OnAuth:            func(method string) { appMetrics.AuthRequestsTotal.WithLabelValues(method).Inc() },
 		UserIDFor:         db.UserIDFor,
 		UsernameFor: func(ctx context.Context, uid uuid.UUID) (string, error) {
 			if pgPool == nil {

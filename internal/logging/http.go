@@ -39,6 +39,6 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 
-		AccessLog(r, ww, time.Since(start), readUserIDSink(sink))
+		AccessLog(r, ww, time.Since(start), readUserIDSink(sink), readAuthMethodSink(sink))
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/logging"
 )
 
 // roleLookupStub builds a roleLookup closure over a fixed uid→role
@@ -249,5 +250,23 @@ func TestRequireAdminMW_RefusesImpersonatedContext(t *testing.T) {
 	}
 	if called {
 		t.Error("next ran for an impersonated context inside requireAdminMW")
+	}
+}
+
+// While an admin views as a user, the request is tagged "impersonation" for
+// the access log.
+func TestImpersonationMW_TagsTheAuthMethod(t *testing.T) {
+	admin, target := uuid.New(), uuid.New()
+	roles := roleLookupStub(map[uuid.UUID]string{admin: "admin", target: "user"})
+	var method string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = logging.AuthMethodFromContext(r.Context())
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/drives", nil)
+	req.Header.Set(ImpersonateHeader, target.String())
+	req = req.WithContext(logging.WithAuthMethod(auth.WithUser(req.Context(), admin), logging.AuthCookie))
+	impersonationMW(roles, alwaysEnabled)(next).ServeHTTP(httptest.NewRecorder(), req)
+	if method != logging.AuthImpersonation {
+		t.Errorf("auth method = %q, want impersonation", method)
 	}
 }
