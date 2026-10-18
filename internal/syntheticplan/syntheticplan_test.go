@@ -435,3 +435,39 @@ func TestRoutePreferencesReachTheRouter(t *testing.T) {
 		t.Errorf("router options = %+v, want %+v", r.lastOpts, want)
 	}
 }
+
+// A day that starts under the reserve (8 % with a 10 % reserve, after a short
+// night) must charge first: at a charger at the start, or the furthest one the
+// truck can still reach, instead of returning an unreachable plan with 0 %.
+func TestStartingBelowTheReserveChargesFirst(t *testing.T) {
+	// 382 mi is 615 km; one point of SoC is ~4.85 km, so 8 % reaches ~39 km.
+	r := &fakeRouter{lat0: 34, legKm: []float64{615}, speedKmh: 100}
+	atStart := stationAt(34, 0.2, 150, "AtStart", "")
+	p := newPlanner(r, fakeChargers{pois: []chargers.POI{
+		atStart,
+		stationAt(34, 200, 150, "Mid", ""),
+		stationAt(34, 400, 150, "Late", ""),
+	}})
+	in := input(8, 2)
+	plan := mustPlan(t, p, in)
+	rt := plan.Routes[0]
+	if !rt.DestinationReached {
+		t.Fatalf("not reached: %+v", rt)
+	}
+	st := stopsOf(plan)
+	if len(st) < 2 || st[0].Latitude != atStart.Lat {
+		t.Fatalf("stops %+v: the first charge should be the charger at the start", st)
+	}
+	for _, w := range plan.Routes[0].Waypoints {
+		if w.WaypointType != "ORIGIN" && w.ArrivalSoC <= 0 {
+			t.Errorf("%s arrives at %v: no leg should end empty", w.WaypointType, w.ArrivalSoC)
+		}
+	}
+
+	// No charger within reach at all: honest, not silently empty.
+	far := newPlanner(&fakeRouter{lat0: 34, legKm: []float64{615}, speedKmh: 100},
+		fakeChargers{pois: []chargers.POI{stationAt(34, 300, 150, "Far", "")}})
+	if rt := mustPlan(t, far, input(8, 2)).Routes[0]; rt.DestinationReached {
+		t.Errorf("destination reached with nothing in range: %+v", rt)
+	}
+}
