@@ -84,6 +84,7 @@ const (
 	chargeTo       = 80.0 // default charge target
 	chargeCap      = 90.0 // never plan a charge above this
 	finishMargin   = 2.0  // SoC points above what the rest of the trip needs
+	minTopUp       = 5.0  // the least a stop charges, in SoC points
 	tieKm          = 10.0 // preferred networks win ties this close to the best
 	minLegM        = 1000 // a stop must be at least this far on
 	maxStops       = 25
@@ -364,6 +365,12 @@ type emptyPoint struct {
 // below the reserve before the destination, charge at the furthest station
 // that can still be reached with the reserve intact.
 func planStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reserve, packKWh float64) ([]plannedStop, *emptyPoint) {
+	stops, empty := placeStops(pt, sts, in, socPerM, reserve)
+	return settleCharges(stops, pt.total, socPerM, reserve, packKWh, in.StartingSoC), empty
+}
+
+// placeStops picks where to charge.
+func placeStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reserve float64) ([]plannedStop, *emptyPoint) {
 	markPreferred(sts, in.NetworkPreferences)
 	var stops []plannedStop
 	d, soc := 0.0, in.StartingSoC
@@ -401,11 +408,9 @@ func planStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reserv
 			}
 		}
 		arr := soc - socPerM*(pick.dist-d)
-		// Charge only as far as the rest of the trip needs when it can be
-		// finished from one charge (plus a small margin), so a stop near the
-		// destination is a top-up, not a 40-minute charge to 80. When the rest
-		// of the trip needs more than the cap, charge to the usual 80 and let
-		// the next stop do the rest.
+		// To place the stops, assume a charge to 80, or only to what the rest of
+		// the trip needs when one charge can finish it. The charge each stop
+		// really gets is settled below, once the next stop is known.
 		need := reserve + socPerM*(pt.total-pick.dist)
 		target := chargeTo
 		if need+finishMargin <= chargeCap {
@@ -414,11 +419,37 @@ func planStops(pt *path, sts []station, in rivian.PlanTripInput, socPerM, reserv
 		if target <= arr {
 			target = math.Min(chargeCap, arr+1)
 		}
-		dur := math.Round((target - arr) / 100 * packKWh / (pick.kw * taper) * 3600)
-		stops = append(stops, plannedStop{st: pick, arrSoC: arr, depSoC: target, durSec: dur, arrivedAt: pick.dist})
+		stops = append(stops, plannedStop{st: pick, arrSoC: arr, depSoC: target, arrivedAt: pick.dist})
 		d, soc = pick.dist, target
 	}
 	return stops, nil
+}
+
+// settleCharges decides how far each stop charges: only as far as the next
+// stop (or the destination) needs, plus the reserve and a small margin, never
+// below a useful top-up and never above the cap. A stop that sits a few
+// miles short of a via or the destination is a short top-up, not a charge to
+// 80. Each stop's arrival SoC follows from the charge before it.
+func settleCharges(stops []plannedStop, total, socPerM, reserve, packKWh, startSoC float64) []plannedStop {
+	soc, at := startSoC, 0.0
+	for i := range stops {
+		st := &stops[i]
+		st.arrSoC = soc - socPerM*(st.arrivedAt-at)
+		next := total
+		if i+1 < len(stops) {
+			next = stops[i+1].arrivedAt
+		}
+		target := math.Ceil(reserve + socPerM*(next-st.arrivedAt) + finishMargin)
+		target = math.Max(target, st.arrSoC+minTopUp)
+		target = math.Min(target, chargeCap)
+		if target <= st.arrSoC {
+			target = math.Min(chargeCap, st.arrSoC+1)
+		}
+		st.depSoC = target
+		st.durSec = math.Round((target - st.arrSoC) / 100 * packKWh / (st.st.kw * taper) * 3600)
+		soc, at = target, st.arrivedAt
+	}
+	return stops
 }
 
 func better(c, cur station) bool {
