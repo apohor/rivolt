@@ -90,7 +90,7 @@ export function AdminUsersTable({
       {narrow ? (
         <ul data-admin-users-cards className="space-y-3">
           {shown.map((u) => (
-            <li key={u.id} data-user-row={u.id} className={`rounded-lg border border-neutral-800 p-3 ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
+            <li key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className={`cursor-pointer rounded-lg border border-neutral-800 p-3 hover:bg-neutral-900/50 ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
               <UserBlock u={u} selected={u.id === selectedID} onSelect={onSelect} />
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
@@ -132,7 +132,7 @@ export function AdminUsersTable({
             </thead>
             <tbody>
               {shown.map((u) => (
-                <tr key={u.id} data-user-row={u.id} className={`border-t border-neutral-800 align-top ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
+                <tr key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className={`cursor-pointer border-t border-neutral-800 align-top hover:bg-neutral-900/50 ${u.id === selectedID ? "bg-emerald-950/20" : ""}`}>
                   <td className="px-3 py-2"><UserBlock u={u} selected={u.id === selectedID} onSelect={onSelect} /></td>
                   <td className="px-3 py-2"><RivianCell u={u} now={now} /></td>
                   <td className="px-3 py-2"><LastDataCell u={u} now={now} /></td>
@@ -172,6 +172,13 @@ export function AdminUsersTable({
     </div>
   );
 }
+
+// A click anywhere on a user's row or card opens them, except on the row's own controls (the actions,
+// the name button): those keep their own meaning.
+const opensUser = (onSelect: (id: string) => void, id: string) => (e: React.MouseEvent) => {
+  if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label, summary")) return;
+  onSelect(id);
+};
 
 // A phone gets stacked cards instead of a wide table (a table that scrolls sideways clips the actions).
 function useNarrow(maxPx = 767): boolean {
