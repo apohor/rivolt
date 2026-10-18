@@ -42,6 +42,13 @@ type AdminUserRow struct {
 	ReceiptsOptIn bool `json:"receipts_opt_in"`
 	// PurgeWarnedAt: when the inactive-account warning went out (null: not warned).
 	PurgeWarnedAt *time.Time `json:"purge_warned_at"`
+	// PurgeAt is when the inactive-account purge will delete the account,
+	// as the job itself would schedule it: the later of signup+120 days and
+	// warning+30 days, where an unsent warning is taken as going out at the
+	// next run (signup+90 days, or now if that has passed). Null when the
+	// account is out of the job's scope (admin, disabled, connected Rivian,
+	// no email). It does not say whether the flag is on: see purge_enabled.
+	PurgeAt *time.Time `json:"purge_at"`
 }
 
 // ListUsersForAdmin returns every user row, role-stamped and
@@ -74,10 +81,14 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		               WHERE v.user_id = u.id AND l.expires_at > now()),
 		       EXISTS(SELECT 1 FROM user_settings s
 		               WHERE s.user_id = u.id AND s.value->>'privacy.rivian_receipts' = '1'),
-		       u.inactive_warned_at
+		       u.inactive_warned_at,
+		       CASE WHEN `+inactiveScope+` AND COALESCE(u.email, '') <> ''
+		            THEN GREATEST(u.created_at + $1::interval,
+		                          COALESCE(u.inactive_warned_at, GREATEST(u.created_at + $2::interval, now())) + $3::interval)
+		       END
 		FROM users u
 		ORDER BY u.created_at ASC
-	`)
+	`, pgInterval(InactiveDeleteAfter), pgInterval(InactiveWarnAfter), pgInterval(InactiveWarnGrace))
 	if err != nil {
 		return nil, fmt.Errorf("list users for admin: %w", err)
 	}
@@ -85,11 +96,11 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		var lastSeen, reauthAt, lastData, warned sql.NullTime
+		var lastSeen, reauthAt, lastData, warned, purgeAt sql.NullTime
 		if err := rows.Scan(
 			&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt,
 			&r.VehicleCount, &r.DriveCount, &r.ImportCount, &r.RivianConnected,
-			&r.NeedsReauth, &reauthAt, &lastSeen, &lastData, &r.Leased, &r.ReceiptsOptIn, &warned,
+			&r.NeedsReauth, &reauthAt, &lastSeen, &lastData, &r.Leased, &r.ReceiptsOptIn, &warned, &purgeAt,
 		); err != nil {
 			return nil, fmt.Errorf("list users for admin scan: %w", err)
 		}
@@ -108,6 +119,10 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		if warned.Valid {
 			t := warned.Time
 			r.PurgeWarnedAt = &t
+		}
+		if purgeAt.Valid {
+			t := purgeAt.Time
+			r.PurgeAt = &t
 		}
 		out = append(out, r)
 	}

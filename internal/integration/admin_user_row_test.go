@@ -75,4 +75,50 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 	if i.LastDataAt != nil || i.Leased || i.ReceiptsOptIn || i.PurgeWarnedAt != nil {
 		t.Errorf("idle = %+v; want null/false everywhere (expired lease is not leased)", i)
 	}
+
+	// purge_at follows the job's own schedule and is null out of its scope.
+	mk := func(name, email, role string, created, warned time.Duration, disabled bool) uuid.UUID {
+		t.Helper()
+		id, err := db.CreateUser(ctx, pool, name, email, name, role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(`UPDATE users SET created_at = now() - make_interval(secs => $2::float8), disabled = $3,
+		        inactive_warned_at = CASE WHEN $4::float8 > 0 THEN now() - make_interval(secs => $4::float8) END WHERE id = $1`,
+			id, created.Seconds(), disabled, warned.Seconds())
+		return id
+	}
+	day := 24 * time.Hour
+	warned := mk("warned", "warned@x.test", "user", 100*day, 5*day, false) // max(+20d, +25d)
+	young := mk("young", "young@x.test", "user", 10*day, 0, false)         // max(+110d, now+30d) = +110d
+	old := mk("old", "old@x.test", "user", 200*day, 0, false)              // warns on the next run: now+30d
+	noMail := mk("nomail", "", "user", 200*day, 0, false)                  // out of scope
+	adm := mk("adm", "adm@x.test", "admin", 200*day, 0, false)             // out of scope
+	off := mk("off", "off@x.test", "user", 200*day, 0, true)               // out of scope
+	rows, err = db.ListUsersForAdmin(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by = map[uuid.UUID]db.AdminUserRow{}
+	for _, r := range rows {
+		by[r.ID] = r
+	}
+	within := func(name string, got *time.Time, want time.Duration) {
+		t.Helper()
+		if got == nil {
+			t.Errorf("%s purge_at is null, want now%+v", name, want)
+			return
+		}
+		if d := time.Until(*got) - want; d > time.Minute || d < -time.Minute {
+			t.Errorf("%s purge_at = %v from now, want about %v", name, time.Until(*got), want)
+		}
+	}
+	within("warned", by[warned].PurgeAt, 25*day)
+	within("young", by[young].PurgeAt, 110*day)
+	within("old", by[old].PurgeAt, 30*day)
+	for name, id := range map[string]uuid.UUID{"no email": noMail, "admin": adm, "disabled": off, "connected": busy, "has vehicle": idle} {
+		if by[id].PurgeAt != nil {
+			t.Errorf("%s purge_at = %v, want null (out of scope)", name, *by[id].PurgeAt)
+		}
+	}
 }
