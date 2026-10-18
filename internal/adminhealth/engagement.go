@@ -1,6 +1,9 @@
 package adminhealth
 
-import "context"
+import (
+	"context"
+	"database/sql"
+)
 
 // Engagement is the "do people come back?" readout: counts only, read from rows
 // the product already keeps (sessions, vehicles, drives, charges, the sent-mail
@@ -14,9 +17,14 @@ type Engagement struct {
 	// ConnectedNoData counts accounts that have a vehicle but no state sample,
 	// drive or charge yet.
 	ConnectedNoData int `json:"connected_no_data"`
-	// FirstData7d and FirstData28d count first_data events in the window.
-	FirstData7d  int `json:"first_data_7d"`
-	FirstData28d int `json:"first_data_28d"`
+	// FirstData7d and FirstData28d count accounts whose first closed drive or
+	// charge fell in the window, derived from the drives and charges tables
+	// (nothing is written for it). MedianSecondsToFirstData is the median gap
+	// from the account's first vehicle row to that first drive or charge, over
+	// the 28-day set; null when the set is empty. An aggregate only.
+	FirstData7d              int  `json:"first_data_7d"`
+	FirstData28d             int  `json:"first_data_28d"`
+	MedianSecondsToFirstData *int `json:"median_seconds_to_first_data"`
 	// EmailsSent counts mails by kind: welcome and statement in the last 28
 	// days; setup_first and setup_followup over all time (the account's
 	// reminder counter).
@@ -47,10 +55,28 @@ func (s *Service) engagement(ctx context.Context) Engagement {
 		   AND NOT EXISTS (SELECT 1 FROM charges ch WHERE ch.user_id = u.id)`).Scan(&e.ConnectedNoData); err != nil {
 		return fail("connected")
 	}
+	var median sql.NullFloat64
 	if err := s.cfg.DB.QueryRowContext(ctx, `
-		SELECT count(*) FILTER (WHERE ts > now() - interval '7 days'), count(*)
-		  FROM events WHERE name = 'first_data' AND ts > now() - interval '28 days'`).Scan(&e.FirstData7d, &e.FirstData28d); err != nil {
-		return fail("events")
+		WITH first AS (
+		  SELECT x.user_id, MIN(x.t) AS first_at FROM (
+		    SELECT user_id, MIN(ended_at) AS t FROM drives   WHERE ended_at IS NOT NULL GROUP BY user_id
+		    UNION ALL
+		    SELECT user_id, MIN(ended_at) AS t FROM charges  WHERE ended_at IS NOT NULL GROUP BY user_id
+		  ) x GROUP BY x.user_id
+		)
+		SELECT count(*) FILTER (WHERE f.first_at > now() - interval '7 days'),
+		       count(*) FILTER (WHERE f.first_at > now() - interval '28 days'),
+		       percentile_cont(0.5) WITHIN GROUP (ORDER BY GREATEST(0, EXTRACT(EPOCH FROM f.first_at - v.mc)))
+		         FILTER (WHERE f.first_at > now() - interval '28 days' AND v.mc IS NOT NULL)
+		  FROM first f
+		  JOIN users u ON u.id = f.user_id AND NOT u.disabled
+		  LEFT JOIN (SELECT user_id, MIN(created_at) AS mc FROM vehicles GROUP BY user_id) v ON v.user_id = f.user_id`).
+		Scan(&e.FirstData7d, &e.FirstData28d, &median); err != nil {
+		return fail("first data")
+	}
+	if median.Valid {
+		m := int(median.Float64)
+		e.MedianSecondsToFirstData = &m
 	}
 	var welcome, first, follow, statement int
 	// The welcome column was back-filled on every existing account when it was

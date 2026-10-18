@@ -187,7 +187,7 @@ function EngagementCard({ s }: { s: HealthSummary }) {
             <div><dt className="text-xs text-neutral-400">Seen in 7 days</dt><dd className="text-2xl font-semibold tabular-nums text-neutral-100">{e.active_7d}</dd></div>
             <div><dt className="text-xs text-neutral-400">Seen in 28 days</dt><dd className="text-2xl font-semibold tabular-nums text-neutral-100">{e.active_28d}</dd></div>
             <div><dt className="text-xs text-neutral-400">Connected, no data yet</dt><dd className="font-semibold tabular-nums text-neutral-100">{e.connected_no_data}</dd></div>
-            <div><dt className="text-xs text-neutral-400">First data (7 / 28 d)</dt><dd className="font-semibold tabular-nums text-neutral-100">{e.first_data_7d} / {e.first_data_28d}</dd></div>
+            <div><dt className="text-xs text-neutral-400">First drive or charge (7 / 28 d)</dt><dd className="font-semibold tabular-nums text-neutral-100">{e.first_data_7d} / {e.first_data_28d}</dd>{e.median_seconds_to_first_data != null && <dd className="text-xs text-neutral-500">median {formatAge(e.median_seconds_to_first_data)} after connecting</dd>}</div>
           </dl>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-400">
             {EMAIL_LABELS.map(([k, label]) => (

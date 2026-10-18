@@ -10,15 +10,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/adminhealth"
-	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/db"
 )
 
-// first_data is emitted once, for a new account's first drive; the admin
-// engagement section counts who was seen, who is connected with no data, and
-// the mail sent.
+// The admin engagement section counts who was seen, who is connected with no
+// data, who reached their first drive or charge (derived from drives and
+// charges, nothing written), and the mail sent.
 func TestFirstDataAndEngagement(t *testing.T) {
-	t.Setenv("RIVOLT_EVENTS", "true")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	pool, err := db.Open(ctx, startPostgres(ctx, t))
@@ -61,21 +59,12 @@ func TestFirstDataAndEngagement(t *testing.T) {
 	session(lurker, "20 days")
 	session(idle, "100 days")
 
-	// No drive yet: nothing to emit for.
-	api.EmitFirstData(ctx, pool, idle)
 	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source)
 	      VALUES ($1,$2,'d1', now() - interval '50 minutes', now() - interval '40 minutes', 5, 'live')`, driver, vid)
-	api.EmitFirstData(ctx, pool, driver)
-	api.EmitFirstData(ctx, pool, driver) // once only
-
-	var n int
-	var secs float64
-	if err := pool.QueryRowContext(ctx, `SELECT count(*), COALESCE(max((props->>'seconds_since_connect')::float),0) FROM events WHERE name='first_data' AND user_id=$1`, driver).Scan(&n, &secs); err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 || secs < 3500 || secs > 3700 {
-		t.Errorf("first_data rows %d, seconds_since_connect %v (want 1 and about 3600)", n, secs)
-	}
+	// A charge long ago for the lurker: first data, but outside the 28-day window.
+	lvid := vehicle(lurker, "rv-3")
+	exec(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source)
+	      VALUES ($1,$2,'c1', now() - interval '90 days', now() - interval '90 days' + interval '1 hour', 'live')`, lurker, lvid)
 
 	exec(`UPDATE users SET setup_nudge_count = 2 WHERE id = $1`, idle)
 	sum := adminhealth.New(adminhealth.Config{DB: pool}).Summary(ctx).Engagement
@@ -89,7 +78,10 @@ func TestFirstDataAndEngagement(t *testing.T) {
 		t.Errorf("connected with no data = %d, want 1 (idle)", sum.ConnectedNoData)
 	}
 	if sum.FirstData7d != 1 || sum.FirstData28d != 1 {
-		t.Errorf("first_data %d/%d", sum.FirstData7d, sum.FirstData28d)
+		t.Errorf("first data %d/%d, want 1/1 (driver; the lurker's was 90 days ago)", sum.FirstData7d, sum.FirstData28d)
+	}
+	if sum.MedianSecondsToFirstData == nil || *sum.MedianSecondsToFirstData < 1100 || *sum.MedianSecondsToFirstData > 1300 {
+		t.Errorf("median seconds to first data = %v, want about 1200 (vehicle 1 h ago, drive ended 40 min ago: 20 min)", sum.MedianSecondsToFirstData)
 	}
 	if sum.EmailsSent["setup_first"] != 1 || sum.EmailsSent["setup_followup"] != 1 {
 		t.Errorf("emails %v", sum.EmailsSent)

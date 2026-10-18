@@ -50,7 +50,6 @@ type MonitorRegistry struct {
 	routeFiller        RouteFiller
 	liveStateStore     func(uid uuid.UUID) LiveStateStore
 	driveCloseHook     func(uid uuid.UUID) DriveCloseHook
-	extraDriveClose    []func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(vehicleID string, kwh float64)
@@ -216,16 +215,6 @@ func (r *MonitorRegistry) SetChargeCloseHookFactory(factory func(uid uuid.UUID) 
 	r.mu.Unlock()
 }
 
-// AddDriveCloseHookFactory registers a further drive-close side effect next to
-// the one SetDriveCloseHookFactory holds (weather), the way
-// AddChargeCloseHookFactory does for charges. Every registered hook runs, in
-// order registered, for each close.
-func (r *MonitorRegistry) AddDriveCloseHookFactory(factory func(uid uuid.UUID) DriveCloseHook) {
-	r.mu.Lock()
-	r.extraDriveClose = append(r.extraDriveClose, factory)
-	r.mu.Unlock()
-}
-
 // AddChargeCloseHookFactory registers a further charge-close side effect
 // next to the one SetChargeCloseHookFactory holds (push notifications), so
 // independent features can each react to a closed charge. Every registered
@@ -304,19 +293,8 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 			mon.SetLiveStateStore(s)
 		}
 	}
-	{
-		var hooks []DriveCloseHook
-		if r.driveCloseHook != nil {
-			if h := r.driveCloseHook(uid); h != nil {
-				hooks = append(hooks, h)
-			}
-		}
-		for _, f := range r.extraDriveClose {
-			if h := f(uid); h != nil {
-				hooks = append(hooks, h)
-			}
-		}
-		if h := composeDriveClose(hooks); h != nil {
+	if r.driveCloseHook != nil {
+		if h := r.driveCloseHook(uid); h != nil {
 			mon.SetDriveCloseHook(h)
 		}
 	}
@@ -606,21 +584,6 @@ func composeChargeClose(hooks []ChargeCloseHook) ChargeCloseHook {
 	return func(ctx context.Context, c charges.Charge) {
 		for _, h := range hooks {
 			h(ctx, c)
-		}
-	}
-}
-
-// composeDriveClose runs several drive-close hooks as one, in order.
-func composeDriveClose(hooks []DriveCloseHook) DriveCloseHook {
-	switch len(hooks) {
-	case 0:
-		return nil
-	case 1:
-		return hooks[0]
-	}
-	return func(ctx context.Context, d drives.Drive) {
-		for _, h := range hooks {
-			h(ctx, d)
 		}
 	}
 }

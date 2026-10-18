@@ -25,6 +25,7 @@ export type HealthSummary = {
     connected_no_data: number;
     first_data_7d: number;
     first_data_28d: number;
+    median_seconds_to_first_data: number | null;
     emails_sent: Record<string, number>;
   };
 };
