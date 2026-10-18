@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AdminUserRow } from "../lib/api";
 import { connection, filterUsers, lastData, noDataAlert, purge, type UserFilter } from "../lib/adminUsers";
-import { useImpersonationDisabled } from "../lib/config";
+import { useImpersonationDisabled, useRivianActions } from "../lib/config";
 import { startImpersonation } from "../lib/impersonation";
 import { TypedConfirmDialog } from "./TypedConfirmDialog";
 
@@ -51,6 +51,7 @@ export function AdminUsersTable({
   const [filter, setFilter] = useState<UserFilter>("all");
   const [deleting, setDeleting] = useState<AdminUserRow | null>(null);
   const impersonationDisabled = useImpersonationDisabled();
+  const rivianActions = useRivianActions();
   const narrow = useNarrow();
   const shown = useMemo(() => filterUsers(rows, q, filter, now), [rows, q, filter, now]);
   const counts = useMemo(
@@ -110,7 +111,7 @@ export function AdminUsersTable({
                 </div>
               </dl>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} onDelete={setDeleting} />
+                <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} rivianActions={rivianActions} onDelete={setDeleting} />
               </div>
             </li>
           ))}
@@ -139,7 +140,7 @@ export function AdminUsersTable({
                   <td className="px-3 py-2"><PurgeCell u={u} now={now} /></td>
                   <td className="px-3 py-2">
                     <div className="ml-auto flex max-w-[200px] flex-wrap justify-end gap-1.5">
-                      <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} onDelete={setDeleting} />
+                      <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} rivianActions={rivianActions} onDelete={setDeleting} />
                     </div>
                   </td>
                 </tr>
@@ -259,12 +260,12 @@ function PurgeCell({ u, now }: { u: AdminUserRow; now: number }) {
   );
 }
 
-function RowActions({ u, busy, adminCount, actions, impersonationDisabled, onDelete }: { u: AdminUserRow; busy: boolean; adminCount: number; actions: UserActions; impersonationDisabled: boolean; onDelete: (u: AdminUserRow) => void }) {
+function RowActions({ u, busy, adminCount, actions, impersonationDisabled, rivianActions, onDelete }: { u: AdminUserRow; busy: boolean; adminCount: number; actions: UserActions; impersonationDisabled: boolean; rivianActions: boolean; onDelete: (u: AdminUserRow) => void }) {
   const name = u.display_name || u.username;
   return (
     <>
-      <RowButton label={`Sync ${name}`} onClick={() => actions.sync(u)} disabled={busy}>Sync</RowButton>
-      <RowButton label={`Refresh Rivian session for ${name}`} onClick={() => actions.refresh(u)} disabled={busy}>Refresh</RowButton>
+      {rivianActions && <RowButton label={`Sync ${name}`} onClick={() => actions.sync(u)} disabled={busy}>Sync</RowButton>}
+      {rivianActions && <RowButton label={`Refresh Rivian session for ${name}`} onClick={() => actions.refresh(u)} disabled={busy}>Refresh</RowButton>}
       <RowButton label={`${u.disabled ? "Enable" : "Disable"} ${name}`} onClick={() => actions.toggleDisabled(u)} disabled={busy || (u.role === "admin" && !u.disabled && adminCount <= 1)}>
         {u.disabled ? "Enable" : "Disable"}
       </RowButton>

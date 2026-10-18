@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminFlagsState, type AdminUserRow, type SignupRequest } from "../lib/api";
-import { grafanaBaseURL, useImpersonationDisabled } from "../lib/config";
+import { grafanaBaseURL, useImpersonationDisabled, useRivianActions } from "../lib/config";
 import { startImpersonation } from "../lib/impersonation";
 import { formatDateTime } from "../lib/format";
 import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
@@ -926,6 +926,7 @@ function UserDetailPanel({
   onDelete: (confirmed?: boolean) => Promise<void>;
 }) {
   const nextUi = useUiNext();
+  const rivianActions = useRivianActions();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isSelf = row.id === currentUserID;
   const detail = useQuery({
@@ -1112,7 +1113,7 @@ function UserDetailPanel({
         ) : !d.vehicles || d.vehicles.length === 0 ? (
           <div className="text-sm text-neutral-500">
             No vehicles on file.
-            {row.rivian_connected && (
+            {row.rivian_connected && rivianActions && (
               <>
                 {" "}
                 Try <strong>Sync Rivian</strong> below.
@@ -1238,17 +1239,19 @@ function UserDetailPanel({
         >
           {row.disabled ? "Enable account" : "Disable account"}
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          title="Re-fetch this user's vehicles from Rivian"
-          onClick={onSyncRivian}
-          className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
-        >
-          Sync Rivian
-        </button>
+        {rivianActions && (
+          <button
+            type="button"
+            disabled={busy}
+            title="Re-fetch this user's vehicles from Rivian"
+            onClick={onSyncRivian}
+            className="rounded-md border border-cyan-900 bg-cyan-950/40 px-2 py-1 text-xs text-cyan-300 hover:border-cyan-800 hover:text-cyan-200 disabled:opacity-40"
+          >
+            Sync Rivian
+          </button>
+        )}
         <ViewAsButton row={row} />
-        {d?.needs_reauth && (
+        {rivianActions && d?.needs_reauth && (
           <button
             type="button"
             disabled={busy}
@@ -1259,6 +1262,7 @@ function UserDetailPanel({
             Refresh session
           </button>
         )}
+        {!rivianActions && <p data-rivian-actions-note className="basis-full text-xs text-neutral-400">Rivian actions run on rivolt.dev only</p>}
         <div className="ml-auto">
           <button
             type="button"
