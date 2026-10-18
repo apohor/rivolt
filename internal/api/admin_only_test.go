@@ -73,7 +73,7 @@ func newAccessRig(t *testing.T) *accessRig {
 		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &k.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
 	}))
 	t.Cleanup(jwks.Close)
-	v, err := cfaccess.New(cfaccess.Config{TeamDomain: rigTeam, Aud: rigAud, Emails: []string{rigEmail}, CertsURL: jwks.URL}, nil)
+	v, err := cfaccess.New(cfaccess.Config{TeamDomain: rigTeam, Aud: rigAud, Emails: []string{rigEmail}, ServiceTokens: []string{"qa.access"}, CertsURL: jwks.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,5 +271,25 @@ func TestAdminOnlyViewAs(t *testing.T) {
 	// The admin set is unaffected.
 	if code, _ := do(h, "GET", "/api/auth/me", admin.String(), ""); code != 200 {
 		t.Errorf("/api/auth/me = %d, want 200", code)
+	}
+}
+
+// A listed Access service token passes the outer door but is still just the
+// door: the admin routes then need a Rivolt admin session (401 without one).
+func TestAdminOnlyRouter_ServiceTokenOnlyPassesTheDoor(t *testing.T) {
+	a := newAccessRig(t)
+	svc := func(cn string) string {
+		sg, _ := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: a.key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "k1"))
+		s, _ := jwt.Signed(sg).Claims(struct {
+			jwt.Claims
+			CommonName string `json:"common_name"`
+		}{jwt.Claims{Issuer: "https://" + rigTeam, Audience: jwt.Audience{rigAud}, Expiry: jwt.NewNumericDate(time.Now().Add(time.Hour))}, cn}).Serialize()
+		return s
+	}
+	if got := a.get("/api/admin/users", svc("qa.access")); got != 401 {
+		t.Errorf("listed service token, no session = %d, want 401 (past the door, stopped by the session check)", got)
+	}
+	if got := a.get("/api/admin/users", svc("other.access")); got != 403 {
+		t.Errorf("unlisted service token = %d, want 403", got)
 	}
 }

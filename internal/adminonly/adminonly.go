@@ -18,6 +18,11 @@ func truthy(s string) bool { return strings.EqualFold(strings.TrimSpace(s), "tru
 // required must be set: they identify the Access app and who may pass it.
 var required = []string{"RIVOLT_ACCESS_TEAM_DOMAIN", "RIVOLT_ACCESS_AUD", "RIVOLT_ADMIN_EMAILS"}
 
+// Optional: RIVOLT_ACCESS_SERVICE_TOKENS, a comma list of Cloudflare Access
+// service-token client IDs allowed through the outer door without an email
+// (QA automation). Empty by default; prod never sets it. A service token still
+// needs a Rivolt admin session behind it.
+
 // forbidden are variables that belong to the public site or its workers.
 // Each switches on something the admin deployment must not do; setting one
 // means the wrong values file reached this release.

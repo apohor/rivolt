@@ -301,3 +301,82 @@ func TestKeysUnavailableDeniesWith503(t *testing.T) {
 		}
 	}
 }
+
+type svcClaims struct {
+	jwt.Claims
+	Email      string `json:"email,omitempty"`
+	CommonName string `json:"common_name,omitempty"`
+}
+
+func (f *fixture) signSvc(key *rsa.PrivateKey, mut func(*svcClaims)) string {
+	f.t.Helper()
+	c := svcClaims{Claims: f.good().Claims, CommonName: "abc123.access"}
+	if mut != nil {
+		mut(&c)
+	}
+	sg, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: key}, (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", f.kid))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	s, err := jwt.Signed(sg).Claims(c).Serialize()
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return s
+}
+
+func withTokens(t *testing.T, f *fixture, ids ...string) {
+	t.Helper()
+	v, err := New(Config{TeamDomain: team, Aud: aud, Emails: []string{who}, ServiceTokens: ids, CertsURL: f.srv.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.now = func() time.Time { return f.clock }
+	f.v = v
+}
+
+func TestServiceTokens(t *testing.T) {
+	f := newFixture(t)
+	withTokens(t, f, "abc123.access", " other.access ")
+	if got, err := f.v.Verify(t.Context(), f.signSvc(f.key, nil)); err != nil || got != "svc:abc123.access" {
+		t.Errorf("listed service token = %q, %v; want svc:abc123.access", got, err)
+	}
+	// Unlisted client id.
+	if got, err := f.v.Verify(t.Context(), f.signSvc(f.key, func(c *svcClaims) { c.CommonName = "intruder.access" })); err == nil {
+		t.Errorf("unlisted service token accepted as %q", got)
+	}
+	// Neither an email nor a common name.
+	if _, err := f.v.Verify(t.Context(), f.signSvc(f.key, func(c *svcClaims) { c.CommonName = "" })); err == nil {
+		t.Error("token with no identity accepted")
+	}
+	// Still fully verified: forged signer, expired, wrong aud, wrong issuer.
+	other, _ := rsa.GenerateKey(rand.Reader, 2048)
+	bad := map[string]string{
+		"forged":  f.signSvc(other, nil),
+		"expired": f.signSvc(f.key, func(c *svcClaims) { c.Expiry = jwt.NewNumericDate(f.clock.Add(-time.Hour)) }),
+		"aud":     f.signSvc(f.key, func(c *svcClaims) { c.Audience = jwt.Audience{"another"} }),
+		"issuer":  f.signSvc(f.key, func(c *svcClaims) { c.Issuer = "https://evil.cloudflareaccess.com" }),
+		"no exp":  f.signSvc(f.key, func(c *svcClaims) { c.Expiry = nil }),
+	}
+	for name, tok := range bad {
+		if got, err := f.v.Verify(t.Context(), tok); err == nil {
+			t.Errorf("%s service token accepted as %q", name, got)
+		}
+	}
+	// A token that names an email goes the email way only: a listed common
+	// name does not rescue a disallowed email.
+	if got, err := f.v.Verify(t.Context(), f.signSvc(f.key, func(c *svcClaims) { c.Email = "intruder@example.com" })); err == nil {
+		t.Errorf("disallowed email rescued by a listed common_name: %q", got)
+	}
+	// Users still work.
+	if got, err := f.v.Verify(t.Context(), f.sign(f.key, f.kid, f.good())); err != nil || got != who {
+		t.Errorf("user token = %q, %v", got, err)
+	}
+}
+
+func TestServiceTokensEmptyByDefault(t *testing.T) {
+	f := newFixture(t) // no ServiceTokens configured
+	if got, err := f.v.Verify(t.Context(), f.signSvc(f.key, nil)); err == nil {
+		t.Errorf("emailless token accepted with no service tokens configured: %q", got)
+	}
+}

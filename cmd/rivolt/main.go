@@ -241,12 +241,17 @@ func runServer() {
 			TeamDomain: os.Getenv("RIVOLT_ACCESS_TEAM_DOMAIN"),
 			Aud:        os.Getenv("RIVOLT_ACCESS_AUD"),
 			Emails:     cfaccess.ParseEmails(os.Getenv("RIVOLT_ADMIN_EMAILS")),
+			// Optional, for automation (QA on preview). Never set on prod.
+			ServiceTokens: cfaccess.ParseList(os.Getenv("RIVOLT_ACCESS_SERVICE_TOKENS")),
 		}, logger)
 		if err != nil {
 			logger.Error("RIVOLT_ADMIN_ONLY: cloudflare access config", "err", err.Error())
 			os.Exit(1)
 		}
 		accessVerifier = v
+		if st := cfaccess.ParseList(os.Getenv("RIVOLT_ACCESS_SERVICE_TOKENS")); len(st) > 0 {
+			logger.Warn("admin-only: Access service tokens are accepted at the outer door (automation); prod must not set this", "tokens", len(st))
+		}
 		logger.Info("admin-only: serving the admin surface behind Cloudflare Access; background work is off")
 	}
 
