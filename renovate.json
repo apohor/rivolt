@@ -3,6 +3,7 @@
   "extends": [
     "config:recommended",
     ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests",
     ":semanticCommits",
     ":timezone(America/Toronto)"
   ],
