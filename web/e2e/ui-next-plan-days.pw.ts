@@ -102,6 +102,11 @@ for (const v of [
     await expect(nights).toHaveCount(2);
     await expect(nights.first()).toContainText("Overnight at Des Moines");
     await expect(nights.first()).toContainText("adds about 52 kWh");
+    // The charger chips stay whole words on a phone: one line each, "Hotels with Level 2" included.
+    await expect(page.locator("[data-map-chips]").first()).toBeVisible();
+    const chips = await page.locator("[data-map-chips] button").all();
+    expect(chips.length).toBeGreaterThanOrEqual(4);
+    for (const chip of chips) expect((await chip.boundingBox())!.height).toBeLessThan(30);
     // Every day is on the page, not just the last one.
     await expect(page.locator("[data-day-card]")).toHaveCount(3);
     // Each day shows its own date.

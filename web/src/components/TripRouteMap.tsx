@@ -413,13 +413,13 @@ export function TripRouteMap({
 
   return (
     <div className={fill ? "relative h-full" : undefined}>
-      <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined}>
-        <span className="text-xs text-neutral-500 mr-1">Chargers:</span>
+      <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+        <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
         {(["dcfc", "l2", "hotels", "all"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setChargerFilter(f)}
-            className={`px-2 py-0.5 text-xs rounded transition-colors ${
+            className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${
               chargerFilter === f
                 ? "bg-cyan-800 text-cyan-100"
                 : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
@@ -428,11 +428,17 @@ export function TripRouteMap({
             {filterLabels[f]}
           </button>
         ))}
-        <span className="text-xs text-neutral-500 ml-1">
-          {chargersLoading ? "…" : chargerCount != null ? `${chargerCount} found` : ""}
-        </span>
+        {!chargersLoading && chargerCount === 0 ? (
+          <span className="basis-full text-xs text-neutral-400">
+            No chargers in this area at this zoom. Zoom out or move the map.
+          </span>
+        ) : (
+          <span className="whitespace-nowrap text-xs text-neutral-500 ml-1">
+            {chargersLoading ? "…" : chargerCount != null ? `${chargerCount} found` : ""}
+          </span>
+        )}
         {chargerFilter === "all" && (
-          <span className="text-xs text-neutral-600 ml-1">
+          <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
             <span style={{ color: "#06b6d4" }}>●</span> DCFC &nbsp;
             <span style={{ color: "#a3e635" }}>●</span> L2 &nbsp;
             <span style={{ color: "#a78bfa" }}>●</span> Hotel L2
