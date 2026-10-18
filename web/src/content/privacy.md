@@ -16,7 +16,6 @@ Last updated: October 18, 2026
 - **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
-- **Admin actions on your account:** when the operator changes your account (its role, disabling or deleting it, or a Rivian sync or session refresh), or views it as you, we log your account ID, the action and the time, and keep that for 2 years.
 
 **Who we share it with.** Only these, and only for the service:
 - **Your sign-in provider (Google or GitHub)**, if you use it to sign in to Rivolt.
@@ -33,7 +32,7 @@ We run our own servers in the United States, and database backups go to storage 
 - If you connect a vehicle, we keep your history until you delete it.
 - If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90, and never delete less than 30 days after that warning. This starts only after this policy is published.
 - In Settings you can export your data, delete your history, or delete your whole account. Signing Rivolt out of Rivian deletes the stored Rivian session; you can also revoke access in the Rivian app.
-- After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days.
+- After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days. Records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security, including after you delete your account.
 
 **Security.** Your Rivian session is encrypted, every user's data is kept separate, and the code is open source. No system is perfectly secure. If a breach affects your data, we will email you without undue delay, and within 30 days of confirming it.
 
