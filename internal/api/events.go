@@ -264,7 +264,7 @@ const firstDataAnonID = "server-first-data"
 // account's first vehicle row (capped to the allowed property range) and
 // no other data. Called after a drive or charge closes; it does nothing when
 // events are off, when the account already has the event, or when the account
-// already has more than two drives and charges (an account that long predates
+// already has more than two drives and charges, or none yet (an account that long predates
 // the event, and would only add noise to the count).
 func EmitFirstData(ctx context.Context, d *sql.DB, uid uuid.UUID) {
 	if d == nil || !eventsEnabled() {
@@ -276,7 +276,7 @@ func EmitFirstData(ctx context.Context, d *sql.DB, uid uuid.UUID) {
 		       jsonb_build_object('seconds_since_connect', LEAST(1000000, GREATEST(0, COALESCE(
 		           (SELECT EXTRACT(EPOCH FROM now() - MIN(v.created_at))::int FROM vehicles v WHERE v.user_id = $1), 0))))
 		 WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.user_id = $1 AND e.name = 'first_data')
-		   AND (SELECT count(*) FROM drives WHERE user_id = $1) + (SELECT count(*) FROM charges WHERE user_id = $1) <= 2`,
+		   AND (SELECT count(*) FROM drives WHERE user_id = $1) + (SELECT count(*) FROM charges WHERE user_id = $1) BETWEEN 1 AND 2`,
 		uid, firstDataAnonID)
 	if err != nil {
 		slog.Warn("first_data event failed", "err", err)
