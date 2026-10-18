@@ -86,7 +86,7 @@ test("1280: the list opens a user from the name link or anywhere on the row, and
   await expect(onPage(page, "u3")).toContainText("Rivian rejected the stored session");
   await page.goBack();
   await expect(page).toHaveURL(/\/admin\/users$/);
-  await page.locator("[data-user-row=u2]").locator("td").nth(3).click(); // a plain cell
+  await page.locator("[data-user-row=u2]").locator("[data-col=rivian]").click(); // a plain cell
   await expect(page).toHaveURL(/\/admin\/users\/u2$/);
   await expect(onPage(page, "u2")).toBeVisible();
   await page.getByRole("link", { name: "← All users" }).click();
@@ -98,8 +98,8 @@ test("390: tapping a card opens the user page; Back returns", async ({ browser }
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true });
   const page = await ctx.newPage();
   await open(page, "/admin/users");
-  await expect(page.locator("[data-admin-users-cards]")).toBeVisible();
-  await page.locator("[data-user-row=u4]").locator("dl").tap();
+  await expect(page.locator("[data-users-head]")).toBeHidden(); // stacked rows on a phone
+  await page.locator("[data-user-row=u4]").locator("[data-col=rivian]").tap();
   await expect(page).toHaveURL(/\/admin\/users\/u4$/);
   await expect(onPage(page, "u4").locator("[data-purge]")).toContainText("Purged in 15 days");
   await expect(onPage(page, "u4").locator("[data-purge]")).toContainText("A warning email was sent.");

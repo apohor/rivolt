@@ -60,12 +60,17 @@ for (const theme of ["dark", "light"] as const) {
       await expect(rowOf(page, "u5").locator("[data-col=purge]")).toContainText("warned");
       await expect(rowOf(page, "u1").locator("[data-col=purge]")).toHaveText("—");
       await expect(rowOf(page, "u1").locator("[data-col=receipts]")).toHaveText("Receipts on");
-      // The page itself never scrolls sideways. A phone gets stacked cards with every action inside
-      // the screen; a desktop gets the table.
+      // The page itself never scrolls sideways. One list tree for every width: stacked rows with every
+      // action inside the screen on a phone, cells lined up under a header on a desktop.
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
       if (w === 390) {
-        await expect(page.locator("[data-admin-users-cards]")).toBeVisible();
-        await expect(page.locator("[data-admin-users] table")).toHaveCount(0);
+        await expect(page.locator("[data-users-head]")).toBeHidden();
+        // Stacked: the actions sit below the status cells, not beside them.
+        const [stat, acts] = await Promise.all([
+          rowOf(page, "u2").locator("[data-col=rivian]").boundingBox(),
+          rowOf(page, "u2").getByRole("button", { name: "Delete quiet@example.com" }).boundingBox(),
+        ]);
+        expect(acts!.y).toBeGreaterThan(stat!.y + stat!.height);
         for (const b of await rowOf(page, "u2").getByRole("button").all()) {
           const box = (await b.boundingBox())!;
           expect(box.x).toBeGreaterThanOrEqual(0);
@@ -74,7 +79,19 @@ for (const theme of ["dark", "light"] as const) {
         await expect(rowOf(page, "u2").getByRole("button", { name: "Delete quiet@example.com" })).toBeVisible();
         await expect(rowOf(page, "u3").getByRole("button", { name: /^Refresh Rivian session/ })).toBeVisible();
       } else {
-        await expect(page.locator("[data-admin-users] table")).toBeVisible();
+        await expect(page.locator("[data-users-head]")).toBeVisible();
+        // Lined up: the status cells of a row share a top edge, and the header sits above them.
+        const [a, b, c, head] = await Promise.all([
+          rowOf(page, "u2").locator("[data-col=rivian]").boundingBox(),
+          rowOf(page, "u2").locator("[data-col=last-data]").boundingBox(),
+          rowOf(page, "u2").locator("[data-col=purge]").boundingBox(),
+          page.locator("[data-users-head]").boundingBox(),
+        ]);
+        expect(Math.abs(a!.y - b!.y)).toBeLessThan(2);
+        expect(Math.abs(a!.y - c!.y)).toBeLessThan(2);
+        expect(a!.x).toBeLessThan(b!.x);
+        expect(b!.x).toBeLessThan(c!.x);
+        expect(head!.y).toBeLessThan(a!.y);
       }
       const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);

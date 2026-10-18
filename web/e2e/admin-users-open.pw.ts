@@ -34,7 +34,7 @@ test("1280: clicking anywhere on a row opens that user's page; Back returns", as
   const page = await ctx.newPage();
   await open(page);
   // A plain cell, not the name link.
-  await page.locator("[data-user-row=u12]").locator("td").nth(3).click();
+  await page.locator("[data-user-row=u12]").locator("[data-col=rivian]").click();
   await expect(page).toHaveURL(/\/admin\/users\/u12$/);
   await expect(userPage(page, "u12")).toContainText("user12@example.com");
   await page.goBack();
@@ -50,9 +50,9 @@ test("390: tapping a card opens that user's page", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true });
   const page = await ctx.newPage();
   await open(page);
-  await expect(page.locator("[data-admin-users-cards]")).toBeVisible();
+  await expect(page.locator("[data-users-head]")).toBeHidden(); // stacked rows on a phone
   // The body of the card, not a button.
-  await page.locator("[data-user-row=u11]").locator("dl").tap();
+  await page.locator("[data-user-row=u11]").locator("[data-col=rivian]").tap();
   await expect(page).toHaveURL(/\/admin\/users\/u11$/);
   await expect(userPage(page, "u11")).toBeVisible();
   await page.goBack();
