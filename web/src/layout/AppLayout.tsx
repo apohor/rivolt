@@ -5,11 +5,13 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
-import { useTripPlannerEnabled } from "../lib/config";
+import { useAdminOnly, useTripPlannerEnabled } from "../lib/config";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import { useImpersonationTarget } from "../lib/impersonation";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
+import { AdminOnlyShell } from "./AdminOnlyShell";
+import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
 import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
@@ -104,7 +106,7 @@ function StatusPill() {
 }
 
 
-export default function AppLayout() {
+function UserLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const me = useQuery({
@@ -248,3 +250,14 @@ export default function AppLayout() {
   );
 }
 
+
+// The layout of the routes: on the admin site (features.admin_only) the admin-only shell, which
+// never mounts anything that fetches user data; everywhere else the usual layout. While an admin
+// is viewing as a user the user pages render as they do on rivolt.dev.
+export default function AppLayout() {
+  const adminOnly = useAdminOnly();
+  const impersonating = useImpersonationTarget();
+  if (adminOnly.loading) return <div className="p-4"><Spinner /></div>;
+  if (adminOnly.only && !impersonating) return <AdminOnlyShell />;
+  return <UserLayout />;
+}

@@ -9,7 +9,7 @@ import { TermsGate } from "./components/TermsGate";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
-import { useDemoOnly, useTripPlannerEnabled } from "./lib/config";
+import { useAdminOnly, useDemoOnly, useTripPlannerEnabled } from "./lib/config";
 import { useMoneyTabEnabled } from "./lib/ledger";
 import { pageLoaders } from "./lib/pageLoaders";
 
@@ -42,6 +42,11 @@ const NotFoundPage = lazy(pageLoaders.notFound);
 const LandingPage = lazy(pageLoaders.landing);
 const DemoIndex = lazy(pageLoaders.demo);
 const DemoLayout = lazy(() => import("./layout/DemoLayout"));
+
+// Paths the admin site serves: the admin page, sign-in and the OIDC hand-off.
+export function adminSitePath(p: string): boolean {
+  return p === "/admin" || p.startsWith("/admin/") || p === "/login" || p.startsWith("/auth/");
+}
 
 // TripPlanGuard renders the planner page only when the feature
 // flag is on. When off it falls through to the 404 — same surface
@@ -77,6 +82,7 @@ export default function App() {
   // The standalone demo deployment (features.demo_only): everything outside
   // /demo (landing, login, signup, onboarding, the app routes) goes to /demo.
   const demoOnly = useDemoOnly();
+  const adminOnly = useAdminOnly();
   // Signed-out visitors at "/" see the landing page when the install
   // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
   const landing = useLandingGate(demoOnly.only ? "/demo" : location.pathname);
@@ -93,7 +99,10 @@ export default function App() {
   const gate = !impersonating && termsGateActive(me.data, location.pathname);
   // The Rivian connect step must not show before the gate has had its say.
   const meLoading = location.pathname.startsWith("/onboarding") && me.isPending && me.fetchStatus !== "idle";
-  if (demoOnly.loading || landing === "loading" || meLoading) return <div className="p-4"><Spinner /></div>;
+  if (demoOnly.loading || adminOnly.loading || landing === "loading" || meLoading) return <div className="p-4"><Spinner /></div>;
+  // The admin site serves the admin page and sign-in only; everything else goes to /admin. While an
+  // admin is viewing as a user the user pages render as on rivolt.dev.
+  if (adminOnly.only && !impersonating && !adminSitePath(location.pathname)) return <Navigate to="/admin" replace />;
   if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy" && location.pathname !== "/terms") return <Navigate to="/demo" replace />;
   if (gate && me.data?.terms) return <TermsGate terms={me.data.terms} />;
   if (landing === "landing") {
