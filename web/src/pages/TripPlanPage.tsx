@@ -12,7 +12,7 @@ import { appPath, inDemo } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
 import { useMoneyTabEnabled } from "../lib/ledger";
-import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedTrip, type TripPlan } from "../lib/api";
+import { backend, isSavedMultiday, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
@@ -760,11 +760,13 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     setErr(null);
     try {
       const fetched = await backend.demoTripPlan(p.id);
-      // The preset's geometry rides on the route unless the plan carries its own.
+      // The preset's geometry rides on the route unless the plan carries its own. A multi-day preset
+      // is a saved multi-day plan: each day carries its own routes.
       const geometry = p.route_polyline;
-      const plan: TripPlan = geometry
-        ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
-        : fetched;
+      const plan: TripPlan | SavedMultidayPlan =
+        geometry && !isSavedMultiday(fetched)
+          ? { ...fetched, Routes: fetched.Routes.map((r, i) => (i === 0 && !r.route_polyline ? { ...r, route_polyline: geometry } : r)) }
+          : fetched;
       const now = new Date().toISOString();
       onOpen({ id: p.saved_trip_id ?? p.id, name: p.name, inputs: p.inputs, plan, created_at: now, updated_at: now });
     } catch (e) {

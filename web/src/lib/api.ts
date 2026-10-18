@@ -1524,7 +1524,7 @@ export const backend = {
   demoTrips: () => api.get<{ trips: DemoTripPreset[] }>("/api/demo/trips"),
   // Release notes (public): the hand-written notes of each release, newest first.
   changelog: () => api.get<{ releases: ChangelogRelease[] }>("/api/changelog"),
-  demoTripPlan: (id: string) => api.get<TripPlan>(`/api/demo/trips/${encodeURIComponent(id)}/plan`),
+  demoTripPlan: (id: string) => api.get<TripPlan | SavedMultidayPlan>(`/api/demo/trips/${encodeURIComponent(id)}/plan`),
   plannerFavoritesGet: async (): Promise<PlannerFavorite[]> =>
     inDemo() ? [] : api.get<PlannerFavorite[]>("/api/settings/planner/favorites"),
   plannerFavoritesPut: async (list: PlannerFavorite[]): Promise<PlannerFavorite[]> =>
