@@ -2213,9 +2213,13 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		// Interior cabin temp (field 3, °C) — field 3 = 26.0 matched
 		// vehicleState inside_temp_c. Applied to CabinTempC.
 		temp, ok := decodeCabinTemp(f.Payload)
+		// Field 2 is the exterior temperature in the app's schema. Logged, never
+		// applied: vehicle_state.outside_temp_c is 0 on every row, and a wrong
+		// value would reach the recaps that use it.
+		out, outOK := decodeCabinOutside(f.Payload)
 		m.logger.Info("parallax drive-dynamics shadow",
 			"vehicle", vehicleID, "topic", "cabin_temp",
-			"px_c", temp, "px_ok", ok, "ts_ms", f.TimestampMs)
+			"px_c", temp, "px_ok", ok, "px_outside_c", out, "px_outside_ok", outOK, "ts_ms", f.TimestampMs)
 		if m.parallaxDriveDynamics && ok && temp > -50 && temp < 80 {
 			m.mu.Lock()
 			if base := m.cache[vehicleID]; base != nil && base.CabinTempC != temp {
