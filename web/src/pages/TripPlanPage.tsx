@@ -30,7 +30,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // Phones: when a plan arrives, bring the map up under the top bar so it fills the
   // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
@@ -364,10 +364,21 @@ export default function TripPlanPage() {
         <PlanError error={planMutation.error ?? multidayMutation.error} />
       )}
 
-      {multidayMutation.data && (
-        <div data-plan-wide>
+      {multiday && (
+        <div data-plan-wide className="space-y-3">
+          {multidaySnapshot && !(nextUi && inDemo()) && (
+            <SnapshotBanner
+              name={multidaySnapshot.name}
+              updatedAt={multidaySnapshot.updatedAt}
+              onReplan={() => {
+                setMultidaySnapshot(null);
+                multidayMutation.mutate();
+              }}
+              replanPending={multidayMutation.isPending}
+            />
+          )}
           <MultidayResult
-            response={multidayMutation.data}
+            response={multiday}
             originLabel={origin?.label ?? ""}
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
@@ -379,7 +390,7 @@ export default function TripPlanPage() {
       {(() => {
         // Don't render the single-day card if the user just produced
         // a multi-day plan — the form's current state is multi-day.
-        if (multidayMutation.data) return null;
+        if (multiday) return null;
         const displayPlan = loadedSnapshot?.plan ?? planMutation.data;
         const displayAdvice = loadedSnapshot?.advice ?? adviceMutation.data;
         if (!displayPlan) return null;
@@ -599,7 +610,7 @@ export default function TripPlanPage() {
         <PlanTabPanel tab="planner" active={planTab === "planner"}>
           {/* One selected stop for the whole result: the itinerary, the map and
               anything that follows the selection. A new plan clears it. */}
-          <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multidayMutation.data ?? null}>
+          <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
           <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
             {formEl}
             {resultEl}

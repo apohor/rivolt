@@ -219,3 +219,48 @@ test("a long day suggests hotels with a listed charger; Use makes one the night 
   await expect(nights.nth(0).getByLabel("Charger at the stop")).toHaveValue("7");
   await ctx.close();
 });
+
+test("a saved multi-day trip keeps its days and reopens with no planner call", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Chicago" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page);
+  let saved: { plan?: { kind?: string; request?: { tz?: string; days?: unknown[] }; days?: unknown[]; total?: unknown } } | null = null;
+  await page.route("**/api/trips/saved/st-days", (r) => {
+    saved = r.request().postDataJSON();
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: "st-days", name: "Chicago to Denver", inputs: SAVED_INPUTS, plan: saved?.plan, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-18T00:00:00Z" }) });
+  });
+  await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" });
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+  await expect.poll(() => saved?.plan?.kind).toBe("multiday");
+  // The planner's answer is stored as it was, with the request that produced it.
+  expect(saved!.plan!.days).toHaveLength(3);
+  expect(saved!.plan!.total).toMatchObject({ distance_meters: TOTAL.distance_meters });
+  expect(saved!.plan!.request?.tz).toBe("America/Chicago");
+  expect(saved!.plan!.request?.days).toHaveLength(3);
+
+  // Reopen it fresh: the days come from the snapshot and the planner is not called.
+  const page2 = await ctx.newPage();
+  await page2.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page2);
+  let planCalls = 0;
+  await page2.route("**/api/trips/plan-multiday", (r) => {
+    planCalls++;
+    return r.abort();
+  });
+  await page2.route("**/api/trips/saved", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: "st-days", name: "Chicago to Denver", inputs: SAVED_INPUTS, plan: saved!.plan, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-18T00:00:00Z" }]) }),
+  );
+  await page2.goto("/trips/plan");
+  await page2.getByRole("tab", { name: "Saved" }).click();
+  await page2.getByRole("button", { name: /Chicago to Denver/ }).click();
+  await page2.getByRole("tab", { name: "Planner" }).click();
+  await expect(page2.locator("[data-day-card]")).toHaveCount(3);
+  await expect(page2.locator("[data-overnight-row]")).toHaveCount(2);
+  await expect(page2.getByText("Simulated", { exact: true })).toBeVisible();
+  expect(planCalls).toBe(0);
+  await page2.waitForTimeout(800);
+  await page2.screenshot({ path: path.join(SHOTS, "days-reopened-desktop-dark.png"), fullPage: true });
+  await ctx.close();
+});

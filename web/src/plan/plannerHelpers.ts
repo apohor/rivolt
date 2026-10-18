@@ -1,4 +1,4 @@
-import { ApiError, type SavedTripInputs } from "../lib/api";
+import { ApiError, type SavedTripInputs, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { routePrefsWire, type RoutePrefs } from "./routePrefs";
 
 // Selection is what the form actually plans against. lat/lon are
@@ -175,4 +175,17 @@ export function planErrorCopy(err: unknown): { title: string; detail: string } {
     title: "Rivian's planner isn't answering right now.",
     detail: "Nothing is wrong with your trip. Try again in a few minutes.",
   };
+}
+
+// totalsOf sums a multi-day trip's days, for a saved trip that did not keep the planner's totals.
+export function totalsOf(days: TripPlanMultidayDay[]): TripPlanMultidayResponse["total"] {
+  const sum = { distance_meters: 0, drive_duration_sec: 0, charging_duration_sec: 0 };
+  for (const d of days) {
+    const r = d.plan.Routes?.[0];
+    if (!r) continue;
+    sum.distance_meters += r.TotalDriveDistanceMeters;
+    sum.drive_duration_sec += r.TotalDriveDurationSec;
+    sum.charging_duration_sec += r.TotalChargingDurationSec;
+  }
+  return sum;
 }
