@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/apohor/rivolt/internal/cfaccess"
 	"regexp"
 	"sort"
 	"time"
@@ -31,18 +32,19 @@ type Entry struct {
 
 // Row is a stored entry, as the listing returns it.
 type Row struct {
-	ID         int64          `json:"id"`
-	At         time.Time      `json:"at"`
-	Actor      uuid.UUID      `json:"actor_user_id"`
-	Action     string         `json:"action"`
-	TargetType string         `json:"target_type"`
-	TargetID   string         `json:"target_id"`
-	TargetUser *uuid.UUID     `json:"target_user_id,omitempty"`
-	Details    map[string]any `json:"details"`
-	IP         string         `json:"ip"`
-	Outcome    *string        `json:"outcome"` // nil: in flight or unknown
-	Status     *int           `json:"status,omitempty"`
-	FinishedAt *time.Time     `json:"finished_at,omitempty"`
+	ID          int64          `json:"id"`
+	At          time.Time      `json:"at"`
+	Actor       uuid.UUID      `json:"actor_user_id"`
+	Action      string         `json:"action"`
+	TargetType  string         `json:"target_type"`
+	TargetID    string         `json:"target_id"`
+	TargetUser  *uuid.UUID     `json:"target_user_id,omitempty"`
+	Details     map[string]any `json:"details"`
+	IP          string         `json:"ip"`
+	AccessEmail string         `json:"access_email,omitempty"`
+	Outcome     *string        `json:"outcome"` // nil: in flight or unknown
+	Status      *int           `json:"status,omitempty"`
+	FinishedAt  *time.Time     `json:"finished_at,omitempty"`
 }
 
 // Store is the Postgres side.
@@ -106,9 +108,9 @@ func (s *Store) Begin(ctx context.Context, e Entry) (int64, error) {
 	}
 	var id int64
 	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO admin_audit (actor_user_id, action, target_type, target_id, target_user_id, details, ip)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7) RETURNING id`,
-		e.Actor, e.Action, e.TargetType, e.TargetID, target, string(raw), e.IP).Scan(&id)
+		INSERT INTO admin_audit (actor_user_id, action, target_type, target_id, target_user_id, details, ip, access_email)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8) RETURNING id`,
+		e.Actor, e.Action, e.TargetType, e.TargetID, target, string(raw), e.IP, cfaccess.Email(ctx)).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("adminaudit: begin: %w", err)
 	}
@@ -132,8 +134,8 @@ func (s *Store) Finish(ctx context.Context, id int64, status int) error {
 // target logs a fresh start, so a stop is never left without its start.
 func (s *Store) NoteImpersonationStart(ctx context.Context, admin, target uuid.UUID, ip string, window time.Duration) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO admin_audit (actor_user_id, action, target_type, target_id, target_user_id, ip, outcome, status, finished_at)
-		SELECT $1::uuid, 'impersonation.start', 'user', ($2::uuid)::text, $2::uuid, $3::text, 'ok', 200, now()
+		INSERT INTO admin_audit (actor_user_id, action, target_type, target_id, target_user_id, ip, access_email, outcome, status, finished_at)
+		SELECT $1::uuid, 'impersonation.start', 'user', ($2::uuid)::text, $2::uuid, $3::text, $5::text, 'ok', 200, now()
 		 WHERE NOT EXISTS (
 		       SELECT 1 FROM admin_audit s
 		        WHERE s.actor_user_id = $1::uuid AND s.target_user_id = $2::uuid AND s.action = 'impersonation.start'
@@ -142,7 +144,7 @@ func (s *Store) NoteImpersonationStart(ctx context.Context, admin, target uuid.U
 		              SELECT 1 FROM admin_audit e
 		               WHERE e.actor_user_id = s.actor_user_id AND e.target_user_id = s.target_user_id
 		                 AND e.action = 'impersonation.stop' AND e.outcome = 'ok' AND e.at > s.at))`,
-		admin, target, ip, fmt.Sprintf("%d seconds", int(window.Seconds())))
+		admin, target, ip, fmt.Sprintf("%d seconds", int(window.Seconds())), cfaccess.Email(ctx))
 	return err
 }
 
@@ -179,7 +181,7 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Row, int64, error) {
 		add("target_user_id = $%d", f.TargetUser)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, at, actor_user_id, action, target_type, target_id, target_user_id, details, ip, outcome, status, finished_at
+		SELECT id, at, actor_user_id, action, target_type, target_id, target_user_id, details, ip, access_email, outcome, status, finished_at
 		  FROM admin_audit WHERE `+where+` ORDER BY id DESC LIMIT $1`, args...)
 	if err != nil {
 		return nil, 0, err
@@ -193,7 +195,7 @@ func (s *Store) List(ctx context.Context, f Filter) ([]Row, int64, error) {
 		var outcome sql.NullString
 		var status sql.NullInt32
 		var fin sql.NullTime
-		if err := rows.Scan(&r.ID, &r.At, &r.Actor, &r.Action, &r.TargetType, &r.TargetID, &target, &details, &r.IP, &outcome, &status, &fin); err != nil {
+		if err := rows.Scan(&r.ID, &r.At, &r.Actor, &r.Action, &r.TargetType, &r.TargetID, &target, &details, &r.IP, &r.AccessEmail, &outcome, &status, &fin); err != nil {
 			return nil, 0, err
 		}
 		if target.Valid {

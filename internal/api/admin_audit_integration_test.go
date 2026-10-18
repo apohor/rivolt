@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/db"
 )
 
@@ -173,6 +174,25 @@ func TestAdminAuditEndToEnd(t *testing.T) {
 	}
 	if starts, _, _ := store.List(ctx, adminaudit.Filter{Action: "impersonation.start", TargetUser: target}); len(starts) != 2 {
 		t.Errorf("start, stop, start: %d start rows for the target, want 2", len(starts))
+	}
+
+	// The verified Cloudflare Access email lands in access_email, on writes
+	// and on impersonation starts; without Access it stays empty.
+	actx := cfaccess.WithEmail(ctx, "owner@example.com")
+	aid, err := store.Begin(actx, adminaudit.Entry{Actor: admin, Action: "flag.kill_switch", TargetType: "flag", TargetID: "kill_switch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Finish(actx, aid, 200)
+	third := uuid.New()
+	if err := store.NoteImpersonationStart(actx, admin, third, "203.0.113.77", 30*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	var viaAccess, plain int
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM admin_audit WHERE access_email = 'owner@example.com'`).Scan(&viaAccess)
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM admin_audit WHERE access_email = '' AND action = 'impersonation.start'`).Scan(&plain)
+	if viaAccess != 2 || plain < 1 {
+		t.Errorf("access_email rows = %d (want 2: the write and the start), empty-email starts = %d (want >= 1)", viaAccess, plain)
 	}
 
 	// Fail closed: a store that cannot write refuses the change and runs nothing.

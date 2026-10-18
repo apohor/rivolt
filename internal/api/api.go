@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/clientip"
@@ -115,6 +116,11 @@ type Deps struct {
 	// the SPA hides the link, and impersonation is off. Off by default;
 	// for the split to admin.rivolt.dev (scratchpad admin-split.md).
 	AdminDisabled bool
+	// AdminOnly is RIVOLT_ADMIN_ONLY: the admin deployment. Every request
+	// must carry a valid Cloudflare Access JWT (Access; nil denies all),
+	// and only the admin surface exists under /api.
+	AdminOnly bool
+	Access    *cfaccess.Verifier
 	// AdminDebugProbes mirrors $RIVOLT_ADMIN_DEBUG_PROBES: mounts the raw
 	// Rivian probes under /api/admin (trips/plan/raw, trips/plan/diag,
 	// gql/type, gql/enum, gql/raw), which send arbitrary queries to Rivian
@@ -293,6 +299,13 @@ func New(d Deps) http.Handler {
 		MaxAge: 300,
 	}))
 
+	// Admin deployment: Cloudflare Access first (403 without a valid JWT,
+	// before any route), then nothing but the admin surface under /api.
+	if d.AdminOnly {
+		r.Use(cfaccess.Middleware(d.Access, accessExempt, d.Logger))
+		r.Use(adminOnlyGateMW)
+	}
+
 	// Standalone public demo: nothing but the demo allowlist exists under
 	// /api, whoever asks. Runs before authentication.
 	if demo.OnlyEnabled() {
@@ -332,6 +345,11 @@ func New(d Deps) http.Handler {
 				}
 				return adminaudit.New(d.DB).NoteImpersonationStart(ctx, admin, target, ip, 30*time.Minute)
 			}))
+		if d.AdminOnly {
+			r.Use(adminOnlyViewAsMW)
+		}
+	} else if d.AdminOnly {
+		r.Use(adminOnlyViewAsMW) // no auth, so nothing can impersonate: user routes stay closed
 	}
 
 	// /metrics is deliberately NOT mounted on this router: the Ingress

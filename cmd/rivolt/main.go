@@ -28,10 +28,12 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/adminaudit"
+	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
@@ -222,6 +224,32 @@ func runServer() {
 		demoOnlyScrubEnv(logger)
 	}
 
+	// Admin deployment (RIVOLT_ADMIN_ONLY): same image, admin surface only,
+	// behind Cloudflare Access, no background work. Refuse a half-configured
+	// install, and build the Access verifier now so a bad team domain or an
+	// empty allowlist stops the boot.
+	adminOnlyMode := adminonly.Enabled(os.Getenv)
+	var accessVerifier *cfaccess.Verifier
+	if adminOnlyMode {
+		if problems := adminonly.Problems(os.Getenv); len(problems) > 0 {
+			for _, p := range problems {
+				logger.Error("RIVOLT_ADMIN_ONLY: " + p)
+			}
+			os.Exit(1)
+		}
+		v, err := cfaccess.New(cfaccess.Config{
+			TeamDomain: os.Getenv("RIVOLT_ACCESS_TEAM_DOMAIN"),
+			Aud:        os.Getenv("RIVOLT_ACCESS_AUD"),
+			Emails:     cfaccess.ParseEmails(os.Getenv("RIVOLT_ADMIN_EMAILS")),
+		}, logger)
+		if err != nil {
+			logger.Error("RIVOLT_ADMIN_ONLY: cloudflare access config", "err", err.Error())
+			os.Exit(1)
+		}
+		accessVerifier = v
+		logger.Info("admin-only: serving the admin surface behind Cloudflare Access; background work is off")
+	}
+
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
 	dataDir := flag.String("data-dir", envOr("DATA_DIR", "./data"), "directory for the SQLite database and caches")
 	vapidSubject := flag.String("vapid-subject", envOr("VAPID_SUBJECT", "mailto:rivolt@invalid"),
@@ -308,7 +336,7 @@ func runServer() {
 		// SELECT on an allowlist of non-secret tables. The role is
 		// created by CNPG on its own schedule, so re-apply after boot
 		// too; grants are idempotent and cheap. See internal/db/readonly.go.
-		if role := os.Getenv("RIVOLT_READONLY_ROLE"); role != "" {
+		if role := os.Getenv("RIVOLT_READONLY_ROLE"); role != "" && !adminOnlyMode {
 			go func() {
 				t := time.NewTicker(6 * time.Hour)
 				defer t.Stop()
@@ -709,7 +737,9 @@ func runServer() {
 	// Build the monitor registry. In live/mock modes the registry
 	// is the only thing that owns *StateMonitor instances. Stub
 	// mode skips it (no recorder, no WS).
-	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" {
+	// Not on the admin deployment: no monitors means no recorder, leases,
+	// receipts or OTA sync (all hang off the registry).
+	if accountRegistry != nil && os.Getenv("RIVIAN_CLIENT") != "stub" && !adminOnlyMode {
 		monitorRegistry = rivian.NewMonitorRegistry(
 			pgPool, accountRegistry,
 			drivesFactory, chargesFactory, samplesFactory, settingsFactory,
@@ -1063,7 +1093,7 @@ func runServer() {
 	// with "no partition of relation … found for row". Fire-
 	// and-forget goroutine; ctx cancellation stops it on
 	// SIGTERM.
-	if pgPool != nil {
+	if pgPool != nil && !adminOnlyMode {
 		partitionJanitor := samples.NewPartitionJanitor(pgPool)
 		go partitionJanitor.Run(ctx)
 	}
@@ -1072,7 +1102,7 @@ func runServer() {
 	// ticker, served from a snapshot on scrape. Reads only our own
 	// database, never Rivian, so it can't wake a car.
 	// RIVOLT_DRAIN_METRICS_INTERVAL=off disables it.
-	if pgPool != nil {
+	if pgPool != nil && !adminOnlyMode {
 		iv, on, ierr := drain.ParseInterval(os.Getenv("RIVOLT_DRAIN_METRICS_INTERVAL"))
 		if ierr != nil {
 			logger.Warn("drain metrics: bad RIVOLT_DRAIN_METRICS_INTERVAL, using default", "err", ierr.Error())
@@ -1090,7 +1120,7 @@ func runServer() {
 	// recorder hook. Idempotent (Upsert replaces on conflict);
 	// startup run primes the table, hourly run picks up new
 	// charges. Skips entirely when no DB is wired (dev mode).
-	if pgPool != nil {
+	if pgPool != nil && !adminOnlyMode {
 		ph := packhealth.NewStore(pgPool)
 		go func() {
 			run := func() {
@@ -1141,7 +1171,7 @@ func runServer() {
 	// onboardSigner is set once the cookie secret is known (below); the
 	// onboarding emails are not sent until then.
 	var onboardSigner atomic.Pointer[statement.Signer]
-	if pgPool != nil && mailer != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+	if pgPool != nil && mailer != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		nudgeBaseURL := os.Getenv("RIVOLT_BASE_URL")
 		const reauthNudgeCooldown = 7 * 24 * time.Hour
 		go func() {
@@ -1802,7 +1832,7 @@ func runServer() {
 	// inactive_account_purge flag says so ({"dry_run":true} counts only); the
 	// same RIVOLT_ENGAGEMENT_EMAILS=false opt-out as the nudge sweeps keeps a
 	// preview that shares a copy of real users from mailing or deleting them.
-	if pgPool != nil && flagsStore != nil && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
+	if pgPool != nil && flagsStore != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger)
 		go purge.Run(ctx)
 	}
@@ -1810,7 +1840,7 @@ func runServer() {
 	// Daily retention sweeps: expired sessions (IP and User-Agent) 30 days
 	// after expiry, and waitlist requests (never approved: 90 days;
 	// approved: until the account exists).
-	if pgPool != nil {
+	if pgPool != nil && !adminOnlyMode {
 		jobs := []retention.Job{
 			{Name: "admin_audit", Run: adminaudit.New(pgPool).Purge},
 			{Name: "sessions", Run: func(ctx context.Context) (int64, error) {
@@ -1854,6 +1884,8 @@ func runServer() {
 		AuthEnforced:          authEnforced,
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
+		AdminOnly:             adminOnlyMode,
+		Access:                accessVerifier,
 		AdminDebugProbes:      adminDebugProbes,
 		OIDC:                  oidcSvc,
 		WebFS:                 webFS,
