@@ -132,8 +132,16 @@ func TestRestoreErrorEventHidesInternals(t *testing.T) {
 	if st != 500 || strings.Contains(msg, "SQLSTATE") || strings.Contains(msg, "vehicle_state") || strings.Contains(msg, "d-1") || !strings.Contains(msg, "running it again is safe") {
 		t.Errorf("500 event = %d %q", st, msg)
 	}
-	if st, msg := restoreErrorEvent(fmt.Errorf("%w: unexpected EOF", errRestoreBadFile)); st != 400 || !strings.Contains(msg, "unexpected EOF") {
-		t.Errorf("bad-file event = %d %q", st, msg)
+	// Decoder text never reaches the client: damaged and not-a-backup files
+	// get fixed sentences.
+	for _, goText := range []string{"unexpected EOF", "invalid character 'h' in literal true (expecting 'r')", "json: cannot unmarshal string into Go value of type samples.Sample", "flate: corrupt input before offset 12"} {
+		st, msg := restoreErrorEvent(fmt.Errorf("%w: %s", errRestoreBadFile, goText))
+		if st != 400 || msg != msgDamaged || strings.Contains(msg, goText) {
+			t.Errorf("bad-file event for %q = %d %q", goText, st, msg)
+		}
+	}
+	if st, msg := restoreErrorEvent(errRestoreNotBackup); st != 400 || msg != msgNotBackup {
+		t.Errorf("not-a-backup event = %d %q", st, msg)
 	}
 	if st, _ := restoreErrorEvent(errRestoreTooBig); st != 413 {
 		t.Errorf("too-big status = %d", st)
