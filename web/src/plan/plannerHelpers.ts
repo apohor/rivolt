@@ -148,6 +148,10 @@ export function normalizeDriveMode(v: unknown): DriveMode {
 // of what to do, in plain words.
 export function planErrorCopy(err: unknown): { title: string; detail: string } {
   if (err instanceof ApiError) {
+    // The truck has not reported lately: the server's own sentence says what to do.
+    if (err.status === 409 && (err.body as { class?: string } | null)?.class === "no_position") {
+      return { title: err.message, detail: "" };
+    }
     if (err.status === 429) {
       const sec = (err.body as { retry_after_sec?: number } | null)?.retry_after_sec;
       const min = typeof sec === "number" && sec > 0 ? Math.max(1, Math.ceil(sec / 60)) : null;

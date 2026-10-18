@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
+import { type FromPosition, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { Card } from "../components/ui";
 import { RouteCard } from "./RouteCard";
 import { OvernightSuggestions } from "./OvernightSuggestions";
@@ -59,12 +59,15 @@ export function MultidayResult({
   destLabel,
   departureAt,
   onAddOvernight,
+  replan,
 }: {
   response: TripPlanMultidayResponse;
   originLabel: string;
   destLabel: string;
   departureAt?: string;
   onAddOvernight?: OvernightAdder;
+  // Set when the days from `fromDay` on were planned from the truck's position.
+  replan?: { fromDay: number; position: FromPosition; mid: boolean };
 }) {
   const totalMiles = response.total.distance_meters / 1609.344;
   const totalHrs = response.total.drive_duration_sec / 3600;
@@ -79,6 +82,12 @@ export function MultidayResult({
         <Stat label="Drive time" value={`${totalHrs.toFixed(1)} h`} />
         <Stat label="Charging" value={`${chargeMin} min`} />
       </dl>
+      {replan && (
+        <p data-replan-note className="mb-3 rounded-md border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 text-sm text-neutral-200">
+          Re-planned from day {replan.fromDay}: from your truck at {Math.round(replan.position.soc)}%, as of{" "}
+          {new Date(replan.position.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}. Your saved plan is unchanged until you update it.
+        </p>
+      )}
       {response.simulated && (
         <div className="mb-3">
           <span
@@ -106,7 +115,9 @@ export function MultidayResult({
           // Per-day origin label = previous day's overnight name, or
           // the trip origin on Day 1. Destination label = this day's
           // overnight name, or the trip destination on the last day.
-          const dayOrigin = i === 0
+          const dayOrigin = replan?.mid && d.index === replan.fromDay
+            ? "Your truck"
+            : i === 0
             ? (originLabel || "Origin")
             : (response.days[i - 1].overnight?.name || `Overnight ${i}`);
           const dayDest = d.overnight?.name
