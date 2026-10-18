@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { AdminUserRow } from "../lib/api";
-import { connection, filterUsers, lastData, noDataAlert, purge, type UserFilter } from "../lib/adminUsers";
-import { useImpersonationDisabled, useRivianActions } from "../lib/config";
-import { startImpersonation } from "../lib/impersonation";
-import { TypedConfirmDialog } from "./TypedConfirmDialog";
+import type { AdminUserRow } from "../../lib/api";
+import { connection, filterUsers, lastData, noDataAlert, purge, type UserFilter } from "../../lib/adminUsers";
+import { useImpersonationDisabled, useRivianActions } from "../../lib/config";
+import { startImpersonation } from "../../lib/impersonation";
+import { TypedConfirmDialog } from "../TypedConfirmDialog";
 
-// The admin Users table (new look): one dense row per user with the things an operator scans for:
+// The admin Users list: one dense row per user with the things an operator scans for:
 // is Rivian connected, when did data last arrive (red when a leased truck has gone quiet), when was
 // the user last seen, and the inactive-account purge countdown. Row actions sit in the row; delete
 // asks for the account's name to be typed first.
@@ -37,7 +37,7 @@ function ago(iso: string | null | undefined, now: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export function AdminUsersTable({
+export function UsersList({
   rows, onSelect, busyID, adminCount, actions, now = Date.now(),
 }: {
   rows: AdminUserRow[];
@@ -52,7 +52,6 @@ export function AdminUsersTable({
   const [deleting, setDeleting] = useState<AdminUserRow | null>(null);
   const impersonationDisabled = useImpersonationDisabled();
   const rivianActions = useRivianActions();
-  const narrow = useNarrow();
   const shown = useMemo(() => filterUsers(rows, q, filter, now), [rows, q, filter, now]);
   const counts = useMemo(
     () => Object.fromEntries(CHIPS.map((c) => [c.id, filterUsers(rows, "", c.id, now).length])) as Record<UserFilter, number>,
@@ -87,73 +86,40 @@ export function AdminUsersTable({
         </div>
       </div>
 
-      {narrow ? (
-        <ul data-admin-users-cards className="space-y-3">
+      <div className="@container rounded-md border border-neutral-800" data-users-list>
+        <div
+          data-users-head
+          aria-hidden
+          className={`hidden border-b border-neutral-800 px-3 py-2 text-xs text-neutral-400 @3xl:grid @3xl:gap-x-3 ${COLS}`}
+        >
+          <span>User</span>
+          <span>Rivian</span>
+          <span>Last data</span>
+          <span>Last seen</span>
+          <span>Purge</span>
+          <span className="text-right">Actions</span>
+        </div>
+        <ul className="divide-y divide-neutral-800">
           {shown.map((u) => (
-            <li key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className="cursor-pointer rounded-lg border border-neutral-800 p-3 hover:bg-neutral-900/50">
-              <UserBlock u={u} />
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <div>
-                  <dt className="text-xs text-neutral-400">Rivian</dt>
-                  <dd><RivianCell u={u} now={now} /></dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-neutral-400">Last data</dt>
-                  <dd><LastDataCell u={u} now={now} /></dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-neutral-400">Last seen</dt>
-                  <dd className="tabular-nums text-neutral-300">{ago(u.last_seen_at, now)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-neutral-400">Purge</dt>
-                  <dd><PurgeCell u={u} now={now} /></dd>
-                </div>
-              </dl>
-              <div className="mt-3 flex flex-wrap gap-1.5">
+            <li
+              key={u.id}
+              data-user-row={u.id}
+              onClick={opensUser(onSelect, u.id)}
+              className={`grid cursor-pointer grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 hover:bg-neutral-900/50 @3xl:items-start @3xl:gap-x-3 ${COLS}`}
+            >
+              <div className="col-span-2 min-w-0 @3xl:col-span-1"><UserBlock u={u} /></div>
+              <Cell label="Rivian"><RivianCell u={u} now={now} /></Cell>
+              <Cell label="Last data"><LastDataCell u={u} now={now} /></Cell>
+              <Cell label="Last seen"><span className="tabular-nums text-neutral-300" title={u.last_seen_at ?? ""}>{ago(u.last_seen_at, now)}</span></Cell>
+              <Cell label="Purge"><PurgeCell u={u} now={now} /></Cell>
+              <div className="col-span-2 flex flex-wrap gap-1.5 @3xl:col-span-1 @3xl:justify-end">
                 <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} rivianActions={rivianActions} onDelete={setDeleting} />
               </div>
             </li>
           ))}
           {shown.length === 0 && <li className="px-3 py-6 text-center text-sm text-neutral-400">No users match.</li>}
         </ul>
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-neutral-800">
-          <table className="w-full min-w-[780px] text-sm">
-            <thead className="text-left text-xs text-neutral-400">
-              <tr>
-                <th scope="col" className="px-3 py-2">User</th>
-                <th scope="col" className="px-3 py-2">Rivian</th>
-                <th scope="col" className="px-3 py-2">Last data</th>
-                <th scope="col" className="px-3 py-2">Last seen</th>
-                <th scope="col" className="px-3 py-2">Purge</th>
-                <th scope="col" className="px-3 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((u) => (
-                <tr key={u.id} data-user-row={u.id} onClick={opensUser(onSelect, u.id)} className="cursor-pointer border-t border-neutral-800 align-top hover:bg-neutral-900/50">
-                  <td className="px-3 py-2"><UserBlock u={u} /></td>
-                  <td className="px-3 py-2"><RivianCell u={u} now={now} /></td>
-                  <td className="px-3 py-2"><LastDataCell u={u} now={now} /></td>
-                  <td className="px-3 py-2 tabular-nums text-neutral-300" title={u.last_seen_at ?? ""}>{ago(u.last_seen_at, now)}</td>
-                  <td className="px-3 py-2"><PurgeCell u={u} now={now} /></td>
-                  <td className="px-3 py-2">
-                    <div className="ml-auto flex max-w-[200px] flex-wrap justify-end gap-1.5">
-                      <RowActions u={u} busy={busyID === u.id} adminCount={adminCount} actions={actions} impersonationDisabled={impersonationDisabled} rivianActions={rivianActions} onDelete={setDeleting} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {shown.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-neutral-400">No users match.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
 
       {deleting && (
         <TypedConfirmDialog
@@ -180,19 +146,20 @@ const opensUser = (onSelect: (id: string) => void, id: string) => (e: React.Mous
   onSelect(id);
 };
 
-// A phone gets stacked cards instead of a wide table (a table that scrolls sideways clips the actions).
-function useNarrow(maxPx = 767): boolean {
-  const q = `(max-width: ${maxPx}px)`;
-  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(q).matches);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const m = window.matchMedia(q);
-    const on = () => setNarrow(m.matches);
-    on();
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, [q]);
-  return narrow;
+// One tree for every width: a row is a grid. At phone width (the list's container under 48 rem) it
+// stacks as a card (name, then the status cells two across, then the actions); wider, the cells line up
+// under the header. Container queries, not the viewport, so it also fits a narrow column.
+const COLS = "@3xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,.8fr)_minmax(0,.8fr)_minmax(0,1.6fr)]";
+
+// A status cell. Its label shows when the row is stacked; wide, the header above names the column and
+// the label stays for screen readers.
+function Cell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0 text-sm">
+      <div className="text-xs text-neutral-400 @3xl:sr-only">{label}</div>
+      {children}
+    </div>
+  );
 }
 
 function UserBlock({ u }: { u: AdminUserRow }) {

@@ -6,7 +6,7 @@ import { formatDateTime } from "../lib/format";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { useUserActions } from "../components/admin/useUserActions";
 import UserPage from "./admin/UserPage";
-import { AdminUsersTable } from "../components/AdminUsersTable";
+import { UsersList } from "../components/admin/UsersList";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
@@ -524,7 +524,7 @@ function UsersPanel({ onOpen }: { onOpen: (id: string) => void }) {
   const adminCount = rows.filter((u) => u.role === "admin" && !u.disabled).length;
   return (
     <div className="space-y-3">
-      <AdminUsersTable
+      <UsersList
         rows={rows}
         onSelect={onOpen}
         busyID={acts.busyID}
