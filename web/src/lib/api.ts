@@ -2220,48 +2220,74 @@ export type PlannedWaypoint = {
   DistanceFromOriginMeters?: number;
 };
 
-// TripPlanMultidayRequest is the body for POST /api/trips/plan-multiday.
-// Used when the user marks one or more via-stops as overnights. Each
-// overnight ends a day; the orchestrator chains N+1 single-day plans
-// daisied on departure SoC. See internal/tripmultiday.
+// TripPlanMultidayRequest is the body for POST /api/trips/plan-multiday: an origin and a list of days;
+// day k starts where day k-1 ended, so each day's `end` is an overnight or, for the last day, the trip's
+// destination. Vehicle, starting SoC and pack size are filled in by the server when omitted. See
+// internal/api/trip_multiday.go and internal/tripmultiday.
+export type TripPoint = { lat: number; lon: number; label?: string; entity_id?: string };
+
+export type TripPlanDayRequest = {
+  // Stops on the way to this day's end (not overnights).
+  vias?: TripPoint[];
+  end: TripPoint;
+  // RFC 3339; omitted: the next local `overnight.until` after the previous day's arrival (day 1: start_at).
+  depart_at?: string;
+  target_arrival_soc_pct?: number;
+  // The stay that ends this day (ignored on the last day).
+  overnight?: {
+    // Available AC power in kW; 0 means no charging; omitted means the server's default (7).
+    l2_kw?: number;
+    // Local time ("15:04") the truck is wanted the next morning.
+    until?: string;
+    // Cap on the post-charge SoC %; 0 or omitted: the request's max_overnight_soc_pct (default 80).
+    max_soc_pct?: number;
+    name?: string;
+  };
+};
+
 export type TripPlanMultidayRequest = {
-  vehicle_id: string;
-  starting_soc: number;
-  pack_kwh: number;
+  vehicle_id?: string;
+  starting_soc?: number;
+  pack_kwh?: number;
+  start_at: string; // RFC 3339
+  tz?: string; // IANA zone of the browser, used for "until" and the day boundaries
   drive_mode?: string;
   has_adapter?: boolean;
   target_arrival_soc_percent?: number;
   network_preferences?: { network_id: string; preference: number }[];
-  origin: { latitude: number; longitude: number; entity_id?: string; waypoint_type: "origin" };
-  destination: { latitude: number; longitude: number; entity_id?: string; waypoint_type: "destination" };
-  overnights: TripPlanOvernight[];
-  // Cap on post-overnight SoC %; 0 means use server default (80).
-  max_overnight_soc_pct: number;
-};
-
-export type TripPlanOvernight = {
-  latitude: number;
-  longitude: number;
-  entity_id?: string;
-  name?: string;
-  // Hours plugged in overnight. Server defaults to 10 when omitted.
-  parked_hours?: number;
-  // Available L2 power in kW. 0 (or omitted) means no charging — arrival
-  // SoC carries through to next-day departure.
-  l2_kw?: number;
+  origin: TripPoint;
+  days: TripPlanDayRequest[];
+  max_overnight_soc_pct?: number;
 };
 
 export type TripPlanMultidayResponse = {
   days: TripPlanMultidayDay[];
   total: { distance_meters: number; drive_duration_sec: number; charging_duration_sec: number };
+  // Any day came from preview data rather than Rivian's planner.
+  simulated?: boolean;
+  // The day that could not be planned (1-based); the days before it are complete and chaining stopped there.
+  failed_day?: number;
+  error?: string;
+  error_class?: string;
+  error_reason?: string;
 };
+
+export type TripPlanWaypointEcho = { latitude: number; longitude: number; label?: string; entity_id?: string };
 
 export type TripPlanMultidayDay = {
   index: number;
   plan: TripPlan;
+  depart_at: string; // RFC 3339
+  arrive_at: string;
+  start: TripPlanWaypointEcho;
+  vias?: TripPlanWaypointEcho[];
+  end: TripPlanWaypointEcho;
   departure_soc: number;
   arrival_soc: number;
+  destination_reached: boolean;
+  soc_below_limit: boolean;
   overnight?: TripPlanOvernightResult;
+  weather_adjustment?: TripWeatherAdjustment;
   costs?: TripCostEstimate[];
 };
 
@@ -2349,6 +2375,8 @@ export type SavedTripInputs = {
   overnight_limit_mode?: "soc" | "time" | "depart";
   overnight_parked_hours?: number;
   overnight_departure_local?: string;
+  // Charger at the overnight stops, in kW (0: none). Older saves omit it (7 kW).
+  overnight_l2_kw?: number;
 };
 
 // PlanVsActual is GET /api/trips/saved/{id}/actual

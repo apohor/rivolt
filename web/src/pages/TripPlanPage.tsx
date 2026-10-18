@@ -1,3 +1,4 @@
+import { OVERNIGHT_CHARGERS } from "../plan/days";
 import { useEffect, useRef, useState } from "react";
 import { useUiNext } from "../lib/uiNext";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
@@ -28,7 +29,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, overnightLimitMode, setOvernightLimitMode, maxOvernightSoCPct, setMaxOvernightSoCPct, overnightParkedHours, setOvernightParkedHours, overnightDepartureLocal, setOvernightDepartureLocal, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, maxOvernightSoCPct, setMaxOvernightSoCPct, overnightL2Kw, setOvernightL2Kw, overnightDepartureLocal, setOvernightDepartureLocal, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // Phones: when a plan arrives, bring the map up under the top bar so it fills the
   // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
@@ -198,78 +199,44 @@ export default function TripPlanPage() {
             }}
           />
   );
+  const fieldCls = "rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums";
   const overnightEl = hasOvernightStops ? (
-
-            <div
-              className="flex flex-wrap items-center gap-2 text-xs text-neutral-300"
-              title="How to limit overnight L2 charging: cap the post-charge SoC, cap by hours plugged in, or cap by next-day departure time."
-            >
-              <span className="text-neutral-400">Limit overnight by</span>
-              <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-[11px]">
-                {(["soc", "time", "depart"] as const).map((m) => {
-                  const active = overnightLimitMode === m;
-                  const label = m === "soc" ? "SoC" : m === "time" ? "Time" : "Depart";
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setOvernightLimitMode(m)}
-                      className={`px-2 py-0.5 transition-colors ${
-                        active
-                          ? "bg-emerald-600/20 text-emerald-300"
-                          : "text-neutral-400 hover:text-neutral-200"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              {overnightLimitMode === "soc" && (
-                <label className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={50}
-                    max={100}
-                    step={5}
-                    value={maxOvernightSoCPct}
-                    onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value) || 80)}
-                    className="w-16 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
-                  />
-                  <span className="text-neutral-400">%</span>
-                </label>
-              )}
-              {overnightLimitMode === "time" && (
-                <label className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={1}
-                    max={24}
-                    step={1}
-                    value={overnightParkedHours}
-                    onChange={(e) => setOvernightParkedHours(Number(e.target.value) || 8)}
-                    className="w-16 rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
-                  />
-                  <span className="text-neutral-400">h plugged in</span>
-                </label>
-              )}
-              {overnightLimitMode === "depart" && (
-                <label
-                  className="flex items-center gap-1"
-                  title="Translated to parked hours assuming a typical 20:00 arrival."
-                >
-                  <span className="text-neutral-400">at</span>
-                  <input
-                    type="time"
-                    value={overnightDepartureLocal}
-                    onChange={(e) => setOvernightDepartureLocal(e.target.value || "08:00")}
-                    className="rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums"
-                  />
-                  <span className="text-neutral-400">next morning</span>
-                </label>
-              )}
-            </div>
-          
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-300">
+      <label className="flex items-center gap-1.5">
+        <span className="text-neutral-400">Leave next morning at</span>
+        <input
+          type="time"
+          value={overnightDepartureLocal}
+          onChange={(e) => setOvernightDepartureLocal(e.target.value || "08:00")}
+          className={fieldCls}
+        />
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className="text-neutral-400">Charger at the stop</span>
+        <select
+          value={overnightL2Kw}
+          onChange={(e) => setOvernightL2Kw(Number(e.target.value))}
+          className={fieldCls}
+        >
+          {OVERNIGHT_CHARGERS.map((c) => (
+            <option key={c.kw} value={c.kw}>{c.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className="text-neutral-400">Charge up to</span>
+        <input
+          type="number"
+          min={50}
+          max={100}
+          step={5}
+          value={maxOvernightSoCPct}
+          onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value) || 80)}
+          className={`w-16 ${fieldCls}`}
+        />
+        <span className="text-neutral-400">%</span>
+      </label>
+    </div>
   ) : null;
   const toEl = (
 <LocationField
