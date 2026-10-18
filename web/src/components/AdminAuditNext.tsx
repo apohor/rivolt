@@ -81,7 +81,7 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 
 export function AuditTable({ rows, name, compact = false }: { rows: AdminAuditRow[]; name: (id?: string | null) => string | null; compact?: boolean }) {
   return (
-    <div className="overflow-x-auto rounded-md border border-neutral-800">
+    <div tabIndex={0} role="region" aria-label="Admin history entries" className="overflow-x-auto rounded-md border border-neutral-800">
       <table className={`w-full text-sm ${compact ? "min-w-[460px]" : "min-w-[760px]"}`}>
         <thead className="text-left text-xs text-neutral-400">
           <tr>
@@ -133,7 +133,7 @@ function AuditRow({ r, name, compact }: { r: AdminAuditRow; name: (id?: string |
 }
 
 // The per-user history on the user detail: the last few actions taken about this user.
-export function UserAuditHistory({ userID }: { userID: string }) {
+export function UserAuditHistory({ userID, bare = false }: { userID: string; bare?: boolean }) {
   const { name } = useNames();
   const q = useQuery({ queryKey: ["admin", "audit", "user", userID], queryFn: () => backend.adminAudit({ target_user: userID, limit: 10 }), retry: 0 });
   if (q.isLoading) return <Spinner />;
@@ -141,7 +141,7 @@ export function UserAuditHistory({ userID }: { userID: string }) {
   const rows = q.data?.items ?? [];
   return (
     <section aria-label="Admin history" data-user-audit className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Admin history</h3>
+      {!bare && <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Admin history</h3>}
       {rows.length === 0 ? <p className="text-sm text-neutral-400">Nothing recorded about this user.</p> : <AuditTable rows={rows} name={name} compact />}
     </section>
   );

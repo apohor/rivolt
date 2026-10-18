@@ -171,6 +171,8 @@ export default function App() {
         <Route path="activity" element={<ActivityGuard />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
+        <Route path="admin/users" element={<AdminPage />} />
+        <Route path="admin/users/:id" element={<AdminPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

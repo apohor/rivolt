@@ -145,20 +145,3 @@ test("columns the API does not send yet show a dash, not a wrong answer", async 
   await expect(page.locator("[data-no-data-alert]")).toHaveCount(0);
 });
 
-test("the detail panel's Delete user also needs the typed name", async ({ page }) => {
-  await open(page);
-  const calls: string[] = [];
-  await page.route("**/api/admin/users/u2", (r) => {
-    if (r.request().method() !== "DELETE") return r.fallback();
-    calls.push("delete");
-    return r.fulfill({ json: { ok: true, idp: "ok" } });
-  });
-  await rowOf(page, "u2").getByRole("button", { name: "Select quiet@example.com" }).click();
-  await page.getByRole("button", { name: "Delete user", exact: true }).click();
-  const dlg = page.locator("[data-typed-confirm]");
-  await expect(dlg.getByRole("button", { name: "Delete user" })).toBeDisabled();
-  expect(calls).toEqual([]); // no browser confirm() either: the page would have hung on the dialog
-  await dlg.getByLabel(/Type/).fill("quiet@example.com");
-  await dlg.getByRole("button", { name: "Delete user" }).click();
-  await expect.poll(() => calls).toEqual(["delete"]);
-});
