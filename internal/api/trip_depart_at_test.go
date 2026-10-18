@@ -63,3 +63,28 @@ func TestTripPlanFarFutureDepartAtIs400(t *testing.T) {
 		t.Errorf("status %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRoutePreferencesFromTheRequest(t *testing.T) {
+	var nilPrefs *tripRoutePrefs
+	if nilPrefs.toRivian() != nil || (&tripRoutePrefs{}).toRivian() != nil {
+		t.Error("no preference, or an empty one, must be nil so the request is unchanged")
+	}
+	if got := (&tripRoutePrefs{AvoidTolls: true, AvoidHighways: true}).toRivian(); got == nil || !got.AvoidTolls || got.AvoidFerries || !got.AvoidHighways {
+		t.Errorf("toRivian = %+v", got)
+	}
+	// Single-day.
+	cp := &capturePlanner{}
+	rec := httptest.NewRecorder()
+	handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: cp}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
+		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planWith(`"route_preferences":{"avoid_tolls":true,"avoid_ferries":false,"avoid_highways":true},`))))
+	if rec.Code != 200 || cp.got.RoutePreferences == nil || !cp.got.RoutePreferences.AvoidTolls || !cp.got.RoutePreferences.AvoidHighways || cp.got.RoutePreferences.AvoidFerries {
+		t.Errorf("single-day: %d %+v", rec.Code, cp.got.RoutePreferences)
+	}
+	cp = &capturePlanner{}
+	rec = httptest.NewRecorder()
+	handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: cp}, nil, nil, uuid.New(), nil, nil, nil, nil)(rec,
+		httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planWith(`"route_preferences":{},`))))
+	if cp.got.RoutePreferences != nil {
+		t.Error("an empty route_preferences must not reach the planner")
+	}
+}

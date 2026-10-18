@@ -68,9 +68,24 @@ type PlanTripInput struct {
 	TrailerProfile          string
 	AvoidAdapterRequired    bool
 	SupportedConnectorTypes []string
+	// RoutePreferences asks the planner to avoid tolls, ferries or highways.
+	// nil means no preference, and then the request does not mention it.
+	RoutePreferences *RoutePreferences
 	// DepartureTime is when the trip leaves; the zero value means "now".
 	// The fixture and synthetic planners time their waypoints from it.
 	DepartureTime time.Time
+}
+
+// RoutePreferences are the road types a trip should avoid.
+type RoutePreferences struct {
+	AvoidTolls    bool
+	AvoidFerries  bool
+	AvoidHighways bool
+}
+
+// Any reports whether at least one preference is set.
+func (p *RoutePreferences) Any() bool {
+	return p != nil && (p.AvoidTolls || p.AvoidFerries || p.AvoidHighways)
 }
 
 // PlanTripWaypoint is one input waypoint. waypointType is one of
@@ -633,6 +648,10 @@ func buildPlanTrip2QueryAt(in PlanTripInput, now time.Time) (string, map[string]
 	}
 	if !in.DepartureTime.IsZero() && in.DepartureTime.After(now) {
 		args = append(args, fmt.Sprintf("departureTime: %d", in.DepartureTime.UnixMilli()))
+	}
+	if rp := in.RoutePreferences; rp != nil {
+		args = append(args, fmt.Sprintf("routePreferences: {avoidTolls: %t, avoidFerries: %t, avoidHighways: %t}",
+			rp.AvoidTolls, rp.AvoidFerries, rp.AvoidHighways))
 	}
 	// networkPreferences: $variable form with the full app wire shape.
 	// Earlier inline `[{networkId: "..."}]` got GRAPHQL_VALIDATION_FAILED.

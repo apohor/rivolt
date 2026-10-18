@@ -37,6 +37,8 @@ type tripPlanRequest struct {
 	AvoidAdapterRequired    bool                  `json:"avoid_adapter_required,omitempty"`
 	SupportedConnectorTypes []string              `json:"supported_connector_types,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
+	// RoutePreferences: road types to avoid on the whole trip.
+	RoutePreferences *tripRoutePrefs `json:"route_preferences,omitempty"`
 	// DepartAt (RFC3339) is when the trip leaves, for ETAs on a future
 	// trip. Empty or in the past means now.
 	DepartAt string `json:"depart_at,omitempty"`
@@ -45,6 +47,22 @@ type tripPlanRequest struct {
 	// per-route DCFC cost computation. Zero means "don't price the
 	// route" (cost fields stay zero).
 	PackKWh float64 `json:"pack_kwh,omitempty"`
+}
+
+// tripRoutePrefs is the API shape of rivian.RoutePreferences.
+type tripRoutePrefs struct {
+	AvoidTolls    bool `json:"avoid_tolls"`
+	AvoidFerries  bool `json:"avoid_ferries"`
+	AvoidHighways bool `json:"avoid_highways"`
+}
+
+// toRivian is nil unless something is to be avoided, so a trip with no
+// preference sends exactly the request it always did.
+func (p *tripRoutePrefs) toRivian() *rivian.RoutePreferences {
+	if p == nil || !(p.AvoidTolls || p.AvoidFerries || p.AvoidHighways) {
+		return nil
+	}
+	return &rivian.RoutePreferences{AvoidTolls: p.AvoidTolls, AvoidFerries: p.AvoidFerries, AvoidHighways: p.AvoidHighways}
 }
 
 type tripPlanWaypoint struct {
@@ -118,6 +136,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		}
 		in := rivian.PlanTripInput{
 			DepartureTime:           departAt,
+			RoutePreferences:        req.RoutePreferences.toRivian(),
 			VehicleID:               req.VehicleID,
 			StartingSoC:             startingSoC,
 			StartingRangeMeters:     req.StartingRangeMeters,

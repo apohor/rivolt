@@ -118,7 +118,11 @@ func (p *Planner) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivia
 	for i, w := range in.Waypoints {
 		locs[i] = [2]float64{w.Latitude, w.Longitude}
 	}
-	route, err := p.Router.Route(ctx, locs, maps.RouteOpts{})
+	var opts maps.RouteOpts
+	if rp := in.RoutePreferences; rp != nil {
+		opts = maps.RouteOpts{AvoidTolls: rp.AvoidTolls, AvoidFerries: rp.AvoidFerries, AvoidHighways: rp.AvoidHighways}
+	}
+	route, err := p.Router.Route(ctx, locs, opts)
 	if errors.Is(err, maps.ErrNoRoute) {
 		return nil, fmt.Errorf("%w: no road route between these points", rivian.ErrInvalidTrip)
 	}

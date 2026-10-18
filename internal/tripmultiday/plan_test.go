@@ -374,3 +374,20 @@ func TestChainStartsFromTheCorrectedArrival(t *testing.T) {
 		t.Errorf("none: chain %v day 2 start %v", d.ChainArrivalSoC, f.calls[1].StartingSoC)
 	}
 }
+
+func TestRoutePreferencesApplyToEveryDay(t *testing.T) {
+	f := &scripted{arrival: []float64{40, 35}, drive: []time.Duration{time.Hour, time.Hour}, dist: []float64{1, 1}}
+	rp := &rivian.RoutePreferences{AvoidFerries: true}
+	_, err := Plan(context.Background(), f, Request{
+		PackKWh: 100, StartingSoC: 80, StartAt: at(8, 0), Origin: wp(1), RoutePreferences: rp,
+		Days: []DayInput{{End: wp(2), Overnight: &Overnight{L2KW: f64(0)}}, {End: wp(3)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range f.calls {
+		if c.RoutePreferences != rp {
+			t.Errorf("day %d did not get the preference", i+1)
+		}
+	}
+}

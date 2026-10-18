@@ -127,7 +127,8 @@ func (w *cached) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian
 
 // legKey is planleg:v1:<sha256 of the normalised inputs>. It covers the user,
 // vehicle, starting SoC rounded to 1 %, every waypoint rounded to 1e-4 degrees,
-// drive mode, trailer, adapter, network preferences, the arrival target, and
+// drive mode, trailer, route preferences, adapter, network preferences, the
+// arrival target, and
 // the departure rounded to 15 minutes (a departure that is not in the future
 // means "now", so it is the current 15-minute slot).
 func (c *Cache) legKey(uid uuid.UUID, in rivian.PlanTripInput, now time.Time) string {
@@ -141,6 +142,9 @@ func (c *Cache) legKey(uid uuid.UUID, in rivian.PlanTripInput, now time.Time) st
 		fmt.Fprintf(&sb, "wp=%.4f,%.4f,%s|", w.Latitude, w.Longitude, w.EntityID)
 	}
 	fmt.Fprintf(&sb, "drive=%s|trailer=%s|", in.DriveMode, in.TrailerProfile)
+	if rp := in.RoutePreferences; rp.Any() {
+		fmt.Fprintf(&sb, "routepref=%t,%t,%t|", rp.AvoidTolls, rp.AvoidFerries, rp.AvoidHighways)
+	}
 	switch {
 	case in.HasAdapter == nil:
 		sb.WriteString("adapter=unset|")

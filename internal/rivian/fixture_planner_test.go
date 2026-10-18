@@ -145,3 +145,22 @@ func TestFixturePlannerPicksTheNearest(t *testing.T) {
 		t.Error("should pick the fixture closest to the request")
 	}
 }
+
+// A stored plan is the default route: a trip that must avoid something is not
+// served from it.
+func TestFixturePlannerSkipsTripsWithRoutePreferences(t *testing.T) {
+	f := fixtureForTest()
+	p := NewFixturePlanner([]PlanFixture{f}, nil)
+	in := inputFor(f, 90)
+	if _, err := p.PlanTrip(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	in.RoutePreferences = &RoutePreferences{AvoidTolls: true}
+	if _, err := p.PlanTrip(context.Background(), in); !errors.Is(err, ErrNoFixture) {
+		t.Errorf("with a preference = %v, want ErrNoFixture", err)
+	}
+	in.RoutePreferences = &RoutePreferences{} // set but nothing to avoid
+	if _, err := p.PlanTrip(context.Background(), in); err != nil {
+		t.Errorf("an empty preference is no preference: %v", err)
+	}
+}

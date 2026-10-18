@@ -19,6 +19,7 @@ import (
 // At 2.3 mi/kWh and a 131 kWh pack, one metre costs 1/(2.3*1609.344)/131*100
 // = 0.0002062 SoC points, so 100 km is ~20.6 points.
 type fakeRouter struct {
+	lastOpts maps.RouteOpts
 	lat0     float64
 	legKm    []float64
 	speedKmh float64
@@ -26,8 +27,9 @@ type fakeRouter struct {
 	calls    int
 }
 
-func (r *fakeRouter) Route(_ context.Context, locs [][2]float64, _ maps.RouteOpts) (maps.Route, error) {
+func (r *fakeRouter) Route(_ context.Context, locs [][2]float64, opts maps.RouteOpts) (maps.Route, error) {
 	r.calls++
+	r.lastOpts = opts
 	if r.err != nil {
 		return maps.Route{}, r.err
 	}
@@ -417,5 +419,19 @@ func TestNoRoadRouteIsAnInvalidTripNotAServerError(t *testing.T) {
 	_, err := newPlanner(&fakeRouter{err: maps.ErrNoRoute}, nil).PlanTrip(context.Background(), input(80, 2))
 	if !errors.Is(err, rivian.ErrInvalidTrip) || !strings.Contains(err.Error(), "no road route") {
 		t.Errorf("err = %v, want ErrInvalidTrip saying there is no road route", err)
+	}
+}
+
+func TestRoutePreferencesReachTheRouter(t *testing.T) {
+	r := &fakeRouter{lat0: 34, legKm: []float64{100}, speedKmh: 100}
+	in := input(80, 2)
+	mustPlan(t, newPlanner(r, fakeChargers{}), in)
+	if r.lastOpts != (maps.RouteOpts{}) {
+		t.Errorf("no preference sent %+v", r.lastOpts)
+	}
+	in.RoutePreferences = &rivian.RoutePreferences{AvoidTolls: true, AvoidHighways: true}
+	mustPlan(t, newPlanner(r, fakeChargers{}), in)
+	if want := (maps.RouteOpts{AvoidTolls: true, AvoidHighways: true}); r.lastOpts != want {
+		t.Errorf("router options = %+v, want %+v", r.lastOpts, want)
 	}
 }

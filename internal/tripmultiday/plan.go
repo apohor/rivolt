@@ -111,6 +111,8 @@ type Request struct {
 	// the chain is as conservative as what the user is shown. ok=false leaves
 	// the plan's arrival in use.
 	AdjustArrival func(ctx context.Context, day int, plan *rivian.TripPlan, startSoC float64, target *float64) (arrival float64, ok bool)
+	// RoutePreferences applies to every day.
+	RoutePreferences *rivian.RoutePreferences
 }
 
 // Response is the aggregated multi-day plan.
@@ -266,6 +268,7 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 			DepartureTime:           depart,
 			TargetArrivalSocPercent: target,
 			NetworkPreferences:      req.NetworkPreferences,
+			RoutePreferences:        req.RoutePreferences,
 			Waypoints:               dayWaypoints(start, di),
 		}
 		plan, err := p.PlanTrip(ctx, in)
