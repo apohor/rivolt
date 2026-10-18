@@ -215,3 +215,81 @@ func sampleJSON(t *testing.T, vehicle string, n int) string {
 	}
 	return strings.Join(parts, ",")
 }
+
+// A crafted file cannot create partitions or vehicles: rows outside
+// 2021-01-01..now+24h are skipped before any partition is made, and a
+// restore may add at most five vehicles.
+func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	deps := backupTestDeps(pool)
+	partitions := func() int {
+		var n int
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent WHERE p.relname = 'vehicle_state'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	user := func(name string) uuid.UUID {
+		u, err := db.EnsureUser(ctx, pool, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	restore := func(uid uuid.UUID, body string) (int, restoreResult) {
+		rec := httptest.NewRecorder()
+		handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", strings.NewReader(body)).WithContext(auth.WithUser(ctx, uid)))
+		var r restoreResult
+		_ = json.Unmarshal(rec.Body.Bytes(), &r)
+		return rec.Code, r
+	}
+	row := func(vehicle string, at time.Time) string {
+		b, _ := json.Marshal(samples.Sample{VehicleID: vehicle, At: at, Source: "live"})
+		return string(b)
+	}
+
+	// Samples spread over 600 months (back to 1976 and out to 2076), plus one good row.
+	var rows []string
+	for m := -600; m < 600; m += 12 {
+		rows = append(rows, row("rv-flood", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC).AddDate(0, m, 0)))
+	}
+	rows = append(rows, row("rv-flood", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)), row("rv-flood", time.Time{}))
+	before := partitions()
+	code, r := restore(user("rf-1"), `{"samples":[`+strings.Join(rows, ",")+`]}`)
+	if code != 200 || r.Samples == 0 || r.Skipped == 0 {
+		t.Fatalf("restore = %d %+v", code, r)
+	}
+	// Only in-range months can have been created; none for 1976..2020 or 2027+.
+	var oldest, newest time.Time
+	if err := pool.QueryRowContext(ctx, `SELECT min(at), max(at) FROM vehicle_state`).Scan(&oldest, &newest); err != nil {
+		t.Fatal(err)
+	}
+	if oldest.Before(restoreMinTime) || newest.After(time.Now().Add(48*time.Hour)) {
+		t.Errorf("out-of-range rows were stored: %v .. %v", oldest, newest)
+	}
+	if grew := partitions() - before; grew > 8 {
+		t.Errorf("restore created %d partitions", grew)
+	}
+
+	// Vehicles: five new ones are fine, a sixth is refused.
+	five := []string{row("rv-n1", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)), row("rv-n2", time.Date(2026, 3, 1, 0, 1, 0, 0, time.UTC)),
+		row("rv-n3", time.Date(2026, 3, 1, 0, 2, 0, 0, time.UTC)), row("rv-n4", time.Date(2026, 3, 1, 0, 3, 0, 0, time.UTC)), row("rv-n5", time.Date(2026, 3, 1, 0, 4, 0, 0, time.UTC))}
+	if code, r := restore(user("rf-5"), `{"samples":[`+strings.Join(five, ",")+`]}`); code != 200 || r.Samples != 5 {
+		t.Fatalf("five vehicles = %d %+v", code, r)
+	}
+	six := append(append([]string{}, five...), row("rv-n6", time.Date(2026, 3, 1, 0, 5, 0, 0, time.UTC)))
+	u6 := user("rf-6")
+	if code, _ := restore(u6, `{"samples":[`+strings.Join(six, ",")+`]}`); code != http.StatusBadRequest {
+		t.Fatalf("six vehicles = %d, want 400", code)
+	}
+	var nv int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM vehicles WHERE user_id = $1`, u6).Scan(&nv); err != nil || nv > 5 {
+		t.Errorf("vehicles created for the refused restore = %d (%v), want at most 5", nv, err)
+	}
+}

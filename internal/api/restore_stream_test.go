@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func gz(t *testing.T, s string) []byte {
@@ -58,5 +59,62 @@ func TestRestoreSourceCapsDecompressedSize(t *testing.T) {
 	defer closeFn()
 	if _, err := io.ReadAll(src); !errors.Is(err, errRestoreTooBig) {
 		t.Errorf("read error = %v, want errRestoreTooBig", err)
+	}
+}
+
+func TestRestoreGateTimeBounds(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	g := newRestoreGate(now)
+	ok := []time.Time{
+		time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC), // first accepted instant
+		time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		now.Add(23 * time.Hour), // clock skew allowance
+	}
+	for _, ts := range ok {
+		if !g.timesOK(ts) {
+			t.Errorf("%v rejected", ts)
+		}
+	}
+	bad := []time.Time{
+		time.Date(2020, 12, 31, 23, 59, 59, 0, time.UTC),
+		time.Time{}, // zero time
+		time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
+		now.Add(25 * time.Hour),
+		time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	for _, ts := range bad {
+		if g.timesOK(ts) {
+			t.Errorf("%v accepted", ts)
+		}
+	}
+	if g.skipped != len(bad) {
+		t.Errorf("skipped = %d, want %d", g.skipped, len(bad))
+	}
+	// A drive is skipped if either end is out of range.
+	if g.timesOK(ok[1], bad[0]) {
+		t.Error("a row with one bad time was accepted")
+	}
+}
+
+func TestRestoreGateVehicleCap(t *testing.T) {
+	g := newRestoreGate(time.Now())
+	g.owned["mine"] = true
+	if err := g.vehicleOK("mine"); err != nil {
+		t.Fatalf("owned vehicle: %v", err)
+	}
+	for i := 0; i < restoreMaxNewVehicles; i++ {
+		if err := g.vehicleOK(string(rune('a' + i))); err != nil {
+			t.Fatalf("new vehicle %d: %v", i, err)
+		}
+	}
+	// The same new ids again, and owned ones, are always fine.
+	if err := g.vehicleOK("a"); err != nil {
+		t.Errorf("repeat of a new id: %v", err)
+	}
+	if err := g.vehicleOK("mine"); err != nil {
+		t.Errorf("owned after the cap: %v", err)
+	}
+	if err := g.vehicleOK("one-too-many"); !errors.Is(err, errRestoreVehicles) {
+		t.Errorf("over the cap: %v, want errRestoreVehicles", err)
 	}
 }

@@ -489,14 +489,22 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			return
 		}
 		defer closeSrc()
-		res, err := restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick)
+		gate := newRestoreGate(time.Now())
+		if d.DB != nil {
+			if vs, verr := db.ListUserVehicles(r.Context(), d.DB, uid); verr == nil {
+				for _, v := range vs {
+					gate.owned[v.RivianVehicleID] = true
+				}
+			}
+		}
+		res, err := restoreStream(r.Context(), json.NewDecoder(src), ds, cs, ss, tick, gate)
 		if err != nil {
 			guard.forget(uid) // an idempotent retry should not wait
 			var tooBig *http.MaxBytesError
 			switch {
 			case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
 				http.Error(w, "backup is too large", http.StatusRequestEntityTooLarge)
-			case errors.Is(err, errRestoreBadFile):
+			case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
 				http.Error(w, "parse backup: "+err.Error(), http.StatusBadRequest)
 			default:
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -510,7 +518,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 // Restore limits.
 const (
 	restoreBatch    = 2000             // samples per insert batch
-	restoreMaxWire  = 1 << 30          // bytes accepted on the wire (compressed or not)
+	restoreMaxWire  = 100 << 20        // bytes accepted on the wire (Cloudflare's upload limit); the gzip size, not the unpacked one
 	restoreDeadline = 30 * time.Minute // read/write deadline for one restore
 )
 
@@ -563,11 +571,62 @@ type restoreResult struct {
 	Drives  int `json:"drives"`
 	Charges int `json:"charges"`
 	Samples int `json:"samples"`
+	// Skipped counts rows left out because their time is outside the
+	// accepted range (a real backup has none).
+	Skipped int `json:"skipped,omitempty"`
+}
+
+// A restore file is untrusted input: signups are instant, and every distinct
+// month of samples creates a vehicle_state partition (which slows query
+// planning for everyone) while every unknown Rivian id creates a vehicle. So
+// rows outside a sane time window are skipped before anything is created, and
+// a restore may add only a few vehicles.
+var (
+	restoreMinTime        = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)
+	restoreFutureSlack    = 24 * time.Hour
+	restoreMaxNewVehicles = 5
+	errRestoreVehicles    = errors.New("the backup refers to too many vehicles that are not on this account")
+)
+
+type restoreGate struct {
+	from, to time.Time
+	owned    map[string]bool // Rivian ids already on the account
+	fresh    map[string]bool // ids this restore would create
+	skipped  int
+}
+
+func newRestoreGate(now time.Time) *restoreGate {
+	return &restoreGate{from: restoreMinTime, to: now.Add(restoreFutureSlack), owned: map[string]bool{}, fresh: map[string]bool{}}
+}
+
+// timesOK reports whether every time is inside [2021-01-01, now+24h]; a row
+// that is not is counted and skipped.
+func (g *restoreGate) timesOK(ts ...time.Time) bool {
+	for _, t := range ts {
+		if t.Before(g.from) || t.After(g.to) {
+			g.skipped++
+			return false
+		}
+	}
+	return true
+}
+
+// vehicleOK admits a row's vehicle: one the account has, or one of at most
+// restoreMaxNewVehicles new ids.
+func (g *restoreGate) vehicleOK(id string) error {
+	if g.owned[id] || g.fresh[id] {
+		return nil
+	}
+	if len(g.fresh) >= restoreMaxNewVehicles {
+		return fmt.Errorf("%w (more than %d)", errRestoreVehicles, restoreMaxNewVehicles)
+	}
+	g.fresh[id] = true
+	return nil
 }
 
 // restoreStream decodes the bundle token by token. Keys may come in any
 // order (older backups list charges first); unknown keys are skipped.
-func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func()) (restoreResult, error) {
+func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs *charges.Store, ss *samples.Store, tick func(), gate *restoreGate) (restoreResult, error) {
 	var res restoreResult
 	bad := func(err error) error { return fmt.Errorf("%w: %v", errRestoreBadFile, err) }
 	wrap := func(err error) error { // size errors keep their identity
@@ -619,6 +678,12 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := dec.Decode(&v); err != nil {
 					return wrap(err)
 				}
+				if !gate.timesOK(v.StartedAt, v.EndedAt) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
+				}
 				if err := ds.Upsert(ctx, v); err != nil {
 					return fmt.Errorf("upsert drive %s: %w", v.ID, err)
 				}
@@ -630,6 +695,12 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				var v charges.Charge
 				if err := dec.Decode(&v); err != nil {
 					return wrap(err)
+				}
+				if !gate.timesOK(v.StartedAt, v.EndedAt) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
 				}
 				if err := cs.Upsert(ctx, v); err != nil {
 					return fmt.Errorf("upsert charge %s: %w", v.ID, err)
@@ -655,6 +726,12 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 				if err := dec.Decode(&v); err != nil {
 					return wrap(err)
 				}
+				if !gate.timesOK(v.At) {
+					return nil
+				}
+				if err := gate.vehicleOK(v.VehicleID); err != nil {
+					return err
+				}
 				batch = append(batch, v)
 				if len(batch) == restoreBatch {
 					return flush()
@@ -678,6 +755,7 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 	if _, err := dec.Token(); err != nil { // closing brace
 		return res, wrap(err)
 	}
+	res.Skipped = gate.skipped
 	return res, nil
 }
 
