@@ -347,3 +347,73 @@ func TestRestoreRefusesPartitionAndVehicleFlood(t *testing.T) {
 		t.Errorf("vehicles created for the refused restore = %d (%v), want at most 5", nv, err)
 	}
 }
+
+// A file that is not a backup, or is damaged, is refused with a fixed sentence
+// (never the decoder's text) and does not use up the user's slot; neither does
+// a valid backup that wrote nothing.
+func TestRestoreRefusalsDoNotConsumeTheSlot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	deps := backupTestDeps(pool)
+	uid, err := db.EnsureUser(ctx, pool, "slot-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1,'rv-gen','R1S')`, uid); err != nil {
+		t.Fatal(err)
+	}
+	restore := func(body io.Reader) (*httptest.ResponseRecorder, map[string]any) {
+		rec := httptest.NewRecorder()
+		handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", body).WithContext(auth.WithUser(ctx, uid)))
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("the slot was already used: %s", rec.Body.String())
+		}
+		ev := events(t, rec.Body.Bytes())
+		return rec, ev[len(ev)-1]
+	}
+
+	for name, body := range map[string]string{
+		"valid json, not a backup": `{"hello":"world"}`,
+		"junk":                     `hello world`,
+		"truncated":                `{"samples":[{"VehicleID":"rv-gen"`,
+		"array":                    `[1,2,3]`,
+	} {
+		_, last := restore(strings.NewReader(body))
+		want := msgDamaged
+		if name == "valid json, not a backup" {
+			want = msgNotBackup
+		}
+		if last["event"] != "error" || last["status"] != float64(400) || last["error"] != want {
+			t.Errorf("%s: %v, want a 400 error event saying %q", name, last, want)
+		}
+	}
+	// Corrupt gzip: refused up front with the same sentence.
+	rec := httptest.NewRecorder()
+	handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", bytes.NewReader([]byte{0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff, 1, 2, 3})).WithContext(auth.WithUser(ctx, uid)))
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), msgDamaged) {
+		t.Errorf("corrupt gzip = %d %q", rec.Code, rec.Body.String())
+	}
+
+	// A valid backup with no rows is a success that writes nothing: no wait.
+	if _, last := restore(strings.NewReader(`{"version":"x","drives":[],"charges":[],"samples":[]}`)); last["event"] != "done" {
+		t.Errorf("empty backup: %v", last)
+	}
+	// Still free: a real one goes through, and now it does use the slot.
+	var real bytes.Buffer
+	if err := genBackup(&real, "rv-gen", 100, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, last := restore(bytes.NewReader(real.Bytes())); last["event"] != "done" || last["samples"] != float64(100) {
+		t.Fatalf("real backup: %v", last)
+	}
+	rec = httptest.NewRecorder()
+	handleDataRestore(deps)(rec, httptest.NewRequest("POST", "/api/data/restore", strings.NewReader(`{}`)).WithContext(auth.WithUser(ctx, uid)))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("after a restore that wrote rows, the next = %d, want 429", rec.Code)
+	}
+}

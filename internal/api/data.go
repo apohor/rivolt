@@ -578,7 +578,7 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 
 		src, closeSrc, err := restoreSource(http.MaxBytesReader(w, r.Body, restoreMaxWire), restoreMaxPlain)
 		if err != nil {
-			http.Error(w, "read backup: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, msgDamaged, http.StatusBadRequest)
 			guard.forget(uid)
 			return
 		}
@@ -645,6 +645,9 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 			emit(m)
 			return
 		}
+		if prog.drives.Load()+prog.charges.Load()+prog.samples.Load() == 0 {
+			guard.forget(uid) // nothing was written: it should not cost the user the wait
+		}
 		emit(counts("done"))
 	}
 }
@@ -666,6 +669,13 @@ func restoreReadErr(ctx context.Context, err error) error {
 	return fmt.Errorf("%w: %v", errRestoreBadFile, err)
 }
 
+// What the client is told about a file we can't read. The decoder's own text
+// ("invalid character 'h' in literal true", "unexpected EOF") stays out of it.
+const (
+	msgNotBackup = "That file isn't a Rivolt backup."
+	msgDamaged   = "That file isn't a Rivolt backup, or it's damaged."
+)
+
 // restoreErrorEvent maps a restore failure to the status and message the
 // client sees. Only the failures we expect carry their own text; anything else
 // (a database error, a partition failure) is generic, and the caller logs it.
@@ -674,8 +684,12 @@ func restoreErrorEvent(err error) (int, string) {
 	switch {
 	case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
 		return http.StatusRequestEntityTooLarge, "backup is too large"
-	case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
-		return http.StatusBadRequest, "parse backup: " + err.Error()
+	case errors.Is(err, errRestoreNotBackup):
+		return http.StatusBadRequest, msgNotBackup
+	case errors.Is(err, errRestoreBadFile):
+		return http.StatusBadRequest, msgDamaged
+	case errors.Is(err, errRestoreVehicles):
+		return http.StatusBadRequest, err.Error()
 	}
 	return http.StatusInternalServerError, "The restore stopped partway. It may be partly restored; running it again is safe."
 }
@@ -698,6 +712,8 @@ var restoreHeartbeat = 3 * time.Second
 var (
 	errRestoreTooBig  = errors.New("backup is too large when decompressed")
 	errRestoreBadFile = errors.New("not a Rivolt backup")
+	// errRestoreNotBackup: valid JSON that holds none of a backup's arrays.
+	errRestoreNotBackup = errors.New("no drives, charges or samples in the file")
 )
 
 // restoreSource returns the reader to decode: the body itself, or its gzip
@@ -834,12 +850,16 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 		}
 		return nil
 	}
+	sawArray := false // a backup holds at least one of drives, charges, samples
 	for dec.More() {
 		keyTok, err := dec.Token()
 		if err != nil {
 			return res, wrap(err)
 		}
 		key, _ := keyTok.(string)
+		if key == "drives" || key == "charges" || key == "samples" {
+			sawArray = true
+		}
 		switch key {
 		case "drives":
 			err = array(func() error {
@@ -923,6 +943,9 @@ func restoreStream(ctx context.Context, dec *json.Decoder, ds *drives.Store, cs 
 	}
 	if _, err := dec.Token(); err != nil { // closing brace
 		return res, wrap(err)
+	}
+	if !sawArray {
+		return res, errRestoreNotBackup
 	}
 	res = restoreResult{Drives: int(prog.drives.Load()), Charges: int(prog.charges.Load()), Samples: int(prog.samples.Load()), Skipped: int(gate.skipped.Load())}
 	return res, nil

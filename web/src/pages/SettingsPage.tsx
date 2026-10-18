@@ -26,6 +26,7 @@ import {
   type PushPreferences,
 } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner, Toggle } from "../components/ui";
+import { restorePartialNote, restoreSoFar } from "../lib/restoreProgress";
 import { VehicleProfilePanel } from "../components/VehicleProfilePanel";
 import { LeasePanel } from "../components/LeasePanel";
 import { urlBase64ToUint8Array } from "../lib/push";
@@ -2224,11 +2225,7 @@ function DangerZonePanel() {
         />
         {restore.isPending && (
           <p className="mt-2 text-xs text-neutral-400" role="status">
-            Restoring…
-            {restoreProgress
-              ? ` ${restoreProgress.drives} drives, ${restoreProgress.charges} charges, ${restoreProgress.samples} samples so far.`
-              : ""}{" "}
-            Keep this page open.
+            Restoring…{restoreSoFar(restoreProgress)} Keep this page open.
           </p>
         )}
         {restore.isSuccess && (
@@ -2243,9 +2240,7 @@ function DangerZonePanel() {
         {restore.isError && (
           <p className="mt-2 text-xs text-rose-400" role="alert">
             Restore failed: {String(restore.error)}
-            {restoreProgress
-              ? ` It may be partly restored (${restoreProgress.samples} samples so far); running it again is safe.`
-              : ""}
+            {restorePartialNote(restoreProgress)}
           </p>
         )}
       </div>
