@@ -124,6 +124,13 @@ type Metrics struct {
 	// or global). A sustained global count is the signal to look at; no
 	// addresses are recorded.
 	DemoRateLimitedTotal *prometheus.CounterVec
+
+	// Non-transactional messages (internal/engage), by kind and outcome (sent,
+	// failed, already_sent, skipped_*). No user ids in labels.
+	EngagementSendsTotal *prometheus.CounterVec
+	// Claims left in 'sending' past 15 minutes: a crash between claim and
+	// delivery. Never resent, so a nonzero value is how a lost message shows.
+	EngagementStuckSending prometheus.Gauge
 }
 
 // New constructs a Metrics with all collectors registered against a
@@ -229,6 +236,17 @@ func New() *Metrics {
 			},
 			[]string{"route_class", "scope"},
 		),
+		EngagementSendsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_engagement_sends_total",
+				Help: "Non-transactional messages by kind and outcome.",
+			},
+			[]string{"kind", "outcome"},
+		),
+		EngagementStuckSending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_engagement_stuck_sending",
+			Help: "Engagement claims left in sending for over 15 minutes.",
+		}),
 		FunnelEventsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_funnel_events_total",
@@ -279,6 +297,8 @@ func New() *Metrics {
 		m.EmailSendTotal,
 		m.DemoClientKeyTotal,
 		m.DemoRateLimitedTotal,
+		m.EngagementSendsTotal,
+		m.EngagementStuckSending,
 		m.FunnelEventsTotal,
 		m.AuthRequestsTotal,
 		m.ServerEventsTotal,

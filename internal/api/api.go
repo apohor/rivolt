@@ -736,6 +736,13 @@ func New(d Deps) http.Handler {
 				r.Put("/settings/onboarding-email", withUser(oe.putSettings))
 			}
 
+			// Plug-in reminder and weekly recap knobs (internal/engage).
+			if d.DB != nil {
+				eg := &engagementAPI{db: d.DB}
+				r.Get("/settings/engagement", withUser(eg.get))
+				r.Put("/settings/engagement", withUser(eg.put))
+			}
+
 			// User's saved home location, used by the trip planner
 			// for one-click Origin/Destination presets.
 			// Monthly statement email: opt-in + timezone, and a preview of

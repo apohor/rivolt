@@ -59,10 +59,10 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			return
 		}
 
-		// Default both toggles to on so first-time subscribers get the
-		// behaviour they almost certainly expected when they tapped
-		// "Enable notifications".
-		prefs := push.Preferences{OnChargingDone: true, OnPlugInReminder: true, OnAnomaly: true, OnSoftwareUpdate: true}
+		// Charging-done, anomaly and software-update default to on: what a
+		// subscriber almost certainly expected when they tapped "Enable
+		// notifications". The plug-in reminder and milestones are opt-in only.
+		prefs := push.Preferences{OnChargingDone: true, OnAnomaly: true, OnSoftwareUpdate: true}
 		if len(body.Preferences) > 0 && string(body.Preferences) != "null" {
 			// Decode over the defaults so a client that predates a toggle
 			// (an old cached PWA) leaves it on instead of turning it off.
@@ -80,6 +80,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			OnPlugInReminder: prefs.OnPlugInReminder,
 			OnAnomaly:        prefs.OnAnomaly,
 			OnSoftwareUpdate: prefs.OnSoftwareUpdate,
+			OnMilestones:     prefs.OnMilestones,
 			UserAgent:        body.UserAgent,
 		}
 		if err := store.Upsert(r.Context(), sub); err != nil {
@@ -101,6 +102,7 @@ func handlePushSubscribe(store *push.Store) http.HandlerFunc {
 			"on_plug_in_reminder", prefs.OnPlugInReminder,
 			"on_anomaly", prefs.OnAnomaly,
 			"on_software_update", prefs.OnSoftwareUpdate,
+			"on_milestones", prefs.OnMilestones,
 		)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":          true,

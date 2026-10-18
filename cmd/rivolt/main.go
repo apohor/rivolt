@@ -45,6 +45,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/elevation"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
@@ -1898,6 +1899,16 @@ func runServer() {
 		// who is not opted in, in case a sync pass saved rows after they
 		// opted out.
 		jobs = append(jobs, retention.Job{Name: "rivian_receipts_not_opted_in", Run: receipts.NewStore(pgPool).PurgeNotOptedIn})
+		// The send log of non-transactional messages (internal/engage): rows
+		// past 400 days go, and claims stuck in 'sending' are reported.
+		engageMaint := &engage.Engage{Store: engage.NewStore(pgPool)}
+		jobs = append(jobs, retention.Job{Name: "engagement_sends", Run: func(ctx context.Context) (int64, error) {
+			purged, stuck, err := engageMaint.Maintain(ctx)
+			if err == nil {
+				appMetrics.EngagementStuckSending.Set(float64(stuck))
+			}
+			return purged, err
+		}})
 		if signupRequestStore != nil {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
 		}
