@@ -102,6 +102,9 @@ export type RuntimeConfig = {
     // the admin "View as" control instead of offering a dead button.
     disabled: boolean;
   };
+  // rivianActions is false only on the admin-only site, which never talks to Rivian: the admin
+  // hides "Sync" and "Refresh session". An older server that omits it is treated as true.
+  rivianActions: boolean;
 };
 
 const fallback: RuntimeConfig = {
@@ -115,8 +118,11 @@ const fallback: RuntimeConfig = {
   // Fail closed like features.tripPlannerEnabled: hide the "View as"
   // control until /api/config confirms the operator hasn't disabled it.
   impersonation: { disabled: true },
+  // An unreadable config means "unknown": treated as allowed, like an older server that omits it.
+  rivianActions: true,
 };
 let cached: RuntimeConfig = fallback;
+let configLoaded = false;
 let inflight: Promise<RuntimeConfig> | null = null;
 
 async function loadConfig(): Promise<RuntimeConfig> {
@@ -127,11 +133,12 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; app_url?: string };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
       impersonation?: { disabled?: boolean };
+      rivian_actions?: boolean;
     } | null;
     return {
       valhalla: { path: j?.valhalla?.path ?? "" },
@@ -157,6 +164,8 @@ async function loadConfig(): Promise<RuntimeConfig> {
         jumpCount: typeof j?.gps?.jump_count === "number" ? j.gps.jump_count : fallback.gps.jumpCount,
       },
       impersonation: { disabled: !!j?.impersonation?.disabled },
+      // false only on the admin-only site, which never talks to Rivian; absent means allowed.
+      rivianActions: (j?.rivian_actions ?? j?.features?.rivian_actions) !== false,
     };
   } catch {
     return fallback;
@@ -170,6 +179,7 @@ export function ensureConfig(): Promise<RuntimeConfig> {
   if (!inflight) {
     inflight = loadConfig().then((c) => {
       cached = c;
+      configLoaded = true;
       return c;
     });
   }
@@ -355,6 +365,23 @@ export function useImpersonationDisabled(): boolean {
     };
   }, []);
   return disabled;
+}
+
+// useRivianActions: whether this site can act on Rivian (sync a user's vehicles, refresh a session).
+// False on the admin-only site. Until /api/config has answered it is false, so those controls never
+// flash up on a site that cannot run them; once it answers, absent means true.
+export function useRivianActions(): boolean {
+  const [on, setOn] = useState<boolean>(configLoaded ? cached.rivianActions : false);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setOn(c.rivianActions);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return on;
 }
 
 // Kick off the config fetch as soon as this module is imported so
