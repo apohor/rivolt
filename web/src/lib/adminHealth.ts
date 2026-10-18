@@ -18,6 +18,16 @@ export type HealthSummary = {
   vehicles: Section & { leased: number; streaming: number };
   disk: Section & { used_pct: number | null };
   backup: Section & { age_seconds: number | null };
+  // Counts only, from rows the product already keeps. Absent on a server that predates it.
+  engagement?: Section & {
+    active_7d: number;
+    active_28d: number;
+    connected_no_data: number;
+    first_data_7d: number;
+    first_data_28d: number;
+    median_seconds_to_first_data: number | null;
+    emails_sent: Record<string, number>;
+  };
 };
 
 export type Tone = "ok" | "warn" | "bad" | "unknown";

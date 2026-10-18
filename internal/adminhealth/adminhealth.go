@@ -144,6 +144,7 @@ type Summary struct {
 	Vehicles    Vehicles   `json:"vehicles"`
 	Disk        Disk       `json:"disk"`
 	Backup      Backup     `json:"backup"`
+	Engagement  Engagement `json:"engagement"`
 }
 
 // Summary returns the summary, from cache when it is fresh. A nil Service
@@ -155,6 +156,7 @@ func (s *Service) Summary(ctx context.Context) Summary {
 			Alerts:      Alerts{Section: unavailable("not configured")}, KillSwitch: KillSwitch{Section: unavailable("not configured")},
 			Rivian: Rivian{Section: unavailable("not configured")}, Vehicles: Vehicles{Section: unavailable("not configured")},
 			Disk: Disk{Section: unavailable("not configured")}, Backup: Backup{Section: unavailable("not configured")},
+			Engagement: Engagement{Section: unavailable("not configured")},
 		}
 	}
 	s.mu.Lock()
@@ -187,6 +189,7 @@ func (s *Service) compute(ctx context.Context) Summary {
 	sum.Vehicles = Vehicles{Section: unavailable("not computed")}
 	sum.Disk = Disk{Section: unavailable("not computed")}
 	sum.Backup = Backup{Section: unavailable("not computed")}
+	sum.Engagement = Engagement{Section: unavailable("not computed")}
 
 	run(func(c context.Context) { sum.Alerts = s.alerts(c) })
 	run(func(c context.Context) { sum.KillSwitch = s.killSwitch() })
@@ -194,6 +197,7 @@ func (s *Service) compute(ctx context.Context) Summary {
 	run(func(c context.Context) { sum.Vehicles = s.vehicles(c) })
 	run(func(c context.Context) { sum.Disk = s.disk(c) })
 	run(func(c context.Context) { sum.Backup = s.backup(c) })
+	run(func(c context.Context) { sum.Engagement = s.engagement(c) })
 	wg.Wait()
 	return sum
 }
