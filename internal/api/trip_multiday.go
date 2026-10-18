@@ -58,8 +58,13 @@ type tripPlanMultidayRequest struct {
 	TargetArrivalSocPercent *float64              `json:"target_arrival_soc_percent,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
 	Origin                  tripPoint             `json:"origin"`
-	Days                    []tripPlanDayRequest  `json:"days"`
-	MaxOvernightSoCPct      float64               `json:"max_overnight_soc_pct"`
+	// OriginFromVehicle plans from where the truck is: the origin becomes its
+	// latest position and the starting SoC its latest charge ("re-plan from
+	// here"; send only the days that are left). 409 {"class":"no_position"}
+	// when there is no recent reading.
+	OriginFromVehicle  bool                 `json:"origin_from_vehicle"`
+	Days               []tripPlanDayRequest `json:"days"`
+	MaxOvernightSoCPct float64              `json:"max_overnight_soc_pct"`
 
 	// Legacy shape.
 	Destination tripPoint                   `json:"destination"`
@@ -99,6 +104,8 @@ type tripPlanMultidayResponse struct {
 	Simulated bool                  `json:"simulated,omitempty"`
 	// TZ is the zone the overnight "until" times were read in.
 	TZ string `json:"tz"`
+	// FromPosition is set when the plan started from the truck's position.
+	FromPosition *fromPosition `json:"from_position,omitempty"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -161,6 +168,18 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			badRequest(w, msg)
 			return
 		}
+		origin := req.Origin.waypoint()
+		var fromPos *fromPosition
+		if req.OriginFromVehicle {
+			pos, ok := vehiclePositionFor(r.Context(), mon, pool, uid, rv.VehicleID, time.Now())
+			if !ok {
+				noPosition(w)
+				return
+			}
+			origin = tripmultiday.Waypoint{Latitude: pos.Lat, Longitude: pos.Lon, Label: "Current location"}
+			rv.StartingSoC = pos.SoC
+			fromPos = pos.echo()
+		}
 		pack := req.PackKWh
 		if pack <= 0 {
 			pack = vehiclePackKWh(r.Context(), pool, uid, rv.VehicleID)
@@ -190,7 +209,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			StartingSoC:         rv.StartingSoC,
 			StartAt:             startAt,
 			Loc:                 loc,
-			Origin:              req.Origin.waypoint(),
+			Origin:              origin,
 			Days:                days,
 			MaxOvernightSoCPct:  req.MaxOvernightSoCPct,
 			TargetArrivalSoCPct: req.TargetArrivalSocPercent,
@@ -262,7 +281,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return
 		}
 
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, FromPosition: fromPos, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d}
 			if ex, ok := extras[d.Index]; ok {

@@ -39,6 +39,11 @@ type tripPlanRequest struct {
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
 	// RoutePreferences: road types to avoid on the whole trip.
 	RoutePreferences *tripRoutePrefs `json:"route_preferences,omitempty"`
+	// OriginFromVehicle plans from where the truck is: the first waypoint
+	// becomes the truck's latest position and the starting SoC its latest
+	// charge ("re-plan from here"). 409 {"class":"no_position"} when there is
+	// no recent reading.
+	OriginFromVehicle bool `json:"origin_from_vehicle,omitempty"`
 	// DepartAt (RFC3339) is when the trip leaves, for ETAs on a future
 	// trip. Empty or in the past means now.
 	DepartAt string `json:"depart_at,omitempty"`
@@ -112,6 +117,18 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		req.VehicleID, req.StartingRangeMeters = rv.VehicleID, rv.RangeMeters
 		startingSoC := rv.StartingSoC
 		req.StartingSoC = &startingSoC
+		var fromPos *fromPosition
+		if req.OriginFromVehicle {
+			pos, ok := vehiclePositionFor(r.Context(), mon, pool, uid, rv.VehicleID, time.Now())
+			if !ok {
+				noPosition(w)
+				return
+			}
+			req.Waypoints[0] = tripPlanWaypoint{Latitude: pos.Lat, Longitude: pos.Lon, WaypointType: "origin"}
+			startingSoC = pos.SoC
+			req.StartingRangeMeters = 0 // the reading's range is not the position's: derive it from the charge
+			fromPos = pos.echo()
+		}
 
 		// Drop unknown drive_mode values before they reach Rivian's
 		// GraphQL — the enum is strict and an unknown value fails the
@@ -218,7 +235,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			writeUpstreamError(w, err)
 			return
 		}
-		resp := tripPlanResponse{TripPlan: plan}
+		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos}
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc,
 			vehicleID: req.VehicleID, packKWh: req.PackKWh}
 		enr.load(r.Context())
@@ -233,6 +250,8 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 // older SPA bundles ignore the new field cleanly.
 type tripPlanResponse struct {
 	*rivian.TripPlan
+	// FromPosition is set when the plan started from the truck's position.
+	FromPosition      *fromPosition             `json:"from_position,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
 	// Costs is aligned with TripPlan.Routes - Costs[i] is the
 	// DCFC + home-equivalent estimate for Routes[i]. Empty when the
