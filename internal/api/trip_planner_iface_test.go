@@ -93,7 +93,7 @@ func TestTripPlanHandlersStillRefuseClientsWithoutAPlanner(t *testing.T) {
 			t.Errorf("%s single-day = %d, want 404", name, rec.Code)
 		}
 		rec = httptest.NewRecorder()
-		handleTripPlanMultiday(c, nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/plan/multiday", bytes.NewBufferString(`{}`)))
+		handleTripPlanMultiday(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/plan/multiday", bytes.NewBufferString(`{}`)))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s multi-day = %d, want 404", name, rec.Code)
 		}

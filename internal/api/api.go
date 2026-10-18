@@ -1097,7 +1097,7 @@ func New(d Deps) http.Handler {
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanMultiday(clientFor(d, uid), d.Settings.For(uid))(w, r)
+				handleTripPlanMultiday(clientFor(d, uid), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r)
 			}))
 		})
 

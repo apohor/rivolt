@@ -88,6 +88,13 @@ func httpStatusForUpstream(err error) int {
 // It is a user_action by definition (the user must re-link Rivian), so
 // stamp that class explicitly.
 func writeUpstreamError(w http.ResponseWriter, err error) {
+	status, body := upstreamErrorBody(err)
+	writeJSON(w, status, body)
+}
+
+// upstreamErrorBody is the status and JSON body writeUpstreamError sends: the
+// error text plus, when known, the failure class and reason the SPA reads.
+func upstreamErrorBody(err error) (int, map[string]any) {
 	status := httpStatusForUpstream(err)
 	body := map[string]any{"error": err.Error()}
 	var ue *rivian.UpstreamError
@@ -101,7 +108,7 @@ func writeUpstreamError(w http.ResponseWriter, err error) {
 		body["class"] = rivian.ClassUserAction.String()
 		body["reason"] = "session expired"
 	}
-	writeJSON(w, status, body)
+	return status, body
 }
 
 // rivianStatusDTO is the public view of the Rivian account state.
