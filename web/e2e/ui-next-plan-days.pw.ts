@@ -9,6 +9,11 @@ import { DEMO_PLAN, stubApi } from "./stub";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
+type MultidayBody = {
+  tz: string;
+  days: { vias?: { label: string }[]; overnight?: Record<string, unknown> }[];
+};
+
 const pt = (label: string, lat: number, lon: number) => ({ lat, lon, label });
 const SAVED_INPUTS = {
   origin: pt("Chicago", 41.88, -87.63),
@@ -43,9 +48,9 @@ const DAYS = [
 const TOTAL = { distance_meters: 1_900_000, drive_duration_sec: 90_000, charging_duration_sec: 6_000 };
 
 async function plan(page: Page, body: object) {
-  const reqs: any[] = [];
+  const reqs: MultidayBody[] = [];
   await page.route("**/api/trips/plan-multiday", (r) => {
-    reqs.push(r.request().postDataJSON());
+    reqs.push(r.request().postDataJSON() as MultidayBody);
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await page.route("**/api/trips/saved", (r) =>
@@ -69,14 +74,14 @@ for (const v of [
   { n: "desktop", vp: { width: 1280, height: 900 } },
 ] as const) {
   test(`3-day plan: dates, own times, Simulated, vias sent · ${v.n}`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
+    const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark", timezoneId: "America/Chicago" });
     const page = await ctx.newPage();
     await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
     const reqs = await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" });
     expect(reqs).toHaveLength(1);
     const r = reqs[0];
-    expect(r.tz).toMatch(/\//);
+    expect(r.tz).toBe("America/Chicago");
     expect(r.days).toHaveLength(3);
     expect(r.days[0].vias).toHaveLength(1);
     expect(r.days[0].vias[0].label).toBe("Peoria");
