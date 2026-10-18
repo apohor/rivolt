@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -9,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
@@ -161,6 +164,16 @@ func TestAdminOnlyRouter_404sNonAdminRoutes(t *testing.T) {
 	if got := a.get("/api/health", tok); got != 200 {
 		t.Errorf("/api/health = %d, want 200", got)
 	}
+	// A view-as GET passes the gate but, with no admin session behind it, is
+	// refused by the layer after impersonation (403, never data).
+	vreq := httptest.NewRequest("GET", "/api/vehicles", nil)
+	vreq.Header.Set(cfaccess.Header, tok)
+	vreq.Header.Set(ImpersonateHeader, uuid.NewString())
+	vrec := httptest.NewRecorder()
+	a.router.ServeHTTP(vrec, vreq)
+	if vrec.Code != 403 {
+		t.Errorf("view-as GET without a session = %d, want 403", vrec.Code)
+	}
 	// Probes carry no JWT and are exempt.
 	if got := a.get("/healthz", ""); got != 200 {
 		t.Errorf("/healthz = %d, want 200", got)
@@ -179,5 +192,84 @@ func TestAdminOnlyRouter_NilVerifierDeniesEverything(t *testing.T) {
 		if rec.Code != 403 {
 			t.Errorf("%s with no verifier = %d, want 403", p, rec.Code)
 		}
+	}
+}
+
+// The view-as chain exactly as api.New wires it on the admin deployment:
+// gate -> auth -> impersonationMW -> adminOnlyViewAsMW -> route.
+func TestAdminOnlyViewAs(t *testing.T) {
+	admin, other, target, anotherAdmin := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	roles := map[uuid.UUID]string{admin: "admin", other: "user", target: "user", anotherAdmin: "admin"}
+	build := func(disabled bool) http.Handler {
+		r := chi.NewRouter()
+		r.Use(adminOnlyGateMW)
+		r.Use(func(next http.Handler) http.Handler { // stands in for session auth: X-Test-User
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if u, err := uuid.Parse(req.Header.Get("X-Test-User")); err == nil {
+					req = req.WithContext(auth.WithUser(req.Context(), u))
+				}
+				next.ServeHTTP(w, req)
+			})
+		})
+		r.Use(impersonationMW(func(_ context.Context, uid uuid.UUID) (string, error) { return roles[uid], nil },
+			func() bool { return disabled }))
+		r.Use(adminOnlyViewAsMW)
+		r.HandleFunc("/*", func(w http.ResponseWriter, req *http.Request) {
+			if id, ok := auth.UserFromContext(req.Context()); ok {
+				_, _ = w.Write([]byte(id.String()))
+			}
+		})
+		return r
+	}
+	do := func(h http.Handler, method, path, user, view string) (int, string) {
+		req := httptest.NewRequest(method, path, nil)
+		if user != "" {
+			req.Header.Set("X-Test-User", user)
+		}
+		if view != "" {
+			req.Header.Set(ImpersonateHeader, view)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
+	h := build(false)
+
+	if code, body := do(h, "GET", "/api/vehicles", admin.String(), target.String()); code != 200 || body != target.String() {
+		t.Errorf("impersonated GET = %d %q, want 200 served as the target", code, body)
+	}
+	if code, _ := do(h, "HEAD", "/api/vehicles", admin.String(), target.String()); code != 200 {
+		t.Errorf("impersonated HEAD = %d, want 200", code)
+	}
+	if code, _ := do(h, "GET", "/api/vehicles", admin.String(), ""); code != 404 {
+		t.Errorf("non-impersonated user-data GET = %d, want 404", code)
+	}
+	for _, m := range []string{"POST", "PUT", "DELETE"} {
+		if code, _ := do(h, m, "/api/vehicles", admin.String(), target.String()); code != 404 {
+			t.Errorf("impersonated %s = %d, want refused (404)", m, code)
+		}
+	}
+	// A non-admin sending the header must not be served (as anyone).
+	if code, body := do(h, "GET", "/api/vehicles", other.String(), target.String()); code != 403 || body == other.String() {
+		t.Errorf("non-admin with the header = %d %q, want 403 and no data", code, body)
+	}
+	// No session at all, with the header.
+	if code, _ := do(h, "GET", "/api/vehicles", "", target.String()); code != 403 {
+		t.Errorf("anonymous with the header = %d, want 403", code)
+	}
+	// Still never an admin, never /api/admin while impersonating.
+	if code, _ := do(h, "GET", "/api/vehicles", admin.String(), anotherAdmin.String()); code != 403 {
+		t.Errorf("impersonating an admin = %d, want 403", code)
+	}
+	if code, _ := do(h, "GET", "/api/admin/users", admin.String(), target.String()); code != 403 {
+		t.Errorf("/api/admin while impersonating = %d, want 403", code)
+	}
+	// Impersonation switched off: the header alone opens nothing.
+	if code, body := do(build(true), "GET", "/api/vehicles", admin.String(), target.String()); code != 403 || body == target.String() {
+		t.Errorf("header with impersonation disabled = %d %q, want 403 and no data", code, body)
+	}
+	// The admin set is unaffected.
+	if code, _ := do(h, "GET", "/api/auth/me", admin.String(), ""); code != 200 {
+		t.Errorf("/api/auth/me = %d, want 200", code)
 	}
 }

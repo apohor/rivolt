@@ -345,6 +345,11 @@ func New(d Deps) http.Handler {
 				}
 				return adminaudit.New(d.DB).NoteImpersonationStart(ctx, admin, target, ip, 30*time.Minute)
 			}))
+		if d.AdminOnly {
+			r.Use(adminOnlyViewAsMW)
+		}
+	} else if d.AdminOnly {
+		r.Use(adminOnlyViewAsMW) // no auth, so nothing can impersonate: user routes stay closed
 	}
 
 	// /metrics is deliberately NOT mounted on this router: the Ingress
