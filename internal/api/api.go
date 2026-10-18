@@ -208,10 +208,10 @@ type Deps struct {
 	// sourced from $RIVOLT_PUBLIC_BASE_URL, else $RIVOLT_BASE_URL (the
 	// admin deployment sets the former: its own host is behind Cloudflare
 	// Access, so links it emails must point at the public site). Used
-	// today only for composing
-	// the magic-link signup URL in approval emails; safe to leave
-	// empty in tests — the link falls back to a relative path so
-	// copy-paste-into-the-same-tab still works.
+	// for user-facing links in emails: the magic-link signup URL
+	// (admin approval and auto-approve) and the monthly statement's
+	// links. Safe to leave empty in tests — the signup link falls back
+	// to a relative path so copy-paste-into-the-same-tab still works.
 	BaseURL string
 	// ValhallaProxy, when non-nil, mounts a same-origin reverse
 	// proxy at /api/maps/valhalla/* that forwards to a self-hosted
