@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,11 +20,19 @@ func row(labels, v string) string {
 	return `{"metric":{` + labels + `},"value":[1792349302.6,"` + v + `"]}`
 }
 
+// backupTS is what the fake Prometheus reports as the newest backup's timestamp.
+var backupTS atomic.Value
+
 func TestSummary(t *testing.T) {
-	var queries []string
+	var (
+		qmu     sync.Mutex
+		queries []string
+	)
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("query")
+		qmu.Lock()
 		queries = append(queries, q)
+		qmu.Unlock()
 		switch {
 		case strings.Contains(q, "rivolt_rivian_results_total"):
 			_, _ = w.Write([]byte(promBody(row(`"class":"success"`, "90"), row(`"class":"outage"`, "6"), row(`"class":"rate_limited"`, "4"))))
@@ -35,7 +45,7 @@ func TestSummary(t *testing.T) {
 		case strings.Contains(q, "kubelet_volume_stats"):
 			_, _ = w.Write([]byte(promBody(row("", "61.5"))))
 		case strings.Contains(q, "cnpg_collector_last_available_backup_timestamp"):
-			_, _ = w.Write([]byte(promBody(row("", "58592"))))
+			_, _ = w.Write([]byte(promBody(row("", backupTS.Load().(string)))))
 		default:
 			http.Error(w, "unexpected", 500)
 		}
@@ -55,7 +65,13 @@ func TestSummary(t *testing.T) {
 	defer am.Close()
 
 	s := New(Config{Version: "v1.2.3", AlertmanagerURL: am.URL + "/", PrometheusURL: prom.URL, Namespace: "rivolt"})
+	now := time.Date(2026, 10, 18, 20, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	backupTS.Store(strconv.FormatInt(now.Add(-58592*time.Second).Unix(), 10))
 	sum := s.Summary(t.Context())
+	qmu.Lock()
+	firstQueries := append([]string(nil), queries...)
+	qmu.Unlock()
 
 	if sum.Version != "v1.2.3" {
 		t.Errorf("version = %q", sum.Version)
@@ -79,13 +95,25 @@ func TestSummary(t *testing.T) {
 	if sum.Backup.Status != OK || sum.Backup.AgeSeconds == nil || *sum.Backup.AgeSeconds != 58592 {
 		t.Errorf("backup = %+v", sum.Backup)
 	}
+	// A cluster that never took a backup reports a zero timestamp: that is
+	// "no backup recorded", never an age since 1970.
+	backupTS.Store("0")
+	s.cached = nil
+	if b := s.Summary(t.Context()).Backup; b.Status != Unavailable || b.AgeSeconds != nil || b.Reason != "no backup recorded" {
+		t.Errorf("zero backup timestamp = %+v, want unavailable, \"no backup recorded\", no age", b)
+	}
+	backupTS.Store(strconv.FormatInt(now.Add(time.Hour).Unix(), 10)) // a future timestamp: clock skew, age 0
+	s.cached = nil
+	if b := s.Summary(t.Context()).Backup; b.Status != OK || b.AgeSeconds == nil || *b.AgeSeconds != 0 {
+		t.Errorf("future backup timestamp = %+v, want ok with age 0", b)
+	}
 	// Without a database and flags store those sections are unavailable, not errors.
 	if sum.Vehicles.Status != Unavailable || sum.KillSwitch.Status != Unavailable {
 		t.Errorf("vehicles %+v, kill switch %+v want unavailable", sum.Vehicles, sum.KillSwitch)
 	}
 	// The queries are scoped to the configured namespace.
 	var scoped int
-	for _, q := range queries {
+	for _, q := range firstQueries {
 		if strings.Contains(q, `namespace="rivolt"`) {
 			scoped++
 		}
