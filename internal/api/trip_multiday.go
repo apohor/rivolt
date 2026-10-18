@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -58,8 +59,13 @@ type tripPlanMultidayRequest struct {
 	TargetArrivalSocPercent *float64              `json:"target_arrival_soc_percent,omitempty"`
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
 	Origin                  tripPoint             `json:"origin"`
-	Days                    []tripPlanDayRequest  `json:"days"`
-	MaxOvernightSoCPct      float64               `json:"max_overnight_soc_pct"`
+	// OriginFromVehicle plans from where the truck is: the origin becomes its
+	// latest position and the starting SoC its latest charge ("re-plan from
+	// here"; send only the days that are left). 409 {"class":"no_position"}
+	// when there is no recent reading.
+	OriginFromVehicle  bool                 `json:"origin_from_vehicle"`
+	Days               []tripPlanDayRequest `json:"days"`
+	MaxOvernightSoCPct float64              `json:"max_overnight_soc_pct"`
 
 	// Legacy shape.
 	Destination tripPoint                   `json:"destination"`
@@ -99,6 +105,8 @@ type tripPlanMultidayResponse struct {
 	Simulated bool                  `json:"simulated,omitempty"`
 	// TZ is the zone the overnight "until" times were read in.
 	TZ string `json:"tz"`
+	// FromPosition is set when the plan started from the truck's position.
+	FromPosition *fromPosition `json:"from_position,omitempty"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -124,6 +132,10 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 		var req tripPlanMultidayRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			badRequest(w, "invalid body: "+err.Error())
+			return
+		}
+		if msg := req.validate(planNow()); msg != "" {
+			badRequest(w, msg)
 			return
 		}
 		days, err := req.dayInputs()
@@ -157,9 +169,28 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			vid = *req.VehicleID
 		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, vid, req.StartingSoC, 0)
-		if msg != "" {
+		if msg != "" && !(req.OriginFromVehicle && socFromPosition(msg)) {
 			badRequest(w, msg)
 			return
+		}
+		origin := req.Origin.waypoint()
+		var fromPos *fromPosition
+		if req.OriginFromVehicle {
+			pos, ok := vehiclePositionFor(r.Context(), mon, pool, uid, rv.VehicleID, time.Now())
+			if !ok {
+				noPosition(w)
+				return
+			}
+			origin = tripmultiday.Waypoint{Latitude: pos.Lat, Longitude: pos.Lon, Label: "Current location"}
+			// An explicit starting_soc wins over the reading.
+			if req.StartingSoC == nil {
+				rv.StartingSoC = pos.SoC
+			}
+			// Planning from where the truck is leaves now: a past start is stale.
+			if startAt.Before(time.Now()) {
+				startAt = time.Time{}
+			}
+			fromPos = pos.echo()
 		}
 		pack := req.PackKWh
 		if pack <= 0 {
@@ -190,7 +221,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			StartingSoC:         rv.StartingSoC,
 			StartAt:             startAt,
 			Loc:                 loc,
-			Origin:              req.Origin.waypoint(),
+			Origin:              origin,
 			Days:                days,
 			MaxOvernightSoCPct:  req.MaxOvernightSoCPct,
 			TargetArrivalSoCPct: req.TargetArrivalSocPercent,
@@ -250,7 +281,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				badRequest(w, re.Error())
 				return
 			}
-			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "err", err.Error())
+			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "class", errClass(err))
 			writeUpstreamError(w, err)
 			return
 		}
@@ -262,7 +293,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return
 		}
 
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, FromPosition: fromPos, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d}
 			if ex, ok := extras[d.Index]; ok {
@@ -284,9 +315,9 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				resp.ErrorClass, _ = body["class"].(string)
 				resp.ErrorReason, _ = body["reason"].(string)
 				if out.PlannerFailure {
-					// The detail (gateway text, router errors) is for the logs.
+					// Only the class is logged: no gateway text, no coordinates.
 					slog.WarnContext(r.Context(), "multi-day plan: a day could not be planned",
-						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "err", out.FailedErr.Error())
+						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "class", errClass(out.FailedErr))
 					resp.Error = out.Error + ": " + plainPlanReason(out.FailedErr)
 				}
 			}
@@ -361,4 +392,94 @@ func plainPlanReason(err error) string {
 		return "no sample plan for this trip"
 	}
 	return "the planner could not plan this day"
+}
+
+// validate checks the request's numbers and places before anything is planned:
+// coordinates in range, percentages in range, times inside the departure
+// window. A non-empty result is the 400 message, naming the day.
+func (req *tripPlanMultidayRequest) validate(now time.Time) string {
+	if req.StartingSoC != nil && !validPct(*req.StartingSoC) {
+		return "starting_soc must be between 0 and 100"
+	}
+	if req.PackKWh < 0 || math.IsNaN(req.PackKWh) || req.PackKWh > 1000 {
+		return "pack_kwh is out of range"
+	}
+	if req.TargetArrivalSocPercent != nil && !validTargetPct(*req.TargetArrivalSocPercent) {
+		return "target_arrival_soc_percent must be between 0 and 100"
+	}
+	if req.MaxOvernightSoCPct < 0 || req.MaxOvernightSoCPct > 100 || math.IsNaN(req.MaxOvernightSoCPct) {
+		return "max_overnight_soc_pct must be between 0 and 100"
+	}
+	if req.StartAt != "" {
+		t, err := time.Parse(time.RFC3339, req.StartAt)
+		if err != nil {
+			return "start_at must be an RFC 3339 time"
+		}
+		if err := departureWindowErr(t, now); err != nil {
+			return "start_at " + err.Error()
+		}
+	}
+	pt := func(what string, p tripPoint) string {
+		w := p.waypoint()
+		if !validLatLon(w.Latitude, w.Longitude) {
+			return what + " has an invalid coordinate"
+		}
+		return ""
+	}
+	if !req.OriginFromVehicle {
+		if m := pt("origin", req.Origin); m != "" {
+			return m
+		}
+	}
+	for i, d := range req.Days {
+		n := "day " + itoa(i+1)
+		if m := pt(n+" end", d.End); m != "" {
+			return m
+		}
+		for j, v := range d.Vias {
+			if m := pt(n+" via "+itoa(j+1), v); m != "" {
+				return m
+			}
+		}
+		if d.TargetArrivalSocPct != nil && !validTargetPct(*d.TargetArrivalSocPct) {
+			return n + ": target_arrival_soc_pct must be between 0 and 100"
+		}
+		if d.DepartAt != "" {
+			if t, err := time.Parse(time.RFC3339, d.DepartAt); err == nil {
+				if err := departureWindowErr(t, now); err != nil {
+					return n + ": depart_at " + err.Error()
+				}
+			}
+		}
+		if o := d.Overnight; o != nil {
+			if o.L2KW != nil && (*o.L2KW < 0 || *o.L2KW > 350 || math.IsNaN(*o.L2KW)) {
+				return n + ": overnight l2_kw is out of range"
+			}
+			if o.MaxSoCPct < 0 || o.MaxSoCPct > 100 || math.IsNaN(o.MaxSoCPct) {
+				return n + ": overnight max_soc_pct must be between 0 and 100"
+			}
+		}
+	}
+	if len(req.Days) == 0 {
+		for i, ov := range req.Overnights {
+			if !validLatLon(ov.Latitude, ov.Longitude) {
+				return "overnight " + itoa(i+1) + " has an invalid coordinate"
+			}
+		}
+		if m := pt("destination", req.Destination); m != "" && len(req.Overnights) > 0 {
+			return m
+		}
+	}
+	return ""
+}
+
+// errClass is the failure class of a planner error for logs: the upstream
+// class when there is one, else "internal". Never the error text, which can
+// carry the gateway's wording.
+func errClass(err error) string {
+	_, body := upstreamErrorBody(err)
+	if c, _ := body["class"].(string); c != "" {
+		return c
+	}
+	return "other"
 }

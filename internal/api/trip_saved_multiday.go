@@ -29,9 +29,16 @@ type savedDayJSON struct {
 	Index    int             `json:"index"`
 	Plan     json.RawMessage `json:"plan"`
 	DepartAt string          `json:"depart_at"`
+	ArriveAt string          `json:"arrive_at"`
 	Costs    json.RawMessage `json:"costs"`
 	Start    *savedPoint     `json:"start"`
 	End      *savedPoint     `json:"end"`
+	Vias     []savedPoint    `json:"vias"`
+	// Overnight is the stay that ends the day (nil on the last day).
+	Overnight *struct {
+		L2KW     *float64 `json:"l2_kw"`
+		MaxSoCPc float64  `json:"max_soc_pct"`
+	} `json:"overnight"`
 }
 
 type savedPoint struct {

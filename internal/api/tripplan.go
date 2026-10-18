@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,6 +41,11 @@ type tripPlanRequest struct {
 	NetworkPreferences      []tripPlanNetworkPref `json:"network_preferences,omitempty"`
 	// RoutePreferences: road types to avoid on the whole trip.
 	RoutePreferences *tripRoutePrefs `json:"route_preferences,omitempty"`
+	// OriginFromVehicle plans from where the truck is: the first waypoint
+	// becomes the truck's latest position and the starting SoC its latest
+	// charge ("re-plan from here"). 409 {"class":"no_position"} when there is
+	// no recent reading.
+	OriginFromVehicle bool `json:"origin_from_vehicle,omitempty"`
 	// DepartAt (RFC3339) is when the trip leaves, for ETAs on a future
 	// trip. Empty or in the past means now.
 	DepartAt string `json:"depart_at,omitempty"`
@@ -104,14 +111,47 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			badRequest(w, "at least origin + destination waypoints required")
 			return
 		}
+		for i, wp := range req.Waypoints {
+			if !validLatLon(wp.Latitude, wp.Longitude) {
+				badRequest(w, fmt.Sprintf("waypoint %d has an invalid coordinate", i+1))
+				return
+			}
+		}
+		if req.StartingSoC != nil && !validPct(*req.StartingSoC) {
+			badRequest(w, "starting_soc must be between 0 and 100")
+			return
+		}
+		if req.TargetArrivalSocPercent != nil && !validTargetPct(*req.TargetArrivalSocPercent) {
+			badRequest(w, "target_arrival_soc_percent must be between 0 and 100")
+			return
+		}
+		if math.IsNaN(req.OriginBearing) || req.OriginBearing < 0 || req.OriginBearing >= 360 {
+			badRequest(w, "origin_bearing must be 0 up to 360 degrees")
+			return
+		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, req.VehicleID, req.StartingSoC, req.StartingRangeMeters)
-		if msg != "" {
+		if msg != "" && !(req.OriginFromVehicle && socFromPosition(msg)) {
 			badRequest(w, msg)
 			return
 		}
 		req.VehicleID, req.StartingRangeMeters = rv.VehicleID, rv.RangeMeters
+		explicitSoC := req.StartingSoC != nil
 		startingSoC := rv.StartingSoC
 		req.StartingSoC = &startingSoC
+		var fromPos *fromPosition
+		if req.OriginFromVehicle {
+			pos, ok := vehiclePositionFor(r.Context(), mon, pool, uid, rv.VehicleID, time.Now())
+			if !ok {
+				noPosition(w)
+				return
+			}
+			req.Waypoints[0] = tripPlanWaypoint{Latitude: pos.Lat, Longitude: pos.Lon, WaypointType: "origin"}
+			if !explicitSoC {
+				startingSoC = pos.SoC
+			}
+			req.StartingRangeMeters = 0 // the reading's range is not the position's: derive it from the charge
+			fromPos = pos.echo()
+		}
 
 		// Drop unknown drive_mode values before they reach Rivian's
 		// GraphQL — the enum is strict and an unknown value fails the
@@ -132,7 +172,14 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "depart_at must be an RFC 3339 time"})
 				return
 			}
+			if err := departureWindowErr(t, planNow()); err != nil {
+				badRequest(w, "depart_at "+err.Error())
+				return
+			}
 			departAt = t
+		}
+		if req.OriginFromVehicle && departAt.Before(time.Now()) {
+			departAt = time.Time{} // from where the truck is, leaving now
 		}
 		in := rivian.PlanTripInput{
 			DepartureTime:           departAt,
@@ -191,10 +238,11 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 
 		plan, err := planner.PlanTrip(r.Context(), in)
 		if err != nil {
+			// The class only: no gateway text, no coordinates.
 			slog.WarnContext(r.Context(), "trip plan failed",
 				"vehicle_id", in.VehicleID,
 				"waypoints", len(in.Waypoints),
-				"err", err.Error())
+				"class", errClass(err))
 			// Map upstream error class to an HTTP status the SPA
 			// can render. 4xx passes through Cloudflare cleanly;
 			// 5xx gets replaced with Cloudflare's HTML error page.
@@ -218,7 +266,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			writeUpstreamError(w, err)
 			return
 		}
-		resp := tripPlanResponse{TripPlan: plan}
+		resp := tripPlanResponse{TripPlan: plan, FromPosition: fromPos}
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc,
 			vehicleID: req.VehicleID, packKWh: req.PackKWh}
 		enr.load(r.Context())
@@ -233,6 +281,8 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 // older SPA bundles ignore the new field cleanly.
 type tripPlanResponse struct {
 	*rivian.TripPlan
+	// FromPosition is set when the plan started from the truck's position.
+	FromPosition      *fromPosition             `json:"from_position,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
 	// Costs is aligned with TripPlan.Routes - Costs[i] is the
 	// DCFC + home-equivalent estimate for Routes[i]. Empty when the

@@ -1068,6 +1068,11 @@ func New(d Deps) http.Handler {
 					r.Post("/trips/saved/{id}/unlink", withUser(pa.unlink))
 				})
 			}
+			// Where a saved multi-day trip stands (which day is under way, where
+			// the truck is), for "re-plan from here". Reads only.
+			if d.DB != nil && d.Trips != nil {
+				r.With(requireTripPlannerEnabledMW(d.Flags)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
+			}
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripsList(d.Trips.For(uid))(w, r)
 			}))
