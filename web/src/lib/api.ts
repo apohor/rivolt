@@ -1250,6 +1250,13 @@ export const backend = {
       "/api/admin/flags/trip-planner",
       { enabled },
     ),
+  // Admin audit log (newest first). `next_before` pages: pass it back as `before`.
+  adminAudit: (p: { action?: string; limit?: number; before?: number; actor?: string; target_user?: string } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== "") q.set(k, String(v));
+    const qs = q.toString();
+    return api.get<AdminAuditPage>(`/api/admin/audit${qs ? `?${qs}` : ""}`);
+  },
   adminSignupCapGet: () =>
     api.get<AdminSignupCapState>("/api/admin/signup-cap"),
   adminSignupCapPut: (limit: number) =>
@@ -1850,6 +1857,23 @@ export type AdminFlagsState = {
   kill_switch: { paused: boolean; reason?: string; actor?: string };
   trip_planner: { enabled: boolean; actor?: string };
 };
+
+// One admin action from GET /api/admin/audit (internal/adminaudit.Row).
+export type AdminAuditRow = {
+  id: number;
+  at: string;
+  actor_user_id: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  target_user_id?: string;
+  details: Record<string, unknown>;
+  ip: string;
+  outcome: string | null; // null: in flight or unknown
+  status?: number;
+  finished_at?: string;
+};
+export type AdminAuditPage = { items: AdminAuditRow[]; next_before: number | null };
 
 // AdminSignupCapState is the response shape from /api/admin/signup-cap.
 // Carries the cap (Limit, Actor) plus the live user count so the UI can
