@@ -6,6 +6,8 @@ import { startImpersonation } from "../lib/impersonation";
 import { formatDateTime } from "../lib/format";
 import { Card, clickableRowProps, ErrorBox, PageHeader, Spinner } from "../components/ui";
 import { AdminUsersTable } from "../components/AdminUsersTable";
+import { SignupsNext } from "../components/AdminSignupsNext";
+import { FlagsNext } from "../components/AdminFlagsNext";
 import { useUiNext } from "../lib/uiNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
 
@@ -121,6 +123,7 @@ function isAdminTab(s: string): s is AdminTab {
 }
 
 function AdminTabs({ currentUserID }: { currentUserID: string }) {
+  const nextUi = useUiNext();
   const initial: AdminTab = (() => {
     const h = window.location.hash.replace(/^#/, "");
     return isAdminTab(h) ? h : "signups";
@@ -173,17 +176,18 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           <IdpFailuresPanel />
         </div>
       )}
-      {tab === "signups" && (
+      {tab === "signups" && (nextUi ? <SignupsNext /> : (
         <Card title="Signup requests">
           <SignupRequestsPanel />
         </Card>
-      )}
+      ))}
       {tab === "ai" && (
         <Card title="AI providers">
           <AIProvidersPanel />
         </Card>
       )}
-      {tab === "operations" && (
+      {tab === "operations" && nextUi && <FlagsNext />}
+      {tab === "operations" && !nextUi && (
         <div className="space-y-4">
           <Card title="Feature flags">
             <FeatureFlagsPanel />
