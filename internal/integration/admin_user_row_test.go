@@ -51,7 +51,7 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 	}
 	exec(`INSERT INTO subscription_leases (vehicle_id, pod_id, expires_at) VALUES ('rv-2','pod-a', now() + interval '1 minute')`)
 	exec(`INSERT INTO subscription_leases (vehicle_id, pod_id, expires_at) VALUES ('rv-1','pod-b', now() - interval '1 minute')`)
-	exec(`INSERT INTO user_settings (user_id, value) VALUES ($1, '{"privacy.rivian_receipts":"1"}'::jsonb)`, busy)
+	exec(`INSERT INTO user_settings (user_id, namespace, value) VALUES ($1, 'privacy', '{"privacy.rivian_receipts":"1"}'::jsonb)`, busy)
 	exec(`UPDATE users SET inactive_warned_at = now() - interval '3 days' WHERE id = $1`, busy)
 	// idle: a vehicle with no state, an expired lease only, receipts not on.
 	exec(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-3')`, idle)
