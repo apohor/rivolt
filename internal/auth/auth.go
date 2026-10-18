@@ -93,6 +93,10 @@ type Config struct {
 	// from the client as a belt-and-braces measure.
 	TrustedProxyCIDRs []*net.IPNet
 
+	// OnAuth, when set, is told the method of every authenticated request
+	// (cookie, kratos, header, bypass): a metrics hook. No user data.
+	OnAuth func(method string)
+
 	// HeaderUser / HeaderEmail are the header names the
 	// upstream proxy writes the authenticated identity into.
 	// Defaults follow oauth2-proxy conventions. Most proxies can
@@ -176,6 +180,7 @@ type Service struct {
 	secret       []byte
 	secureCooke  bool
 	trustedNets  []*net.IPNet
+	onAuth       func(method string)
 	hdrUser      string
 	hdrEmail     string
 	userIDFor    func(string) uuid.UUID
@@ -268,6 +273,7 @@ func New(cfg Config) (*Service, error) {
 		secret:       secret,
 		secureCooke:  cfg.SecureCookie,
 		trustedNets:  cfg.TrustedProxyCIDRs,
+		onAuth:       cfg.OnAuth,
 		hdrUser:      cfg.HeaderUser,
 		hdrEmail:     cfg.HeaderEmail,
 		userIDFor:    cfg.UserIDFor,
@@ -336,6 +342,26 @@ func BroadTrustedCIDRs(nets []*net.IPNet) []string {
 		}
 	}
 	return out
+}
+
+// ErrTrustedProxyTooBroad is returned by CheckTrustedProxies.
+var ErrTrustedProxyTooBroad = errors.New("RIVOLT_TRUSTED_PROXY_CIDR is network-wide")
+
+// CheckTrustedProxies decides whether the server may start with this trusted
+// proxy list. Header SSO believes the user header from every peer in the list,
+// so on an install that also has OIDC sign-in (a public site, reached through
+// an ingress) a network-wide entry means anyone can sign in as any user. Then
+// it refuses: the error names the entries. Without OIDC a broad entry is only
+// worth a warning (the caller logs it); self-hosters who really use header SSO
+// list the exact proxy address.
+func CheckTrustedProxies(nets []*net.IPNet, oidcConfigured bool) (broad []string, err error) {
+	broad = BroadTrustedCIDRs(nets)
+	if len(broad) > 0 && oidcConfigured {
+		return broad, fmt.Errorf("%w (%s) and OIDC sign-in is configured: any peer in that range could sign in as any user by sending the SSO user header. "+
+			"Trust only the exact address of the authenticating proxy (a /32), or unset RIVOLT_TRUSTED_PROXY_CIDR",
+			ErrTrustedProxyTooBroad, strings.Join(broad, ", "))
+	}
+	return broad, nil
 }
 
 // token is the payload we sign into the cookie. Kept tiny — just
@@ -568,7 +594,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if uid, ok := s.identityFromHeader(r); ok {
-			s.serveAsUser(next, w, r, uid, false)
+			s.serveAsUser(next, w, r, uid, false, logging.AuthHeader)
 			return
 		}
 		// Kratos session issuer. Cheap pre-check: only call out
@@ -581,7 +607,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			if _, err := r.Cookie(s.kratosCookieName); err == nil {
 				uid, ok, err := s.kratosResolver(r.Context(), r.Header.Get("Cookie"))
 				if err == nil && ok {
-					s.serveAsUser(next, w, r, uid, false)
+					s.serveAsUser(next, w, r, uid, false, logging.AuthKratos)
 					return
 				}
 				if errors.Is(err, ErrSignupClosed) {
@@ -614,7 +640,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 				s.maybeBypass(next, w, r)
 				return
 			}
-			s.serveAsUser(next, w, r, info.UserID, true)
+			s.serveAsUser(next, w, r, info.UserID, true, logging.AuthCookie)
 			return
 		}
 		// Legacy HMAC-signed-cookie path. Kept so tests and
@@ -627,7 +653,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			s.maybeBypass(next, w, r)
 			return
 		}
-		s.serveAsUser(next, w, r, t.UserID, true)
+		s.serveAsUser(next, w, r, t.UserID, true, logging.AuthCookie)
 	})
 }
 
@@ -637,7 +663,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 // and continue unauthenticated (or as the bypass user). clearCookie
 // is gated on cookieAuth because header-authenticated requests
 // don't have one to clear.
-func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.Request, uid uuid.UUID, cookieAuth bool) {
+func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.Request, uid uuid.UUID, cookieAuth bool, method string) {
 	if s.disabledFor != nil && uid != uuid.Nil {
 		disabled, err := s.disabledFor(r.Context(), uid)
 		// Fail closed on lookup errors so a transient DB blip
@@ -650,7 +676,15 @@ func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.
 			return
 		}
 	}
-	next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), uid)))
+	s.observe(method)
+	next.ServeHTTP(w, r.WithContext(logging.WithAuthMethod(WithUser(r.Context(), uid), method)))
+}
+
+// observe counts an authenticated request by method (see Config.OnAuth).
+func (s *Service) observe(method string) {
+	if s.onAuth != nil {
+		s.onAuth(method)
+	}
 }
 
 // maybeBypass injects the configured bypass user into the request
@@ -659,7 +693,8 @@ func (s *Service) serveAsUser(next http.Handler, w http.ResponseWriter, r *http.
 // unauthenticated.
 func (s *Service) maybeBypass(next http.Handler, w http.ResponseWriter, r *http.Request) {
 	if s.bypassUserID != uuid.Nil {
-		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), s.bypassUserID)))
+		s.observe(logging.AuthBypass)
+		next.ServeHTTP(w, r.WithContext(logging.WithAuthMethod(WithUser(r.Context(), s.bypassUserID), logging.AuthBypass)))
 		return
 	}
 	next.ServeHTTP(w, r)

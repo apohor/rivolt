@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/google/uuid"
 )
 
@@ -166,7 +167,7 @@ func impersonationMW(roleLookup func(ctx context.Context, uid uuid.UUID) (string
 				http.Error(w, "cannot impersonate an admin", http.StatusForbidden)
 				return
 			}
-			ctx := auth.WithImpersonation(r.Context(), callerID, targetID)
+			ctx := logging.WithAuthMethod(auth.WithImpersonation(r.Context(), callerID, targetID), logging.AuthImpersonation)
 			slog.InfoContext(ctx, "impersonation",
 				"impersonator_id", callerID.String(),
 				"target_id", targetID.String(),

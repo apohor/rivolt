@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"github.com/apohor/rivolt/internal/clientip"
+	"github.com/apohor/rivolt/internal/logging"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -560,5 +562,100 @@ func TestBroadTrustedCIDRs(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// Every way in is tagged for the access log and counted for the metric:
+// header, kratos, cookie and bypass; an unauthenticated request is neither.
+func TestAuthMethodIsRecordedForEveryPath(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	var counted []string
+	count := func(m string) { counted = append(counted, m) }
+	nets, _ := ParseTrustedCIDRs("192.0.2.7/32")
+
+	method := func(s *Service, r *http.Request) (string, bool) {
+		var m string
+		var ok bool
+		s.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, ok = UserFromContext(r.Context())
+			m = logging.AuthMethodFromContext(r.Context())
+		})).ServeHTTP(httptest.NewRecorder(), r)
+		return m, ok
+	}
+
+	// header SSO, from the trusted peer
+	hs, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, TrustedProxyCIDRs: nets, OnAuth: count})
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.0.2.7:9"
+	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+	if m, ok := method(hs, r); !ok || m != "header" {
+		t.Errorf("header: %q %v", m, ok)
+	}
+
+	// kratos
+	ks, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, OnAuth: count,
+		KratosResolver: func(context.Context, string) (uuid.UUID, bool, error) { return fakeUserIDFor("k"), true, nil }})
+	r = httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: "ory_kratos_session", Value: "abc"})
+	if m, ok := method(ks, r); !ok || m != "kratos" {
+		t.Errorf("kratos: %q %v", m, ok)
+	}
+
+	// cookie
+	cs, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, OnAuth: count})
+	rec := httptest.NewRecorder()
+	if err := cs.IssueSession(rec, httptest.NewRequest("GET", "/", nil), fakeUserIDFor("c")); err != nil {
+		t.Fatal(err)
+	}
+	r = httptest.NewRequest("GET", "/", nil)
+	for _, c := range rec.Result().Cookies() {
+		r.AddCookie(c)
+	}
+	if m, ok := method(cs, r); !ok || m != "cookie" {
+		t.Errorf("cookie: %q %v", m, ok)
+	}
+
+	// bypass
+	bs, _ := New(Config{CookieSecret: key, UserIDFor: fakeUserIDFor, BypassUserID: fakeUserIDFor("b"), OnAuth: count})
+	if m, ok := method(bs, httptest.NewRequest("GET", "/", nil)); !ok || m != "bypass" {
+		t.Errorf("bypass: %q %v", m, ok)
+	}
+
+	// nobody: no method, nothing counted
+	before := len(counted)
+	if m, ok := method(cs, httptest.NewRequest("GET", "/", nil)); ok || m != "" {
+		t.Errorf("anonymous: %q %v", m, ok)
+	}
+	if len(counted) != before {
+		t.Error("an anonymous request was counted as authenticated")
+	}
+	if got := strings.Join(counted, ","); got != "header,kratos,cookie,bypass" {
+		t.Errorf("metric hook saw %q", got)
+	}
+}
+
+// The server refuses to start when a network-wide trusted-proxy range meets
+// OIDC sign-in; without OIDC it only reports the broad entry; an exact proxy
+// address is always fine.
+func TestCheckTrustedProxies(t *testing.T) {
+	parse := func(s string) []*net.IPNet {
+		n, err := ParseTrustedCIDRs(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	broad, err := CheckTrustedProxies(parse("10.42.0.0/16"), true)
+	if !errors.Is(err, ErrTrustedProxyTooBroad) || len(broad) != 1 || !strings.Contains(err.Error(), "10.42.0.0/16") {
+		t.Errorf("broad + OIDC: %v %v, want a refusal naming the range", broad, err)
+	}
+	if broad, err := CheckTrustedProxies(parse("10.42.0.0/16"), false); err != nil || len(broad) != 1 {
+		t.Errorf("broad, no OIDC: %v %v, want the entry reported but no error", broad, err)
+	}
+	if broad, err := CheckTrustedProxies(parse("192.0.2.7/32"), true); err != nil || len(broad) != 0 {
+		t.Errorf("exact proxy + OIDC: %v %v, want fine", broad, err)
+	}
+	if _, err := CheckTrustedProxies(nil, true); err != nil {
+		t.Errorf("no list: %v", err)
 	}
 }

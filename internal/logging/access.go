@@ -20,7 +20,10 @@ import (
 // propagate back to this outer scope. uuid.Nil = pre-auth or
 // unauthenticated request; we skip the field rather than emit
 // "user_id": "00000000-..." which would muddy Loki filters.
-func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Duration, uid uuid.UUID) {
+//
+// authMethod says how the user was authenticated (cookie, kratos, header,
+// impersonation, bypass); it is logged only with a user_id.
+func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Duration, uid uuid.UUID, authMethod string) {
 	switch r.URL.Path {
 	case "/api/health":
 		return
@@ -36,6 +39,9 @@ func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Durat
 	}
 	if uid != uuid.Nil {
 		attrs = append(attrs, slog.String("user_id", uid.String()))
+		if authMethod != "" {
+			attrs = append(attrs, slog.String("auth_method", authMethod))
+		}
 	}
 	slog.LogAttrs(r.Context(), slog.LevelInfo, "http", attrs...)
 }
