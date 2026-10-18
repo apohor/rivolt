@@ -22,6 +22,7 @@ const (
 	pathElectraFi   = "/moving-from-electrafi"
 	pathSafeConnect = "/safe-to-connect"
 	pathLeaseCalc   = "/lease-calculator"
+	pathChangelog   = "/changelog"
 )
 
 const (
@@ -64,6 +65,12 @@ var seoPages = map[string]map[string]seoPage{
 			desc:  "What Rivolt keeps, what it does, how to undo it, and why a separate Authorized Driver account is the safest way to connect. " + notAffiliated,
 			summary: "Connect a separate Authorized Driver account if you can. Rivolt keeps your Rivian email and an encrypted session token, never your password. " +
 				"It is read-only and can't control your truck; sign out in Settings or remove the driver in the Rivian app to undo it. It is unofficial and can break. " + notAffiliated,
+		},
+		pathChangelog: {
+			title: "What's new in Rivolt: release notes",
+			desc:  "Release notes for every Rivolt version, newest first, with an Atom feed at /changelog.atom. " + notAffiliated,
+			summary: "What changed in each Rivolt release, newest first: new features, fixes and behind-the-scenes changes. " +
+				"Follow along with the Atom feed at https://rivolt.dev/changelog.atom. " + notAffiliated,
 		},
 		pathElectraFi: {
 			title: "Moving your history from ElectraFi to Rivolt",
@@ -156,6 +163,9 @@ func llmsTxt(host string) (string, bool) {
 	}
 	if _, ok := pages[pathElectraFi]; ok {
 		b.WriteString("- [Moving from ElectraFi](" + base + pathElectraFi + "): import ElectraFi history\n")
+	}
+	if _, ok := pages[pathChangelog]; ok {
+		b.WriteString("- [What's new](" + base + pathChangelog + "): release notes, with an Atom feed at " + base + "/changelog.atom\n")
 	}
 	b.WriteString("\n## Source\n\n")
 	b.WriteString("- [GitHub](" + repoURL + "): source code and self-hosting\n")
@@ -252,7 +262,7 @@ func sitemapXML(host string) (string, bool) {
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
-	for _, p := range []string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi} {
+	for _, p := range []string{"/", "/privacy", "/terms", pathLeaseCalc, pathSafeConnect, pathElectraFi, pathChangelog} {
 		if _, ok := pages[p]; ok {
 			b.WriteString("  <url><loc>https://" + host + p + "</loc></url>\n")
 		}

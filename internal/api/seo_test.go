@@ -109,6 +109,21 @@ func TestSEOInjection(t *testing.T) {
 			t.Error("demo host must not index it")
 		}
 	})
+	t.Run("changelog is public on the app host only", func(t *testing.T) {
+		b := seoGet(t, h, "rivolt.dev", "/changelog").Body.String()
+		// The head is html.EscapeString'd, so the apostrophe is &#39;.
+		if !strings.Contains(b, "<title>What&#39;s new in Rivolt: release notes</title>") || !strings.Contains(b, `href="https://rivolt.dev/changelog"`) {
+			t.Error("head not injected")
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "<loc>https://rivolt.dev/changelog</loc>") ||
+			!strings.Contains(seoGet(t, h, "rivolt.dev", "/llms.txt").Body.String(), "https://rivolt.dev/changelog") {
+			t.Error("not in sitemap and llms.txt")
+		}
+		if seoGet(t, h, "demo.rivolt.dev", "/changelog").Header().Get("X-Robots-Tag") != "noindex" ||
+			strings.Contains(seoGet(t, h, "demo.rivolt.dev", "/sitemap.xml").Body.String(), "changelog") {
+			t.Error("demo host must not index it")
+		}
+	})
 	t.Run("lease calculator is public on the app host only", func(t *testing.T) {
 		b := seoGet(t, h, "rivolt.dev", "/lease-calculator").Body.String()
 		if !strings.Contains(b, "<title>Rivian lease mileage calculator | Rivolt</title>") || !strings.Contains(b, `href="https://rivolt.dev/lease-calculator"`) {
