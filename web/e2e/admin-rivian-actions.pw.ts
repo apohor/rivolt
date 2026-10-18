@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// The admin-only site never talks to Rivian: with /api/config.rivian_actions === false the Users
+// The admin-only site never talks to Rivian: with /api/config features.rivian_actions === false the Users
 // table and the user detail drop Sync and Refresh session and say where those run. Absent or true
 // (an older server, or rivolt.dev itself) keeps them.
 const H = 3_600_000;
@@ -15,7 +15,7 @@ const USERS = [
 async function open(page: Page, rivianActions: boolean | "absent", nextUi: boolean) {
   await stubApi(page, { uiNext: nextUi });
   await page.route("**/api/config", (r) =>
-    r.fulfill({ json: { features: { trip_planner_enabled: true, signup_enabled: true }, tiles: { url: "", chargers_url: "" }, valhalla: { path: "" }, impersonation: { disabled: true }, ...(rivianActions === "absent" ? {} : { rivian_actions: rivianActions }) } }),
+    r.fulfill({ json: { features: { trip_planner_enabled: true, signup_enabled: true, ...(rivianActions === "absent" ? {} : { rivian_actions: rivianActions }) }, tiles: { url: "", chargers_url: "" }, valhalla: { path: "" }, impersonation: { disabled: true } } }),
   );
   await page.route("**/api/admin/users", (r) => r.fulfill({ json: { users: USERS } }));
   await page.route("**/api/admin/users/*", (r) =>

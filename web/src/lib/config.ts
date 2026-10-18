@@ -138,7 +138,6 @@ async function loadConfig(): Promise<RuntimeConfig> {
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
       impersonation?: { disabled?: boolean };
-      rivian_actions?: boolean;
     } | null;
     return {
       valhalla: { path: j?.valhalla?.path ?? "" },
@@ -165,7 +164,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       },
       impersonation: { disabled: !!j?.impersonation?.disabled },
       // false only on the admin-only site, which never talks to Rivian; absent means allowed.
-      rivianActions: (j?.rivian_actions ?? j?.features?.rivian_actions) !== false,
+      rivianActions: j?.features?.rivian_actions !== false,
     };
   } catch {
     return fallback;

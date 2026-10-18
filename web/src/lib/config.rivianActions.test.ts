@@ -12,14 +12,14 @@ describe("rivian_actions in /api/config", () => {
   beforeEach(() => vi.resetModules());
   afterEach(() => vi.unstubAllGlobals());
 
-  it("false (top level) turns the Rivian actions off", async () => {
-    expect(await load({ rivian_actions: false })).toBe(false);
-  });
-  it("false under features turns them off too", async () => {
+  it("features.rivian_actions === false turns the Rivian actions off", async () => {
     expect(await load({ features: { rivian_actions: false } })).toBe(false);
   });
+  it("only an explicit false does: a top-level field is not the flag", async () => {
+    expect(await load({ rivian_actions: false })).toBe(true);
+  });
   it("true, or absent (an older server), keeps them", async () => {
-    expect(await load({ rivian_actions: true })).toBe(true);
+    expect(await load({ features: { rivian_actions: true } })).toBe(true);
     expect(await load({ features: {} })).toBe(true);
     expect(await load({})).toBe(true);
     expect(await load(null)).toBe(true);
