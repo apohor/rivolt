@@ -45,6 +45,12 @@ type Config struct {
 	Aud string
 	// Emails is the allowlist, compared case-insensitively.
 	Emails []string
+	// ServiceTokens are Access service-token client IDs (the JWT's
+	// common_name) that may pass the outer door without an email, for
+	// automation such as QA. Empty by default, and prod never sets it. A
+	// token is fully verified (signature, issuer, audience, expiry) like any
+	// other; this only decides what identity an emailless one may carry.
+	ServiceTokens []string
 	// CertsURL overrides where the signing keys are fetched from. Production
 	// leaves it empty (https://<team>/cdn-cgi/access/certs); tests point it
 	// at a local server.
@@ -62,6 +68,7 @@ type Verifier struct {
 	certs   string
 	aud     string
 	emails  map[string]struct{}
+	service map[string]struct{}
 	client  *http.Client
 	now     func() time.Time
 	log     *slog.Logger
@@ -84,6 +91,18 @@ func NormalizeTeamDomain(s string) string {
 		s += ".cloudflareaccess.com"
 	}
 	return s
+}
+
+// ParseList splits a comma-separated list, trimming blanks and keeping case
+// (service-token client IDs are compared exactly).
+func ParseList(s string) []string {
+	var out []string
+	for _, e := range strings.Split(s, ",") {
+		if e = strings.TrimSpace(e); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // ParseEmails splits a comma-separated allowlist into lower-case addresses.
@@ -111,13 +130,19 @@ func New(cfg Config, log *slog.Logger) (*Verifier, error) {
 		return nil, errors.New("cfaccess: email allowlist is empty")
 	}
 	v := &Verifier{
-		issuer: "https://" + host,
-		certs:  "https://" + host + "/cdn-cgi/access/certs",
-		aud:    strings.TrimSpace(cfg.Aud),
-		emails: map[string]struct{}{},
-		client: &http.Client{Timeout: 5 * time.Second},
-		now:    time.Now,
-		log:    log,
+		issuer:  "https://" + host,
+		certs:   "https://" + host + "/cdn-cgi/access/certs",
+		aud:     strings.TrimSpace(cfg.Aud),
+		emails:  map[string]struct{}{},
+		service: map[string]struct{}{},
+		client:  &http.Client{Timeout: 5 * time.Second},
+		now:     time.Now,
+		log:     log,
+	}
+	for _, id := range cfg.ServiceTokens {
+		if id = strings.TrimSpace(id); id != "" {
+			v.service[id] = struct{}{}
+		}
 	}
 	if cfg.CertsURL != "" {
 		v.certs = cfg.CertsURL
@@ -130,7 +155,8 @@ func New(cfg Config, log *slog.Logger) (*Verifier, error) {
 	return v, nil
 }
 
-// Verify returns the verified, lower-cased email of an Access JWT.
+// Verify returns the verified identity of an Access JWT: the lower-cased
+// email, or "svc:<client id>" for a listed service token.
 func (v *Verifier) Verify(ctx context.Context, raw string) (string, error) {
 	if v == nil {
 		return "", errors.New("no verifier")
@@ -154,7 +180,8 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (string, error) {
 	}
 	var std jwt.Claims
 	var extra struct {
-		Email string `json:"email"`
+		Email      string `json:"email"`
+		CommonName string `json:"common_name"`
 	}
 	if err := tok.Claims(key, &std, &extra); err != nil {
 		return "", fmt.Errorf("bad signature: %w", err)
@@ -170,6 +197,15 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("invalid claims: %w", err)
 	}
 	email := strings.ToLower(strings.TrimSpace(extra.Email))
+	if email == "" {
+		// A service token carries no email, only its client ID as common_name.
+		// It passes only when that ID is listed; the identity is "svc:<id>".
+		cn := strings.TrimSpace(extra.CommonName)
+		if _, ok := v.service[cn]; ok && cn != "" {
+			return "svc:" + cn, nil
+		}
+		return "", errors.New("email not allowed")
+	}
 	if _, ok := v.emails[email]; !ok || email == "" {
 		return "", errors.New("email not allowed")
 	}
