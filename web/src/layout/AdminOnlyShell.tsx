@@ -1,4 +1,7 @@
-import { Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { backend } from "../lib/api";
+import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
 import { SignOutButton } from "../components/SignOutButton";
 import { useSystemTheme } from "../lib/theme";
@@ -10,6 +13,12 @@ import { useApplyUiNext } from "../lib/uiNext";
 export function AdminOnlyShell() {
   useSystemTheme(true);
   useApplyUiNext();
+  // A visitor who got through the edge but has no Rivolt session (whoami answers "nobody") is sent
+  // to sign in and brought back to /admin, instead of a bare "not authorized". A signed-in
+  // non-admin still gets the admin page's own "not authorized".
+  const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
+  if (me.isLoading) return <div className="p-4"><Spinner /></div>;
+  if (me.data === null) return <Navigate to="/login?next=/admin" replace />;
   return (
     <div data-admin-only-shell className="flex min-h-full flex-col">
       <header className="sticky top-0 z-1100 border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm app-safe-top">
