@@ -113,12 +113,12 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 	return func(w http.ResponseWriter, r *http.Request) {
 		planner, ok := tripPlannerOf(c)
 		if !ok {
-			http.Error(w, "live rivian client required", http.StatusNotFound)
+			planError(w, http.StatusNotFound, "live rivian client required")
 			return
 		}
 		var req tripPlanMultidayRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+			badRequest(w, "invalid body: "+err.Error())
 			return
 		}
 		days, err := req.dayInputs()

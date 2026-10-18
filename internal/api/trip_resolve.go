@@ -172,6 +172,12 @@ func (e *planEnricher) enrich(ctx context.Context, plan *rivian.TripPlan, starti
 	return adj, costs
 }
 
-// statusBadRequest is a small helper for the handlers that map a resolver
-// message to a 400.
-func badRequest(w http.ResponseWriter, msg string) { http.Error(w, msg, http.StatusBadRequest) }
+// planError is the one error shape of the trip-plan endpoints: JSON
+// {"error": "..."} with the status, whatever went wrong (a bad request, an
+// unknown route, an unreachable planner), never text/plain.
+func planError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]any{"error": msg})
+}
+
+// badRequest is planError with 400.
+func badRequest(w http.ResponseWriter, msg string) { planError(w, http.StatusBadRequest, msg) }
