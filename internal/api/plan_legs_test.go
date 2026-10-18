@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,4 +69,31 @@ func TestSinglePlanQuotaIs429WithRetryAfter(t *testing.T) {
 	if rec.Header().Get("Retry-After") != "1" {
 		t.Errorf("Retry-After = %q, want 1", rec.Header().Get("Retry-After"))
 	}
+}
+
+// In a multi-day request a quota refusal on any day is a 429 for the request,
+// not a 200 with the days so far.
+func TestMultidayQuotaIs429(t *testing.T) {
+	calls := 0
+	p := planFuncAPI(func(_ context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		calls++
+		if calls == 2 {
+			return nil, &planleg.QuotaError{RetryAfter: 90 * time.Second}
+		}
+		return (&daysPlanner{}).PlanTrip(context.Background(), in)
+	})
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: p}
+	rec := httptest.NewRecorder()
+	handleTripPlanMultiday(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString(
+		`{`+mdVehicle+`"start_at":"2026-10-20T08:00:00Z","origin":{"lat":1,"lon":1},
+		 "days":[{"end":{"lat":2,"lon":2},"overnight":{"l2_kw":0}},{"end":{"lat":3,"lon":3}}]}`)))
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "90" {
+		t.Errorf("status %d Retry-After %q: %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+	}
+}
+
+type planFuncAPI func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error)
+
+func (f planFuncAPI) PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+	return f(ctx, in)
 }
