@@ -163,6 +163,11 @@ func handleSavedTripActive(tf *trips.Factory, mon func(uuid.UUID) *rivian.StateM
 			http.NotFound(w, r)
 			return
 		}
+		// A vehicle that is not the caller's is refused before anything is read.
+		if vid := r.URL.Query().Get("vehicle_id"); vid != "" && !ownsVehicle(r.Context(), mon(uid), pool, uid, vid) {
+			badRequest(w, "unknown vehicle")
+			return
+		}
 		st, err := tf.For(uid).Get(r.Context(), id)
 		if errors.Is(err, trips.ErrNotFound) {
 			http.NotFound(w, r)

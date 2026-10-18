@@ -1,12 +1,18 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/trips"
 )
 
@@ -110,5 +116,21 @@ func TestActiveOvernightAndViasPassed(t *testing.T) {
 	}
 	if got = activeAt(st, at("2026-10-21T04:00:00Z"), nil, 131); got.Phase != "" || got.NextDay != nil {
 		t.Errorf("no position: %+v", got)
+	}
+}
+
+func TestActiveForeignVehicleIs400AndLeaksNothing(t *testing.T) {
+	withUserVehicles(t, "v1")
+	calls := fixedPosition(t, truckAt, true)
+	h := handleSavedTripActive(trips.NewFactory(nil), func(uuid.UUID) *rivian.StateMonitor { return nil }, &sql.DB{})
+	r := chi.NewRouter()
+	r.Get("/trips/saved/{id}/active", func(w http.ResponseWriter, req *http.Request) { h(uuid.New(), w, req) })
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/trips/saved/"+uuid.NewString()+"/active?vehicle_id=someone-elses", nil))
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "unknown vehicle") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if *calls != 0 || strings.Contains(rec.Body.String(), "35.37") || strings.Contains(rec.Body.String(), "position") {
+		t.Errorf("the position was read (%d calls) or leaked: %s", *calls, rec.Body.String())
 	}
 }
