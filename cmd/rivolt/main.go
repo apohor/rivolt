@@ -514,6 +514,10 @@ func runServer() {
 	// The replay client's trip planner: stored plans first, then a synthetic
 	// plan from Valhalla and the charger archive (both wired further down,
 	// before serving, when they are configured).
+	// The demo is a replay install too and gets this planner, but nothing
+	// reaches it there: /api/trips/plan* is not in the demo allowlist (and the
+	// demo has no Valhalla), so "the demo plans from stored plans only" holds
+	// by that gating, not by construction. Keep it out of the allowlist.
 	var tripSynth *syntheticplan.Planner
 	switch clientMode := os.Getenv("RIVIAN_CLIENT"); clientMode {
 	case "replay":

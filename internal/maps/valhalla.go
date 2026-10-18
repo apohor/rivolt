@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -105,7 +106,7 @@ func (v *Valhalla) RouteShape(ctx context.Context, from, to [2]float64) ([][2]fl
 			} `json:"legs"`
 		} `json:"trip"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("valhalla: decode: %w", err)
 	}
 
@@ -190,6 +191,14 @@ type Route struct {
 	Legs []RouteLeg
 }
 
+// ErrNoRoute means Valhalla found no road route between the locations (a
+// location in the ocean, or islands with no ferry). It is the caller's input,
+// not a service failure.
+var ErrNoRoute = errors.New("valhalla: no route found")
+
+// maxResponseBytes bounds how much of a Valhalla answer is read.
+const maxResponseBytes = 8 << 20
+
 // maxRouteLocations is Valhalla's default limit per request.
 const maxRouteLocations = 50
 
@@ -242,6 +251,11 @@ func (v *Valhalla) Route(ctx context.Context, locs [][2]float64, opts RouteOpts)
 		return Route{}, fmt.Errorf("valhalla: do: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusBadRequest {
+		// Valhalla answers a request it cannot route (no path, a location with
+		// no road nearby) with 400 and an error body, not with a 5xx.
+		return Route{}, ErrNoRoute
+	}
 	if resp.StatusCode/100 != 2 {
 		return Route{}, fmt.Errorf("valhalla: HTTP %d", resp.StatusCode)
 	}
@@ -256,7 +270,7 @@ func (v *Valhalla) Route(ctx context.Context, locs [][2]float64, opts RouteOpts)
 			} `json:"legs"`
 		} `json:"trip"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&parsed); err != nil {
 		return Route{}, fmt.Errorf("valhalla: decode: %w", err)
 	}
 	if len(parsed.Trip.Legs) != len(locs)-1 {

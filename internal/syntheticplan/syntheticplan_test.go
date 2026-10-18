@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,16 +143,18 @@ func TestLongTripChargesAtTheFurthestReachableStation(t *testing.T) {
 		t.Fatalf("stops = %+v, want one stop at Far", st)
 	}
 	s := st[0]
-	// Arrival at 330 km: 80 - 330000*0.0002062 = 11.9; charges to at least 80, at most 90.
-	if math.Abs(s.ArrivalSoC-11.9) > 0.3 || s.DepartureSoC < 80 || s.DepartureSoC > 90 {
+	// Arrival at 330 km: 80 - 330000*0.0002062 = 11.9.
+	if math.Abs(s.ArrivalSoC-11.9) > 0.3 || s.DepartureSoC <= s.ArrivalSoC || s.DepartureSoC > 90 {
 		t.Errorf("stop SoC arrive %v depart %v", s.ArrivalSoC, s.DepartureSoC)
 	}
-	// 170 km left needs 35 points + reserve 10 = 45, below 80, so it charges to 80.
-	if s.DepartureSoC != 80 {
-		t.Errorf("charge target = %v, want 80", s.DepartureSoC)
+	// 170 km left needs 35 points + the reserve 10 = 45, and the trip can be
+	// finished from this one charge, so it charges to 45 plus the 2-point margin,
+	// not to 80.
+	if s.DepartureSoC != 48 {
+		t.Errorf("charge target = %v, want 48 (what the rest needs plus the margin)", s.DepartureSoC)
 	}
-	// Duration: (80-11.9)/100*131 kWh at min(150,220)*0.62 kW.
-	want := (80 - s.ArrivalSoC) / 100 * 131 / (150 * 0.62) * 3600
+	// Duration: (48-11.9)/100*131 kWh at min(150,220)*0.62 kW.
+	want := (s.DepartureSoC - s.ArrivalSoC) / 100 * 131 / (150 * 0.62) * 3600
 	if math.Abs(float64(s.ChargeDurationSec)-want) > 90 {
 		t.Errorf("charge time = %ds, want ~%.0fs", s.ChargeDurationSec, want)
 	}
@@ -355,5 +358,46 @@ func TestStoredPlanFirstThenSynthetic(t *testing.T) {
 	got, err = first.PlanTrip(context.Background(), input(80, 2))
 	if err != nil || !got.Simulated || r.calls != 1 {
 		t.Fatalf("synthetic: %v, router calls %d, err %v", got, r.calls, err)
+	}
+}
+
+// The last stop is a top-up when the destination is close (qa: 14.8 mi to go
+// from 11.3 % must not charge for 40 minutes to 80 %), and the usual 80 only
+// when the rest of the trip cannot be finished from one charge.
+func TestFinalStopChargesOnlyWhatTheRestNeeds(t *testing.T) {
+	r := &fakeRouter{lat0: 34, legKm: []float64{500}, speedKmh: 100}
+	// A station 476 km along leaves 24 km to the destination: ~5 points + 10 reserve.
+	near := fakeChargers{pois: []chargers.POI{stationAt(34, 330, 150, "Near end", "")}}
+	got := mustPlan(t, newPlanner(r, near), input(80, 2))
+	s := stopsOf(got)[0]
+	if s.DepartureSoC > 50 {
+		t.Errorf("charged to %v with 170 km to go", s.DepartureSoC)
+	}
+	if arr := got.Routes[0].ArrivalSoC; arr < 10 || arr > 14 {
+		t.Errorf("arrives with %v, want just above the 10 reserve", arr)
+	}
+	// 800 km: from the first stop 470 km remain, which needs more than the
+	// cap, so it charges to the usual 80; the second stop, 160 km from the end, is a top-up.
+	long := &fakeRouter{lat0: 34, legKm: []float64{800}, speedKmh: 100}
+	far := fakeChargers{pois: []chargers.POI{stationAt(34, 330, 150, "First", ""), stationAt(34, 640, 150, "Second", "")}}
+	st := stopsOf(mustPlan(t, newPlanner(long, far), input(80, 2)))
+	if len(st) != 2 || st[0].DepartureSoC != 80 {
+		t.Fatalf("stops = %+v, want a first charge to 80", st)
+	}
+	if st[1].DepartureSoC > 50 {
+		t.Errorf("the last stop charged to %v, want a top-up for 160 km", st[1].DepartureSoC)
+	}
+	// Always at least a point above the arrival, never above the cap.
+	for _, w := range st {
+		if w.DepartureSoC <= w.ArrivalSoC || w.DepartureSoC > 90 {
+			t.Errorf("stop %+v", w)
+		}
+	}
+}
+
+func TestNoRoadRouteIsAnInvalidTripNotAServerError(t *testing.T) {
+	_, err := newPlanner(&fakeRouter{err: maps.ErrNoRoute}, nil).PlanTrip(context.Background(), input(80, 2))
+	if !errors.Is(err, rivian.ErrInvalidTrip) || !strings.Contains(err.Error(), "no road route") {
+		t.Errorf("err = %v, want ErrInvalidTrip saying there is no road route", err)
 	}
 }
