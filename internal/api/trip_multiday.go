@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -131,6 +132,10 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 		var req tripPlanMultidayRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			badRequest(w, "invalid body: "+err.Error())
+			return
+		}
+		if msg := req.validate(planNow()); msg != "" {
+			badRequest(w, msg)
 			return
 		}
 		days, err := req.dayInputs()
@@ -269,7 +274,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				badRequest(w, re.Error())
 				return
 			}
-			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "err", err.Error())
+			slog.WarnContext(r.Context(), "multi-day plan failed", "vehicle_id", rv.VehicleID, "days", len(days), "class", errClass(err))
 			writeUpstreamError(w, err)
 			return
 		}
@@ -303,9 +308,9 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				resp.ErrorClass, _ = body["class"].(string)
 				resp.ErrorReason, _ = body["reason"].(string)
 				if out.PlannerFailure {
-					// The detail (gateway text, router errors) is for the logs.
+					// Only the class is logged: no gateway text, no coordinates.
 					slog.WarnContext(r.Context(), "multi-day plan: a day could not be planned",
-						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "err", out.FailedErr.Error())
+						"vehicle_id", rv.VehicleID, "failed_day", out.FailedDay, "class", errClass(out.FailedErr))
 					resp.Error = out.Error + ": " + plainPlanReason(out.FailedErr)
 				}
 			}
@@ -380,4 +385,94 @@ func plainPlanReason(err error) string {
 		return "no sample plan for this trip"
 	}
 	return "the planner could not plan this day"
+}
+
+// validate checks the request's numbers and places before anything is planned:
+// coordinates in range, percentages in range, times inside the departure
+// window. A non-empty result is the 400 message, naming the day.
+func (req *tripPlanMultidayRequest) validate(now time.Time) string {
+	if req.StartingSoC != nil && !validPct(*req.StartingSoC) {
+		return "starting_soc must be between 0 and 100"
+	}
+	if req.PackKWh < 0 || math.IsNaN(req.PackKWh) || req.PackKWh > 1000 {
+		return "pack_kwh is out of range"
+	}
+	if req.TargetArrivalSocPercent != nil && !validTargetPct(*req.TargetArrivalSocPercent) {
+		return "target_arrival_soc_percent must be between 0 and 100"
+	}
+	if req.MaxOvernightSoCPct < 0 || req.MaxOvernightSoCPct > 100 || math.IsNaN(req.MaxOvernightSoCPct) {
+		return "max_overnight_soc_pct must be between 0 and 100"
+	}
+	if req.StartAt != "" {
+		t, err := time.Parse(time.RFC3339, req.StartAt)
+		if err != nil {
+			return "start_at must be an RFC 3339 time"
+		}
+		if err := departureWindowErr(t, now); err != nil {
+			return "start_at " + err.Error()
+		}
+	}
+	pt := func(what string, p tripPoint) string {
+		w := p.waypoint()
+		if !validLatLon(w.Latitude, w.Longitude) {
+			return what + " has an invalid coordinate"
+		}
+		return ""
+	}
+	if !req.OriginFromVehicle {
+		if m := pt("origin", req.Origin); m != "" {
+			return m
+		}
+	}
+	for i, d := range req.Days {
+		n := "day " + itoa(i+1)
+		if m := pt(n+" end", d.End); m != "" {
+			return m
+		}
+		for j, v := range d.Vias {
+			if m := pt(n+" via "+itoa(j+1), v); m != "" {
+				return m
+			}
+		}
+		if d.TargetArrivalSocPct != nil && !validTargetPct(*d.TargetArrivalSocPct) {
+			return n + ": target_arrival_soc_pct must be between 0 and 100"
+		}
+		if d.DepartAt != "" {
+			if t, err := time.Parse(time.RFC3339, d.DepartAt); err == nil {
+				if err := departureWindowErr(t, now); err != nil {
+					return n + ": depart_at " + err.Error()
+				}
+			}
+		}
+		if o := d.Overnight; o != nil {
+			if o.L2KW != nil && (*o.L2KW < 0 || *o.L2KW > 350 || math.IsNaN(*o.L2KW)) {
+				return n + ": overnight l2_kw is out of range"
+			}
+			if o.MaxSoCPct < 0 || o.MaxSoCPct > 100 || math.IsNaN(o.MaxSoCPct) {
+				return n + ": overnight max_soc_pct must be between 0 and 100"
+			}
+		}
+	}
+	if len(req.Days) == 0 {
+		for i, ov := range req.Overnights {
+			if !validLatLon(ov.Latitude, ov.Longitude) {
+				return "overnight " + itoa(i+1) + " has an invalid coordinate"
+			}
+		}
+		if m := pt("destination", req.Destination); m != "" && len(req.Overnights) > 0 {
+			return m
+		}
+	}
+	return ""
+}
+
+// errClass is the failure class of a planner error for logs: the upstream
+// class when there is one, else "internal". Never the error text, which can
+// carry the gateway's wording.
+func errClass(err error) string {
+	_, body := upstreamErrorBody(err)
+	if c, _ := body["class"].(string); c != "" {
+		return c
+	}
+	return "other"
 }

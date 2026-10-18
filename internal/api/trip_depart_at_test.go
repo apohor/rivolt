@@ -38,8 +38,8 @@ func TestTripPlanDepartAt(t *testing.T) {
 			httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(body)))
 		return rec.Code, cp
 	}
-	code, cp := run(planWith(`"depart_at":"2026-12-24T08:30:00-08:00",`))
-	if code != http.StatusOK || !cp.got.DepartureTime.Equal(time.Date(2026, 12, 24, 16, 30, 0, 0, time.UTC)) {
+	code, cp := run(planWith(`"depart_at":"2026-11-10T08:30:00-08:00",`))
+	if code != http.StatusOK || !cp.got.DepartureTime.Equal(time.Date(2026, 11, 10, 16, 30, 0, 0, time.UTC)) {
 		t.Errorf("depart_at: %d, departure %v", code, cp.got.DepartureTime)
 	}
 	if code, cp := run(planWith("")); code != http.StatusOK || !cp.got.DepartureTime.IsZero() {

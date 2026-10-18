@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -109,6 +111,24 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			badRequest(w, "at least origin + destination waypoints required")
 			return
 		}
+		for i, wp := range req.Waypoints {
+			if !validLatLon(wp.Latitude, wp.Longitude) {
+				badRequest(w, fmt.Sprintf("waypoint %d has an invalid coordinate", i+1))
+				return
+			}
+		}
+		if req.StartingSoC != nil && !validPct(*req.StartingSoC) {
+			badRequest(w, "starting_soc must be between 0 and 100")
+			return
+		}
+		if req.TargetArrivalSocPercent != nil && !validTargetPct(*req.TargetArrivalSocPercent) {
+			badRequest(w, "target_arrival_soc_percent must be between 0 and 100")
+			return
+		}
+		if math.IsNaN(req.OriginBearing) || req.OriginBearing < 0 || req.OriginBearing >= 360 {
+			badRequest(w, "origin_bearing must be 0 up to 360 degrees")
+			return
+		}
 		rv, msg := resolveVehicle(r.Context(), mon, pool, uid, req.VehicleID, req.StartingSoC, req.StartingRangeMeters)
 		if msg != "" {
 			badRequest(w, msg)
@@ -147,6 +167,10 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			t, err := time.Parse(time.RFC3339, req.DepartAt)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "depart_at must be an RFC 3339 time"})
+				return
+			}
+			if err := departureWindowErr(t, planNow()); err != nil {
+				badRequest(w, "depart_at "+err.Error())
 				return
 			}
 			departAt = t
@@ -208,10 +232,11 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 
 		plan, err := planner.PlanTrip(r.Context(), in)
 		if err != nil {
+			// The class only: no gateway text, no coordinates.
 			slog.WarnContext(r.Context(), "trip plan failed",
 				"vehicle_id", in.VehicleID,
 				"waypoints", len(in.Waypoints),
-				"err", err.Error())
+				"class", errClass(err))
 			// Map upstream error class to an HTTP status the SPA
 			// can render. 4xx passes through Cloudflare cleanly;
 			// 5xx gets replaced with Cloudflare's HTML error page.
