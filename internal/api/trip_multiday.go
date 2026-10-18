@@ -94,6 +94,8 @@ type tripPlanMultidayResponse struct {
 	Days      []tripPlanMultidayDay `json:"days"`
 	Total     tripmultiday.Totals   `json:"total"`
 	Simulated bool                  `json:"simulated,omitempty"`
+	// TZ is the zone the overnight "until" times were read in.
+	TZ string `json:"tz"`
 	// FailedDay is the day that could not be planned; the days before it are
 	// complete. Error, ErrorClass and ErrorReason say why.
 	FailedDay   int    `json:"failed_day,omitempty"`
@@ -137,11 +139,13 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				return
 			}
 		}
-		loc := time.UTC
+		// "until" times are read in the client's zone (an IANA name, what the
+		// browser reports). A missing or unrecognised zone falls back to UTC
+		// rather than failing the plan; the response says which was used.
+		loc, tzUsed := time.UTC, "UTC"
 		if req.TZ != "" {
-			if loc, err = time.LoadLocation(req.TZ); err != nil {
-				badRequest(w, "tz must be an IANA zone such as America/Chicago")
-				return
+			if l, err := time.LoadLocation(req.TZ); err == nil {
+				loc, tzUsed = l, req.TZ
 			}
 		}
 
@@ -237,7 +241,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 		// run on each day from its own starting SoC and reserve.
 		enr := &planEnricher{pool: pool, uid: uid, mgr: mgr, settingsStore: settingsStore, wc: wc, mc: mc, vehicleID: rv.VehicleID, packKWh: pack}
 		enr.load(r.Context())
-		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
+		resp := tripPlanMultidayResponse{Total: out.Total, Simulated: out.Simulated, TZ: tzUsed, Days: make([]tripPlanMultidayDay, 0, len(out.Days))}
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d}
 			target := req.TargetArrivalSocPercent

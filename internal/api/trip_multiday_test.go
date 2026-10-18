@@ -177,7 +177,6 @@ func TestMultidayRefusals(t *testing.T) {
 		"eleven days":               {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[` + elevenDays + `]}`, "11 days"},
 		"no days":                   {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[]}`, "at least one day"},
 		"bad start_at":              {`{` + mdVehicle + `"start_at":"tomorrow","origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "start_at"},
-		"bad tz":                    {`{` + mdVehicle + `"tz":"Mars/Base","origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "tz"},
 		"bad depart_at":             {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2},"depart_at":"soon"}]}`, "day 1"},
 		"bad until":                 {`{` + mdVehicle + `"origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2},"overnight":{"until":"8am"}},` + day + `]}`, "day 1"},
 		"no pack":                   {`{"vehicle_id":"v1","starting_soc":90,"origin":{"lat":1,"lon":1},"days":[` + day + `]}`, "pack_kwh"},
@@ -239,6 +238,31 @@ func TestPlanErrorsAreAlwaysJSON(t *testing.T) {
 		if rec.Code != req.want || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") ||
 			json.Unmarshal(rec.Body.Bytes(), &out) != nil || out["error"] == "" || out["error"] == nil {
 			t.Errorf("%s: %d %q %s", name, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+		}
+	}
+}
+
+// A missing or unrecognised zone is not an error: "until" falls back to UTC
+// and the response says what was used.
+func TestMultidayTimezoneFallsBackToUTC(t *testing.T) {
+	body := func(tz string) string {
+		return `{` + mdVehicle + tz + `"start_at":"2026-10-20T08:00:00-07:00","origin":{"lat":1,"lon":1},
+		 "days":[{"end":{"lat":2,"lon":2},"overnight":{"until":"08:00","l2_kw":0}},{"end":{"lat":3,"lon":3}}]}`
+	}
+	for name, tc := range map[string]struct{ tz, used, day2 string }{
+		"los angeles": {`"tz":"America/Los_Angeles",`, "America/Los_Angeles", "2026-10-21T15:00:00Z"},
+		"chicago":     {`"tz":"America/Chicago",`, "America/Chicago", "2026-10-21T13:00:00Z"},
+		"missing":     {``, "UTC", "2026-10-21T08:00:00Z"},
+		"invalid":     {`"tz":"Mars/Base",`, "UTC", "2026-10-21T08:00:00Z"},
+		"garbage":     {`"tz":"../../etc/passwd",`, "UTC", "2026-10-21T08:00:00Z"},
+	} {
+		code, out := runMultiday(t, &daysPlanner{}, body(tc.tz))
+		if code != 200 || out["tz"] != tc.used {
+			t.Errorf("%s: %d tz %v, want 200 and %q", name, code, out["tz"], tc.used)
+			continue
+		}
+		if d2 := out["days"].([]any)[1].(map[string]any)["depart_at"]; d2 != tc.day2 {
+			t.Errorf("%s: day 2 departs %v, want %v", name, d2, tc.day2)
 		}
 	}
 }
