@@ -166,6 +166,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// EventsEnabled mirrors $RIVOLT_EVENTS (default false): the
 		// SPA's track() helper sends nothing unless true.
 		EventsEnabled bool `json:"events_enabled"`
+		// RivianActions is false where this host cannot talk to Rivian (the
+		// stub or replay client, or RIVOLT_RIVIAN_LIVE_FORBIDDEN): the admin
+		// site, the demo. The SPA hides the actions that call Rivian (an
+		// admin's per-user Sync and Refresh session).
+		RivianActions bool `json:"rivian_actions"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -232,6 +237,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()
+	base.Features.RivianActions = rivianActionsEnabled()
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")

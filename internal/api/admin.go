@@ -403,6 +403,9 @@ func handleAdminUserDetail(d *sql.DB) http.HandlerFunc {
 // who already has rows just refreshes their metadata.
 func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRivianActions(w) {
+			return
+		}
 		if reg == nil || d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "rivian or db unavailable"})
 			return
@@ -444,6 +447,9 @@ func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.
 // re-authenticate with password + OTP.
 func handleAdminUserRefreshRivianSession(reg rivian.AccountRegistry, store *secrets.Store, d *sql.DB, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRivianActions(w) {
+			return
+		}
 		if reg == nil || d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "rivian or db unavailable"})
 			return
