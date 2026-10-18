@@ -50,6 +50,15 @@ test("the consumer copy never flashes up on the admin site while the config load
   await expect(page.getByText(/Your Rivian companion/)).toHaveCount(0);
 });
 
+test("the public site never shows the admin heading, even while the config loads", async ({ page }) => {
+  await open(page, false, 700);
+  // In flight: a neutral heading, no pitch, and never the admin wording.
+  await expect(page.getByRole("heading", { name: "Sign in", exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByText("Sign in to Rivolt Admin")).toHaveCount(0);
+  await expect(page.getByText(/Your Rivian companion/)).toBeVisible({ timeout: 5000 }); // the config answered
+  await expect(page.getByText("Sign in to Rivolt Admin")).toHaveCount(0);
+});
+
 test("the public site's login is unchanged", async ({ page }) => {
   await open(page, false);
   await expect(page.getByRole("heading", { name: "Sign in", exact: true, level: 1 })).toBeVisible();

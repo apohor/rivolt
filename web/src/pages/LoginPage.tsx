@@ -104,7 +104,9 @@ export default function LoginPage() {
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
         {plain ? (
-          <h1 data-admin-login className="mb-4 text-base font-semibold text-neutral-100">Sign in to Rivolt Admin</h1>
+          <h1 data-admin-login={adminOnly.only ? "" : undefined} className="mb-4 text-base font-semibold text-neutral-100">
+            {adminOnly.only ? "Sign in to Rivolt Admin" : "Sign in"}
+          </h1>
         ) : (
           <>
             <div className="mb-2 flex items-center gap-2">
