@@ -35,6 +35,7 @@ import (
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
+	"github.com/apohor/rivolt/internal/changelog"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
@@ -1950,6 +1951,10 @@ func runServer() {
 		SignupRequests:   signupRequestStore,
 		Email:            mailer,
 		BaseURL:          publicBaseURL,
+		// Release notes for /changelog and /changelog.atom, from the public
+		// GitHub Releases (fixed URL, cached). RIVOLT_CHANGELOG=false turns
+		// them off; the admin deployment never serves them.
+		Changelog:        changelogSource(adminOnlyMode),
 		ValhallaProxy:    valhallaProxy,
 		TilesProxy:       tilesProxy,
 		ChargersArchive:  chargersArchive,
@@ -2347,4 +2352,12 @@ func parseReplayBound(v string) (time.Time, error) {
 		return t, nil
 	}
 	return time.Parse("2006-01-02", v)
+}
+
+// changelogSource is the release-notes source, or nil when they are off.
+func changelogSource(adminOnly bool) *changelog.Source {
+	if adminOnly || strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_CHANGELOG")), "false") {
+		return nil
+	}
+	return changelog.New("")
 }

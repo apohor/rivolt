@@ -22,6 +22,7 @@ import (
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
+	"github.com/apohor/rivolt/internal/changelog"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/clientip"
@@ -152,6 +153,9 @@ type Deps struct {
 	HydraRememberFor time.Duration
 	WebFS            fs.FS
 	Version          string
+	// Changelog serves the release notes (GET /api/changelog and
+	// /changelog.atom); nil leaves both unmounted.
+	Changelog *changelog.Source
 	// DB is the shared Postgres pool. Used by request middleware
 	// that needs to answer "does this session user own this
 	// vehicle?" without round-tripping through a per-user store.
@@ -380,6 +384,10 @@ func New(d Deps) http.Handler {
 	r.Get("/healthz", handleHealthz())
 	r.Get("/readyz", handleReadyz(d.DB))
 
+	// Release notes are public and cheap (a cached copy), but limited per IP
+	// like the other unauthenticated reads.
+	clLimiter := newIPLimiter(60, time.Minute, time.Hour)
+
 	r.Route("/api", func(r chi.Router) {
 		// Health + auth endpoints stay reachable without a session,
 		// otherwise the browser has no way to log in. /api/health is
@@ -391,6 +399,11 @@ func New(d Deps) http.Handler {
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
 		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr))
+		// Release notes for the /changelog page. The admin and demo-only
+		// gates 404 it there, like every non-allowlisted /api path.
+		if d.Changelog != nil {
+			r.With(clLimiter.Middleware).Get("/changelog", handleChangelogJSON(d.Changelog))
+		}
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.Auth.Logout)
@@ -1146,6 +1159,11 @@ func New(d Deps) http.Handler {
 	// Everything else falls through to the embedded SPA. The SPA
 	// itself is always reachable — it needs to render the login
 	// page when the /api/auth/me bootstrap returns 401.
+	// The release-notes feed, next to the /changelog page. Outside /api, so
+	// it is mounted only on the public site, not the admin or demo hosts.
+	if d.Changelog != nil && !d.AdminOnly && !demo.OnlyEnabled() {
+		r.With(clLimiter.Middleware).Get("/changelog.atom", handleChangelogAtom(d.Changelog))
+	}
 	r.Handle("/*", spaHandler(d.WebFS))
 
 	return r
