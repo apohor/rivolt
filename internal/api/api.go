@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/apohor/rivolt/internal/adminaudit"
+	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/cfaccess"
@@ -120,7 +121,9 @@ type Deps struct {
 	// must carry a valid Cloudflare Access JWT (Access; nil denies all),
 	// and only the admin surface exists under /api.
 	AdminOnly bool
-	Access    *cfaccess.Verifier
+	// AdminHealth feeds GET /api/admin/health-summary (nil: every section reads unavailable).
+	AdminHealth *adminhealth.Service
+	Access      *cfaccess.Verifier
 	// AdminDebugProbes mirrors $RIVOLT_ADMIN_DEBUG_PROBES: mounts the raw
 	// Rivian probes under /api/admin (trips/plan/raw, trips/plan/diag,
 	// gql/type, gql/enum, gql/raw), which send arbitrary queries to Rivian
@@ -804,6 +807,7 @@ func New(d Deps) http.Handler {
 					return map[string]any{"users_count": n}
 				}
 				r.Get("/audit", handleAdminAuditList(auditStore))
+				r.Get("/health-summary", handleAdminHealthSummary(d.AdminHealth))
 				r.With(audit(auditSpec{action: "impersonation.stop", targetType: "user", bodyUser: "target_id"})).
 					Post("/impersonation/stop", handleImpersonationStop())
 				r.Get("/kill-switch", handleFlagsGet(d.Flags))

@@ -24,6 +24,7 @@ func TestAdminOnlyPublicSet(t *testing.T) {
 	for path, want := range map[string]bool{
 		"/api/admin/users":               true,
 		"/api/admin":                     true,
+		"/api/admin/health-summary":      true,
 		"/api/admin/impersonation/stop":  true,
 		"/api/auth/me":                   true,
 		"/api/auth/logout":               true,
