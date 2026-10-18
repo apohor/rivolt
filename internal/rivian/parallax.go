@@ -568,6 +568,10 @@ const (
 	// 2: display_status, 3: evse_type}. The app writes it into its own
 	// vehicleState chargerStatus/chargerState (see chargerStatusFromParallax).
 	rvmChargingStatus = "charging.session.status"
+	// rvmTimeEstimation is charging.session.time_estimation: {1: validity
+	// flag (an R2 never sends it), 2: remaining_minutes}. It counts down
+	// smoothly while charging (a captured R2 session: 288 to 2 min).
+	rvmTimeEstimation = "charging.session.time_estimation"
 	// rvmBatteryChars is energy.high_voltage.battery_characteristics, the
 	// pack's identity and usable capacity. Not subscribed: the Oct 2026
 	// capture showed its user_total_kwh equals vehicleState's capacity, and
@@ -955,7 +959,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		rvms := []string{
 			rvmDriveGear, rvmDriveMode, rvmOdometer, rvmPowerState,
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
-			rvmChargingStatus, rvmOtaDeploy,
+			rvmChargingStatus, rvmOtaDeploy, rvmTimeEstimation,
 		}
 		if extra != nil {
 			rvms = append(rvms, extra()...)
@@ -1240,3 +1244,37 @@ func decodeOTADeployment(b64 string) (current, available string, ok bool) {
 	}
 	return current, available, true
 }
+
+// decodeTimeEstimation reads the remaining minutes (field 2) of a
+// charging.session.time_estimation payload. ok=false: malformed, or no
+// remaining-minutes field. The value may be a varint or a float.
+func decodeTimeEstimation(b64 string) (mins float64, ok bool) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, false
+	}
+	if err := pbScan(raw, func(f, w int, val []byte) {
+		if f != 2 {
+			return
+		}
+		switch w {
+		case 0:
+			if v, n := binary.Uvarint(val); n > 0 {
+				mins, ok = float64(v), true
+			}
+		case 5:
+			if len(val) >= 4 {
+				mins, ok = float64(math.Float32frombits(binary.LittleEndian.Uint32(val))), true
+			}
+		}
+	}); err != nil {
+		return 0, false
+	}
+	if !ok || math.IsNaN(mins) || mins < 0 || mins > maxEstimateMins {
+		return 0, false
+	}
+	return mins, true
+}
+
+// maxEstimateMins bounds a plausible time to full: three days.
+const maxEstimateMins = 3 * 24 * 60

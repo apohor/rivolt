@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"os"
 	"sort"
@@ -2405,6 +2406,8 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		}
 	case rvmChargingStatus:
 		m.applyParallaxChargingStatus(ctx, vehicleID, f, prev)
+	case rvmTimeEstimation:
+		m.applyParallaxTimeEstimation(vehicleID, f)
 	case rvmOtaDeploy:
 		m.applyParallaxOTA(vehicleID, f, prev)
 	default:
@@ -2468,6 +2471,54 @@ func (m *StateMonitor) applyParallaxChargingStatus(ctx context.Context, vehicleI
 	m.putCacheLocked(vehicleID, &next)
 	m.mu.Unlock()
 	m.record(ctx, vehicleID, base, &next)
+}
+
+// applyParallaxTimeEstimation sets the time to full from a
+// charging.session.time_estimation frame, for a charging vehicle whose
+// vehicleState reports none (an R2's). It is marked TimeToEndSource
+// "estimate"; a vehicleState value replaces it, and the end of the charge
+// clears it (mergeState). A frame that is not the latest, or arrives while
+// the vehicle is not charging, is ignored; a zero clears an estimate.
+func (m *StateMonitor) applyParallaxTimeEstimation(vehicleID string, f DriveDynamicsFrame) {
+	mins, ok := decodeTimeEstimation(f.Payload)
+	m.mu.RLock()
+	latest := f.TimestampMs > 0 && m.lastTopicTs[vehicleID+"|"+f.RVM] == f.TimestampMs
+	m.mu.RUnlock()
+	m.logger.Info("parallax drive-dynamics shadow",
+		"vehicle", vehicleID, "topic", "charge_time_estimation",
+		"px_ok", ok, "px_minutes", mins, "ts_ms", f.TimestampMs)
+	if !m.parallaxDriveDynamics || !ok || !latest {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	base := m.cache[vehicleID]
+	if base == nil || !chargingNow(base.ChargerState) {
+		return
+	}
+	if base.TimeToEndMins > 0 && base.TimeToEndSource != timeToEndEstimate {
+		return // the vehicle reports its own
+	}
+	want := math.Round(mins)
+	if want == base.TimeToEndMins && (want == 0 || base.TimeToEndSource == timeToEndEstimate) {
+		return
+	}
+	next := *base
+	next.At = time.Now()
+	next.TimeToEndMins = want
+	next.TimeToEndSource = timeToEndEstimate
+	if want == 0 {
+		next.TimeToEndSource = ""
+	}
+	m.putCacheLocked(vehicleID, &next)
+}
+
+// timeToEndEstimate is State.TimeToEndSource for a Parallax-derived time to full.
+const timeToEndEstimate = "estimate"
+
+// chargingNow reports whether a chargerState is an active session.
+func chargingNow(cs string) bool {
+	return cs == "charging_active" || cs == "charging_connecting"
 }
 
 // applyParallaxOTA handles an ota.deployment.state frame: it logs the
@@ -2854,6 +2905,11 @@ func mergeState(prev, next *State) *State {
 	mergeFloat(&out.PackTempAvgC, next.PackTempAvgC)
 	mergeFloat(&out.PackTempMaxC, next.PackTempMaxC)
 	mergeFloat(&out.PackTempMinC, next.PackTempMinC)
+	// Time to full: the vehicle's own value wins over a Parallax estimate;
+	// an estimate ends with the charge.
+	if next.TimeToEndMins > 0 {
+		out.TimeToEndMins, out.TimeToEndSource = next.TimeToEndMins, ""
+	}
 
 	// Strings: non-empty wins.
 	mergeString(&out.Gear, next.Gear)
@@ -2902,6 +2958,9 @@ func mergeState(prev, next *State) *State {
 		out.TonneauClosed = next.TonneauClosed
 	}
 	dropIdleChargerPower(&out)
+	if out.TimeToEndSource == timeToEndEstimate && !chargingNow(out.ChargerState) {
+		out.TimeToEndMins, out.TimeToEndSource = 0, ""
+	}
 	return &out
 }
 

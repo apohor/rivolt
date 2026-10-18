@@ -284,6 +284,8 @@ export type VehicleState = {
   // Charging-context, populated during an active session. Zero/empty
   // outside a session. Surfaced on LivePanel's charge card.
   time_to_end_mins: number;
+  // "estimate" when Parallax supplied it (an R2): label it so; absent when the vehicle reported it.
+  time_to_end_source?: string;
   trip_target_soc_pct: number;
   trip_target_mins_remaining: number;
   charger_derate_status: string;

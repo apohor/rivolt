@@ -46,12 +46,10 @@ type pxNextSpec struct {
 var pxNextTopics = map[string]pxNextSpec{
 	// Tier 1: user value.
 	"energy_edge_compute.graphs.parked_energy_distributions": {log: "parked_energy"},
-	"charging.session.time_estimation": {log: "charge_time_estimation",
-		names: map[int]string{1: "validity_flag", 2: "remaining_minutes"}},
-	"charging.smart_charging.settings":                   {log: "smart_charging_settings", coarse: true},
-	"charging.smart_charging.smart_charging_info":        {log: "smart_charging_info", coarse: true},
-	"charging.smart_charging.weighted_charging_forecast": {log: "smart_charging_forecast", coarse: true},
-	"comfort.user_modes.state":                           {log: "user_modes"},
+	"charging.smart_charging.settings":                       {log: "smart_charging_settings", coarse: true},
+	"charging.smart_charging.smart_charging_info":            {log: "smart_charging_info", coarse: true},
+	"charging.smart_charging.weighted_charging_forecast":     {log: "smart_charging_forecast", coarse: true},
+	"comfort.user_modes.state":                               {log: "user_modes"},
 	// The Wi-Fi block carries the SSID: never opt this topic into strings.
 	"vehicle.network.state":                       {log: "network"},
 	"energy_edge_compute.graphs.cold_weather_soc": {log: "cold_weather_soc"},
@@ -78,7 +76,6 @@ var pxNextTopics = map[string]pxNextSpec{
 // pxNextRVMs lists pxNextTopics for the subscription, in a fixed order.
 var pxNextRVMs = []string{
 	"energy_edge_compute.graphs.parked_energy_distributions",
-	"charging.session.time_estimation",
 	"charging.smart_charging.settings",
 	"charging.smart_charging.smart_charging_info",
 	"charging.smart_charging.weighted_charging_forecast",
