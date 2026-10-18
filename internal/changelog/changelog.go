@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,16 +27,17 @@ const (
 	// AutoNotesMarker starts a generated release body (release-notes.yml).
 	AutoNotesMarker = "<!-- rivolt:auto-notes -->"
 
-	defaultTTL    = 15 * time.Minute
-	fetchTimeout  = 10 * time.Second
-	maxBody       = 2 << 20 // bytes read from GitHub
-	userAgent     = "rivolt-changelog (+https://rivolt.dev)"
-	siteURL       = "https://rivolt.dev"
-	feedID        = "tag:rivolt.dev,2026:changelog"
-	feedTitle     = "Rivolt release notes"
-	feedSubtitle  = "What's new in Rivolt. Rivolt is an unofficial app, not affiliated with Rivian."
-	entryIDPrefix = "tag:rivolt.dev,2026:"
-	maxEntries    = 30
+	defaultTTL     = 15 * time.Minute
+	failureBackoff = 2 * time.Minute // no refetch this long after a failed one
+	fetchTimeout   = 10 * time.Second
+	maxBody        = 2 << 20 // bytes read from GitHub
+	userAgent      = "rivolt-changelog (+https://rivolt.dev)"
+	siteURL        = "https://rivolt.dev"
+	feedID         = "tag:rivolt.dev,2026:changelog"
+	feedTitle      = "Rivolt release notes"
+	feedSubtitle   = "What's new in Rivolt. Rivolt is an unofficial app, not affiliated with Rivian."
+	entryIDPrefix  = "tag:rivolt.dev,2026:"
+	maxEntries     = 30
 )
 
 var releaseTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
@@ -61,9 +63,14 @@ type Source struct {
 	etag      string
 	releases  []Release
 	fetchedAt time.Time
+	failedAt  time.Time
 	have      bool
 	fetching  bool
 }
+
+// ErrUnavailable is returned when there is no copy to serve: none was ever
+// fetched, and a fetch is running, has just failed, or fails now.
+var ErrUnavailable = errors.New("changelog: release notes unavailable")
 
 // New returns a Source for url (DefaultURL when empty).
 func New(url string) *Source {
@@ -74,14 +81,22 @@ func New(url string) *Source {
 }
 
 // Releases returns the published releases with hand-written notes, newest
-// first. It refreshes from GitHub when the copy is older than TTL; while one
-// refresh runs, other callers get the copy they have.
+// first. It refreshes from GitHub when the copy is older than TTL. At most one
+// refresh runs at a time, and none for failureBackoff after a failed one;
+// meanwhile callers get the copy, or ErrUnavailable when there is none. So
+// GitHub sees at most one request per TTL, or per backoff while it is failing,
+// however many clients ask.
 func (s *Source) Releases(ctx context.Context) ([]Release, error) {
 	s.mu.Lock()
-	fresh := s.have && s.Now().Sub(s.fetchedAt) < s.TTL
-	if fresh || (s.fetching && s.have) {
-		out := s.releases
+	now := s.Now()
+	fresh := s.have && now.Sub(s.fetchedAt) < s.TTL
+	backingOff := !s.failedAt.IsZero() && now.Sub(s.failedAt) < failureBackoff
+	if fresh || s.fetching || backingOff {
+		out, have := s.releases, s.have
 		s.mu.Unlock()
+		if !have {
+			return nil, ErrUnavailable
+		}
 		return out, nil
 	}
 	s.fetching = true
@@ -95,14 +110,15 @@ func (s *Source) Releases(ctx context.Context) ([]Release, error) {
 	s.fetching = false
 	switch {
 	case err != nil:
+		s.failedAt = s.Now()
 		if s.have {
 			return s.releases, nil // stale beats nothing
 		}
-		return nil, err
+		return nil, ErrUnavailable
 	case notModified:
-		s.fetchedAt = s.Now()
+		s.fetchedAt, s.failedAt = s.Now(), time.Time{}
 	default:
-		s.releases, s.etag, s.fetchedAt, s.have = rels, newTag, s.Now(), true
+		s.releases, s.etag, s.fetchedAt, s.have, s.failedAt = rels, newTag, s.Now(), true, time.Time{}
 	}
 	return s.releases, nil
 }

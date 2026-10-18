@@ -3,6 +3,7 @@ package changelog
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -159,4 +160,74 @@ func mustRaw(t *testing.T) []ghRelease {
 		out[i] = ghRelease{TagName: r.Tag, Name: r.Title, Body: r.BodyMD, HTMLURL: r.URL, PublishedAt: r.PublishedAt}
 	}
 	return out
+}
+
+func TestConcurrentColdCallsFetchOnce(t *testing.T) {
+	var hits int32
+	started, release := make(chan struct{}), make(chan struct{})
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			close(started)
+		}
+		<-release
+		_, _ = w.Write([]byte(releasesJSON))
+	}))
+	defer gh.Close()
+	s := New(gh.URL)
+	ctx := context.Background()
+
+	first := make(chan error, 1)
+	go func() { _, err := s.Releases(ctx); first <- err }()
+	<-started // the first call is fetching
+	for i := 0; i < 20; i++ {
+		if _, err := s.Releases(ctx); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("a cold call during the fetch must be ErrUnavailable, got %v", err)
+		}
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Errorf("GitHub saw %d requests for 21 cold calls, want 1", hits)
+	}
+}
+
+func TestFailureBacksOff(t *testing.T) {
+	var calls int32
+	var fail atomic.Bool
+	fail.Store(true)
+	gh := fakeGitHub(t, &calls, &fail)
+	defer gh.Close()
+	now := time.Date(2026, 10, 18, 21, 0, 0, 0, time.UTC)
+	s := New(gh.URL)
+	s.Now = func() time.Time { return now }
+	ctx := context.Background()
+
+	for i := 0; i < 10; i++ { // no copy, GitHub failing
+		if _, err := s.Releases(ctx); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("call %d: want ErrUnavailable, got %v", i, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("a failure must back off: %d upstream calls, want 1", calls)
+	}
+	now = now.Add(3 * time.Minute)
+	fail.Store(false)
+	if rels, err := s.Releases(ctx); err != nil || len(rels) != 2 || calls != 2 {
+		t.Fatalf("after the backoff it fetches again: %d releases, err %v, calls %d", len(rels), err, calls)
+	}
+
+	// With a copy: past the TTL and failing, every caller gets the copy and
+	// GitHub is asked once per backoff.
+	now = now.Add(16 * time.Minute)
+	fail.Store(true)
+	for i := 0; i < 10; i++ {
+		if rels, err := s.Releases(ctx); err != nil || len(rels) != 2 {
+			t.Fatalf("stale copy: %d releases, err %v", len(rels), err)
+		}
+	}
+	if calls != 3 {
+		t.Errorf("with a copy and GitHub failing: %d upstream calls, want 3", calls)
+	}
 }
