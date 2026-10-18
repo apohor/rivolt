@@ -834,7 +834,7 @@ func New(d Deps) http.Handler {
 				r.With(audit(auditSpec{action: "flag.ai_call_cap", targetType: "flag", targetID: "ai_call_cap", keys: []string{"daily_limit"},
 					before: flagBefore(func(f *flags.Store) map[string]any { return map[string]any{"daily_limit": f.AICallCap().DailyLimit} })})).
 					Put("/flags/ai-call-cap", handleAICallCapPut(d.Flags))
-				r.Get("/users", handleAdminUsersList(d.DB))
+				r.Get("/users", handleAdminUsersList(d.DB, d.Flags))
 				r.Get("/idp-delete-failures", handleAdminIdPFailures(d.DB))
 				r.With(audit(auditSpec{action: "idp_failure.retry", targetType: "idp_delete_failure", idParam: "id"})).
 					Post("/idp-delete-failures/{id}/retry", handleAdminIdPFailureRetry(d.DB, d.Users, d.Logger))

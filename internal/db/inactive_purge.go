@@ -42,8 +42,11 @@ const rivianConnected = `(EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.i
 	OR EXISTS (SELECT 1 FROM user_secrets s WHERE s.user_id = u.id AND s.name = 'rivian.session'))`
 
 // inactiveScope is the common eligibility: Rivian never connected, not an
-// admin, not disabled.
-const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE AND NOT ` + rivianConnected
+// admin, not disabled, and an email the identity provider verified. An
+// unverified address is never mailed a deletion warning, and without the
+// warning there is no deletion, so such an account is out of scope for the
+// whole job (warn, claim, delete, counts) and for the admin list's purge_at.
+const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE AND u.email_verified AND NOT ` + rivianConnected
 
 // CancelInactiveWarnings clears the warning of accounts that connected Rivian
 // (a vehicle or a stored session) since it was sent, so the record doesn't

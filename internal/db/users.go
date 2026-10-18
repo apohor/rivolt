@@ -32,6 +32,23 @@ type AdminUserRow struct {
 	NeedsReauth   bool       `json:"needs_reauth"`
 	NeedsReauthAt *time.Time `json:"needs_reauth_at,omitempty"`
 	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
+	// LastDataAt is the newest vehicle_state row across the user's vehicles
+	// (null when there is none): "is data still arriving".
+	LastDataAt *time.Time `json:"last_data_at"`
+	// Leased: one of the user's vehicles holds an unexpired subscription
+	// lease, i.e. a pod is streaming it (not the finance lease).
+	Leased bool `json:"leased"`
+	// ReceiptsOptIn: the user opted in to reading Rivian charging receipts.
+	ReceiptsOptIn bool `json:"receipts_opt_in"`
+	// PurgeWarnedAt: when the inactive-account warning went out (null: not warned).
+	PurgeWarnedAt *time.Time `json:"purge_warned_at"`
+	// PurgeAt is when the inactive-account purge will delete the account,
+	// as the job itself would schedule it: the later of signup+120 days and
+	// warning+30 days, where an unsent warning is taken as going out at the
+	// next run (signup+90 days, or now if that has passed). Null when the
+	// account is out of the job's scope (admin, disabled, connected Rivian,
+	// no email). It does not say whether the flag is on: see purge_enabled.
+	PurgeAt *time.Time `json:"purge_at"`
 }
 
 // ListUsersForAdmin returns every user row, role-stamped and
@@ -52,10 +69,26 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		       EXISTS(SELECT 1 FROM user_secrets
 		               WHERE user_id = u.id AND name = 'rivian.session'),
 		       u.needs_reauth, u.needs_reauth_at,
-		       (SELECT MAX(last_seen_at) FROM sessions WHERE user_id = u.id)
+		       (SELECT MAX(last_seen_at) FROM sessions WHERE user_id = u.id),
+		       -- newest state per vehicle via the (vehicle_id, at) primary key:
+		       -- one index probe per vehicle, never a scan of vehicle_state
+		       (SELECT MAX(vs.at) FROM vehicles v
+		          CROSS JOIN LATERAL (SELECT at FROM vehicle_state
+		                               WHERE vehicle_id = v.id ORDER BY at DESC LIMIT 1) vs
+		         WHERE v.user_id = u.id),
+		       EXISTS(SELECT 1 FROM vehicles v
+		                JOIN subscription_leases l ON l.vehicle_id = v.rivian_vehicle_id
+		               WHERE v.user_id = u.id AND l.expires_at > now()),
+		       EXISTS(SELECT 1 FROM user_settings s
+		               WHERE s.user_id = u.id AND s.value->>'privacy.rivian_receipts' = '1'),
+		       u.inactive_warned_at,
+		       CASE WHEN `+inactiveScope+` AND COALESCE(u.email, '') <> ''
+		            THEN GREATEST(u.created_at + $1::interval,
+		                          COALESCE(u.inactive_warned_at, GREATEST(u.created_at + $2::interval, now())) + $3::interval)
+		       END
 		FROM users u
 		ORDER BY u.created_at ASC
-	`)
+	`, pgInterval(InactiveDeleteAfter), pgInterval(InactiveWarnAfter), pgInterval(InactiveWarnGrace))
 	if err != nil {
 		return nil, fmt.Errorf("list users for admin: %w", err)
 	}
@@ -63,11 +96,11 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		var lastSeen, reauthAt sql.NullTime
+		var lastSeen, reauthAt, lastData, warned, purgeAt sql.NullTime
 		if err := rows.Scan(
 			&r.ID, &r.Username, &r.Email, &r.DisplayName, &r.Role, &r.Disabled, &r.CreatedAt,
 			&r.VehicleCount, &r.DriveCount, &r.ImportCount, &r.RivianConnected,
-			&r.NeedsReauth, &reauthAt, &lastSeen,
+			&r.NeedsReauth, &reauthAt, &lastSeen, &lastData, &r.Leased, &r.ReceiptsOptIn, &warned, &purgeAt,
 		); err != nil {
 			return nil, fmt.Errorf("list users for admin scan: %w", err)
 		}
@@ -78,6 +111,18 @@ func ListUsersForAdmin(ctx context.Context, d *sql.DB) ([]AdminUserRow, error) {
 		if lastSeen.Valid {
 			t := lastSeen.Time
 			r.LastSeenAt = &t
+		}
+		if lastData.Valid {
+			t := lastData.Time
+			r.LastDataAt = &t
+		}
+		if warned.Valid {
+			t := warned.Time
+			r.PurgeWarnedAt = &t
+		}
+		if purgeAt.Valid {
+			t := purgeAt.Time
+			r.PurgeAt = &t
 		}
 		out = append(out, r)
 	}

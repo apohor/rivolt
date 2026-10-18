@@ -37,12 +37,22 @@ func TestInactiveAccountPurge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - make_interval(secs => $2) WHERE id = $1`, id, age.Seconds()); err != nil {
+		if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - make_interval(secs => $2), email_verified = TRUE WHERE id = $1`, id, age.Seconds()); err != nil {
 			t.Fatal(err)
 		}
 		return id
 	}
 	day := 24 * time.Hour
+	// An address the identity provider never verified is out of the job's
+	// scope entirely: never mailed a warning, so never deleted either.
+	unverified, err := db.EnsureUserFull(ctx, pool, "unverified", "unv@example.com", "unverified")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '200 days', email_verified = FALSE,
+	        inactive_warned_at = now() - interval '60 days' WHERE id = $1`, unverified); err != nil {
+		t.Fatal(err)
+	}
 	due := user("due", "due@example.com", 100*day)                // warn-eligible
 	young := user("young", "young@example.com", 40*day)           // too young
 	noMail := user("nomail", "", 100*day)                         // nothing to warn
@@ -64,6 +74,15 @@ func TestInactiveAccountPurge(t *testing.T) {
 	}
 	_ = young
 	_ = noMail
+	if ok, _ := db.ClaimInactiveWarning(ctx, pool, unverified); ok {
+		t.Fatal("claimed a warning for an unverified address")
+	}
+	if ids, _ := db.ListInactiveDeleteDue(ctx, pool, 10); len(ids) != 0 {
+		t.Fatalf("an unverified account (warned long ago) is delete-due: %v", ids)
+	}
+	if _, ok, _ := db.DeleteInactiveAccount(ctx, pool, unverified); ok {
+		t.Fatal("deleted an unverified account")
+	}
 
 	warn, err := db.ListInactiveWarnDue(ctx, pool, 50)
 	if err != nil {

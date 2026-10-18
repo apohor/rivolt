@@ -16,6 +16,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/idp"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -38,7 +39,7 @@ type sessionRefresher interface {
 // Returns every user with role + display fields. Used by the
 // admin SPA to render the user table. No paging (see ListUsers
 // ForAdmin).
-func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
+func handleAdminUsersList(d *sql.DB, f *flags.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if d == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
@@ -52,7 +53,11 @@ func handleAdminUsersList(d *sql.DB) http.HandlerFunc {
 		if users == nil {
 			users = []db.AdminUserRow{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"users": users})
+		// purge_enabled: the inactive-account purge will act on someone (not
+		// off, not a dry run), so the UI can tell a scheduled date from a
+		// rehearsal. Each row's purge_at is the job's own schedule.
+		ps := f.InactiveAccountPurge()
+		writeJSON(w, http.StatusOK, map[string]any{"users": users, "purge_enabled": !ps.DryRun && (ps.All || len(ps.Users) > 0)})
 	}
 }
 
