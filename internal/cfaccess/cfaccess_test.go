@@ -507,3 +507,44 @@ func TestFailedSharedRefreshStaysFailClosed(t *testing.T) {
 		t.Errorf("a held key must survive a failed refresh: %v", err)
 	}
 }
+
+type panicTransport struct{ n atomic.Int32 }
+
+func (p *panicTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	p.n.Add(1)
+	panic("transport blew up")
+}
+
+// A panic inside the fetch must still end the flight: the request is denied as
+// unavailable, nothing is left waiting, and a later request can refresh again.
+func TestPanickingRefreshDoesNotStickTheFlight(t *testing.T) {
+	f := newFixture(t)
+	known := f.sign(f.key, f.kid, f.good())
+	if _, err := f.v.Verify(t.Context(), known); err != nil {
+		t.Fatal(err)
+	}
+	rot := f.newKey()
+	f.clock = f.clock.Add(2 * time.Minute)
+	f.v.now = func() time.Time { return f.clock }
+	pt := &panicTransport{}
+	f.v.client = &http.Client{Transport: pt}
+
+	if _, err := f.v.Verify(t.Context(), rot); !errors.Is(err, ErrKeysUnavailable) {
+		t.Fatalf("unknown kid with a panicking fetch = %v, want ErrKeysUnavailable", err)
+	}
+	f.v.mu.Lock()
+	stuck := f.v.flight != nil
+	f.v.mu.Unlock()
+	if stuck {
+		t.Fatal("the flight is still set after a panicking refresh")
+	}
+	if _, err := f.v.Verify(t.Context(), known); err != nil {
+		t.Errorf("the held key must survive: %v", err)
+	}
+	// After the gap a healthy endpoint is reachable again.
+	f.v.client = &http.Client{Timeout: 5 * time.Second}
+	f.clock = f.clock.Add(2 * time.Minute)
+	if got, err := f.v.Verify(t.Context(), rot); err != nil || got != who {
+		t.Errorf("after recovery = %q, %v; want the rotated key to verify", got, err)
+	}
+}
