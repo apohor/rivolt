@@ -103,6 +103,14 @@ type Request struct {
 	TargetArrivalSoCPct *float64
 
 	NetworkPreferences []rivian.NetworkPreference
+
+	// AdjustArrival, when set, is asked for each planned day (day is 1-based,
+	// startSoC and target as the day was planned) for the arrival SoC after the
+	// caller's corrections (weather, vehicle profile). The overnight and the
+	// next day then start from the lower of that and the plan's own arrival, so
+	// the chain is as conservative as what the user is shown. ok=false leaves
+	// the plan's arrival in use.
+	AdjustArrival func(ctx context.Context, day int, plan *rivian.TripPlan, startSoC float64, target *float64) (arrival float64, ok bool)
 }
 
 // Response is the aggregated multi-day plan.
@@ -118,19 +126,27 @@ type Response struct {
 	Error     string `json:"error,omitempty"`
 	// FailedErr is Error as an error, for the caller to classify. Not sent.
 	FailedErr error `json:"-"`
+	// PlannerFailure is true when FailedErr came from the planner rather than
+	// from the orchestrator's own checks; its text is for the logs, not for
+	// the user (the caller words the message).
+	PlannerFailure bool `json:"-"`
 }
 
 // Day is one day's plan plus the overnight that ends it.
 type Day struct {
-	Index              int              `json:"index"` // 1-based
-	Plan               *rivian.TripPlan `json:"plan"`
-	DepartAt           time.Time        `json:"depart_at"`
-	ArriveAt           time.Time        `json:"arrive_at"`
-	Start              Waypoint         `json:"start"`
-	Vias               []Waypoint       `json:"vias,omitempty"`
-	End                Waypoint         `json:"end"`
-	DepartureSoC       float64          `json:"departure_soc"` // SoC at day start
-	ArrivalSoC         float64          `json:"arrival_soc"`   // SoC at day end (route 0)
+	Index        int              `json:"index"` // 1-based
+	Plan         *rivian.TripPlan `json:"plan"`
+	DepartAt     time.Time        `json:"depart_at"`
+	ArriveAt     time.Time        `json:"arrive_at"`
+	Start        Waypoint         `json:"start"`
+	Vias         []Waypoint       `json:"vias,omitempty"`
+	End          Waypoint         `json:"end"`
+	DepartureSoC float64          `json:"departure_soc"` // SoC at day start
+	ArrivalSoC   float64          `json:"arrival_soc"`   // SoC at day end (route 0)
+	// ChainArrivalSoC is the arrival SoC the overnight and the next day were
+	// worked from: the lower of the plan's and the corrected one. Set only
+	// when a correction applied.
+	ChainArrivalSoC    float64          `json:"chain_arrival_soc,omitempty"`
 	DestinationReached bool             `json:"destination_reached"`
 	SoCBelowLimit      bool             `json:"soc_below_limit"`
 	Overnight          *OvernightResult `json:"overnight,omitempty"`
@@ -254,13 +270,13 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 		}
 		plan, err := p.PlanTrip(ctx, in)
 		if err != nil {
-			resp.FailedDay, resp.FailedErr = i+1, err
-			resp.Error = fmt.Sprintf("day %d could not be planned: %v", i+1, err)
+			resp.FailedDay, resp.FailedErr, resp.PlannerFailure = i+1, err, true
+			resp.Error = fmt.Sprintf("day %d could not be planned", i+1)
 			return resp, nil
 		}
 		if plan == nil || len(plan.Routes) == 0 {
-			resp.FailedDay, resp.FailedErr = i+1, errors.New("the planner returned no route")
-			resp.Error = fmt.Sprintf("day %d could not be planned: the planner returned no route", i+1)
+			resp.FailedDay, resp.FailedErr, resp.PlannerFailure = i+1, errors.New("the planner returned no route"), true
+			resp.Error = fmt.Sprintf("day %d could not be planned", i+1)
 			return resp, nil
 		}
 
@@ -285,6 +301,15 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 			if ov == nil {
 				ov = &Overnight{}
 			}
+			chainSoC := day.ArrivalSoC
+			if req.AdjustArrival != nil {
+				if adj, ok := req.AdjustArrival(ctx, i+1, plan, soc, target); ok {
+					if adj < chainSoC {
+						chainSoC = adj
+					}
+					day.ChainArrivalSoC = chainSoC
+				}
+			}
 			nextDepart := nextDeparture(day.ArriveAt, ov, next.DepartAt, loc)
 			if nextDepart.Before(day.ArriveAt) {
 				resp.Days = append(resp.Days, day)
@@ -299,7 +324,7 @@ func Plan(ctx context.Context, p Planner, req Request) (*Response, error) {
 			if ov.MaxSoCPct > 0 {
 				capPct = ov.MaxSoCPct
 			}
-			res := overnight(day.ArrivalSoC, hours, ov, req.PackKWh, acMax, capPct)
+			res := overnight(chainSoC, hours, ov, req.PackKWh, acMax, capPct)
 			day.Overnight = res
 			soc = res.PostChargeSoCPct
 			start = di.End

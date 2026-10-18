@@ -334,3 +334,43 @@ func TestSimulatedAndTargetsAndFallbacks(t *testing.T) {
 		t.Errorf("fallback arrival = %v", r.Days[0].ArriveAt)
 	}
 }
+
+func TestChainStartsFromTheCorrectedArrival(t *testing.T) {
+	mk := func(adj func(day int) (float64, bool)) (*Response, *scripted) {
+		f := &scripted{arrival: []float64{30, 25}, drive: []time.Duration{4 * time.Hour, time.Hour}, dist: []float64{1, 1}}
+		var days []int
+		resp, err := Plan(context.Background(), f, Request{
+			PackKWh: 100, StartingSoC: 90, StartAt: at(8, 0), Origin: wp(1),
+			Days: []DayInput{{End: wp(2), Overnight: &Overnight{L2KW: f64(0)}}, {End: wp(3)}},
+			AdjustArrival: func(_ context.Context, day int, _ *rivian.TripPlan, start float64, _ *float64) (float64, bool) {
+				days = append(days, day)
+				if start != 90 {
+					t.Errorf("hook told day %d started at %v", day, start)
+				}
+				return adj(day)
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(days) != 1 || days[0] != 1 {
+			t.Errorf("the hook is for days that are chained from, got %v", days)
+		}
+		return resp, f
+	}
+	// Lower (weather): the overnight, with no charging, and day 2 start from 19.2.
+	resp, f := mk(func(int) (float64, bool) { return 19.2, true })
+	if d := resp.Days[0]; d.ArrivalSoC != 30 || d.ChainArrivalSoC != 19.2 || d.Overnight.PostChargeSoCPct != 19.2 || f.calls[1].StartingSoC != 19.2 {
+		t.Errorf("lower: arrival %v chain %v post %v day 2 start %v", d.ArrivalSoC, d.ChainArrivalSoC, d.Overnight.PostChargeSoCPct, f.calls[1].StartingSoC)
+	}
+	// Higher (a tailwind): never optimistic, the plan's own arrival is used.
+	resp, f = mk(func(int) (float64, bool) { return 38, true })
+	if d := resp.Days[0]; d.ChainArrivalSoC != 30 || f.calls[1].StartingSoC != 30 {
+		t.Errorf("higher: chain %v day 2 start %v, want 30", d.ChainArrivalSoC, f.calls[1].StartingSoC)
+	}
+	// No correction available: unchanged, and no chain value reported.
+	resp, f = mk(func(int) (float64, bool) { return 0, false })
+	if d := resp.Days[0]; d.ChainArrivalSoC != 0 || f.calls[1].StartingSoC != 30 {
+		t.Errorf("none: chain %v day 2 start %v", d.ChainArrivalSoC, f.calls[1].StartingSoC)
+	}
+}

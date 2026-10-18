@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -263,6 +264,34 @@ func TestMultidayTimezoneFallsBackToUTC(t *testing.T) {
 		}
 		if d2 := out["days"].([]any)[1].(map[string]any)["depart_at"]; d2 != tc.day2 {
 			t.Errorf("%s: day 2 departs %v, want %v", name, d2, tc.day2)
+		}
+	}
+}
+
+// A failed day's message is for the person planning: no router, gateway or
+// package names. The detail stays in the log.
+func TestFailedDayMessageHasNoInternals(t *testing.T) {
+	body := `{` + mdVehicle + `"start_at":"2026-10-20T08:00:00Z","origin":{"lat":1,"lon":1},"days":[{"end":{"lat":2,"lon":2}}]}`
+	for name, tc := range map[string]struct {
+		err  error
+		want string
+	}{
+		"router 400":    {errors.New("syntheticplan: route: valhalla: HTTP 400"), "the planner could not plan this day"},
+		"gateway":       {errors.New("planTrip2: graphql: boom {\"x\":1}"), "the planner could not plan this day"},
+		"no road route": {fmt.Errorf("%w: no road route between these points", rivian.ErrInvalidTrip), "no road route between these points"},
+		"rate limited":  {&rivian.UpstreamError{Class: rivian.ClassRateLimited, Reason: "429 raw"}, "the planner is busy"},
+		"reauth":        {rivian.ErrNeedsReauth, "reconnect your Rivian account"},
+		"paused":        {rivian.ErrUpstreamPaused, "paused"},
+	} {
+		_, out := runMultiday(t, &daysPlanner{fail: map[int]error{0: tc.err}}, body)
+		msg, _ := out["error"].(string)
+		if out["failed_day"] != float64(1) || !strings.Contains(msg, "day 1 could not be planned: ") || !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: failed_day %v error %q, want it to say %q", name, out["failed_day"], msg, tc.want)
+		}
+		for _, internal := range []string{"syntheticplan", "valhalla", "HTTP 400", "planTrip2", "graphql", "invalid trip", "429 raw"} {
+			if strings.Contains(msg, internal) {
+				t.Errorf("%s: the message leaks %q: %s", name, internal, msg)
+			}
 		}
 	}
 }
