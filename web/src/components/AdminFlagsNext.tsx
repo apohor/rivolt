@@ -4,6 +4,7 @@ import { backend, type AdminFlagsState } from "../lib/api";
 import { agoFrom } from "../lib/adminFormat";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { TypedConfirmDialog } from "./TypedConfirmDialog";
+import { AICallCapRow, AudienceFlagRow } from "./AdminFlagRows";
 
 // Who changed a setting last, from the admin audit log: the newest row of the given action.
 export function useLastChange(action: string) {
@@ -44,6 +45,7 @@ export function FlagsNext() {
     mutationFn: ({ paused, reason }: { paused: boolean; reason: string }) => backend.adminFlagsKillPut(paused, reason),
     onSuccess: (data) => {
       qc.setQueryData(["admin", "flags"], (prev: AdminFlagsState | undefined) => ({
+        ...prev,
         kill_switch: data.kill_switch,
         trip_planner: prev?.trip_planner ?? { enabled: false },
       }));
@@ -54,6 +56,7 @@ export function FlagsNext() {
     mutationFn: (enabled: boolean) => backend.adminFlagsTripPlannerPut(enabled),
     onSuccess: (data) => {
       qc.setQueryData(["admin", "flags"], (prev: AdminFlagsState | undefined) => ({
+        ...prev,
         kill_switch: prev?.kill_switch ?? { paused: false },
         trip_planner: data.trip_planner,
       }));
@@ -146,9 +149,16 @@ export function FlagsNext() {
               )}
             </div>
           </li>
+          {f.money_tab && (
+            <AudienceFlagRow flag="money_tab" title="Money tab" feature="the Money tab" auditAction="flag.money_tab" value={f.money_tab} description="Who sees the Money tab (and the Truck and Activity tabs that come with it)." />
+          )}
+          {f.statement_email && (
+            <AudienceFlagRow flag="statement_email" title="Monthly statement email" feature="the monthly statement email" auditAction="flag.statement_email" value={f.statement_email} description="Who can be sent the monthly statement." note="Each user must also opt in under Settings, Notifications." />
+          )}
+          {f.ai_call_cap && <AICallCapRow value={f.ai_call_cap} />}
         </ul>
         {planner.isError && <p role="alert" className="mt-2 text-xs text-rose-300">Save failed: {String((planner.error as Error).message)}</p>}
-        <p className="mt-3 text-xs text-neutral-500">The signup cap is under Signups. Money tab, statement email and AI call cap are not listed until their state can be read from the API.</p>
+        <p className="mt-3 text-xs text-neutral-500">The signup cap is under Signups.</p>
       </Card>
     </div>
   );
