@@ -60,8 +60,22 @@ for (const theme of ["dark", "light"] as const) {
       await expect(rowOf(page, "u5").locator("[data-col=purge]")).toContainText("warned");
       await expect(rowOf(page, "u1").locator("[data-col=purge]")).toHaveText("—");
       await expect(rowOf(page, "u1").locator("[data-col=receipts]")).toHaveText("Receipts on");
-      // The page itself never scrolls sideways; the wide table scrolls inside its own box.
+      // The page itself never scrolls sideways. A phone gets stacked cards with every action inside
+      // the screen; a desktop gets the table.
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+      if (w === 390) {
+        await expect(page.locator("[data-admin-users-cards]")).toBeVisible();
+        await expect(page.locator("[data-admin-users] table")).toHaveCount(0);
+        for (const b of await rowOf(page, "u2").getByRole("button").all()) {
+          const box = (await b.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(390);
+        }
+        await expect(rowOf(page, "u2").getByRole("button", { name: "Delete quiet@example.com" })).toBeVisible();
+        await expect(rowOf(page, "u3").getByRole("button", { name: /^Refresh Rivian session/ })).toBeVisible();
+      } else {
+        await expect(page.locator("[data-admin-users] table")).toBeVisible();
+      }
       const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
       const summary = ax.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
       expect(summary, summary.join("\n")).toEqual([]);
@@ -129,4 +143,22 @@ test("columns the API does not send yet show a dash, not a wrong answer", async 
   await expect(rowOf(page, "u2").locator("[data-col=last-data]")).toHaveText("—");
   await expect(rowOf(page, "u2").locator("[data-col=receipts]")).toHaveText("Receipts —");
   await expect(page.locator("[data-no-data-alert]")).toHaveCount(0);
+});
+
+test("the detail panel's Delete user also needs the typed name", async ({ page }) => {
+  await open(page);
+  const calls: string[] = [];
+  await page.route("**/api/admin/users/u2", (r) => {
+    if (r.request().method() !== "DELETE") return r.fallback();
+    calls.push("delete");
+    return r.fulfill({ json: { ok: true, idp: "ok" } });
+  });
+  await rowOf(page, "u2").getByRole("button", { name: "Select quiet@example.com" }).click();
+  await page.getByRole("button", { name: "Delete user", exact: true }).click();
+  const dlg = page.locator("[data-typed-confirm]");
+  await expect(dlg.getByRole("button", { name: "Delete user" })).toBeDisabled();
+  expect(calls).toEqual([]); // no browser confirm() either: the page would have hung on the dialog
+  await dlg.getByLabel(/Type/).fill("quiet@example.com");
+  await dlg.getByRole("button", { name: "Delete user" }).click();
+  await expect.poll(() => calls).toEqual(["delete"]);
 });
