@@ -23,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/vehiclelease"
 )
@@ -542,13 +543,10 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		<-beatDone
 		if err != nil {
 			guard.forget(uid) // an idempotent retry should not wait
-			status, msg := http.StatusInternalServerError, err.Error()
-			var tooBig *http.MaxBytesError
-			switch {
-			case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
-				status, msg = http.StatusRequestEntityTooLarge, "backup is too large"
-			case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
-				status, msg = http.StatusBadRequest, "parse backup: "+err.Error()
+			status, msg := restoreErrorEvent(err)
+			if status == http.StatusInternalServerError {
+				slog.WarnContext(r.Context(), "restore failed",
+					"user", logging.IDHash(uid.String()), "err", logging.ScrubErr(err))
 			}
 			m := counts("error")
 			m["status"], m["error"] = status, msg
@@ -557,6 +555,20 @@ func handleDataRestore(d Deps) http.HandlerFunc {
 		}
 		emit(counts("done"))
 	}
+}
+
+// restoreErrorEvent maps a restore failure to the status and message the
+// client sees. Only the failures we expect carry their own text; anything else
+// (a database error, a partition failure) is generic, and the caller logs it.
+func restoreErrorEvent(err error) (int, string) {
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooBig), errors.Is(err, errRestoreTooBig):
+		return http.StatusRequestEntityTooLarge, "backup is too large"
+	case errors.Is(err, errRestoreBadFile), errors.Is(err, errRestoreVehicles):
+		return http.StatusBadRequest, "parse backup: " + err.Error()
+	}
+	return http.StatusInternalServerError, "The restore stopped partway. It may be partly restored; running it again is safe."
 }
 
 // Restore limits.

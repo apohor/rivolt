@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -116,5 +117,24 @@ func TestRestoreGateVehicleCap(t *testing.T) {
 	}
 	if err := g.vehicleOK("one-too-many"); !errors.Is(err, errRestoreVehicles) {
 		t.Errorf("over the cap: %v, want errRestoreVehicles", err)
+	}
+}
+
+// Unexpected failures never put internal text (SQL state, table or constraint
+// names, ids) in the event the client reads.
+func TestRestoreErrorEventHidesInternals(t *testing.T) {
+	internal := errors.New(`insert samples: ERROR: duplicate key value violates unique constraint "vehicle_state_y2026_03_pkey" (SQLSTATE 23505)`)
+	st, msg := restoreErrorEvent(fmt.Errorf("upsert drive d-1: %w", internal))
+	if st != 500 || strings.Contains(msg, "SQLSTATE") || strings.Contains(msg, "vehicle_state") || strings.Contains(msg, "d-1") || !strings.Contains(msg, "running it again is safe") {
+		t.Errorf("500 event = %d %q", st, msg)
+	}
+	if st, msg := restoreErrorEvent(fmt.Errorf("%w: unexpected EOF", errRestoreBadFile)); st != 400 || !strings.Contains(msg, "unexpected EOF") {
+		t.Errorf("bad-file event = %d %q", st, msg)
+	}
+	if st, _ := restoreErrorEvent(errRestoreTooBig); st != 413 {
+		t.Errorf("too-big status = %d", st)
+	}
+	if st, msg := restoreErrorEvent(fmt.Errorf("%w (more than 5)", errRestoreVehicles)); st != 400 || !strings.Contains(msg, "vehicles") {
+		t.Errorf("vehicle-cap event = %d %q", st, msg)
 	}
 }
