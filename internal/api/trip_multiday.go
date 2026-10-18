@@ -61,8 +61,8 @@ type tripPlanMultidayDay struct {
 // handleTripPlanMultiday wraps the tripmultiday orchestrator.
 func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		planner, ok := tripPlannerOf(c)
+		if !ok {
 			http.Error(w, "live rivian client required", http.StatusNotFound)
 			return
 		}
@@ -136,7 +136,7 @@ func handleTripPlanMultiday(c rivian.Client, settingsStore *settings.Store) http
 			}
 		}
 
-		out, err := tripmultiday.Plan(r.Context(), lc, mreq)
+		out, err := tripmultiday.Plan(r.Context(), planner, mreq)
 		if err != nil {
 			slog.WarnContext(r.Context(), "multi-day plan failed",
 				"vehicle_id", req.VehicleID,

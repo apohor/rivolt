@@ -7,7 +7,18 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// TripPlanner is what the trip-plan handlers need from a client: one planned
+// trip for one input. *LiveClient implements it against the gateway; the
+// replay client implements it from fixtures and a synthetic planner. The
+// stub and mock clients do not, so the handlers still answer 404 for them.
+type TripPlanner interface {
+	PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan, error)
+}
+
+var _ TripPlanner = (*LiveClient)(nil)
 
 // PlanTripInput is the request shape for PlanTrip. Mirrors the
 // arguments accepted by the Rivian gateway's planTripWithMultiStop
@@ -43,6 +54,9 @@ type PlanTripInput struct {
 	TrailerProfile          string
 	AvoidAdapterRequired    bool
 	SupportedConnectorTypes []string
+	// DepartureTime is when the trip leaves; the zero value means "now".
+	// The fixture and synthetic planners time their waypoints from it.
+	DepartureTime time.Time
 }
 
 // PlanTripWaypoint is one input waypoint. waypointType is one of
@@ -70,6 +84,9 @@ type TripPlan struct {
 	ChargeStationsAvailable bool
 	SoCBelowLimit           bool
 	Routes                  []TripRoute
+	// Simulated is true for a plan that did not come from the gateway
+	// (fixtures or the synthetic planner on preview). The SPA badges it.
+	Simulated bool `json:"simulated,omitempty"`
 }
 
 // TripRoute is one candidate route. Charging stops are inside

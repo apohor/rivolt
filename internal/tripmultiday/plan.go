@@ -119,9 +119,7 @@ type Totals struct {
 
 // Planner is the rivian.Client subset we need. Defined here so tests
 // can plug a fake without dragging the whole client.
-type Planner interface {
-	PlanTrip(ctx context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error)
-}
+type Planner = rivian.TripPlanner
 
 // Plan runs the orchestrator. Returns an error only on hard failures
 // (any leg PlanTrip call errors, or required input is missing).
