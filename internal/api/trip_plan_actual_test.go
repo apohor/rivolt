@@ -18,17 +18,23 @@ import (
 
 type fakePlanLinks struct{ rows []planLink }
 
-func (f *fakePlanLinks) List(_ context.Context, _, _ uuid.UUID) ([]planLink, error) {
-	return append([]planLink(nil), f.rows...), nil
+func (f *fakePlanLinks) List(_ context.Context, _, _ uuid.UUID, day int) ([]planLink, error) {
+	var out []planLink
+	for _, r := range f.rows {
+		if r.Day == day {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 func (f *fakePlanLinks) Link(_ context.Context, _, _ uuid.UUID, l planLink) error {
 	for i := range f.rows {
-		if f.rows[i].Status == "linked" && f.rows[i].TripID != l.TripID {
+		if f.rows[i].Day == l.Day && f.rows[i].Status == "linked" && f.rows[i].TripID != l.TripID {
 			f.rows[i].Status = "unlinked"
 		}
 	}
 	for i := range f.rows {
-		if f.rows[i].TripID == l.TripID {
+		if f.rows[i].Day == l.Day && f.rows[i].TripID == l.TripID {
 			l.LinkedAt = time.Now()
 			f.rows[i] = l
 			return nil
@@ -40,7 +46,7 @@ func (f *fakePlanLinks) Link(_ context.Context, _, _ uuid.UUID, l planLink) erro
 }
 func (f *fakePlanLinks) Unlink(_ context.Context, _, _ uuid.UUID, l planLink) error {
 	for i := range f.rows {
-		if f.rows[i].TripID == l.TripID {
+		if f.rows[i].Day == l.Day && f.rows[i].TripID == l.TripID {
 			f.rows[i].Status = "unlinked"
 			return nil
 		}
