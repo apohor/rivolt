@@ -255,3 +255,30 @@ func startEventsPurge(db *sql.DB) {
 		}
 	}()
 }
+
+// firstDataAnonID marks server-emitted events: there is no browser behind them.
+const firstDataAnonID = "server-first-data"
+
+// EmitFirstData records the activation event, once per account: the first
+// drive or charge was recorded. It carries only the seconds since the
+// account's first vehicle row (capped to the allowed property range) and
+// no other data. Called after a drive or charge closes; it does nothing when
+// events are off, when the account already has the event, or when the account
+// already has more than two drives and charges (an account that long predates
+// the event, and would only add noise to the count).
+func EmitFirstData(ctx context.Context, d *sql.DB, uid uuid.UUID) {
+	if d == nil || !eventsEnabled() {
+		return
+	}
+	_, err := d.ExecContext(ctx, `
+		INSERT INTO events (anon_id, user_id, name, props)
+		SELECT $2, $1, 'first_data',
+		       jsonb_build_object('seconds_since_connect', LEAST(1000000, GREATEST(0, COALESCE(
+		           (SELECT EXTRACT(EPOCH FROM now() - MIN(v.created_at))::int FROM vehicles v WHERE v.user_id = $1), 0))))
+		 WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.user_id = $1 AND e.name = 'first_data')
+		   AND (SELECT count(*) FROM drives WHERE user_id = $1) + (SELECT count(*) FROM charges WHERE user_id = $1) <= 2`,
+		uid, firstDataAnonID)
+	if err != nil {
+		slog.Warn("first_data event failed", "err", err)
+	}
+}

@@ -888,6 +888,16 @@ func runServer() {
 			})
 			logger.Info("drive close hook: weather auto-fetch enabled")
 		}
+		// first_data: the activation event, once per account, when the
+		// first drive or charge is recorded (events on only; see api.EmitFirstData).
+		if pgPool != nil {
+			monitorRegistry.AddDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
+				return func(ctx context.Context, _ drives.Drive) { api.EmitFirstData(ctx, pgPool, uid) }
+			})
+			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
+				return func(ctx context.Context, _ charges.Charge) { api.EmitFirstData(ctx, pgPool, uid) }
+			})
+		}
 		// ChargeCloseHook: deliver per-user "charging complete" push
 		// notifications. Gated on pushSvc being constructed (a missing
 		// VAPID keypair leaves pushSvc nil, in which case the factory

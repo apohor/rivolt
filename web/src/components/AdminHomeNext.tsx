@@ -49,6 +49,7 @@ export function HomeNext({ goTo }: { goTo: (tab: "operations" | "users") => void
         <RivianCard s={s} goTo={goTo} />
         <VehiclesCard s={s} goTo={goTo} />
         <InfraCard s={s} />
+        <EngagementCard s={s} />
       </div>
     </div>
   );
@@ -165,5 +166,37 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-neutral-400">{label}</dt>
       <dd className="font-semibold tabular-nums text-neutral-100">{value}</dd>
     </div>
+  );
+}
+
+const EMAIL_LABELS: [string, string][] = [
+  ["welcome", "Welcome (28 d)"],
+  ["setup_first", "Setup reminder 1 (ever)"],
+  ["setup_followup", "Setup reminder 2 (ever)"],
+  ["statement", "Statement (28 d)"],
+];
+
+function EngagementCard({ s }: { s: HealthSummary }) {
+  const e = s.engagement;
+  if (!e) return null;
+  return (
+    <Card title="Do people come back?">
+      {e.status !== "ok" ? <Unavailable reason={e.reason} /> : (
+        <div className="space-y-3 text-sm" data-engagement>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div><dt className="text-xs text-neutral-400">Seen in 7 days</dt><dd className="text-2xl font-semibold tabular-nums text-neutral-100">{e.active_7d}</dd></div>
+            <div><dt className="text-xs text-neutral-400">Seen in 28 days</dt><dd className="text-2xl font-semibold tabular-nums text-neutral-100">{e.active_28d}</dd></div>
+            <div><dt className="text-xs text-neutral-400">Connected, no data yet</dt><dd className="font-semibold tabular-nums text-neutral-100">{e.connected_no_data}</dd></div>
+            <div><dt className="text-xs text-neutral-400">First data (7 / 28 d)</dt><dd className="font-semibold tabular-nums text-neutral-100">{e.first_data_7d} / {e.first_data_28d}</dd></div>
+          </dl>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-400">
+            {EMAIL_LABELS.map(([k, label]) => (
+              <div key={k} className="flex justify-between gap-2"><dt>{label}</dt><dd className="tabular-nums text-neutral-200">{e.emails_sent?.[k] ?? 0}</dd></div>
+            ))}
+          </dl>
+          <p className="text-xs text-neutral-500">Seen means a signed-in session was used, not that the truck sent data. Numbers only, no accounts listed.</p>
+        </div>
+      )}
+    </Card>
   );
 }
