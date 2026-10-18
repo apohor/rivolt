@@ -8,7 +8,8 @@ import { backend } from "../lib/api";
 import { useTripPlannerEnabled } from "../lib/config";
 import { useMoneyTabEnabled } from "../lib/ledger";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
-import { stopImpersonation, useImpersonationTarget } from "../lib/impersonation";
+import { useImpersonationTarget } from "../lib/impersonation";
+import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import Logo from "../components/Logo";
 import { SignOutButton } from "../components/SignOutButton";
 import IOSInstallBanner from "../components/IOSInstallBanner";
@@ -103,33 +104,6 @@ function StatusPill() {
 }
 
 
-// ImpersonationBanner is the persistent, impossible-to-miss
-// indicator that an admin is viewing the app as someone else. Exit
-// clears the sessionStorage flag and forces a full page reload —
-// see startImpersonation's doc for why that's a hard requirement,
-// not a style choice.
-function ImpersonationBanner() {
-  const target = useImpersonationTarget();
-  if (!target) return null;
-  return (
-    <div className="sticky top-0 z-1200 flex items-center justify-center gap-3 bg-amber-900/95 px-4 py-1.5 text-xs text-amber-100">
-      <span>
-        Viewing as <strong>{target.email}</strong> — read-only
-      </span>
-      <button
-        type="button"
-        onClick={() => {
-          stopImpersonation();
-          window.location.assign("/admin");
-        }}
-        className="rounded-full border border-amber-200/50 px-2 py-0.5 font-medium hover:bg-amber-800/60"
-      >
-        Exit
-      </button>
-    </div>
-  );
-}
-
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -144,17 +118,20 @@ export default function AppLayout() {
   // as completed=true in migration 0026, so only brand-new signups
   // will see this. We guard on me.data being loaded (not null) so the
   // redirect doesn't fire in no-auth / dev mode where whoami returns null.
+  // Never while an admin is viewing as someone: the target's onboarding can't be completed from a
+  // read-only view (POST /api/onboarding/complete is refused), so the redirect would trap the admin.
+  const impersonating = useImpersonationTarget();
   useEffect(() => {
+    if (impersonating) return;
     if (me.data && me.data.onboarding_completed === false) {
       navigate("/onboarding", { replace: true });
     }
-  }, [me.data, navigate, location.pathname]);
+  }, [me.data, navigate, location.pathname, impersonating]);
 
   const tripPlannerEnabled = useTripPlannerEnabled();
   const baseNav = tripPlannerEnabled
     ? [...nav.slice(0, -1), planNavItem, nav[nav.length - 1]]
     : nav;
-  const impersonating = useImpersonationTarget();
   // v1 limitation: Live's data comes from the backend's per-user
   // Rivian WebSocket subscription cache, which a future real-time
   // push to the browser would need its own connection for — and a
