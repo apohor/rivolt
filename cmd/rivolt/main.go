@@ -250,11 +250,21 @@ func runServer() {
 			os.Exit(1)
 		}
 		accessVerifier = v
+		if strings.TrimSpace(os.Getenv("RIVOLT_PUBLIC_BASE_URL")) == "" {
+			logger.Warn("admin-only: RIVOLT_PUBLIC_BASE_URL is unset; signup links in approval emails will point at this admin host, which users can't open",
+				"base_url", os.Getenv("RIVOLT_BASE_URL"))
+		}
 		if st := cfaccess.ParseList(os.Getenv("RIVOLT_ACCESS_SERVICE_TOKENS")); len(st) > 0 {
 			logger.Warn("admin-only: Access service tokens are accepted at the outer door (automation); prod must not set this", "tokens", len(st))
 		}
 		logger.Info("admin-only: serving the admin surface behind Cloudflare Access; background work is off")
 	}
+
+	// User-facing links the server composes (the signup link in approval
+	// emails) use the public site's origin. RIVOLT_BASE_URL is this host's
+	// own origin (OIDC callbacks); on the admin deployment the two differ,
+	// so RIVOLT_PUBLIC_BASE_URL names the public site there.
+	publicBaseURL := firstNonEmpty(os.Getenv("RIVOLT_PUBLIC_BASE_URL"), os.Getenv("RIVOLT_BASE_URL"))
 
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
 	dataDir := flag.String("data-dir", envOr("DATA_DIR", "./data"), "directory for the SQLite database and caches")
@@ -1911,7 +1921,7 @@ func runServer() {
 		Users:            userProvider,
 		SignupRequests:   signupRequestStore,
 		Email:            mailer,
-		BaseURL:          os.Getenv("RIVOLT_BASE_URL"),
+		BaseURL:          publicBaseURL,
 		ValhallaProxy:    valhallaProxy,
 		TilesProxy:       tilesProxy,
 		ChargersArchive:  chargersArchive,

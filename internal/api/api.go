@@ -205,7 +205,10 @@ type Deps struct {
 	// monthly statement email (nil disables the unsubscribe routes).
 	StatementSigner *statement.Signer
 	// BaseURL is the install's public origin (e.g. https://rivolt.dev),
-	// sourced from $RIVOLT_BASE_URL. Used today only for composing
+	// sourced from $RIVOLT_PUBLIC_BASE_URL, else $RIVOLT_BASE_URL (the
+	// admin deployment sets the former: its own host is behind Cloudflare
+	// Access, so links it emails must point at the public site). Used
+	// today only for composing
 	// the magic-link signup URL in approval emails; safe to leave
 	// empty in tests — the link falls back to a relative path so
 	// copy-paste-into-the-same-tab still works.
