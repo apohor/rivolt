@@ -47,7 +47,7 @@ const DAYS = [
 ];
 const TOTAL = { distance_meters: 1_900_000, drive_duration_sec: 90_000, charging_duration_sec: 6_000 };
 
-async function plan(page: Page, body: object) {
+async function plan(page: Page, body: object, edit?: () => Promise<void>) {
   const reqs: MultidayBody[] = [];
   await page.route("**/api/trips/plan-multiday", (r) => {
     reqs.push(r.request().postDataJSON() as MultidayBody);
@@ -64,6 +64,7 @@ async function plan(page: Page, body: object) {
   await page.getByRole("tab", { name: "Saved" }).click();
   await page.getByRole("button", { name: /Chicago to Denver/ }).click();
   await page.getByRole("tab", { name: "Planner" }).click();
+  await edit?.();
   await page.getByRole("button", { name: "Plan 3-day trip" }).click();
   await expect(page.getByText(/Day 3/).first()).toBeVisible();
   return reqs;
@@ -78,7 +79,13 @@ for (const v of [
     const page = await ctx.newPage();
     await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
     await stubApi(page);
-    const reqs = await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" });
+    const night2 = () => page.locator("[data-overnight-stop]").nth(1);
+    const reqs = await plan(page, { days: DAYS, total: TOTAL, simulated: true, tz: "America/Chicago" }, async () => {
+      // One via and two nights: each night has its own fields; change only the second.
+      await expect(page.locator("[data-overnight-stop]")).toHaveCount(2);
+      await night2().getByLabel("Charger at the stop").selectOption("0");
+      await night2().getByLabel("Leave next morning at").fill("06:15");
+    });
     expect(reqs).toHaveLength(1);
     const r = reqs[0];
     expect(r.tz).toBe("America/Chicago");
@@ -86,6 +93,7 @@ for (const v of [
     expect(r.days[0].vias).toHaveLength(1);
     expect(r.days[0].vias[0].label).toBe("Peoria");
     expect(r.days[0].overnight).toMatchObject({ name: "Des Moines", until: "07:30", l2_kw: 7, max_soc_pct: 80 });
+    expect(r.days[1].overnight).toMatchObject({ name: "North Platte", until: "06:15", l2_kw: 0 });
     expect(r.days[2].overnight).toBeUndefined();
     await expect(page.getByText("Simulated", { exact: true })).toBeVisible();
     for (const d of ["Day 1", "Day 2", "Day 3"]) await expect(page.getByText(d, { exact: true }).first()).toBeVisible();
@@ -126,3 +134,45 @@ for (const v of [
     await ctx.close();
   });
 }
+
+test("add an overnight from the route bar: the hint, the row, then a 2-day plan", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem("rivolt.ui.next", "on"));
+  await stubApi(page);
+  const reqs: MultidayBody[] = [];
+  await page.route("**/api/trips/plan-multiday", (r) => {
+    reqs.push(r.request().postDataJSON() as MultidayBody);
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ days: DAYS.slice(0, 2), total: TOTAL, tz: "UTC" }) });
+  });
+  await page.route("**/api/trips/saved", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ id: "st-one", name: "Chicago to Denver", inputs: { ...SAVED_INPUTS, extra_stops: [], overnight_flags: [] }, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }]),
+    }),
+  );
+  await page.route("**/api/geocode*", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ name: "Omaha", admin1: "Nebraska", country: "United States", latitude: 41.26, longitude: -95.93 }]) }),
+  );
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Chicago to Denver/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  const bar = page.locator("[data-plan-bar]");
+  // Visible without opening More options, with the one-line hint.
+  await expect(bar.getByText(/Going further than a day\?/)).toBeVisible();
+  await bar.getByRole("button", { name: "+ Add an overnight" }).click();
+  await bar.getByPlaceholder("Search city or place…").fill("Omaha");
+  await page.getByRole("button", { name: /Omaha/ }).click();
+  await expect(bar.locator("[data-overnight-stop]")).toHaveCount(1);
+  await expect(bar.locator("[data-overnight-stop]")).toContainText("Omaha");
+  await expect(bar.getByText(/Going further than a day\?/)).toHaveCount(0);
+  await page.screenshot({ path: path.join(SHOTS, "days-add-overnight-iphone-dark.png"), fullPage: true });
+  await page.getByRole("button", { name: "Plan 2-day trip" }).click();
+  await expect(page.getByText("Day 2", { exact: true }).first()).toBeVisible();
+  expect(reqs).toHaveLength(1);
+  expect(reqs[0].days).toHaveLength(2);
+  expect(reqs[0].days[0].overnight).toMatchObject({ name: expect.stringContaining("Omaha"), l2_kw: 7, until: "07:30" });
+  await ctx.close();
+});

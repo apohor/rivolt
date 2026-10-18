@@ -1,4 +1,4 @@
-import { OVERNIGHT_CHARGERS } from "../plan/days";
+import { OVERNIGHT_CHARGERS, type OvernightOptions } from "../plan/days";
 import { useEffect, useRef, useState } from "react";
 import { useUiNext } from "../lib/uiNext";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
@@ -29,7 +29,7 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 export default function TripPlanPage() {
   const nextUi = useUiNext();
   const moneyShell = useMoneyTabEnabled();
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, maxOvernightSoCPct, setMaxOvernightSoCPct, overnightL2Kw, setOvernightL2Kw, overnightDepartureLocal, setOvernightDepartureLocal, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
   // Phones: when a plan arrives, bring the map up under the top bar so it fills the
   // space above the sheet's peek. Smooth unless the user prefers reduced motion; focus
@@ -176,14 +176,6 @@ export default function TripPlanPage() {
               setExtraStops((prev) => prev.filter((_, j) => j !== i));
               setOvernightFlags((prev) => prev.filter((_, j) => j !== i));
             }}
-            onToggleOvernight={(i, on) =>
-              setOvernightFlags((prev) => {
-                const next = [...prev];
-                while (next.length < extraStops.length) next.push(false);
-                next[i] = on;
-                return next;
-              })
-            }
             onAdd={(stop) => {
               const labeled = relabelIfHome(stop, home);
               setExtraStops((prev) =>
@@ -199,45 +191,31 @@ export default function TripPlanPage() {
             }}
           />
   );
-  const fieldCls = "rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums";
-  const overnightEl = hasOvernightStops ? (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-300">
-      <label className="flex items-center gap-1.5">
-        <span className="text-neutral-400">Leave next morning at</span>
-        <input
-          type="time"
-          value={overnightDepartureLocal}
-          onChange={(e) => setOvernightDepartureLocal(e.target.value || "08:00")}
-          className={fieldCls}
-        />
-      </label>
-      <label className="flex items-center gap-1.5">
-        <span className="text-neutral-400">Charger at the stop</span>
-        <select
-          value={overnightL2Kw}
-          onChange={(e) => setOvernightL2Kw(Number(e.target.value))}
-          className={fieldCls}
-        >
-          {OVERNIGHT_CHARGERS.map((c) => (
-            <option key={c.kw} value={c.kw}>{c.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-1.5">
-        <span className="text-neutral-400">Charge up to</span>
-        <input
-          type="number"
-          min={50}
-          max={100}
-          step={5}
-          value={maxOvernightSoCPct}
-          onChange={(e) => setMaxOvernightSoCPct(Number(e.target.value) || 80)}
-          className={`w-16 ${fieldCls}`}
-        />
-        <span className="text-neutral-400">%</span>
-      </label>
-    </div>
-  ) : null;
+  const overnightsEl = (
+    <OvernightList
+      stops={extraStops}
+      overnightFlags={overnightFlags}
+      optsFor={optsFor}
+      onChange={updateOvernight}
+      onRemove={(i) => {
+        setExtraStops((prev) => prev.filter((_, j) => j !== i));
+        setOvernightFlags((prev) => prev.filter((_, j) => j !== i));
+      }}
+      onAdd={(stop) => {
+        const labeled = relabelIfHome(stop, home);
+        const at = extraStops.findIndex(
+          (s) => Math.abs(s.lat - labeled.lat) < 0.0005 && Math.abs(s.lon - labeled.lon) < 0.0005,
+        );
+        if (at >= 0) {
+          // Already a stop on the trip: it becomes the night.
+          setOvernightFlags((prev) => extraStops.map((_, j) => (j === at ? true : !!prev[j])));
+        } else {
+          setExtraStops((prev) => [...prev, labeled]);
+          setOvernightFlags((prev) => [...extraStops.map((_, j) => !!prev[j]), true]);
+        }
+      }}
+    />
+  );
   const toEl = (
 <LocationField
             heading="To"
@@ -279,7 +257,7 @@ export default function TripPlanPage() {
             </span>
   );
   const moreCount = countNonDefaultOptions({
-    viaStops: extraStops.length,
+    viaStops: extraStops.filter((_, i) => !overnightFlags[i]).length,
     targetSoc,
     driveModeIsDefault: driveMode === "EVERYDAY",
     hasAdapter,
@@ -300,6 +278,7 @@ export default function TripPlanPage() {
             <RouteBar
               from={fromEl}
               to={toEl}
+              overnights={overnightsEl}
               onSwap={routeBar.swap}
               when={departureEl}
               soc={{
@@ -311,7 +290,6 @@ export default function TripPlanPage() {
               more={
                 <>
                   {viaEl}
-                  {overnightEl}
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-4" data-plan-settings>
                     {targetSocEl}
                     {driveModeEl}
@@ -338,7 +316,7 @@ export default function TripPlanPage() {
               </div>
               {fromEl}
               {viaEl}
-              {overnightEl}
+              {overnightsEl}
               {toEl}
               <div className="flex items-center gap-3" data-plan-submit>
                 {planButtonEl}
@@ -1563,41 +1541,144 @@ function PlanError({ error }: { error: unknown }) {
   );
 }
 
+// OvernightList is the nights of the trip, in the route bar so adding one needs no
+// digging: each has its own stop, leave time, charger and charge cap.
+function OvernightList({
+  stops,
+  overnightFlags,
+  optsFor,
+  onChange,
+  onRemove,
+  onAdd,
+}: {
+  stops: NonNullable<Selection>[];
+  overnightFlags: boolean[];
+  optsFor: (s: { lat: number; lon: number }) => OvernightOptions;
+  onChange: (s: { lat: number; lon: number }, patch: Partial<OvernightOptions>) => void;
+  onRemove: (i: number) => void;
+  onAdd: StopAdder;
+}) {
+  const [adding, setAdding] = useState(false);
+  const nights = stops.map((stop, i) => ({ stop, i })).filter((x) => overnightFlags[x.i]);
+  const fieldCls = "rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums";
+  return (
+    <div data-plan-overnights className="space-y-2">
+      {nights.length === 0 && !adding && (
+        <p className="text-xs text-neutral-400">
+          Going further than a day? Add an overnight and Rivolt plans each day, including charging while you sleep.
+        </p>
+      )}
+      {nights.map(({ stop, i }, n) => {
+        const o = optsFor(stop);
+        return (
+          <div key={i} data-overnight-stop className="space-y-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-neutral-500">Night {n + 1}:</span>
+              <span className="flex-1 text-neutral-100">{stop.label}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(i)}
+                aria-label={`Remove night ${n + 1}`}
+                className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                remove
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-300">
+              <label className="flex items-center gap-1.5">
+                <span className="text-neutral-400">Leave next morning at</span>
+                <input
+                  type="time"
+                  value={o.until}
+                  onChange={(e) => onChange(stop, { until: e.target.value || "08:00" })}
+                  className={fieldCls}
+                />
+              </label>
+              <label className="flex items-center gap-1.5">
+                <span className="text-neutral-400">Charger at the stop</span>
+                <select
+                  value={o.l2Kw}
+                  onChange={(e) => onChange(stop, { l2Kw: Number(e.target.value) })}
+                  className={fieldCls}
+                >
+                  {OVERNIGHT_CHARGERS.map((c) => (
+                    <option key={c.kw} value={c.kw}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5">
+                <span className="text-neutral-400">Charge up to</span>
+                <input
+                  type="number"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={o.maxSocPct}
+                  onChange={(e) => onChange(stop, { maxSocPct: Number(e.target.value) || 80 })}
+                  className={`w-16 ${fieldCls}`}
+                />
+                <span className="text-neutral-400">%</span>
+              </label>
+            </div>
+            <p className="text-xs text-neutral-500">
+              Pick from the map to use a hotel's listed charger.{" "}
+              {o.l2Kw > 0
+                ? `Overnight charging is an estimate: ${o.l2Kw} kW for the hours you're parked, capped at ${o.maxSocPct}%.`
+                : "With no charger, you leave with the charge you arrive with."}
+            </p>
+          </div>
+        );
+      })}
+      {adding ? (
+        <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs text-neutral-400">Where will you stop for the night?</span>
+            <button type="button" onClick={() => setAdding(false)} className="text-xs text-neutral-500 hover:text-neutral-300">
+              cancel
+            </button>
+          </div>
+          <LocationSearch
+            placeholder="Search city or place…"
+            onSelect={(r) => {
+              onAdd({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) });
+              setAdding(false);
+            }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-200 hover:border-neutral-500"
+        >
+          + Add an overnight
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ViaStopList({
   stops,
   overnightFlags,
   onRemove,
   onAdd,
-  onToggleOvernight,
 }: {
   stops: NonNullable<Selection>[];
   overnightFlags: boolean[];
   onRemove: (i: number) => void;
   onAdd: StopAdder;
-  onToggleOvernight: (i: number, on: boolean) => void;
 }) {
   const [adding, setAdding] = useState(false);
   return (
     <div className="space-y-2">
-      {stops.map((stop, i) => (
+      {stops.map((stop, i) => overnightFlags[i] ? null : (
         <div
           key={i}
           className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
         >
           <span className="shrink-0 text-neutral-500">Via:</span>
           <span className="flex-1 text-neutral-100">{stop.label}</span>
-          <label
-            className="flex shrink-0 items-center gap-1 text-xs text-neutral-400"
-            title="Treat this stop as an overnight: ends one day's drive, starts the next. Leave time, charger and charge limit are set below."
-          >
-            <input
-              type="checkbox"
-              checked={!!overnightFlags[i]}
-              onChange={(e) => onToggleOvernight(i, e.target.checked)}
-              className="h-3.5 w-3.5 accent-emerald-500"
-            />
-            Overnight
-          </label>
           <button
             type="button"
             onClick={() => onRemove(i)}
