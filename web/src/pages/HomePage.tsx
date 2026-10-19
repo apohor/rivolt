@@ -2,7 +2,7 @@ import { drivesAllQuery, chargesAllQuery } from "../lib/activityLists";
 import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } from "../lib/ledger";
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
-import { barDayCount, barsEndDay, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
+import { barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
 import { useUiNext } from "../lib/uiNext";
 import { formatMinutes, formatMinutesShort } from "../lib/minutes";
 import { isActiveCharge } from "../lib/format";
@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
+import { EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
 import ThreeThingsCard from "../components/ThreeThingsCard";
@@ -52,7 +53,7 @@ export default function HomePage() {
   // rolling windows; off keeps today's window picker exactly.
   const next = useUiNext();
   const [period, setPeriod] = usePeriod();
-  const range = useMemo(
+  const baseRange = useMemo(
     () => (next ? periodRange(period) : { start: windowStart(win), end: null }),
     [next, period, win],
   );
@@ -67,6 +68,11 @@ export default function HomePage() {
 
   const all = useMemo(() => drives.data ?? [], [drives.data]);
   const allC = useMemo(() => charges.data ?? [], [charges.data]);
+  // Early in the month, with nothing recorded in it yet, follow the last 30 days instead (and say so).
+  const early = useMemo(() => (next ? earlyMonthFallback(period, [...all, ...allC]) : null), [next, period, all, allC]);
+  const range = early ? early.range : baseRange;
+  // The period the page is following: the chosen one, or the last 30 days.
+  const scope: Period = early ? early.period : period;
   // Recorded drives in the window. Counts and averages use these, like
   // Money and the API; the round-trip collapse only groups rows for the
   // charts below (the miles are the same either way).
@@ -145,7 +151,7 @@ export default function HomePage() {
   // or custom range (not whole months) falls back to the charges in the window.
   // Same vehicle scoping as Money: only filter when there is more than one truck.
   const ledgerVehicle = (vehicles.data?.length ?? 0) > 1 ? (activeVehicleID ?? undefined) : undefined;
-  const periodMonth = next && period.kind === "month" && range.start ? toYmd(range.start).slice(0, 7) : null;
+  const periodMonth = next && scope.kind === "month" && range.start ? toYmd(range.start).slice(0, 7) : null;
   const spendMonthQ = useQuery({
     queryKey: ["ledger", "now-cost", "month", periodMonth, ledgerVehicle ?? ""],
     queryFn: ({ signal }) => fetchLedgerMonth(periodMonth as string, { vehicleID: ledgerVehicle, signal }),
@@ -154,7 +160,7 @@ export default function HomePage() {
     staleTime: 60_000,
     retry: 0,
   });
-  const wholeMonths = next && (period.kind === "year" || period.kind === "all");
+  const wholeMonths = next && (scope.kind === "year" || scope.kind === "all");
   const spendSummaryQ = useQuery({
     queryKey: ["ledger", "now-cost", "summary", ledgerVehicle ?? ""],
     queryFn: ({ signal }) => fetchLedgerSummary({ months: 24, vehicleID: ledgerVehicle, signal }),
@@ -350,6 +356,7 @@ export default function HomePage() {
           showTelemetryLink={!inDemo()}
         />
       )}
+      {early && <EarlyMonthNote />}
 
       {shellEnabled && !next && (
         <ScopeBar
@@ -479,7 +486,7 @@ export default function HomePage() {
 
           <Card
             title={`Miles per day · ${
-              next ? periodLabel(period) : win === "all" ? "all time" : `last ${barDays} days`
+              next ? periodLabel(scope) : win === "all" ? "all time" : `last ${barDays} days`
             }`}
           >
             <BarChart

@@ -126,6 +126,27 @@ export function filterByRange<T extends { StartedAt: string }>(items: T[], r: Pe
   });
 }
 
+export const EARLY_MONTH_DAYS = 30;
+
+// earlyMonthFallback: early in the month, the current month has nothing in it yet, and Now and Activity would be empty.
+// When the chosen period is this month (offset 0) with no drive or charge in it, but something was recorded in the last
+// 30 days, show those 30 days instead. It comes back as a custom period, so everything downstream that already follows a
+// custom range (the KPIs, the bars, the charge band, the spend) follows it. Null when the chosen period has data, is
+// anything else, or the last 30 days are empty too.
+export function earlyMonthFallback(
+  p: Period,
+  items: { StartedAt: string }[],
+  now: Date = new Date(),
+): { period: Period; range: PeriodRange } | null {
+  if (p.kind !== "month" || p.offset !== 0) return null;
+  if (filterByRange(items, periodRange(p, now)).length > 0) return null;
+  const from = addDays(startOfDay(now), -(EARLY_MONTH_DAYS - 1));
+  const period: Period = { kind: "custom", offset: 0, from: toYmd(from), to: toYmd(startOfDay(now)) };
+  const range = periodRange(period, now);
+  if (filterByRange(items, range).length === 0) return null;
+  return { period, range };
+}
+
 function sanitize(raw: unknown): Period {
   const o = (raw ?? {}) as Partial<Period>;
   const kind: PeriodKind = o.kind === "week" || o.kind === "month" || o.kind === "year" || o.kind === "all" || o.kind === "custom" ? o.kind : "month";
