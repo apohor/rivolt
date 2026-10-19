@@ -9,7 +9,7 @@ describe("connectFailure", () => {
     const f = connectFailure(err(401, { error: "Rivian didn't accept that email or password. Double-check both", class: "user_action" }), "password");
     expect(f.cls).toBe("user_action");
     expect(f.title).toBe("Rivian didn't accept that sign-in");
-    expect(f.body).toContain("accepted your invite");
+    expect(f.body).toContain("accept your invite");
     expect(f.track).toBe("user-action");
   });
   it("Rivian being slow or down says it is not the user's details, and never shows the upstream text", () => {
