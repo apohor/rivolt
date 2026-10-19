@@ -50,7 +50,7 @@ func TestProxy_forwardsAndStripsCreds(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/api/maps/valhalla/route?json=%7B%7D", nil)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/maps/valhalla/route?json=%7B%7D", nil)
 	req.Header.Set("Cookie", "rivolt_session=should-not-leak")
 	req.Header.Set("Authorization", "Bearer should-not-leak")
 	resp, err := http.DefaultClient.Do(req)
