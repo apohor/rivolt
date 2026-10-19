@@ -89,13 +89,16 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 		return id
 	}
 	day := 24 * time.Hour
+	oldStart := db.UnwarnablePolicyStart
+	db.UnwarnablePolicyStart = time.Unix(0, 0) // policy long in force: the clock is signup
+	t.Cleanup(func() { db.UnwarnablePolicyStart = oldStart })
 	warned := mk("warned", "warned@x.test", "user", 100*day, 5*day, false)  // max(+20d, +25d)
 	young := mk("young", "young@x.test", "user", 10*day, 0, false)          // max(+110d, now+30d) = +110d
 	old := mk("old", "old@x.test", "user", 200*day, 0, false)               // warns on the next run: now+30d
-	noMail := mk("nomail", "", "user", 200*day, 0, false)                   // out of scope
+	noMail := mk("nomail", "", "user", 200*day, 0, false)                   // unwarnable: deleted at +120d
 	adm := mk("adm", "adm@x.test", "admin", 200*day, 0, false)              // out of scope
 	off := mk("off", "off@x.test", "user", 200*day, 0, true)                // out of scope
-	unverified := mk("unverified", "unv@x.test", "user", 200*day, 0, false) // out of scope: never warned, never deleted
+	unverified := mk("unverified", "unv@x.test", "user", 200*day, 0, false) // unwarnable: deleted at +120d
 	exec(`UPDATE users SET email_verified = FALSE WHERE id = $1`, unverified)
 	rows, err = db.ListUsersForAdmin(ctx, pool)
 	if err != nil {
@@ -118,7 +121,10 @@ func TestAdminUserRowStatusFields(t *testing.T) {
 	within("warned", by[warned].PurgeAt, 25*day)
 	within("young", by[young].PurgeAt, 110*day)
 	within("old", by[old].PurgeAt, 30*day)
-	for name, id := range map[string]uuid.UUID{"no email": noMail, "admin": adm, "disabled": off, "unverified email": unverified, "connected": busy, "has vehicle": idle} {
+	// Never warned (no verified address), so deleted 120 days after signup: 200 days old = 80 days overdue.
+	within("no email", by[noMail].PurgeAt, -80*day)
+	within("unverified email", by[unverified].PurgeAt, -80*day)
+	for name, id := range map[string]uuid.UUID{"admin": adm, "disabled": off, "connected": busy, "has vehicle": idle} {
 		if by[id].PurgeAt != nil {
 			t.Errorf("%s purge_at = %v, want null (out of scope)", name, *by[id].PurgeAt)
 		}

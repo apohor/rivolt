@@ -221,3 +221,170 @@ func TestInactiveAccountPurge(t *testing.T) {
 		t.Errorf("a protected account is delete-due: %v", ids)
 	}
 }
+
+// A never-connected account with no verified address cannot be warned, so the
+// job deletes it at day 120 with no warning (privacy.md, "Retention"); an account
+// that connected Rivian, an admin, a disabled account and a verified one are never
+// touched by this arm, and a row that verified its address since the list was built
+// wins under the lock.
+func TestUnwarnableAccountPurge(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	if _, err := db.EnsureUser(ctx, pool, "bootstrap-admin-2"); err != nil {
+		t.Fatal(err)
+	}
+	day := 24 * time.Hour
+	// The policy is already in force for this test (see TestUnwarnableGrandfathered).
+	old := db.UnwarnablePolicyStart
+	db.UnwarnablePolicyStart = time.Unix(0, 0)
+	t.Cleanup(func() { db.UnwarnablePolicyStart = old })
+	mk := func(name, mail string, verified bool, age time.Duration) uuid.UUID {
+		t.Helper()
+		id, err := db.EnsureUserFull(ctx, pool, name, mail, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - make_interval(secs => $2), email_verified = $3 WHERE id = $1`, id, age.Seconds(), verified); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	unverifiedOld := mk("unv-old", "unv-old@example.com", false, 200*day)
+	noEmailOld := mk("noemail-old", "", true, 200*day)
+	unverifiedYoung := mk("unv-young", "unv-young@example.com", false, 100*day)
+	verifiedOld := mk("ver-old", "ver-old@example.com", true, 200*day) // the warned path, not this arm
+	withCar := mk("unv-car", "unv-car@example.com", false, 200*day)
+	withSession := mk("unv-sess", "unv-sess@example.com", false, 200*day)
+	admin := mk("unv-adm", "unv-adm@example.com", false, 200*day)
+	disabled := mk("unv-dis", "unv-dis@example.com", false, 200*day)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-unv-1')`, withCar)
+	exec(`INSERT INTO user_secrets (user_id, name, ciphertext, kek_id) VALUES ($1, 'rivian.session', '\x00', 'test')`, withSession)
+	exec(`UPDATE users SET role = 'admin' WHERE id = $1`, admin)
+	exec(`UPDATE users SET disabled = TRUE WHERE id = $1`, disabled)
+
+	ids, err := db.ListUnwarnableDeleteDue(ctx, pool, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]bool{}
+	for _, id := range ids {
+		got[id] = true
+	}
+	if len(ids) != 2 || !got[unverifiedOld] || !got[noEmailOld] {
+		t.Fatalf("delete due = %v, want exactly the unverified and the email-less account over 120 days", ids)
+	}
+	if n, err := db.CountUnwarnableDue(ctx, pool); err != nil || n != 2 {
+		t.Errorf("dry-run count = %d (err %v), want 2", n, err)
+	}
+	// The admin page schedules it: signup + 120 days, no warning.
+	rows, err := db.ListUsersForAdmin(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.ID == unverifiedYoung {
+			if r.PurgeAt == nil || r.PurgeAt.Before(time.Now().Add(15*day)) || r.PurgeAt.After(time.Now().Add(25*day)) {
+				t.Errorf("young unverified account purge_at = %v, want about 20 days out (signup + 120 d)", r.PurgeAt)
+			}
+		}
+		if r.ID == admin || r.ID == disabled || r.ID == withCar || r.ID == withSession {
+			if r.PurgeAt != nil {
+				t.Errorf("protected account %s has a purge date %v", r.Username, r.PurgeAt)
+			}
+		}
+	}
+	// Verifying the address since the list was built wins under the lock.
+	exec(`UPDATE users SET email_verified = TRUE WHERE id = $1`, unverifiedOld)
+	if _, ok, _ := db.DeleteUnwarnableAccount(ctx, pool, unverifiedOld); ok {
+		t.Fatal("deleted an account that verified its address since the list was built")
+	}
+	exec(`UPDATE users SET email_verified = FALSE WHERE id = $1`, unverifiedOld)
+	// The real thing, with the cascade.
+	name, ok, err := db.DeleteUnwarnableAccount(ctx, pool, unverifiedOld)
+	if err != nil || !ok || name != "unv-old" {
+		t.Fatalf("delete = %q %v, err %v", name, ok, err)
+	}
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = $1`, unverifiedOld).Scan(&n); err != nil || n != 0 {
+		t.Errorf("user row still there: %d, err %v", n, err)
+	}
+	// Everyone else is untouched, even when asked directly.
+	for name, id := range map[string]uuid.UUID{"young": unverifiedYoung, "verified": verifiedOld, "vehicle": withCar, "stored session": withSession, "admin": admin, "disabled": disabled} {
+		if _, ok, _ := db.DeleteUnwarnableAccount(ctx, pool, id); ok {
+			t.Errorf("%s was deleted by the unwarnable arm", name)
+		}
+	}
+}
+
+// Accounts that signed up under the earlier privacy text were promised a warning,
+// so the no-warning deletion counts its 120 days from the later of signup and the
+// day the new text took effect.
+func TestUnwarnableGrandfathered(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	// The first user is made an admin; keep it out of the way.
+	if _, err := db.EnsureUser(ctx, pool, "bootstrap-admin-3"); err != nil {
+		t.Fatal(err)
+	}
+	day := 24 * time.Hour
+	oldStart := db.UnwarnablePolicyStart
+	t.Cleanup(func() { db.UnwarnablePolicyStart = oldStart })
+	id, err := db.EnsureUserFull(ctx, pool, "gf", "gf@example.com", "gf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = now() - interval '200 days', email_verified = FALSE WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	purgeAt := func() time.Time {
+		rows, err := db.ListUsersForAdmin(ctx, pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rows {
+			if r.ID == id {
+				if r.PurgeAt == nil {
+					t.Fatal("no purge_at")
+				}
+				return *r.PurgeAt
+			}
+		}
+		t.Fatal("user not listed")
+		return time.Time{}
+	}
+	// Policy took effect 10 days ago: 200 days old, but the clock starts 10 days ago.
+	db.UnwarnablePolicyStart = time.Now().Add(-10 * day)
+	if ids, err := db.ListUnwarnableDeleteDue(ctx, pool, 10); err != nil || len(ids) != 0 {
+		t.Fatalf("due = %v (err %v), want none: 10 days into the grace", ids, err)
+	}
+	if n, _ := db.CountUnwarnableDue(ctx, pool); n != 0 {
+		t.Errorf("dry-run count = %d, want 0", n)
+	}
+	if _, ok, _ := db.DeleteUnwarnableAccount(ctx, pool, id); ok {
+		t.Fatal("deleted before policy start + 120 days")
+	}
+	if d := time.Until(purgeAt()) - 110*day; d > time.Minute || d < -time.Minute {
+		t.Errorf("purge_at = %v from now, want about 110 days", time.Until(purgeAt()))
+	}
+	// Policy took effect 121 days ago: due.
+	db.UnwarnablePolicyStart = time.Now().Add(-121 * day)
+	if ids, err := db.ListUnwarnableDeleteDue(ctx, pool, 10); err != nil || len(ids) != 1 {
+		t.Fatalf("due = %v (err %v), want the account", ids, err)
+	}
+}

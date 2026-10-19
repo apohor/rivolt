@@ -48,6 +48,30 @@ const rivianConnected = `(EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.i
 // whole job (warn, claim, delete, counts) and for the admin list's purge_at.
 const inactiveScope = `u.role <> 'admin' AND u.disabled = FALSE AND u.email_verified AND NOT ` + rivianConnected
 
+// unwarnableScope is the accounts inactiveScope leaves out because there is no
+// verified address to warn: never connected to Rivian, not an admin, not disabled,
+// and either an email the identity provider never verified or no email at all.
+// They hold no Rivian data (a vehicle row or a stored Rivian session would put
+// them in inactiveScope's "connected" exclusion), only a sign-in identity, and are
+// deleted at InactiveDeleteAfter with no warning, because a deletion warning is
+// never mailed to an unverified address. Policy: privacy.md, "Retention".
+const unwarnableScope = `u.role <> 'admin' AND u.disabled = FALSE
+	AND (NOT u.email_verified OR COALESCE(u.email, '') = '') AND NOT ` + rivianConnected
+
+// UnwarnablePolicyStart is when the privacy policy line that deletes unwarnable
+// accounts at day 120 without a warning takes effect (the deploy date of the
+// policy text). Accounts that signed up under the earlier text were promised a
+// warning, so their 120 days count from the later of signup and this date.
+// Keep it equal to the "Last updated" date of the privacy page that carries the
+// line. A var only so tests can move it.
+var UnwarnablePolicyStart = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+
+// unwarnableClock is the SQL for the age of an unwarnable account, with the
+// policy start as the given parameter.
+func unwarnableClock(param string) string {
+	return `GREATEST(u.created_at, ` + param + `::timestamptz)`
+}
+
 // CancelInactiveWarnings clears the warning of accounts that connected Rivian
 // (a vehicle or a stored session) since it was sent, so the record doesn't
 // linger. It returns how many
@@ -199,5 +223,74 @@ func CountInactiveCandidates(ctx context.Context, d *sql.DB) (warnDue, deleteDue
 		  count(*) FILTER (WHERE u.inactive_warned_at IS NOT NULL)
 		  FROM users u WHERE `+inactiveScope,
 		pgInterval(InactiveWarnAfter), pgInterval(InactiveWarnGrace), pgInterval(InactiveDeleteAfter)).Scan(&warnDue, &deleteDue, &warnedWaiting)
+	return
+}
+
+// ListUnwarnableDeleteDue returns the ids of unwarnable accounts (see
+// unwarnableScope) whose clock is at least InactiveDeleteAfter old, oldest first,
+// at most limit. Candidates only: DeleteUnwarnableAccount re-checks each.
+func ListUnwarnableDeleteDue(ctx context.Context, d *sql.DB, limit int) ([]uuid.UUID, error) {
+	rows, err := d.QueryContext(ctx, `
+		SELECT u.id FROM users u
+		 WHERE `+unwarnableScope+`
+		   AND `+unwarnableClock("$2")+` <= now() - $1::interval
+		 ORDER BY `+unwarnableClock("$2")+`
+		 LIMIT $3`, pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUnwarnableAccount deletes an unwarnable account through the account-delete
+// path, only if it still is one: the row is locked and the scope and age re-checked
+// in the transaction, so a Rivian connected since the list was built, or an email
+// verified since, wins. It returns the username (for the identity-provider removal)
+// and whether the account was deleted.
+func DeleteUnwarnableAccount(ctx context.Context, d *sql.DB, uid uuid.UUID) (username string, deleted bool, err error) {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := lockArchiveUserTx(ctx, tx, uid); err != nil {
+		return "", false, err
+	}
+	var name sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT u.username FROM users u
+		 WHERE u.id = $1 AND `+unwarnableScope+`
+		   AND `+unwarnableClock("$3")+` <= now() - $2::interval
+		 FOR UPDATE OF u`, uid, pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart).Scan(&name)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if err := deleteUserAccountTx(ctx, tx, uid); err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return name.String, true, nil
+}
+
+// CountUnwarnableDue counts, for the dry run, the unwarnable accounts due
+// deletion. A count only.
+func CountUnwarnableDue(ctx context.Context, d *sql.DB) (n int, err error) {
+	err = d.QueryRowContext(ctx, `
+		SELECT count(*) FROM users u WHERE `+unwarnableScope+` AND `+unwarnableClock("$2")+` <= now() - $1::interval`,
+		pgInterval(InactiveDeleteAfter), UnwarnablePolicyStart).Scan(&n)
 	return
 }

@@ -41,6 +41,10 @@ type purgeStore interface {
 	DeleteDue(ctx context.Context, limit int) ([]uuid.UUID, error)
 	Delete(ctx context.Context, uid uuid.UUID) (username string, deleted bool, err error)
 	Counts(ctx context.Context) (warnDue, deleteDue, warnedWaiting int, err error)
+	// Accounts with no verified address to warn: deleted at day 120, no warning.
+	UnwarnableDue(ctx context.Context, limit int) ([]uuid.UUID, error)
+	DeleteUnwarnable(ctx context.Context, uid uuid.UUID) (username string, deleted bool, err error)
+	UnwarnableCount(ctx context.Context) (int, error)
 }
 
 type pgPurgeStore struct{ d *sql.DB }
@@ -65,6 +69,15 @@ func (p pgPurgeStore) Delete(ctx context.Context, uid uuid.UUID) (string, bool, 
 }
 func (p pgPurgeStore) Counts(ctx context.Context) (int, int, int, error) {
 	return db.CountInactiveCandidates(ctx, p.d)
+}
+func (p pgPurgeStore) UnwarnableDue(ctx context.Context, limit int) ([]uuid.UUID, error) {
+	return db.ListUnwarnableDeleteDue(ctx, p.d, limit)
+}
+func (p pgPurgeStore) DeleteUnwarnable(ctx context.Context, uid uuid.UUID) (string, bool, error) {
+	return db.DeleteUnwarnableAccount(ctx, p.d, uid)
+}
+func (p pgPurgeStore) UnwarnableCount(ctx context.Context) (int, error) {
+	return db.CountUnwarnableDue(ctx, p.d)
 }
 
 // mailSender is what the job needs from the mailer.
@@ -104,14 +117,18 @@ func newInactivePurge(st purgeStore, pool *sql.DB, flag func() flags.InactivePur
 
 // PurgeResult is what one run did, for logs and tests.
 type PurgeResult struct {
-	Off           bool
-	DryRun        bool
-	Cancelled     int
-	Warned        int
-	Deleted       int
-	WarnDue       int // dry run
-	DeleteDue     int // dry run
-	WarnedWaiting int // dry run
+	Off       bool
+	DryRun    bool
+	Cancelled int
+	Warned    int
+	Deleted   int
+	// UnwarnableDeleted counts accounts with no verified address deleted at day
+	// 120 without a warning; UnwarnableDue is its dry-run count.
+	UnwarnableDeleted int
+	UnwarnableDue     int // dry run
+	WarnDue           int // dry run
+	DeleteDue         int // dry run
+	WarnedWaiting     int // dry run
 }
 
 // RunOnce is one pass.
@@ -137,20 +154,60 @@ func (j *InactivePurge) RunOnce(ctx context.Context) PurgeResult {
 			return res
 		}
 		res.WarnDue, res.DeleteDue, res.WarnedWaiting = w, d, wait
+		if n, err := j.store.UnwarnableCount(ctx); err != nil {
+			j.logger.Warn("inactive purge: dry run unwarnable count failed", "err", describeSQL(err))
+		} else {
+			res.UnwarnableDue = n
+		}
 		// Counts only: no ids, no emails.
-		j.logger.Info("inactive purge dry run", "warn_due", w, "delete_due", d, "warned_waiting", wait, "cancelled", res.Cancelled)
+		j.logger.Info("inactive purge dry run", "warn_due", w, "delete_due", d, "warned_waiting", wait, "unwarnable_due", res.UnwarnableDue, "cancelled", res.Cancelled)
 		return res
 	}
+	// Accounts with no verified address to warn need no mailer: they get no mail.
+	res.UnwarnableDeleted = j.deleteUnwarnable(ctx, state)
 	if j.mailer == nil {
 		j.logger.Warn("inactive purge: no mailer, nothing is warned or deleted")
 		return res
 	}
 	res.Warned = j.warn(ctx, state)
 	res.Deleted = j.delete(ctx, state)
-	if res.Warned > 0 || res.Deleted > 0 || res.Cancelled > 0 {
-		j.logger.Info("inactive purge", "warned", res.Warned, "deleted", res.Deleted, "cancelled", res.Cancelled)
+	if res.Warned > 0 || res.Deleted > 0 || res.Cancelled > 0 || res.UnwarnableDeleted > 0 {
+		j.logger.Info("inactive purge", "warned", res.Warned, "deleted", res.Deleted, "unwarnable_deleted", res.UnwarnableDeleted, "cancelled", res.Cancelled)
 	}
 	return res
+}
+
+// deleteUnwarnable deletes the never-connected accounts that have no verified
+// address, at day 120, with no warning (there is nowhere to send one). Same flag
+// scoping, per-run bound, row-lock re-check and identity-provider removal as the
+// warned deletions.
+func (j *InactivePurge) deleteUnwarnable(ctx context.Context, state flags.InactivePurgeState) int {
+	due, err := j.store.UnwarnableDue(ctx, purgeMaxDeletePerRun*4)
+	if err != nil {
+		j.logger.Warn("inactive purge: list unwarnable failed", "err", describeSQL(err))
+		return 0
+	}
+	deleted := 0
+	for _, uid := range due {
+		if deleted >= purgeMaxDeletePerRun || ctx.Err() != nil {
+			break
+		}
+		if !state.Enabled(uid.String()) {
+			continue
+		}
+		username, ok, err := j.store.DeleteUnwarnable(ctx, uid)
+		if err != nil {
+			j.logger.Warn("inactive purge: delete unwarnable failed", "user_id", uid.String(), "err", describeSQL(err))
+			continue
+		}
+		if !ok {
+			continue // connected, or verified an address, since; or already gone
+		}
+		deleted++
+		status, _ := deleteFromIdP(ctx, j.db, j.idp, username, j.logger)
+		j.logger.Info("inactive account deleted (no verified address to warn)", "user_id", uid.String(), "idp", status)
+	}
+	return deleted
 }
 
 func (j *InactivePurge) warn(ctx context.Context, state flags.InactivePurgeState) int {

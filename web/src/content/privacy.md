@@ -24,7 +24,7 @@ Last updated: October 19, 2026
 - **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
 - **Your browser's push service**, if you turn on notifications.
-- **Open-Meteo**, for weather (trip coordinates, or your truck's location if you turn on outside temperature, rounded to about 11 km, plus the hour) and, sometimes, for place search (the place you typed).
+- **Open-Meteo**, for weather (where a drive started, or a planned trip's route, rounded to about 11 km, plus the hour; or your truck's location if you turn on outside temperature) and, sometimes, for place search (the place you typed).
 - **An AI provider (Anthropic, OpenAI or Google Gemini), only if you turn it on.** Drive analysis sends the drive's date and time, its figures (distance, speed, energy, battery, climb and descent), temperatures, weather, tire pressures and your vehicle details (tires, wheels, accessories, load, towing); never coordinates or place names. Trip advice sends charger names, or locations rounded to about 11 km, and tire pressures; never the text you type.
 
 We run our own servers in the United States, and database backups go to storage run inside the same cluster, not to a third-party cloud. As the operator, we can see stored data, and use that only to run, support and repair the service. We do not share your data with anyone else, except where the law requires it. **We do not sell your data, and there is no advertising** and no third-party analytics script.
@@ -32,7 +32,7 @@ We run our own servers in the United States, and database backups go to storage 
 **Keeping, exporting and deleting**
 - If you connect a vehicle, we keep your history until you delete it.
 - A record of which reminders and summaries we sent (not their content) is kept about 13 months, so none is sent twice.
-- If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90, and never delete less than 30 days after that warning. This starts only after this policy is published.
+- If you never connect Rivian, your account is deleted 120 days after signup. We email a warning at day 90 to your verified address, and never delete less than 30 days after that warning. If we have no verified email address for you, there is no warning and the account is deleted at day 120. For accounts created before this line was published, the 120 days count from the day it was published.
 - In Settings you can export your data, delete your history, or delete your whole account. Signing Rivolt out of Rivian deletes the stored Rivian session; you can also revoke access in the Rivian app.
 - After you delete your account, copies can remain in logs for up to 90 days and in backups for up to 365 days. Analytics events not linked to your account cannot be found, so they simply expire after 90 days. Records of administrator actions on your account (what was done and when, no content) are kept for 2 years for security, including after you delete your account.
 
