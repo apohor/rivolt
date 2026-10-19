@@ -13,7 +13,7 @@ import (
 )
 
 // The fleet scan runs with a raised work_mem for that transaction only: inside
-// it the setting is 64MB, and on the same connection afterwards it is back to
+// it the setting is computeWorkMem, and on the same connection afterwards it is back to
 // what it was. (The leader's advisory lock, which is session-level, survives.)
 func TestComputeRunsWithRaisedWorkMemForOneTransaction(t *testing.T) {
 	if os.Getenv("RIVOLT_SKIP_INTEGRATION") != "" {

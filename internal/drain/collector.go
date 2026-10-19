@@ -147,11 +147,14 @@ func (s *dbSession) compute(ctx context.Context, now time.Time) ([]Stat, error) 
 }
 
 // computeWorkMem is the sort/hash memory for the fleet scan. At the default 4 MB
-// the 7-day aggregate spills about 95 MB to temp files on every run (measured on
-// prod, the main source of the database's temp writes); 64 MB keeps it in memory.
-// It is set with SET LOCAL inside a read-only transaction, so it covers this one
-// query and nothing else on the connection or the server.
-const computeWorkMem = "64MB"
+// the 7-day aggregate spills about 124 MB in 3 temp files on every run (measured
+// on prod, the main source of the database's temp writes). 64 MB kept one of the
+// three sorts in memory and still spilled about 100 MB, since an in-memory sort
+// needs 2 to 3 times its on-disk size. 256 MB is for one query on the one runner,
+// in a read-only transaction (at worst two sorts live, about 512 MB). It is set
+// with SET LOCAL, so it covers this one query and nothing else on the connection
+// or server.
+const computeWorkMem = "256MB"
 
 // inWorkMem runs fn inside a read-only transaction on conn with work_mem raised
 // for that transaction only. The leader's advisory lock is session-level, so it
