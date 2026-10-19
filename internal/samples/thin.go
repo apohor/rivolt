@@ -297,8 +297,9 @@ func (t *Thinner) thin(ctx context.Context, conn *sql.Conn, month time.Time) (Th
 		}
 		if s.what == "lock" {
 			// Under the SHARE lock no row can arrive, so this is the check that
-			// counts: every (user, vehicle) in the month is archived and verified.
-			ok, err := archive.MonthArchived(ctx, tx, name, t.Now().UTC())
+			// counts: every (user, vehicle) in the month is archived, verified,
+			// and still holds exactly the rows its object holds.
+			ok, err := archive.MonthArchivedExact(ctx, tx, name, t.Now().UTC())
 			if err != nil {
 				return rep, err
 			}

@@ -68,9 +68,10 @@ func TestArchiveJob(t *testing.T) {
 		}
 	}
 	now := time.Now().UTC()
+	older := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -6, 0)
 	old := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -5, 0)
 	recent := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
-	for _, m := range []time.Time{old, recent} {
+	for _, m := range []time.Time{older, old, recent} {
 		if _, err := pool.ExecContext(ctx, `SELECT rivolt_ensure_vehicle_state_partition($1)`, m); err != nil {
 			t.Fatal(err)
 		}
@@ -87,6 +88,14 @@ func TestArchiveJob(t *testing.T) {
 	ins(v1, t0.Add(time.Hour), -97.5, "")
 	ins(v2, t0, 1.0, "rivian")
 	ins(v1, recent.Add(time.Hour), 1.0, "rivian")
+	// The older month is big (3000 rows of noisy positions), so a small size
+	// cap fails it while the old month's 3 rows fit.
+	if _, err := pool.ExecContext(ctx, `
+		INSERT INTO vehicle_state (user_id, vehicle_id, at, lat, lon, source)
+		SELECT $1, $2, $3::timestamptz + make_interval(secs => g * 7), random() * 90, random() * 180, 'rivian'
+		  FROM generate_series(0, 2999) g`, uid, v1, older.Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	// v2's month is marked for re-archiving (A4's merge): the job leaves it.
 	if _, err := pool.ExecContext(ctx, `
 		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, needs_rearchive)
@@ -102,17 +111,23 @@ func TestArchiveJob(t *testing.T) {
 		return n
 	}
 
-	// An object over the size cap fails, and nothing is recorded verified.
+	// An object over the size cap fails and is not recorded; the month it is
+	// in doesn't hold the next one back (DA): the old month is archived in the
+	// same run, and the run still reports the failure.
 	small, err := archive.NewArchiver(pool, cfg, sealer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	small.MaxObjectBytes = 64
-	if n, err := small.Run(ctx); err == nil || n != 0 {
-		t.Fatalf("capped run: %d, %v; want an error", n, err)
+	small.MaxObjectBytes = 4096
+	if n, err := small.Run(ctx); err == nil || n != 1 {
+		t.Fatalf("capped run: %d, %v; want 1 object and an error", n, err)
 	}
-	if verified() != 0 {
-		t.Fatal("a failed object was recorded verified")
+	var olderVerified int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM archive_months WHERE month = $1::date`, older).Scan(&olderVerified); err != nil || olderVerified != 0 {
+		t.Fatalf("the failed object was recorded (%d, %v)", olderVerified, err)
+	}
+	if verified() != 1 {
+		t.Fatalf("%d verified after the capped run, want the old month's 1", verified())
 	}
 
 	a, err := archive.NewArchiver(pool, cfg, sealer)
@@ -121,11 +136,12 @@ func TestArchiveJob(t *testing.T) {
 	}
 	var reports []archive.Report
 	a.Report = func(r archive.Report) { reports = append(reports, r) }
+	// Uncapped, the next run archives the older month's object.
 	n, err := a.Run(ctx)
 	if err != nil || n != 1 {
 		t.Fatalf("run: %d objects, %v; want 1", n, err)
 	}
-	if len(reports) != 2 || reports[0].Rows != 3 || reports[0].Err != nil || !reports[1].Done || reports[1].Objects != 1 {
+	if len(reports) != 2 || reports[0].Rows != 3000 || reports[0].Err != nil || !reports[1].Done || reports[1].Objects != 1 {
 		t.Errorf("reports %+v", reports)
 	}
 	var rows, size int64
@@ -138,8 +154,8 @@ func TestArchiveJob(t *testing.T) {
 	if rows != 3 || !first.Equal(t0) || !last.Equal(t0.Add(time.Hour)) || size <= 0 {
 		t.Errorf("recorded rows=%d bytes=%d first=%s last=%s", rows, size, first, last)
 	}
-	if verified() != 1 {
-		t.Errorf("%d verified rows; the recent month and v2 must not be archived", verified())
+	if verified() != 2 {
+		t.Errorf("%d verified rows, want 2 (older and old for v1); the recent month and v2 must not be archived", verified())
 	}
 	if n, err := a.Run(ctx); err != nil || n != 0 {
 		t.Errorf("second run: %d, %v; want a no-op", n, err)
@@ -199,7 +215,7 @@ func TestArchiveJob(t *testing.T) {
 	}
 	man, _ := io.ReadAll(mb)
 	mb.Close()
-	if !bytes.Contains(man, []byte(`"rows":3`)) || bytes.Contains(man, []byte("30.123")) {
+	if !bytes.Contains(man, []byte(`"rows":3`)) || bytes.Contains(man, []byte("30.123")) || bytes.Contains(man, []byte("first_at")) {
 		t.Errorf("manifest %s", man)
 	}
 }

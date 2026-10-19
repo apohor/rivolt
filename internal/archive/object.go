@@ -54,9 +54,13 @@ func ManifestKey(env string, uid, vehicleID uuid.UUID, month time.Time) string {
 type Manifest struct {
 	Schema       string    `json:"schema"`
 	Columns      []string  `json:"columns"`
-	Rows         int64     `json:"rows"`
-	FirstAt      string    `json:"first_at"`
-	LastAt       string    `json:"last_at"`
+	Rows int64 `json:"rows"`
+	// FirstAt and LastAt are checked at verify and recorded in archive_months,
+	// but not written to the plaintext manifest: after a crypto-shred the
+	// manifest lingers until the deletion job runs, and should say nothing
+	// about when the user drove (DA).
+	FirstAt      string    `json:"-"`
+	LastAt       string    `json:"-"`
 	SHA256Plain  string    `json:"sha256_plain"`
 	SHA256Object string    `json:"sha256_object"`
 	Bytes        int64     `json:"bytes"`

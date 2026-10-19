@@ -131,7 +131,8 @@ func NewArchiver(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Archiver, error
 // objects it wrote and verified. One month per run; one replica at a time,
 // and never alongside thinning or retention. A failed object is reported and
 // the rest of the month continues; the run then returns an error, and the
-// month is retried the next day.
+// month is retried the next day. A month where nothing succeeded (only stuck
+// objects left) is passed over so later months still get archived.
 //
 // A (user, vehicle) whose object needs re-archiving (rows restored or
 // imported into an archived month) is not touched here: its month may be
@@ -156,6 +157,7 @@ func (a *Archiver) Run(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	var stuck error
 	for _, month := range months {
 		pairs, err := pendingPairs(ctx, conn, month)
 		if err != nil {
@@ -190,12 +192,19 @@ func (a *Archiver) Run(ctx context.Context) (int64, error) {
 		if a.Report != nil {
 			a.Report(Report{Month: MonthString(month), Done: true, Objects: done, Failed: failed})
 		}
-		if firstErr != nil {
-			return int64(done), fmt.Errorf("archive %s: %d of %d objects failed, first: %w", MonthString(month), failed, len(pairs), firstErr)
+		if firstErr == nil {
+			return int64(done), stuck
 		}
-		return int64(done), nil
+		err = fmt.Errorf("archive %s: %d of %d objects failed, first: %w", MonthString(month), failed, len(pairs), firstErr)
+		// A month whose every remaining object failed (one stuck pair, e.g.
+		// over the size cap) doesn't hold the later months back: move on, and
+		// still return its error with whatever the next month does.
+		if done > 0 || ctx.Err() != nil {
+			return int64(done), errors.Join(stuck, err)
+		}
+		stuck = errors.Join(stuck, err)
 	}
-	return 0, nil
+	return 0, stuck
 }
 
 // archivableMonths lists the months of vehicle_state's attached partitions

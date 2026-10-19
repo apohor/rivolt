@@ -88,6 +88,18 @@ func TestSampleThinning(t *testing.T) {
 		t.Fatalf("real run with needs_rearchive: %d, %v, %d rows", n, err, count())
 	}
 	markArchived(ctx, t, pool, uid.String(), vid, month, false)
+	// A row that reached the month after its archive, by a writer that didn't
+	// set needs_rearchive, isn't in the object: thinning must not run (DA).
+	late := day.Add(5 * time.Hour)
+	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicle_state (user_id, vehicle_id, at, source) VALUES ($1, $2, $3, 'late')`, uid, vid, late); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := th.Run(ctx); !errors.Is(err, samples.ErrNotArchived) || n != 0 || count() != 10801 {
+		t.Fatalf("real run with a row the archive lacks: %d, %v, %d rows", n, err, count())
+	}
+	if _, err := pool.ExecContext(ctx, `DELETE FROM vehicle_state WHERE vehicle_id = $1 AND at = $2`, vid, late); err != nil {
+		t.Fatal(err)
+	}
 	if n, err := th.Run(ctx); err != nil || n != 1 {
 		t.Fatalf("real run after the archive: %d, %v", n, err)
 	}
@@ -129,15 +141,20 @@ func TestSampleThinning(t *testing.T) {
 	}
 }
 
-// markArchived records (user, vehicle, month) as archived: verified, or waiting
-// to be re-archived. It stands in for the archive job (TestArchiveJob covers
-// that) in the thinning and retention gate tests.
+// markArchived records (user, vehicle, month) as archived, with the rows the
+// month holds now: verified, or waiting to be re-archived. It stands in for
+// the archive job (TestArchiveJob covers that) in the thinning and retention
+// gate tests.
 func markArchived(ctx context.Context, t *testing.T, pool *sql.DB, uid, vid string, month time.Time, needsRearchive bool) {
 	t.Helper()
 	if _, err := pool.ExecContext(ctx, `
 		INSERT INTO archive_months (user_id, vehicle_id, month, rows, first_at, last_at, sha256_object, bytes, verified_at, needs_rearchive)
-		VALUES ($1, $2, $3::date, 1, $3, $3, 'test', 1, NOW(), $4)
-		ON CONFLICT (user_id, vehicle_id, month) DO UPDATE SET verified_at = NOW(), needs_rearchive = EXCLUDED.needs_rearchive`,
+		SELECT $1, $2, $3::date, count(*), min(at), max(at), 'test', 1, NOW(), $4
+		  FROM vehicle_state
+		 WHERE user_id = $1 AND vehicle_id = $2 AND at >= $3 AND at < $3::timestamptz + interval '1 month'
+		ON CONFLICT (user_id, vehicle_id, month) DO UPDATE
+		   SET rows = EXCLUDED.rows, first_at = EXCLUDED.first_at, last_at = EXCLUDED.last_at,
+		       verified_at = NOW(), needs_rearchive = EXCLUDED.needs_rearchive`,
 		uid, vid, month, needsRearchive); err != nil {
 		t.Fatal(err)
 	}
