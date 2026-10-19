@@ -19,6 +19,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
 import { multiDayFirst, tripSubtitle, tripTag } from "../plan/tripSubtitle";
+import { SaveTripBar } from "../plan/SaveTripBar";
 import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
@@ -348,6 +349,16 @@ export default function TripPlanPage() {
       {moneyShell && <PlanVsActualSection trips={savedTripsQuery.data ?? []} highlightId={activeTripId} />}
     </>
   );
+  // The trip being shown, named for a Save that is one tap on the result.
+  const tripLabel = (l?: string) => (l ?? "").replace(/\s*\(sample\)\s*$/i, "").trim();
+  const defaultTripName = (() => {
+    const o = tripLabel(origin?.label);
+    const d = tripLabel(destination?.label);
+    const days = overnightFlags.filter(Boolean).length + 1;
+    const base = o && d && o !== d ? `${o} to ${d}` : o ? `${o} round trip` : "My trip";
+    return days > 1 ? `${base} · ${days} days` : base;
+  })();
+  const activeTripName = savedTripsQuery.data?.find((t) => t.id === activeTripId)?.name ?? null;
   const savedEl = (
     <>
       <SavedTripsCard
@@ -356,6 +367,7 @@ export default function TripPlanPage() {
         activeId={activeTripId}
         canSave={!!origin && !!destination}
         saveDisabled={saveTripMutation.isPending}
+        suggestedName={origin && destination ? defaultTripName : undefined}
         onLoad={(t) => {
           loadSavedTrip(t);
           setPlanTab("planner");
@@ -367,8 +379,21 @@ export default function TripPlanPage() {
       />
     </>
   );
+  const saveBarEl =
+    hasResult && !inDemo() ? (
+      <SaveTripBar
+        defaultName={defaultTripName}
+        activeName={activeTripName}
+        saving={saveTripMutation.isPending}
+        error={saveTripMutation.error ? (saveTripMutation.error as Error).message : null}
+        savedName={saveTripMutation.isSuccess ? saveTripMutation.data.name : null}
+        onSave={(name) => saveTripMutation.mutate({ name, id: activeTripName === name ? activeTripId : null })}
+        onShowSaved={() => setPlanTab("saved")}
+      />
+    ) : null;
   const resultEl = (
     <>
+      {saveBarEl}
       {(planMutation.error || multidayMutation.isError) && (
         <PlanError error={planMutation.error ?? multidayMutation.error} />
       )}
@@ -876,6 +901,7 @@ function SavedTripsCard({
   activeId,
   canSave,
   saveDisabled,
+  suggestedName,
   onLoad,
   onDelete,
   onSave,
@@ -888,6 +914,8 @@ function SavedTripsCard({
   activeId: string | null;
   canSave: boolean;
   saveDisabled: boolean;
+  // Filled in when there is no name yet, so Save is never a dead button with no hint why.
+  suggestedName?: string;
   onLoad: (t: SavedTrip) => void;
   onDelete: (id: string) => void;
   onSave: (name: string, id: string | null) => void;
@@ -896,8 +924,8 @@ function SavedTripsCard({
   const [name, setName] = useState("");
   const active = trips.find((t) => t.id === activeId) ?? null;
   useEffect(() => {
-    setName(active?.name ?? "");
-  }, [active?.id, active?.name]);
+    setName(active?.name ?? suggestedName ?? "");
+  }, [active?.id, active?.name, suggestedName]);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const n = name.trim();
@@ -1344,8 +1372,8 @@ function LocationField({
               <span className="pt-value min-w-0 truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
               <span className="flex shrink-0 items-center gap-3 text-xs">
                 {onSaveAsFavorite && value.label !== "Home" && (
-                  <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset">
-                    ☆ save
+                  <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
+                    ☆ save place
                   </button>
                 )}
                 <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${heading}`} className="text-neutral-400 hover:text-neutral-200">
@@ -1397,8 +1425,9 @@ function LocationField({
                 onClick={() => onSaveAsFavorite(value)}
                 className="text-amber-400 hover:text-amber-200"
                 title="Save this place as a one-tap preset"
+                aria-label={`Save place: ${value.label}, as a favorite`}
               >
-                ☆ save
+                ☆ save place
               </button>
             )}
             <button
