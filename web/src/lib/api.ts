@@ -1564,7 +1564,8 @@ export const backend = {
   },
   // Range at a given outside temperature, from the user's own drives. Null when the server has no such endpoint.
   coldRange: async (vehicleID: string, tempC: number, gridC: number[], units: "imperial" | "metric"): Promise<ColdRange | null> => {
-    const q = new URLSearchParams({ temp_c: String(tempC), grid: gridC.join(","), units });
+    const q = new URLSearchParams({ temp_c: String(tempC), units });
+    if (gridC.length > 0) q.set("grid", gridC.join(","));
     try {
       return await api.get<ColdRange>(`/api/vehicles/${encodeURIComponent(vehicleID)}/cold-range?${q}`);
     } catch (e) {

@@ -100,3 +100,25 @@ test("the demo never asks for, or offers, outside temperature", async ({ page })
   await expect(page.locator("[data-ambient-offer], [data-ambient-temp]")).toHaveCount(0);
   expect(calls).toEqual([]);
 });
+
+test("with the reading on, Now adds one sentence from the user's own drives; nothing when there is too little history", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const base = { units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", min_drives: 5, min_miles: 50, available: [] as number[] };
+  for (const [name, body, want] of [
+    ["figure", { ...base, temp_c: 7, efficiency_low: 2.4, efficiency_high: 2.8, range_low: 283.2, range_high: 283.4, based_on: { drives: 12, miles: 300, temp_lo_c: 3, temp_hi_c: 11 } }, "It's 45 °F now: about 283 mi on a full charge, from your own drives (estimate)."],
+    ["no pack", { ...base, temp_c: 7, efficiency_low: 2.4, efficiency_high: 2.8, range_low: null, range_high: null, based_on: { drives: 12, miles: 300, temp_lo_c: 3, temp_hi_c: 11 } }, "your drives near this temperature average about 2.4–2.8 mi/kWh (estimate)."],
+    ["sparse", { ...base, temp_c: 7, reason: "not_enough_data", efficiency_low: null, efficiency_high: null, range_low: null, range_high: null, based_on: null }, null],
+  ] as const) {
+    const page = await ctx.newPage();
+    await open(page, { enabled: true });
+    await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/cold-range`), (r) => r.fulfill(j(body)));
+    await page.goto("/");
+    await expect(page.locator("[data-ambient-temp]")).toBeVisible();
+    if (want) await expect(page.locator("[data-cold-range-now]"), name).toContainText(want);
+    else {
+      await page.waitForTimeout(800);
+      await expect(page.locator("[data-cold-range-now]"), name).toHaveCount(0);
+    }
+  }
+  await ctx.close();
+});
