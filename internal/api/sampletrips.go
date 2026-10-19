@@ -81,18 +81,19 @@ func sampleTripPage(shell []byte, canon string) (renderedPage, bool) {
 				trips = append(trips, t)
 			}
 		}
-		if err := hubTemplate.Execute(&article, hubView{Hub: demo.SampleTripHub, Trips: trips, NotAffiliated: notAffiliated}); err != nil {
+		if err := hubTemplate.Execute(&article, hubView{Hub: demo.SampleTripHub, Pages: demo.SampleTripPages, NotAffiliated: notAffiliated}); err != nil {
 			return renderedPage{}, false
 		}
 		type hubTrip struct {
 			Slug   string               `json:"slug"`
 			Title  string               `json:"title"`
 			Intro  string               `json:"intro"`
+			Blurb  string               `json:"blurb"`
 			Totals demo.SampleTripTotal `json:"totals"`
 		}
 		list := make([]hubTrip, 0, len(trips))
-		for _, t := range trips {
-			list = append(list, hubTrip{t.Slug, t.Title, t.Intro, t.Totals})
+		for i, t := range trips {
+			list = append(list, hubTrip{t.Slug, t.Title, t.Intro, demo.SampleTripPages[i].Blurb, t.Totals})
 		}
 		writeJSONScript(&data, "sample-trips", map[string]any{"trips": list})
 		ld.WriteString(breadcrumbLD([][2]string{{"Rivolt", "/"}, {"Sample trips", pathSampleTrips}}, page))
@@ -171,7 +172,7 @@ func breadcrumbLD(crumbs [][2]string, page seoPage) string {
 
 type hubView struct {
 	Hub           demo.SampleTripPage
-	Trips         []demo.SampleTrip
+	Pages         []demo.SampleTripPage
 	NotAffiliated string
 }
 
@@ -212,8 +213,8 @@ func durationHM(min float64) string {
 var hubTemplate = template.Must(template.New("hub").Funcs(tmplFuncs).Parse(`<article id="sample-trips-article">
 <h1>{{h1 .Hub.Title}}</h1>
 <p>{{.Hub.Intro}}</p>
-<ul>{{range .Trips}}
-<li><a href="{{path .Slug}}">{{.Title}}</a>: {{mi .Totals.DistanceMi}}, {{.Totals.ChargeStops}} charging stop{{if ne .Totals.ChargeStops 1}}s{{end}}, about {{usd .Totals.DCFCCostEst}} fast charging (estimate).</li>{{end}}
+<ul>{{range .Pages}}
+<li><a href="{{path .Slug}}">{{.Title}}</a>. {{.Blurb}}</li>{{end}}
 </ul>
 <p><a href="/signup">Plan your own trip</a></p>
 <p>{{.NotAffiliated}}</p>

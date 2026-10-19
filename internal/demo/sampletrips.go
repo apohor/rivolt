@@ -20,39 +20,52 @@ type SampleTripPage struct {
 	Title    string // <title> and h1
 	Desc     string // meta description
 	Intro    string
+	Blurb    string // the hub card's one line
 }
 
-// SampleTripHub is the /sample-trips page's copy.
+// SampleTripHub is the /sample-trips page's copy (growth, DA-approved).
 var SampleTripHub = SampleTripPage{
-	Slug:  "",
-	Title: "Sample Rivian road trips, planned with charging stops | Rivolt",
-	Desc:  "Three real routes planned for a Rivian: where to charge, for how long, and what it costs. Unofficial, not affiliated with Rivian.",
-	Intro: "Three road trips planned the way Rivolt plans yours: real roads, the charging stops it picks, how long each takes, and an estimated cost. Open one in the demo planner, or plan your own.",
+	Title: "Sample Rivian road trips, planned with Rivolt",
+	Desc:  "Three sample trips for a Rivian R1S planned by Rivolt: charging stops, arrival charge, time and estimated cost. Simulated sample data, no sign-in needed.",
+	Intro: "These are three simulated sample plans for a Rivian R1S, shown exactly as Rivolt lays them out: every charging stop with its network, the battery on arrival and departure, charge time, and the estimated cost. " +
+		"The figures are estimates from the sample truck's efficiency, the route and the chargers along it; a real trip will differ with weather, traffic and charger speed. " +
+		"With your own Rivian connected, the plan comes from Rivian's planner plus Rivolt's adjustment for the forecast weather along the route. " +
+		"Pick a trip to see the day-by-day plan, open it in the demo planner, or plan your own.",
 }
 
-// SampleTripPages lists the pages in hub order. The copy is growth's (the
-// placeholders here until it lands).
+// SampleTripPages lists the pages in hub order, with growth's copy
+// (sample-trips-copy.md, DA-approved; figures from the fixtures).
 var SampleTripPages = []SampleTripPage{
 	{
 		Slug:     "la-las-vegas-two-days",
 		PresetID: "919ca13a-123f-5423-994d-12d7ccd31319",
-		Title:    "LA to Las Vegas and back in a Rivian: a two-day plan | Rivolt",
-		Desc:     "A two-day Pasadena to Las Vegas round trip planned for a Rivian, with a fast-charge stop each way and an overnight hotel charge. Estimates only.",
-		Intro:    "A weekend in Las Vegas from Pasadena: one fast-charging stop on the way out, a slow charge at the hotel, and one short top-up on the way home.",
+		Title:    "LA to Las Vegas and back in a Rivian: a two-day sample plan",
+		Desc:     "A two-day Rivian R1S trip from Los Angeles to Las Vegas and back: a fast-charge stop at Barstow, a hotel night on Level 2, and the estimated cost per day.",
+		Intro: "Two days, 530 miles, from Pasadena to Las Vegas and home again. Day one stops once, at the Rivian Adventure Network site in Barstow, and ends at a Las Vegas hotel with a Level 2 charger, where an overnight at 6 kW adds about 79 kWh by morning. " +
+			"Day two needs only a short top-up at Primm before the run back. " +
+			"Times, charge levels and costs are estimates for the sample truck, and the hotel is a sample stop with a Level 2 charger, not a real listing; on a real trip, check a hotel's charger before you rely on it.",
+		Blurb: "Los Angeles to Las Vegas and back in two days: a hotel overnight on Level 2, one fast-charge stop each way.",
 	},
 	{
 		Slug:     "pasadena-san-francisco",
 		PresetID: "san-francisco",
-		Title:    "Pasadena to San Francisco in a Rivian: charging plan | Rivolt",
-		Desc:     "A Pasadena to San Francisco drive on I-5 planned for a Rivian: one fast-charging stop, how long it takes and an estimated cost.",
-		Intro:    "Pasadena to the Ferry Building up I-5, about 380 miles. One fast-charging stop in the Central Valley gets you there with charge to spare.",
+		Title:    "Pasadena to San Francisco in a Rivian: I-5 with one stop",
+		Desc:     "A 381-mile Rivian R1S trip up I-5 from Pasadena to the Ferry Building, planned by Rivolt: one fast-charge stop at Harris Ranch and an estimated cost.",
+		Intro: "The classic I-5 run: 381 miles from the Rose Bowl to the Ferry Building in about 5 h 40 min of driving, about 6 h 15 min with the stop. " +
+			"Leaving at 90%, the plan makes one fast-charge stop at Harris Ranch, arriving at 18% and charging to 80% in about 36 minutes using a NACS adapter, then reaches San Francisco with 16% left. " +
+			"Every figure is the planner's estimate for the sample truck; your truck, the weather and the charger on the day will change them.",
+		Blurb: "Pasadena to San Francisco on I-5: 381 miles with one fast-charge stop at Harris Ranch.",
 	},
 	{
 		Slug:     "la-mammoth-lakes",
 		PresetID: "mammoth",
-		Title:    "LA to Mammoth Lakes in a Rivian: charging plan | Rivolt",
-		Desc:     "Union Station to Mammoth Mountain planned for a Rivian: a climb of about 8,000 ft, one fast-charging stop and an estimated cost.",
-		Intro:    "From downtown Los Angeles up US-395 to Mammoth Mountain: a long climb that uses more energy than the miles suggest, with one fast-charging stop on the way.",
+		Title:    "LA to Mammoth Lakes in a Rivian: one stop to the mountains",
+		Desc:     "A 314-mile Rivian R1S sample trip from Los Angeles to Mammoth Mountain Main Lodge, planned by Rivolt: one fast-charge stop and an estimated arrival charge.",
+		Intro: "From Union Station to Mammoth Mountain Main Lodge at about 9,000 feet: 314 miles. " +
+			"The plan stops once on the way, at the TA Travel Center fast chargers, charging from 22% to 78% in about 33 minutes with a NACS adapter, and arrives with 16%. " +
+			"This sample plan does not model the climb; when you plan a real trip with your Rivian connected, the route comes from Rivian's planner and Rivolt adjusts for the forecast weather along the route, which matters on a winter run to the mountains. " +
+			"All figures are estimates for the sample truck.",
+		Blurb: "Los Angeles to Mammoth Lakes: 314 miles to the mountains with one fast-charge stop.",
 	},
 }
 
