@@ -413,6 +413,7 @@ func (m *StateMonitor) forgetSampleSlot(vehicleID string) {
 	m.sampleMu.Lock()
 	defer m.sampleMu.Unlock()
 	delete(m.lastSampleAt, vehicleID)
+	m.parked.forget(vehicleID)
 }
 
 func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, curr *State, lifecycle bool) {
@@ -623,8 +624,12 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 			s.PackTempAvgC, s.PackTempMaxC, s.PackTempMinC = &avg, &mx, &mn
 		}
 		if m.deferringWrites() {
-			// Replay catch-up: batched, see replay_catchup.go.
+			// Replay catch-up: batched, see replay_catchup.go. Not thinned: the
+			// replayed history stands in for a truck's whole record.
 			m.catchup.addSample(vehicleID, s)
+		} else if m.parkedDedupe && !m.parked.shouldWrite(s) {
+			// Parked and unchanged since the last written row: the next change or
+			// the heartbeat carries it (parked_dedupe.go).
 		} else if err := m.samplesStore.InsertBatch(wctx, []samples.Sample{s}); err != nil {
 			// Warn (not Debug) — this is the only place a silent
 			// vehicle_state write failure shows up, and a quiet
