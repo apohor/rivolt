@@ -115,3 +115,23 @@ func TestMapMountsLimitPerUser(t *testing.T) {
 		t.Fatalf("another user = %d, want 200", c)
 	}
 }
+
+func TestChargersAlongRouteIsLimitedPerUser(t *testing.T) {
+	t.Parallel()
+	if mapsChargersAlongPerMin <= 0 || mapsChargersAlongPerMin > 120 {
+		t.Fatalf("chargers-along ceiling %d out of range", mapsChargersAlongPerMin)
+	}
+	h := mapsUserLimiter(mapsChargersAlongPerMin).Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+	uid := uuid.New()
+	var last int
+	for i := 0; i <= mapsChargersAlongPerMin; i++ {
+		r := httptest.NewRequest("POST", "/api/maps/chargers-along", nil)
+		r = r.WithContext(auth.WithUser(r.Context(), uid))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		last = w.Code
+	}
+	if last != 429 {
+		t.Fatalf("request %d = %d, want 429", mapsChargersAlongPerMin+1, last)
+	}
+}
