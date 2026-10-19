@@ -423,13 +423,15 @@ jobs:
 
   publish:
     name: publish
+    # Only a commit whose tests passed gets an image. Building in parallel
+    # pushed sha-<short> for red commits too, and bump-preview only waited
+    # for the tests when a migration was in range, so a red commit could
+    # reach preview. (tag-validate still requires a fully green run for
+    # prod.) needs: skips publish, and with it bump-preview, when any of
+    # these fail.
+    needs: [go, integration, web]
     outputs:
       version: ${{ steps.ver.outputs.version }}
-    # Builds in parallel with the tests (the Dockerfile compiles web and
-    # Go itself). Pushing sha-<short> before tests finish is safe:
-    # bump-preview waits for the tests, and tag-validate only accepts a
-    # SHA whose whole run succeeded, so a red commit can't reach preview
-    # or prod.
     # Build & push the image. Main pushes and workflow_dispatch only;
     # tag pushes take the retag-only path below (skipping tests, since
     # the code already shipped to preview).
