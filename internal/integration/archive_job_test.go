@@ -111,6 +111,24 @@ func TestArchiveJob(t *testing.T) {
 		return n
 	}
 
+	// With the store unreachable the run stops at the first object instead of
+	// building every pending object of every month to fail each upload.
+	down := cfg
+	down.Endpoint = "http://127.0.0.1:1"
+	unreachable, err := archive.NewArchiver(pool, down, sealer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var downReports []archive.Report
+	unreachable.Report = func(r archive.Report) {
+		if !r.Done {
+			downReports = append(downReports, r)
+		}
+	}
+	if n, err := unreachable.Run(ctx); err == nil || n != 0 || len(downReports) != 1 {
+		t.Fatalf("store down: %d, %v, %d objects tried; want an error after 1", n, err, len(downReports))
+	}
+
 	// An object over the size cap fails and is not recorded; the month it is
 	// in doesn't hold the next one back (DA): the old month is archived in the
 	// same run, and the run still reports the failure.
