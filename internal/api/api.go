@@ -808,6 +808,11 @@ func New(d Deps) http.Handler {
 			r.Get("/settings/rivian-receipts", withUser(handleRivianReceiptsGet(d.Flags, d.Settings)))
 			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB))))
 
+			// Per-user switch for sending trip/drive data to the AI provider.
+			// Off by default; the advice endpoints refuse until it is on.
+			r.Get("/settings/ai-consent", withUser(handleAIConsentGet(d.Settings)))
+			r.Put("/settings/ai-consent", withUser(handleAIConsentPut(d.Settings)))
+
 			// Trip planner defaults — drive mode + Tesla NACS
 			// adapter. SPA pre-fills the per-trip form from these.
 			// Gated on the trip-planner feature flag: when disabled
@@ -1167,10 +1172,13 @@ func New(d Deps) http.Handler {
 			// (not group-wide) so plan-multiday — Rivian calls, not LLM —
 			// stays uncapped.
 			aiBudgetMW := requireAIBudgetMW(d.Flags, d.AIBudget)
-			r.With(aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// The user's own consent comes first, so a refused call is not
+			// charged to the budget.
+			aiGate := requireAIConsentMW(d.Settings)
+			r.With(aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
-			r.With(aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid))(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.
