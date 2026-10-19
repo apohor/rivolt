@@ -63,8 +63,9 @@ const unwarnableScope = `u.role <> 'admin' AND u.disabled = FALSE
 // policy text). Accounts that signed up under the earlier text were promised a
 // warning, so their 120 days count from the later of signup and this date.
 // Keep it equal to the "Last updated" date of the privacy page that carries the
-// line. A var only so tests can move it.
-var UnwarnablePolicyStart = time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
+// line. It is the start of that day in the
+// owner's zone (US Central), so it is never before the deploy. A var only so tests can move it.
+var UnwarnablePolicyStart = time.Date(2026, 10, 19, 5, 0, 0, 0, time.UTC) // 2026-10-19 00:00 CDT
 
 // unwarnableClock is the SQL for the age of an unwarnable account, with the
 // policy start as the given parameter.
