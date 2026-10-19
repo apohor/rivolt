@@ -12,8 +12,8 @@ Last updated: October 18, 2026
 - **Your vehicle's data**, read from Rivian: charge level, range, odometer, speed, temperatures, tire pressure, software version, trim and picture, and **GPS location**. We turn it into drives, charges and costs. Location is the most sensitive data we hold. It is never shown to other users. Rivolt records the vehicle, not the driver: if someone else drives it, their trips are recorded too.
 - **Rivian charging receipts**, only if you turn them on in Settings (off by default; turning them off deletes the stored receipts): amount billed, currency, energy, times, vendor, city, and charger name (not for home chargers). We never ask for your payment card or address.
 - **Your settings:** electricity rates, saved places and trips, notification and email preferences.
-- **Notifications:** if you turn on notifications, your browser's push address and User-Agent.
-- **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email.
+- **Notifications:** if you turn on notifications, your browser's push address and User-Agent. Notifications you can turn on: charging complete, software updates, a plug-in reminder when the truck is parked at home below a level you choose, and milestones.
+- **Emails from us:** we send a welcome email and up to two setup reminders until Rivolt has recorded data from your truck; you can turn them off in Settings or with the link in the email. We also send a weekly summary if you turn it on.
 - **Technical logs:** IP address, pages requested, errors, your account id, your vehicle's Rivian id and some raw vehicle data, to run and fix the service. Kept 90 days.
 - **Product analytics:** our own simple usage events (no IP address, location, amounts or emails), with a random id stored in your browser. Kept 90 days. If your browser sends Do Not Track or Global Privacy Control, we record nothing.
 

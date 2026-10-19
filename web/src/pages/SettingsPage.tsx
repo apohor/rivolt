@@ -1,4 +1,5 @@
 import { R2CheckedSettings } from "../components/R2Checked";
+import { PlugReminderFields, useEngagement } from "../components/AlertSettings";
 import { useUiNext } from "../lib/uiNext";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { inDemo } from "../lib/demo";
@@ -219,6 +220,7 @@ function SettingsPageInner() {
             <NotificationsPanel />
           </Card>
           <StatementEmailCard />
+          <WeeklyRecapCard />
           <OnboardingEmailCard />
         </>
       )}
@@ -1890,6 +1892,48 @@ function ProviderCard({
 
 // DangerZonePanel exposes the backup + reset flow. Reset wipes
 // every drive, charge, and raw sample for the current user;
+// WeeklyRecapCard: the Monday email opt-in. Account-wide, so it needs no push support.
+function WeeklyRecapCard() {
+  const engagement = useEngagement();
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState<boolean | null>(null);
+  if (!engagement.settings) return null;
+  // Shows the new choice at once; if the save fails the switch goes back and the reason shows.
+  const on = pending ?? engagement.settings.weekly_recap;
+  return (
+    <Card title="Weekly recap" id="weekly-recap">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="weekly-recap-toggle" className="text-sm text-neutral-100">
+            Weekly recap by email
+          </label>
+          <p className="mt-1 text-xs text-neutral-500">
+            One short email on Monday with last week&apos;s miles, energy, cost and efficiency, and your lease pace if you track one. Skipped on weeks
+            with no driving, and one reminder if you haven&apos;t visited in a month. Turn off any time.
+          </p>
+        </div>
+        <Toggle
+          id="weekly-recap-toggle"
+          checked={on}
+          onChange={(v) => {
+            setErr(null);
+            setPending(v);
+            engagement
+              .save({ weekly_recap: v })
+              .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+              .finally(() => setPending(null));
+          }}
+        />
+      </div>
+      {err && (
+        <p role="alert" className="mt-2 text-xs text-rose-400">
+          Couldn&apos;t save: {err}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 // NotificationsPanel handles the Web Push subscription flow for this
 // device: permission prompt → fetch VAPID key → pushManager.subscribe
 // → POST to /api/push/subscribe. Re-subscribing with new preferences
@@ -1911,12 +1955,18 @@ export function NotificationsPanel() {
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== "undefined" ? Notification.permission : "denied",
   );
+  // The plug-in reminder and milestones start off: they are opt-in, and a device's real switches are
+  // read back from the server once the subscription is known.
   const [prefs, setPrefs] = useState<PushPreferences>({
     on_charging_done: true,
-    on_plug_in_reminder: true,
+    on_plug_in_reminder: false,
     on_anomaly: true,
     on_software_update: true,
+    on_milestones: false,
   });
+  const engagement = useEngagement();
+  const home = useQuery({ queryKey: ["home-location"], queryFn: () => backend.homeLocationGet(), staleTime: 60_000, retry: 0 });
+  const [stopNote, setStopNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [testedOk, setTestedOk] = useState(false);
@@ -1924,7 +1974,17 @@ export function NotificationsPanel() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     void navigator.serviceWorker.ready.then((reg) =>
-      reg.pushManager.getSubscription().then((s) => setSub(s)),
+      reg.pushManager.getSubscription().then(async (s) => {
+        setSub(s);
+        if (!s) return;
+        // What the server has for this device, so the switches are not local guesses.
+        try {
+          const stored = await backend.pushDevice(s.endpoint);
+          if (stored) setPrefs(stored);
+        } catch {
+          /* keep the defaults: the switches still work */
+        }
+      }),
     );
   }, []);
 
@@ -1935,7 +1995,7 @@ export function NotificationsPanel() {
     "Notification" in window;
   const serverEnabled = status.data?.enabled ?? false;
 
-  async function enable(newPrefs: PushPreferences) {
+  async function enable(newPrefs: PushPreferences): Promise<boolean> {
     setErr(null);
     setTestedOk(false);
     setBusy("enable");
@@ -1945,7 +2005,7 @@ export function NotificationsPanel() {
         setPermission(p);
         if (p !== "granted") {
           setErr("Permission denied. Re-enable from browser site settings.");
-          return;
+          return false;
         }
       }
       const reg = await navigator.serviceWorker.ready;
@@ -1971,6 +2031,68 @@ export function NotificationsPanel() {
       setPrefs(res.preferences);
       setSub(s);
       qc.invalidateQueries({ queryKey: ["push-status"] });
+      return true;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // A device switch. The plug-in reminder and milestones go through their own opt-in call (the subscribe
+  // upsert ignores them, so a re-save can never turn them on). Turning one on also stores the browser's time
+  // zone on the account, or the reminder never fires; if that fails, the switch is put back and the reason shown.
+  async function toggle(key: keyof PushPreferences, checked: boolean) {
+    const before = prefs;
+    const next = { ...prefs, [key]: checked };
+    setPrefs(next);
+    setStopNote(null);
+    setErr(null);
+    if (key !== "on_plug_in_reminder" && key !== "on_milestones") {
+      if (!(await enable(next))) setPrefs(before);
+      return;
+    }
+    if (!sub) {
+      setPrefs(before);
+      return;
+    }
+    setBusy("optin");
+    try {
+      await backend.pushOptin(sub.endpoint, { [key]: checked });
+      if (checked) {
+        try {
+          await engagement.save({});
+        } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          await backend.pushOptin(sub.endpoint, { [key]: false }).catch(() => undefined);
+          setPrefs(before);
+          setErr(`Couldn't save your time zone, so this reminder was left off: ${why}`);
+        }
+      }
+    } catch (e) {
+      setPrefs(before);
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Stops one reminder kind on every device when the server can; otherwise on this device only, and says so.
+  async function stopAll(kind: "plug_in_reminder" | "milestones") {
+    setErr(null);
+    setBusy("stop");
+    try {
+      const done = await backend.pushOff(kind);
+      const key = kind === "plug_in_reminder" ? "on_plug_in_reminder" : "on_milestones";
+      if (done) {
+        setPrefs((p) => ({ ...p, [key]: false }));
+        setStopNote("Turned off on all your devices.");
+      } else {
+        setBusy(null);
+        await toggle(key, false);
+        setStopNote("Turned off on this device. Other devices keep it until you turn it off there.");
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2062,30 +2184,55 @@ export function NotificationsPanel() {
         disabled={!subscribed || busy !== null}
         className="space-y-2 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-sm disabled:opacity-50"
       >
-        <legend className="px-1 text-xs text-neutral-500">Notify me when…</legend>
+        <legend className="px-1 text-xs text-neutral-500">Notify me when… (on this device)</legend>
         {(
           [
-            ["on_charging_done", "Charging session completes"],
-            ["on_plug_in_reminder", "I forget to plug in"],
-            ["on_anomaly", "An anomaly is detected"],
-            ["on_software_update", "Software updates"],
+            ["on_charging_done", "Charging session completes", ""],
+            ["on_software_update", "Software updates", ""],
+            ["on_anomaly", "An anomaly is detected", ""],
+            ["on_plug_in_reminder", "Plug-in reminder", "One notification in the evening if the truck is parked at home, unplugged, and below the level you set."],
+            ["on_milestones", "Milestones", "A notification when you pass one, like your first 1,000 miles or your 100th charge. Off until you turn it on."],
           ] as const
-        ).map(([key, label]) => (
-          <label key={key} className="flex items-center gap-2">
+        ).map(([key, label, help]) => (
+          <label key={key} className="flex items-start gap-2">
             <input
               type="checkbox"
               checked={prefs[key]}
-              onChange={(e) => {
-                const next = { ...prefs, [key]: e.target.checked };
-                setPrefs(next);
-                void enable(next);
-              }}
-              className="h-4 w-4 accent-emerald-600"
+              onChange={(e) => void toggle(key, e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-emerald-600"
             />
-            <span className="text-neutral-300">{label}</span>
+            <span>
+              <span className="block text-neutral-300">{label}</span>
+              {help && <span className="block text-xs text-neutral-500">{help}</span>}
+            </span>
           </label>
         ))}
       </fieldset>
+
+      {subscribed && prefs.on_plug_in_reminder && engagement.settings && (
+        <PlugReminderFields
+          settings={engagement.settings}
+          hasHome={!!home.data?.set}
+          onSave={async (patch) => {
+            await engagement.save(patch);
+          }}
+          onStop={() => void stopAll("plug_in_reminder")}
+          stopLabel="Stop these reminders"
+          busy={busy !== null}
+        />
+      )}
+      {subscribed && prefs.on_milestones && (
+        <button
+          type="button"
+          onClick={() => void stopAll("milestones")}
+          disabled={busy !== null}
+          className="text-xs text-neutral-400 underline hover:text-neutral-200 disabled:opacity-50"
+        >
+          Stop milestone notifications
+        </button>
+      )}
+      {stopNote && <p className="text-xs text-emerald-400">{stopNote}</p>}
+
 
       <div className="flex flex-wrap items-center gap-3">
         {!subscribed ? (
@@ -2126,9 +2273,7 @@ export function NotificationsPanel() {
         <p className="text-xs text-rose-400">{err}</p>
       )}
       <p className="text-xs text-neutral-600">
-        Trigger sources are still being wired — the Test button delivers a real
-        push end-to-end, but charging-done / plug-in / anomaly events won&apos;t
-        fire automatically yet.
+        Send test delivers a real notification to this device, so you can check it end to end.
       </p>
     </div>
   );

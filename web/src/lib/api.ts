@@ -818,6 +818,18 @@ export type PushPreferences = {
   on_plug_in_reminder: boolean;
   on_anomaly: boolean;
   on_software_update: boolean;
+  on_milestones: boolean;
+};
+
+// The account-wide engagement settings, GET and PUT /api/settings/engagement. A PUT may carry any
+// subset; the answer is the whole object after the change.
+export type EngagementSettings = {
+  timezone: string;
+  // False until a zone has been saved: the plug-in reminder never sends without one.
+  timezone_stored: boolean;
+  weekly_recap: boolean;
+  plug_threshold_pct: number;
+  plug_remind_at: string; // HH:MM, local, no later than 22:00
 };
 
 // PushStatus is the aggregated state returned by GET /api/push/status.
@@ -1231,6 +1243,32 @@ export const backend = {
   pushStatus: () => api.get<PushStatus>("/api/push/status"),
   pushSubscribe: (body: PushSubscribeBody) =>
     api.post<{ ok: boolean; preferences: PushPreferences }>("/api/push/subscribe", body),
+  engagementGet: () => api.get<EngagementSettings>("/api/settings/engagement"),
+  engagementPut: (patch: Partial<Omit<EngagementSettings, "timezone_stored">>) =>
+    api.put<EngagementSettings>("/api/settings/engagement", patch),
+  // This device's stored switches, so the panel shows what the server has. A POST so the endpoint, a
+  // capability URL, stays out of access logs. Null when the server does not know the device (404).
+  pushDevice: async (endpoint: string): Promise<PushPreferences | null> => {
+    try {
+      return (await api.post<{ preferences: PushPreferences }>("/api/push/device", { endpoint })).preferences;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+      throw e;
+    }
+  },
+  // Turns the plug-in reminder and/or milestones on or off for this device. The subscribe call ignores both
+  // switches (so a re-save can never opt anyone in); this is how a tap on either reaches the server.
+  pushOptin: (endpoint: string, patch: { on_plug_in_reminder?: boolean; on_milestones?: boolean }) =>
+    api.post<{ ok?: boolean }>("/api/push/optin", { endpoint, ...patch }),
+  // Turns one reminder kind off on every device of the account. Null when the server has no such call yet.
+  pushOff: async (kind: "plug_in_reminder" | "milestones"): Promise<{ devices_changed: number } | null> => {
+    try {
+      return await api.post<{ devices_changed: number }>("/api/push/off", { kind });
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+      throw e;
+    }
+  },
   pushUnsubscribe: (endpoint: string) =>
     api.post<{ ok: boolean }>("/api/push/unsubscribe", { endpoint }),
   pushTest: (endpoint: string) =>
