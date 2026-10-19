@@ -2177,6 +2177,9 @@ export type TripPlanRequest = {
   // ISO 8601 UTC — when omitted, Rivian uses the request time.
   // Returned times are shifted client-side to match this departure.
   departure_datetime?: string;
+  // RFC 3339: when the trip leaves. The server plans for that time (weather, ETAs) and marks a far-off departure
+  // far_future. Omit to leave now.
+  depart_at?: string;
   waypoints: TripPlanInputWaypoint[];
   target_arrival_soc_percent?: number;
   drive_mode?: string;
