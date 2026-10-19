@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import Logo from "../components/Logo";
 import { formatMoney } from "../lib/ledger";
-import { fmtDuration, readSampleTrip, readSampleTrips, routePath, type SampleDay, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
+import { fmtDuration, readSampleTrip, readSampleTrips, routePath, type SampleDay, type SampleStop, type SampleTrip, type SampleTripCard } from "../lib/sampleTrip";
 import { useSystemTheme } from "../lib/theme";
 
 // /sample-trips and /sample-trips/<slug>: public pages that show the trip planner on three sample trips. The
@@ -49,12 +49,16 @@ function Missing() {
 
 const stat = "rounded-lg border border-neutral-800 bg-neutral-900/50 px-3 py-2";
 
-function RouteMap({ route, title }: { route: [number, number][]; title: string }) {
+function RouteMap({ route, title, stops }: { route: [number, number][]; title: string; stops: SampleStop[] }) {
   const p = useMemo(() => routePath(route), [route]);
   if (!p) return null;
   return (
     <svg viewBox="0 0 600 360" role="img" aria-label={`Route of ${title}`} className="w-full rounded-lg border border-neutral-800 bg-neutral-900/50">
       <path d={p.d} fill="none" stroke="#34d399" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      {stops.filter((s) => typeof s.lat === "number" && typeof s.lon === "number").map((s, i) => {
+        const [x, y] = p.at(s.lat as number, s.lon as number);
+        return <circle key={`${s.name}-${i}`} cx={x} cy={y} r="5" fill="#fbbf24" stroke="#0a0a0a" strokeWidth="1.5" />;
+      })}
       <circle cx={p.start[0]} cy={p.start[1]} r="6" fill="#e5e5e5" />
       <circle cx={p.end[0]} cy={p.end[1]} r="6" fill="#34d399" stroke="#e5e5e5" strokeWidth="2" />
     </svg>
@@ -84,7 +88,7 @@ function Day({ d, currency }: { d: SampleDay; currency: string }) {
       )}
       {d.overnight && (
         <p className="rounded-lg border border-neutral-800 px-3 py-2 text-sm text-neutral-300">
-          Overnight at {d.overnight.name}: about {Math.round(d.overnight.parked_hours)} h on Level 2 at {d.overnight.l2_kw} kW adds about {Math.round(d.overnight.added_kwh)} kWh, to{" "}
+          Overnight at {d.overnight.name}: parked about {Math.round(d.overnight.parked_hours)} h on Level 2 at {d.overnight.l2_kw} kW, adding about {Math.round(d.overnight.added_kwh)} kWh, to{" "}
           {Math.round(d.overnight.soc_after)}%.
         </p>
       )}
@@ -108,7 +112,7 @@ function TripBody({ t }: { t: SampleTrip }) {
           <div className={stat}><dt className="text-xs text-neutral-400">Charging</dt><dd className="text-neutral-100">{fmtDuration(tot.charge_min)} · {tot.charge_stops} {tot.charge_stops === 1 ? "stop" : "stops"}</dd></div>
           <div className={stat}><dt className="text-xs text-neutral-400">Fast-charge cost</dt><dd className="text-neutral-100">about {formatMoney(tot.dcfc_cost_est, t.currency)} <span className="text-xs text-neutral-400">(estimate)</span></dd></div>
         </dl>
-        <RouteMap route={t.route} title={t.title} />
+        <RouteMap route={t.route} title={t.title} stops={t.days.flatMap((d) => d.stops)} />
         {t.days.map((d, i) => <Day key={`${d.label}-${i}`} d={d} currency={t.currency} />)}
         <div className="flex flex-wrap gap-3 border-t border-neutral-900 pt-5">
           <a href={t.demo_url} className={btn}>Open in the demo planner</a>
@@ -133,6 +137,7 @@ function Card({ c }: { c: SampleTripCard }) {
       <p className="mt-1 text-sm text-neutral-400">
         {Math.round(c.totals.distance_mi)} mi · {c.totals.charge_stops} {c.totals.charge_stops === 1 ? "charging stop" : "charging stops"}
       </p>
+      {c.blurb && <p className="mt-1 text-sm text-neutral-300">{c.blurb}</p>}
     </li>
   );
 }

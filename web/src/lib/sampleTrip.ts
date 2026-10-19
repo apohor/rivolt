@@ -2,7 +2,7 @@
 // and puts the plan in the page as JSON (<script type="application/json" id="sample-trip">, or id="sample-trips"
 // for the hub), so the page needs no API call. Fixture data only; no coordinates besides the simplified route.
 
-export type SampleStop = { name: string; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_est: number };
+export type SampleStop = { name: string; lat?: number; lon?: number; network: string; arrive_soc: number; depart_soc: number; charge_min: number; max_kw: number; cost_est: number };
 export type SampleOvernight = { name: string; parked_hours: number; l2_kw: number; added_kwh: number; soc_after: number };
 export type SampleDay = {
   label: string;
@@ -28,7 +28,7 @@ export type SampleTrip = {
   days: SampleDay[];
   route: [number, number][];
 };
-export type SampleTripCard = { slug: string; title: string; intro: string; totals: SampleTotals };
+export type SampleTripCard = { slug: string; title: string; intro: string; blurb?: string; totals: SampleTotals };
 
 function readJSON(id: string): unknown {
   try {
@@ -55,7 +55,7 @@ export function readSampleTrips(): SampleTripCard[] | null {
 
 // The route as an SVG path in a width x height box, no tiles: an equirectangular fit with the longitude
 // scaled by cos(latitude) so the shape is not stretched. Null with fewer than two points.
-export function routePath(route: [number, number][], width = 600, height = 360, pad = 16): { d: string; start: [number, number]; end: [number, number] } | null {
+export function routePath(route: [number, number][], width = 600, height = 360, pad = 16): { d: string; start: [number, number]; end: [number, number]; at: (lat: number, lon: number) => [number, number] } | null {
   if (!Array.isArray(route) || route.length < 2) return null;
   const lats = route.map((p) => p[0]);
   const lons = route.map((p) => p[1]);
@@ -69,9 +69,10 @@ export function routePath(route: [number, number][], width = 600, height = 360, 
   const s = Math.min((width - 2 * pad) / w, (height - 2 * pad) / h);
   const ox = (width - w * s) / 2;
   const oy = (height - h * s) / 2;
-  const pts = route.map((_, i): [number, number] => [ox + (xs[i] - minX) * s, height - (oy + (lats[i] - minY) * s)]);
+  const at = (lat: number, lon: number): [number, number] => [ox + (lon * k - minX) * s, height - (oy + (lat - minY) * s)];
+  const pts = route.map((p) => at(p[0], p[1]));
   const f = (n: number) => n.toFixed(1);
-  return { d: pts.map((p, i) => `${i ? "L" : "M"}${f(p[0])} ${f(p[1])}`).join(""), start: pts[0], end: pts[pts.length - 1] };
+  return { d: pts.map((p, i) => `${i ? "L" : "M"}${f(p[0])} ${f(p[1])}`).join(""), start: pts[0], end: pts[pts.length - 1], at };
 }
 
 export const fmtDuration = (min: number): string => {

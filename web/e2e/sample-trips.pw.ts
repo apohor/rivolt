@@ -8,29 +8,10 @@ import AxeBuilder from "@axe-core/playwright";
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-const TRIP = {
-  slug: "la-las-vegas-two-days",
-  title: "LA to Las Vegas and back in a Rivian: a two-day sample plan",
-  intro: "Two days, 530 miles, from Pasadena to Las Vegas and home again.",
-  demo_url: "https://demo.rivolt.dev/trips/plan?preset=vegas",
-  signup_url: "/signup",
-  currency: "USD",
-  totals: { distance_mi: 529.9, drive_min: 480, charge_min: 70, charge_stops: 2, dcfc_cost_est: 48.2 },
-  days: [
-    {
-      label: "Day 1", depart_at: "2026-11-02T08:00:00", arrive_at: "2026-11-02T15:00:00", from: "Pasadena", to: "Las Vegas hotel", distance_mi: 270, drive_min: 240, arrival_soc: 21,
-      stops: [{ name: "Barstow RAN site", network: "Rivian Adventure Network", arrive_soc: 24, depart_soc: 80, charge_min: 35, max_kw: 200, cost_est: 24.1 }],
-      overnight: { name: "Sample hotel", parked_hours: 12, l2_kw: 6, added_kwh: 79, soc_after: 100 },
-    },
-    {
-      label: "Day 2", depart_at: "2026-11-03T08:00:00", arrive_at: "2026-11-03T15:00:00", from: "Las Vegas hotel", to: "Pasadena", distance_mi: 260, drive_min: 240, arrival_soc: 18,
-      stops: [{ name: "Primm", network: "Rivian Adventure Network", arrive_soc: 70, depart_soc: 85, charge_min: 12, max_kw: 150, cost_est: 8 }],
-      overnight: null,
-    },
-  ],
-  route: [[34.15, -118.14], [34.9, -117.0], [35.6, -115.5], [36.17, -115.14]],
-};
-const HUB = { trips: [{ slug: TRIP.slug, title: TRIP.title, intro: TRIP.intro, totals: TRIP.totals }] };
+// The exact JSON the server emits (architect's generated stubs).
+const read = (f: string) => JSON.parse(fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", f), "utf8"));
+const TRIP = read("sample-trip.json");
+const HUB = read("sample-trips-hub.json");
 
 async function open(page: Page, url: string, id: string, data: unknown | null) {
   const apiCalls: string[] = [];
@@ -64,8 +45,8 @@ for (const v of [
     const page = await ctx.newPage();
     const calls = await open(page, `/sample-trips/${TRIP.slug}`, "sample-trip", TRIP);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(TRIP.title);
-    await expect(page.getByText("Barstow RAN site")).toBeVisible();
-    await expect(page.getByText(/Overnight at Sample hotel/)).toBeVisible();
+    await expect(page.getByText(/Barstow, CA/).first()).toBeVisible();
+    await expect(page.getByText(/Overnight at Las Vegas hotel/)).toBeVisible();
     await expect(page.getByRole("img", { name: /Route of/ })).toBeVisible();
     await expect(page.getByRole("link", { name: "Open in the demo planner" })).toHaveAttribute("href", TRIP.demo_url);
     await expect(page.getByRole("link", { name: "Plan your own" })).toHaveAttribute("href", "/signup");
