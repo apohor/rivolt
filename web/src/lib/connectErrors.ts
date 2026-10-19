@@ -20,8 +20,8 @@ export function connectFailure(err: unknown, step: "password" | "code"): Connect
   if (cls === "rate_limited") {
     return {
       cls,
-      title: "Too many tries",
-      body: "Rivian pauses sign-ins after several attempts. Wait about 10 minutes, then try once more; your details are fine as long as they match the Rivian app.",
+      title: "Too many tries right now",
+      body: "Sign-in is paused for a few minutes. Wait about 10 minutes, then try once more; your details are fine as long as they match the Rivian app.",
       track: "rate",
     };
   }
@@ -34,7 +34,7 @@ export function connectFailure(err: unknown, step: "password" | "code"): Connect
     };
   }
   if (step === "code") {
-    return { cls, title: "That code didn't work", body: "Codes expire after a few minutes. Ask Rivian for a new one and enter the newest code you receive.", track: "mfa" };
+    return { cls, title: "That code didn't work", body: "Codes expire after a few minutes. Enter the newest code you received, or start the sign-in again to get a new one.", track: "mfa" };
   }
   if (cls === "user_action") {
     return {

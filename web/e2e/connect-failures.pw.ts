@@ -70,7 +70,7 @@ test("Rivian down or rate limited: not the user's fault, and the upstream text n
   const b = await ctx.newPage();
   await open(b, "disconnected", { status: 429, body: { error: "slow down", class: "rate_limited" } });
   await fill(b);
-  await expect(b.locator("[data-connect-failure='rate_limited']")).toContainText("Too many tries");
+  await expect(b.locator("[data-connect-failure='rate_limited']")).toContainText("Too many tries right now");
   await ctx.close();
 });
 

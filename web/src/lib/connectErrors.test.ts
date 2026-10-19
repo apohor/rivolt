@@ -22,7 +22,7 @@ describe("connectFailure", () => {
   });
   it("rate limiting says to wait and tracks as rate", () => {
     const f = connectFailure(err(429, { error: "x", class: "rate_limited" }), "code");
-    expect(f.title).toBe("Too many tries");
+    expect(f.title).toBe("Too many tries right now");
     expect(f.track).toBe("rate");
   });
   it("a bad one-time code says codes expire, and tracks as mfa", () => {
