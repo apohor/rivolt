@@ -531,6 +531,12 @@ gate (`archive.MonthArchived`, else `ErrNotArchived`): every (user, vehicle)
 with rows in the partition has a verified object that isn't waiting to be
 re-archived or held back after an admin restore. Thinning checks it again under
 its partition lock.
+Deletion: account deletion and "delete your history" remove the user's data key
+in their transaction (every copy of their objects is unreadable from then on),
+queue the prefix in `archive_deletions`, and clear the user's rows from
+thinning's detached `_full` copies; an hourly job deletes the queued objects
+written before the request, so they are gone within 24 hours
+(`rivolt_archive_deletions_overdue` counts any that aren't).
 
 **Option B — TimescaleDB**:
 
