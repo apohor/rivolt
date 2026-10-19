@@ -2023,6 +2023,21 @@ func runServer() {
 				logger.Info("telemetry archive: object verified", "month", r.Month, "vehicle_id", r.VehicleID.String(), "rows", r.Rows, "bytes", r.Bytes)
 			}
 			jobs = append(jobs, retention.Job{Name: "telemetry_archive", Run: arch.Run})
+			// Queued deletions (account deletion, history reset) run hourly, so
+			// objects are gone well within the 24-hour promise.
+			del, err := archive.NewDeleter(pgPool, archiveCfg)
+			if err != nil {
+				logger.Error("telemetry archive deletions", "err", err.Error())
+				os.Exit(1)
+			}
+			del.Report = func(r archive.DeleteReport) {
+				appMetrics.ArchiveObjectsDeletedTotal.Add(float64(r.Objects))
+				appMetrics.ArchiveDeletionsOverdue.Set(float64(r.Overdue))
+				if r.Requests > 0 || r.Failed > 0 || r.Overdue > 0 {
+					logger.Info("telemetry archive deletions", "requests", r.Requests, "objects", r.Objects, "failed", r.Failed, "overdue", r.Overdue)
+				}
+			}
+			go archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run)
 		}
 		// vehicle_state past the retention period: whole monthly partitions are
 		// dropped ("deleted" counts partitions). Drives, charges and their totals

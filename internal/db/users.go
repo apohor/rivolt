@@ -404,8 +404,91 @@ func deleteUserTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM charges_deleted_backup WHERE user_id = $1`, uid); err != nil {
 		return err
 	}
+	// The cascade below removes the user's archive key (crypto-shredding every
+	// archive object) and archive_months; queue the objects themselves for the
+	// deletion job, in the same transaction.
+	if err := queueArchiveDeletionTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	if err := deleteFromThinnedCopiesTx(ctx, tx, uid); err != nil {
+		return err
+	}
 	_, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
 	return err
+}
+
+// deleteFromThinnedCopiesTx removes uid's rows from the full copies sample
+// thinning keeps detached for a week (vehicle_state_yYYYY_MM_full): they are
+// outside vehicle_state, so the users cascade doesn't reach them.
+func deleteFromThinnedCopiesTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = current_schema() AND c.relkind = 'r'
+		   AND c.relname ~ '^vehicle_state_y[0-9]{4}_[0-9]{2}_full$'`)
+	if err != nil {
+		return err
+	}
+	var tables []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			rows.Close()
+			return err
+		}
+		tables = append(tables, t)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, t := range tables {
+		// The name comes from the catalog and matches the pattern above.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM "`+t+`" WHERE user_id = $1`, uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// queueArchiveDeletionTx queues every telemetry archive object of uid for
+// deletion (internal/archive.Deleter). Only a user with an archive key can
+// have objects, so nothing is queued otherwise. The prefix is relative to the
+// archive's environment ("v1/u=<uid>/").
+func queueArchiveDeletionTx(ctx context.Context, tx *sql.Tx, uid uuid.UUID) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO archive_deletions (user_id, prefix)
+		SELECT $1, 'v1/u=' || $1::text || '/'
+		 WHERE EXISTS (SELECT 1 FROM archive_keys WHERE user_id = $1)`, uid)
+	return err
+}
+
+// ResetUserArchive is "delete your history" for the telemetry archive: it
+// queues uid's objects for deletion and removes their archive_months rows and
+// the user's data key, so the objects are unreadable at once and gone after
+// the deletion job's next run. A later archive run creates a new key. It also
+// clears uid's rows from thinning's detached full copies.
+func ResetUserArchive(ctx context.Context, d *sql.DB, uid uuid.UUID) error {
+	if d == nil || uid == uuid.Nil {
+		return nil
+	}
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := queueArchiveDeletionTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM archive_months WHERE user_id = $1`, uid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM archive_keys WHERE user_id = $1`, uid); err != nil {
+		return err
+	}
+	if err := deleteFromThinnedCopiesTx(ctx, tx, uid); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ListUsersWithRivianSession returns every user_id that currently has
