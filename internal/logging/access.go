@@ -3,6 +3,7 @@ package logging
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,7 +32,7 @@ func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Durat
 
 	attrs := []slog.Attr{
 		slog.String("method", r.Method),
-		slog.String("path", r.URL.Path),
+		slog.String("path", loggedPath(r.URL.Path)),
 		slog.Int("status", ww.Status()),
 		slog.Int("bytes", ww.BytesWritten()),
 		slog.Duration("dur", dur),
@@ -44,4 +45,19 @@ func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Durat
 		}
 	}
 	slog.LogAttrs(r.Context(), slog.LevelInfo, "http", attrs...)
+}
+
+// secretPathPrefixes are routes whose last path segment is a credential (a
+// signup magic-link token). The segment is dropped from the access log, which is
+// kept for 90 days and read by more people than the database.
+var secretPathPrefixes = []string{"/api/signup/token/"}
+
+// loggedPath is the path as it is written to the access log.
+func loggedPath(p string) string {
+	for _, prefix := range secretPathPrefixes {
+		if strings.HasPrefix(p, prefix) {
+			return prefix + ":redacted"
+		}
+	}
+	return p
 }

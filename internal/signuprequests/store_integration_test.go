@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func expireToken(ctx context.Context, t *testing.T, dsn, token string) {
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx,
 		`UPDATE signup_requests SET token_expires_at = NOW() - interval '1 minute' WHERE signup_token = $1`,
-		token,
+		signuprequests.HashToken(token),
 	); err != nil {
 		t.Fatalf("backdate: %v", err)
 	}
@@ -263,5 +264,80 @@ func TestReject_PendingOnly(t *testing.T) {
 	// Re-Create after reject is allowed — requester is welcome to retry.
 	if _, err := store.Create(ctx, "reject@example.com", "second try"); err != nil {
 		t.Errorf("post-reject Create: %v", err)
+	}
+}
+
+// The table holds the token's hash, never the token: a dump or a read of the row
+// is no invite. A presented token is hashed for the lookup; the hash itself is
+// not a token; and rows that still hold a plain token are converted by the
+// migration and keep working with the link already emailed.
+func TestTokenIsStoredHashed(t *testing.T) {
+	store, admin, dsn := setupStore(t)
+	ctx := context.Background()
+	created, err := store.Create(ctx, "hashed@example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved, err := store.ApproveWithToken(ctx, created.ID, admin, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := *approved.SignupToken
+	conn, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var stored string
+	if err := conn.QueryRowContext(ctx, `SELECT signup_token FROM signup_requests WHERE id = $1`, created.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored == token || stored != signuprequests.HashToken(token) || len(stored) != 64 {
+		t.Fatalf("stored %q for token %q: want the 64-character hash", stored, token)
+	}
+	// Reading the row back (as the admin list does) gives the hash, not the token.
+	rows, err := store.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.SignupToken != nil && *r.SignupToken == token {
+			t.Errorf("List returned the plain token")
+		}
+	}
+	// The hash is not itself accepted.
+	if _, err := store.LookupToken(ctx, stored); !errors.Is(err, signuprequests.ErrTokenInvalid) {
+		t.Errorf("the stored hash worked as a token: %v", err)
+	}
+	if _, err := store.LookupToken(ctx, " "+token+" "); err != nil {
+		t.Errorf("the real token: %v", err)
+	}
+
+	// A row from before this change holds a plain token; the migration hashes it.
+	old, err := store.Create(ctx, "legacy@example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const legacy = "LEGACYTOKENABCDEFGHIJKLMNO"
+	if _, err := conn.ExecContext(ctx, `UPDATE signup_requests SET status='approved', signup_token=$1, token_expires_at=NOW()+interval '1 day' WHERE id=$2`, legacy, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	mig, err := os.ReadFile("../db/migrations/0071_signup_token_hash.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ { // idempotent
+		if _, err := conn.ExecContext(ctx, string(mig)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.LookupToken(ctx, legacy); err != nil {
+		t.Errorf("an emailed legacy token no longer works after the migration: %v", err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT signup_token FROM signup_requests WHERE id = $1`, old.ID).Scan(&stored); err != nil || stored != signuprequests.HashToken(legacy) {
+		t.Errorf("legacy row holds %q (%v)", stored, err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT signup_token FROM signup_requests WHERE id = $1`, created.ID).Scan(&stored); err != nil || stored != signuprequests.HashToken(token) {
+		t.Errorf("the migration changed a hashed row: %q", stored)
 	}
 }
