@@ -556,7 +556,10 @@ An admin can put one archived vehicle-month back in full detail
 restore`, both audited, a dry run first): the object is read back whole and its
 rows inserted, keeping any already there. A thinned month is then held at full
 detail for a week (`rethin_after`), after which thinning reduces that vehicle
-again, on its own. When thinning finds a month whose rows no longer match an
+again, on its own. That re-thin deletes the vehicle's extra rows in place,
+without the 7-day `…_full` undo copy a month's thinning keeps: it runs only
+after the vehicle's rows matched its verified object exactly, so the object is
+the undo (restore again). When thinning finds a month whose rows no longer match an
 object (a write during the month's first archive), it flags that object for
 re-archiving, so the next archive run heals it.
 
