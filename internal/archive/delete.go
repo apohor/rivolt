@@ -29,6 +29,12 @@ type Deleter struct {
 	db    *sql.DB
 	store *s3.Client
 	env   string
+	// ClockMargin is added to a request's time when picking the objects
+	// written before it: MinIO's clock and Postgres's can differ a little,
+	// and the margin errs toward deleting. Nothing new can be archived for
+	// the user that soon (the reset removed their samples, and the archive
+	// takes months 90 days old). Tests set 0.
+	ClockMargin time.Duration
 	// Report, when set, is told the run's totals.
 	Report func(DeleteReport)
 }
@@ -52,7 +58,8 @@ func NewDeleter(db *sql.DB, cfg Config) (*Deleter, error) {
 	return &Deleter{
 		db:    db,
 		store: &s3.Client{Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey},
-		env:   cfg.Env,
+		env:         cfg.Env,
+		ClockMargin: time.Minute,
 	}, nil
 }
 
@@ -137,10 +144,7 @@ func (d *Deleter) deletePrefix(ctx context.Context, uid uuid.UUID, prefix string
 	if full != UserPrefix(d.env, uid) {
 		return 0, fmt.Errorf("prefix %q is not user %s's", prefix, uid)
 	}
-	// MinIO's clock and Postgres's can differ a little; a minute's margin errs
-	// toward deleting. Nothing new can be archived for the user that soon: the
-	// reset removed their samples, and the archive takes months 90 days old.
-	cutoff := before.Add(time.Minute)
+	cutoff := before.Add(d.ClockMargin)
 	var keys []string
 	if err := d.store.List(ctx, full, func(o s3.Object) error {
 		if o.LastModified.IsZero() || o.LastModified.Before(cutoff) {

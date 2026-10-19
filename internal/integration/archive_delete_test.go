@@ -59,6 +59,9 @@ func TestArchiveDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Both clocks are this host's; the sleeps below put whole seconds between
+	// the old objects, the requests and the new archive.
+	del.ClockMargin = 0
 
 	now := time.Now().UTC()
 	month := func(back int) time.Time {
@@ -122,6 +125,7 @@ func TestArchiveDeletion(t *testing.T) {
 		return n
 	}
 
+	time.Sleep(1100 * time.Millisecond)
 	// Account deletion: key and records go with the user, the objects are queued.
 	if err := db.DeleteUserAccount(ctx, pool, gone.uid); err != nil {
 		t.Fatal(err)
@@ -158,10 +162,8 @@ func TestArchiveDeletion(t *testing.T) {
 		t.Error("another user's full-copy rows were deleted")
 	}
 	// After the reset the user records again and an old month is archived
-	// under a new key (the request is backdated past the clock margin).
-	if _, err := pool.ExecContext(ctx, `UPDATE archive_deletions SET requested_at = requested_at - interval '2 minutes'`); err != nil {
-		t.Fatal(err)
-	}
+	// under a new key, after the request.
+	time.Sleep(1100 * time.Millisecond)
 	if _, err := pool.ExecContext(ctx, `DELETE FROM vehicle_state WHERE user_id = $1`, reset.uid); err != nil {
 		t.Fatal(err)
 	}
