@@ -233,6 +233,45 @@ of:
 
 ---
 
+## Your first day
+
+A new account gets a short card on Now: set your home rate, add a
+lease, turn on alerts. The first recorded charge becomes a card with
+its kWh and cost at your rate, and a one-time card points at three
+things most people haven't switched on: charge-done notifications,
+the lease tracker and the monthly statement email. Setup reminders by
+email stop as soon as Rivolt has data from your truck, and every
+email has a one-click unsubscribe.
+
+<img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: 26 kWh at the home rate, with links to the receipt and Money">
+<img src="docs/screenshots/three-things.png" width="390" alt="The Three things card: charge-done notifications, lease tracker and monthly statement by email">
+
+---
+
+### What's checked on the R2
+
+Rivolt supports the R2. This is exactly what has been confirmed on
+real R2s, so you know what to trust.
+
+- **Checked on real R2s:** drives · charges and plug-in · charge limit
+  · battery, range and odometer · location · cabin and battery
+  temperature · tire pressure · sleep and power state · battery health.
+- **Shown as an estimate:** time to full charge (Rivian's own
+  countdown, labelled "estimate"). Power state can take a minute to
+  appear after Rivolt reconnects.
+- **Not on the R2 yet:** trip charge target · why a charge stopped ·
+  camp and pet modes · Rivian's parked-energy breakdown ·
+  smart-charging status. Each appears once it has been confirmed on an
+  R2.
+
+Rivian doesn't report outside temperature for any truck; Rivolt can
+look it up from weather data if you turn that on (off by default).
+Something looks wrong on your R2?
+[Open an R2 report](https://github.com/apohor/rivolt/issues/new?template=r2-report.yml):
+no VIN or location needed.
+
+---
+
 ## Data ownership
 
 - Your Rivian credentials are AES-GCM sealed and decrypted only
