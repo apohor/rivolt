@@ -1,0 +1,15 @@
+# ct's Python linters for the chart job (.github/workflows/build.yml), pinned
+# with hashes (pip --require-hashes). Wheel and sdist hashes, so a runner
+# Python without a matching PyYAML wheel builds it from the pinned source.
+yamllint==1.33.0 \
+    --hash=sha256:28a19f5d68d28d8fec538a1db21bb2d84c7dc2e2ea36266da8d4d1c5a683814d \
+    --hash=sha256:2dceab9ef2d99518a2fcf4ffc964d44250ac4459be1ba3ca315118e4a1a81f7d
+yamale==6.0.0 \
+    --hash=sha256:828c6cf2023101ec97d2759dfdc507e04ecfc0c6d39d500c00c37ec895ada53b \
+    --hash=sha256:60be681f35e4939320b89de0d6f187ee0e5479ae7f7286b7f17f0859ddee4a66
+pathspec==0.12.1 \
+    --hash=sha256:a0d503e138a4c123b27490a4f7beda6a01c6f288df0e4a8b79c7eb0dc7b4cc08 \
+    --hash=sha256:a482d51503a1ab33b1c67a6c3813a26953dbdc71c31dacaef9a838c4e29f5712
+pyyaml==6.0.2 \
+    --hash=sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476 \
+    --hash=sha256:d584d9ec91ad65861cc08d42e834324ef890a082e591037abe114850ff7bbc3e
