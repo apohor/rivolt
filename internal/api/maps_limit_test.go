@@ -64,6 +64,10 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 		{"POST", "/api/maps/valhalla/trace_route", 200},
 		{"GET", "/api/maps/tiles/us.pmtiles", 200},
 		{"GET", "/api/maps/tiles/chargers.pmtiles", 200},
+		{"HEAD", "/api/maps/tiles/us.pmtiles", 200},
+		{"GET", "/api/maps/tiles/a/us.pmtiles", 404},
+		{"GET", "/api/maps/tiles/", 404},
+		{"GET", "/api/maps/valhalla/status", 404},
 		{"POST", "/api/maps/valhalla/isochrone", 404},
 		{"GET", "/api/maps/valhalla/route", 404},
 		{"POST", "/api/maps/valhalla/sources_to_targets", 404},
@@ -74,7 +78,7 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 			t.Errorf("%s %s = %d, want %d", c.method, c.path, code, c.want)
 		}
 	}
-	want := []string{"POST /route", "POST /trace_route", "GET /us.pmtiles", "GET /chargers.pmtiles"}
+	want := []string{"POST /route", "POST /trace_route", "GET /us.pmtiles", "GET /chargers.pmtiles", "HEAD /us.pmtiles"}
 	if len(got) != len(want) {
 		t.Fatalf("upstream saw %v, want %v", got, want)
 	}
@@ -82,5 +86,32 @@ func TestMapMountsServeThePublicPaths(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("upstream saw %q, want %q", got[i], want[i])
 		}
+	}
+}
+
+// Past the per-user ceiling the mounted route answers 429, per user.
+func TestMapMountsLimitPerUser(t *testing.T) {
+	t.Parallel()
+	up := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	r := chi.NewRouter()
+	r.Mount("/api/maps/valhalla", valhallaMount(up))
+	call := func(uid uuid.UUID) int {
+		req := httptest.NewRequest("POST", "/api/maps/valhalla/route", nil)
+		req = req.WithContext(auth.WithUser(req.Context(), uid))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	a := uuid.New()
+	for i := 0; i < mapsValhallaPerMin; i++ {
+		if c := call(a); c != 200 {
+			t.Fatalf("request %d = %d", i+1, c)
+		}
+	}
+	if c := call(a); c != 429 {
+		t.Fatalf("request %d = %d, want 429", mapsValhallaPerMin+1, c)
+	}
+	if c := call(uuid.New()); c != 200 {
+		t.Fatalf("another user = %d, want 200", c)
 	}
 }
