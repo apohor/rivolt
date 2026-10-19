@@ -19,6 +19,7 @@ import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import { AvoidToggles } from "../plan/AvoidToggles";
 import { StopAdder } from "../plan/tripTypes";
 import { multiDayFirst, shortPlace, tripSubtitle, tripTag } from "../plan/tripSubtitle";
+import { isAIOff, useAIConsent } from "../lib/aiConsent";
 import { SaveTripBar } from "../plan/SaveTripBar";
 import { MultidayResult } from "../plan/MultidayResult";
 import { ReplanFromHere } from "../plan/ReplanFromHere";
@@ -35,6 +36,7 @@ export default function TripPlanPage() {
   const moneyShell = useMoneyTabEnabled();
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab(moneyShell);
+  const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
   // (a multi-day trip under a tall form); a map or a result beside the form is already in sight. Smooth unless
@@ -491,6 +493,8 @@ export default function TripPlanPage() {
               adviceLoading={adviceMutation.isPending}
               onAnalyze={() => fireAdvice(displayPlan)}
               aiEnabled={aiEnabled}
+              aiOff={aiConsent.consent === false || isAIOff(adviceMutation.error)}
+              adviceError={adviceMutation.error && !isAIOff(adviceMutation.error) ? (adviceMutation.error as Error).message : null}
               onPreviewStop={async (stop) => {
                 if (!origin || !destination) return null;
                 const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
