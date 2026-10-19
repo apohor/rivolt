@@ -126,3 +126,29 @@ test("a failed summary says so", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.getByText("Couldn't load the health summary")).toBeVisible();
 });
+
+test("home: the signup funnel by week is counts only, with old weeks' return as a dash", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 900 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  const s = healthy() as Record<string, unknown>;
+  const monday = (daysAgo: number) => new Date(e2eNow() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+  s.engagement = {
+    ...ok, active_7d: 5, active_28d: 9, connected_no_data: 1, first_data_7d: 2, first_data_28d: 5, median_seconds_to_first_data: 3600, emails_sent: {},
+    funnel_weeks: [
+      { week: monday(63), signups: 12, connected: 7, first_data: 5, day2_eligible: 12, returned_day2: 1 },
+      { week: monday(14), signups: 10, connected: 6, first_data: 4, day2_eligible: 10, returned_day2: 4 },
+      { week: monday(3), signups: 3, connected: 1, first_data: 1, day2_eligible: 0, returned_day2: 0 },
+    ],
+  };
+  await open(page, s);
+  const f = page.locator("[data-funnel]");
+  await expect(f).toBeVisible();
+  const rows = f.locator("tbody tr");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0).locator("td").nth(3)).toHaveText("—");
+  await expect(rows.nth(1).locator("td").nth(3)).toHaveText("4 of 10 · 40%");
+  await expect(rows.nth(2).locator("td").nth(3)).toHaveText("—");
+  await expect(rows.nth(1).locator("td").nth(1)).toHaveText("6 · 60%");
+  await clean(page, "admin-funnel-390");
+  await ctx.close();
+});

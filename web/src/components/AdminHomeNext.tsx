@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { agoFrom } from "../lib/adminFormat";
-import { checks, formatAge, verdict, type Check, type HealthSummary, type Tone } from "../lib/adminHealth";
+import { checks, formatAge, funnelReturned, pctOf, verdict, type Check, type FunnelWeek, type HealthSummary, type Tone } from "../lib/adminHealth";
 import { Card, ErrorBox, Spinner } from "./ui";
 
 // Admin Home (new look): "Is everything OK?". One verdict up top, then the checks it is made of,
@@ -176,6 +176,49 @@ const EMAIL_LABELS: [string, string][] = [
   ["statement", "Statement (28 d)"],
 ];
 
+// Signup funnel by week: how many of each week's signups got to each step. Counts only. "Returned after day 1" is out of
+// the signups at least a day old, and is "—" for weeks too old to count (sessions are purged about 30 days after expiry).
+function FunnelWeeks({ weeks }: { weeks: FunnelWeek[] }) {
+  const now = Date.now();
+  const th = "px-1.5 py-1 text-left font-normal text-neutral-400";
+  const td = "px-1.5 py-1 tabular-nums text-neutral-200";
+  return (
+    <div data-funnel className="min-w-0">
+      <h3 className="text-xs font-medium text-neutral-300">Signups by week</h3>
+      <div className="mt-1 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr>
+              <th scope="col" className={th}>Week of</th>
+              <th scope="col" className={th}>Signed up</th>
+              <th scope="col" className={th}>Connected</th>
+              <th scope="col" className={th}>First data</th>
+              <th scope="col" className={th}>Back, day 1+</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeks.map((w) => {
+              const r = funnelReturned(w, now);
+              return (
+                <tr key={w.week} className="border-t border-neutral-800">
+                  <th scope="row" className="px-2 py-1 text-left font-normal text-neutral-300">{w.week}</th>
+                  <td className={td}>{w.signups}</td>
+                  <td className={td}>{w.connected} · {pctOf(w.connected, w.signups)}</td>
+                  <td className={td}>{w.first_data} · {pctOf(w.first_data, w.signups)}</td>
+                  <td className={td} title={r.tracked ? undefined : "Not tracked this far back"}>{r.text}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-xs text-neutral-500">
+        Connected and first data are out of signups. Back, day 1+ is out of the signups at least a day old, and is “—” for weeks older than 4 weeks (not tracked that far back).
+      </p>
+    </div>
+  );
+}
+
 function EngagementCard({ s }: { s: HealthSummary }) {
   const e = s.engagement;
   if (!e) return null;
@@ -194,6 +237,7 @@ function EngagementCard({ s }: { s: HealthSummary }) {
               <div key={k} className="flex justify-between gap-2"><dt>{label}</dt><dd className="tabular-nums text-neutral-200">{e.emails_sent?.[k] ?? 0}</dd></div>
             ))}
           </dl>
+          {e.funnel_weeks && e.funnel_weeks.length > 0 && <FunnelWeeks weeks={e.funnel_weeks} />}
           <p className="text-xs text-neutral-500">Seen means a signed-in session was used, not that the truck sent data. Numbers only, no accounts listed.</p>
         </div>
       )}
