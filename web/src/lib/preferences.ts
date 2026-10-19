@@ -15,6 +15,9 @@ export type TimeZonePref = "auto" | string;
 
 type Preferences = {
   temperatureUnit: TemperatureUnit;
+  // False until the user picks a temperature unit: then it follows the distance unit (miles gives °F, km gives °C).
+  // Preferences saved before this existed count as picked, so nobody's choice changes under them.
+  temperatureUnitSet: boolean;
   distanceUnit: DistanceUnit;
   timeZone: TimeZonePref;
   // Round-trip collapsing: merge consecutive A→B and B→A drive rows
@@ -27,8 +30,12 @@ type Preferences = {
 
 const STORAGE_KEY = "rivolt.preferences.v1";
 
+// The temperature unit a user who has not picked one gets.
+export const defaultTemperatureUnit = (d: DistanceUnit): TemperatureUnit => (d === "km" ? "c" : "f");
+
 const DEFAULT_PREFERENCES: Preferences = {
-  temperatureUnit: "c",
+  temperatureUnit: "f",
+  temperatureUnitSet: false,
   distanceUnit: "mi",
   timeZone: "auto",
   roundTripsEnabled: true,
@@ -42,14 +49,15 @@ function readPreferences(): Preferences {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFERENCES;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
+    const distanceUnit: DistanceUnit = parsed.distanceUnit === "km" ? "km" : "mi";
+    const stored = parsed.temperatureUnit === "f" || parsed.temperatureUnit === "c" ? parsed.temperatureUnit : null;
+    const set = parsed.temperatureUnitSet === true || (parsed.temperatureUnitSet === undefined && stored !== null);
     return {
       ...DEFAULT_PREFERENCES,
       ...parsed,
-      temperatureUnit:
-        parsed.temperatureUnit === "f" || parsed.temperatureUnit === "c"
-          ? parsed.temperatureUnit
-          : DEFAULT_PREFERENCES.temperatureUnit,
-      distanceUnit: parsed.distanceUnit === "km" ? "km" : "mi",
+      temperatureUnitSet: set,
+      temperatureUnit: set && stored ? stored : defaultTemperatureUnit(distanceUnit),
+      distanceUnit,
       timeZone:
         typeof parsed.timeZone === "string" && parsed.timeZone.length > 0
           ? parsed.timeZone
@@ -103,8 +111,8 @@ if (typeof window !== "undefined") {
 }
 
 export function setTemperatureUnit(unit: TemperatureUnit): void {
-  if (current.temperatureUnit === unit) return;
-  current = { ...current, temperatureUnit: unit };
+  if (current.temperatureUnit === unit && current.temperatureUnitSet) return;
+  current = { ...current, temperatureUnit: unit, temperatureUnitSet: true };
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
@@ -116,7 +124,7 @@ export function setTemperatureUnit(unit: TemperatureUnit): void {
 
 export function setDistanceUnit(unit: DistanceUnit): void {
   if (current.distanceUnit === unit) return;
-  current = { ...current, distanceUnit: unit };
+  current = { ...current, distanceUnit: unit, temperatureUnit: current.temperatureUnitSet ? current.temperatureUnit : defaultTemperatureUnit(unit) };
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
   } catch {
