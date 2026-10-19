@@ -25,19 +25,25 @@ export function TripAdviceCard({
   return (
     <Card title="Trip analysis">
       {!loading && !advice && (
-        <button
-          type="button"
-          onClick={onAnalyze}
-          disabled={!onAnalyze}
-          className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Analyze plan
-        </button>
+        <div className="space-y-2">
+          <p className="text-xs text-neutral-400" data-ai-disclosure>
+            Nothing is sent until you tap. AI advice sends charger names, your locations rounded to about 11 km, your tire pressures, your home
+            electricity rate and the weather along the route to an AI provider. It never sends the text you type.
+          </p>
+          <button
+            type="button"
+            onClick={onAnalyze}
+            disabled={!onAnalyze}
+            className="rounded-md bg-neutral-800 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Get AI advice
+          </button>
+        </div>
       )}
       {loading && !advice && (
         <div className="flex items-center gap-2 text-sm text-neutral-400">
           <Spinner />
-          <span>Analyzing plan…</span>
+          <span>Getting AI advice…</span>
         </div>
       )}
       {advice && (
