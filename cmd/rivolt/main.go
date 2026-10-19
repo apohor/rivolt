@@ -1948,6 +1948,13 @@ func runServer() {
 	// Daily retention sweeps: expired sessions (IP and User-Agent) 30 days
 	// after expiry, and waitlist requests (never approved: 90 days;
 	// approved: until the account exists).
+	// Raw telemetry: RIVOLT_SAMPLE_RETENTION_MONTHS (0 or unset keeps it
+	// forever); a bad value stops startup rather than guessing.
+	sampleRetentionMonths, err := samples.ParseRetentionMonths(os.Getenv("RIVOLT_SAMPLE_RETENTION_MONTHS"))
+	if err != nil {
+		logger.Error("sample retention", "err", err.Error())
+		os.Exit(1)
+	}
 	if pgPool != nil && !adminOnlyMode {
 		jobs := []retention.Job{
 			{Name: "admin_audit", Run: adminaudit.New(pgPool).Purge},
@@ -1974,6 +1981,13 @@ func runServer() {
 		}})
 		if signupRequestStore != nil {
 			jobs = append(jobs, retention.Job{Name: "signup_requests", Run: signupRequestStore.PurgeStale})
+		}
+		// vehicle_state past the retention period: whole monthly partitions are
+		// dropped ("deleted" counts partitions). Drives, charges and their totals
+		// are other tables and stay.
+		if sweep := samples.NewRetention(pgPool, sampleRetentionMonths); sweep != nil {
+			logger.Info("sample retention on", "months", sampleRetentionMonths)
+			jobs = append(jobs, retention.Job{Name: "vehicle_state_partitions", Run: sweep.Run})
 		}
 		go retention.Run(ctx, logger, jobs)
 	}
