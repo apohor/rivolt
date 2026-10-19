@@ -501,10 +501,13 @@ partition before month-end. Dropping old data:
 is refused at startup), a daily sweep drops every partition wholly older than
 N months: `DETACH PARTITION … CONCURRENTLY` (the recorder keeps writing), then
 `DROP TABLE`, one replica at a time (advisory lock), `lock_timeout 5s`, and an
-interrupted detach is finished on the next run. Samples live at least N months
+interrupted detach is finished on the next run; each dropped partition is
+logged and counted (`rivolt_sample_partitions_dropped_total`). Samples live at least N months
 and less than N+1. Drives, charges and everything derived from them are
 separate tables and stay; what goes is the per-sample detail behind old drive
-and charge charts (a drive's map is its stored `route_polyline`).
+and charge pages (charts, and the drive page's map, which is drawn from samples
+today; `drives.route_polyline` is the fallback for an old drive's map). A
+restore skips samples older than the cutoff and reports how many.
 
 **Option B — TimescaleDB**:
 

@@ -2382,6 +2382,9 @@ function DangerZonePanel() {
             {restore.data.skipped
               ? ` ${restore.data.skipped} rows with dates outside 2021 to today were skipped.`
               : ""}
+            {restore.data.samples_past_retention
+              ? ` ${restore.data.samples_past_retention} detailed samples were older than this server keeps and were left out; their drives and charges were restored.`
+              : ""}
           </p>
         )}
         {restore.isError && (

@@ -32,6 +32,9 @@ type Retention struct {
 	db     *sql.DB
 	months int
 	now    func() time.Time
+	// Dropped, when set, is told each partition dropped with its row count
+	// estimate (pg_class.reltuples): the caller logs and counts it.
+	Dropped func(name string, estRows int64)
 }
 
 // ParseRetentionMonths reads RIVOLT_SAMPLE_RETENTION_MONTHS: "" or "0" keeps
@@ -73,7 +76,8 @@ type partition struct {
 	name     string
 	month    time.Time
 	attached bool
-	pending  bool // DETACH ... CONCURRENTLY started but not finished
+	pending  bool  // DETACH ... CONCURRENTLY started but not finished
+	estRows  int64 // pg_class.reltuples (-1 before the first ANALYZE)
 }
 
 // Run drops every partition before the cutoff, oldest first, and reports how
@@ -97,6 +101,16 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, retentionLockID) //nolint:errcheck
 
+	// DETACH ... CONCURRENTLY refuses to run while the table has a DEFAULT
+	// partition; the schema has none, so finding one means someone added it.
+	var hasDefault bool
+	if err := conn.QueryRowContext(ctx,
+		`SELECT partdefid <> 0 FROM pg_partitioned_table WHERE partrelid = 'vehicle_state'::regclass`).Scan(&hasDefault); err != nil {
+		return 0, err
+	}
+	if hasDefault {
+		return 0, fmt.Errorf("vehicle_state has a DEFAULT partition: retention needs DETACH ... CONCURRENTLY, which it forbids")
+	}
 	parts, err := listPartitions(ctx, conn)
 	if err != nil {
 		return 0, err
@@ -130,10 +144,14 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 				return dropped, fmt.Errorf("detach %s: %w", p.name, err)
 			}
 		}
+		// Only after a successful detach (an error above returns first).
 		if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS `+q); err != nil {
 			return dropped, fmt.Errorf("drop %s: %w", p.name, err)
 		}
 		dropped++
+		if r.Dropped != nil {
+			r.Dropped(p.name, p.estRows)
+		}
 	}
 	return dropped, nil
 }
@@ -142,7 +160,7 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 // detached by an interrupted sweep, oldest first.
 func listPartitions(ctx context.Context, conn *sql.Conn) ([]partition, error) {
 	rows, err := conn.QueryContext(ctx, `
-		SELECT c.relname, i.inhrelid IS NOT NULL, COALESCE(i.inhdetachpending, false)
+		SELECT c.relname, i.inhrelid IS NOT NULL, COALESCE(i.inhdetachpending, false), c.reltuples::bigint
 		  FROM pg_class c
 		  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = current_schema()
 		  LEFT JOIN pg_inherits i ON i.inhrelid = c.oid AND i.inhparent = 'vehicle_state'::regclass
@@ -155,7 +173,7 @@ func listPartitions(ctx context.Context, conn *sql.Conn) ([]partition, error) {
 	var out []partition
 	for rows.Next() {
 		var p partition
-		if err := rows.Scan(&p.name, &p.attached, &p.pending); err != nil {
+		if err := rows.Scan(&p.name, &p.attached, &p.pending, &p.estRows); err != nil {
 			return nil, err
 		}
 		m := partitionName.FindStringSubmatch(p.name)

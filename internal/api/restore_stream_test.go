@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/samples"
 )
 
 func gz(t *testing.T, s string) []byte {
@@ -177,5 +179,28 @@ func TestRestoreReadErrKeepsNetworkErrorsOutOfTheMessage(t *testing.T) {
 	}
 	if got := restoreReadErr(ctx, errRestoreTooBig); !errors.Is(got, errRestoreTooBig) {
 		t.Errorf("size error lost its identity: %v", got)
+	}
+}
+
+// With sample retention on, a restore leaves out samples older than the
+// cutoff (counted on their own, not as "outside 2021..now"); without it,
+// every sample in range goes in.
+func TestRestoreGateSampleRetention(t *testing.T) {
+	now := time.Date(2027, 11, 5, 12, 0, 0, 0, time.UTC)
+	old := time.Date(2026, 10, 31, 23, 0, 0, 0, time.UTC)  // before the 12-month cutoff (2026-11-01)
+	recent := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) // the cutoff itself is kept
+	off := newRestoreGate(now)
+	if !off.sampleOK(old) || !off.sampleOK(recent) || off.pastRetention.Load() != 0 {
+		t.Fatal("retention off: in-range samples refused")
+	}
+	g := newRestoreGate(now)
+	g.sampleFrom = samples.RetentionCutoff(now, 12)
+	oldOK, recentOK := g.sampleOK(old), g.sampleOK(recent)
+	pre2021 := g.sampleOK(time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC))
+	if oldOK || !recentOK || pre2021 {
+		t.Errorf("retention 12: old %v, recent %v, pre-2021 %v; want false, true, false", oldOK, recentOK, pre2021)
+	}
+	if g.pastRetention.Load() != 1 || g.skipped.Load() != 1 {
+		t.Errorf("pastRetention %d, skipped %d; want 1 and 1", g.pastRetention.Load(), g.skipped.Load())
 	}
 }

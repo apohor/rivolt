@@ -1987,6 +1987,10 @@ func runServer() {
 		// are other tables and stay.
 		if sweep := samples.NewRetention(pgPool, sampleRetentionMonths); sweep != nil {
 			logger.Info("sample retention on", "months", sampleRetentionMonths)
+			sweep.Dropped = func(name string, estRows int64) {
+				logger.Info("sample retention: dropped partition", "partition", name, "rows_est", estRows)
+				appMetrics.SamplePartitionsDropped.Inc()
+			}
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_partitions", Run: sweep.Run})
 		}
 		go retention.Run(ctx, logger, jobs)
@@ -2035,6 +2039,7 @@ func runServer() {
 		onboardSigner.Store(statementSigner)
 	}
 	handler := api.New(api.Deps{
+		SampleRetentionMonths: sampleRetentionMonths,
 		StatementSigner:       statementSigner,
 		WeeklySigner:          weeklySigner,
 		Rivian:                rivianClient,
