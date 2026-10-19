@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
+import MilestoneCard from "../components/MilestoneCard";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 import ElectraFiImportHint from "../components/ElectraFiImportHint";
 import { backend, type Charge, type ChargeCluster } from "../lib/api";
@@ -301,6 +302,7 @@ export default function HomePage() {
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
       {historyEmpty && next && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
+      {next && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
       {historyEmpty && <ElectraFiImportHint />}
       {/* Hero owns the page header AND the window picker: folding the
           picker into the hero removes the orphan 'Summary · 30 days'
